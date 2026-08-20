@@ -34,6 +34,13 @@ function getPool() {
       connectionTimeoutMillis: Number(process.env.PGPOOL_CONNECTION_TIMEOUT_MS || 5000),
       maxUses: Number(process.env.PGPOOL_MAX_USES || 7500),
     });
+    pool.on("error", (error) => {
+      // PostgreSQL can terminate an idle connection during a planned restart.
+      // Keep that asynchronous pool event from taking down the HTTP server.
+      const code = String(error?.code || "").trim();
+      const message = String(error?.message || error || "database connection error").trim();
+      console.error(`[db-pool-error]${code ? ` ${code}` : ""} ${message}`);
+    });
   }
   return pool;
 }
@@ -218,6 +225,71 @@ async function ensureSchemaInner() {
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_user_subscriptions_tenant_user_uidx
       ON app_user_subscriptions (tenant_id, user_id);
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_membership_activation_codes (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      code_hash TEXT NOT NULL,
+      code_prefix TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      expires_at TIMESTAMPTZ,
+      max_redemptions INT NOT NULL DEFAULT 1,
+      redemption_count INT NOT NULL DEFAULT 0,
+      notes TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_codes_hash_uidx
+      ON app_membership_activation_codes (tenant_id, code_hash);
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_codes_created_idx ON app_membership_activation_codes (tenant_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_membership_activation_redemptions (
+      id TEXT PRIMARY KEY,
+      code_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      user_id TEXT NOT NULL,
+      redeemed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_redemptions_code_user_uidx
+      ON app_membership_activation_redemptions (code_id, user_id);
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_redemptions_user_idx ON app_membership_activation_redemptions (tenant_id, user_id, redeemed_at DESC);`);
+  await query(`
+    INSERT INTO app_billing_plans (
+      id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
+    ) VALUES (
+      'plan-main-creator',
+      'main',
+      'Creator Membership',
+      'active',
+      'USD',
+      99,
+      'lifetime',
+      1,
+      0,
+      jsonb_build_object(
+        'membershipProgram', true,
+        'benefits', jsonb_build_array('explore', 'referrals', 'topup-bonus')
+      )
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      status = EXCLUDED.status,
+      currency = EXCLUDED.currency,
+      amount = EXCLUDED.amount,
+      interval_unit = EXCLUDED.interval_unit,
+      interval_count = EXCLUDED.interval_count,
+      included_credits = EXCLUDED.included_credits,
+      payload = app_billing_plans.payload || EXCLUDED.payload,
+      updated_at = NOW();
   `);
   await query(`
     INSERT INTO app_billing_plans (
@@ -632,6 +704,23 @@ function userSubscriptionFromRow(row = {}) {
   };
 }
 
+function membershipActivationCodeFromRow(row = {}) {
+  const expiresAt = row.expires_at || "";
+  return {
+    id: String(row.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || DEFAULT_TENANT_ID),
+    codePrefix: String(row.code_prefix || ""),
+    status: String(row.status || "active"),
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "",
+    maxRedemptions: Math.max(1, Math.trunc(Number(row.max_redemptions || 1) || 1)),
+    redemptionCount: Math.max(0, Math.trunc(Number(row.redemption_count || 0) || 0)),
+    notes: String(row.notes || ""),
+    createdByUserId: String(row.created_by_user_id || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
 function ledgerFromRow(row = {}) {
   const payload = rowPayload(row);
   return {
@@ -990,6 +1079,27 @@ async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
+async function getUserByTelegramIdInDb(telegramUserId = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanTelegramUserId = String(telegramUserId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanTelegramUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_users
+      WHERE tenant_id = $1
+        AND deleted_at IS NULL
+        AND payload->>'telegramUserId' = $2
+      ORDER BY created_at ASC
+      LIMIT 1
+    `,
+    [cleanTenantId, cleanTelegramUserId],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
 async function getKvUpdatedAt(key) {
   if (!dbEnabled()) return "";
   await ensureSchema();
@@ -1151,6 +1261,203 @@ async function upsertUserSubscriptionInDb(subscription = {}) {
   return rows[0] ? userSubscriptionFromRow(rows[0]) : null;
 }
 
+async function createMembershipActivationCodesInDb(codes = []) {
+  if (!dbEnabled()) return [];
+  const records = Array.isArray(codes) ? codes.filter((item) => item?.id && item?.codeHash) : [];
+  if (!records.length) return [];
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const created = [];
+    for (const record of records) {
+      const tenantId = normalizeTenantId(record.tenantId || DEFAULT_TENANT_ID);
+      const now = record.createdAt || new Date().toISOString();
+      const { rows } = await client.query(
+        `
+          INSERT INTO app_membership_activation_codes (
+            id, tenant_id, code_hash, code_prefix, status, expires_at, max_redemptions,
+            redemption_count, notes, created_by_user_id, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, 'active', $5::timestamptz, $6, 0, $7, $8, $9::timestamptz, $9::timestamptz)
+          RETURNING *
+        `,
+        [
+          String(record.id),
+          tenantId,
+          String(record.codeHash),
+          String(record.codePrefix || ""),
+          record.expiresAt || null,
+          Math.max(1, Math.min(10000, Math.trunc(Number(record.maxRedemptions || 1) || 1))),
+          String(record.notes || "").slice(0, 500),
+          String(record.createdByUserId || ""),
+          now,
+        ],
+      );
+      if (rows[0]) created.push(membershipActivationCodeFromRow(rows[0]));
+    }
+    await client.query("COMMIT");
+    return created;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listMembershipActivationCodesInDb(tenantId = DEFAULT_TENANT_ID, { limit = 100, offset = 0, status = "", search = "" } = {}) {
+  if (!dbEnabled()) return { items: [], total: 0 };
+  await ensureSchema();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(Number(limit || 100) || 100)));
+  const safeOffset = Math.max(0, Math.trunc(Number(offset || 0) || 0));
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const cleanSearch = String(search || "").trim().toLowerCase();
+  const { rows } = await query(
+    `
+      SELECT *, COUNT(*) OVER()::int AS total_count
+      FROM app_membership_activation_codes
+      WHERE tenant_id = $1
+        AND ($2 = '' OR status = $2)
+        AND ($3 = '' OR LOWER(CONCAT_WS(' ', code_prefix, notes, id)) LIKE '%' || $3 || '%')
+      ORDER BY created_at DESC
+      LIMIT $4 OFFSET $5
+    `,
+    [cleanTenantId, cleanStatus, cleanSearch, safeLimit, safeOffset],
+  );
+  return {
+    items: rows.map(membershipActivationCodeFromRow),
+    total: Number(rows[0]?.total_count || 0),
+  };
+}
+
+async function hasReferralRewardInDb(referrerUserId = "", referredUserId = "") {
+  if (!dbEnabled()) return false;
+  const cleanReferrerUserId = String(referrerUserId || "").trim();
+  const cleanReferredUserId = String(referredUserId || "").trim();
+  if (!cleanReferrerUserId || !cleanReferredUserId) return false;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT 1
+      FROM app_credit_ledger
+      WHERE type = 'referral_reward'
+        AND user_id = $1
+        AND meta->>'referredUserId' = $2
+      LIMIT 1
+    `,
+    [cleanReferrerUserId, cleanReferredUserId],
+  );
+  return Boolean(rows[0]);
+}
+
+async function setMembershipActivationCodeStatusInDb(codeId = "", tenantId = DEFAULT_TENANT_ID, status = "disabled") {
+  if (!dbEnabled()) return null;
+  const cleanId = String(codeId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanStatus = String(status || "disabled").trim().toLowerCase();
+  if (!cleanId || !["active", "disabled"].includes(cleanStatus)) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_membership_activation_codes
+      SET status = $3, updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $2
+      RETURNING *
+    `,
+    [cleanId, cleanTenantId, cleanStatus],
+  );
+  return rows[0] ? membershipActivationCodeFromRow(rows[0]) : null;
+}
+
+async function redeemMembershipActivationCodeInDb({ tenantId = DEFAULT_TENANT_ID, codeHash = "", userId = "", redemptionId = "" } = {}) {
+  if (!dbEnabled()) {
+    const error = new Error("Activation codes require database storage.");
+    error.code = "DATABASE_REQUIRED";
+    throw error;
+  }
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanCodeHash = String(codeHash || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanRedemptionId = String(redemptionId || "").trim();
+  if (!cleanCodeHash || !cleanUserId || !cleanRedemptionId) {
+    const error = new Error("Activation code and user are required.");
+    error.code = "INVALID_ACTIVATION_CODE";
+    throw error;
+  }
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const codeResult = await client.query(
+      `SELECT * FROM app_membership_activation_codes WHERE tenant_id = $1 AND code_hash = $2 FOR UPDATE`,
+      [cleanTenantId, cleanCodeHash],
+    );
+    const row = codeResult.rows[0];
+    if (!row) {
+      const error = new Error("Activation code is invalid.");
+      error.code = "ACTIVATION_CODE_INVALID";
+      error.statusCode = 404;
+      throw error;
+    }
+    const existing = await client.query(
+      `SELECT id, redeemed_at FROM app_membership_activation_redemptions WHERE code_id = $1 AND user_id = $2 LIMIT 1`,
+      [row.id, cleanUserId],
+    );
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return { code: membershipActivationCodeFromRow(row), alreadyRedeemed: true };
+    }
+    if (String(row.status || "active") !== "active") {
+      const error = new Error("Activation code is no longer active.");
+      error.code = "ACTIVATION_CODE_INACTIVE";
+      error.statusCode = 409;
+      throw error;
+    }
+    if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
+      const error = new Error("Activation code has expired.");
+      error.code = "ACTIVATION_CODE_EXPIRED";
+      error.statusCode = 409;
+      throw error;
+    }
+    const maxRedemptions = Math.max(1, Number(row.max_redemptions || 1));
+    const redemptionCount = Math.max(0, Number(row.redemption_count || 0));
+    if (redemptionCount >= maxRedemptions) {
+      const error = new Error("Activation code has already been fully redeemed.");
+      error.code = "ACTIVATION_CODE_EXHAUSTED";
+      error.statusCode = 409;
+      throw error;
+    }
+    const now = new Date().toISOString();
+    await client.query(
+      `
+        INSERT INTO app_membership_activation_redemptions (id, code_id, tenant_id, user_id, redeemed_at, payload)
+        VALUES ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)
+      `,
+      [cleanRedemptionId, row.id, cleanTenantId, cleanUserId, now, JSON.stringify({ codeId: row.id, userId: cleanUserId, redeemedAt: now })],
+    );
+    const nextCount = redemptionCount + 1;
+    const updated = await client.query(
+      `
+        UPDATE app_membership_activation_codes
+        SET redemption_count = $2,
+            status = CASE WHEN $2 >= max_redemptions THEN 'exhausted' ELSE status END,
+            updated_at = $3::timestamptz
+        WHERE id = $1
+        RETURNING *
+      `,
+      [row.id, nextCount, now],
+    );
+    await client.query("COMMIT");
+    return { code: membershipActivationCodeFromRow(updated.rows[0]), alreadyRedeemed: false };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function updateWalletOrderInDb(order = {}) {
   if (!dbEnabled()) return null;
   const id = String(order.id || "").trim();
@@ -1257,6 +1564,15 @@ async function upsertUserAssetInDb(asset = {}) {
     ],
   );
   return asset;
+}
+
+async function getUserAssetFromDb(assetId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(assetId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_user_assets WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
 async function upsertUserCharacterInDb(character = {}) {
@@ -2579,6 +2895,7 @@ module.exports = {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  getUserByTelegramIdInDb,
   getUserByIdInDb,
   createSessionInDb,
   getSessionByTokenInDb,
@@ -2588,9 +2905,15 @@ module.exports = {
   getBillingPlanInDb,
   getUserSubscriptionInDb,
   upsertUserSubscriptionInDb,
+  createMembershipActivationCodesInDb,
+  listMembershipActivationCodesInDb,
+  hasReferralRewardInDb,
+  setMembershipActivationCodeStatusInDb,
+  redeemMembershipActivationCodeInDb,
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,
+  getUserAssetFromDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,

@@ -3,6 +3,7 @@
     "platform.config.js",
     "platform.copy.js",
     "platform.ui.js",
+    "platform.telegram.js",
     "platform.workflow-canvases.js",
     "platform.explore.js",
     "platform.create.js",

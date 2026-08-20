@@ -3,8 +3,8 @@
 const UNDRESS_TOOL_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const UNDRESS_TOOL_EXAMPLE_MEDIA = Object.freeze({
   image: Object.freeze({
-    input: "/api/undress-tool/examples/image/input",
-    result: "/api/undress-tool/examples/image/result",
+    input: "/api/undress-tool/examples/image/input?v=image-20260819115156-587c60-webp1",
+    result: "/api/undress-tool/examples/image/result?v=image-20260819115156-587c60-webp1",
     inputType: "image",
     resultType: "image",
   }),
@@ -167,10 +167,10 @@ function undressToolExampleHtml() {
   if (!example) return "";
   const inputMedia = example.inputType === "video"
     ? undressToolExampleVideoHtml(example.input)
-    : `<img src="${undressToolEscape(example.input)}" alt="" loading="eager" />`;
+    : `<img src="${undressToolEscape(example.input)}" alt="" loading="lazy" decoding="async" fetchpriority="low" />`;
   const resultMedia = example.resultType === "video"
     ? undressToolExampleVideoHtml(example.result)
-    : `<img src="${undressToolEscape(example.result)}" alt="" loading="eager" />`;
+    : `<img src="${undressToolEscape(example.result)}" alt="" loading="lazy" decoding="async" fetchpriority="low" />`;
   return `
     <div class="undress-tool-example-flow" aria-label="Example result">
       <div class="undress-tool-example-media">${inputMedia}</div>

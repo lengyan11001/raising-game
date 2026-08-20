@@ -18,6 +18,10 @@ body.tenant-tool-video .aurora {
   display: none;
 }
 
+body.tenant-tool-video .support-fab {
+  display: none !important;
+}
+
 body.tenant-tool-video .top-tab[data-tab]:not([data-tab="history"]):not([data-tab="referral"]),
 body.tenant-tool-video .top-tab[data-gallery-shortcut]:not([data-gallery-shortcut="playflux-video"]) {
   display: none !important;
@@ -98,9 +102,24 @@ body.tenant-tool-video .top-tab[data-gallery-shortcut]:not([data-gallery-shortcu
     background: var(--video-teal);
   }
 
-  body.tenant-tool-video .side-utility-nav,
   body.tenant-tool-video .mobile-drawer-account {
     display: none;
+  }
+
+  body.tenant-tool-video .side-utility-nav {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  body.tenant-tool-video .side-utility-link {
+    width: auto;
+    min-height: 34px;
+    padding: 7px 9px;
+    font-size: 0.82rem;
   }
 
   body.tenant-tool-video .site-head {

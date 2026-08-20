@@ -2782,6 +2782,7 @@ function galleryUnlockedSet() {
 }
 
 function isGalleryVideoUnlocked(character = {}, video = {}) {
+  if (creatorMembershipActive()) return true;
   const set = galleryUnlockedSet();
   return set.has(galleryCharacterUnlockKey(character.id || "")) || set.has(galleryUnlockKey(character.id || "", video.sceneId || "", video.sceneEntryId || "default"));
 }
@@ -2805,15 +2806,18 @@ function applyUnlockedCharacterVideos(characterId = "", videos = []) {
 
 async function unlockGallerySceneVideo(characterId = "") {
   if (!state.user) return openLogin();
-  const character = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
-  const unlockCost = formatCredits(character?.unlockCost || state.config?.homeVideo?.characterUnlockCost || 750);
-  const confirmed = await showInlineDialog({
-    title: t("gallery.character.unlockConfirmTitle"),
-    body: `<p class="job-note">${escapeHtml(t("gallery.character.unlockConfirmBody", { cost: unlockCost }))}</p>`,
-    confirmText: t("gallery.character.unlockConfirmButton"),
-    dialogClass: "is-frame-action",
-  });
-  if (confirmed !== "confirm") return;
+  if (!creatorMembershipActive()) {
+    const confirmed = await showInlineDialog({
+      title: "Creator Membership",
+      body: '<p class="job-note">A $99 lifetime membership unlocks watching and downloading every Explore video, referral rewards, and top-up bonuses.</p>',
+      confirmText: "Buy for $99",
+      dialogClass: "is-frame-action",
+    });
+    if (confirmed === "confirm") {
+      await startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, null);
+    }
+    return;
+  }
   const renderActiveCharacterView = () => {
     if (state.tab === "characters") renderCharactersPanel();
     else renderTemplates();
@@ -3124,7 +3128,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   const hasVideo = Boolean(video.videoUrl);
   const characterUnlocked = isGalleryVideoUnlocked(character, video);
   const guest = !state.user;
-  const unlocked = Boolean(state.user) && (index === 0 || characterUnlocked);
+  const unlocked = Boolean(state.user) && characterUnlocked;
   const loading = state.galleryUnlockLoadingKey === galleryCharacterUnlockKey(character.id || "");
   const canPlay = unlocked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
@@ -3133,10 +3137,8 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
     ? ""
     : guest
       ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("gallery.character.unlockLogin"))}</button>`
-    : index > 0
-      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="lock-keyhole"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : t("gallery.character.unlockBundle"))}</button>`
-      : "";
-  const mediaAction = !canPlay && (guest || index > 0)
+    : `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="crown"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : "Unlock with membership")}</button>`;
+  const mediaAction = !canPlay
     ? `data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
     : canPlay
       ? `data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
@@ -3497,6 +3499,11 @@ function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:
   else els.previewVideo.removeAttribute("poster");
   els.previewVideo.src = previewUrl;
   els.previewVideo.hidden = false;
+  if (els.previewActions) els.previewActions.hidden = false;
+  if (els.previewDownloadBtn) {
+    els.previewDownloadBtn.href = previewUrl;
+    els.previewDownloadBtn.setAttribute("download", `${String(title || "explore-video").replace(/[^a-z0-9_-]+/gi, "-") || "explore-video"}.mp4`);
+  }
   if (!els.previewDialog.open) els.previewDialog.showModal();
   els.previewVideo.load();
   els.previewVideo.play().catch(() => {});
@@ -3513,6 +3520,8 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
   els.previewVideo.load();
   els.previewImage.src = imageUrl;
   els.previewImage.hidden = false;
+  if (els.previewActions) els.previewActions.hidden = true;
+  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
   if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 
@@ -3899,8 +3908,6 @@ function advancedCaseTabLabel(tab = "hot") {
 }
 
 let paypalConfigPromise = null;
-let paypalSdkPromise = null;
-let paypalButtonsRendered = false;
 
 function payPalCheckoutVisible() {
   return Boolean(
@@ -4026,7 +4033,7 @@ function topupPackages() {
 }
 
 function billingEnabled() {
-  return Boolean(state.billing?.enabled && tenantFeature("subscriptions", false));
+  return Boolean(state.billing?.enabled && (tenantFeature("subscriptions", false) || membershipProgramEnabled()));
 }
 
 function billingPlans() {
@@ -4044,13 +4051,14 @@ function selectBillingPlan(planId = "") {
   if (!plan) return;
   state.selectedBillingPlanId = plan.id;
   state.selectedTopupPackageId = "";
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
 }
 
 function billingPeriodLabel(plan = {}) {
   const count = Math.max(1, Number(plan.intervalCount || 1) || 1);
   const unit = String(plan.intervalUnit || "month").toLowerCase();
+  if (unit === "lifetime") return "lifetime";
   if (count === 1) return unit === "year" ? "year" : unit === "day" ? "day" : "month";
   return `${count} ${unit}s`;
 }
@@ -4058,7 +4066,7 @@ function billingPeriodLabel(plan = {}) {
 function renderToolSubscription() {
   if (!els.toolSubscriptionPanel) return;
   const plan = billingPlans()[0] || null;
-  const visible = Boolean(plan);
+  const visible = Boolean(plan && !membershipProgramEnabled());
   els.toolSubscriptionPanel.hidden = !visible;
   if (els.toolTopupLabel) els.toolTopupLabel.hidden = !visible;
   if (!plan) return;
@@ -4102,7 +4110,7 @@ function selectTopupPackage(packageId = "") {
   if (!selected) return;
   state.selectedBillingPlanId = "";
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4178,8 +4186,8 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "usdt", options = {}) {
-  const next = "usdt";
+function setTopupMethod(method = "paypal", options = {}) {
+  const next = String(method || "").toLowerCase() === "paypal" ? "paypal" : "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
     const active = button.dataset.topupMethod === next;
@@ -4308,7 +4316,7 @@ function renderTopupSummary() {
       ? state.topupStep === "packages"
         ? t("topup.packages")
         : state.topupMethod === "paypal"
-        ? t("topup.paypalRate")
+        ? t("topup.paypalReady", {}, "Continue on the secure payment page.")
         : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
@@ -4379,99 +4387,76 @@ async function loadPayPalConfig() {
   return paypalConfigPromise;
 }
 
-function loadPayPalSdk(config) {
-  if (window.paypal?.Buttons) return Promise.resolve(window.paypal);
-  if (paypalSdkPromise) return paypalSdkPromise;
-  paypalSdkPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    const params = new URLSearchParams({
-      "client-id": config.clientId,
-      currency: config.currency || "USD",
-      intent: "capture",
-      components: "buttons",
+async function startPayPalRedirectCheckout() {
+  if (!state.user) return openLogin();
+  const billingPlan = selectedBillingPlan();
+  const topupPackage = selectedTopupPackage();
+  const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
+  if ((!billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+    if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
+    return;
+  }
+  const button = els.paypalButtons?.querySelector("[data-paypal-start]");
+  if (button) button.disabled = true;
+  if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
+  try {
+    const returnUrl = `${window.location.origin}${window.location.pathname}#topups`;
+    const payload = await requestJson("/api/pay/paypal/checkout-sessions", {
+      method: "POST",
+      body: {
+        amount,
+        ...(billingPlan ? { billingPlanId: billingPlan.id } : { packageId: topupPackage.id }),
+        returnUrl,
+        cancelUrl: returnUrl,
+      },
     });
-    script.src = `https://www.paypal.com/sdk/js?${params.toString()}`;
-    script.async = true;
-    script.onload = () => resolve(window.paypal);
-    script.onerror = () => reject(new Error("Failed to load PayPal."));
-    document.head.appendChild(script);
-  });
-  return paypalSdkPromise;
+    const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
+    if (!checkoutUrl) throw new Error("PayPal checkout page was not created.");
+    window.location.href = checkoutUrl;
+  } catch (error) {
+    if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
+    if (button) button.disabled = false;
+  }
 }
 
 async function renderPayPalCheckout() {
   if (!els.paypalBox || !els.paypalButtons) return;
   if (!payPalCheckoutVisible()) return;
-  if (paypalButtonsRendered && els.paypalButtons.childElementCount > 0) return;
-  paypalButtonsRendered = false;
   try {
     const config = await loadPayPalConfig();
-    if (!config.enabled || !config.clientId) {
+    const billingPlan = selectedBillingPlan();
+    const topupPackage = selectedTopupPackage();
+    const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
+    if (!config.enabled) {
       els.paypalBox.hidden = false;
-      els.paypalButtons.hidden = true;
+      els.paypalButtons.hidden = false;
+      els.paypalButtons.innerHTML = "";
       if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalUnavailable");
       return;
     }
     els.paypalBox.hidden = false;
-    if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalLoading");
-    const paypal = await loadPayPalSdk(config);
-    if (!paypal?.Buttons) throw new Error("PayPal is unavailable.");
-    els.paypalButtons.innerHTML = "";
+    if (els.paypalStatus) {
+      els.paypalStatus.textContent = amount
+        ? `${t("topup.paypalReady")} ${formatCredits(amount)} ${config.currency || "USD"}`
+        : t("topup.paypalReady");
+    }
+    els.paypalButtons.innerHTML = `
+      <button class="paypal-redirect-button" type="button" data-paypal-start>
+        <i data-lucide="external-link"></i>
+        <span>${escapeHtml(t("topup.paypalContinue", {}, "Continue to PayPal"))}</span>
+      </button>
+      <p class="paypal-redirect-note">${escapeHtml(t("topup.paypalRedirectNote", {}, "You will continue on the secure payment page."))}</p>
+    `;
     els.paypalButtons.hidden = false;
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    if (!payPalCheckoutVisible()) return;
-    const buttons = paypal.Buttons({
-      style: {
-        layout: "horizontal",
-        height: 40,
-        tagline: false,
-      },
-      onInit: () => {
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalReady");
-      },
-      createOrder: async () => {
-        if (!state.user) {
-          openLogin();
-          throw new Error(t("topup.login"));
-        }
-        const topupPackage = selectedTopupPackage();
-        const amount = Number(topupPackage?.amount || 0);
-        if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
-          if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
-          throw new Error(t("topup.invalid"));
-        }
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
-        const payload = await requestJson("/api/pay/paypal/orders", {
-          method: "POST",
-          body: { amount, packageId: topupPackage.id },
-        });
-        renderTopupOrder(payload.order);
-        return payload.paypalOrderId;
-      },
-      onApprove: async (data) => {
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalApproved");
-        const paypalOrderId = data.orderID || data.orderId;
-        const payload = await requestJson(`/api/pay/paypal/orders/${encodeURIComponent(paypalOrderId)}/capture`, {
-          method: "POST",
-        });
-        if (payload.user) setUser(payload.user);
-        renderTopupOrder(payload.order);
-        renderTopupSummary();
-        if (state.tab === "topups") loadTopupRecords(1);
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalPaid");
-      },
-      onCancel: () => {
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCancelled");
-      },
-      onError: (error) => {
-        if (els.paypalStatus) els.paypalStatus.textContent = error?.message || String(error || "PayPal error");
-      },
-    });
-    await buttons.render(els.paypalButtons);
-    paypalButtonsRendered = true;
+    const button = els.paypalButtons.querySelector("[data-paypal-start]");
+    if (button) {
+      button.disabled = false;
+      button.onclick = startPayPalRedirectCheckout;
+    }
   } catch (error) {
     els.paypalBox.hidden = false;
-    els.paypalButtons.hidden = true;
+    els.paypalButtons.hidden = false;
+    els.paypalButtons.innerHTML = "";
     if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
   }
 }
@@ -4574,6 +4559,21 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
+  const enabled = tenantFeature("apiAccess", true) && membershipProgramEnabled();
+  const active = apiDocsAccessActive();
+  if (els.apiDocsPurchaseCard) els.apiDocsPurchaseCard.hidden = !enabled || active;
+  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled || !active;
+  if (els.buyApiDocsBtn) {
+    els.buyApiDocsBtn.disabled = !state.user || active;
+    els.buyApiDocsBtn.innerHTML = state.user
+      ? '<i data-lucide="lock-keyhole-open"></i>Unlock docs'
+      : '<i data-lucide="log-in"></i>Sign in to unlock';
+  }
+  if (els.apiDocsPurchaseStatus) {
+    els.apiDocsPurchaseStatus.textContent = active
+      ? "API documentation access is active."
+      : state.user ? "" : "Sign in before purchasing access.";
+  }
   ensureActiveAccessGuide();
   if (els.accessModeTabs) {
     els.accessModeTabs.hidden = true;
@@ -4596,6 +4596,8 @@ function renderAccessGuides() {
     els.accessDocs.innerHTML = "";
   }
   renderTokenDisplays();
+  renderApiSubtokens();
+  refreshIcons();
 }
 
 function userHasAdvancedAccess() {

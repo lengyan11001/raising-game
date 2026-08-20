@@ -85,10 +85,10 @@ SHARED_APP_FILES = (
     "test/web-vitals.test.js",
     "test/workflow-access.test.js",
     "test/workflow-canvases.test.js",
+    "test/membership-entitlements.test.js",
 )
 
 SHARED_TOOLING_FILES = (
-    "DEPLOY.md",
     "scripts/check-r2-storage.js",
     "scripts/deploy_site.py",
     "scripts/deploy_pull.py",

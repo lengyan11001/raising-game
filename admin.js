@@ -41,7 +41,9 @@ const ROUTES = [
   { id: "support", title: "站内信", render: renderSupportMessages },
   { id: "recharges", title: "充值流水", render: renderRecharges },
   { id: "wallet", title: "钱包订单", render: renderWallet },
+  { id: "membership-codes", title: "会员激活码", render: renderMembershipCodes },
   { id: "pricing", title: "价格配置", render: renderPricing },
+  { id: "undress-config", title: "Undress 配置", render: renderUndressConfig },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
 ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0, {
@@ -49,7 +51,7 @@ ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0
   title: "GEO",
   render: renderGeo,
 });
-const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
+const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "undress-config", "config"]);
 
 function isTenantAdminHost() {
   return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(window.location.hostname || "");
@@ -66,6 +68,7 @@ const state = {
   config: null,
   route: "dashboard",
   cache: {},
+  newMembershipCodes: [],
 };
 
 let adminHistoryPollTimer = null;
@@ -436,9 +439,9 @@ async function loadConfig(force = false) {
 function statusPill(status) {
   const value = String(status || "").toLowerCase().trim();
   if (!value) return '<span class="adm-pill">—</span>';
-  const cls = ["succeeded", "success", "done", "completed", "paid"].includes(value) ? "is-success"
+  const cls = ["succeeded", "success", "done", "completed", "paid", "active"].includes(value) ? "is-success"
     : ["pending", "image_uploaded", "queued", "submitted"].includes(value) ? "is-pending"
-    : ["failed", "error", "cancelled", "canceled", "reference_failed"].includes(value) ? "is-failed"
+    : ["failed", "error", "cancelled", "canceled", "reference_failed", "disabled", "exhausted"].includes(value) ? "is-failed"
     : ["running", "in_progress"].includes(value) ? "is-running"
     : "";
   return `<span class="adm-pill ${cls}">${escapeHtml(status)}</span>`;
@@ -2895,6 +2898,165 @@ function sceneCard(scene) {
   `;
 }
 
+/* ============ MEMBERSHIP ACTIVATION CODES ============ */
+async function renderMembershipCodes(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admMembershipCodesPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admMembershipCodesQuery") || "";
+  const status = sessionStorage.getItem("admMembershipCodesStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/membership-codes?${params.toString()}`);
+  if (!isActiveRoute("membership-codes")) return;
+  const codes = payload.codes || [];
+  const revealed = Array.isArray(state.newMembershipCodes) ? state.newMembershipCodes : [];
+  sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>会员激活码</h2>
+          <p class="adm-muted">创建 Creator Membership 激活码。明文只在创建后展示一次，数据库仅保存哈希。</p>
+        </div>
+        <form class="adm-list-filters" id="membershipCodesFilterForm">
+          <input id="membershipCodesSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索前缀 / 备注 / ID" />
+          <select id="membershipCodesStatusFilter">
+            <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
+            <option value="active" ${status === "active" ? "selected" : ""}>可用</option>
+            <option value="disabled" ${status === "disabled" ? "selected" : ""}>已停用</option>
+            <option value="exhausted" ${status === "exhausted" ? "selected" : ""}>已用完</option>
+          </select>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+        </form>
+      </div>
+
+      <div class="adm-grid adm-grid-2 adm-membership-code-layout">
+        <article class="adm-card">
+          <div class="adm-card-head"><h3>创建激活码</h3><span class="adm-muted">单次最多 100 个</span></div>
+          <form class="adm-card-body" id="membershipCodeCreateForm">
+            <div class="adm-grid adm-grid-2">
+              <label class="adm-form-row"><span>创建数量</span><input id="membershipCodeCount" type="number" min="1" max="100" step="1" value="1" required /></label>
+              <label class="adm-form-row"><span>每个码可激活人数</span><input id="membershipCodeMaxRedemptions" type="number" min="1" max="10000" step="1" value="1" required /></label>
+            </div>
+            <label class="adm-form-row"><span>有效期（可不填）</span><input id="membershipCodeExpiresAt" type="datetime-local" /></label>
+            <label class="adm-form-row"><span>备注</span><textarea id="membershipCodeNotes" maxlength="500" rows="3" placeholder="例如：渠道合作 / 客服补发"></textarea></label>
+            <div class="adm-form-actions">
+              <button class="adm-btn adm-btn-primary" id="membershipCodeCreateBtn" type="submit"><i data-lucide="ticket-plus"></i>创建激活码</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="adm-card adm-membership-code-reveal" ${revealed.length ? "" : "hidden"}>
+          <div class="adm-card-head">
+            <div><h3>本次创建的明文码</h3><span class="adm-muted">关闭或刷新后无法再次查看</span></div>
+            <div class="adm-form-actions">
+              <button class="adm-btn adm-btn-sm adm-btn-ghost" id="copyAllMembershipCodesBtn" type="button"><i data-lucide="copy"></i>复制全部</button>
+              <button class="adm-btn adm-btn-sm adm-btn-ghost" id="clearMembershipCodesRevealBtn" type="button"><i data-lucide="x"></i>隐藏</button>
+            </div>
+          </div>
+          <div class="adm-card-body adm-membership-code-list">
+            ${revealed.map((record) => `<button type="button" data-copy-membership-code="${escapeHtml(record.code || "")}"><code>${escapeHtml(record.code || "")}</code><i data-lucide="copy"></i></button>`).join("")}
+          </div>
+        </article>
+      </div>
+
+      <article class="adm-card">
+        <div class="adm-card-head"><h3>激活码记录</h3><span class="adm-muted">共 ${escapeHtml(payload.total || 0)} 条</span></div>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-membership-code-table">
+            <thead><tr><th>码前缀</th><th>状态</th><th>已使用 / 上限</th><th>有效期</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody>
+              ${codes.length ? codes.map((record) => {
+                const codeStatus = String(record.status || "active").toLowerCase();
+                const nextStatus = codeStatus === "active" ? "disabled" : codeStatus === "disabled" ? "active" : "";
+                return `
+                  <tr data-id="${escapeHtml(record.id || "")}">
+                    <td><strong class="adm-mono">${escapeHtml(record.codePrefix || "VIP-")}****</strong><br/><span class="adm-muted adm-mono">${escapeHtml(record.id || "")}</span></td>
+                    <td>${statusPill(codeStatus)}</td>
+                    <td><strong>${escapeHtml(record.redemptionCount || 0)}</strong> / ${escapeHtml(record.maxRedemptions || 1)}</td>
+                    <td>${record.expiresAt ? fmtDate(record.expiresAt) : "永久"}</td>
+                    <td title="${escapeHtml(record.notes || "")}">${escapeHtml(shortText(record.notes || "-", 48))}</td>
+                    <td>${fmtDate(record.createdAt)}</td>
+                    <td><div class="adm-row-actions">${nextStatus ? `<button class="adm-btn adm-btn-sm ${nextStatus === "disabled" ? "adm-btn-danger" : "adm-btn-ghost"}" type="button" data-membership-code-status="${nextStatus}"><i data-lucide="${nextStatus === "disabled" ? "ban" : "circle-check"}"></i>${nextStatus === "disabled" ? "停用" : "启用"}</button>` : '<span class="adm-muted">已用完</span>'}</div></td>
+                  </tr>
+                `;
+              }).join("") : '<tr><td colspan="7" class="adm-muted">暂无激活码。</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        ${adminPagerHtml(payload)}
+      </article>
+    </section>
+  `;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderMembershipCodes(nextPage, nextLimit).catch((err) => renderRouteError("membership-codes", err)));
+
+  const runFilter = () => {
+    sessionStorage.setItem("admMembershipCodesQuery", els.adminContent.querySelector("#membershipCodesSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admMembershipCodesStatus", els.adminContent.querySelector("#membershipCodesStatusFilter")?.value || "");
+    sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: 1, limit }));
+    renderMembershipCodes(1, limit).catch((err) => renderRouteError("membership-codes", err));
+  };
+  els.adminContent.querySelector("#membershipCodesFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runFilter();
+  });
+  els.adminContent.querySelector("#membershipCodesStatusFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#membershipCodeCreateForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = els.adminContent.querySelector("#membershipCodeCreateBtn");
+    if (button) button.disabled = true;
+    try {
+      const expiresInput = els.adminContent.querySelector("#membershipCodeExpiresAt")?.value || "";
+      const created = await api("/api/admin/membership-codes", {
+        method: "POST",
+        body: {
+          count: Number(els.adminContent.querySelector("#membershipCodeCount")?.value || 1),
+          maxRedemptions: Number(els.adminContent.querySelector("#membershipCodeMaxRedemptions")?.value || 1),
+          expiresAt: expiresInput ? new Date(expiresInput).toISOString() : "",
+          notes: els.adminContent.querySelector("#membershipCodeNotes")?.value.trim() || "",
+        },
+      });
+      state.newMembershipCodes = (created.codes || []).filter((record) => record.code);
+      toast(`已创建 ${state.newMembershipCodes.length} 个激活码。`, "success");
+      await renderMembershipCodes(1, limit);
+    } catch (error) {
+      toast(error.message || String(error), "error");
+      if (button) button.disabled = false;
+    }
+  });
+  els.adminContent.querySelectorAll("[data-copy-membership-code]").forEach((button) => {
+    button.addEventListener("click", () => copyText(button.dataset.copyMembershipCode || "", "激活码已复制。"));
+  });
+  els.adminContent.querySelector("#copyAllMembershipCodesBtn")?.addEventListener("click", () => {
+    copyText(revealed.map((record) => record.code).filter(Boolean).join("\n"), "全部激活码已复制。");
+  });
+  els.adminContent.querySelector("#clearMembershipCodesRevealBtn")?.addEventListener("click", () => {
+    state.newMembershipCodes = [];
+    renderMembershipCodes(page, limit).catch((err) => renderRouteError("membership-codes", err));
+  });
+  els.adminContent.querySelectorAll("tr[data-id] [data-membership-code-status]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr[data-id]");
+      if (!row?.dataset.id) return;
+      button.disabled = true;
+      try {
+        await api(`/api/admin/membership-codes/${encodeURIComponent(row.dataset.id)}`, {
+          method: "PATCH",
+          body: { status: button.dataset.membershipCodeStatus || "disabled" },
+        });
+        toast("激活码状态已更新。", "success");
+        await renderMembershipCodes(page, limit);
+      } catch (error) {
+        toast(error.message || String(error), "error");
+        button.disabled = false;
+      }
+    });
+  });
+}
+
 /* ============ USERS ============ */
 async function renderUsers(pageArg = null, limitArg = null) {
   const savedPager = JSON.parse(sessionStorage.getItem("admUsersPager") || "{}");
@@ -2930,7 +3092,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员 / API文档</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
@@ -2938,6 +3100,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
                   <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
+                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}<br/><span class="adm-muted">文档 ${u.apiDocs?.active ? "已解锁" : "未解锁"}</span></td>
                   <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
@@ -2998,6 +3161,7 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
+    <div class="adm-form-row"><span>会员 / API 文档权益</span><input value="${escapeHtml(user.membership?.active ? "Creator Membership 已激活" : "会员未激活")} / ${escapeHtml(user.apiDocs?.active ? "API 文档已解锁" : "API 文档未解锁")}" disabled /></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
@@ -4572,6 +4736,100 @@ async function renderPlatform(options = {}) {
       await saveAdvanced(advanced.cases.filter((_, i) => i !== index));
     });
   });
+}
+
+/* ============ UNDRESS CONFIG ============ */
+async function renderUndressConfig() {
+  const payload = await api("/api/admin/undress-prompts");
+  if (!isActiveRoute("undress-config")) return;
+  const prompts = payload.prompts || {};
+  const defaults = payload.defaults || {};
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <h2>Undress 提示词</h2>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadUndressPromptsBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-ghost" id="resetUndressPromptsBtn" type="button"><i data-lucide="rotate-ccw"></i>恢复默认</button>
+          <button class="adm-btn adm-btn-primary" id="saveUndressPromptsBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-grid adm-undress-prompt-grid">
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>图片生成</span>
+              <textarea id="undressPromptImage" maxlength="6000">${escapeHtml(prompts.image || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptImage"></small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>图片转视频</span>
+              <textarea id="undressPromptImageVideo" maxlength="6000">${escapeHtml(prompts.imageVideo || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptImageVideo"></small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card is-wide">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>视频处理</span>
+              <textarea id="undressPromptVideo" maxlength="6000">${escapeHtml(prompts.video || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptVideo"></small>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>`;
+
+  const fields = {
+    image: byId("undressPromptImage"),
+    imageVideo: byId("undressPromptImageVideo"),
+    video: byId("undressPromptVideo"),
+  };
+  const updateCounts = () => {
+    Object.values(fields).forEach((field) => {
+      const counter = els.adminContent.querySelector(`[data-count-for="${field.id}"]`);
+      if (counter) counter.textContent = `${field.value.length}/6000`;
+    });
+  };
+  const setFields = (values = {}) => {
+    Object.entries(fields).forEach(([key, field]) => { field.value = values[key] || ""; });
+    updateCounts();
+  };
+  Object.values(fields).forEach((field) => field.addEventListener("input", updateCounts));
+  updateCounts();
+
+  byId("reloadUndressPromptsBtn")?.addEventListener("click", () => renderUndressConfig());
+  byId("resetUndressPromptsBtn")?.addEventListener("click", () => {
+    setFields(defaults);
+    toast("已恢复默认内容，点击保存后生效。", "success");
+  });
+  byId("saveUndressPromptsBtn")?.addEventListener("click", async () => {
+    const next = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value.trim()]));
+    const invalid = Object.entries(next).find(([, value]) => !value || value.length > 6000);
+    if (invalid) {
+      toast(!invalid[1] ? "提示词不能为空。" : "提示词不能超过 6000 个字符。", "error");
+      fields[invalid[0]]?.focus();
+      return;
+    }
+    const button = byId("saveUndressPromptsBtn");
+    button.disabled = true;
+    try {
+      const saved = await api("/api/admin/undress-prompts", { method: "PUT", body: { prompts: next } });
+      setFields(saved.prompts || next);
+      state.config = null;
+      toast("Undress 提示词已保存。", "success");
+    } catch (error) {
+      toast(error.message || "保存失败。", "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  refreshIcons();
 }
 
 /* ============ CONFIG ============ */

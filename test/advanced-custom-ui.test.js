@@ -20,12 +20,14 @@ function elementMarkup(id) {
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
-  assert.match(engine, /value="wan30">Wan 3\.0/);
+  assert.match(engine, /value="wan30">Wan 3\.0 Video/);
+  assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
   assert.match(engine, /value="wan27" selected>Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.match(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
+  assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
   assert.match(engine, /value="seedance-nsfw">Seedance2\.5 \(NSFW\)/);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
@@ -40,11 +42,25 @@ test("Seedance keeps only the two product modes", () => {
 });
 
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
-  assert.match(ui, /wan30:[\s\S]*?value: "wan30-video"/);
+  assert.match(ui, /wan30: Object\.freeze\(\[[\s\S]*?value: "wan30-video"/);
+  assert.match(ui, /"wan30-prime": Object\.freeze\(\[[\s\S]*?value: "wan30-video-prime"/);
   assert.match(ui, /wan27:[\s\S]*?value: "wan27-i2v"[\s\S]*?value: "wan27-video-edit"/);
   assert.match(ui, /happyhorse:[\s\S]*?value: "happyhorse-i2v", label: "First Frame"[\s\S]*?value: "happyhorse-video-edit"/);
   assert.match(ui, /label\.textContent = "Mode"/);
   assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
+});
+
+test("Wan3.0 Prime shares controls and applies the 1.5 pricing factor", () => {
+  assert.match(create, /\["wan30-video", "wan30-video-prime"\]\.includes\(capability\)/);
+  assert.match(create, /new Set\(\["wan30-video", "wan30-video-prime"/);
+  assert.match(ui, /capability === "wan30-video-prime" \? "Wan 3\.0 Prime" : "Wan 3\.0"/);
+  assert.match(ui, /wan30PrimeCreditsPerSecondByResolution/);
+  assert.match(server, /ALIYUN_WAN30_PRIME_MODEL = process\.env\.ALIYUN_WAN30_PRIME_MODEL \|\| "wan3\.0-video-prime"/);
+  assert.match(server, /ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1\.5/);
+  assert.match(server, /wan30PrimeCreditsPerSecondByResolution/);
+  assert.match(server, /key: "wan30-prime-480p"/);
+  assert.match(server, /key === "wan30-prime-1080p"/);
+  assert.match(server, /provider === "wan30"\s*\? aliyunVideoModelForCapability\(requestParams\.videoCapability\)/);
 });
 
 test("only explicit frame modes use dedicated upload controls", () => {
@@ -86,6 +102,9 @@ test("Advanced image files enter the asset library before generation", () => {
   assert.match(create, /async function uploadAdvancedImageReference/);
   assert.match(create, /requestJson\("\/api\/user-assets", \{[\s\S]*?provider,/);
   assert.match(create, /assetId: asset\.id,[\s\S]*?dataUrl: assetPreviewUrl\(asset\)/);
+  assert.match(create, /function assetPreviewUrl\(asset = \{\}\) \{[\s\S]*?asset\.publicUrl \|\| asset\.cdnUrl \|\| asset\.previewUrl \|\| asset\.localUrl/);
+  assert.match(create, /function restoreMediaUrl\(item = \{\}\) \{[\s\S]*?item\.publicUrl[\s\S]*?item\.localUrl/);
+  assert.match(ui, /function mediaAssetPreviewUrl\(asset = \{\}\) \{[\s\S]*?asset\.publicUrl[\s\S]*?asset\.localUrl/);
   assert.match(main, /const ref = await uploadAdvancedImageReference\(file, \{ provider \}\)/);
   assert.match(main, /state\.advancedSeedanceFirstFrameAssetId = ref\.assetId/);
   assert.match(main, /state\.advancedSeedanceLastFrameAssetId = ref\.assetId/);
@@ -155,11 +174,25 @@ test("Seedance image preprocessing is shared by the model family and remains opt
   assert.match(server, /function makeSeedancePreprocessedReferencePrompt\(item = \{\}\)/);
   assert.match(server, /A male person must remain male, a female person must remain female/);
   assert.match(server, /a scene with no people must remain a scene with no people/);
-  assert.match(server, /const preprocessVersion = "preserve-source-v2"/);
+  assert.match(server, /const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2"/);
+  assert.match(server, /const preprocessVersion = SEEDANCE_PREPROCESS_REFERENCE_VERSION/);
   assert.match(server, /preserveSourceComposition: true/);
   assert.match(server, /function seedream5SubmitRetryPolicy\(error\)/);
   assert.match(server, /timeout while downloading url\|timed\? out while downloading/);
   assert.match(server, /attempts: 4, waitMs: 5000, reason: "reference-download"/);
+  assert.match(server, /\[408, 425, 429, 500, 502, 503, 504, 520, 522\]\.includes\(statusCode\)/);
+  assert.match(server, /attempts: 3, waitMs: 3000, reason: "upstream-transient"/);
+});
+
+test("Seedance reference preprocessing is included in configured billing and cached references are not charged again", () => {
+  assert.match(server, /function seedancePreprocessPricingForAssets\(auth = \{\}, config = \{\}, assets = \[\], enabled = false\)/);
+  assert.match(server, /asset\.syntheticReferenceAssetUri[\s\S]*?asset\.syntheticReferenceVersion === SEEDANCE_PREPROCESS_REFERENCE_VERSION/);
+  assert.match(server, /advancedModelPricing\("seedream5-image", \{[\s\S]*?referenceImageCount: 1,[\s\S]*?outputImageCount: 1/);
+  assert.match(server, /preprocessCredits: preprocessPricing\.credits/);
+  assert.match(server, /originalPreprocessCredits: preprocessPricing\.originalCredits/);
+  assert.match(server, /credits: creditsAmount\(videoPricing\.credits \+ preprocessPricing\.credits\)/);
+  assert.match(server, /type: "advanced_generation"[\s\S]*?preprocessImageCount: preprocessPricing\.imageCount/);
+  assert.match(server, /preprocessAssetIds: preprocessPricing\.items\.map/);
 });
 
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {

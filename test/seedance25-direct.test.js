@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -10,13 +12,30 @@ const {
   validateSeedance25DirectInput,
 } = require("../seedance25-direct");
 
-test("direct Seedance 2.5 purchase rates match official token pricing", () => {
+const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+test("generated videos retry upstream downloads when the saved file is shorter than requested", () => {
+  assert.match(serverSource, /expectedGeneratedVideoDurationSeconds/);
+  assert.match(serverSource, /generatedVideoIsTooShort/);
+  assert.match(serverSource, /GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS/);
+  assert.match(serverSource, /generated-video-download-retry/);
+  assert.match(serverSource, /fs\.rename\(temporaryPath, localVideoPath\)/);
+});
+
+test("direct Seedance 2.5 purchase rates match the endpoint contract", () => {
   assert.equal(directPurchaseUsdPerSecond("480p"), 0.10280025);
   assert.equal(directPurchaseUsdPerSecond("720p"), 0.23112);
   assert.equal(directPurchaseUsdPerSecond("480p", { hasVideoInput: true }), 0.061488);
   assert.equal(directPurchaseUsdPerSecond("720p", { hasVideoInput: true }), 0.13824);
   assert.equal(directEstimatedCompletionTokens({ resolution: "720p", outputSeconds: 5 }), 108000);
   assert.equal(directEstimatedCompletionTokens({ resolution: "480p", outputSeconds: 5, inputVideoSeconds: 3 }), 76860);
+});
+
+test("Seedance 2.5 NSFW customer billing stays at the configured sale price", () => {
+  assert.match(serverSource, /function seedanceUsesConfiguredSalePrice/);
+  assert.match(serverSource, /const finalCredits = configuredSalePrice \? preDeducted : usage\.credits/);
+  assert.match(serverSource, /billingPriceSource: configuredSalePrice \? "configured_sale_price" : "upstream_token_usage"/);
+  assert.match(serverSource, /upstreamCalculatedCredits: usage\.credits/);
 });
 
 test("direct payload keeps ordered multimodal references and required upstream flags", () => {

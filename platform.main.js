@@ -653,7 +653,7 @@ function openTopupDialog() {
   prepareModalOpen();
   state.selectedBillingPlanId = "";
   setTopupStep("packages");
-  setTopupMethod("usdt");
+  setTopupMethod("paypal");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();
@@ -765,6 +765,12 @@ els.advancedSeedreamTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
 [els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark].forEach((control) => {
+  control?.addEventListener("change", () => {
+    state.advancedEstimateKey = "";
+    updateAdvancedButtonCost();
+  });
+});
+[els.advancedQwen37Thinking, els.advancedQwen37MaxTokens, els.advancedQwen37Temperature].forEach((control) => {
   control?.addEventListener("change", () => {
     state.advancedEstimateKey = "";
     updateAdvancedButtonCost();
@@ -913,7 +919,22 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
+els.buyApiDocsBtn?.addEventListener("click", () => {
+  startEntitlementCheckout({ productId: "api-docs-access" }, els.apiDocsPurchaseStatus);
+});
+els.buyMembershipBtn?.addEventListener("click", () => {
+  startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, els.membershipNote);
+});
+els.membershipCodeForm?.addEventListener("submit", redeemMembershipCode);
+els.previewDialog?.addEventListener("close", () => {
+  els.previewVideo?.pause();
+  els.previewVideo?.removeAttribute("src");
+  els.previewVideo?.load();
+  if (els.previewActions) els.previewActions.hidden = true;
+  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
+});
 function openSupportDialog() {
+  if (!state.user) return openLogin();
   prepareModalOpen();
   if (els.supportEmail) els.supportEmail.value = "";
   if (els.supportSubject) els.supportSubject.value = "";
@@ -936,6 +957,7 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
   });
 });
 els.supportFab?.addEventListener("click", openSupportDialog);
+els.supportNavBtn?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.mobileDrawerTopupBtn?.addEventListener("click", () => {
   closeMobileDrawer();

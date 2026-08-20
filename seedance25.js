@@ -124,6 +124,26 @@ function buildSeedance25TaskPayload(input = {}, outerModel = "") {
   };
 }
 
+function seedance25TaskFailureMessage(task = {}) {
+  const candidates = [task.error, task.output?.error, task.result?.error];
+  const detail = candidates.find((value) => (
+    typeof value === "string" ? value.trim() : value && typeof value === "object"
+  ));
+  const message = String(
+    (detail && typeof detail === "object" ? detail.message : detail)
+    || task.message
+    || "",
+  ).trim();
+  const code = String(
+    (detail && typeof detail === "object" ? detail.code : "")
+    || task.output?.error_code
+    || task.result?.error_code
+    || "",
+  ).trim();
+  if (code && message && !message.includes(code)) return `${code}: ${message}`;
+  return message || code;
+}
+
 module.exports = {
   SEEDANCE25_CNY_PER_POINT,
   SEEDANCE25_CNY_PER_USD,
@@ -136,5 +156,6 @@ module.exports = {
   buildSeedance25TaskPayload,
   normalizeSeedance25Mode,
   purchaseSiteCreditsPerSecond,
+  seedance25TaskFailureMessage,
   validateSeedance25Input,
 };

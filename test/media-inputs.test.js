@@ -115,17 +115,40 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.doesNotMatch(server, /async function uploadLocalAssetMirrorToObjectStorage[\s\S]*?catch \(error\) \{[\s\S]*?publicUrl: ""/);
   assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?const videoUpload = await uploadStaticAssetToObjectStorage/);
   assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
-  assert.match(server, /async function uploadStaticAssetToR2[\s\S]*?signal: AbortSignal\.timeout\(25000\)/);
-  assert.match(server, /R2 upload timed out after 25 seconds/);
+  assert.match(server, /function r2UploadTimeoutMs[\s\S]*?R2_UPLOAD_MIN_BYTES_PER_SECOND/);
+  assert.match(server, /async function findUploadedR2Object[\s\S]*?method: "HEAD"/);
+  assert.match(server, /async function uploadStaticAssetToR2[\s\S]*?signal: AbortSignal\.timeout\(uploadTimeoutMs\)/);
+  assert.match(server, /R2 upload timed out after \$\{Math\.ceil\(uploadTimeoutMs \/ 1000\)\} seconds/);
+  assert.match(server, /uploadError\.retryable = false/);
+  assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?generated-video-r2-upload-failed/);
+  assert.match(server, /storableRecord\.error = ""/);
   assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, R2\.publicDomain\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
+});
+
+test("generation record queries never wait for R2 publication", () => {
+  assert.match(server, /function generationRecordIsApiTask\(record = \{\}\)/);
+  assert.match(server, /if \(record\.localVideoUrl && isSucceededStatus\(status\)\)[\s\S]*?return false;/);
+  assert.match(server, /const GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS = 3/);
+  assert.match(server, /const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 \* 60 \* 1000/);
+  assert.match(server, /const generatedMediaMaintenanceQueued = new Set\(\)/);
+  assert.match(server, /async function drainGenerationRecordMediaMaintenance\(\)/);
+  assert.match(server, /generationRecordIsApiTask\(record\)\) return false/);
+  assert.match(server, /if \(record\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(record\)/);
+  assert.match(server, /if \(nextRecord\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(nextRecord\)/);
+  assert.match(server, /if \(download && !generationRecordIsApiTask\(record\)/);
+  assert.match(server, /if \(generationRecordIsApiTask\(existing \|\| \{\}\)\)/);
 });
 
 test("Alibaba task polling cannot block generation status for minutes", () => {
   assert.match(server, /const queryRequest = normalizedMethod === "GET"/);
-  assert.match(server, /const maxAttempts = queryRequest \? 2 : 1/);
+  assert.match(server, /const submitRequest = normalizedMethod === "POST"/);
+  assert.match(server, /const maxAttempts = queryRequest \? 2 : \(submitRequest \? 3 : 2\)/);
   assert.match(server, /queryRequest \? 20000 : 180000/);
-  assert.match(server, /transientNetworkError = queryRequest/);
-  assert.match(server, /await Promise\.all\(activeRecords\.map\(async \(record\) => \{/);
+  assert.match(server, /transientNetworkError = \(queryRequest \|\| submitRequest\)/);
+  assert.match(server, /\[aliyun-dashscope-retry\]/);
+  assert.match(server, /ALIYUN_DASHSCOPE_NETWORK_ERROR/);
+  assert.match(server, /queueGenerationRecordStatusRefreshes\(activeRecords, \{ reason: `\$\{reason\}-active-scan` \}\)/);
+  assert.match(server, /generationRecordRefreshActive < GENERATION_RECORD_REFRESH_CONCURRENCY/);
 });
 
 test("new2 gateway preserves its own R2 URLs for every video provider", () => {

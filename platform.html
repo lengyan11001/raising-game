@@ -122,6 +122,10 @@
           <i data-lucide="at-sign"></i>
           <span>X</span>
         </a>
+        <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="Support" data-analytics-event="support_open" data-analytics-location="side_nav">
+          <i data-lucide="messages-square"></i>
+          <span>Support</span>
+        </button>
       </nav>
       <div class="mobile-drawer-account">
         <div class="mobile-drawer-user" id="mobileDrawerUser" hidden>
@@ -350,11 +354,11 @@
             <div class="advanced-fields">
               <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
                 <optgroup label="Video">
-                  <option value="wan30">Wan 3.0</option>
+                  <option value="wan30">Wan 3.0 Video</option>
+                  <option value="wan30-prime">Wan 3.0 Video Prime</option>
                   <option value="wan27" selected>Wan 2.7</option>
                   <option value="wan-animate">Wan Animate</option>
                   <option value="happyhorse">HappyHorse</option>
-                  <option value="seedance25">Seedance 2.5</option>
                   <option value="seedance-nsfw">Seedance2.5 (NSFW)</option>
                   <option value="seedance">Seedance 2.0</option>
                 </optgroup>
@@ -362,6 +366,9 @@
                   <option value="wan27-image-edit">Wan 2.7 Image</option>
                   <option value="seedream5-image">Seedream 5.0 Image</option>
                   <option value="qwen-image3">Qwen Image 3.0</option>
+                </optgroup>
+                <optgroup label="Language">
+                  <option value="qwen37-flash">Qwen3.7 Flash</option>
                 </optgroup>
               </select></label>
               <label class="field advanced-video-capability-field" hidden><span>Mode</span><select id="advancedVideoCapability"></select></label>
@@ -377,6 +384,9 @@
               <label class="field advanced-qwen-option" hidden><span>Images</span><select id="advancedQwenOutputCount"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
               <label class="field advanced-qwen-option" hidden><span>Extend</span><select id="advancedQwenPromptExtend"><option value="true" selected>On</option><option value="false">Off</option></select></label>
               <label class="field advanced-qwen-option" hidden><span>Mark</span><select id="advancedQwenWatermark"><option value="false" selected>Off</option><option value="true">On</option></select></label>
+              <label class="field advanced-qwen37-option" hidden><span>Thinking</span><select id="advancedQwen37Thinking"><option value="false" selected>Off</option><option value="true">On</option></select></label>
+              <label class="field advanced-qwen37-option" hidden><span>Max output</span><select id="advancedQwen37MaxTokens"><option value="512">512</option><option value="1024" selected>1024</option><option value="2048">2048</option><option value="4096">4096</option><option value="8192">8192</option></select></label>
+              <label class="field advanced-qwen37-option" hidden><span>Temperature</span><select id="advancedQwen37Temperature"><option value="0">0</option><option value="0.3">0.3</option><option value="0.7" selected>0.7</option><option value="1">1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
               <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><select id="advancedDuration"><option value="5" selected>5s</option></select></label>
@@ -460,6 +470,20 @@
       </section>
 
       <section class="access-panel" data-panel="access" hidden>
+        <section class="entitlement-card api-docs-entitlement" id="apiDocsPurchaseCard">
+          <div class="entitlement-icon"><i data-lucide="book-key"></i></div>
+          <div class="entitlement-copy">
+            <span>API Documentation Access</span>
+            <strong>Unlock the complete integration guide</strong>
+            <p>One-time purchase. Includes 20,000 test credits after payment.</p>
+          </div>
+          <div class="entitlement-action">
+            <strong>$1,000</strong>
+            <button class="copy-btn" id="buyApiDocsBtn" type="button"><i data-lucide="lock-keyhole-open"></i>Unlock docs</button>
+          </div>
+          <p class="job-note entitlement-status" id="apiDocsPurchaseStatus"></p>
+        </section>
+        <div id="apiDocsUnlockedContent" hidden>
         <div class="token-card" id="accessTokenCard">
           <div>
             <span data-i18n="access.currentToken">Current API token</span>
@@ -472,6 +496,7 @@
           </div>
         </div>
         <div class="access-subtokens" id="accessSubtokens"></div>
+        </div>
       </section>
 
       <section class="history-panel" data-panel="history" hidden>
@@ -480,18 +505,45 @@
       </section>
 
       <section class="referral-panel" data-panel="referral" hidden>
+        <section class="membership-card" id="membershipCard">
+          <div class="membership-card-head">
+            <div class="membership-card-icon"><i data-lucide="crown"></i></div>
+            <div>
+              <span>Creator Membership</span>
+              <strong>$99 lifetime access</strong>
+            </div>
+            <span class="membership-state" id="membershipState">Not active</span>
+          </div>
+          <div class="membership-benefits">
+            <span><i data-lucide="play"></i>Watch and download Explore videos</span>
+            <span><i data-lucide="users-round"></i>Earn paid-referral rewards</span>
+            <span><i data-lucide="gift"></i>Receive top-up package bonuses</span>
+          </div>
+          <div class="membership-actions">
+            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i>Buy membership</button>
+            <form class="membership-code-form" id="membershipCodeForm">
+              <input id="membershipCodeInput" type="text" placeholder="Activation code" autocomplete="off" />
+              <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit">Redeem</button>
+            </form>
+          </div>
+          <p class="job-note" id="membershipNote"></p>
+        </section>
         <div class="referral-card" id="referralCard">
           <div class="referral-copy">
             <span class="copy-kicker" data-i18n="referral.eyebrow">Referral</span>
-            <h2 data-i18n="referral.title">Invite one friend, earn credits</h2>
-            <p data-i18n="referral.subtitle">Share your invite link. When one invited user completes a payment, you receive 100 credits.</p>
+            <h2>Invite paying users, earn credits</h2>
+            <p>Members receive 100 credits for each invited user who registers and completes a payment.</p>
           </div>
           <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
           <div class="referral-link" id="referralLink">Login to get your invite link.</div>
           <div class="referral-progress" aria-hidden="true"><span id="referralProgressFill"></span></div>
           <div class="referral-stats">
             <strong id="referralInvitedCount">0 invited</strong>
-            <strong id="referralRewardStatus">1 reward available</strong>
+            <strong id="referralRewardStatus">Membership required for rewards</strong>
+          </div>
+          <div class="referral-membership-progress">
+            <div><span>Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
+            <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
           </div>
           <p class="job-note" id="referralNote"></p>
         </div>
@@ -687,12 +739,16 @@
                 <strong id="topupSelectedPackage">0 credits</strong>
               </div>
               <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
-                <button class="topup-method-tab is-active" type="button" data-topup-method="usdt" role="tab" aria-selected="true">
+                <button class="topup-method-tab is-active" type="button" data-topup-method="paypal" role="tab" aria-selected="true">
+                  <i data-lucide="credit-card"></i>
+                  <span data-i18n="topup.paypalTab">PayPal</span>
+                </button>
+                <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
                   <i data-lucide="wallet"></i>
                   <span data-i18n="topup.usdtTab">USDT</span>
                 </button>
               </div>
-              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal" hidden>
+              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal">
                 <div class="paypal-checkout" id="paypalBox" hidden>
                   <div>
                     <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
@@ -701,7 +757,7 @@
                   <div class="paypal-buttons" id="paypalButtons"></div>
                 </div>
               </div>
-              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt">
+              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
                 <div class="topup-wallet-options" id="topupWalletOptions"></div>
                 <div class="topup-actions topup-usdt-actions">
                   <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
@@ -816,6 +872,9 @@
           <img id="previewImage" alt="Preview" hidden />
           <video id="previewVideo" controls playsinline preload="metadata"></video>
         </div>
+        <footer class="preview-actions" id="previewActions" hidden>
+          <a class="copy-btn" id="previewDownloadBtn" href="#" download><i data-lucide="download"></i>Download</a>
+        </footer>
       </form>
     </dialog>
 

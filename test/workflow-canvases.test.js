@@ -14,8 +14,9 @@ test("workflow canvas state is normalized and bounded", () => {
   } = require("../workflow-canvases");
 
   const initial = defaultWorkflowCanvasState();
-  assert.equal(initial.nodes.length, 4);
-  assert.equal(initial.edges.length, 3);
+  assert.equal(initial.nodes.length, 5);
+  assert.equal(initial.edges.length, 4);
+  assert.equal(initial.nodes.find((node) => node.type === "prompt")?.title, "Story Prompt");
   assert.equal(normalizeWorkflowCanvasName("  My workflow  "), "My workflow");
   assert.equal(normalizeWorkflowCanvasName(" "), "Untitled workflow");
 
@@ -43,6 +44,8 @@ test("workflow canvas state is normalized and bounded", () => {
 test("workflow canvas database operations are owner scoped", () => {
   const db = read("db.js");
 
+  assert.match(db, /pool\.on\("error", \(error\) =>/);
+  assert.match(db, /\[db-pool-error\]/);
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_workflow_canvases/);
   assert.match(db, /CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases \(user_id, updated_at DESC/);
   assert.match(db, /SELECT id, user_id, name, created_at, updated_at FROM app_workflow_canvases/);
@@ -64,7 +67,7 @@ test("workflow canvas CRUD is authenticated and unavailable on tool tenants", ()
   assert.match(server, /WORKFLOW_CANVAS_LIMIT/);
 });
 
-test("workflow canvas UI supports migration, selection, create, save and delete", () => {
+test("workflow canvas UI supports selection, create, save and delete", () => {
   const loader = read("platform.js");
   const manager = read("platform.workflow-canvases.js");
   const ui = read("platform.ui.js");
@@ -72,7 +75,7 @@ test("workflow canvas UI supports migration, selection, create, save and delete"
 
   assert.match(loader, /"platform\.workflow-canvases\.js"/);
   assert.match(manager, /function loadWorkflowCanvases/);
-  assert.match(manager, /function migrateLegacyWorkflowCanvas/);
+  assert.doesNotMatch(manager, /migrateLegacyWorkflowCanvas|legacyWorkflowCanvasValue/);
   assert.match(manager, /function scheduleWorkflowCanvasSave/);
   assert.match(manager, /function createWorkflowCanvas/);
   assert.match(manager, /function saveWorkflowCanvas/);

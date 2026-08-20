@@ -34,6 +34,20 @@ test("undress.14vips.com is an isolated tenant without API or asset-library acce
   assert.match(ui, /function requestAdvancedEstimate[\s\S]*?tenantFeature\("toolOnly", false\)/);
 });
 
+test("tool public requests avoid loading the full home catalog and anonymous database snapshot", () => {
+  assert.match(server, /async function readAppConfig\(\{ includeHomeItems = true \} = \{\}\)/);
+  assert.match(server, /readAppConfig\(\{ includeHomeItems: !tenantOptions\.toolOnly \}\)/);
+  assert.match(server, /tenantOptions\.toolOnly \? Promise\.resolve\(""\) : getKvUpdatedAt\("app_config"\)/);
+  const publicConfigHandler = server.slice(
+    server.indexOf('if (req.method === "GET" && url.pathname === "/api/config/public")'),
+    server.indexOf('if (req.method === "GET" && url.pathname === "/api/public/characters")'),
+  );
+  assert.match(publicConfigHandler, /const isToolOnly = Boolean\(tenantOptions\.toolOnly\)/);
+  assert.match(publicConfigHandler, /if \(!isToolOnly\) \{[\s\S]*?ensureSceneEntriesPersisted[\s\S]*?refreshCompletedHomeVideoItems/);
+  assert.match(publicConfigHandler, /const auth = getBearerToken\(req\) \? await getAuth\(req\) : \{ user: null \}/);
+  assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) await recordGeoVisitStats\(req, url\)/);
+});
+
 test("the first image claim is atomic, persistent, and released only after a failed claim", () => {
   assert.match(db, /async function claimToolFreeGenerationInDb/);
   assert.match(db, /ON CONFLICT \(id\) DO NOTHING/);
@@ -127,11 +141,14 @@ test("Undress home uses the localized fantasy headline and adult creation descri
 
 test("all three generation tabs show compact server-backed before and after examples", () => {
   assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input\?v=image-20260819115156-587c60-webp1/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/result\?v=image-20260819115156-587c60-webp1/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/image-video-result\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-input\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-result\.mp4/);
   assert.match(frontend, /controls playsinline preload="auto"/);
+  assert.match(frontend, /loading="lazy" decoding="async" fetchpriority="low"/);
+  assert.doesNotMatch(frontend, /loading="eager"/);
   assert.match(frontend, /undress-tool-example-arrow[\s\S]*?data-lucide="arrow-right"/);
   assert.match(frontend, /data-undress-example-play/);
   assert.match(frontend, /const playback = video\.play\(\)/);
@@ -142,11 +159,20 @@ test("all three generation tabs show compact server-backed before and after exam
   assert.match(css, /\.undress-tool-example-play[\s\S]*?width: 44px[\s\S]*?height: 44px/);
 
   const handler = server.slice(server.indexOf("async function handleUndressToolExampleMedia"), server.indexOf("async function handleUndressToolEstimate"));
-  assert.match(server, /undress-20260806121918-0726d2/);
+  assert.match(server, /image-20260819115156-587c60/);
+  assert.doesNotMatch(server, /undress-20260806121918-0726d2/);
   assert.match(server, /cgt-20260728161747-915edb/);
   assert.match(server, /video-20260806194724-f15971/);
   assert.match(handler, /undressToolRequestAllowed\(req\)/);
   assert.match(handler, /getGenerationRecord\(definition\.taskId\)/);
+  assert.match(server, /UNDRESS_TOOL_EXAMPLE_DIR/);
+  assert.match(handler, /ensureUndressToolExampleFile/);
+  assert.match(server, /function undressToolExampleRemoteUrl/);
+  assert.match(server, /async function optimizeUndressToolExampleImage/);
+  assert.match(server, /libwebp/);
+  assert.match(server, /image\/webp/);
+  assert.match(server, /downloadRemoteFileToBuffer\(remoteUrl/);
+  assert.match(server, /fs\.copyFile\(sourcePath, temporaryPath\)/);
   assert.match(handler, /sendInternalAsset\(res, filePath, mime, stat\)/);
   assert.match(server, /undressToolExampleMatch[\s\S]*?handleUndressToolExampleMedia/);
   assert.match(server, /\(image\|image_video\|video\)/);
@@ -180,7 +206,7 @@ test("generated Undress videos are fast-started and show their poster while prev
   assert.match(server, /await ensureGeneratedVideoFastStart\(localVideoPath\)/);
   assert.match(server, /fastStartUpdated \|\| !cdnVideoUrl/);
   assert.match(server, /cacheBustedMediaUrl\(cdn\.cdnVideoUrl \|\| cdnVideoUrl, Date\.now\(\)\)/);
-  assert.match(server, /record\.localVideoUrl && !record\.playbackOptimizedAt/);
+  assert.match(server, /function generationRecordNeedsMediaMaintenance\(record = \{\}\)[\s\S]*?!record\.playbackOptimizedAt/);
   assert.match(server, /playbackOptimizedAt: finalMedia\.playbackOptimizedAt \|\| completedAt/);
   assert.match(history, /posterUrl: generationPosterUrl\(record\)/);
 });
@@ -212,7 +238,7 @@ test("History renders an unlock action instead of media for locked results", () 
   assert.match(css, /\.inline-modal\.is-undress-unlock \.inline-actions[\s\S]*?justify-content: center/);
   assert.match(ui, /classList\.remove\([^\n]*"is-undress-unlock"\)/);
   assert.match(history, /await showUndressUnlockConfirm\(record\)/);
-  assert.match(server, /record\.localVideoUrl[\s\S]*?ensureGenerationRecordMediaOptimized\(record\)[\s\S]*?ensureUndressLockedPreview\(optimized\)/);
+  assert.match(server, /record\.localVideoUrl[\s\S]*?queueGenerationRecordMediaMaintenance\(record\)[\s\S]*?ensureUndressLockedPreview\(record\)/);
 });
 
 test("Undress results expose a download action only after the result is unlocked", () => {

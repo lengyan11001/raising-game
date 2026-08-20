@@ -24,6 +24,7 @@ const {
   buildSeedance25TaskPayload,
   normalizeSeedance25Mode,
   purchaseSiteCreditsPerSecond: seedance25PurchaseSiteCreditsPerSecond,
+  seedance25TaskFailureMessage,
 } = require("./seedance25");
 const {
   SEEDANCE25_DIRECT_ENDPOINT_ID,
@@ -66,6 +67,12 @@ const {
   planVideoEditSegments,
 } = require("./video-tools");
 const {
+  DEFAULT_UNDRESS_PROMPTS,
+  normalizeUndressPrompts,
+  undressPromptForAction,
+  validateUndressPrompts,
+} = require("./undress-prompts");
+const {
   WORKFLOW_CANVAS_LIMIT,
   defaultWorkflowCanvasState,
   normalizeWorkflowCanvasName,
@@ -82,6 +89,12 @@ const {
   referenceVideoDurationViolation,
 } = require("./media-inputs");
 const {
+  LOCAL_MEDIA_RETENTION_MS,
+  markPublishedFile,
+  removeExpiredFiles,
+  removeExpiredPublishedFiles,
+} = require("./local-media-retention");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -94,6 +107,7 @@ const {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  getUserByTelegramIdInDb,
   getUserByIdInDb,
   createSessionInDb,
   getSessionByTokenInDb,
@@ -103,9 +117,15 @@ const {
   getBillingPlanInDb,
   getUserSubscriptionInDb,
   upsertUserSubscriptionInDb,
+  createMembershipActivationCodesInDb,
+  listMembershipActivationCodesInDb,
+  hasReferralRewardInDb,
+  setMembershipActivationCodeStatusInDb,
+  redeemMembershipActivationCodeInDb,
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,
+  getUserAssetFromDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
@@ -159,6 +179,12 @@ const {
   applyPublicSecurityHeaders,
   httpsRedirectLocation,
 } = require("./site-http");
+const {
+  createTelegramBotClient,
+  parseTelegramWebAppInitData,
+  telegramStatusStage,
+  telegramUserLabel: telegramBotUserLabel,
+} = require("./telegram-bot");
 
 const ROOT = __dirname;
 const PLATFORM_ASSET_FILES = Object.freeze([
@@ -167,6 +193,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.config.js",
   "platform.copy.js",
   "platform.ui.js",
+  "platform.telegram.js",
   "platform.workflow-canvases.js",
   "platform.explore.js",
   "platform.create.js",
@@ -209,6 +236,10 @@ loadLocalEnv(path.join(ROOT, ".env.local"));
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
 const PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || "0").trim());
+const PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED || "0").trim());
+const PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED || "0").trim());
+const PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED || "0").trim());
+const PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED || "0").trim());
 const MAINLAND_BYPASS_TOKEN = String(process.env.MAINLAND_BYPASS_TOKEN || "").trim();
 const MAINLAND_BYPASS_QUERY_PARAM = process.env.MAINLAND_BYPASS_QUERY_PARAM || "cnpass";
 const MAINLAND_BYPASS_COOKIE = process.env.MAINLAND_BYPASS_COOKIE || "cnpass";
@@ -225,6 +256,7 @@ const GOOGLE_SITE_VERIFICATION_BY_HOST = String(process.env.GOOGLE_SITE_VERIFICA
 const PRIMARY_PLATFORM_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_HOSTS || "123vips.com,www.123vips.com"));
 const PRIMARY_PLATFORM_ROOT_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_ROOT_HOSTS || "123vips.com"));
 const PUBLIC_TENANT_ROOT_HOSTS = new Set(parseCsvList(process.env.PUBLIC_TENANT_ROOT_HOSTS || "cloudtoken.ai,667zui.video"));
+const PAYMENT_HOSTS = new Set(parseCsvList(process.env.PAYMENT_HOSTS || "pay.seed2.io"));
 const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   undress: "undress",
   video: "video",
@@ -325,17 +357,32 @@ const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
 const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBHOOK_SECRET || "").trim();
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_UNDRESS_BOT_TOKEN || "").trim();
+const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
+const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
+const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
+const TELEGRAM_BOT_NOTIFIER_INTERVAL_MS = Math.max(10000, Number(process.env.TELEGRAM_BOT_NOTIFIER_INTERVAL_MS || 15000) || 15000);
 const VIPEAK_X_URL = "https://x.com/VipeakAI";
 const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
 const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
-const CHARACTER_UNLOCK_COST_CREDITS = 750;
+const CHARACTER_UNLOCK_COST_CREDITS = 0;
 const PUBLIC_CHARACTER_PAGE_SIZE = 20;
 const REFERRAL_REWARD_CREDITS = 100;
+const CREATOR_MEMBERSHIP_PLAN_ID = "plan-main-creator";
+const CREATOR_MEMBERSHIP_PRICE_USD = 99;
+const CREATOR_MEMBERSHIP_REFERRAL_TARGET = 100;
+const API_DOCS_PRODUCT_ID = "api-docs-access";
+const API_DOCS_PRICE_USD = 1000;
+const API_DOCS_TEST_CREDITS = 20000;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
+const UNDRESS_TOOL_EXAMPLE_DIR = path.join(ROOT, "assets", "admin", "undress-examples");
 const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
 const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
+const GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS = 4;
+const GENERATED_VIDEO_DURATION_TOLERANCE_SECONDS = 0.75;
+const GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS = 2500;
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
 const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
 const GENERATED_LOCKED_PREVIEW_DIR = path.join(ROOT, "assets", "generated", "locked-previews");
@@ -432,6 +479,15 @@ const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim
 const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
 const PAYPAL_CURRENCY = String(process.env.PAYPAL_CURRENCY || "USD").trim().toUpperCase() || "USD";
 const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "Vipeak AI").trim() || "Vipeak AI";
+const PAYPAL_CHECKOUT_BASE_URL = String(
+  process.env.PAYPAL_CHECKOUT_BASE_URL ||
+  process.env.PAYMENT_BASE_URL ||
+  "https://pay.seed2.io",
+).trim().replace(/\/+$/, "");
+const PAYPAL_CHECKOUT_SESSION_TTL_MS = Math.max(
+  15 * 60 * 1000,
+  Number(process.env.PAYPAL_CHECKOUT_SESSION_TTL_MS || 2 * 60 * 60 * 1000) || 2 * 60 * 60 * 1000,
+);
 const MIN_TOPUP_AMOUNT = clampNumber(process.env.MIN_TOPUP_AMOUNT, 1, 1, 100000);
 const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, MIN_TOPUP_AMOUNT, 0.01, 100000);
 const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
@@ -442,7 +498,6 @@ const TOPUP_PACKAGES = Object.freeze([
   Object.freeze({ id: "usd-100", amount: 100, credits: 12000 }),
   Object.freeze({ id: "usd-200", amount: 200, credits: 25000 }),
   Object.freeze({ id: "usd-500", amount: 500, credits: 65000 }),
-  Object.freeze({ id: "usd-1000", amount: 1000, credits: 140000 }),
 ]);
 const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.PAYPAL_CNY_CENTS_PER_UNIT ||
@@ -589,6 +644,14 @@ function defaultAliyunLegacySaleCreditsByModel() {
   ]));
 }
 
+const QWEN37_FLASH_MODEL = String(process.env.ALIYUN_QWEN37_MODEL || "qwen3.7-flash").trim() || "qwen3.7-flash";
+const QWEN37_FLASH_MAX_OUTPUT_TOKENS = Math.floor(clampNumber(process.env.QWEN37_FLASH_MAX_OUTPUT_TOKENS, 8192, 1, 32768));
+const QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS = Object.freeze([
+  Object.freeze({ maxInputTokens: 32768, input: 0.225, output: 0.974 }),
+  Object.freeze({ maxInputTokens: 262144, input: 0.749, output: 2.998 }),
+  Object.freeze({ maxInputTokens: 1000000, input: 1.499, output: 5.995 }),
+]);
+
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -628,6 +691,11 @@ const DEFAULT_ADVANCED_PRICING = {
     "480p": defaultWan30SaleCreditsPerSecond("480p"),
     "720p": defaultWan30SaleCreditsPerSecond("720p"),
     "1080p": defaultWan30SaleCreditsPerSecond("1080p"),
+  },
+  wan30PrimeCreditsPerSecondByResolution: {
+    "480p": pricingNumber(defaultWan30SaleCreditsPerSecond("480p") * 1.5, 0, 0, 6),
+    "720p": pricingNumber(defaultWan30SaleCreditsPerSecond("720p") * 1.5, 0, 0, 6),
+    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 1.5, 0, 0, 6),
   },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
@@ -729,11 +797,20 @@ const DEFAULT_ADVANCED_PRICING = {
     defaultResolution: "2K",
     defaultTier: "pro",
   },
+  qwen37Flash: {
+    model: QWEN37_FLASH_MODEL,
+    inputCnyPerMillionTokens: QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[0].input,
+    outputCnyPerMillionTokens: QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[0].output,
+    defaultMaxTokens: 1024,
+    defaultTemperature: 0.7,
+    defaultThinking: false,
+  },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 9, 1, 9));
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
+const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2";
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 140, 1, 200) * 1024 * 1024);
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
@@ -741,16 +818,20 @@ const WAN30_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const WAN30_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const VIDEO_DURATION_PROBE_TIMEOUT_MS = Math.max(3000, Number(process.env.VIDEO_DURATION_PROBE_TIMEOUT_MS || 10000) || 10000);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
-const QWEN_IMAGE3_SINGAPORE_BASE_URL = "https://dashscope-intl.aliyuncs.com";
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
   process.env.DASHSCOPE_API_KEY ||
   process.env.BAILIAN_API_KEY ||
   "";
-const ALIYUN_QWEN_IMAGE3_API_KEY = String(process.env.ALIYUN_QWEN_IMAGE3_API_KEY || "").trim();
-const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_QWEN37_BASE_URL = (process.env.ALIYUN_QWEN37_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_QWEN37_API_KEY = String(process.env.ALIYUN_QWEN37_API_KEY || ALIYUN_DASHSCOPE_API_KEY || "").trim();
+const QWEN_IMAGE3_SINGAPORE_BASE_URL = (process.env.ALIYUN_QWEN_IMAGE3_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_QWEN_IMAGE3_API_KEY = String(process.env.ALIYUN_QWEN_IMAGE3_API_KEY || ALIYUN_DASHSCOPE_API_KEY || "").trim();
+const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_WAN30_API_KEY = process.env.ALIYUN_WAN30_API_KEY || ALIYUN_DASHSCOPE_API_KEY;
 const ALIYUN_WAN30_MODEL = process.env.ALIYUN_WAN30_MODEL || "wan3.0-video";
+const ALIYUN_WAN30_PRIME_MODEL = process.env.ALIYUN_WAN30_PRIME_MODEL || "wan3.0-video-prime";
+const ALIYUN_WAN30_PRIME_PRICE_FACTOR = pricingNumber(process.env.ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1.5, 1, 6);
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
@@ -787,6 +868,9 @@ const R2 = {
     process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
     process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
 };
+const R2_UPLOAD_TIMEOUT_MS = Math.max(25000, Number(process.env.R2_UPLOAD_TIMEOUT_MS || 120000) || 120000);
+const R2_UPLOAD_MAX_TIMEOUT_MS = Math.max(R2_UPLOAD_TIMEOUT_MS, Number(process.env.R2_UPLOAD_MAX_TIMEOUT_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
+const R2_UPLOAD_MIN_BYTES_PER_SECOND = Math.max(64 * 1024, Number(process.env.R2_UPLOAD_MIN_BYTES_PER_SECOND || 256 * 1024) || 256 * 1024);
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
@@ -942,6 +1026,7 @@ function decorateFullBodyLegPrompt(corePrompt, extraDirection = "") {
 
 const DEFAULT_CONFIG = {
   defaultCompanionId: "aria",
+  undressPrompts: { ...DEFAULT_UNDRESS_PROMPTS },
   prices: {
     meet: 12,
     photo: 18,
@@ -1320,6 +1405,22 @@ function publicAliyunModelHidden(value = "") {
   if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return false;
   const raw = String(value || "").trim().toLowerCase();
   const normalized = normalizeAdvancedProvider(value);
+  const wan30Value = normalized === "wan30" || raw.includes("wan3.0") || raw.includes("wan30");
+  const wan27Value = normalized === "wan27"
+    || normalized === "wan27-image"
+    || normalized === "wan27-image-edit"
+    || raw.includes("wan2.7")
+    || raw.includes("wan27")
+    || raw.includes("wan-animate")
+    || raw.includes("wananimate");
+  const happyhorseValue = normalized === "happyhorse" || raw.includes("happyhorse");
+  const qwenImage3Value = normalized === "qwen-image3"
+    || raw.includes("qwen-image-3")
+    || raw.includes("qwenimage3");
+  if (PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED && wan30Value) return false;
+  if (PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED && wan27Value) return false;
+  if (PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED && happyhorseValue) return false;
+  if (PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED && qwenImage3Value) return false;
   return ["wan30", "wan27", "happyhorse", "qwen-image3", "wan27-image-edit"].includes(normalized)
     || raw.includes("wan-animate")
     || raw.includes("wananimate")
@@ -1442,6 +1543,15 @@ function requestHostname(req) {
 
 function isCmsHostRequest(req) {
   return requestHostname(req).startsWith("cms.");
+}
+
+function paymentCheckoutHostname() {
+  return normalizeHostname(PAYPAL_CHECKOUT_BASE_URL);
+}
+
+function isPaymentHostRequest(req) {
+  const host = requestHostname(req);
+  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname()));
 }
 
 function configuredPublicBaseUrl() {
@@ -1581,7 +1691,7 @@ function tenantDescriptorFromHostname(hostname = "") {
   const toolId = toolTenantIdForHostname(host);
   const tool = TOOL_TENANT_SPECS[toolId] || null;
   const tenantPublic = Boolean(tool || isPublicTenantHostname(host));
-  const apiAccess = !tenantPublic && !tool;
+  const apiAccess = !tool;
   return {
     tenantPublic,
     tenantMode: tool ? "tool" : "platform",
@@ -1601,6 +1711,7 @@ function tenantDescriptorFromHostname(hostname = "") {
     assetLibrary: tool?.assetLibrary ?? true,
     accountMenu: true,
     subscriptions: Boolean(tool),
+    membershipProgram: !tool,
     videoProvider: tool?.videoProvider || "",
   };
 }
@@ -1690,12 +1801,14 @@ async function softDeleteAdminHomeItemStore(itemId = "") {
   return await softDeleteAdminHomeItemInDb(id, nowIso);
 }
 
-async function readAppConfig() {
+async function readAppConfig({ includeHomeItems = true } = {}) {
   const saved = await getKv("app_config", DEFAULT_CONFIG);
   const bySceneId = new Map(DEFAULT_CONFIG.scenes.map((scene) => [scene.id, scene]));
   const scenes = Array.isArray(saved.scenes) ? saved.scenes : DEFAULT_CONFIG.scenes;
-  let storedHomeItems = await readAdminHomeItemsStore();
-  const savedHomeItems = Array.isArray(saved.homeVideo?.items) ? saved.homeVideo.items.filter((item) => item && !isSoftDeleted(item)) : [];
+  let storedHomeItems = includeHomeItems ? await readAdminHomeItemsStore() : [];
+  const savedHomeItems = includeHomeItems && Array.isArray(saved.homeVideo?.items)
+    ? saved.homeVideo.items.filter((item) => item && !isSoftDeleted(item))
+    : [];
   const storedHomeIds = new Set(storedHomeItems.map((item) => String(item.id || "")));
   const missingSavedHomeItems = savedHomeItems.filter((item) => item?.id && !storedHomeIds.has(String(item.id)));
   if (missingSavedHomeItems.length) {
@@ -1713,6 +1826,7 @@ async function readAppConfig() {
     prices: { ...DEFAULT_CONFIG.prices, ...(saved.prices || {}) },
     wallet: { ...DEFAULT_CONFIG.wallet, ...(saved.wallet || {}) },
     video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}), generateAudio: true },
+    undressPrompts: normalizeUndressPrompts(saved.undressPrompts),
     platform: normalizePlatformConfig(saved.platform || DEFAULT_CONFIG.platform),
     homeVideo: mergedHomeVideo,
     ifilm: { ...DEFAULT_CONFIG.ifilm, ...(saved.ifilm || {}) },
@@ -1722,7 +1836,10 @@ async function readAppConfig() {
 }
 
 async function writeAppConfig(config) {
-  const next = { ...config };
+  const next = {
+    ...config,
+    undressPrompts: normalizeUndressPrompts(config?.undressPrompts),
+  };
   if (Array.isArray(next.homeVideo?.items)) {
     await replaceAdminHomeItemsStore(next.homeVideo.items);
     next.homeVideo = { ...next.homeVideo, items: [] };
@@ -1807,6 +1924,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan30 = source.wan30CreditsPerSecondByResolution && typeof source.wan30CreditsPerSecondByResolution === "object"
     ? source.wan30CreditsPerSecondByResolution
     : {};
+  const wan30Prime = source.wan30PrimeCreditsPerSecondByResolution && typeof source.wan30PrimeCreditsPerSecondByResolution === "object"
+    ? source.wan30PrimeCreditsPerSecondByResolution
+    : {};
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
@@ -1827,6 +1947,9 @@ function normalizeAdvancedPricing(pricing = {}) {
     : {};
   const rawQwenImage3Source = source.qwenImage3 && typeof source.qwenImage3 === "object" && !Array.isArray(source.qwenImage3)
     ? source.qwenImage3
+    : {};
+  const rawQwen37FlashSource = source.qwen37Flash && typeof source.qwen37Flash === "object" && !Array.isArray(source.qwen37Flash)
+    ? source.qwen37Flash
     : {};
   const wan27ImageSource = { ...rawWan27ImageSource };
   if (Number(wan27ImageSource.saleCnyPerImage) === 0.8432 && !rawWan27ImageSource.userConfigured) {
@@ -2015,6 +2138,11 @@ function normalizeAdvancedPricing(pricing = {}) {
       "720p": normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6),
       "1080p": normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6),
     },
+    wan30PrimeCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(wan30Prime["480p"], pricingNumber(normalizeStoredCredits(wan30["480p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["480p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+      "720p": normalizeStoredCredits(wan30Prime["720p"], pricingNumber(normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+      "1080p": normalizeStoredCredits(wan30Prime["1080p"], pricingNumber(normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+    },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
     happyhorseCreditsPerSecondByResolution: normalizedHappyhorseRates,
     aliyunVideoCreditsPerSecondByCapability,
@@ -2057,6 +2185,36 @@ function normalizeAdvancedPricing(pricing = {}) {
       defaultResolution: normalizeQwenImage3Resolution(rawQwenImage3Source.defaultResolution || qwenImage3Default.defaultResolution || "2K"),
       defaultTier: normalizeQwenImage3Tier(rawQwenImage3Source.defaultTier || qwenImage3Default.defaultTier || "pro"),
     },
+    qwen37Flash: {
+      ...DEFAULT_ADVANCED_PRICING.qwen37Flash,
+      ...rawQwen37FlashSource,
+      model: QWEN37_FLASH_MODEL,
+      inputCnyPerMillionTokens: pricingNumber(
+        rawQwen37FlashSource.inputCnyPerMillionTokens,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.inputCnyPerMillionTokens,
+        0,
+        6,
+      ),
+      outputCnyPerMillionTokens: pricingNumber(
+        rawQwen37FlashSource.outputCnyPerMillionTokens,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.outputCnyPerMillionTokens,
+        0,
+        6,
+      ),
+      defaultMaxTokens: Math.floor(clampNumber(
+        rawQwen37FlashSource.defaultMaxTokens,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.defaultMaxTokens,
+        1,
+        QWEN37_FLASH_MAX_OUTPUT_TOKENS,
+      )),
+      defaultTemperature: clampNumber(
+        rawQwen37FlashSource.defaultTemperature,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.defaultTemperature,
+        0,
+        2,
+      ),
+      defaultThinking: boolFromRequest(rawQwen37FlashSource.defaultThinking, false),
+    },
   };
 }
 
@@ -2065,6 +2223,7 @@ function publicAdvancedPricingView(pricing = {}) {
   const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
   const seedreamPricing = normalized.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image || {};
   const qwenPricing = normalized.qwenImage3 || DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
+  const qwen37Pricing = normalized.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash || {};
   const imageCostCredits = pricingNumber(
     Number(imagePricing.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY),
     0,
@@ -2074,6 +2233,7 @@ function publicAdvancedPricingView(pricing = {}) {
   const view = {
     unit: "credits",
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
+    creditsPerCny: normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY,
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
     seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
     seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
@@ -2082,6 +2242,7 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan30CreditsPerSecondByResolution: { ...normalized.wan30CreditsPerSecondByResolution },
+    wan30PrimeCreditsPerSecondByResolution: { ...normalized.wan30PrimeCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     happyhorseCreditsPerSecondByResolution: { ...normalized.happyhorseCreditsPerSecondByResolution },
     aliyunVideoCreditsPerSecondByCapability: {
@@ -2121,14 +2282,39 @@ function publicAdvancedPricingView(pricing = {}) {
         saleUsdPerReferenceImage: qwenPricing.standard.saleUsdPerReferenceImage,
       },
     },
+    qwen37Flash: {
+      model: QWEN37_FLASH_MODEL,
+      inputCnyPerMillionTokens: qwen37Pricing.inputCnyPerMillionTokens,
+      outputCnyPerMillionTokens: qwen37Pricing.outputCnyPerMillionTokens,
+      defaultMaxTokens: qwen37Pricing.defaultMaxTokens,
+      defaultTemperature: qwen37Pricing.defaultTemperature,
+      defaultThinking: qwen37Pricing.defaultThinking === true,
+    },
   };
-  if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
+  const selectiveAliyunExposureEnabled = PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED
+    || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED
+    || PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED
+    || PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED;
+  if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED && !selectiveAliyunExposureEnabled) {
     delete view.wan30CreditsPerSecondByResolution;
+    delete view.wan30PrimeCreditsPerSecondByResolution;
     delete view.wan27CreditsPerSecondByResolution;
     delete view.happyhorseCreditsPerSecondByResolution;
     delete view.aliyunVideoCreditsPerSecondByCapability;
     delete view.vipeak1Image;
     delete view.qwenImage3;
+  } else if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
+    if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) {
+      delete view.wan30CreditsPerSecondByResolution;
+      delete view.wan30PrimeCreditsPerSecondByResolution;
+    }
+    if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
+      delete view.wan27CreditsPerSecondByResolution;
+      delete view.vipeak1Image;
+      delete view.aliyunVideoCreditsPerSecondByCapability;
+    }
+    if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete view.happyhorseCreditsPerSecondByResolution;
+    if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) delete view.qwenImage3;
   }
   return view;
 }
@@ -2183,11 +2369,109 @@ function publicTenantFeatures(tenant = {}) {
     disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
     apiAccess: tenant.apiAccess !== false,
     aliyunModels: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED,
+    aliyunWan30Models: PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED,
+    aliyunWan27Models: PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED,
+    aliyunHappyHorseModels: PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED,
+    aliyunQwenImage3Models: PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED,
     assetLibrary: tenant.assetLibrary !== false,
     accountMenu: tenant.accountMenu !== false,
     subscriptions: Boolean(tenant.subscriptions),
+    membershipProgram: Boolean(tenant.membershipProgram),
     videoProvider: tenant.videoProvider || "",
   };
+}
+
+function creatorMembershipPayload(user = {}) {
+  return user.membership && typeof user.membership === "object" ? user.membership : {};
+}
+
+function userHasCreatorMembership(user = {}) {
+  const membership = creatorMembershipPayload(user);
+  return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
+}
+
+function userHasApiDocsAccess(user = {}) {
+  const entitlement = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+  return entitlement.status === "active" && Boolean(entitlement.grantedAt || entitlement.orderId);
+}
+
+function publicCreatorMembership(user = {}) {
+  const membership = creatorMembershipPayload(user);
+  return {
+    active: userHasCreatorMembership(user),
+    status: userHasCreatorMembership(user) ? "active" : "inactive",
+    planId: membership.planId || CREATOR_MEMBERSHIP_PLAN_ID,
+    activatedAt: String(membership.activatedAt || ""),
+    source: String(membership.source || ""),
+  };
+}
+
+function publicApiDocsEntitlement(user = {}) {
+  const entitlement = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+  return {
+    active: userHasApiDocsAccess(user),
+    status: userHasApiDocsAccess(user) ? "active" : "locked",
+    productId: API_DOCS_PRODUCT_ID,
+    grantedAt: String(entitlement.grantedAt || ""),
+  };
+}
+
+async function activateCreatorMembership(db, user, { source = "payment", orderId = "", codeId = "", referralCount = 0 } = {}) {
+  if (!user) return null;
+  const now = new Date().toISOString();
+  const current = creatorMembershipPayload(user);
+  user.membership = {
+    ...current,
+    status: "active",
+    planId: CREATOR_MEMBERSHIP_PLAN_ID,
+    activatedAt: current.activatedAt || now,
+    source: current.source || source,
+    orderId: current.orderId || orderId,
+    codeId: current.codeId || codeId,
+    referralCount: Math.max(Number(current.referralCount || 0), Number(referralCount || 0)),
+    updatedAt: now,
+  };
+  user.updatedAt = now;
+  if (dbEnabled()) {
+    await updateUserInDb(user);
+    const existing = await getUserSubscriptionInDb(user.id, DEFAULT_TENANT_ID);
+    await upsertUserSubscriptionInDb({
+      ...existing,
+      id: existing?.id || randomId("sub"),
+      tenantId: DEFAULT_TENANT_ID,
+      userId: user.id,
+      planId: CREATOR_MEMBERSHIP_PLAN_ID,
+      planName: "Creator Membership",
+      status: "active",
+      currentPeriodStart: existing?.currentPeriodStart || now,
+      currentPeriodEnd: "",
+      cancelAtPeriodEnd: false,
+      provider: source,
+      lastOrderId: orderId || existing?.lastOrderId || "",
+      activationCodeId: codeId || existing?.activationCodeId || "",
+      updatedAt: now,
+      createdAt: existing?.createdAt || now,
+    });
+  }
+  return user;
+}
+
+async function grantApiDocsAccess(db, user, { orderId = "", source = "payment" } = {}) {
+  if (!user) return null;
+  const now = new Date().toISOString();
+  const current = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+  user.apiDocsAccess = {
+    ...current,
+    status: "active",
+    productId: API_DOCS_PRODUCT_ID,
+    grantedAt: current.grantedAt || now,
+    source: current.source || source,
+    orderId: current.orderId || orderId,
+    updatedAt: now,
+  };
+  user.updatedAt = now;
+  if (dbEnabled()) await updateUserInDb(user);
+  return user;
 }
 
 function publicBillingPlan(plan = {}) {
@@ -2199,6 +2483,8 @@ function publicBillingPlan(plan = {}) {
     intervalUnit: String(plan.intervalUnit || "month"),
     intervalCount: Math.max(1, Math.trunc(Number(plan.intervalCount || 1) || 1)),
     includedCredits: creditsAmount(plan.includedCredits || 0),
+    lifetime: String(plan.intervalUnit || "").toLowerCase() === "lifetime",
+    benefits: Array.isArray(plan.benefits) ? plan.benefits : [],
   };
 }
 
@@ -2236,8 +2522,12 @@ function toolTopupPackagesForPlan(plan = null) {
 
 async function billingViewForRequest(req, auth = null) {
   const tenant = requestTenantDescriptor(req);
-  if (!tenant.subscriptions) return { enabled: false, plans: [], subscription: null };
-  const plans = await listBillingPlansInDb(tenant.tenantId);
+  const membershipProgram = Boolean(tenant.membershipProgram);
+  if (!tenant.subscriptions && !membershipProgram) return { enabled: false, plans: [], subscription: null };
+  const allPlans = await listBillingPlansInDb(tenant.tenantId);
+  const plans = membershipProgram
+    ? allPlans.filter((plan) => plan.id === CREATOR_MEMBERSHIP_PLAN_ID)
+    : allPlans;
   const primaryPlan = plans[0] || null;
   const subscription = auth?.user
     ? await getUserSubscriptionInDb(auth.user.id, tenant.tenantId)
@@ -2245,9 +2535,20 @@ async function billingViewForRequest(req, auth = null) {
   return {
     enabled: true,
     tenantId: tenant.tenantId,
+    membershipProgram,
     plans: plans.map(publicBillingPlan),
     subscription: publicBillingSubscription(subscription, plans.find((plan) => plan.id === subscription?.planId) || primaryPlan),
-    topupPackages: toolTopupPackagesForPlan(primaryPlan),
+    membership: auth?.user ? publicCreatorMembership(auth.user) : publicCreatorMembership(),
+    apiDocs: auth?.user ? publicApiDocsEntitlement(auth.user) : publicApiDocsEntitlement(),
+    products: membershipProgram ? [{
+      id: API_DOCS_PRODUCT_ID,
+      name: "API Documentation Access",
+      amount: API_DOCS_PRICE_USD,
+      currency: "USD",
+      includedCredits: API_DOCS_TEST_CREDITS,
+      owned: Boolean(auth?.user && userHasApiDocsAccess(auth.user)),
+    }] : [],
+    topupPackages: membershipProgram ? publicTopupPackages(auth?.user || null) : toolTopupPackagesForPlan(primaryPlan),
     recurringPaymentReady: false,
   };
 }
@@ -2299,7 +2600,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: publicTenantFeatures(tenant),
-    assetImageModify: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED ? {
+    assetImageModify: (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) ? {
       model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
       saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
@@ -2317,7 +2618,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       options: walletOptions,
       suffixDigits: config.wallet.suffixDigits,
       creditsPerUsd: walletCreditsPerUsd(config.wallet),
-      topupPackages: publicTopupPackages(),
+      topupPackages: publicTopupPackages(auth?.user || null),
     },
     video: config.video,
     playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
@@ -2338,7 +2639,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       hasMore: characterPage.hasMore,
     },
     platform: publicPlatform,
-    characterImage: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED ? config.characterImage : {},
+    characterImage: (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) ? config.characterImage : {},
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
       .map((scene) => {
@@ -2774,8 +3075,8 @@ async function geoSiteSnapshot(req) {
   const origin = pageOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
   const [config, configUpdatedAt] = await Promise.all([
-    readAppConfig(),
-    getKvUpdatedAt("app_config"),
+    readAppConfig({ includeHomeItems: !tenantOptions.toolOnly }),
+    tenantOptions.toolOnly ? Promise.resolve("") : getKvUpdatedAt("app_config"),
   ]);
   const platform = normalizePlatformConfig(config.platform || {});
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
@@ -5440,12 +5741,13 @@ function characterVideoPublicUrl(entry = {}, item = {}, auth = null, videoKey = 
 function publicCharacterVideoMaps(item = {}, auth = null) {
   const videos = publicCharacterVideoList(item);
   const loggedIn = Boolean(auth?.user);
+  const member = loggedIn && userHasCreatorMembership(auth.user);
   const bundleUnlocked = characterUnlockedByRecord(auth?.db || {}, auth?.user?.id || "", item.id || "");
   const homeSceneVideos = {};
   const unlockVideos = {};
   videos.forEach(({ key, entry }, index) => {
     const singleUnlocked = loggedIn && !bundleUnlocked && Boolean(findUserUnlock(auth?.db || {}, auth?.user?.id || "", item.id || "", entry.sceneId || "", entry.sceneEntryId || "default"));
-    const playable = loggedIn && (index === 0 || bundleUnlocked || singleUnlocked);
+    const playable = loggedIn && (member || bundleUnlocked || singleUnlocked);
     const locked = !playable;
     const publicVideo = publicCharacterSceneVideo(entry, {
       playable,
@@ -5458,7 +5760,7 @@ function publicCharacterVideoMaps(item = {}, auth = null) {
     if (index === 0) homeSceneVideos[outKey] = publicVideo;
     else unlockVideos[outKey] = publicVideo;
   });
-  return { homeSceneVideos, sceneVideos: {}, unlockVideos, unlocked: bundleUnlocked };
+  return { homeSceneVideos, sceneVideos: {}, unlockVideos, unlocked: member || bundleUnlocked, membershipRequired: !member };
 }
 
 function publicHomeVideoItem(item, auth = null) {
@@ -5520,6 +5822,7 @@ function publicHomeVideoItem(item, auth = null) {
     sceneVideos: characterVideos.sceneVideos,
     unlockVideos: characterVideos.unlockVideos,
     unlocked: characterVideos.unlocked,
+    membershipRequired: characterVideos.membershipRequired,
     unlockCost: CHARACTER_UNLOCK_COST_CREDITS,
   };
 }
@@ -5933,6 +6236,10 @@ function userView(user) {
     advancedAccess: user.advancedAccess === true,
     advancedAccessLevel: user.advancedAccess === true ? "advanced" : "platform",
     advancedAccessRequestedAt: user.advancedAccessRequestedAt || "",
+    membership: publicCreatorMembership(user),
+    membershipActive: userHasCreatorMembership(user),
+    apiDocs: publicApiDocsEntitlement(user),
+    apiDocsAccess: userHasApiDocsAccess(user),
     createdAt: user.createdAt,
   };
 }
@@ -5961,39 +6268,77 @@ function normalizeReferralCode(value = "") {
   return String(value || "").trim().replace(/^#/, "");
 }
 
-function referralRewardAlreadyGranted(db = {}, referrerUserId = "", referredUserId = "") {
+async function referralRewardAlreadyGranted(db = {}, referrerUserId = "", referredUserId = "") {
   const cleanReferrerId = String(referrerUserId || "").trim();
   const cleanReferredId = String(referredUserId || "").trim();
-  return (db.creditLedger || []).some((entry) => (
-    entry.type === "referral_reward" && (
-      String(entry.userId || "") === cleanReferrerId ||
-      String(entry.meta?.referrerUserId || "") === cleanReferrerId ||
-      String(entry.meta?.referredUserId || "") === cleanReferredId
-    )
+  const loaded = (db.creditLedger || []).some((entry) => (
+    entry.type === "referral_reward"
+    && String(entry.userId || entry.meta?.referrerUserId || "") === cleanReferrerId
+    && String(entry.meta?.referredUserId || "") === cleanReferredId
   ));
+  if (loaded || !dbEnabled()) return loaded;
+  return hasReferralRewardInDb(cleanReferrerId, cleanReferredId);
+}
+
+function referredUsersForUser(db = {}, user = {}) {
+  return (db.users || []).filter((entry) => (
+    entry?.id
+    && !isSoftDeleted(entry)
+    && recordBelongsToTenant(entry, recordTenantId(user))
+    && referralPayload(entry).referredByUserId === user.id
+  ));
+}
+
+function paidReferralUserIds(db = {}, user = {}) {
+  const invitedIds = new Set(referredUsersForUser(db, user).map((entry) => entry.id));
+  return new Set((db.walletOrders || [])
+    .filter((order) => invitedIds.has(order.userId) && String(order.status || "").toLowerCase() === "paid")
+    .map((order) => String(order.userId || ""))
+    .filter(Boolean));
+}
+
+async function ensureCreatorMembershipFromReferrals(db = {}, user = {}) {
+  if (!user?.id || userHasCreatorMembership(user)) return user;
+  const invitedCount = referredUsersForUser(db, user).length;
+  if (invitedCount < CREATOR_MEMBERSHIP_REFERRAL_TARGET) return user;
+  await activateCreatorMembership(db, user, {
+    source: "referral_registrations",
+    referralCount: invitedCount,
+  });
+  return user;
 }
 
 function publicReferralSummary(req, db = {}, user = {}) {
   const referral = referralPayload(user);
   const code = referralCodeForUser(user);
-  const invitedUserIds = new Set((db.users || [])
-    .filter((entry) => referralPayload(entry).referredByUserId === user.id)
-    .map((entry) => entry.id));
+  const invitedUserIds = new Set(referredUsersForUser(db, user).map((entry) => entry.id));
   if (referral.invitedUserId) invitedUserIds.add(referral.invitedUserId);
+  const paidUserIds = paidReferralUserIds(db, user);
   const rewardedUserIds = new Set((db.creditLedger || [])
     .filter((entry) => entry.type === "referral_reward" && entry.userId === user.id)
     .map((entry) => String(entry.meta?.referredUserId || ""))
     .filter(Boolean));
-  const rewardCount = rewardedUserIds.size || (referral.rewardedAt ? 1 : 0);
+  const rewardCount = Math.max(
+    rewardedUserIds.size,
+    Math.max(0, Number(referral.rewardCount || 0)),
+    referral.rewardedAt ? 1 : 0,
+  );
+  const membershipActive = userHasCreatorMembership(user);
+  const availableRewards = membershipActive ? Math.max(0, paidUserIds.size - rewardCount) : 0;
   const origin = pageOriginFromRequest(req);
   return {
     code,
     inviteUrl: `${origin}/?ref=${encodeURIComponent(code)}`,
     rewardCredits: REFERRAL_REWARD_CREDITS,
     invitedCount: invitedUserIds.size,
+    paidInviteCount: paidUserIds.size,
     rewardCount,
-    remainingRewards: Math.max(0, 1 - rewardCount),
-    maxRewards: 1,
+    remainingRewards: availableRewards,
+    maxRewards: Math.max(paidUserIds.size, rewardCount),
+    rewardEligible: membershipActive,
+    membershipActive,
+    membershipTarget: CREATOR_MEMBERSHIP_REFERRAL_TARGET,
+    remainingToMembership: Math.max(0, CREATOR_MEMBERSHIP_REFERRAL_TARGET - invitedUserIds.size),
     rewardedAt: referral.rewardedAt || "",
     referredByUserId: referral.referredByUserId || "",
     referredByUsername: referral.referredByUsername || "",
@@ -6159,9 +6504,17 @@ function isQwenImage3Provider(value = "") {
     || normalized.includes("qwenimage3.0");
 }
 
+function isQwen37FlashProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized)
+    || normalized.includes("qwen37flash")
+    || normalized.includes("qwen3.7flash");
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isQwen37FlashProvider(value)) return "qwen37-flash";
   if (isQwenImage3Provider(value)) return "qwen-image3";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
@@ -6182,6 +6535,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isQwen37FlashProvider(raw)) return "qwen37-flash";
   if (isQwenImage3Provider(raw)) return "qwen-image3";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
@@ -6196,6 +6550,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (id === "qwen37-flash") return "Qwen3.7 Flash";
   if (id === "qwen-image3") return "Qwen Image 3.0";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === SEEDANCE25_DIRECT_PROVIDER) return SEEDANCE25_DIRECT_LABEL;
@@ -6438,6 +6793,7 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isQwen37FlashProvider(value)) return true;
   if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return true;
@@ -6452,7 +6808,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, or qwen-image3.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, or qwen37-flash.", { provider: value });
   }
 }
 
@@ -6866,7 +7222,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedream5-image", "qwen-image3"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
+  if (["seedream5-image", "qwen-image3", "qwen37-flash"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -6875,24 +7231,68 @@ function advancedDurationBounds(provider = "seedance") {
     : { fallback: 5, min: 5, max: 15 };
 }
 
+function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+  const pricing = normalizeAdvancedPricing(advancedPricing);
+  const configured = pricing.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash;
+  const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || options.promptTokens || 1) || 1)));
+  const outputTokens = Math.max(0, Math.min(QWEN37_FLASH_MAX_OUTPUT_TOKENS, Math.floor(Number(options.outputTokens ?? options.completionTokens ?? options.maxTokens ?? configured.defaultMaxTokens) || 0)));
+  const officialTier = QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS.find((tier) => inputTokens <= tier.maxInputTokens)
+    || QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS.length - 1];
+  const inputCnyPerMillionTokens = inputTokens <= 32768
+    ? pricingNumber(configured.inputCnyPerMillionTokens, officialTier.input, 0, 6)
+    : officialTier.input;
+  const outputCnyPerMillionTokens = inputTokens <= 32768
+    ? pricingNumber(configured.outputCnyPerMillionTokens, officialTier.output, 0, 6)
+    : officialTier.output;
+  const inputCny = (inputTokens * inputCnyPerMillionTokens) / 1000000;
+  const outputCny = (outputTokens * outputCnyPerMillionTokens) / 1000000;
+  const totalCny = inputCny + outputCny;
+  const baseCredits = creditsAmount(totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY));
+  return {
+    provider: "qwen37-flash",
+    providerLabel: "Qwen3.7 Flash",
+    model: QWEN37_FLASH_MODEL,
+    inputTokens,
+    outputTokens,
+    inputCnyPerMillionTokens,
+    outputCnyPerMillionTokens,
+    inputCny: pricingNumber(inputCny, 0, 0, 8),
+    outputCny: pricingNumber(outputCny, 0, 0, 8),
+    totalCny: pricingNumber(totalCny, 0, 0, 8),
+    baseCredits,
+    credits: baseCredits,
+    markup: 1,
+    source: "aliyun_singapore_official_token_pricing",
+  };
+}
+
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  if (normalizedProvider === "qwen37-flash") {
+    return qwen37FlashPricingEstimate(advancedPricing, options);
+  }
   if (normalizedProvider === "wan30") {
     const requestedDuration = Number(options.duration ?? options.durationSeconds ?? 5);
     const adaptiveDuration = requestedDuration === -1;
     const duration = adaptiveDuration ? -1 : clampNumber(requestedDuration, 5, 2, 30);
     const billingDuration = adaptiveDuration ? 30 : duration;
     const resolution = normalizeAdvancedResolution(options.resolution || "1080p");
-    const configuredRates = advancedPricing.wan30CreditsPerSecondByResolution || {};
-    const fallbackRates = DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution;
+    const capability = normalizeAliyunVideoCapability(firstPresent(options.videoCapability, options.capability, "wan30-video"), { provider: "wan30" });
+    const prime = capability === "wan30-video-prime";
+    const configuredRates = prime
+      ? advancedPricing.wan30PrimeCreditsPerSecondByResolution || {}
+      : advancedPricing.wan30CreditsPerSecondByResolution || {};
+    const fallbackRates = prime
+      ? DEFAULT_ADVANCED_PRICING.wan30PrimeCreditsPerSecondByResolution
+      : DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution;
     const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
     const credits = creditsAmount(billingDuration * creditsPerSecond);
     return {
       provider: "wan30",
-      providerLabel: "Wan 3.0",
-      capability: "wan30-video",
-      model: options.model || ALIYUN_WAN30_MODEL,
+      providerLabel: prime ? "Wan 3.0 Prime" : "Wan 3.0",
+      capability,
+      model: prime ? ALIYUN_WAN30_PRIME_MODEL : ALIYUN_WAN30_MODEL,
       duration,
       billingDuration,
       adaptiveDuration,
@@ -6905,7 +7305,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       baseCredits: credits,
       credits,
       markup: 1,
-      source: "configured_wan30_output_duration_rate",
+      source: prime ? "configured_wan30_prime_output_duration_rate" : "configured_wan30_output_duration_rate",
     };
   }
   const bounds = advancedDurationBounds(normalizedProvider);
@@ -7186,6 +7586,83 @@ function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICIN
   };
 }
 
+function seedancePreprocessPricingForAssets(auth = {}, config = {}, assets = [], enabled = false) {
+  const empty = {
+    enabled: false,
+    imageCount: 0,
+    resolution: "",
+    tier: "",
+    credits: 0,
+    baseCredits: 0,
+    originalCredits: 0,
+    perImageCredits: 0,
+    perImageBaseCredits: 0,
+    perImageOriginalCredits: 0,
+    source: "",
+    items: [],
+  };
+  if (!enabled || USE_GATEWAY_UPSTREAM) return empty;
+
+  const uniqueAssets = [];
+  const seen = new Set();
+  for (const asset of Array.isArray(assets) ? assets : []) {
+    const id = String(asset?.id || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const reusable = Boolean(
+      asset.syntheticReferenceAssetUri
+      && asset.syntheticReferenceVersion === SEEDANCE_PREPROCESS_REFERENCE_VERSION,
+    );
+    if (!reusable) uniqueAssets.push(asset);
+  }
+  if (!uniqueAssets.length) return empty;
+
+  const advancedPricing = config?.platform?.advancedPricing;
+  const resolution = normalizeSeedream5Resolution(
+    process.env.HOME_REFERENCE_SEEDREAM_SIZE
+    || process.env.CHARACTER_SEEDREAM_SIZE
+    || advancedPricing?.seedream5Image?.defaultResolution
+    || "2K",
+  );
+  const tier = normalizeSeedream5Tier(
+    process.env.HOME_REFERENCE_SEEDREAM_TIER
+    || process.env.CHARACTER_SEEDREAM_TIER
+    || advancedPricing?.seedream5Image?.defaultTier
+    || "pro",
+  );
+  const rawPerImage = advancedModelPricing("seedream5-image", {
+    advancedPricing,
+    seedreamTier: tier,
+    resolution,
+    referenceImageCount: 1,
+    outputImageCount: 1,
+  });
+  const perImage = applyUserPricingToEstimate(rawPerImage, auth.user || 1, pricingContextForAuth(auth));
+  const imageCount = uniqueAssets.length;
+  const credits = creditsAmount(perImage.credits * imageCount);
+  const baseCredits = creditsAmount(perImage.baseCredits * imageCount);
+  const originalCredits = creditsAmount(perImage.originalCredits * imageCount);
+  return {
+    enabled: true,
+    imageCount,
+    resolution,
+    tier,
+    credits,
+    baseCredits,
+    originalCredits,
+    perImageCredits: perImage.credits,
+    perImageBaseCredits: perImage.baseCredits,
+    perImageOriginalCredits: perImage.originalCredits,
+    source: perImage.source || "byteplus_seedream5_official_image_pricing",
+    items: uniqueAssets.map((asset) => ({
+      assetId: asset.id,
+      credits: perImage.credits,
+      baseCredits: perImage.baseCredits,
+      originalCredits: perImage.originalCredits,
+    })),
+  };
+}
+
 function advancedGenerationCost(durationSeconds = 5, provider = "seedance", options = {}) {
   return advancedModelPricing(provider, { ...options, duration: durationSeconds }).credits;
 }
@@ -7216,7 +7693,7 @@ function insufficientCreditsPayload(cost, credits, extra = {}) {
 function stableLedgerId(type = "", meta = {}) {
   const cleanType = String(type || "ledger").trim() || "ledger";
   const stableKey = String(
-    (cleanType === "referral_reward" ? (meta?.referrerUserId || meta?.referredUserId) : "") ||
+    (cleanType === "referral_reward" ? `${meta?.referrerUserId || ""}:${meta?.referredUserId || ""}` : "") ||
     meta?.orderId ||
     meta?.taskId ||
     meta?.unlockId ||
@@ -7272,7 +7749,9 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
   if (!referredUser || !referrerId || referrerId === referredUser.id) return null;
   const referrer = (db.users || []).find((entry) => entry.id === referrerId);
   if (!referrer) return null;
-  if (referralRewardAlreadyGranted(db, referrer.id, referredUser.id) || referralPayload(referrer).rewardedAt) return null;
+  await ensureCreatorMembershipFromReferrals(db, referrer);
+  if (!userHasCreatorMembership(referrer)) return null;
+  if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) return null;
   const now = new Date().toISOString();
   const rewardMeta = {
     referrerUserId: referrer.id,
@@ -7290,6 +7769,7 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
     rewardedAt: now,
     rewardOrderId: order.id || "",
     rewardCredits: REFERRAL_REWARD_CREDITS,
+    rewardCount: Math.max(0, Number(referrerReferral.rewardCount || 0)) + 1,
   };
   referredUser.referral = {
     ...referral,
@@ -7304,6 +7784,22 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
     await updateUserInDb(referredUser);
   }
   return referrer;
+}
+
+async function grantPendingReferralRewardsForMember(db = {}, referrer = {}) {
+  if (!referrer?.id || !userHasCreatorMembership(referrer)) return 0;
+  const referredUsers = referredUsersForUser(db, referrer);
+  let granted = 0;
+  for (const referredUser of referredUsers) {
+    if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) continue;
+    const paidOrder = (db.walletOrders || []).find((order) => (
+      order.userId === referredUser.id && String(order.status || "").toLowerCase() === "paid"
+    ));
+    if (!paidOrder) continue;
+    const rewarded = await maybeGrantReferralReward(db, referredUser.id, paidOrder);
+    if (rewarded) granted += 1;
+  }
+  return granted;
 }
 
 function currentAuthContext() {
@@ -7785,11 +8281,14 @@ function walletCreditsPerUsd(wallet = {}) {
   return DEFAULT_CREDITS_PER_USD;
 }
 
-function publicTopupPackages() {
+function publicTopupPackages(user = null) {
+  const member = Boolean(user && userHasCreatorMembership(user));
   return TOPUP_PACKAGES.map((item) => ({
     id: item.id,
     amount: item.amount,
-    credits: item.credits,
+    credits: creditsAmount(member ? item.credits : item.amount * DEFAULT_CREDITS_PER_USD),
+    bonusCredits: creditsAmount(member ? Math.max(0, item.credits - item.amount * DEFAULT_CREDITS_PER_USD) : 0),
+    memberBonus: member,
     currency: "USD",
   }));
 }
@@ -7799,14 +8298,15 @@ function normalizeTopupAmount(value) {
   return Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0;
 }
 
-function findTopupPackage(input = {}) {
+function findTopupPackage(input = {}, user = null) {
   const packageId = String(input.packageId || input.topupPackageId || "").trim().toLowerCase();
+  const packages = publicTopupPackages(user);
   if (packageId) {
-    const byId = TOPUP_PACKAGES.find((item) => item.id === packageId);
+    const byId = packages.find((item) => item.id === packageId);
     if (byId) return byId;
   }
   const amount = normalizeTopupAmount(input.amount ?? input.baseAmount);
-  return TOPUP_PACKAGES.find((item) => normalizeTopupAmount(item.amount) === amount) || null;
+  return packages.find((item) => normalizeTopupAmount(item.amount) === amount) || null;
 }
 
 function normalizeWalletOption(option = {}, index = 0) {
@@ -8533,7 +9033,52 @@ function startWalletScanScheduler() {
 }
 
 function paypalEnabled() {
-  return false;
+  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+}
+
+function randomSecretToken(prefix = "token") {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(18).toString("hex")}`;
+}
+
+function paypalCheckoutUrl(pathname = "/", params = {}) {
+  const base = PAYPAL_CHECKOUT_BASE_URL || "https://pay.seed2.io";
+  const url = new URL(pathname || "/", `${base}/`);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const text = String(value ?? "").trim();
+    if (text) url.searchParams.set(key, text);
+  });
+  return url.toString();
+}
+
+function safePayPalReturnUrl(req, value = "") {
+  const fallback = `${pageOriginFromRequest(req)}/#topups`;
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  try {
+    const origin = pageOriginFromRequest(req);
+    if (text.startsWith("#")) return `${origin}/${text}`;
+    if (text.startsWith("/")) return `${origin}${text}`;
+    const parsed = new URL(text);
+    const allowed = new URL(origin);
+    return parsed.host === allowed.host ? parsed.toString() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function paypalCheckoutSessionExpired(order = {}) {
+  const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
+  if (!Number.isFinite(createdMs)) return false;
+  return Date.now() - createdMs > PAYPAL_CHECKOUT_SESSION_TTL_MS;
+}
+
+function findPayPalCheckoutSessionOrder(db = {}, sessionId = "") {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return null;
+  return (db.walletOrders || []).find((order) => (
+    order.paymentProvider === "paypal" &&
+    String(order.paypalCheckoutSessionId || "") === sid
+  )) || null;
 }
 
 function paypalApiBaseUrl() {
@@ -8619,7 +9164,11 @@ async function paypalRequest(pathname, { method = "GET", body, headers = {} } = 
 
 function findPayPalApprovalLink(orderPayload = {}) {
   const links = Array.isArray(orderPayload.links) ? orderPayload.links : [];
-  return links.find((link) => String(link.rel || "").toLowerCase() === "approve")?.href || "";
+  const approvalRels = new Set(["payer-action", "approve"]);
+  return links.find((link) => (
+    approvalRels.has(String(link.rel || "").trim().toLowerCase())
+    && String(link.href || "").trim()
+  ))?.href || "";
 }
 
 function paypalCaptureFromOrder(payload = {}) {
@@ -8687,12 +9236,17 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
         includedCredits: order.creditAmount || 0,
       })
     : null;
-  const creditType = order.orderKind === "subscription" ? "subscription_credit_grant" : "wallet_topup";
+  const creditType = order.orderKind === "subscription"
+    ? "subscription_credit_grant"
+    : order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID
+      ? "api_docs_test_credit"
+      : "wallet_topup";
   const user = await changeUserCredits(db, order.userId, creditDelta, creditType, {
     orderId: order.id,
     tenantId: order.tenantId || DEFAULT_TENANT_ID,
     orderKind: order.orderKind || "topup",
     billingPlanId: order.billingPlanId || "",
+    productId: order.productId || "",
     amount: order.baseAmount,
     asset: order.asset,
     network: order.network,
@@ -8703,6 +9257,9 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
     chain: order.chain || order.network || "",
   });
   if (subscriptionPlan) await activatePaidSubscription(db, order, subscriptionPlan);
+  if (order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID) {
+    await grantApiDocsAccess(db, user, { orderId: order.id, source: order.paymentProvider || "payment" });
+  }
   order.status = "paid";
   order.paidAt = order.paidAt || now;
   order.updatedAt = now;
@@ -9052,6 +9609,139 @@ function userAssetHasConfiguredObjectStorageMirror(asset = {}) {
     && [asset.publicUrl, asset.cdnUrl].some((value) => publicUrlMatchesStorageBase(value, publicDomain));
 }
 
+function restorablePublicUrlForUserAsset(asset = {}) {
+  const candidates = [
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.wan30PublicUrl,
+    asset.objectStorageUrl,
+    asset.r2Url,
+    asset.syntheticReferencePublicUrl,
+    asset.sourcePublicUrl,
+    asset.sourceUrl,
+    asset.originalUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+}
+
+function restoreLimitBytesForUserAsset(asset = {}, fallbackBytes = 0) {
+  const mime = String(asset.mime || "").toLowerCase();
+  const storedSize = Number(firstPresent(asset.sizeBytes, asset.meta?.byteLength, asset.meta?.sizeBytes));
+  const defaultLimit = fallbackBytes
+    || (mime.startsWith("image/")
+      ? IMAGE_UPLOAD_MAX_BYTES
+      : mime.startsWith("video/")
+        ? VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES
+        : MEDIA_UPLOAD_MAX_BYTES);
+  const requestedLimit = Number.isFinite(storedSize) && storedSize > 0
+    ? Math.max(defaultLimit, storedSize + 1024 * 1024)
+    : defaultLimit;
+  return Math.min(Math.max(requestedLimit, defaultLimit), 500 * 1024 * 1024);
+}
+
+function missingUserAssetFileError(asset = {}, label = "Asset") {
+  return advancedValidationError(
+    "ASSET_FILE_MISSING",
+    `${label} source file is unavailable. Re-upload the asset before generating again.`,
+    { assetId: asset.id || "" },
+  );
+}
+
+async function persistRestoredUserAssetMetadata(db, userAsset, bytes, mime = "") {
+  if (!userAsset || !bytes) return userAsset;
+  const restoredAt = new Date().toISOString();
+  if (mime && !userAsset.mime) userAsset.mime = mime;
+  userAsset.sizeBytes = Number(bytes.byteLength || userAsset.sizeBytes || 0);
+  userAsset.meta = {
+    ...plainObject(userAsset.meta),
+    localRestoredAt: restoredAt,
+  };
+  userAsset.updatedAt = restoredAt;
+  if (db?.userAssets) db.userAssets = db.userAssets.map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else if (db) await writeDb(db);
+  return userAsset;
+}
+
+async function ensureLocalUserAssetFile(db, userAsset, {
+  label = "Asset",
+  maxBytes = 0,
+  requireFile = true,
+} = {}) {
+  const localPath = localPathForUserAsset(userAsset);
+  if (!localPath) {
+    if (!requireFile) return "";
+    throw missingUserAssetFileError(userAsset, label);
+  }
+  const stat = await fs.stat(localPath).catch(() => null);
+  if (stat?.isFile() && stat.size > 0) return localPath;
+
+  const remoteUrl = restorablePublicUrlForUserAsset(userAsset);
+  if (!remoteUrl) {
+    if (!requireFile) return "";
+    throw missingUserAssetFileError(userAsset, label);
+  }
+
+  const downloaded = await downloadRemoteFileToBuffer(remoteUrl, {
+    label,
+    maxBytes: restoreLimitBytesForUserAsset(userAsset, maxBytes),
+    timeoutMs: 2 * 60 * 1000,
+    retryCount: 2,
+  });
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  const temporaryPath = `${localPath}.${process.pid}.${Date.now()}.restore.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, downloaded.bytes);
+    await fs.rename(temporaryPath, localPath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    const current = await fs.stat(localPath).catch(() => null);
+    if (!current?.isFile() || current.size <= 0) throw error;
+  }
+  await persistRestoredUserAssetMetadata(db, userAsset, downloaded.bytes, downloaded.mime);
+  return localPath;
+}
+
+async function readLocalUserAssetBytes(db, userAsset, options = {}) {
+  const localPath = await ensureLocalUserAssetFile(db, userAsset, options);
+  return {
+    localPath,
+    bytes: await fs.readFile(localPath),
+  };
+}
+
+async function findRestorableUserAssetByLocalUrl(localUrl = "") {
+  const target = String(localUrl || "").trim().split("?")[0];
+  if (!target.startsWith("/assets/user-uploads/")) return { db: null, asset: null };
+  const db = await readDb();
+  const asset = (db.userAssets || []).find((entry) => (
+    String(entry?.localUrl || "").trim().split("?")[0] === target
+    && !isSoftDeleted(entry)
+  )) || null;
+  return { db, asset };
+}
+
+async function ensureLocalAssetUrlFile(localUrl = "", {
+  label = "Asset",
+  maxBytes = 0,
+} = {}) {
+  const value = String(localUrl || "").trim().split("?")[0];
+  if (!value || !value.startsWith("/assets/")) return "";
+  const localPath = path.resolve(ROOT, value.replace(/^\/+/, ""));
+  const rootPath = path.resolve(ROOT);
+  const relative = path.relative(rootPath, localPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    const error = new Error("Asset path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const stat = await fs.stat(localPath).catch(() => null);
+  if (stat?.isFile() && stat.size > 0) return localPath;
+  const { db, asset } = await findRestorableUserAssetByLocalUrl(value);
+  if (!asset) return "";
+  return ensureLocalUserAssetFile(db, asset, { label, maxBytes, requireFile: false });
+}
+
 function normalizedImageTempPath(sourcePath = "") {
   const parsed = path.parse(sourcePath);
   const extension = [".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(parsed.ext.toLowerCase()) ? parsed.ext : ".png";
@@ -9143,7 +9833,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
   flattenTransparency = true,
 } = {}) {
   if (!userAsset || !String(userAsset.mime || "").toLowerCase().startsWith("image/")) return userAsset;
-  const localPath = localPathForUserAsset(userAsset);
+  const localPath = await ensureLocalUserAssetFile(db, userAsset, { label, maxBytes: IMAGE_UPLOAD_MAX_BYTES, requireFile: false });
   if (!localPath) return userAsset;
 
   const storedDimensions = storedImageDimensionsForAsset(userAsset);
@@ -9224,7 +9914,7 @@ async function validateSeedanceImageAssetForRequest(db, asset = {}, label = "See
   if (storedDimensions) return assertSeedanceImageAspectRatio(storedDimensions, label);
 
   let bytes = null;
-  const localPath = localPathForUserAsset(asset);
+  const localPath = await ensureLocalUserAssetFile(db, asset, { label, maxBytes: IMAGE_UPLOAD_MAX_BYTES, requireFile: false });
   if (localPath) {
     bytes = await fs.readFile(localPath);
   } else if (isPublicHttpUrl(asset.publicUrl)) {
@@ -9272,7 +9962,7 @@ function storedVideoDimensionsForAsset(asset = {}) {
 async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "Seedance video") {
   if (!asset) return null;
   validateWan27MediaKind(asset, "video", label);
-  const localPath = localPathForUserAsset(asset);
+  let localPath = localPathForUserAsset(asset);
   const storedDimensions = storedVideoDimensionsForAsset(asset);
   if (storedDimensions) {
     try {
@@ -9282,6 +9972,7 @@ async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "See
     }
   }
 
+  localPath = await ensureLocalUserAssetFile(db, asset, { label, maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES, requireFile: false });
   if (!localPath) {
     throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`, { assetId: asset.id || "" });
   }
@@ -9935,6 +10626,45 @@ function localPublicAssetStorageEnabled() {
   return !objectStorageEnabled();
 }
 
+function r2UploadTimeoutMs(byteLength = 0) {
+  const bytes = Math.max(0, Number(byteLength) || 0);
+  const transferBudgetMs = Math.ceil((bytes / R2_UPLOAD_MIN_BYTES_PER_SECOND) * 1000) + 15000;
+  return Math.min(R2_UPLOAD_MAX_TIMEOUT_MS, Math.max(R2_UPLOAD_TIMEOUT_MS, transferBudgetMs));
+}
+
+function r2PublicUrlForKey(key = "") {
+  const value = String(key || "").replace(/^\/+/, "");
+  return value ? `${R2.publicDomain.replace(/\/$/, "")}/${value}` : "";
+}
+
+async function findUploadedR2Object(key = "") {
+  const publicUrl = r2PublicUrlForKey(key);
+  if (!publicUrl) return null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const auth = makeR2Auth({
+        method: "HEAD",
+        key,
+        body: Buffer.alloc(0),
+        contentType: "application/octet-stream",
+      });
+      const response = await fetch(auth.url, {
+        method: "HEAD",
+        headers: auth.headers,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (response.ok) {
+        return { key, r2Url: auth.url, publicUrl };
+      }
+      if (response.status === 404) return null;
+    } catch {
+      // The upload may still be settling after the client-side timeout.
+    }
+    if (attempt < 3) await delay(1000 * attempt);
+  }
+  return null;
+}
+
 async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
   requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
@@ -9942,6 +10672,7 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_BUCKET", R2.bucket);
   requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
 
+  const uploadTimeoutMs = r2UploadTimeoutMs(bytes?.byteLength ?? bytes?.length ?? 0);
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -9950,7 +10681,7 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
         method: "PUT",
         headers: auth.headers,
         body: bytes,
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(uploadTimeoutMs),
       });
       const text = await response.text();
       if (response.ok) {
@@ -9967,10 +10698,14 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
       if (attempt >= 3 || !error.retryable) throw error;
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
-      const uploadError = timeout ? new Error("R2 upload timed out after 25 seconds.") : error;
+      if (timeout) {
+        const published = await findUploadedR2Object(key);
+        if (published) return published;
+      }
+      const uploadError = timeout ? new Error(`R2 upload timed out after ${Math.ceil(uploadTimeoutMs / 1000)} seconds.`) : error;
       if (timeout) {
         uploadError.code = "R2_UPLOAD_TIMEOUT";
-        uploadError.retryable = true;
+        uploadError.retryable = false;
       }
       if (!uploadError.statusCode) uploadError.statusCode = 502;
       lastError = uploadError;
@@ -10019,7 +10754,16 @@ async function publishLocalAssetUrlToObjectStorage(localUrl = "") {
     error.statusCode = 400;
     throw error;
   }
-  const bytes = await fs.readFile(localPath);
+  const restoredPath = await ensureLocalAssetUrlFile(value, { label: "Local asset", maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES });
+  let bytes = null;
+  try {
+    bytes = await fs.readFile(restoredPath || localPath);
+  } catch (error) {
+    if (error?.code === "ENOENT" && value.startsWith("/assets/user-uploads/")) {
+      throw missingUserAssetFileError({}, "Local asset");
+    }
+    throw error;
+  }
   const mime = imageMimeFromKnownPath(localPath)
     || videoMimeFromKnownPath(localPath)
     || audioMimeFromKnownPath(localPath)
@@ -11803,9 +12547,11 @@ async function aliyunDashscopeRequest(pathname, {
   }
   const normalizedMethod = String(method || "POST").toUpperCase();
   const queryRequest = normalizedMethod === "GET";
-  const maxAttempts = queryRequest ? 2 : 1;
+  const submitRequest = normalizedMethod === "POST";
+  const maxAttempts = queryRequest ? 2 : (submitRequest ? 3 : 2);
   const requestTimeoutMs = Math.max(5000, Number(timeoutMs || (queryRequest ? 20000 : 180000)) || 180000);
   let lastError = null;
+  const transientPattern = /fetch failed|timeout|timed out|abort|econn|network|socket|dns|tls|reset/i;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -11833,20 +12579,118 @@ async function aliyunDashscopeRequest(pathname, {
         error.statusCode = response.status || 502;
         error.payload = payload;
         error.code = payload.code || payload.error?.code || "";
-        error.retryable = queryRequest && (response.status === 429 || response.status >= 500);
+        error.retryable = (queryRequest || submitRequest) && (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500);
         throw error;
       }
       return payload;
     } catch (error) {
       lastError = error;
-      const transientNetworkError = queryRequest
+      const causeCode = String(error?.cause?.code || error?.code || "");
+      const transientNetworkError = (queryRequest || submitRequest)
         && !error.statusCode
-        && /fetch failed|timeout|timed out|abort|econn|network|socket|dns/i.test(String(error.message || error));
-      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) throw error;
-      await delay(800 * attempt);
+        && transientPattern.test(`${String(error.message || error)} ${causeCode}`);
+      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) {
+        if (!error.statusCode && transientNetworkError) {
+          const wrapped = new Error(`Alibaba video request failed: ${error.message || "fetch failed"}${causeCode ? ` (${causeCode})` : ""}`);
+          wrapped.statusCode = 502;
+          wrapped.code = "ALIYUN_DASHSCOPE_NETWORK_ERROR";
+          wrapped.cause = error;
+          throw wrapped;
+        }
+        throw error;
+      }
+      console.warn("[aliyun-dashscope-retry]", JSON.stringify({
+        provider: normalizedProvider,
+        method: normalizedMethod,
+        path: pathname,
+        attempt,
+        maxAttempts,
+        statusCode: error.statusCode || 0,
+        code: causeCode || error.code || "",
+        message: String(error.message || error).slice(0, 180),
+      }));
+      await delay(700 * attempt);
     }
   }
-  throw lastError || new Error("Alibaba video request failed.");
+  const causeCode = String(lastError?.cause?.code || lastError?.code || "");
+  const wrapped = new Error(`Alibaba video request failed: ${lastError?.message || "unknown error"}${causeCode ? ` (${causeCode})` : ""}`);
+  wrapped.statusCode = lastError?.statusCode || 502;
+  wrapped.code = lastError?.code || "ALIYUN_DASHSCOPE_REQUEST_FAILED";
+  wrapped.cause = lastError;
+  throw wrapped;
+}
+
+function qwen37FlashChatCompletionsUrl() {
+  if (/\/compatible-mode\/v1$/i.test(ALIYUN_QWEN37_BASE_URL)) {
+    return `${ALIYUN_QWEN37_BASE_URL}/chat/completions`;
+  }
+  return `${ALIYUN_QWEN37_BASE_URL}/compatible-mode/v1/chat/completions`;
+}
+
+async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) {
+  if (!ALIYUN_QWEN37_API_KEY) {
+    const error = new Error("Qwen3.7 Flash is not configured.");
+    error.statusCode = 503;
+    error.code = "MISSING_ALIYUN_QWEN37_API_KEY";
+    throw error;
+  }
+  const maxAttempts = 3;
+  const transientPattern = /fetch failed|timeout|timed out|abort|econn|network|socket|dns|tls|reset/i;
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(qwen37FlashChatCompletionsUrl(), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${ALIYUN_QWEN37_API_KEY}`,
+          accept: "application/json",
+          "content-type": "application/json",
+          "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Math.max(5000, Number(timeoutMs || 180000) || 180000)),
+      });
+      const responseText = await response.text();
+      let payload = {};
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        payload = { text: responseText };
+      }
+      if (!response.ok || Number(payload.code || 0) >= 400 || payload.error) {
+        const error = new Error(payload.error?.message || payload.message || `Qwen3.7 Flash request failed: ${response.status}`);
+        error.statusCode = response.status || 502;
+        error.code = payload.error?.code || payload.code || "QWEN37_FLASH_REQUEST_FAILED";
+        error.payload = payload;
+        error.retryable = [408, 425, 429, 500, 502, 503, 504, 520, 522].includes(response.status);
+        throw error;
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+      const causeCode = String(error?.cause?.code || error?.code || "");
+      const transientNetworkError = !error.statusCode && transientPattern.test(`${String(error.message || error)} ${causeCode}`);
+      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) {
+        if (!error.statusCode && transientNetworkError) {
+          const wrapped = new Error(`Qwen3.7 Flash request failed: ${error.message || "fetch failed"}${causeCode ? ` (${causeCode})` : ""}`);
+          wrapped.statusCode = 502;
+          wrapped.code = "QWEN37_FLASH_NETWORK_ERROR";
+          wrapped.cause = error;
+          throw wrapped;
+        }
+        throw error;
+      }
+      console.warn("[qwen37-flash-retry]", JSON.stringify({
+        attempt,
+        maxAttempts,
+        statusCode: error.statusCode || 0,
+        code: causeCode || error.code || "",
+        message: String(error.message || error).slice(0, 180),
+      }));
+      await delay(700 * attempt);
+    }
+  }
+  throw lastError || Object.assign(new Error("Qwen3.7 Flash request failed."), { statusCode: 502 });
 }
 
 function normalizeWan27MediaItem(item = {}) {
@@ -11865,13 +12709,7 @@ function normalizeWan27MediaItem(item = {}) {
 
 async function dataUrlForUserAsset(asset = {}) {
   if (!asset?.localUrl) return "";
-  const localPath = path.normalize(path.join(ROOT, String(asset.localUrl || "").replace(/^\//, "")));
-  if (!localPath.startsWith(ROOT)) {
-    const error = new Error("Asset path is invalid.");
-    error.statusCode = 400;
-    throw error;
-  }
-  const bytes = await fs.readFile(localPath);
+  const { bytes } = await readLocalUserAssetBytes(null, asset, { label: "Asset", maxBytes: restoreLimitBytesForUserAsset(asset) });
   return `data:${asset.mime || "application/octet-stream"};base64,${bytes.toString("base64")}`;
 }
 
@@ -11897,10 +12735,13 @@ function isAliyunVideoProvider(provider = "") {
 }
 
 function aliyunVideoModelForCapability(capability = "", requestedModel = "") {
+  if (capability === "wan30-video") return ALIYUN_WAN30_MODEL;
+  if (capability === "wan30-video-prime") return ALIYUN_WAN30_PRIME_MODEL;
   const requested = String(requestedModel || "").trim();
   if (requested) return requested;
   const configured = {
     "wan30-video": ALIYUN_WAN30_MODEL,
+    "wan30-video-prime": ALIYUN_WAN30_PRIME_MODEL,
     "wan27-t2v": ALIYUN_WAN27_T2V_MODEL,
     "wan27-i2v": ALIYUN_WAN27_I2V_MODEL,
     "wan27-r2v": ALIYUN_WAN27_R2V_MODEL,
@@ -12184,7 +13025,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (download && isSucceededStatus(task.status) && remoteVideoUrl) {
+  if (download && !generationRecordIsApiTask(record) && isSucceededStatus(task.status) && remoteVideoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -13782,7 +14623,7 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
 async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null } = {}) {
   const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
   const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
-  if (capability === "wan30-video") {
+  if (["wan30-video", "wan30-video-prime"].includes(capability)) {
     const rawMode = String(firstPresent(requestParams.mediaMode, body.mediaMode, body.wan30Mode, "multimodal") || "").trim().toLowerCase();
     const frameMode = ["first_frame", "first_last_frame", "frames"].includes(rawMode);
     let inputs = frameMode
@@ -13876,8 +14717,10 @@ async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {
     return userAsset;
   }
 
-  const localPath = localPathForUserAsset(userAsset);
-  const bytes = await fs.readFile(localPath);
+  const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+    label: "Wan 3.0 media",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-wan30`,
@@ -13920,8 +14763,10 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
     return userAsset;
   }
 
-  const localPath = path.join(ROOT, String(userAsset.localUrl || "").replace(/^\//, ""));
-  const bytes = await fs.readFile(localPath);
+  const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+    label: "Upstream media",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-wan`,
@@ -13955,8 +14800,10 @@ async function ensureSeedanceGatewayPublicAsset(db, userAsset) {
     const dimensionsChanged = Number(before?.width || 0) !== Number(dimensions?.width || 0)
       || Number(before?.height || 0) !== Number(dimensions?.height || 0);
     if (dimensionsChanged || !userAssetHasConfiguredObjectStorageMirror(userAsset)) {
-      const localPath = localPathForUserAsset(userAsset);
-      const bytes = await fs.readFile(localPath);
+      const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+        label: "Seedance gateway video",
+        maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES,
+      });
       const uploaded = await uploadBufferToR2({
         userId: userAsset.userId,
         assetId: `${userAsset.id}-seedance-gateway`,
@@ -13997,8 +14844,10 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
     return userAsset;
   }
 
-  const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
-  const bytes = await fs.readFile(localPath);
+  const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+    label: "Upstream image",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-apiz`,
@@ -14139,10 +14988,10 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     }
   }
 
-  const localPath = localPathForUserAsset(userAsset);
-  if (!localPath) {
-    throw advancedValidationError("ASSET_FILE_MISSING", "Asset local file is missing. Re-upload the asset before using it with Seedance.", { assetId: userAsset.id || "" });
-  }
+  const localPath = await ensureLocalUserAssetFile(db, userAsset, {
+    label: "Seedance media asset",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   let bytes = null;
   if (assetType === "Image") {
     bytes = await fs.readFile(localPath);
@@ -14213,7 +15062,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
 
 async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
   if (!userAsset) return null;
-  const preprocessVersion = "preserve-source-v2";
+  const preprocessVersion = SEEDANCE_PREPROCESS_REFERENCE_VERSION;
   const reusable = userAsset.syntheticReferenceAssetUri
     && userAsset.syntheticReferenceVersion === preprocessVersion;
   if (reusable) return userAsset;
@@ -14960,10 +15809,21 @@ async function writeGenerationRecords(records) {
 
 async function upsertGenerationRecord(nextRecord) {
   const storableRecord = storageGenerationRecord(nextRecord);
-  if (dbEnabled()) {
-    return upsertGenerationRecordInDb(storableRecord);
+  if (
+    /^(?:R2 upload timed out after \d+ seconds\.)$/.test(String(storableRecord.error || "").trim())
+    && /^(?:succeeded|completed|success)$/i.test(String(storableRecord.status || "").trim())
+    && (storableRecord.localVideoUrl || storableRecord.cdnVideoUrl)
+  ) {
+    storableRecord.error = "";
   }
-  return withAppStateWriteLock(async () => {
+  if (dbEnabled()) {
+    const record = await upsertGenerationRecordInDb(storableRecord);
+    void notifyTelegramGenerationRecord(record).catch((error) => {
+      console.warn("[telegram-generation-notify-queue-failed]", record?.taskId || storableRecord.taskId, error.message || error);
+    });
+    return record;
+  }
+  const record = await withAppStateWriteLock(async () => {
     const records = await readGenerationRecords();
     const index = records.findIndex((record) => record.taskId === storableRecord.taskId);
     const now = new Date().toISOString();
@@ -14983,6 +15843,10 @@ async function upsertGenerationRecord(nextRecord) {
     await writeGenerationRecords(records.slice(0, 500));
     return record;
   });
+  void notifyTelegramGenerationRecord(record).catch((error) => {
+    console.warn("[telegram-generation-notify-queue-failed]", record?.taskId || storableRecord.taskId, error.message || error);
+  });
+  return record;
 }
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
@@ -15146,6 +16010,11 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
   };
 }
 
+function generationRecordIsApiTask(record = {}) {
+  const source = String(record.apiTokenSource || record.tokenSource || "").toLowerCase();
+  return source === "api_token" || source === "subtoken";
+}
+
 function publicGenerationRecord(record = {}, options = {}) {
   const undressToolRecord = String(record.source || "").startsWith("undress-tool-")
     || String(record.kind || "").includes("tool-undress");
@@ -15172,6 +16041,9 @@ function publicGenerationRecord(record = {}, options = {}) {
   ].map((item) => String(item || "").trim()).filter(Boolean))];
   const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
+  const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
+    ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
+    : record.error || "";
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
@@ -15218,7 +16090,10 @@ function publicGenerationRecord(record = {}, options = {}) {
     providerImageUrls,
     upstreamImageUrl: providerImageUrl,
     remoteImageUrl: String(record.remoteImageUrl || ""),
-    error: publicModelText(record.error || ""),
+    textResult: publicModelText(record.textResult || record.responseText || ""),
+    responseText: publicModelText(record.responseText || record.textResult || ""),
+    usage: listGenerationRecordValue(record.usage || null),
+    error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
@@ -15370,8 +16245,11 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isImageGenerationRecord(record)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
-  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const status = String(record.status || "").toLowerCase();
+  if (record.localVideoUrl && isSucceededStatus(status)) {
+    if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
+    return false;
+  }
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
@@ -15423,6 +16301,8 @@ function generationListRefreshRequested(url) {
 }
 
 const GENERATION_LIST_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const GENERATION_RECORD_REFRESH_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.GENERATION_RECORD_REFRESH_CONCURRENCY || 3) || 3));
+const GENERATION_RECORD_REFRESH_COOLDOWN_MS = Math.max(1000, Number(process.env.GENERATION_RECORD_REFRESH_COOLDOWN_MS || 12 * 1000) || 12 * 1000);
 
 function generationRecordTime(record = {}) {
   const value = Date.parse(record.updatedAt || record.createdAt || "");
@@ -15437,12 +16317,77 @@ function generationRecordCreatedTime(record = {}) {
 function shouldRefreshGenerationRecordFromList(record = {}) {
   if (isStalePreSubmitGenerationRecord(record)) return true;
   if (!shouldRefreshGenerationRecord(record)) return false;
-  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const time = generationRecordTime(record);
   return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
 }
 
-async function ensureGenerationRecordMediaOptimized(record = {}) {
+const generationRecordRefreshQueue = [];
+const generationRecordRefreshQueued = new Set();
+const generationRecordRefreshLastStartedAt = new Map();
+let generationRecordRefreshActive = 0;
+let generationRecordRefreshDrainScheduled = false;
+
+function scheduleGenerationRecordRefreshDrain() {
+  if (generationRecordRefreshDrainScheduled) return;
+  generationRecordRefreshDrainScheduled = true;
+  setImmediate(() => {
+    generationRecordRefreshDrainScheduled = false;
+    drainGenerationRecordRefreshQueue();
+  });
+}
+
+function queueGenerationRecordStatusRefresh(record = {}, { priority = false, reason = "list" } = {}) {
+  const taskId = String(record.taskId || "");
+  if (!taskId || generationRecordRefreshQueued.has(taskId)) return false;
+  const lastStartedAt = generationRecordRefreshLastStartedAt.get(taskId) || 0;
+  if (Date.now() - lastStartedAt < GENERATION_RECORD_REFRESH_COOLDOWN_MS) return false;
+  generationRecordRefreshQueued.add(taskId);
+  const item = { taskId, record, reason };
+  if (priority) generationRecordRefreshQueue.unshift(item);
+  else generationRecordRefreshQueue.push(item);
+  scheduleGenerationRecordRefreshDrain();
+  return true;
+}
+
+function queueGenerationRecordStatusRefreshes(records = [], { reason = "list" } = {}) {
+  let queued = 0;
+  for (const record of records) {
+    if (queueGenerationRecordStatusRefresh(record, {
+      priority: needsApizFailureRefund(record) || needsSeedanceFailureRefund(record) || isStalePreSubmitGenerationRecord(record),
+      reason,
+    })) queued += 1;
+  }
+  return queued;
+}
+
+function drainGenerationRecordRefreshQueue() {
+  while (generationRecordRefreshActive < GENERATION_RECORD_REFRESH_CONCURRENCY && generationRecordRefreshQueue.length) {
+    const item = generationRecordRefreshQueue.shift();
+    generationRecordRefreshActive += 1;
+    const startedAt = Date.now();
+    generationRecordRefreshLastStartedAt.set(item.taskId, startedAt);
+    setTimeout(() => {
+      if (generationRecordRefreshLastStartedAt.get(item.taskId) === startedAt) {
+        generationRecordRefreshLastStartedAt.delete(item.taskId);
+      }
+    }, GENERATION_RECORD_REFRESH_COOLDOWN_MS).unref?.();
+    Promise.resolve().then(async () => {
+      const current = await getGenerationRecord(item.taskId) || item.record;
+      const nextRecord = await refreshGenerationRecordStatus(current);
+      if (nextRecord && (nextRecord.status !== current.status || nextRecord.billingStatus !== current.billingStatus)) {
+        console.log("[generation-record-background-refresh]", item.reason, item.taskId, `${current.status || ""}->${nextRecord.status || ""}`, `${current.billingStatus || ""}->${nextRecord.billingStatus || ""}`);
+      }
+    }).catch((error) => {
+      console.warn("[generation-record-background-refresh-failed]", item.reason, item.taskId, error.message || error);
+    }).finally(() => {
+      generationRecordRefreshActive -= 1;
+      generationRecordRefreshQueued.delete(item.taskId);
+      scheduleGenerationRecordRefreshDrain();
+    });
+  }
+}
+
+async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
   if (!record?.taskId || !record.localVideoUrl) return record;
   const localVideoPath = record.localVideoPath || path.join(ROOT, String(record.localVideoUrl || "").replace(/^\//, ""));
   const currentVideoUrl = generationRecordVideoUrl(record);
@@ -15468,13 +16413,13 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     localPosterPath = poster.localPosterPath || localPosterPath;
     localPosterUrl = poster.localPosterUrl || localPosterUrl;
   }
-  if (objectStorageEnabled() && (fastStartUpdated || !cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
+  if (allowObjectStorageUpload && objectStorageEnabled() && (fastStartUpdated || !cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
     const cdn = await uploadGeneratedMediaToObjectStorage({ taskId: record.taskId, localVideoPath, localPosterPath });
     cdnVideoUrl = fastStartUpdated
       ? cacheBustedMediaUrl(cdn.cdnVideoUrl || cdnVideoUrl, Date.now())
       : (cdn.cdnVideoUrl || cdnVideoUrl);
     cdnPosterUrl = cdn.cdnPosterUrl || cdnPosterUrl;
-    cdnError = cdn.cdnError || cdnError;
+    cdnError = cdn.cdnError || "";
   }
   if (
     localPosterUrl === (record.localPosterUrl || "") &&
@@ -15502,6 +16447,84 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     cdnError,
     playbackOptimizedAt,
   });
+}
+
+const GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS = 3;
+const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
+const generatedMediaMaintenanceQueue = [];
+const generatedMediaMaintenanceQueued = new Set();
+let generatedMediaMaintenanceRunning = false;
+
+function generationRecordNeedsMediaMaintenance(record = {}) {
+  if (!record?.taskId || !record.localVideoUrl || generationRecordIsApiTask(record)) return false;
+  return !record.localPosterUrl
+    || !record.playbackOptimizedAt
+    || (objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
+}
+
+function generationRecordCanRetryR2(record = {}) {
+  if (!objectStorageEnabled() || generationRecordIsApiTask(record)) return false;
+  const attempts = Number(record.cdnRetryCount || 0);
+  if (attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS) return false;
+  const retryAt = Date.parse(record.cdnRetryAt || "");
+  return !retryAt || Date.now() - retryAt >= GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS;
+}
+
+function queueGenerationRecordMediaMaintenance(record = {}) {
+  if (!generationRecordNeedsMediaMaintenance(record)) return false;
+  const needsR2 = objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
+  const allowObjectStorageUpload = needsR2 && generationRecordCanRetryR2(record);
+  if (!allowObjectStorageUpload && needsR2 && record.localPosterUrl && record.playbackOptimizedAt) return false;
+  const taskId = String(record.taskId || "");
+  if (!taskId || generatedMediaMaintenanceQueued.has(taskId)) return false;
+  generatedMediaMaintenanceQueued.add(taskId);
+  generatedMediaMaintenanceQueue.push({ taskId, record, allowObjectStorageUpload });
+  setImmediate(() => drainGenerationRecordMediaMaintenance().catch((error) => {
+    console.warn("[generation-record-media-maintenance-failed]", error.message || error);
+  }));
+  return true;
+}
+
+async function drainGenerationRecordMediaMaintenance() {
+  if (generatedMediaMaintenanceRunning) return;
+  generatedMediaMaintenanceRunning = true;
+  try {
+    while (generatedMediaMaintenanceQueue.length) {
+      const item = generatedMediaMaintenanceQueue.shift();
+      const taskId = item.taskId;
+      try {
+        const current = await getGenerationRecord(taskId) || item.record;
+        if (!generationRecordNeedsMediaMaintenance(current)) continue;
+        const allowObjectStorageUpload = item.allowObjectStorageUpload && generationRecordCanRetryR2(current);
+        const retryCount = Number(current.cdnRetryCount || 0) + (allowObjectStorageUpload ? 1 : 0);
+        await ensureGenerationRecordMediaOptimized(current, { allowObjectStorageUpload });
+        if (allowObjectStorageUpload) {
+          await upsertGenerationRecord({
+            taskId,
+            cdnRetryCount: retryCount,
+            cdnRetryAt: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.warn("[generation-record-media-maintenance-task-failed]", taskId, error.message || error);
+        if (item.allowObjectStorageUpload) {
+          const current = await getGenerationRecord(taskId).catch(() => null);
+          if (current) {
+            await upsertGenerationRecord({
+              taskId,
+              cdnRetryCount: Number(current.cdnRetryCount || 0) + 1,
+              cdnRetryAt: new Date().toISOString(),
+              cdnError: error.message || "Generated media R2 upload failed.",
+            }).catch(() => {});
+          }
+        }
+      } finally {
+        generatedMediaMaintenanceQueued.delete(taskId);
+      }
+    }
+  } finally {
+    generatedMediaMaintenanceRunning = false;
+  }
 }
 
 async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query") {
@@ -15672,14 +16695,6 @@ async function refreshGenerationRecordStatus(record = {}) {
   }
   if (isStalePreSubmitGenerationRecord(record)) {
     return failStalePreSubmitGenerationRecord(record, "refresh-stale-submit");
-  }
-  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) {
-    try {
-      return await ensureGenerationRecordMediaOptimized(record);
-    } catch (error) {
-      console.warn("[generation-record-media-optimize-failed]", record.taskId, error.message || error);
-      return record;
-    }
   }
   if (
     String(record.provider || "").toLowerCase() === "seedream5-image" &&
@@ -16071,6 +17086,29 @@ function videoFileName(taskId) {
   return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.mp4`;
 }
 
+function expectedGeneratedVideoDurationSeconds(record = {}) {
+  const candidates = [
+    record.expectedDurationSeconds,
+    record.duration,
+    record.params?.duration,
+    record.pricingEstimate?.requestedDuration,
+    record.queryResponse?.duration,
+    record.queryResponse?.output?.duration,
+    record.queryResponse?.data?.duration,
+  ];
+  for (const candidate of candidates) {
+    const seconds = durationSecondsFromValue(candidate);
+    if (seconds > 0) return seconds;
+  }
+  return 0;
+}
+
+function generatedVideoIsTooShort(actualSeconds, expectedSeconds) {
+  return actualSeconds > 0
+    && expectedSeconds > 0
+    && actualSeconds + GENERATED_VIDEO_DURATION_TOLERANCE_SECONDS < expectedSeconds;
+}
+
 function posterFileName(taskId) {
   return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.jpg`;
 }
@@ -16150,25 +17188,39 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
   if (!objectStorageEnabled()) return result;
+  const errors = [];
   if (localVideoPath) {
-    const videoBytes = await fs.readFile(localVideoPath);
-    const videoExt = path.extname(localVideoPath) || ".mp4";
-    const videoUpload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
-      bytes: videoBytes,
-      mime: videoMimeFromPath(localVideoPath),
-    });
-    result.cdnVideoUrl = videoUpload.publicUrl;
+    try {
+      const videoBytes = await fs.readFile(localVideoPath);
+      const videoExt = path.extname(localVideoPath) || ".mp4";
+      const videoUpload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
+        bytes: videoBytes,
+        mime: videoMimeFromPath(localVideoPath),
+      });
+      result.cdnVideoUrl = videoUpload.publicUrl;
+      await markPublishedFile(localVideoPath);
+    } catch (error) {
+      errors.push(error.message || "Generated video R2 upload failed.");
+      console.warn("[generated-video-r2-upload-failed]", taskId, error.message || error);
+    }
   }
   if (localPosterPath) {
-    const posterBytes = await fs.readFile(localPosterPath);
-    const posterUpload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
-      bytes: posterBytes,
-      mime: "image/jpeg",
-    });
-    result.cdnPosterUrl = posterUpload.publicUrl;
+    try {
+      const posterBytes = await fs.readFile(localPosterPath);
+      const posterUpload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
+        bytes: posterBytes,
+        mime: "image/jpeg",
+      });
+      result.cdnPosterUrl = posterUpload.publicUrl;
+      await markPublishedFile(localPosterPath);
+    } catch (error) {
+      errors.push(error.message || "Generated poster R2 upload failed.");
+      console.warn("[generated-poster-r2-upload-failed]", taskId, error.message || error);
+    }
   }
+  result.cdnError = errors.join("; ");
   return result;
 }
 
@@ -16203,43 +17255,94 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
 
 async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   const existing = await getGenerationRecord(taskId);
+  const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
   if (existing?.localVideoUrl) {
     try {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
       await fs.access(existingVideoPath);
-      let optimized = existing;
-      if (!existing.localPosterUrl || (objectStorageEnabled() && !existing.cdnVideoUrl)) {
-        optimized = await ensureGenerationRecordMediaOptimized(existing);
+      const actualDurationSeconds = expectedDurationSeconds > 0
+        ? await probeLocalVideoDurationSeconds(existingVideoPath)
+        : 0;
+      const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
+      if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
+        const optimized = existing;
+        if (!generationRecordIsApiTask(existing)) queueGenerationRecordMediaMaintenance(existing);
+        return {
+          localVideoPath: optimized.localVideoPath || existingVideoPath,
+          localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
+          localPosterPath: optimized.localPosterPath || "",
+          localPosterUrl: optimized.localPosterUrl || "",
+          cdnVideoUrl: optimized.cdnVideoUrl || "",
+          cdnPosterUrl: optimized.cdnPosterUrl || "",
+          cdnError: optimized.cdnError || "",
+          playbackOptimizedAt: optimized.playbackOptimizedAt || "",
+        };
       }
-      return {
-        localVideoPath: optimized.localVideoPath || existingVideoPath,
-        localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
-        localPosterPath: optimized.localPosterPath || "",
-        localPosterUrl: optimized.localPosterUrl || "",
-        cdnVideoUrl: optimized.cdnVideoUrl || "",
-        cdnPosterUrl: optimized.cdnPosterUrl || "",
-        cdnError: optimized.cdnError || "",
-        playbackOptimizedAt: optimized.playbackOptimizedAt || "",
-      };
+      console.warn(
+        `[generated-video-too-short] ${taskId}: stored ${actualDurationSeconds}s, expected ${expectedDurationSeconds}s; retrying upstream download`,
+      );
     } catch {
       // Fall through and re-download if the record points to a missing file.
     }
+  }
+
+  if (generationRecordIsApiTask(existing || {})) {
+    return {
+      localVideoPath: existing?.localVideoPath || "",
+      localVideoUrl: existing?.localVideoUrl || "",
+      localPosterPath: existing?.localPosterPath || "",
+      localPosterUrl: existing?.localPosterUrl || "",
+      cdnVideoUrl: existing?.cdnVideoUrl || "",
+      cdnPosterUrl: existing?.cdnPosterUrl || "",
+      cdnError: existing?.cdnError || "",
+      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
+    };
   }
 
   await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
   const fileName = videoFileName(taskId);
   const localVideoPath = path.join(GENERATED_VIDEO_DIR, fileName);
   const localVideoUrl = `/assets/generated/videos/${fileName}`;
-
-  const response = await fetch(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) });
-  if (!response.ok) {
-    throw new Error(`Failed to download generated video: ${response.status}`);
+  let downloadedDurationSeconds = 0;
+  let fastStartReady = false;
+  let lastDownloadError = null;
+  for (let attempt = 0; attempt < GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS; attempt += 1) {
+    const temporaryPath = `${localVideoPath}.${process.pid}.${Date.now()}.download`;
+    try {
+      const response = await fetch(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) });
+      if (!response.ok) {
+        throw new Error(`Failed to download generated video: ${response.status}`);
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(temporaryPath, bytes);
+      downloadedDurationSeconds = expectedDurationSeconds > 0
+        ? await probeLocalVideoDurationSeconds(temporaryPath)
+        : 0;
+      if (generatedVideoIsTooShort(downloadedDurationSeconds, expectedDurationSeconds) && attempt + 1 < GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS) {
+        console.warn(
+          `[generated-video-download-retry] ${taskId}: attempt ${attempt + 1} returned ${downloadedDurationSeconds}s, expected ${expectedDurationSeconds}s`,
+        );
+        await fs.rm(temporaryPath, { force: true });
+        await delay(GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      const fastStartNeeded = await generatedVideoNeedsFastStart(temporaryPath);
+      fastStartReady = !fastStartNeeded || await ensureGeneratedVideoFastStart(temporaryPath);
+      await fs.rename(temporaryPath, localVideoPath);
+      break;
+    } catch (error) {
+      lastDownloadError = error;
+      await fs.rm(temporaryPath, { force: true }).catch(() => {});
+      if (attempt + 1 >= GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS) throw error;
+      await delay(GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS * (attempt + 1));
+    }
   }
-
-  const bytes = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(localVideoPath, bytes);
-  const fastStartNeeded = await generatedVideoNeedsFastStart(localVideoPath);
-  const fastStartReady = !fastStartNeeded || await ensureGeneratedVideoFastStart(localVideoPath);
+  if (generatedVideoIsTooShort(downloadedDurationSeconds, expectedDurationSeconds)) {
+    console.warn(
+      `[generated-video-duration-mismatch] ${taskId}: stored ${downloadedDurationSeconds}s after ${GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS} attempts, expected ${expectedDurationSeconds}s`,
+    );
+  }
+  if (!fastStartReady && lastDownloadError) throw lastDownloadError;
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
   const cdn = await uploadGeneratedMediaToObjectStorage({
     taskId,
@@ -16280,6 +17383,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
       mime: imageMime,
     });
     result.cdnImageUrl = upload.publicUrl || "";
+    await markPublishedFile(localImagePath);
   }
   return result;
 }
@@ -16709,7 +17813,11 @@ async function handleVideoToolEstimate(req, res) {
 }
 
 async function localVideoToolAssetPath(asset = {}, workDir = "") {
-  const localPath = localPathForUserAsset(asset);
+  const localPath = await ensureLocalUserAssetFile(null, asset, {
+    label: "Uploaded video",
+    maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES,
+    requireFile: false,
+  });
   if (localPath) {
     try {
       await fs.access(localPath);
@@ -17237,7 +18345,7 @@ async function runVideoToolFaceSwap(job) {
         const submitted = await submitAliyunVideoTask({
           provider: "wan27",
           capability: "wan27-video-edit",
-          prompt: undressVideo ? VIDEO_TOOL_UNDRESS_EDIT_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
+          prompt: undressVideo ? (job.prompt || VIDEO_TOOL_UNDRESS_EDIT_PROMPT) : VIDEO_TOOL_FACE_SWAP_PROMPT,
           media: [
             { type: "video", url: published.url },
             ...(imageAsset ? [{ type: "reference_image", url: publicUrlForLocalAsset(imageAsset) }] : []),
@@ -17324,7 +18432,7 @@ async function runVideoToolFaceSwap(job) {
 async function runVideoToolUndress(job) {
   return runVideoToolImageEdit(job, {
     inputs: [{ assetId: job.imageAssetId, label: "Source image" }],
-    prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+    prompt: job.prompt || VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
     resultLabel: "undress image edit",
     successReason: "undress",
   });
@@ -17350,7 +18458,7 @@ async function runVideoToolUndressImageVideo(job) {
     const submitted = await submitAliyunVideoTask({
       provider: "wan27",
       capability: "wan27-i2v",
-      prompt: VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
+      prompt: job.prompt || VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
       media: [{ type: "first_frame", url: imageUrl }],
       body: {
         model: ALIYUN_WAN27_I2V_MODEL,
@@ -17448,7 +18556,7 @@ async function runVideoToolUndressVideoLegacy(job) {
   if (!targetAsset) {
     await updateVideoToolProgress(taskId, "target", { params: { upstreamTaskIds, keyframeAssetId: keyframeAsset.id } });
     const target = await generateVideoToolImageStage({
-      db, user, sourceAsset: keyframeAsset, prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT, taskId, stage: "target", config,
+      db, user, sourceAsset: keyframeAsset, prompt: job.prompt || VIDEO_TOOL_UNDRESS_TARGET_PROMPT, taskId, stage: "target", config,
     });
     targetAsset = target.asset;
     if (target.upstreamTaskId && !upstreamTaskIds.includes(target.upstreamTaskId)) upstreamTaskIds.push(target.upstreamTaskId);
@@ -17613,6 +18721,7 @@ async function recoverVideoToolJobs(reason = "startup") {
       targetImageAssetId,
       videoAssetId,
       pricing: plainObject(record.pricingEstimate),
+      prompt: record.finalPrompt || record.prompt || "",
     });
     if (started) console.log("[video-tool-job-recovered]", { reason, taskId: record.taskId, action });
   });
@@ -17649,6 +18758,30 @@ function startVideoToolUploadCleanupScheduler() {
   setInterval(() => cleanupStaleVideoToolUploads(), 6 * 60 * 60 * 1000).unref?.();
 }
 
+async function cleanupStaleLocalMedia() {
+  const cutoffMs = Date.now() - LOCAL_MEDIA_RETENTION_MS;
+  try {
+    const uploads = await removeExpiredFiles(USER_UPLOAD_DIR, cutoffMs);
+    const generated = objectStorageEnabled()
+      ? await removeExpiredPublishedFiles([
+          GENERATED_VIDEO_DIR,
+          GENERATED_POSTER_DIR,
+          GENERATED_IMAGE_DIR,
+        ], cutoffMs)
+      : { files: 0, bytes: 0 };
+    if (uploads.files || generated.files) {
+      console.log("[local-media-cleanup]", { uploads, generated, retentionHours: 24 });
+    }
+  } catch (error) {
+    console.warn("[local-media-cleanup-failed]", error.message || error);
+  }
+}
+
+function startLocalMediaCleanupScheduler() {
+  setTimeout(() => cleanupStaleLocalMedia(), 30000).unref?.();
+  setInterval(() => cleanupStaleLocalMedia(), 60 * 60 * 1000).unref?.();
+}
+
 async function handleVideoToolGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -17656,6 +18789,12 @@ async function handleVideoToolGenerate(req, res) {
   const action = videoToolAction(body.action);
   if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
   try {
+    const isImageFaceSwap = action === "image-face-swap";
+    const isImageAction = action === "undress" || isImageFaceSwap;
+    const appConfig = await readAppConfig();
+    const configuredUndressPrompt = undressPromptForAction(action, appConfig.undressPrompts);
+    const taskPrompt = configuredUndressPrompt
+      || (isImageFaceSwap ? IMAGE_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT);
     const imageAsset = videoToolAsset(
       auth.db,
       auth.user.id,
@@ -17707,8 +18846,6 @@ async function handleVideoToolGenerate(req, res) {
       });
       if (!dbEnabled()) await writeDb(auth.db);
     }
-    const isImageFaceSwap = action === "image-face-swap";
-    const isImageAction = action === "undress" || isImageFaceSwap;
     const primaryAsset = targetImageAsset || imageAsset;
     const assetIds = isImageFaceSwap
       ? [targetImageAsset.id, imageAsset.id]
@@ -17735,12 +18872,8 @@ async function handleVideoToolGenerate(req, res) {
             { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
             ...(videoAsset ? [{ type: "video", userAssetId: videoAsset.id, localUrl: videoAsset.localUrl || "" }] : []),
           ],
-      prompt: isImageFaceSwap
-        ? IMAGE_TOOL_FACE_SWAP_PROMPT
-        : action === "undress" ? VIDEO_TOOL_UNDRESS_TARGET_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
-      finalPrompt: isImageFaceSwap
-        ? IMAGE_TOOL_FACE_SWAP_PROMPT
-        : action === "undress" ? VIDEO_TOOL_UNDRESS_TARGET_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
+      prompt: taskPrompt,
+      finalPrompt: taskPrompt,
       params: {
         toolAction: action,
         stage: "queued",
@@ -17774,6 +18907,7 @@ async function handleVideoToolGenerate(req, res) {
       targetImageAssetId: targetImageAsset?.id || "",
       videoAssetId: videoAsset?.id || "",
       pricing,
+      prompt: taskPrompt,
     });
     return sendJson(res, 202, {
       ok: true,
@@ -17791,7 +18925,7 @@ async function handleVideoToolGenerate(req, res) {
 const UNDRESS_TOOL_TENANT_ID = "tool-undress-14vips";
 const UNDRESS_TOOL_EXAMPLES = Object.freeze({
   image: Object.freeze({
-    taskId: "undress-20260806121918-0726d2",
+    taskId: "image-20260819115156-587c60",
     inputType: "image",
     resultType: "image",
   }),
@@ -17826,6 +18960,8 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/billing/")
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
+    || pathValue === "/api/telegram/webapp-auth"
+    || pathValue.startsWith("/api/telegram/webhook")
     || (pathValue.startsWith("/api/generation-records") && undressToolGenerationRecordPathAllowed(method, pathValue))
     || pathValue.startsWith("/api/undress-tool/")
     || pathValue === "/api/analytics/web-vitals";
@@ -17868,8 +19004,9 @@ async function claimUndressToolFreeImage({ userId = "", tenantId = "", taskId = 
   });
 }
 
-function undressToolGenerationDefinition(value = "") {
+function undressToolGenerationDefinition(value = "", promptConfig = DEFAULT_UNDRESS_PROMPTS) {
   const generationType = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  const prompts = normalizeUndressPrompts(promptConfig);
   const definitions = {
     image: {
       generationType: "image",
@@ -17878,7 +19015,7 @@ function undressToolGenerationDefinition(value = "") {
       source: "undress-tool-image",
       kind: "image-tool-undress",
       provider: "wan27-image-edit",
-      prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+      prompt: prompts.image,
     },
     image_video: {
       generationType: "image_video",
@@ -17887,7 +19024,7 @@ function undressToolGenerationDefinition(value = "") {
       source: "undress-tool-image-video",
       kind: "video-tool-undress-image-video",
       provider: "wan27",
-      prompt: VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
+      prompt: prompts.imageVideo,
     },
     video: {
       generationType: "video",
@@ -17896,7 +19033,7 @@ function undressToolGenerationDefinition(value = "") {
       source: "undress-tool-video",
       kind: "video-tool-undress-video",
       provider: "video-tool",
-      prompt: VIDEO_TOOL_UNDRESS_EDIT_PROMPT,
+      prompt: prompts.video,
     },
   };
   return definitions[generationType] || null;
@@ -17938,20 +19075,162 @@ function undressToolExampleLocalPath(record = {}, definition = {}, side = "input
   return "";
 }
 
+function undressToolExampleAsset(record = {}) {
+  const assetIds = [
+    record.userAssetId,
+    ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+    ...(Array.isArray(record.mediaAssets) ? record.mediaAssets.map((asset) => asset?.userAssetId) : []),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  return assetIds.length
+    ? (record.__userAssets || []).find((asset) => assetIds.includes(String(asset?.id || ""))) || null
+    : null;
+}
+
+function undressToolExampleAssetId(record = {}) {
+  return [
+    record.userAssetId,
+    ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+    ...(Array.isArray(record.mediaAssets) ? record.mediaAssets.map((asset) => asset?.userAssetId) : []),
+  ].map((id) => String(id || "").trim()).find(Boolean) || "";
+}
+
+function undressToolExampleRemoteUrl(record = {}, definition = {}, side = "input") {
+  if (side === "result") {
+    const candidates = definition.resultType === "video"
+      ? [record.cdnVideoUrl, record.videoUrl, record.remoteVideoUrl]
+      : [record.cdnImageUrl, record.imageResultUrl, record.remoteImageUrl];
+    return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+  }
+  const asset = undressToolExampleAsset(record);
+  const candidates = [
+    asset?.cdnUrl,
+    asset?.publicUrl,
+    asset?.objectStorageUrl,
+    asset?.r2Url,
+    record.sourceImageUrl,
+    record.imageUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+}
+
+function undressToolExampleExtension(mediaType = "image", mime = "", source = "") {
+  return mediaType === "video"
+    ? videoExtFromMime(mime, source)
+    : imageExtFromMime(mime || imageMimeFromKnownPath(source) || "image/jpeg");
+}
+
+async function optimizeUndressToolExampleImage(sourcePath = "", targetPath = "") {
+  await execFileQuiet("ffmpeg", [
+    "-y",
+    "-i",
+    sourcePath,
+    "-vf",
+    "scale=w='min(960,iw)':h='min(960,ih)':force_original_aspect_ratio=decrease:flags=lanczos",
+    "-frames:v",
+    "1",
+    "-an",
+    "-c:v",
+    "libwebp",
+    "-quality",
+    "82",
+    "-compression_level",
+    "4",
+    targetPath,
+  ], { timeout: 120000 });
+}
+
+async function ensureUndressToolExampleFile(record = {}, definition = {}, generationType = "", side = "input") {
+  const mediaType = side === "input" ? definition.inputType : definition.resultType;
+  const existing = undressToolExampleLocalPath(record, definition, side);
+  let existingStat = null;
+  if (existing) existingStat = await fs.stat(existing).catch(() => null);
+  const existingMime = existingStat
+    ? (mediaType === "video" ? videoMimeFromKnownPath(existing) : imageMimeFromKnownPath(existing))
+    : "";
+  const remoteUrl = undressToolExampleRemoteUrl(record, definition, side);
+  const sourceHint = existing || remoteUrl;
+  const fallbackMime = mediaType === "video" ? "video/mp4" : "image/jpeg";
+  const extension = undressToolExampleExtension(mediaType, existingMime, sourceHint);
+  const cacheKey = storagePathSegment(record.taskId || generationType, generationType);
+  const optimizedTargetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${cacheKey}-${side}${mediaType === "image" ? ".webp" : extension}`);
+  const fallbackTargetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${cacheKey}-${side}${extension}`);
+  const optimizedTargetStat = await fs.stat(optimizedTargetPath).catch(() => null);
+  if (optimizedTargetStat?.isFile() && optimizedTargetStat.size > 0) {
+    return { filePath: optimizedTargetPath, mime: mediaType === "image" ? "image/webp" : (existingMime || videoMimeFromPath(optimizedTargetPath)) };
+  }
+
+  await fs.mkdir(UNDRESS_TOOL_EXAMPLE_DIR, { recursive: true });
+  const temporaryPath = `${optimizedTargetPath}.${process.pid}.${Date.now()}.tmp${mediaType === "image" ? ".webp" : ""}`;
+  let downloadedSourcePath = "";
+  try {
+    let mime = existingMime || fallbackMime;
+    const sourcePath = existingStat?.isFile() && existingStat.size > 0 ? existing : "";
+    if (sourcePath) {
+      if (mediaType === "image") {
+        try {
+          await optimizeUndressToolExampleImage(sourcePath, temporaryPath);
+          await fs.rename(temporaryPath, optimizedTargetPath);
+          return { filePath: optimizedTargetPath, mime: "image/webp" };
+        } catch (error) {
+          console.warn("[undress-example-image-optimize-failed]", error.message || error);
+          await fs.copyFile(sourcePath, fallbackTargetPath);
+          return { filePath: fallbackTargetPath, mime: mime || imageMimeFromPath(fallbackTargetPath) };
+        }
+      }
+      await fs.copyFile(sourcePath, temporaryPath);
+    } else {
+      if (!remoteUrl) return null;
+      const downloaded = await downloadRemoteFileToBuffer(remoteUrl, {
+        label: `Undress ${generationType} ${side} example`,
+        maxBytes: mediaType === "video" ? 300 * 1024 * 1024 : 25 * 1024 * 1024,
+        timeoutMs: 2 * 60 * 1000,
+        retryCount: 2,
+      });
+      mime = downloaded.mime || fallbackMime;
+      downloadedSourcePath = `${optimizedTargetPath}.${process.pid}.${Date.now()}.source${extension}`;
+      await fs.writeFile(downloadedSourcePath, downloaded.bytes);
+      if (mediaType === "image") {
+        try {
+          await optimizeUndressToolExampleImage(downloadedSourcePath, temporaryPath);
+          await fs.rename(temporaryPath, optimizedTargetPath);
+          return { filePath: optimizedTargetPath, mime: "image/webp" };
+        } catch (error) {
+          console.warn("[undress-example-image-optimize-failed]", error.message || error);
+          await fs.copyFile(downloadedSourcePath, fallbackTargetPath);
+          return { filePath: fallbackTargetPath, mime: mime || imageMimeFromPath(fallbackTargetPath) };
+        }
+      }
+      await fs.copyFile(downloadedSourcePath, temporaryPath);
+    }
+    await fs.rename(temporaryPath, optimizedTargetPath);
+    return { filePath: optimizedTargetPath, mime };
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    if (downloadedSourcePath) await fs.rm(downloadedSourcePath, { force: true }).catch(() => {});
+  }
+}
+
 async function handleUndressToolExampleMedia(req, res, generationType, side) {
   if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   const definition = UNDRESS_TOOL_EXAMPLES[generationType];
   if (!definition || !["input", "result"].includes(side)) return sendText(res, 404, "Not Found");
   const record = await getGenerationRecord(definition.taskId);
   if (!record || !isSucceededStatus(record.status)) return sendText(res, 404, "Not Found");
-  const mediaType = side === "input" ? definition.inputType : definition.resultType;
-  const filePath = undressToolExampleLocalPath(record, definition, side);
-  if (!filePath) return sendText(res, 404, "Not Found");
   try {
+    let example = await ensureUndressToolExampleFile(record, definition, generationType, side);
+    if (!example && side === "input") {
+      const asset = dbEnabled()
+        ? await getUserAssetFromDb(undressToolExampleAssetId(record))
+        : (await readDb()).userAssets.find((item) => item.id === undressToolExampleAssetId(record));
+      record.__userAssets = asset ? [asset] : [];
+      example = await ensureUndressToolExampleFile(record, definition, generationType, side);
+    }
+    const filePath = example?.filePath || "";
+    if (!filePath) return sendText(res, 404, "Not Found");
     const stat = await fs.stat(filePath);
-    const mime = mediaType === "video"
+    const mime = example.mime || (definition[side === "input" ? "inputType" : "resultType"] === "video"
       ? videoMimeFromKnownPath(filePath) || "video/mp4"
-      : imageMimeFromKnownPath(filePath) || "image/jpeg";
+      : imageMimeFromKnownPath(filePath) || "image/jpeg");
     if (sendInternalAsset(res, filePath, mime, stat)) return;
     res.writeHead(200, {
       "content-type": mime,
@@ -18000,7 +19279,8 @@ async function handleUndressToolGenerate(req, res) {
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
   const body = await readJson(req);
-  const generation = undressToolGenerationDefinition(body.generationType);
+  const appConfig = await readAppConfig();
+  const generation = undressToolGenerationDefinition(body.generationType, appConfig.undressPrompts);
   if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
   const uploaded = (auth.db.userAssets || []).find((entry) => (
     entry.id === String(body.assetId || "").trim()
@@ -18137,6 +19417,7 @@ async function handleUndressToolGenerate(req, res) {
       imageAssetId: generation.mediaKind === "image" ? asset.id : "",
       videoAssetId: generation.mediaKind === "video" ? asset.id : "",
       pricing,
+      prompt: generation.prompt,
     });
     return sendJson(res, 202, {
       ok: true,
@@ -19110,6 +20391,14 @@ function seedanceUsesTokenPricing(record = {}) {
   return String(record.source || "").includes("advanced") && record.billingSettledAt === "";
 }
 
+// Seedance 2.5 NSFW is sold from the configured duration price. The upstream
+// token usage is retained for cost auditing, but must not change the customer
+// charge after the configured sale price was pre-deducted.
+function seedanceUsesConfiguredSalePrice(record = {}) {
+  if (String(record.provider || "").toLowerCase() !== SEEDANCE25_DIRECT_PROVIDER) return false;
+  return creditsAmount(record.preDeductedCredits || 0) > 0;
+}
+
 function extractUsageCompletionTokens(value, depth = 0) {
   if (value === null || value === undefined || depth > 30) return null;
   if (typeof value === "string") {
@@ -19285,7 +20574,11 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
   ) {
     const usage = seedanceFinalCreditsFromUsage(record);
     if (!usage) return record;
-    const finalCredits = usage.credits;
+    const configuredSalePrice = seedanceUsesConfiguredSalePrice(record);
+    const finalCredits = configuredSalePrice ? preDeducted : usage.credits;
+    const originalFinalCredits = configuredSalePrice
+      ? creditsAmount(record.originalPreDeductedCredits ?? preDeducted)
+      : usage.originalCredits;
     const delta = preDeducted - finalCredits;
     let billingStatus = "settled";
     const db = await readDb();
@@ -19298,7 +20591,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           preDeducted,
           baseCredits: usage.baseCredits,
           finalCredits,
-          originalFinalCredits: usage.originalCredits,
+          originalFinalCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
           pricingMultiplier: usage.pricingMultiplier,
           markup: usage.markup,
           completionTokens: usage.completionTokens,
@@ -19312,7 +20607,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
             reason,
             preDeducted,
             finalCredits,
-            originalFinalCredits: usage.originalCredits,
+            originalFinalCredits,
+            upstreamCalculatedCredits: usage.credits,
+            upstreamOriginalCredits: usage.originalCredits,
           },
         });
         if (!dbEnabled()) await writeDb(db);
@@ -19324,7 +20621,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           preDeducted,
           baseCredits: usage.baseCredits,
           finalCredits,
-          originalFinalCredits: usage.originalCredits,
+          originalFinalCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
           pricingMultiplier: usage.pricingMultiplier,
           markup: usage.markup,
           completionTokens: usage.completionTokens,
@@ -19338,7 +20637,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
             reason,
             preDeducted,
             finalCredits,
-            originalFinalCredits: usage.originalCredits,
+            originalFinalCredits,
+            upstreamCalculatedCredits: usage.credits,
+            upstreamOriginalCredits: usage.originalCredits,
           },
         });
         if (!dbEnabled()) await writeDb(db);
@@ -19349,12 +20650,15 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
         return upsertGenerationRecord({
           taskId: record.taskId,
           finalCredits,
-          originalFinalCredits: usage.originalCredits,
+          originalFinalCredits,
           userPricingMultiplier: usage.pricingMultiplier,
           billingStatus,
           billingError: error.message || "Not enough credits or sub token quota for final settlement.",
           usageCompletionTokens: usage.completionTokens,
           usageBaseCredits: usage.baseCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
+          billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
         });
       }
       throw error;
@@ -19362,13 +20666,16 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
     return upsertGenerationRecord({
       taskId: record.taskId,
       finalCredits,
-      originalFinalCredits: usage.originalCredits,
+      originalFinalCredits,
       userPricingMultiplier: usage.pricingMultiplier,
       billingStatus,
       billingSettledAt: new Date().toISOString(),
       billingError: "",
       usageCompletionTokens: usage.completionTokens,
       usageBaseCredits: usage.baseCredits,
+      upstreamCalculatedCredits: usage.credits,
+      upstreamOriginalCredits: usage.originalCredits,
+      billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
     });
   }
 
@@ -20976,7 +22283,7 @@ async function runAdvancedGenerationJob(job = {}) {
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || requestParams.videoCapability || "first_frame";
     let resolvedWan27Media = Array.isArray(wan27Media) ? wan27Media : [];
-    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan30-video-prime", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
       const resolved = await resolveAliyunVideoMedia({
         db,
         user: { id: userId },
@@ -21137,7 +22444,7 @@ async function runAdvancedGenerationJob(job = {}) {
       payload = gatewayBody;
       createResponse = task.raw;
     } else if (isAliyunVideoProvider(provider)) {
-      if (!resolvedWan27Media.length && !["wan30-video", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+      if (!resolvedWan27Media.length && !["wan30-video", "wan30-video-prime", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
         const error = new Error(`${requestParams.videoCapability || "Alibaba video"} requires media input.`);
         error.statusCode = 400;
         throw error;
@@ -21753,6 +23060,7 @@ async function handleByteplusV3ImageGeneration(req, res) {
   try {
     const body = await readJson(req);
     const advancedBody = byteplusV3ImageGenerationToAdvancedBody(body);
+    if (publicAliyunModelBlockedForRequest(req, advancedBody.provider)) return sendPublicAliyunModelUnavailable(res);
     const captured = captureJsonResponse();
     if (advancedBody.provider === "qwen-image3") {
       await handleAdvancedQwenImage3Generate(withJsonBody(req, advancedBody), captured, { auth });
@@ -22271,11 +23579,18 @@ function seedream5OutputImageUrls(raw = {}) {
 
 function seedream5SubmitRetryPolicy(error) {
   const message = String(error?.message || error || "");
+  const statusCode = Number(error?.statusCode || 0);
   if (/asset is still processing|not available yet/i.test(message)) {
     return { attempts: 18, waitMs: 10000, reason: "asset-processing" };
   }
   if (/timeout while downloading url|timed? out while downloading|failed to download[^\n]*(?:timeout|timed? out)/i.test(message)) {
     return { attempts: 4, waitMs: 5000, reason: "reference-download" };
+  }
+  if (
+    [408, 425, 429, 500, 502, 503, 504, 520, 522].includes(statusCode)
+    || /unexpected internal error|internal server error|temporarily unavailable/i.test(message)
+  ) {
+    return { attempts: 3, waitMs: 3000, reason: "upstream-transient" };
   }
   return null;
 }
@@ -22905,6 +24220,271 @@ function queueQwenImage3Submit(submit) {
   return run;
 }
 
+function qwen37FlashResponseText(raw = {}) {
+  const content = raw?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => typeof item === "string" ? item : String(item?.text || item?.content || ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return String(raw?.choices?.[0]?.text || raw?.output?.text || "").trim();
+}
+
+function qwen37FlashUsage(raw = {}) {
+  const usage = plainObject(raw.usage);
+  return {
+    promptTokens: Math.max(0, Math.floor(Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0)),
+    completionTokens: Math.max(0, Math.floor(Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0)),
+    totalTokens: Math.max(0, Math.floor(Number(usage.total_tokens ?? 0) || 0)),
+  };
+}
+
+async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {} } = {}) {
+  const rawFinalPricing = qwen37FlashPricingEstimate(advancedPricing, {
+    inputTokens: Math.max(1, usage.promptTokens || pricing.inputTokens || 1),
+    outputTokens: Math.max(0, usage.completionTokens || 0),
+  });
+  const finalPricing = applyUserPricingToEstimate(rawFinalPricing, pricing.userPricingMultiplier || 1);
+  const finalCost = finalPricing.credits;
+  const adjustment = creditsAmount(Math.abs(Number(cost || 0) - finalCost));
+  if (adjustment > 0) {
+    const refund = Number(cost || 0) > finalCost;
+    const db = await readDb();
+    await changeUserCredits(db, userId, refund ? adjustment : -adjustment, "advanced_qwen37_flash_settlement", {
+      taskId,
+      preDeductedCredits: cost,
+      finalCredits: finalCost,
+      promptTokens: usage.promptTokens || 0,
+      completionTokens: usage.completionTokens || 0,
+    });
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+      taskId,
+      type: "advanced_qwen37_flash_settlement",
+      amount: refund ? -adjustment : adjustment,
+      meta: { preDeductedCredits: cost, finalCredits: finalCost },
+    });
+    if (!dbEnabled()) await writeDb(db);
+  }
+  return { finalCost, finalPricing };
+}
+
+async function runQwen37FlashGenerationJob(job = {}) {
+  const {
+    taskId = "",
+    userId = "",
+    prompt = "",
+    enableThinking = false,
+    maxTokens = 1024,
+    temperature = 0.7,
+    pricing = {},
+    advancedPricing = {},
+    cost = 0,
+  } = job;
+  if (!taskId || !userId) return;
+  let upstreamPayload = null;
+  try {
+    await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
+    upstreamPayload = {
+      model: QWEN37_FLASH_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      enable_thinking: enableThinking === true,
+      max_tokens: maxTokens,
+      temperature,
+    };
+    await upsertGenerationRecord({ taskId, upstreamPayload });
+    const raw = await aliyunQwen37FlashRequest(upstreamPayload);
+    const textResult = qwen37FlashResponseText(raw);
+    if (!textResult) {
+      const error = new Error("Qwen3.7 Flash returned no text.");
+      error.statusCode = 502;
+      error.payload = raw;
+      throw error;
+    }
+    const usage = qwen37FlashUsage(raw);
+    const { finalCost, finalPricing } = await settleQwen37FlashUsage({
+      taskId,
+      userId,
+      cost,
+      pricing,
+      advancedPricing,
+      usage,
+    });
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: String(raw.id || raw.request_id || raw.requestId || ""),
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      createResponse: raw,
+      textResult,
+      responseText: textResult,
+      usage,
+      finalCredits: finalCost,
+      originalFinalCredits: finalPricing.originalCredits ?? finalCost,
+      pricingEstimate: finalPricing,
+      billingStatus: finalCost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[qwen37-flash-error]", taskId, errorInfo.message || error.message || error);
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, userId, cost, "advanced_qwen37_flash_refund", { taskId, error: error.message || "Qwen3.7 Flash failed." });
+        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+          taskId,
+          type: "advanced_qwen37_flash_refund",
+          amount: -cost,
+          meta: { error: error.message || "Qwen3.7 Flash failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[qwen37-flash-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Qwen3.7 Flash failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+  }
+}
+
+function startQwen37FlashGenerationJob(job = {}) {
+  setImmediate(() => runQwen37FlashGenerationJob(job).catch((error) => {
+    console.error("[qwen37-flash-job-unhandled]", job.taskId || "", error.message || error);
+  }));
+}
+
+async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  if (!ALIYUN_QWEN37_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_QWEN37_API_KEY", message: "Qwen3.7 Flash is not configured." });
+  }
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const config = context.config || await readAppConfig();
+  const merged = { ...plainObject(caseParams.parameters), ...plainObject(bodyParams.parameters), ...plainObject(body.parameters) };
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, caseParams.prompt, "")).trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (prompt.length > 250000) return sendJson(res, 400, { ok: false, code: "PROMPT_TOO_LONG", message: "Prompt must be 250000 characters or fewer." });
+  const configuredPricing = normalizeAdvancedPricing(config.platform?.advancedPricing || DEFAULT_ADVANCED_PRICING).qwen37Flash;
+  const enableThinking = boolFromRequest(firstPresent(body.enable_thinking, body.enableThinking, bodyParams.enable_thinking, merged.enable_thinking), false);
+  const maxTokens = Math.floor(clampNumber(
+    firstPresent(body.max_tokens, body.maxTokens, bodyParams.max_tokens, merged.max_tokens),
+    configuredPricing.defaultMaxTokens || 1024,
+    1,
+    QWEN37_FLASH_MAX_OUTPUT_TOKENS,
+  ));
+  const temperature = clampNumber(
+    firstPresent(body.temperature, bodyParams.temperature, merged.temperature),
+    configuredPricing.defaultTemperature ?? 0.7,
+    0,
+    2,
+  );
+  const estimatedInputTokens = Math.max(1, Math.min(1000000, Buffer.byteLength(prompt, "utf8") + 64));
+  const rawPricing = qwen37FlashPricingEstimate(config.platform?.advancedPricing, {
+    inputTokens: estimatedInputTokens,
+    outputTokens: maxTokens,
+  });
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code, message: error.message });
+  }
+  const taskId = localGenerationTaskId("txt");
+  const requestTrace = requestTraceForGeneration(req);
+  const params = {
+    provider: "qwen37-flash",
+    model: QWEN37_FLASH_MODEL,
+    enable_thinking: enableThinking,
+    max_tokens: maxTokens,
+    temperature,
+  };
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model: QWEN37_FLASH_MODEL,
+    source: "advanced-qwen37-flash",
+    kind: "advanced-text",
+    provider: "qwen37-flash",
+    upstreamSource: "aliyun-openai-compatible",
+    userId: auth.user.id,
+    prompt,
+    finalPrompt: prompt,
+    params,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+    ...requestTrace,
+  };
+  await upsertGenerationRecord(initialRecord);
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "advanced_qwen37_flash",
+      taskId,
+      meta: { taskId, provider: "qwen37-flash", model: QWEN37_FLASH_MODEL, maxTokens, enableThinking, pricingSource: pricing.source },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
+  startQwen37FlashGenerationJob({
+    taskId,
+    userId: auth.user.id,
+    prompt,
+    enableThinking,
+    maxTokens,
+    temperature,
+    pricing,
+    advancedPricing: config.platform?.advancedPricing,
+    cost,
+  });
+  const latestDb = await readDb();
+  const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+  return sendJson(res, 200, {
+    ok: true,
+    async: true,
+    taskId,
+    user: userView(latestUser),
+    pricing,
+    cost,
+    record: publicGenerationRecord(initialRecord, generationRecordResponseOptionsForAuth(auth)),
+    params,
+  });
+}
+
 async function runQwenImage3GenerationJob(job = {}) {
   const { taskId = "", userId = "", body = {}, bodyParams = {}, initialParams = {}, prompt = "", tier = "pro", model = "", resolution = "2K", ratio = "1:1", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, pricing = {}, cost = 0 } = job;
   if (!taskId || !userId) return;
@@ -23191,6 +24771,7 @@ async function handleAdvancedGenerate(req, res) {
     providerHint,
     seedanceModelAliasKind(requestedModel) ? "seedance" : "",
   ));
+  if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
   try {
     assertExplicitAdvancedProvider(providerHint);
   } catch (error) {
@@ -23229,6 +24810,17 @@ async function handleAdvancedGenerate(req, res) {
     "",
   )).trim();
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (provider === "qwen37-flash") {
+    return await handleAdvancedQwen37FlashGenerate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   if (provider === "qwen-image3") {
     return await handleAdvancedQwenImage3Generate(req, res, {
       auth,
@@ -23323,16 +24915,20 @@ async function handleAdvancedGenerate(req, res) {
     caseParams.happyhorseCapability,
     provider === "wan27" ? "wan27-i2v" : "",
     provider === "happyhorse" ? "happyhorse-i2v" : "",
-    provider === "wan30" ? "wan30-video" : "",
+    provider === "wan30" && String(requestedModel || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase()
+      ? "wan30-video-prime"
+      : provider === "wan30" ? "wan30-video" : "",
   );
   requestParams.videoCapability = isAliyunVideoProvider(provider)
-    ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: requestedModel })
+    ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: provider === "wan30" ? "" : requestedModel })
     : "";
   requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
     && boolFromRequest(firstPresent(body.followInputDuration, bodyParams.followInputDuration), false);
   requestParams.model = provider === "seedance"
     ? normalizedSeedanceModel
-    : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
+    : provider === "wan30"
+      ? aliyunVideoModelForCapability(requestParams.videoCapability)
+      : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
@@ -23696,7 +25292,29 @@ async function handleAdvancedGenerate(req, res) {
     ...requestParams,
     advancedPricing: config.platform?.advancedPricing,
   });
-  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const videoPricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const preprocessPricing = seedancePreprocessPricingForAssets(
+    auth,
+    config,
+    provider === "seedance"
+      ? [userAsset, ...extraUserAssets, seedanceFirstFrameAsset, seedanceEndFrameAsset]
+      : [],
+    provider === "seedance" && requestParams.preprocessReference === true,
+  );
+  const pricing = {
+    ...videoPricing,
+    videoCredits: videoPricing.credits,
+    baseVideoCredits: videoPricing.baseCredits,
+    originalVideoCredits: videoPricing.originalCredits,
+    preprocessReference: requestParams.preprocessReference === true,
+    preprocessPricing,
+    preprocessCredits: preprocessPricing.credits,
+    basePreprocessCredits: preprocessPricing.baseCredits,
+    originalPreprocessCredits: preprocessPricing.originalCredits,
+    credits: creditsAmount(videoPricing.credits + preprocessPricing.credits),
+    baseCredits: creditsAmount(videoPricing.baseCredits + preprocessPricing.baseCredits),
+    originalCredits: creditsAmount(videoPricing.originalCredits + preprocessPricing.originalCredits),
+  };
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -23796,6 +25414,12 @@ async function handleAdvancedGenerate(req, res) {
         inputVideoSeconds: pricing.videoInputSeconds || 0,
         videoInputCreditsPerSecond: pricing.videoInputCreditsPerSecond || 0,
         videoInputCredits: pricing.videoInputCredits || 0,
+        videoCredits: pricing.videoCredits || 0,
+        preprocessCredits: pricing.preprocessCredits || 0,
+        preprocessImageCount: preprocessPricing.imageCount || 0,
+        preprocessResolution: preprocessPricing.resolution || "",
+        preprocessTier: preprocessPricing.tier || "",
+        preprocessAssetIds: preprocessPricing.items.map((item) => item.assetId),
         baseCredits: pricing.baseCredits,
         originalCost: pricing.originalCredits,
         pricingMultiplier: pricing.userPricingMultiplier,
@@ -23857,6 +25481,13 @@ async function handleAdvancedGenerate(req, res) {
     error: "",
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits,
+    videoCredits: pricing.videoCredits || 0,
+    originalVideoCredits: pricing.originalVideoCredits || 0,
+    preprocessReference: pricing.preprocessReference,
+    preprocessCredits: pricing.preprocessCredits || 0,
+    originalPreprocessCredits: pricing.originalPreprocessCredits || 0,
+    preprocessImageCount: preprocessPricing.imageCount || 0,
+    preprocessAssetIds: preprocessPricing.items.map((item) => item.assetId),
     finalCredits: pricing.adaptiveDuration ? null : cost,
     originalFinalCredits: pricing.adaptiveDuration ? null : pricing.originalCredits,
     userPricingMultiplier: pricing.userPricingMultiplier,
@@ -24545,7 +26176,7 @@ function wan30VideoParameterFields() {
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan 3.0 video task.", default: "-" },
     { name: "provider", type: "string", required: "Yes", description: "Use `wan30`.", default: "wan30" },
-    { name: "videoCapability", type: "string", required: "No", description: "Use `wan30-video` when explicitly supplied.", default: "wan30-video" },
+    { name: "videoCapability", type: "enum", required: "No", description: "Use `wan30-video` for the standard model or `wan30-video-prime` for Wan 3.0 Video Prime.", default: "wan30-video" },
     { name: "prompt", type: "string", required: "Unless media is supplied", description: "Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc.", default: "-" },
     { name: "mediaMode", type: "enum", required: "No", description: "`multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed.", default: "multimodal" },
     { name: "referenceImages", type: "array", required: "For image references", description: "0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
@@ -24772,8 +26403,8 @@ function advancedGenerateConstraintsDoc() {
     wan30: {
       provider: "wan30",
       route: "/api/advanced/generate",
-      capability: "wan30-video",
-      model: ALIYUN_WAN30_MODEL,
+      capabilities: ["wan30-video", "wan30-video-prime"],
+      models: [ALIYUN_WAN30_MODEL, ALIYUN_WAN30_PRIME_MODEL],
       mediaMode: ["multimodal", "first_last_frame"],
       durationSeconds: { integer: true, min: 2, max: 30, adaptive: -1 },
       resolution: ["480p", "720p", "1080p"],
@@ -24954,6 +26585,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "Seedance 2.0 Standard", model: "dreamina-seedance-2-0-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Wan 3.0 Video", provider: "wan30", capability: "wan30-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Wan 3.0 Video Prime", provider: "wan30", capability: "wan30-video-prime", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Wan2.7 Video", provider: "wan27", capability: "wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
@@ -25234,6 +26866,8 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     mode: firstPresent(params.mode, params.functionMode, params.seedanceMode),
     seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
     qwenTier: firstPresent(params.qwenTier, params.qwenImageTier, params.tier),
+    inputTokens: firstPresent(params.inputTokens, params.promptTokens),
+    outputTokens: firstPresent(params.outputTokens, params.completionTokens, params.max_tokens, params.maxTokens),
     size: params.size,
     outputImageCount: firstPresent(params.outputImageCount, params.n),
     referenceImageCount: firstPresent(params.referenceImageCount, params.imageCount),
@@ -25262,6 +26896,7 @@ async function handleAdvancedEstimate(req, res) {
     ? (["seedance", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan27")
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
+  if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
   if (isToolVideoTemplateEstimate) {
     params.videoCapability = toolVideoDefaultCapability(provider);
   }
@@ -25273,6 +26908,14 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
+  if (provider === "qwen37-flash") {
+    params.inputTokens = firstPresent(
+      body.inputTokens,
+      body.promptTokens,
+      Math.max(1, Buffer.byteLength(String(params.prompt || ""), "utf8") + 64),
+    );
+    params.outputTokens = firstPresent(params.outputTokens, params.max_tokens, params.maxTokens, 1024);
+  }
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
   const publicPricing = tenantPublic
     ? {
@@ -25474,19 +27117,39 @@ function publicModelDocsView(docs = {}) {
   if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return docs;
   const view = JSON.parse(JSON.stringify(docs || {}));
   const external = view.advancedExternalApi || {};
-  external.summary = "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro uses the V3 images route. Other temporarily unavailable model families are omitted from this public guide.";
+  const publicModelFamilies = [
+    "Seedance 2.0 uses the V3 task route.",
+    "Seedream 5.0 Pro uses the V3 images route.",
+    ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
+    ...(PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED ? ["Wan2.7 and Wan Animate use the Advanced route."] : []),
+    ...(PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED ? ["HappyHorse uses the Advanced route."] : []),
+    ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
+  ];
+  external.summary = `${publicModelFamilies.join(" ")} Other temporarily unavailable model families are omitted from this public guide.`;
   external.supportedModels = (Array.isArray(external.supportedModels) ? external.supportedModels : [])
     .filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.name));
   if (external.constraints && typeof external.constraints === "object") {
-    ["wan30", "wan27", "happyhorse", "wanAnimate", "wan27Image", "qwenImage3"].forEach((key) => delete external.constraints[key]);
-    if (external.constraints.common && Array.isArray(external.constraints.common.routes)) {
+    const restrictedConstraintKeys = [];
+    if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan30");
+    if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan27", "wanAnimate", "wan27Image");
+    if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("happyhorse");
+    if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) restrictedConstraintKeys.push("qwenImage3");
+    restrictedConstraintKeys.forEach((key) => delete external.constraints[key]);
+    if (external.constraints.common && Array.isArray(external.constraints.common.routes) && !PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
       external.constraints.common.routes = external.constraints.common.routes.filter((route) => !String(route || "").includes("/api/wan27/image-edit"));
     }
   }
-  ["qwenImage3Generate", "qwenImage3TaskDetail", "wan27ImageEdit"].forEach((key) => delete external.endpoints?.[key]);
-  ["qwenImage3ResponseShape", "qwenImage3Example", "wan30Example", "wan27Example", "happyhorseExample", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
+  if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3Generate", "qwenImage3TaskDetail"].forEach((key) => delete external.endpoints?.[key]);
+  if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) delete external.endpoints?.wan27ImageEdit;
+  if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3ResponseShape", "qwenImage3Example"].forEach((key) => delete external[key]);
+  if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) ["wan30Example"].forEach((key) => delete external[key]);
+  if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete external.happyhorseExample;
+  if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
+    ["wan27Example", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
+  }
   view.advancedExternalApi = external;
-  ["qwenImage3Generate", "qwenImage3TaskDetail", "wan27ImageEdit"].forEach((key) => delete view.endpoints?.[key]);
+  if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3Generate", "qwenImage3TaskDetail"].forEach((key) => delete view.endpoints?.[key]);
+  if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) delete view.endpoints?.wan27ImageEdit;
   if (view.advanced && Array.isArray(view.advanced.cases)) {
     view.advanced.cases = view.advanced.cases.filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.params?.provider || item.params?.model));
   }
@@ -25504,12 +27167,12 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     Create: item.create || "",
     Result: item.result || "",
   })));
-  return [
+  const lines = [
     `# ${docs.title}`,
     "",
     `Base URL: ${docs.baseUrl}`,
     "",
-    "This is the caller-facing guide for currently available public models and request shapes.",
+    "This is the caller-facing source of truth for currently available models, request fields, media combinations, and result polling.",
     "",
     "## Authentication",
     "",
@@ -25519,23 +27182,171 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     "",
     supportedModelTable,
     "",
-    "## Seedance V3",
+    "## Reusable Media",
     "",
-    markdownCodeBlock("json", external.byteplusExample?.body || {}),
+    "For V3 requests, create an asset with the BytePlus-compatible action and use `asset://<asset-id>`. For Advanced requests, upload with `/api/user-assets` and use the returned `asset.id` without the `asset://` prefix.",
     "",
-    `POST ${route(external.endpoints?.byteplusGenerate, "/api/v3/contents/generations/tasks")}`,
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.byteplusAssetAction, "/?Action=CreateAsset&Version=2024-01-01")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        URL: "https://example.com/reference.png",
+        AssetType: "Image",
+        Name: "reference image",
+        Moderation: { Strategy: "Skip" },
+      }, null, 2),
+    ].join("\n")),
     "",
-    "## Seedream 5.0 Image",
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.userAssets, "/api/user-assets")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        videoUrl: "https://example.com/reference.mp4",
+        fileName: "reference.mp4",
+        durationSeconds: 8,
+      }, null, 2),
+    ].join("\n")),
     "",
-    markdownCodeBlock("json", external.seedream5ImageExample?.body || {}),
+    "**Advanced asset fields**",
     "",
-    `POST ${route(external.endpoints?.seedream5ImageGenerate, "/api/v3/images/generations")}`,
+    docsParameterMarkdown(advancedAssetParameterFields()),
     "",
+    "## Seedance 2.0 V3",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.byteplusGenerate, "/api/v3/contents/generations/tasks")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(external.byteplusExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Request fields and limits**",
+    "",
+    byteplusV3ParameterMarkdown(),
+    "",
+    "The create response returns `id`. Poll the V3 task endpoint until `status` is `succeeded` or `failed`.",
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(external.endpoints?.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "## Seedream 5.0 Pro Image",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.seedream5ImageGenerate, "/api/v3/images/generations")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(external.seedream5ImageExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Request fields and limits**",
+    "",
+    docsParameterMarkdown(seedream5ImageParameterFields()),
+    "",
+    "The create response returns `id`/`task_id`. Poll the V3 task endpoint and read `content.image_url` after success.",
+    "",
+  ];
+
+  if (external.qwenImage3Example) {
+    lines.push(
+      "## Qwen Image 3.0",
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(external.endpoints?.qwenImage3Generate, "/api/v3/images/generations")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(external.qwenImage3Example.body || {}, null, 2),
+      ].join("\n")),
+      "",
+      "**Request fields and limits**",
+      "",
+      docsParameterMarkdown(qwenImage3ParameterFields()),
+      "",
+      "The create response is asynchronous. Poll the V3 task endpoint and read `content.image_url`, `content.image_urls`, or `data[].url` after success.",
+      "",
+    );
+  }
+
+  const advancedSections = [
+    { title: "Wan 3.0 Video", example: external.wan30Example, fields: wan30VideoParameterFields },
+    { title: "Seedance 2.5 Video", example: external.seedance25Example, fields: seedance25VideoParameterFields },
+    { title: "Seedance2.5 (NSFW) Video", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
+    { title: "Wan2.7 Video", example: external.wan27Example, fields: wan27VideoParameterFields },
+    { title: "HappyHorse Video", example: external.happyhorseExample, fields: happyhorseVideoParameterFields },
+    { title: "Wan Animate", example: external.wanAnimateExample, fields: wanAnimateVideoParameterFields },
+  ];
+  for (const section of advancedSections) {
+    if (!section.example) continue;
+    lines.push(
+      `## ${section.title}`,
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(section.example.url || external.endpoints?.advancedGenerate, "/api/advanced/generate")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(section.example.body || {}, null, 2),
+      ].join("\n")),
+      "",
+      "**Request fields and limits**",
+      "",
+      docsParameterMarkdown(section.fields()),
+      "",
+    );
+  }
+
+  if (advancedSections.some((section) => section.example)) {
+    lines.push(
+      "## Advanced Task Polling",
+      "",
+      "Advanced video tasks return `taskId`. Poll the generation record until its status is `succeeded` or `failed`.",
+      "",
+      markdownCodeBlock("http", [
+        `GET ${route(external.endpoints?.generationRecordDetail, "/api/generation-records/<taskId>")}`,
+        "Authorization: Bearer <user-token>",
+      ].join("\n")),
+      "",
+    );
+  }
+
+  if (external.wan27ImageExample) {
+    lines.push(
+      "## Wan2.7 Image Generation and Edit",
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(external.endpoints?.wan27ImageEdit, "/api/wan27/image-edit")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(external.wan27ImageExample.body || {}, null, 2),
+      ].join("\n")),
+      "",
+      "**Request fields and limits**",
+      "",
+      docsParameterMarkdown(wan27ImageParameterFields()),
+      "",
+    );
+  }
+
+  lines.push(
     "## Billing",
     "",
     docs.billing?.note || "Credits are deducted according to the selected model and configured public rates.",
     "",
-  ].join("\\n");
+    "## Endpoints",
+    "",
+    markdownCodeBlock("json", docs.endpoints || {}),
+    "",
+  );
+  return lines.join("\n");
 }
 
 function templateDocMarkdown(item) {
@@ -25627,7 +27438,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     "Wan 3.0 video:",
     "",
-    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability: "wan30-video"\`.`,
+    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability\` set to \`wan30-video\` or \`wan30-video-prime\`.`,
     `- \`mediaMode\`: ${(wan30.mediaMode || ["multimodal", "first_last_frame"]).map((item) => `\`${item}\``).join(", ")}. First/last frames cannot be mixed with reference media.`,
     `- \`duration\`: integer ${wan30.durationSeconds?.min ?? 2}-${wan30.durationSeconds?.max ?? 30} seconds, or \`-1\` for adaptive duration.`,
     `- \`resolution\`: ${(wan30.resolution || ["480p", "720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}. \`ratio\`: ${(wan30.ratio || ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
@@ -26021,11 +27832,15 @@ function buildModelDocsMarkdown(docs) {
 }
 
 async function handleModelsJson(req, res) {
+  const auth = await requireApiDocsAccess(req, res);
+  if (!auth) return;
   const docs = await buildModelDocs(req);
   return sendJson(res, 200, publicModelDocsView(docs));
 }
 
 async function handleModelsMarkdown(req, res) {
+  const auth = await requireApiDocsAccess(req, res);
+  if (!auth) return;
   const docs = await buildModelDocs(req);
   return sendMarkdown(res, 200, buildModelDocsMarkdown(publicModelDocsView(docs)));
 }
@@ -26110,9 +27925,7 @@ async function refreshSeedance25GenerationRecord(record, reason = "query") {
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
     cdnError: media.cdnError || record.cdnError || "",
-    error: task?.error?.message
-      || (typeof task?.error === "string" ? task.error : "")
-      || (isFailedStatus(status) ? String(task?.message || "Seedance 2.5 generation failed.") : "")
+    error: (isFailedStatus(status) ? seedance25TaskFailureMessage(task) || "Seedance 2.5 generation failed." : "")
       || media.downloadError
       || "",
     queryResponse: task,
@@ -26738,6 +28551,14 @@ async function registerWithBody(req, res, body = {}) {
   } else {
     await writeDb(db);
   }
+  if (referrer?.id) {
+    const wasMember = userHasCreatorMembership(referrer);
+    await ensureCreatorMembershipFromReferrals(db, referrer);
+    if (!wasMember && userHasCreatorMembership(referrer)) {
+      await grantPendingReferralRewardsForMember(db, referrer);
+      if (!dbEnabled()) await writeDb(db);
+    }
+  }
   return sendJson(res, 200, { ok: true, token, user: userView(user) });
 }
 
@@ -26798,14 +28619,816 @@ async function handleMe(req, res) {
   return sendJson(res, 200, { ok: true, user });
 }
 
+const telegramBotClient = createTelegramBotClient({
+  token: TELEGRAM_BOT_TOKEN,
+  webAppUrl: TELEGRAM_BOT_WEBAPP_URL,
+  telegramChannelUrl: VIPEAK_TELEGRAM_CHANNEL_URL,
+  xUrl: VIPEAK_X_URL,
+});
+const telegramTaskNotificationStages = new Map();
+const telegramUserContextCache = new Map();
+
+function telegramBotEnabled() {
+  return Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_WEBHOOK_SECRET && telegramBotClient.enabled);
+}
+
+function telegramBotWebhookPathMatches(pathname = "") {
+  const basePath = TELEGRAM_BOT_WEBHOOK_PATH;
+  const pathValue = String(pathname || "");
+  return pathValue === basePath
+    || (TELEGRAM_BOT_WEBHOOK_SECRET && pathValue === `${basePath}/${TELEGRAM_BOT_WEBHOOK_SECRET}`);
+}
+
+function telegramUserFromDb(db, telegramUserId = "") {
+  const id = String(telegramUserId || "").trim();
+  if (!id) return null;
+  return (db?.users || []).find((user) => String(user.telegramUserId || "") === id && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID)) || null;
+}
+
+function telegramUsernameCandidate(telegramUser = {}) {
+  const source = String(telegramUser.username || `user_${telegramUser.id || ""}`).trim().toLowerCase();
+  const clean = source.replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 18) || `user_${String(telegramUser.id || "0")}`;
+  return `tg_${clean}`.slice(0, 24);
+}
+
+function uniqueTelegramUsername(db, telegramUser = {}) {
+  const base = telegramUsernameCandidate(telegramUser);
+  let candidate = base;
+  let suffix = 1;
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID))) {
+    const suffixText = `_${suffix}`;
+    candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+async function ensureTelegramUserAccount(telegramUser = {}) {
+  const telegramUserId = String(telegramUser.id || "").trim();
+  if (!telegramUserId) {
+    const error = new Error("Telegram user information is missing.");
+    error.statusCode = 401;
+    error.code = "TELEGRAM_USER_MISSING";
+    throw error;
+  }
+  const now = new Date().toISOString();
+  const db = await readDb();
+  let user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
+    || telegramUserFromDb(db, telegramUserId);
+  if (!user) {
+    user = {
+      id: randomId("user"),
+      tenantId: UNDRESS_TOOL_TENANT_ID,
+      username: uniqueTelegramUsername(db, telegramUser),
+      passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
+      role: "user",
+      credits: 0,
+      pricingMultiplier: 1,
+      apiPricingMultiplier: 1,
+      apiToken: makeUniqueApiToken(db),
+      registrationChannel: "telegram",
+      registrationAttribution: {
+        channel: "telegram",
+        medium: "telegram-mini-app",
+        landingPath: "/",
+        host: "undress.14vips.com",
+        registeredAt: now,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.users.push(user);
+  }
+
+  user.tenantId = UNDRESS_TOOL_TENANT_ID;
+  user.telegramUserId = telegramUserId;
+  user.telegramChatId = telegramUserId;
+  user.telegramUsername = String(telegramUser.username || "").trim();
+  user.telegramFirstName = String(telegramUser.first_name || "").trim().slice(0, 80);
+  user.telegramLastName = String(telegramUser.last_name || "").trim().slice(0, 80);
+  user.telegramLanguageCode = String(telegramUser.language_code || "").trim().slice(0, 16);
+  user.telegramUpdatedAt = now;
+  user.updatedAt = now;
+  ensureUserApiToken(user, db);
+
+  if (dbEnabled()) await updateUserInDb(user);
+  else await writeDb(db);
+  telegramUserContextCache.set(user.id, { user, expiresAt: Date.now() + 60000 });
+  return { db, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
+}
+
+async function telegramUserSessionFromInitData(initData = "") {
+  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
+  const account = await ensureTelegramUserAccount(parsed.user || {});
+  const now = new Date().toISOString();
+  const token = crypto.randomBytes(32).toString("hex");
+  const session = { token, userId: account.user.id, tenantId: UNDRESS_TOOL_TENANT_ID, createdAt: now };
+  account.db.sessions.push(session);
+  if (dbEnabled()) await createSessionInDb(session);
+  else await writeDb(account.db);
+  return { token, user: account.user, telegram: account.telegram };
+}
+
+async function handleTelegramWebAppAuth(req, res) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
+  const body = await readJson(req);
+  const result = await telegramUserSessionFromInitData(body.initData || "");
+  return sendJson(res, 200, {
+    ok: true,
+    token: result.token,
+    user: userView(result.user),
+    tenantId: UNDRESS_TOOL_TENANT_ID,
+    telegram: result.telegram,
+  });
+}
+
+async function persistTelegramBotSupportMessage(message = {}) {
+  const record = await persistTelegramSupportMessage(message);
+  const telegramUserId = String(message.from?.id || "").trim();
+  if (!telegramUserId) return record;
+  const db = await readDb();
+  const user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
+    || telegramUserFromDb(db, telegramUserId);
+  if (!user) return record;
+  const stored = (db.supportMessages || []).find((item) => item.id === record.id);
+  const target = stored || record;
+  target.userId = user.id;
+  target.tenantId = UNDRESS_TOOL_TENANT_ID;
+  target.source = "telegram-undress";
+  target.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await replaceAppDbTables(db);
+  else await writeDb(db);
+  return target;
+}
+
+async function handleTelegramBotWebhook(req, res) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  if (!telegramBotEnabled()) return sendJson(res, 404, { ok: false, message: "Telegram Undress bot is not enabled." });
+  const pathSecret = String(req.url || "").split("?")[0].split("/").pop() || "";
+  const headerSecret = String(req.headers["x-telegram-bot-api-secret-token"] || "");
+  if (pathSecret !== TELEGRAM_BOT_WEBHOOK_SECRET && headerSecret !== TELEGRAM_BOT_WEBHOOK_SECRET) {
+    return sendJson(res, 403, { ok: false, message: "Invalid Telegram webhook secret." });
+  }
+  const update = await readJson(req);
+  const updateId = Number(update.update_id || 0);
+  if (updateId > 0) {
+    const now = Date.now();
+    for (const [id, seenAt] of telegramProcessedUpdateIds) {
+      if (now - seenAt > 60 * 60 * 1000) telegramProcessedUpdateIds.delete(id);
+    }
+    if (telegramProcessedUpdateIds.has(updateId)) return sendJson(res, 200, { ok: true, duplicate: true });
+    telegramProcessedUpdateIds.set(updateId, now);
+  }
+  try {
+    await telegramBotClient.processUpdate(update, {
+      onSupportMessage: (message) => persistTelegramBotSupportMessage(message),
+      onCallbackQuery: (callbackQuery) => handleTelegramNativeCallback(callbackQuery),
+      onMessage: async (message) => {
+        const account = await ensureTelegramUserAccount(message.from || {});
+        const nativeMedia = telegramNativeMediaDescriptor(message);
+        if (nativeMedia) return handleTelegramNativeMedia(message, account.user);
+        return handleTelegramNativeText(message, account.user);
+      },
+    });
+  } catch (error) {
+    if (updateId > 0) telegramProcessedUpdateIds.delete(updateId);
+    throw error;
+  }
+  return sendJson(res, 200, { ok: true });
+}
+
+const telegramNativeChatStates = new Map();
+const telegramProcessedUpdateIds = new Map();
+
+function telegramNativeRequest(user, method = "GET", pathname = "/") {
+  return {
+    method,
+    url: pathname,
+    headers: {
+      host: "undress.14vips.com",
+      authorization: `Bearer ${String(user?.apiToken || "")}`,
+      "x-forwarded-proto": "https",
+    },
+    socket: { encrypted: true },
+  };
+}
+
+async function invokeTelegramJsonHandler(handler, user, { method = "GET", pathname = "/", body = {}, args = [] } = {}) {
+  const request = telegramNativeRequest(user, method, pathname);
+  const captured = captureJsonResponse();
+  const prepared = method === "GET" ? request : withJsonBody(request, body);
+  await handler(prepared, captured, ...args);
+  return { statusCode: captured.statusCode, payload: capturedJsonPayload(captured) };
+}
+
+function telegramNativeMediaMime(filePath = "", fallback = "") {
+  const extension = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".mp4") return "video/mp4";
+  if (extension === ".mov") return "video/quicktime";
+  if (extension === ".webm") return "video/webm";
+  return String(fallback || "").toLowerCase().split(";")[0].trim();
+}
+
+function telegramNativeMediaDescriptor(message = {}) {
+  if (Array.isArray(message.photo) && message.photo.length) {
+    const photo = [...message.photo].sort((left, right) => Number(left.file_size || 0) - Number(right.file_size || 0))[message.photo.length - 1];
+    return { fileId: String(photo?.file_id || ""), mime: "image/jpeg", fileName: `telegram-${Date.now()}.jpg`, kind: "image" };
+  }
+  if (message.video?.file_id) {
+    return {
+      fileId: String(message.video.file_id),
+      mime: String(message.video.mime_type || "video/mp4"),
+      fileName: String(message.video.file_name || `telegram-${Date.now()}.mp4`),
+      kind: "video",
+    };
+  }
+  if (message.document?.file_id) {
+    const mime = telegramNativeMediaMime(message.document.file_name, message.document.mime_type);
+    const kind = mime.startsWith("video/") ? "video" : mime.startsWith("image/") ? "image" : "";
+    if (!kind) return null;
+    return {
+      fileId: String(message.document.file_id),
+      mime,
+      fileName: String(message.document.file_name || `telegram-${Date.now()}`),
+      kind,
+    };
+  }
+  return null;
+}
+
+function telegramNativeState(chatId = "") {
+  const key = String(chatId || "").trim();
+  if (!key) return null;
+  const current = telegramNativeChatStates.get(key);
+  if (current && Date.now() - Number(current.updatedAt || 0) < 30 * 60 * 1000) return current;
+  const next = { updatedAt: Date.now(), waitingFor: "", generationType: "", orderId: "" };
+  telegramNativeChatStates.set(key, next);
+  return next;
+}
+
+function clearTelegramNativeState(chatId = "") {
+  const state = telegramNativeState(chatId);
+  if (!state) return;
+  state.waitingFor = "";
+  state.generationType = "";
+  state.orderId = "";
+  state.updatedAt = Date.now();
+}
+
+function telegramNativePublicUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return publicUrlForAssetPath(text) || (isPublicHttpUrl(text) ? text : "");
+}
+
+function telegramNativeTaskLinks(record = {}) {
+  const values = [
+    record.videoUrl,
+    record.imageResultUrl,
+    record.downloadUrl,
+    record.cdnVideoUrl,
+    record.localVideoUrl,
+    record.cdnImageUrl,
+    record.localImageUrl,
+  ];
+  return [...new Set(values.map(telegramNativePublicUrl).filter(Boolean))];
+}
+
+function telegramNativeModeLabel(generationType = "") {
+  return generationType === "video" ? "Video" : generationType === "image_video" ? "Image to Video" : "Image";
+}
+
+async function sendTelegramNativeCreateMenu(chatId) {
+  return telegramBotClient.sendMessage(chatId, "Choose a generation type, then send the requested media.", {
+    reply_markup: telegramBotClient.createMarkup(),
+  });
+}
+
+async function requireApiDocsAccess(req, res) {
+  if (!apiAccessEnabledForRequest(req)) {
+    sendApiAccessDisabled(res);
+    return null;
+  }
+  const auth = await requireUser(req, res);
+  if (!auth) return null;
+  if (!userHasApiDocsAccess(auth.user)) {
+    sendJson(res, 402, {
+      ok: false,
+      code: "API_DOCS_PURCHASE_REQUIRED",
+      message: "Purchase API Documentation Access to view the integration guide.",
+      product: {
+        id: API_DOCS_PRODUCT_ID,
+        amount: API_DOCS_PRICE_USD,
+        currency: "USD",
+        includedCredits: API_DOCS_TEST_CREDITS,
+      },
+    });
+    return null;
+  }
+  return auth;
+}
+
+async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "paypal") {
+  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "paypal";
+  const plan = await getBillingPlanInDb(UNDRESS_TOOL_TENANT_ID);
+  const packages = toolTopupPackagesForPlan(plan);
+  return telegramBotClient.sendMessage(
+    chatId,
+    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nPayment: ${method === "paypal" ? "PayPal" : "USDT"}\nChoose a package:`,
+    { reply_markup: telegramBotClient.rechargeMarkup(packages, method) },
+  );
+}
+
+async function sendTelegramNativeHistory(chatId, user) {
+  const records = await listGenerationRecordsForUser(user.id, 12);
+  if (!records.length) return telegramBotClient.sendMessage(chatId, "No generation records yet.");
+  for (const record of records) {
+    let latest = record;
+    try {
+      await invokeTelegramJsonHandler(handleGetGenerationRecord, user, {
+        method: "GET",
+        pathname: `/api/generation-records/${encodeURIComponent(record.taskId)}`,
+        args: [record.taskId],
+      });
+      latest = await getGenerationRecord(record.taskId) || record;
+    } catch (error) {
+      console.warn("[telegram-history-refresh-failed]", record.taskId, error.message || error);
+    }
+    const view = publicGenerationRecord(latest, {
+      preferProviderVideoUrl: false,
+      providerOnlyVideoUrl: false,
+      includeStoredVideoUrls: true,
+      providerOnlyImageUrl: false,
+      includeStoredImageUrls: true,
+      includeLockedMedia: true,
+    });
+    const stage = telegramStatusStage(view.status);
+    const lines = [`${telegramNativeModeLabel(latest.telegramGenerationType || latest.params?.generationType || "")} · ${stage}`, `Task: ${view.taskId}`];
+    if (stage === "failed") lines.push(`Error: ${String(view.error || "Generation failed.").slice(0, 400)}`);
+    if (view.resultLocked === true) {
+      lines.push(`Unlock: ${Number(view.unlockCredits || 0).toFixed(2)} credits`);
+      await telegramBotClient.sendMessage(chatId, lines.join("\n"), {
+        reply_markup: { inline_keyboard: [[{ text: "Unlock result", callback_data: `tg:unlock:${view.taskId}` }]] },
+      });
+      continue;
+    }
+    const links = telegramNativeTaskLinks(view);
+    if (links.length) lines.push(...links);
+    await telegramBotClient.sendMessage(chatId, lines.join("\n"));
+  }
+}
+
+async function telegramNativeGenerate(user, chatId, asset, generationType) {
+  const result = await invokeTelegramJsonHandler(handleUndressToolGenerate, user, {
+    method: "POST",
+    pathname: "/api/undress-tool/generate",
+    body: { assetId: asset.id, generationType },
+  });
+  if (result.statusCode >= 400 || !result.payload?.taskId) {
+    const error = new Error(result.payload?.message || "Generation submission failed.");
+    error.statusCode = result.statusCode || 400;
+    error.payload = result.payload;
+    throw error;
+  }
+  await upsertGenerationRecord({
+    taskId: result.payload.taskId,
+    telegramChatId: String(chatId || ""),
+    telegramSource: "telegram-bot",
+    telegramGenerationType: generationType,
+  });
+  return result.payload;
+}
+
+async function handleTelegramNativeMedia(message, user) {
+  const chatId = String(message.chat?.id || "");
+  const state = telegramNativeState(chatId);
+  const descriptor = telegramNativeMediaDescriptor(message);
+  if (!descriptor) return false;
+  if (!state?.waitingFor) {
+    await telegramBotClient.sendMessage(chatId, "Choose Create first, then send an image or video.");
+    return true;
+  }
+  const expectedKind = state.waitingFor === "video" ? "video" : "image";
+  if (descriptor.kind !== expectedKind) {
+    await telegramBotClient.sendMessage(chatId, expectedKind === "video" ? "Please send a video for this mode." : "Please send an image for this mode.");
+    return true;
+  }
+  try {
+    await telegramBotClient.sendMessage(chatId, "Uploading your media...");
+    const downloaded = await telegramBotClient.downloadFile(descriptor.fileId, { maxBytes: 20 * 1024 * 1024 });
+    const mime = descriptor.mime.startsWith(`${descriptor.kind}/`) ? descriptor.mime : telegramNativeMediaMime(downloaded.filePath, downloaded.mime);
+    const asset = await createUserMediaAssetFromBytes((await readDb()), user, {
+      bytes: downloaded.bytes,
+      mime: mime || (descriptor.kind === "video" ? "video/mp4" : "image/jpeg"),
+      name: `Telegram ${descriptor.kind}`,
+      fileName: descriptor.fileName,
+      maxBytes: descriptor.kind === "video" ? MEDIA_UPLOAD_MAX_BYTES : IMAGE_UPLOAD_MAX_BYTES,
+    });
+    const generationType = state.generationType || (descriptor.kind === "video" ? "video" : "image");
+    const payload = await telegramNativeGenerate(user, chatId, asset, generationType);
+    clearTelegramNativeState(chatId);
+    await telegramBotClient.sendMessage(chatId, `Submitted\nTask: ${payload.taskId}\nProgress will be sent here.`);
+  } catch (error) {
+    await telegramBotClient.sendMessage(chatId, String(error.message || "Upload or generation failed.").slice(0, 700), {
+      reply_markup: error.statusCode === 402
+        ? { inline_keyboard: [[{ text: "Recharge", callback_data: "tg:recharge" }]] }
+        : telegramBotClient.menuMarkup(),
+    });
+  }
+  return true;
+}
+
+async function telegramNativeCreatePayPalOrder(user, chatId, packageId) {
+  const returnUrl = telegramBotClient.miniAppUrl("topups");
+  const result = await invokeTelegramJsonHandler(createPayPalCheckoutSession, user, {
+    method: "POST",
+    pathname: "/api/pay/paypal/checkout-sessions",
+    body: { packageId, returnUrl, cancelUrl: returnUrl },
+  });
+  if (result.statusCode >= 400 || !result.payload?.checkoutUrl) {
+    throw new Error(result.payload?.message || "Unable to create a PayPal recharge order.");
+  }
+  const order = result.payload.order || result.payload.session?.order || {};
+  const lines = [
+    "PayPal recharge",
+    `Pay: ${order.payableAmountText || order.payableAmount || order.amount} ${order.asset || "USD"}`,
+    `Credits after payment: ${Number(order.creditAmount || 0).toFixed(2)}`,
+    `Order: ${order.id || ""}`,
+    "Tap the button below to continue on the secure payment page.",
+  ];
+  return telegramBotClient.sendMessage(chatId, lines.join("\n"), {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Continue to PayPal", url: result.payload.checkoutUrl }],
+        [{ text: "Use USDT instead", callback_data: `tg:topup:usdt:${String(packageId).slice(0, 48)}` }],
+      ],
+    },
+  });
+}
+
+async function telegramNativeCreateUsdtOrder(user, chatId, packageId) {
+  const result = await invokeTelegramJsonHandler(handleCreatePaymentOrder, user, {
+    method: "POST",
+    pathname: "/api/pay/orders",
+    body: { packageId },
+  });
+  if (result.statusCode >= 400 || !result.payload?.order) {
+    throw new Error(result.payload?.message || "Unable to create a recharge order.");
+  }
+  const order = result.payload.order;
+  const lines = [
+    "USDT recharge",
+    `Pay: ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`,
+    `Network: ${order.network || order.chain || ""}`,
+    `Address: ${order.address || ""}`,
+    `Credits after payment: ${Number(order.creditAmount || 0).toFixed(2)}`,
+    `Order: ${order.id}`,
+    "After payment, tap the button and send the transaction hash.",
+  ];
+  const markup = { inline_keyboard: [[{ text: "I paid / submit hash", callback_data: `tg:order:confirm:${order.id}` }]] };
+  await telegramBotClient.sendMessage(chatId, lines.join("\n"), { reply_markup: markup });
+  const qrUrl = telegramNativePublicUrl(order.qrUrl);
+  if (qrUrl) await telegramBotClient.sendPhoto(chatId, qrUrl, `Scan to pay ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`).catch(() => {});
+}
+
+async function telegramNativeCreateOrder(user, chatId, packageId, paymentMethod = "paypal") {
+  if (String(paymentMethod || "").trim().toLowerCase() === "usdt") {
+    return telegramNativeCreateUsdtOrder(user, chatId, packageId);
+  }
+  return telegramNativeCreatePayPalOrder(user, chatId, packageId);
+}
+
+async function handleTelegramNativeText(message, user) {
+  const chatId = String(message.chat?.id || "");
+  const text = String(message.text || "").trim();
+  const lower = text.toLowerCase();
+  const state = telegramNativeState(chatId);
+  if (state?.waitingFor === "payment_hash" && text && !lower.startsWith("/")) {
+    try {
+      const result = await invokeTelegramJsonHandler(handleConfirmPaymentOrder, user, {
+        method: "POST",
+        pathname: `/api/pay/orders/${encodeURIComponent(state.orderId)}/confirm`,
+        body: { transactionHash: text },
+        args: [state.orderId],
+      });
+      if (result.statusCode >= 400) throw new Error(result.payload?.message || "Transaction hash was not accepted.");
+      clearTelegramNativeState(chatId);
+      await telegramBotClient.sendMessage(chatId, "Transaction hash received. The order will be credited after verification.", { reply_markup: telegramBotClient.menuMarkup() });
+    } catch (error) {
+      await telegramBotClient.sendMessage(chatId, String(error.message || "Invalid transaction hash.").slice(0, 500));
+    }
+    return true;
+  }
+  if (["create", "/create"].includes(lower)) {
+    await sendTelegramNativeCreateMenu(chatId);
+    return true;
+  }
+  if (["history", "/history"].includes(lower)) {
+    await sendTelegramNativeHistory(chatId, user);
+    return true;
+  }
+  if (["recharge", "/recharge", "topup", "/topup"].includes(lower)) {
+    await sendTelegramNativeRechargeMenu(chatId, user);
+    return true;
+  }
+  if (["my", "/me", "/account"].includes(lower)) {
+    await telegramBotClient.sendMessage(chatId, `Telegram account\nUser ID: ${user.telegramUserId}\nBalance: ${Number(user.credits || 0).toFixed(2)} credits`, { reply_markup: telegramBotClient.menuMarkup() });
+    return true;
+  }
+  if (lower === "cancel") {
+    clearTelegramNativeState(chatId);
+    await telegramBotClient.sendStart(chatId);
+    return true;
+  }
+  return false;
+}
+
+async function handleTelegramNativeCallback(callbackQuery) {
+  const chatId = String(callbackQuery.message?.chat?.id || callbackQuery.from?.id || "");
+  const account = await ensureTelegramUserAccount(callbackQuery.from || {});
+  const user = account.user;
+  const data = String(callbackQuery.data || "").trim();
+  if (data === "tg:create") {
+    await sendTelegramNativeCreateMenu(chatId);
+    return;
+  }
+  const mode = data.match(/^tg:create:(image|image_video|video)$/)?.[1] || "";
+  if (mode) {
+    const state = telegramNativeState(chatId);
+    state.generationType = mode;
+    state.waitingFor = mode === "video" ? "video" : "image";
+    state.updatedAt = Date.now();
+    await telegramBotClient.sendMessage(chatId, mode === "video" ? "Send one video." : "Send one image.", { reply_markup: telegramBotClient.menuMarkup() });
+    return;
+  }
+  if (data === "tg:recharge") {
+    await sendTelegramNativeRechargeMenu(chatId, user);
+    return;
+  }
+  const paymentMethod = data.match(/^tg:payment:(paypal|usdt)$/i)?.[1]?.toLowerCase() || "";
+  if (paymentMethod) {
+    await sendTelegramNativeRechargeMenu(chatId, user, paymentMethod);
+    return;
+  }
+  const packageMatch = data.match(/^tg:topup:(paypal|usdt):([a-z0-9_-]+)$/i);
+  const legacyPackageId = data.match(/^tg:topup:([a-z0-9_-]+)$/i)?.[1] || "";
+  const packageId = packageMatch?.[2] || legacyPackageId;
+  if (packageId) {
+    try {
+      await telegramNativeCreateOrder(user, chatId, packageId, packageMatch?.[1] || "usdt");
+    } catch (error) {
+      await telegramBotClient.sendMessage(chatId, String(error.message || "Unable to create a recharge order.").slice(0, 500));
+    }
+    return;
+  }
+  const orderId = data.match(/^tg:order:confirm:([a-z0-9_-]+)$/i)?.[1] || "";
+  if (orderId) {
+    const state = telegramNativeState(chatId);
+    state.waitingFor = "payment_hash";
+    state.orderId = orderId;
+    state.updatedAt = Date.now();
+    await telegramBotClient.sendMessage(chatId, "Send the transaction hash for this order.");
+    return;
+  }
+  const taskId = data.match(/^tg:unlock:(.+)$/i)?.[1] || "";
+  if (taskId) {
+    const result = await invokeTelegramJsonHandler(handleUnlockUndressToolResult, user, {
+      method: "POST",
+      pathname: `/api/undress-tool/tasks/${encodeURIComponent(taskId)}/unlock`,
+      args: [taskId],
+    });
+    if (result.statusCode >= 400) {
+      await telegramBotClient.sendMessage(chatId, String(result.payload?.message || "Unable to unlock this result.").slice(0, 500), {
+        reply_markup: result.statusCode === 402 ? { inline_keyboard: [[{ text: "Recharge", callback_data: "tg:recharge" }]] } : undefined,
+      });
+      return;
+    }
+    const record = result.payload.record || await getGenerationRecord(taskId);
+    const links = telegramNativeTaskLinks(publicGenerationRecord(record || {}, { includeLockedMedia: true, includeStoredVideoUrls: true, includeStoredImageUrls: true }));
+    await telegramBotClient.sendMessage(chatId, links.length ? `Unlocked\n${links.join("\n")}` : "Unlocked, but the result link is not ready yet.");
+  }
+}
+
+async function telegramUserContextForGeneration(record = {}) {
+  if (recordTenantId(record) !== UNDRESS_TOOL_TENANT_ID || !record.userId || !TELEGRAM_BOT_TOKEN) return null;
+  const cached = telegramUserContextCache.get(record.userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.user;
+  const dbUser = await getUserByIdInDb(record.userId);
+  const db = dbUser ? null : await readDb();
+  const user = dbUser || (db?.users || []).find((item) => item.id === record.userId) || null;
+  if (!user || recordTenantId(user) !== UNDRESS_TOOL_TENANT_ID || !user.telegramChatId) return null;
+  telegramUserContextCache.set(record.userId, { user, expiresAt: Date.now() + 60000 });
+  return user;
+}
+
+async function notifyTelegramGenerationRecord(record = {}) {
+  if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled || !record?.taskId) return;
+  if (String(record.telegramSource || record.params?.telegramSource || "") !== "telegram-bot") return;
+  const user = await telegramUserContextForGeneration(record);
+  if (!user?.telegramChatId) return;
+  const stage = telegramStatusStage(record.status);
+  const key = String(record.taskId);
+  if (telegramTaskNotificationStages.get(key) === stage) return;
+  try {
+    if (stage === "processing") {
+      await telegramBotClient.sendMessage(user.telegramChatId, `Generation in progress\nTask: ${key}`);
+    } else if (stage === "failed") {
+      await telegramBotClient.sendMessage(user.telegramChatId, `Generation failed\nTask: ${key}\n${String(record.error || "Generation failed.").slice(0, 600)}`);
+    } else if (stage === "completed") {
+      const latest = await getGenerationRecord(key) || record;
+      const view = publicGenerationRecord(latest, {
+        preferProviderVideoUrl: false,
+        providerOnlyVideoUrl: false,
+        includeStoredVideoUrls: true,
+        providerOnlyImageUrl: false,
+        includeStoredImageUrls: true,
+        includeLockedMedia: true,
+      });
+      if (view.resultLocked === true) {
+        const previewUrl = telegramNativePublicUrl(view.lockedPreviewUrl);
+        const markup = { inline_keyboard: [[{ text: "Unlock result", callback_data: `tg:unlock:${key}` }]] };
+        if (previewUrl) {
+          await telegramBotClient.sendPhoto(user.telegramChatId, previewUrl, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
+        } else {
+          await telegramBotClient.sendMessage(user.telegramChatId, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
+        }
+      } else {
+        const links = telegramNativeTaskLinks(view);
+        await telegramBotClient.sendMessage(user.telegramChatId, links.length ? `Generation complete\n${links.join("\n")}` : `Generation complete\nTask: ${key}`);
+      }
+    } else {
+      await telegramBotClient.sendMessage(user.telegramChatId, `Generation status: ${stage}\nTask: ${key}`);
+    }
+    telegramTaskNotificationStages.set(key, stage);
+  } catch (error) {
+    console.warn("[telegram-generation-notify-failed]", key, error.message || error);
+  }
+}
+
+let telegramGenerationScanRunning = false;
+async function scanTelegramGenerationNotifications() {
+  if (telegramGenerationScanRunning || !TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
+  telegramGenerationScanRunning = true;
+  try {
+    const records = (await readGenerationRecords())
+      .filter((record) => recordTenantId(record) === UNDRESS_TOOL_TENANT_ID && record.userId && !record.deletedAt)
+      .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
+      .slice(0, 60);
+    for (const record of records) {
+      await notifyTelegramGenerationRecord(record);
+    }
+  } catch (error) {
+    console.warn("[telegram-generation-scan-failed]", error.message || error);
+  } finally {
+    telegramGenerationScanRunning = false;
+  }
+}
+
 async function handleReferralSummary(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const wasMember = userHasCreatorMembership(auth.user);
+  await ensureCreatorMembershipFromReferrals(auth.db, auth.user);
+  if (!wasMember && userHasCreatorMembership(auth.user)) {
+    await grantPendingReferralRewardsForMember(auth.db, auth.user);
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
   return sendJson(res, 200, {
     ok: true,
     referral: publicReferralSummary(req, auth.db, auth.user),
     user: userView(auth.user),
   });
+}
+
+function normalizeMembershipActivationCode(value = "") {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function membershipActivationCodeHash(value = "") {
+  return crypto.createHash("sha256").update(normalizeMembershipActivationCode(value)).digest("hex");
+}
+
+function makeMembershipActivationCode() {
+  const body = crypto.randomBytes(9).toString("base64url").toUpperCase().replace(/[^A-Z0-9]/g, "").padEnd(12, "X").slice(0, 12);
+  return `VIP-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}`;
+}
+
+async function handleRedeemMembershipActivationCode(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const tenant = requestTenantDescriptor(req);
+  if (!tenant.membershipProgram) {
+    return sendJson(res, 404, { ok: false, code: "MEMBERSHIP_DISABLED", message: "Creator Membership is not available on this site." });
+  }
+  if (userHasCreatorMembership(auth.user)) {
+    return sendJson(res, 200, { ok: true, alreadyActive: true, membership: publicCreatorMembership(auth.user), user: userView(auth.user) });
+  }
+  const body = await readJson(req);
+  const normalizedCode = normalizeMembershipActivationCode(body.code || body.activationCode || "");
+  if (normalizedCode.length < 10) {
+    return sendJson(res, 400, { ok: false, code: "ACTIVATION_CODE_INVALID", message: "Enter a valid membership activation code." });
+  }
+  try {
+    const redemption = await redeemMembershipActivationCodeInDb({
+      tenantId: tenant.tenantId,
+      codeHash: membershipActivationCodeHash(normalizedCode),
+      userId: auth.user.id,
+      redemptionId: randomId("membership-redemption"),
+    });
+    await activateCreatorMembership(auth.db, auth.user, {
+      source: "activation_code",
+      codeId: redemption.code?.id || "",
+    });
+    await grantPendingReferralRewardsForMember(auth.db, auth.user);
+    return sendJson(res, 200, {
+      ok: true,
+      alreadyRedeemed: Boolean(redemption.alreadyRedeemed),
+      membership: publicCreatorMembership(auth.user),
+      user: userView(auth.user),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, {
+      ok: false,
+      code: error.code || "ACTIVATION_CODE_FAILED",
+      message: error.message || "Activation code could not be redeemed.",
+    });
+  }
+}
+
+async function handleAdminListMembershipActivationCodes(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 30, maxLimit: 200 });
+  const status = String(url?.searchParams?.get("status") || "").trim();
+  const search = String(url?.searchParams?.get("q") || "").trim();
+  const result = await listMembershipActivationCodesInDb(DEFAULT_TENANT_ID, {
+    limit: paging.limit,
+    offset: paging.offset,
+    status,
+    search,
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    codes: result.items,
+    page: paging.page,
+    limit: paging.limit,
+    total: result.total,
+    totalPages: Math.max(1, Math.ceil(result.total / paging.limit)),
+  });
+}
+
+async function handleAdminCreateMembershipActivationCodes(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const count = Math.max(1, Math.min(100, Math.trunc(Number(body.count || 1) || 1)));
+  const maxRedemptions = Math.max(1, Math.min(10000, Math.trunc(Number(body.maxRedemptions || 1) || 1)));
+  const notes = String(body.notes || "").trim().slice(0, 500);
+  let expiresAt = "";
+  if (body.expiresAt) {
+    const parsed = Date.parse(body.expiresAt);
+    if (!Number.isFinite(parsed) || parsed <= Date.now()) {
+      return sendJson(res, 400, { ok: false, code: "INVALID_EXPIRY", message: "Expiration must be a future date." });
+    }
+    expiresAt = new Date(parsed).toISOString();
+  }
+  const now = new Date().toISOString();
+  const rawCodes = Array.from({ length: count }, () => makeMembershipActivationCode());
+  const created = await createMembershipActivationCodesInDb(rawCodes.map((code) => ({
+    id: randomId("membership-code"),
+    tenantId: DEFAULT_TENANT_ID,
+    codeHash: membershipActivationCodeHash(code),
+    codePrefix: code.slice(0, 9),
+    expiresAt,
+    maxRedemptions,
+    notes,
+    createdByUserId: auth.user.id,
+    createdAt: now,
+  })));
+  return sendJson(res, 200, {
+    ok: true,
+    codes: created.map((record, index) => ({ ...record, code: rawCodes[index] })),
+  });
+}
+
+async function handleAdminUpdateMembershipActivationCode(req, res, codeId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const status = String(body.status || "").trim().toLowerCase();
+  if (!["active", "disabled"].includes(status)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_STATUS", message: "Status must be active or disabled." });
+  }
+  const code = await setMembershipActivationCodeStatusInDb(codeId, DEFAULT_TENANT_ID, status);
+  if (!code) return sendJson(res, 404, { ok: false, code: "ACTIVATION_CODE_NOT_FOUND", message: "Activation code not found." });
+  return sendJson(res, 200, { ok: true, code });
 }
 
 async function handleCreateSupportMessage(req, res) {
@@ -27224,6 +29847,18 @@ function addBillingInterval(value, unit = "month", count = 1) {
 
 async function activatePaidSubscription(db, order, plan) {
   const tenantId = normalizeTenantId(order.tenantId || DEFAULT_TENANT_ID);
+  if (tenantId === DEFAULT_TENANT_ID && plan.id === CREATOR_MEMBERSHIP_PLAN_ID) {
+    const user = (db.users || []).find((entry) => entry.id === order.userId);
+    await activateCreatorMembership(db, user, {
+      source: order.paymentProvider || "payment",
+      orderId: order.id,
+    });
+    await grantPendingReferralRewardsForMember(db, user);
+    const subscription = await getUserSubscriptionInDb(order.userId, tenantId);
+    order.subscriptionId = subscription?.id || "";
+    order.subscriptionPeriodEnd = "";
+    return subscription;
+  }
   const existing = await getUserSubscriptionInDb(order.userId, tenantId);
   if (existing?.lastOrderId === order.id) return existing;
   const now = new Date().toISOString();
@@ -27265,10 +29900,16 @@ async function handleCreateSubscriptionOrder(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const tenant = requestTenantDescriptor(req);
-  if (!tenant.subscriptions) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Subscriptions are not enabled for this site." });
+  if (!tenant.subscriptions && !tenant.membershipProgram) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Membership purchases are not enabled for this site." });
   const body = await readJson(req);
   const plan = await getBillingPlanInDb(tenant.tenantId, body.planId || body.plan_id);
   if (!plan) return sendJson(res, 404, { ok: false, code: "BILLING_PLAN_NOT_FOUND", message: "Subscription plan not found." });
+  if (tenant.membershipProgram && plan.id !== CREATOR_MEMBERSHIP_PLAN_ID) {
+    return sendJson(res, 404, { ok: false, code: "BILLING_PLAN_NOT_FOUND", message: "Membership plan not found." });
+  }
+  if (tenant.membershipProgram && userHasCreatorMembership(auth.user)) {
+    return sendJson(res, 409, { ok: false, code: "MEMBERSHIP_ALREADY_ACTIVE", message: "Creator Membership is already active." });
+  }
   const config = await readAppConfig();
   const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
   if (!walletOption?.address) return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT payment is not configured." });
@@ -27320,10 +29961,10 @@ async function handleCreatePaymentOrder(req, res) {
   const tenant = requestTenantDescriptor(req);
   const availablePackages = tenant.subscriptions
     ? toolTopupPackagesForPlan(await getBillingPlanInDb(tenant.tenantId))
-    : publicTopupPackages();
+    : publicTopupPackages(auth.user);
   const topupPackage = tenant.subscriptions
     ? await toolTopupPackageForRequest(req, body)
-    : findTopupPackage(body);
+    : findTopupPackage(body, auth.user);
   if (!topupPackage) {
     return sendJson(res, 400, {
       ok: false,
@@ -27485,19 +30126,238 @@ async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
+async function paypalTopupPackagesForRequest(req, user = null) {
+  const tenant = requestTenantDescriptor(req);
+  if (tenant.subscriptions) {
+    const plan = await getBillingPlanInDb(tenant.tenantId);
+    return toolTopupPackagesForPlan(plan);
+  }
+  return publicTopupPackages(user);
+}
+
+async function paypalTopupPackageForRequest(req, body = {}, user = null) {
+  const tenant = requestTenantDescriptor(req);
+  if (tenant.subscriptions) {
+    return await toolTopupPackageForRequest(req, body);
+  }
+  return findTopupPackage(body, user);
+}
+
+async function paypalCheckoutSelectionForRequest(req, body = {}, user = null) {
+  const tenant = requestTenantDescriptor(req);
+  const billingPlanId = String(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id || "").trim();
+  if (billingPlanId) {
+    if (!tenant.subscriptions && !tenant.membershipProgram) return null;
+    const plan = await getBillingPlanInDb(tenant.tenantId, billingPlanId);
+    if (!plan || (tenant.membershipProgram && plan.id !== CREATOR_MEMBERSHIP_PLAN_ID)) return null;
+    if (tenant.membershipProgram && user && userHasCreatorMembership(user)) {
+      return { alreadyOwned: true, kind: "subscription", id: plan.id };
+    }
+    return {
+      kind: "subscription",
+      id: plan.id,
+      amount: Number(plan.amount || 0),
+      credits: creditsAmount(plan.includedCredits || 0),
+      plan,
+    };
+  }
+  const productId = String(body.productId || body.product_id || "").trim();
+  if (productId === API_DOCS_PRODUCT_ID && tenant.membershipProgram) {
+    if (user && userHasApiDocsAccess(user)) return { alreadyOwned: true, kind: "product", id: API_DOCS_PRODUCT_ID };
+    return {
+      kind: "product",
+      id: API_DOCS_PRODUCT_ID,
+      amount: API_DOCS_PRICE_USD,
+      credits: API_DOCS_TEST_CREDITS,
+      product: { id: API_DOCS_PRODUCT_ID, name: "API Documentation Access" },
+    };
+  }
+  const topupPackage = await paypalTopupPackageForRequest(req, body, user);
+  if (!topupPackage) return null;
+  return {
+    kind: "topup",
+    id: topupPackage.id,
+    amount: Number(topupPackage.amount || 0),
+    credits: creditsAmount(topupPackage.credits || 0),
+    topupPackage,
+  };
+}
+
+function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
+  const publicOrder = publicTopupOrder(order, config.wallet, options);
+  const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
+  return {
+    id: String(order.id || ""),
+    sessionId: String(order.paypalCheckoutSessionId || ""),
+    status: String(order.paypalCheckoutSessionStatus || order.status || "pending"),
+    paymentStatus: String(order.paypalStatus || ""),
+    paypalOrderId: String(order.paypalOrderId || ""),
+    approvalUrl: String(order.approvalUrl || ""),
+    returnUrl: String(order.paypalReturnUrl || ""),
+    cancelUrl: String(order.paypalCancelUrl || ""),
+    expiresAt: Number.isFinite(createdMs) ? new Date(createdMs + PAYPAL_CHECKOUT_SESSION_TTL_MS).toISOString() : "",
+    order: publicOrder,
+    createdAt: String(order.paypalCheckoutSessionCreatedAt || order.createdAt || ""),
+    startedAt: String(order.paypalCheckoutStartedAt || ""),
+  };
+}
+
+function paypalOrderBodyForCheckout(order = {}, { returnUrl = "", cancelUrl = "" } = {}) {
+  const amountValue = paypalMoneyValue(order.baseAmount || 0);
+  const purchaseUnit = {
+    reference_id: order.id || order.paypalCheckoutSessionId || randomSecretToken("paypal"),
+    custom_id: order.id || order.paypalCheckoutSessionId || "",
+    description: order.orderKind === "subscription"
+      ? `${PAYPAL_BRAND_NAME} ${order.billingPlanName || "subscription"}`
+      : order.orderKind === "product"
+        ? `${PAYPAL_BRAND_NAME} ${order.productName || "purchase"}`
+        : `${PAYPAL_BRAND_NAME} credits`,
+    amount: {
+      currency_code: PAYPAL_CURRENCY,
+      value: amountValue,
+    },
+  };
+  if (order.paypalInvoiceId) purchaseUnit.invoice_id = String(order.paypalInvoiceId).slice(0, 127);
+  return {
+    intent: "CAPTURE",
+    purchase_units: [purchaseUnit],
+    payment_source: {
+      paypal: {
+        experience_context: {
+          brand_name: PAYPAL_BRAND_NAME,
+          landing_page: "LOGIN",
+          shipping_preference: "NO_SHIPPING",
+          user_action: "PAY_NOW",
+          return_url: returnUrl || paypalCheckoutUrl("/paypal-return", { sid: order.paypalCheckoutSessionId || "" }),
+          cancel_url: cancelUrl || paypalCheckoutUrl("/paypal-cancel", { sid: order.paypalCheckoutSessionId || "" }),
+        },
+      },
+    },
+  };
+}
+
+async function createAndStorePayPalOrder(req, auth, order, { returnUrl = "", cancelUrl = "", requestId = "" } = {}) {
+  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
+    method: "POST",
+    headers: {
+      "paypal-request-id": requestId || order.id || randomId("paypal"),
+    },
+    body: paypalOrderBodyForCheckout(order, { returnUrl, cancelUrl }),
+  });
+  order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
+  order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
+  order.approvalUrl = findPayPalApprovalLink(paypalOrder);
+  order.updatedAt = new Date().toISOString();
+  auth.db.walletOrders.unshift(order);
+  if (dbEnabled()) {
+    await createWalletOrderInDb(order);
+  } else {
+    await writeDb(auth.db);
+  }
+  return paypalOrder;
+}
+
+async function createPayPalCheckoutSession(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const selection = await paypalCheckoutSelectionForRequest(req, body, auth.user);
+  if (!selection) {
+    const requestedPlan = Boolean(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id);
+    return sendJson(res, 400, {
+      ok: false,
+      code: requestedPlan ? "BILLING_PLAN_NOT_FOUND" : "INVALID_TOPUP_PACKAGE",
+      message: requestedPlan ? "Subscription plan not found." : "Please select one of the available top-up packages.",
+      packages: await paypalTopupPackagesForRequest(req, auth.user),
+    });
+  }
+  if (selection.alreadyOwned) {
+    const membership = selection.kind === "subscription";
+    return sendJson(res, 409, {
+      ok: false,
+      code: membership ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED",
+      message: membership ? "Creator Membership is already active." : "API documentation access is already active.",
+    });
+  }
+  const rawAmount = selection.amount;
+  if (!Number.isFinite(rawAmount) || rawAmount < PAYPAL_MIN_AMOUNT || rawAmount > PAYPAL_MAX_AMOUNT) {
+    return sendJson(res, 400, {
+      ok: false,
+      message: `PayPal amount must be between ${PAYPAL_MIN_AMOUNT} and ${PAYPAL_MAX_AMOUNT} ${PAYPAL_CURRENCY}.`,
+    });
+  }
+  if (!paypalEnabled()) {
+    return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
+  }
+
+  const amountValue = paypalMoneyValue(rawAmount);
+  const amount = Number(amountValue);
+  const rate = paypalCnyCentsPerUnit(config.wallet);
+  const sessionId = randomSecretToken("ppsid");
+  const order = {
+    id: randomId("paypal"),
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
+    userId: auth.user.id,
+    paymentProvider: "paypal",
+    orderKind: selection.kind,
+    baseAmount: amount,
+    creditAmount: selection.credits,
+    packageId: selection.kind === "topup" ? selection.id : "",
+    packageCredits: selection.credits,
+    productId: selection.product?.id || "",
+    productName: selection.product?.name || "",
+    billingPlanId: selection.plan?.id || "",
+    billingPlanName: selection.plan?.name || "",
+    billingIntervalUnit: selection.plan?.intervalUnit || "",
+    billingIntervalCount: selection.plan?.intervalCount || 0,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    cnyCentsPerUnit: rate,
+    currency: PAYPAL_CURRENCY,
+    payableAmount: amount,
+    payableAmountText: amountValue,
+    asset: PAYPAL_CURRENCY,
+    network: "PayPal",
+    chain: "paypal",
+    address: "",
+    status: "pending",
+    paypalCheckoutSessionId: sessionId,
+    paypalCheckoutSessionStatus: "created",
+    paypalCheckoutSessionCreatedAt: new Date().toISOString(),
+    paypalReturnUrl: safePayPalReturnUrl(req, body.returnUrl || body.return_url || ""),
+    paypalCancelUrl: safePayPalReturnUrl(req, body.cancelUrl || body.cancel_url || body.returnUrl || body.return_url || ""),
+    sourceOrigin: pageOriginFromRequest(req),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  auth.db.walletOrders.unshift(order);
+  if (dbEnabled()) {
+    await createWalletOrderInDb(order);
+  } else {
+    await writeDb(auth.db);
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    checkoutUrl: paypalCheckoutUrl("/", { sid: sessionId }),
+    session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    order: publicTopupOrder(order, config.wallet, tenantOptions),
+  });
+}
+
 async function handleCreatePayPalOrder(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const topupPackage = findTopupPackage(body);
+  const topupPackage = await paypalTopupPackageForRequest(req, body, auth.user);
   if (!topupPackage) {
     return sendJson(res, 400, {
       ok: false,
       code: "INVALID_TOPUP_PACKAGE",
       message: "Please select one of the available top-up packages.",
-      packages: publicTopupPackages(),
+      packages: await paypalTopupPackagesForRequest(req, auth.user),
     });
   }
   const rawAmount = topupPackage.amount;
@@ -27513,45 +30373,15 @@ async function handleCreatePayPalOrder(req, res) {
 
   const amountValue = paypalMoneyValue(rawAmount);
   const amount = Number(amountValue);
+  const rate = paypalCnyCentsPerUnit(config.wallet);
   const localOrderId = randomId("paypal");
   const origin = publicOriginFromRequest(req);
-  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
-    method: "POST",
-    headers: {
-      "paypal-request-id": localOrderId,
-    },
-    body: {
-      intent: "CAPTURE",
-      purchase_units: [{
-        reference_id: localOrderId,
-        custom_id: localOrderId,
-        invoice_id: localOrderId,
-        description: `${PAYPAL_BRAND_NAME} credits`,
-        amount: {
-          currency_code: PAYPAL_CURRENCY,
-          value: amountValue,
-        },
-      }],
-      payment_source: {
-        paypal: {
-          experience_context: {
-            brand_name: PAYPAL_BRAND_NAME,
-            landing_page: "LOGIN",
-            shipping_preference: "NO_SHIPPING",
-            user_action: "PAY_NOW",
-            return_url: `${origin}/#topups`,
-            cancel_url: `${origin}/#topups`,
-          },
-        },
-      },
-    },
-  });
-
-  const rate = paypalCnyCentsPerUnit(config.wallet);
   const order = {
     id: localOrderId,
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
     userId: auth.user.id,
     paymentProvider: "paypal",
+    orderKind: "topup",
     baseAmount: amount,
     creditAmount: creditsAmount(topupPackage.credits),
     packageId: topupPackage.id,
@@ -27566,18 +30396,21 @@ async function handleCreatePayPalOrder(req, res) {
     chain: "paypal",
     address: "",
     status: "pending",
-    paypalOrderId: paypalOrder.id || "",
-    paypalStatus: paypalOrder.status || "",
-    approvalUrl: findPayPalApprovalLink(paypalOrder),
+    paypalCheckoutSessionId: randomSecretToken("ppsid"),
+    paypalCheckoutSessionStatus: "legacy-direct",
+    paypalCheckoutSessionCreatedAt: new Date().toISOString(),
+    paypalInvoiceId: localOrderId,
+    paypalReturnUrl: safePayPalReturnUrl(req, body.returnUrl || body.return_url || ""),
+    paypalCancelUrl: safePayPalReturnUrl(req, body.cancelUrl || body.cancel_url || body.returnUrl || body.return_url || ""),
+    sourceOrigin: pageOriginFromRequest(req),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  auth.db.walletOrders.unshift(order);
-  if (dbEnabled()) {
-    await createWalletOrderInDb(order);
-  } else {
-    await writeDb(auth.db);
-  }
+  await createAndStorePayPalOrder(req, auth, order, {
+    requestId: localOrderId,
+    returnUrl: `${origin}/#topups`,
+    cancelUrl: `${origin}/#topups`,
+  });
   return sendJson(res, 200, {
     ok: true,
     paypalOrderId: order.paypalOrderId,
@@ -27586,25 +30419,33 @@ async function handleCreatePayPalOrder(req, res) {
   });
 }
 
-async function handleCapturePayPalOrder(req, res, paypalOrderId) {
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  const config = await readAppConfig();
-  const tenantOptions = requestTenantOptions(req);
-  const order = await getWalletOrderByPaypalIdInDb(paypalOrderId) || (auth.db.walletOrders || []).find((entry) => (
-    entry.userId === auth.user.id &&
-    entry.paymentProvider === "paypal" &&
-    entry.paypalOrderId === paypalOrderId
-  ));
-  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal order not found." });
-
+async function capturePayPalWalletOrder(db, order, config, { paypalOrderId = "" } = {}) {
+  if (!order) {
+    const error = new Error("PayPal order not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const expectedPaypalOrderId = String(order.paypalOrderId || "").trim();
+  const requestedPaypalOrderId = String(paypalOrderId || expectedPaypalOrderId || "").trim();
+  if (!expectedPaypalOrderId && requestedPaypalOrderId) order.paypalOrderId = requestedPaypalOrderId;
+  if (expectedPaypalOrderId && requestedPaypalOrderId && expectedPaypalOrderId !== requestedPaypalOrderId) {
+    const error = new Error("PayPal order mismatch.");
+    error.statusCode = 409;
+    throw error;
+  }
+  const orderIdForCapture = String(order.paypalOrderId || requestedPaypalOrderId || "").trim();
+  if (!orderIdForCapture) {
+    const error = new Error("PayPal order is missing.");
+    error.statusCode = 409;
+    throw error;
+  }
   if (order.status === "paid") {
-    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(auth.user) });
+    return { order, user: (db.users || []).find((u) => u.id === order.userId) || null, capturePayload: null, capture: null };
   }
 
   let capturePayload;
   try {
-    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, {
+    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderIdForCapture)}/capture`, {
       method: "POST",
       headers: {
         "paypal-request-id": `${order.id}-capture`,
@@ -27613,7 +30454,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     });
   } catch (error) {
     if (error.statusCode !== 422) throw error;
-    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`);
+    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderIdForCapture)}`);
   }
 
   const capture = paypalCaptureFromOrder(capturePayload);
@@ -27627,13 +30468,12 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     String(capture?.status || "").toUpperCase() === "COMPLETED";
   if (!completed) {
     await updateWalletOrderInDb(order);
-    if (!dbEnabled()) await writeDb(auth.db);
-    return sendJson(res, 409, {
-      ok: false,
-      code: "PAYPAL_NOT_COMPLETED",
-      message: "PayPal payment is not completed yet.",
-      order: publicTopupOrder(order, config.wallet, tenantOptions),
-    });
+    if (!dbEnabled()) await writeDb(db);
+    const error = new Error("PayPal payment is not completed yet.");
+    error.statusCode = 409;
+    error.code = "PAYPAL_NOT_COMPLETED";
+    error.order = order;
+    throw error;
   }
 
   const capturedAmount = Number(capture?.amount?.value || 0);
@@ -27642,23 +30482,200 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     order.status = "pending";
     order.note = "PayPal capture amount mismatch. Manual review required.";
     await updateWalletOrderInDb(order);
-    if (!dbEnabled()) await writeDb(auth.db);
-    return sendJson(res, 409, {
-      ok: false,
-      code: "PAYPAL_AMOUNT_MISMATCH",
-      message: "PayPal payment amount does not match the top-up order.",
-      order: publicTopupOrder(order, config.wallet, tenantOptions),
-    });
+    if (!dbEnabled()) await writeDb(db);
+    const error = new Error("PayPal payment amount does not match the top-up order.");
+    error.statusCode = 409;
+    error.code = "PAYPAL_AMOUNT_MISMATCH";
+    error.order = order;
+    throw error;
   }
 
-  const { user } = await settleWalletOrderPayment(auth.db, order, config, {
+  const { user } = await settleWalletOrderPayment(db, order, config, {
     paypalCaptureId: order.paypalCaptureId,
     paypalPayerEmail: order.paypalPayerEmail,
     paypalStatus: order.paypalStatus,
   });
+  order.paypalCheckoutSessionStatus = "paid";
   await updateWalletOrderInDb(order);
-  if (!dbEnabled()) await writeDb(auth.db);
-  return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(user) });
+  if (!dbEnabled()) await writeDb(db);
+  return { order, user, capturePayload, capture };
+}
+
+async function handleCapturePayPalOrder(req, res, paypalOrderId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const order = await getWalletOrderByPaypalIdInDb(paypalOrderId) || (auth.db.walletOrders || []).find((entry) => (
+    entry.userId === auth.user.id &&
+    entry.paymentProvider === "paypal" &&
+    entry.paypalOrderId === paypalOrderId
+  ));
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal order not found." });
+  if (String(order.userId || "") !== String(auth.user.id || "")) {
+    return sendJson(res, 403, { ok: false, message: "PayPal order not found." });
+  }
+  if (order.status === "paid") {
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(auth.user) });
+  }
+
+  try {
+    const result = await capturePayPalWalletOrder(auth.db, order, config, { paypalOrderId });
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(result.order, config.wallet, tenantOptions), user: userView(result.user) });
+  } catch (error) {
+    if (error.code === "PAYPAL_NOT_COMPLETED" || error.code === "PAYPAL_AMOUNT_MISMATCH") {
+      return sendJson(res, error.statusCode || 409, {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        order: publicTopupOrder(error.order || order, config.wallet, tenantOptions),
+      });
+    }
+    throw error;
+  }
+}
+
+async function handlePayPalCheckoutSessionDetails(req, res, sessionId) {
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const order = await readDb().then((db) => findPayPalCheckoutSessionOrder(db, sessionId));
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal checkout session not found." });
+  return sendJson(res, 200, {
+    ok: true,
+    session: publicPayPalCheckoutSession(order, config, tenantOptions),
+  });
+}
+
+async function handleStartPayPalCheckoutSession(req, res, sessionId) {
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const db = await readDb();
+  const order = findPayPalCheckoutSessionOrder(db, sessionId);
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal checkout session not found." });
+  if (paypalCheckoutSessionExpired(order) && !order.paypalOrderId && order.status !== "paid") {
+    order.paypalCheckoutSessionStatus = "expired";
+    order.note = "PayPal checkout session expired before start.";
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order);
+    if (!dbEnabled()) await writeDb(db);
+    return sendJson(res, 410, {
+      ok: false,
+      code: "PAYPAL_CHECKOUT_EXPIRED",
+      message: "This payment session has expired. Please create a new top-up order.",
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
+  if (order.status === "paid") {
+    return sendJson(res, 200, {
+      ok: true,
+      approvalUrl: "",
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
+  if (order.approvalUrl && order.paypalOrderId) {
+    return sendJson(res, 200, {
+      ok: true,
+      approvalUrl: order.approvalUrl,
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
+  if (!paypalEnabled()) {
+    return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
+  }
+  const checkoutAttempt = Number(order.paypalCheckoutAttempt || 0) || 0;
+  order.paypalInvoiceId = `${order.id}-${checkoutAttempt}`;
+  const paypalOrder = order.paypalOrderId
+    ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
+    : await paypalRequest("/v2/checkout/orders", {
+        method: "POST",
+        headers: {
+          "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
+        },
+        body: paypalOrderBodyForCheckout(order),
+      });
+  order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
+  order.approvalUrl = findPayPalApprovalLink(paypalOrder);
+  order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
+  order.paypalCheckoutSessionStatus = "started";
+  order.paypalCheckoutStartedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  await updateWalletOrderInDb(order);
+  if (!dbEnabled()) await writeDb(db);
+  return sendJson(res, 200, {
+    ok: true,
+    approvalUrl: order.approvalUrl,
+    session: publicPayPalCheckoutSession(order, config, tenantOptions),
+  });
+}
+
+async function handlePayPalCheckoutReturn(req, res, url) {
+  const sid = String(url.searchParams.get("sid") || "").trim();
+  const paypalOrderId = String(url.searchParams.get("token") || url.searchParams.get("orderID") || "").trim();
+  const payerId = String(url.searchParams.get("PayerID") || "").trim();
+  if (!sid) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { status: "error" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  const config = await readAppConfig();
+  const db = await readDb();
+  const order = findPayPalCheckoutSessionOrder(db, sid);
+  if (!order) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { sid, status: "missing" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  if (paypalOrderId && !order.paypalOrderId) order.paypalOrderId = paypalOrderId;
+  if (paypalOrderId && order.paypalOrderId && order.paypalOrderId !== paypalOrderId) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { sid, status: "error", code: "paypal-order-mismatch" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  if (!order.paypalOrderId && !payerId) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { sid, status: "error", code: "missing-token" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  try {
+    const result = await capturePayPalWalletOrder(db, order, config, { paypalOrderId: order.paypalOrderId || paypalOrderId });
+    const redirectUrl = paypalCheckoutUrl("/", {
+      sid,
+      status: "paid",
+      order: result.order.id || order.id || "",
+      paypal: result.order.paypalOrderId || "",
+    });
+    res.writeHead(302, { location: redirectUrl, "cache-control": "no-store" });
+    return res.end();
+  } catch (error) {
+    const code = String(error.code || error.message || "error").toLowerCase().replace(/\s+/g, "-").slice(0, 64);
+    const redirectUrl = paypalCheckoutUrl("/", {
+      sid,
+      status: "error",
+      code,
+    });
+    res.writeHead(302, { location: redirectUrl, "cache-control": "no-store" });
+    return res.end();
+  }
+}
+
+async function handlePayPalCheckoutCancel(req, res, url) {
+  const sid = String(url.searchParams.get("sid") || "").trim();
+  if (sid) {
+    const db = await readDb();
+    const order = findPayPalCheckoutSessionOrder(db, sid);
+    if (order && order.status !== "paid") {
+      order.paypalCheckoutSessionStatus = "cancelled";
+      order.paypalStatus = "CANCELLED";
+      order.paypalOrderId = "";
+      order.paypalInvoiceId = "";
+      order.paypalCheckoutAttempt = (Number(order.paypalCheckoutAttempt || 0) || 0) + 1;
+      order.approvalUrl = "";
+      order.note = order.note || "PayPal checkout cancelled.";
+      order.updatedAt = new Date().toISOString();
+      await updateWalletOrderInDb(order);
+      if (!dbEnabled()) await writeDb(db);
+    }
+  }
+  const redirectUrl = paypalCheckoutUrl("/", sid ? { sid, status: "cancelled" } : { status: "cancelled" });
+  res.writeHead(302, { location: redirectUrl, "cache-control": "no-store" });
+  return res.end();
 }
 
 async function verifyPayPalWebhookEvent(req, event) {
@@ -27831,6 +30848,8 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     orderKind: order.orderKind || "topup",
     billingPlanId: order.billingPlanId || "",
     billingPlanName: order.billingPlanName || "",
+    productId: order.productId || "",
+    productName: order.productName || "",
     paymentProvider,
     amount: order.baseAmount ?? "",
     creditAmount: creditsAmount(creditAmount),
@@ -28094,29 +31113,18 @@ async function handleUnlockVideo(req, res) {
   }
 
   let unlock = findUserCharacterUnlock(auth.db, auth.user.id, item.id);
-  const cost = CHARACTER_UNLOCK_COST_CREDITS;
-  let charged = false;
-
-  if (!unlock) {
-    if (auth.user.credits < cost) {
-      return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-    }
-    try {
-      assertSubtokenCanSpend(auth, cost);
-    } catch (error) {
-      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-    }
-    await chargeUserWithSubtoken(auth, {
-      cost,
-      type: "unlock_character_videos",
-      taskId: `${item.id}:character_bundle`,
-      meta: { itemId: item.id, unlockType: "character_bundle", count: lockedVideos.length },
+  const member = userHasCreatorMembership(auth.user);
+  if (!member && !unlock) {
+    return sendJson(res, 403, {
+      ok: false,
+      code: "MEMBERSHIP_REQUIRED",
+      message: "Creator Membership is required to watch and download Explore videos.",
+      membership: {
+        planId: CREATOR_MEMBERSHIP_PLAN_ID,
+        amount: CREATOR_MEMBERSHIP_PRICE_USD,
+        currency: "USD",
+      },
     });
-    unlock = characterBundleUnlockRecord(item, auth.user.id);
-    auth.db.userUnlocks.unshift(unlock);
-    charged = cost > 0;
-    if (dbEnabled()) await upsertUserUnlockInDb(unlock);
-    else await writeDb(auth.db);
   }
 
   const unlocks = (auth.db.userUnlocks || [])
@@ -28124,13 +31132,14 @@ async function handleUnlockVideo(req, res) {
     .map(publicUserUnlock);
   return sendJson(res, 200, {
     ok: true,
-    charged,
-    cost: charged ? cost : 0,
+    charged: false,
+    cost: 0,
+    membership: publicCreatorMembership(auth.user),
     user: userView(auth.user),
     unlock: publicUserUnlock(unlock),
     unlocks,
     videos: characterVideos.map(({ key, entry }, index) => ({
-      ...publicCharacterSceneVideo(entry, { playable: true, locked: false, price: cost }),
+      ...publicCharacterSceneVideo(entry, { playable: true, locked: false, price: 0 }),
       videoUrl: secureUnlockVideoUrl({
         userId: auth.user.id,
         itemId: item.id,
@@ -28232,11 +31241,11 @@ async function handleCreateGameAssetFromCharacterMedia(req, res) {
       ? publicCharacterVideoList(item).find(({ key }) => key === videoKey)
       : findCharacterVideoForItem(item, sceneId, sceneEntryId);
     if (!match) return sendJson(res, 404, { ok: false, message: "Video not found." });
-    const isFirst = publicCharacterVideoList(item)[0]?.key === match.key;
+    const member = userHasCreatorMembership(auth.user);
     const bundleUnlocked = characterUnlockedByRecord(auth.db, auth.user.id, item.id);
     const singleUnlocked = Boolean(findUserUnlock(auth.db, auth.user.id, item.id, match.entry.sceneId || "", match.entry.sceneEntryId || "default"));
-    if (!isFirst && !bundleUnlocked && !singleUnlocked) {
-      return sendJson(res, 403, { ok: false, message: "Unlock this character before using this video." });
+    if (!member && !bundleUnlocked && !singleUnlocked) {
+      return sendJson(res, 403, { ok: false, code: "MEMBERSHIP_REQUIRED", message: "Creator Membership is required before using this video." });
     }
     sourceUrl = getUnlockVideoUrl(match.entry);
     name = `${item.name || "Character"} video`;
@@ -28324,17 +31333,16 @@ async function handleStreamUnlockVideo(req, res, token) {
     sceneEntryId: "bundle",
   }) : null;
   const unlock = directUnlock || bundleUnlock || findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
+  const member = userHasCreatorMembership(user);
 
   let config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const item = findHomeVideoItem(config.homeVideo, payload.itemId);
   const match = item ? (findCharacterVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default") || findUnlockVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default")) : null;
   if (!match) return sendJson(res, 404, { ok: false, message: "Unlock video not found." });
-  const firstPlayable = publicCharacterVideoList(item)[0]?.entry;
-  const isFirstPlayableVideo = firstPlayable
-    && String(firstPlayable.sceneId || "") === String(payload.sceneId || "")
-    && String(firstPlayable.sceneEntryId || "default") === String(payload.sceneEntryId || "default");
-  if (!isFirstPlayableVideo && !unlock) return sendJson(res, 403, { ok: false, message: "Unlock required." });
+  if (!member && !unlock) {
+    return sendJson(res, 403, { ok: false, code: "MEMBERSHIP_REQUIRED", message: "Creator Membership is required." });
+  }
 
   const videoUrl = getUnlockVideoUrl(match.entry);
   if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Unlock video is still generating." });
@@ -31674,6 +34682,42 @@ async function handleAdminGetConfig(req, res) {
   return sendJson(res, 200, { ok: true, config });
 }
 
+async function handleAdminGetUndressPrompts(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  return sendJson(res, 200, {
+    ok: true,
+    prompts: normalizeUndressPrompts(config.undressPrompts),
+    defaults: DEFAULT_UNDRESS_PROMPTS,
+  });
+}
+
+async function handleAdminSaveUndressPrompts(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  let prompts;
+  try {
+    prompts = validateUndressPrompts(body.prompts);
+  } catch (error) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: error.code || "INVALID_UNDRESS_PROMPT",
+      field: error.field || "",
+      message: error.message || "Invalid Undress prompt configuration.",
+    });
+  }
+  const current = await readAppConfig();
+  const next = {
+    ...current,
+    undressPrompts: prompts,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(next);
+  return sendJson(res, 200, { ok: true, prompts, defaults: DEFAULT_UNDRESS_PROMPTS });
+}
+
 const ADVANCED_PRICING_ROWS = [
   { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
   { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
@@ -31684,6 +34728,9 @@ const ADVANCED_PRICING_ROWS = [
   { key: "wan30-480p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-720p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-480p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-720p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
@@ -31823,6 +34870,8 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.seedanceNsfwVideoCreditsPerSecondByResolution
     : normalizedProvider === SEEDANCE25_DIRECT_PROVIDER
     ? normalized.seedanceNsfwCreditsPerSecondByResolution
+    : normalizedProvider === "wan30" && (capability === "wan30-video-prime" || normalizedModel === ALIYUN_WAN30_PRIME_MODEL.toLowerCase())
+    ? normalized.wan30PrimeCreditsPerSecondByResolution
     : normalizedProvider === "wan30"
     ? normalized.wan30CreditsPerSecondByResolution
     : normalizedProvider === "seedance" && isFast && rateKind === "video_input"
@@ -32041,15 +35090,17 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
   if (normalizedProvider === "wan30") {
-    const cnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[publicResolution] ?? null;
-    const usdPerSecond = cnyPerSecond === null ? null : wan30PurchaseUsdPerSecond(publicResolution);
+    const prime = capability === "wan30-video-prime" || String(model || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase();
+    const baseCnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[publicResolution] ?? null;
+    const cnyPerSecond = baseCnyPerSecond === null ? null : pricingNumber(baseCnyPerSecond * (prime ? ALIYUN_WAN30_PRIME_PRICE_FACTOR : 1), 0, 0, 6);
+    const usdPerSecond = cnyPerSecond === null ? null : pricingNumber(cnyPerSecond / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8);
     return {
       creditsPerSecond: usdPerSecond === null ? null : pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       usdPerSecond,
-      source: "aliyun_beijing_official_model_pricing",
+      source: "aliyun_official_model_pricing",
       message: cnyPerSecond === null
-        ? "Alibaba Cloud Model Studio Beijing official price is unavailable for this resolution."
-        : `Alibaba Cloud Model Studio Beijing official Wan 3.0 price: ${cnyPerSecond} CNY/second, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
+        ? "Alibaba Cloud Model Studio official price is unavailable for this resolution."
+        : `Alibaba Cloud Model Studio Wan 3.0${prime ? " Prime" : ""} price: ${cnyPerSecond} CNY/second${prime ? ` (${ALIYUN_WAN30_PRIME_PRICE_FACTOR}x Wan 3.0)` : ""}, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
     };
   }
   if (normalizedProvider === SEEDANCE25_DIRECT_PROVIDER) {
@@ -32061,8 +35112,8 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
     return {
       creditsPerSecond: pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       usdPerSecond,
-      source: "byteplus_official_seedance25_token_pricing",
-      message: `BytePlus official Seedance 2.5 price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps. Actual upstream billing uses completion_tokens.`,
+      source: "seedance25_direct_endpoint_token_pricing",
+      message: `Seedance 2.5 direct-endpoint contract price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps. Actual upstream billing uses completion_tokens.`,
     };
   }
   if (normalizedProvider === "seedance25") {
@@ -32414,6 +35465,9 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "wan30-720p") next.wan30CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan30-1080p") next.wan30CreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "wan30-prime-480p") next.wan30PrimeCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "wan30-prime-720p") next.wan30PrimeCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "wan30-prime-1080p") next.wan30PrimeCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;
@@ -32497,17 +35551,32 @@ async function handleAdminSaveConfig(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const current = await readAppConfig();
+  const configPatch = body.config || {};
+  let undressPrompts = current.undressPrompts;
+  if (Object.prototype.hasOwnProperty.call(configPatch, "undressPrompts")) {
+    try {
+      undressPrompts = validateUndressPrompts(configPatch.undressPrompts);
+    } catch (error) {
+      return sendJson(res, 400, {
+        ok: false,
+        code: error.code || "INVALID_UNDRESS_PROMPT",
+        field: error.field || "",
+        message: error.message || "Invalid Undress prompt configuration.",
+      });
+    }
+  }
   const next = {
     ...current,
-    ...(body.config || {}),
-    prices: { ...current.prices, ...((body.config || {}).prices || {}) },
-    wallet: { ...current.wallet, ...((body.config || {}).wallet || {}) },
-    video: { ...current.video, ...((body.config || {}).video || {}) },
-    platform: normalizePlatformConfig((body.config || {}).platform || current.platform || {}),
-    homeVideo: { ...current.homeVideo, ...((body.config || {}).homeVideo || {}) },
-    ifilm: { ...current.ifilm, ...((body.config || {}).ifilm || {}) },
-    characterImage: { ...current.characterImage, ...((body.config || {}).characterImage || {}) },
-    scenes: Array.isArray((body.config || {}).scenes) ? body.config.scenes : current.scenes,
+    ...configPatch,
+    prices: { ...current.prices, ...(configPatch.prices || {}) },
+    wallet: { ...current.wallet, ...(configPatch.wallet || {}) },
+    video: { ...current.video, ...(configPatch.video || {}) },
+    undressPrompts,
+    platform: normalizePlatformConfig(configPatch.platform || current.platform || {}),
+    homeVideo: { ...current.homeVideo, ...(configPatch.homeVideo || {}) },
+    ifilm: { ...current.ifilm, ...(configPatch.ifilm || {}) },
+    characterImage: { ...current.characterImage, ...(configPatch.characterImage || {}) },
+    scenes: Array.isArray(configPatch.scenes) ? configPatch.scenes : current.scenes,
     updatedAt: new Date().toISOString(),
   };
   await writeAppConfig(next);
@@ -34073,17 +37142,14 @@ async function handleAdminListGenerationRecords(req, res, url) {
       status,
       kind,
     });
-    let result = await loadPage();
+    const result = await loadPage();
     if (refreshRequested) {
       const refreshable = result.records
         .filter((record) => needsApizFailureRefund(record)
           || needsSeedanceFailureRefund(record)
           || shouldRefreshGenerationRecordFromList(record))
         .slice(0, 20);
-      if (refreshable.length) {
-        await Promise.all(refreshable.map(refreshGenerationRecordStatus));
-        result = await loadPage();
-      }
+      queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
     }
     return sendJson(res, 200, {
       ok: true,
@@ -34095,7 +37161,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
       totalPages: result.totalPages,
     });
   }
-  let records = await readGenerationRecords();
+  const records = await readGenerationRecords();
   const refundable = refreshRequested
     ? records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 20)
     : [];
@@ -34106,12 +37172,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
       .slice(0, 4)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
-  if (refreshable.length) {
-    const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
-    );
-    records = records.map((record) => refreshedByTask.get(record.taskId) || record);
-  }
+  queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
   const enriched = records.map((record) => adminGenerationRecordListView(record, userMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
@@ -34187,22 +37248,13 @@ async function handleListGenerationRecords(req, res, url) {
       .slice(0, 8)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
-  if (refreshable.length) {
-    const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
-    );
-    ownRecords.forEach((record, index) => {
-      if (refreshedByTask.has(record.taskId)) ownRecords[index] = refreshedByTask.get(record.taskId);
-    });
-  }
+  queueGenerationRecordStatusRefreshes(refreshable, { reason: "user-list" });
 
   if (undressToolRequestAllowed(req)) {
     const optimizedRecords = [];
     for (const record of ownRecords) {
-      const optimized = record.localVideoUrl && !record.playbackOptimizedAt
-        ? await ensureGenerationRecordMediaOptimized(record)
-        : record;
-      optimizedRecords.push(await ensureUndressLockedPreview(optimized));
+      if (record.localVideoUrl) queueGenerationRecordMediaMaintenance(record);
+      optimizedRecords.push(await ensureUndressLockedPreview(record));
     }
     optimizedRecords.forEach((record, index) => { ownRecords[index] = record; });
   }
@@ -34303,7 +37355,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
   }
 
   if (undressToolRequestAllowed(req)) {
-    if (nextRecord.localVideoUrl) nextRecord = await ensureGenerationRecordMediaOptimized(nextRecord);
+    if (nextRecord.localVideoUrl) queueGenerationRecordMediaMaintenance(nextRecord);
     nextRecord = await ensureUndressLockedPreview(nextRecord);
   }
 
@@ -35020,9 +38072,18 @@ function privateStaticPath(pathname = "") {
 }
 
 async function serveStatic(req, res, url) {
-  let pathname = decodeURIComponent(url.pathname === "/" ? (isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
+  let pathname = decodeURIComponent(url.pathname === "/" ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
+  if (isPaymentHostRequest(req)) {
+    const allowedPaymentPath = pathname === "/pay.html"
+      || pathname === "/pay.css"
+      || pathname === "/pay.js"
+      || pathname.startsWith("/assets/brand/")
+      || pathname === "/favicon.ico"
+      || pathname === "/favicon.svg";
+    if (!allowedPaymentPath) return sendText(res, 404, "Not Found");
+  }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
   if (lockedUndressImageMatch) {
     const lockedRecord = await getGenerationRecord(lockedUndressImageMatch[1]);
@@ -35141,7 +38202,7 @@ async function handleRequest(req, res) {
     applyPublicSecurityHeaders(req, res);
     if (sendHttpsRedirect(req, res, url)) return;
     if (sendCanonicalRedirect(req, res, url)) return;
-    await recordGeoVisitStats(req, url);
+    if (!requestTenantOptions(req).toolOnly) await recordGeoVisitStats(req, url);
 
     if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
       return await handleFavicon(req, res);
@@ -35218,12 +38279,16 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/config/public") {
-      let config = await readAppConfig();
-      config = await ensureSceneEntriesPersisted(config);
-      config = await refreshCompletedHomeVideoItems(config);
-      const auth = await getAuth(req);
+      const tenantOptions = requestTenantOptions(req);
+      const isToolOnly = Boolean(tenantOptions.toolOnly);
+      let config = await readAppConfig({ includeHomeItems: !isToolOnly });
+      if (!isToolOnly) {
+        config = await ensureSceneEntriesPersisted(config);
+        config = await refreshCompletedHomeVideoItems(config);
+      }
+      const auth = getBearerToken(req) ? await getAuth(req) : { user: null };
       const publicView = await attachBillingViewToPublicConfig(
-        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
+        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
         req,
         auth?.user ? auth : null,
       );
@@ -35363,8 +38428,19 @@ async function handleRequest(req, res) {
       return await handleMe(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/telegram/webapp-auth") {
+      return await handleTelegramWebAppAuth(req, res);
+    }
+
+    if (req.method === "POST" && telegramBotWebhookPathMatches(url.pathname)) {
+      return await handleTelegramBotWebhook(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/membership/redeem") {
+      return await handleRedeemMembershipActivationCode(req, res);
     }
 
     const telegramSupportWebhookMatch = url.pathname.match(/^\/api\/telegram\/support-webhook\/([^/]+)$/);
@@ -35404,9 +38480,31 @@ async function handleRequest(req, res) {
       return await handleCreatePayPalOrder(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/pay/paypal/checkout-sessions") {
+      return await createPayPalCheckoutSession(req, res);
+    }
+
+    const paypalCheckoutSessionMatch = url.pathname.match(/^\/api\/pay\/paypal\/checkout-sessions\/([^/]+)$/);
+    if (req.method === "GET" && paypalCheckoutSessionMatch) {
+      return await handlePayPalCheckoutSessionDetails(req, res, decodeURIComponent(paypalCheckoutSessionMatch[1]));
+    }
+
+    const paypalCheckoutSessionStartMatch = url.pathname.match(/^\/api\/pay\/paypal\/checkout-sessions\/([^/]+)\/start$/);
+    if (req.method === "POST" && paypalCheckoutSessionStartMatch) {
+      return await handleStartPayPalCheckoutSession(req, res, decodeURIComponent(paypalCheckoutSessionStartMatch[1]));
+    }
+
     const paypalCaptureMatch = url.pathname.match(/^\/api\/pay\/paypal\/orders\/([^/]+)\/capture$/);
     if (req.method === "POST" && paypalCaptureMatch) {
       return await handleCapturePayPalOrder(req, res, decodeURIComponent(paypalCaptureMatch[1]));
+    }
+
+    if (req.method === "GET" && url.pathname === "/paypal-return") {
+      return await handlePayPalCheckoutReturn(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/paypal-cancel") {
+      return await handlePayPalCheckoutCancel(req, res, url);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/webhook") {
@@ -35553,6 +38651,14 @@ async function handleRequest(req, res) {
       return await handleAdminSaveConfig(req, res);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/undress-prompts") {
+      return await handleAdminGetUndressPrompts(req, res);
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/undress-prompts") {
+      return await handleAdminSaveUndressPrompts(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/admin/pricing") {
       return await handleAdminGetPricing(req, res);
     }
@@ -35621,6 +38727,17 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/users") {
       return await handleAdminListUsers(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/membership-codes") {
+      return await handleAdminListMembershipActivationCodes(req, res, url);
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/membership-codes") {
+      return await handleAdminCreateMembershipActivationCodes(req, res);
+    }
+    const adminMembershipCodeMatch = url.pathname.match(/^\/api\/admin\/membership-codes\/([^/]+)$/);
+    if (req.method === "PATCH" && adminMembershipCodeMatch) {
+      return await handleAdminUpdateMembershipActivationCode(req, res, decodeURIComponent(adminMembershipCodeMatch[1]));
     }
 
     const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
@@ -35932,40 +39049,14 @@ async function scanActiveGenerationRecords(reason = "timer") {
     const refundableRecords = records
       .filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record))
       .slice(0, 10);
-    const refunded = [];
-    for (const record of refundableRecords) {
-      try {
-        const nextRecord = await refreshGenerationRecordStatus(record);
-        if (nextRecord && nextRecord.billingStatus !== record.billingStatus) {
-          refunded.push(`${record.taskId}:${record.billingStatus || ""}->${nextRecord.billingStatus || ""}`);
-        }
-      } catch (error) {
-        console.warn("[failed-generation-record-refund-failed]", record.taskId, error.message || error);
-      }
-    }
-    if (refunded.length) {
-      console.log("[failed-generation-records-refunded]", { reason, count: refunded.length, records: refunded });
-    }
+    queueGenerationRecordStatusRefreshes(refundableRecords, { reason: `${reason}-refund-scan` });
     const activeRecords = records
       .filter((record) => isActiveGenerationRecordForScan(record))
       .filter((record) => !refundableRecords.some((item) => item.taskId === record.taskId))
       .sort((a, b) => generationRecordTime(a) - generationRecordTime(b))
       .slice(0, GENERATION_ACTIVE_SCAN_BATCH_SIZE);
     if (!activeRecords.length) return;
-    const refreshed = [];
-    await Promise.all(activeRecords.map(async (record) => {
-      try {
-        const nextRecord = await refreshGenerationRecordStatus(record);
-        if (nextRecord && nextRecord.status !== record.status) {
-          refreshed.push(`${record.taskId}:${record.status}->${nextRecord.status}`);
-        }
-      } catch (error) {
-        console.warn("[active-generation-record-refresh-failed]", record.taskId, error.message || error);
-      }
-    }));
-    if (refreshed.length) {
-      console.log("[active-generation-records-refreshed]", { reason, count: refreshed.length, records: refreshed });
-    }
+    queueGenerationRecordStatusRefreshes(activeRecords, { reason: `${reason}-active-scan` });
   } catch (error) {
     console.warn("[active-generation-record-scan-failed]", error.message || error);
   } finally {
@@ -35976,6 +39067,12 @@ async function scanActiveGenerationRecords(reason = "timer") {
 function startActiveGenerationRecordScheduler() {
   setTimeout(() => scanActiveGenerationRecords("startup"), 15000).unref?.();
   setInterval(() => scanActiveGenerationRecords("timer"), GENERATION_ACTIVE_SCAN_INTERVAL_MS).unref?.();
+}
+
+function startTelegramBotScheduler() {
+  if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
+  setTimeout(() => scanTelegramGenerationNotifications(), 10000).unref?.();
+  setInterval(() => scanTelegramGenerationNotifications(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
 }
 
 async function bootstrap() {
@@ -35993,8 +39090,10 @@ async function bootstrap() {
   startWalletScanScheduler();
   startStaleSubmitGenerationRecordScheduler();
   startActiveGenerationRecordScheduler();
+  startTelegramBotScheduler();
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
+  startLocalMediaCleanupScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);

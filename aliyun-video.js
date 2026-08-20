@@ -13,6 +13,15 @@ const CAPABILITIES = Object.freeze({
     resolutions: ["480P", "720P", "1080P"],
     billing: "output",
   }),
+  "wan30-video-prime": Object.freeze({
+    provider: "wan30",
+    model: "wan3.0-video-prime",
+    endpoint: VIDEO_SYNTHESIS_PATH,
+    mediaKind: "wan30",
+    duration: [2, 30],
+    resolutions: ["480P", "720P", "1080P"],
+    billing: "output",
+  }),
   "wan27-t2v": Object.freeze({
     provider: "wan27",
     model: "wan2.7-t2v-2026-06-12",
@@ -120,6 +129,10 @@ const CAPABILITY_ALIASES = Object.freeze({
   "wan3-video": "wan30-video",
   "wan3.0": "wan30-video",
   "wan3.0-video": "wan30-video",
+  "wan30-prime": "wan30-video-prime",
+  "wan3-prime": "wan30-video-prime",
+  "wan3.0-prime": "wan30-video-prime",
+  "wan3.0-video-prime": "wan30-video-prime",
   "wan-t2v": "wan27-t2v",
   "wan-text-to-video": "wan27-t2v",
   "text-to-video": "wan27-t2v",
@@ -465,7 +478,7 @@ function buildAliyunVideoRequest(options = {}) {
     const allowedRatios = new Set(["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
     const ratio = String(sourceParameters.ratio || options.ratio || "adaptive").trim().toLowerCase();
     if (!allowedRatios.has(ratio)) {
-      throw requestError("INVALID_RATIO", `wan30-video supports ${[...allowedRatios].join(", ")}.`, { ratio });
+      throw requestError("INVALID_RATIO", `${capability} supports ${[...allowedRatios].join(", ")}.`, { ratio });
     }
     const seedValue = sourceParameters.seed;
     let seed;
