@@ -87,7 +87,7 @@ test("Qwen Image 3.0 shares the configured Alibaba endpoint with an explicit ove
   assert.match(serverSource, /qwenImage3 \? QWEN_IMAGE3_SINGAPORE_BASE_URL/);
   assert.match(serverSource, /qwenImage3 \? ALIYUN_QWEN_IMAGE3_API_KEY/);
   assert.match(serverSource, /ALIYUN_QWEN_IMAGE3_API_KEY = String\(process\.env\.ALIYUN_QWEN_IMAGE3_API_KEY \|\| ALIYUN_DASHSCOPE_API_KEY/);
-  assert.match(serverSource, /ALIYUN_WAN30_BASE_URL \|\| "https:\/\/dashscope\.aliyuncs\.com"/);
+  assert.match(serverSource, /ALIYUN_WAN30_BASE_URL \|\| ALIYUN_DASHSCOPE_BASE_URL \|\| "https:\/\/dashscope-intl\.aliyuncs\.com"/);
 });
 
 test("server estimate and gateway persistence preserve Qwen tier, count, and all output images", () => {

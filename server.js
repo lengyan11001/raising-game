@@ -682,6 +682,11 @@ const DEFAULT_ADVANCED_PRICING = {
     "720p": defaultWan30SaleCreditsPerSecond("720p"),
     "1080p": defaultWan30SaleCreditsPerSecond("1080p"),
   },
+  wan30PrimeCreditsPerSecondByResolution: {
+    "480p": pricingNumber(defaultWan30SaleCreditsPerSecond("480p") * 1.5, 0, 0, 6),
+    "720p": pricingNumber(defaultWan30SaleCreditsPerSecond("720p") * 1.5, 0, 0, 6),
+    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 1.5, 0, 0, 6),
+  },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
@@ -812,9 +817,11 @@ const ALIYUN_QWEN37_BASE_URL = (process.env.ALIYUN_QWEN37_BASE_URL || ALIYUN_DAS
 const ALIYUN_QWEN37_API_KEY = String(process.env.ALIYUN_QWEN37_API_KEY || ALIYUN_DASHSCOPE_API_KEY || "").trim();
 const QWEN_IMAGE3_SINGAPORE_BASE_URL = (process.env.ALIYUN_QWEN_IMAGE3_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_QWEN_IMAGE3_API_KEY = String(process.env.ALIYUN_QWEN_IMAGE3_API_KEY || ALIYUN_DASHSCOPE_API_KEY || "").trim();
-const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_WAN30_API_KEY = process.env.ALIYUN_WAN30_API_KEY || ALIYUN_DASHSCOPE_API_KEY;
 const ALIYUN_WAN30_MODEL = process.env.ALIYUN_WAN30_MODEL || "wan3.0-video";
+const ALIYUN_WAN30_PRIME_MODEL = process.env.ALIYUN_WAN30_PRIME_MODEL || "wan3.0-video-prime";
+const ALIYUN_WAN30_PRIME_PRICE_FACTOR = pricingNumber(process.env.ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1.5, 1, 6);
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
@@ -1906,6 +1913,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan30 = source.wan30CreditsPerSecondByResolution && typeof source.wan30CreditsPerSecondByResolution === "object"
     ? source.wan30CreditsPerSecondByResolution
     : {};
+  const wan30Prime = source.wan30PrimeCreditsPerSecondByResolution && typeof source.wan30PrimeCreditsPerSecondByResolution === "object"
+    ? source.wan30PrimeCreditsPerSecondByResolution
+    : {};
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
@@ -2117,6 +2127,11 @@ function normalizeAdvancedPricing(pricing = {}) {
       "720p": normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6),
       "1080p": normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6),
     },
+    wan30PrimeCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(wan30Prime["480p"], pricingNumber(normalizeStoredCredits(wan30["480p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["480p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+      "720p": normalizeStoredCredits(wan30Prime["720p"], pricingNumber(normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+      "1080p": normalizeStoredCredits(wan30Prime["1080p"], pricingNumber(normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+    },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
     happyhorseCreditsPerSecondByResolution: normalizedHappyhorseRates,
     aliyunVideoCreditsPerSecondByCapability,
@@ -2216,6 +2231,7 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan30CreditsPerSecondByResolution: { ...normalized.wan30CreditsPerSecondByResolution },
+    wan30PrimeCreditsPerSecondByResolution: { ...normalized.wan30PrimeCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     happyhorseCreditsPerSecondByResolution: { ...normalized.happyhorseCreditsPerSecondByResolution },
     aliyunVideoCreditsPerSecondByCapability: {
@@ -2270,13 +2286,17 @@ function publicAdvancedPricingView(pricing = {}) {
     || PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED;
   if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED && !selectiveAliyunExposureEnabled) {
     delete view.wan30CreditsPerSecondByResolution;
+    delete view.wan30PrimeCreditsPerSecondByResolution;
     delete view.wan27CreditsPerSecondByResolution;
     delete view.happyhorseCreditsPerSecondByResolution;
     delete view.aliyunVideoCreditsPerSecondByCapability;
     delete view.vipeak1Image;
     delete view.qwenImage3;
   } else if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
-    if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) delete view.wan30CreditsPerSecondByResolution;
+    if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) {
+      delete view.wan30CreditsPerSecondByResolution;
+      delete view.wan30PrimeCreditsPerSecondByResolution;
+    }
     if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
       delete view.wan27CreditsPerSecondByResolution;
       delete view.vipeak1Image;
@@ -7092,15 +7112,21 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const duration = adaptiveDuration ? -1 : clampNumber(requestedDuration, 5, 2, 30);
     const billingDuration = adaptiveDuration ? 30 : duration;
     const resolution = normalizeAdvancedResolution(options.resolution || "1080p");
-    const configuredRates = advancedPricing.wan30CreditsPerSecondByResolution || {};
-    const fallbackRates = DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution;
+    const capability = normalizeAliyunVideoCapability(firstPresent(options.videoCapability, options.capability, "wan30-video"), { provider: "wan30" });
+    const prime = capability === "wan30-video-prime";
+    const configuredRates = prime
+      ? advancedPricing.wan30PrimeCreditsPerSecondByResolution || {}
+      : advancedPricing.wan30CreditsPerSecondByResolution || {};
+    const fallbackRates = prime
+      ? DEFAULT_ADVANCED_PRICING.wan30PrimeCreditsPerSecondByResolution
+      : DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution;
     const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
     const credits = creditsAmount(billingDuration * creditsPerSecond);
     return {
       provider: "wan30",
-      providerLabel: "Wan 3.0",
-      capability: "wan30-video",
-      model: options.model || ALIYUN_WAN30_MODEL,
+      providerLabel: prime ? "Wan 3.0 Prime" : "Wan 3.0",
+      capability,
+      model: prime ? ALIYUN_WAN30_PRIME_MODEL : ALIYUN_WAN30_MODEL,
       duration,
       billingDuration,
       adaptiveDuration,
@@ -7113,7 +7139,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       baseCredits: credits,
       credits,
       markup: 1,
-      source: "configured_wan30_output_duration_rate",
+      source: prime ? "configured_wan30_prime_output_duration_rate" : "configured_wan30_output_duration_rate",
     };
   }
   const bounds = advancedDurationBounds(normalizedProvider);
@@ -12512,10 +12538,13 @@ function isAliyunVideoProvider(provider = "") {
 }
 
 function aliyunVideoModelForCapability(capability = "", requestedModel = "") {
+  if (capability === "wan30-video") return ALIYUN_WAN30_MODEL;
+  if (capability === "wan30-video-prime") return ALIYUN_WAN30_PRIME_MODEL;
   const requested = String(requestedModel || "").trim();
   if (requested) return requested;
   const configured = {
     "wan30-video": ALIYUN_WAN30_MODEL,
+    "wan30-video-prime": ALIYUN_WAN30_PRIME_MODEL,
     "wan27-t2v": ALIYUN_WAN27_T2V_MODEL,
     "wan27-i2v": ALIYUN_WAN27_I2V_MODEL,
     "wan27-r2v": ALIYUN_WAN27_R2V_MODEL,
@@ -14397,7 +14426,7 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
 async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null } = {}) {
   const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
   const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
-  if (capability === "wan30-video") {
+  if (["wan30-video", "wan30-video-prime"].includes(capability)) {
     const rawMode = String(firstPresent(requestParams.mediaMode, body.mediaMode, body.wan30Mode, "multimodal") || "").trim().toLowerCase();
     const frameMode = ["first_frame", "first_last_frame", "frames"].includes(rawMode);
     let inputs = frameMode
@@ -21989,7 +22018,7 @@ async function runAdvancedGenerationJob(job = {}) {
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || requestParams.videoCapability || "first_frame";
     let resolvedWan27Media = Array.isArray(wan27Media) ? wan27Media : [];
-    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan30-video-prime", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
       const resolved = await resolveAliyunVideoMedia({
         db,
         user: { id: userId },
@@ -22150,7 +22179,7 @@ async function runAdvancedGenerationJob(job = {}) {
       payload = gatewayBody;
       createResponse = task.raw;
     } else if (isAliyunVideoProvider(provider)) {
-      if (!resolvedWan27Media.length && !["wan30-video", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+      if (!resolvedWan27Media.length && !["wan30-video", "wan30-video-prime", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
         const error = new Error(`${requestParams.videoCapability || "Alibaba video"} requires media input.`);
         error.statusCode = 400;
         throw error;
@@ -24621,16 +24650,20 @@ async function handleAdvancedGenerate(req, res) {
     caseParams.happyhorseCapability,
     provider === "wan27" ? "wan27-i2v" : "",
     provider === "happyhorse" ? "happyhorse-i2v" : "",
-    provider === "wan30" ? "wan30-video" : "",
+    provider === "wan30" && String(requestedModel || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase()
+      ? "wan30-video-prime"
+      : provider === "wan30" ? "wan30-video" : "",
   );
   requestParams.videoCapability = isAliyunVideoProvider(provider)
-    ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: requestedModel })
+    ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: provider === "wan30" ? "" : requestedModel })
     : "";
   requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
     && boolFromRequest(firstPresent(body.followInputDuration, bodyParams.followInputDuration), false);
   requestParams.model = provider === "seedance"
     ? normalizedSeedanceModel
-    : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
+    : provider === "wan30"
+      ? aliyunVideoModelForCapability(requestParams.videoCapability)
+      : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
@@ -25878,7 +25911,7 @@ function wan30VideoParameterFields() {
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan 3.0 video task.", default: "-" },
     { name: "provider", type: "string", required: "Yes", description: "Use `wan30`.", default: "wan30" },
-    { name: "videoCapability", type: "string", required: "No", description: "Use `wan30-video` when explicitly supplied.", default: "wan30-video" },
+    { name: "videoCapability", type: "enum", required: "No", description: "Use `wan30-video` for the standard model or `wan30-video-prime` for Wan 3.0 Video Prime.", default: "wan30-video" },
     { name: "prompt", type: "string", required: "Unless media is supplied", description: "Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc.", default: "-" },
     { name: "mediaMode", type: "enum", required: "No", description: "`multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed.", default: "multimodal" },
     { name: "referenceImages", type: "array", required: "For image references", description: "0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
@@ -26105,8 +26138,8 @@ function advancedGenerateConstraintsDoc() {
     wan30: {
       provider: "wan30",
       route: "/api/advanced/generate",
-      capability: "wan30-video",
-      model: ALIYUN_WAN30_MODEL,
+      capabilities: ["wan30-video", "wan30-video-prime"],
+      models: [ALIYUN_WAN30_MODEL, ALIYUN_WAN30_PRIME_MODEL],
       mediaMode: ["multimodal", "first_last_frame"],
       durationSeconds: { integer: true, min: 2, max: 30, adaptive: -1 },
       resolution: ["480p", "720p", "1080p"],
@@ -26287,6 +26320,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "Seedance 2.0 Standard", model: "dreamina-seedance-2-0-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Wan 3.0 Video", provider: "wan30", capability: "wan30-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Wan 3.0 Video Prime", provider: "wan30", capability: "wan30-video-prime", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Wan2.7 Video", provider: "wan27", capability: "wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
@@ -27139,7 +27173,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     "Wan 3.0 video:",
     "",
-    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability: "wan30-video"\`.`,
+    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability\` set to \`wan30-video\` or \`wan30-video-prime\`.`,
     `- \`mediaMode\`: ${(wan30.mediaMode || ["multimodal", "first_last_frame"]).map((item) => `\`${item}\``).join(", ")}. First/last frames cannot be mixed with reference media.`,
     `- \`duration\`: integer ${wan30.durationSeconds?.min ?? 2}-${wan30.durationSeconds?.max ?? 30} seconds, or \`-1\` for adaptive duration.`,
     `- \`resolution\`: ${(wan30.resolution || ["480p", "720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}. \`ratio\`: ${(wan30.ratio || ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
@@ -34225,6 +34259,9 @@ const ADVANCED_PRICING_ROWS = [
   { key: "wan30-480p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-720p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-480p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-720p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
@@ -34364,6 +34401,8 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.seedanceNsfwVideoCreditsPerSecondByResolution
     : normalizedProvider === SEEDANCE25_DIRECT_PROVIDER
     ? normalized.seedanceNsfwCreditsPerSecondByResolution
+    : normalizedProvider === "wan30" && (capability === "wan30-video-prime" || normalizedModel === ALIYUN_WAN30_PRIME_MODEL.toLowerCase())
+    ? normalized.wan30PrimeCreditsPerSecondByResolution
     : normalizedProvider === "wan30"
     ? normalized.wan30CreditsPerSecondByResolution
     : normalizedProvider === "seedance" && isFast && rateKind === "video_input"
@@ -34582,15 +34621,17 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
   if (normalizedProvider === "wan30") {
-    const cnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[publicResolution] ?? null;
-    const usdPerSecond = cnyPerSecond === null ? null : wan30PurchaseUsdPerSecond(publicResolution);
+    const prime = capability === "wan30-video-prime" || String(model || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase();
+    const baseCnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[publicResolution] ?? null;
+    const cnyPerSecond = baseCnyPerSecond === null ? null : pricingNumber(baseCnyPerSecond * (prime ? ALIYUN_WAN30_PRIME_PRICE_FACTOR : 1), 0, 0, 6);
+    const usdPerSecond = cnyPerSecond === null ? null : pricingNumber(cnyPerSecond / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8);
     return {
       creditsPerSecond: usdPerSecond === null ? null : pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       usdPerSecond,
-      source: "aliyun_beijing_official_model_pricing",
+      source: "aliyun_official_model_pricing",
       message: cnyPerSecond === null
-        ? "Alibaba Cloud Model Studio Beijing official price is unavailable for this resolution."
-        : `Alibaba Cloud Model Studio Beijing official Wan 3.0 price: ${cnyPerSecond} CNY/second, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
+        ? "Alibaba Cloud Model Studio official price is unavailable for this resolution."
+        : `Alibaba Cloud Model Studio Wan 3.0${prime ? " Prime" : ""} price: ${cnyPerSecond} CNY/second${prime ? ` (${ALIYUN_WAN30_PRIME_PRICE_FACTOR}x Wan 3.0)` : ""}, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
     };
   }
   if (normalizedProvider === SEEDANCE25_DIRECT_PROVIDER) {
@@ -34955,6 +34996,9 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "wan30-720p") next.wan30CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan30-1080p") next.wan30CreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "wan30-prime-480p") next.wan30PrimeCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "wan30-prime-720p") next.wan30PrimeCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "wan30-prime-1080p") next.wan30PrimeCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;

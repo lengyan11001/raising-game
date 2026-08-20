@@ -20,7 +20,8 @@ function elementMarkup(id) {
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
-  assert.match(engine, /value="wan30">Wan 3\.0/);
+  assert.match(engine, /value="wan30">Wan 3\.0 Video/);
+  assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
   assert.match(engine, /value="wan27" selected>Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.match(engine, /value="wan-animate">Wan Animate/);
@@ -41,11 +42,25 @@ test("Seedance keeps only the two product modes", () => {
 });
 
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
-  assert.match(ui, /wan30:[\s\S]*?value: "wan30-video"/);
+  assert.match(ui, /wan30: Object\.freeze\(\[[\s\S]*?value: "wan30-video"/);
+  assert.match(ui, /"wan30-prime": Object\.freeze\(\[[\s\S]*?value: "wan30-video-prime"/);
   assert.match(ui, /wan27:[\s\S]*?value: "wan27-i2v"[\s\S]*?value: "wan27-video-edit"/);
   assert.match(ui, /happyhorse:[\s\S]*?value: "happyhorse-i2v", label: "First Frame"[\s\S]*?value: "happyhorse-video-edit"/);
   assert.match(ui, /label\.textContent = "Mode"/);
   assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
+});
+
+test("Wan3.0 Prime shares controls and applies the 1.5 pricing factor", () => {
+  assert.match(create, /\["wan30-video", "wan30-video-prime"\]\.includes\(capability\)/);
+  assert.match(create, /new Set\(\["wan30-video", "wan30-video-prime"/);
+  assert.match(ui, /capability === "wan30-video-prime" \? "Wan 3\.0 Prime" : "Wan 3\.0"/);
+  assert.match(ui, /wan30PrimeCreditsPerSecondByResolution/);
+  assert.match(server, /ALIYUN_WAN30_PRIME_MODEL = process\.env\.ALIYUN_WAN30_PRIME_MODEL \|\| "wan3\.0-video-prime"/);
+  assert.match(server, /ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1\.5/);
+  assert.match(server, /wan30PrimeCreditsPerSecondByResolution/);
+  assert.match(server, /key: "wan30-prime-480p"/);
+  assert.match(server, /key === "wan30-prime-1080p"/);
+  assert.match(server, /provider === "wan30"\s*\? aliyunVideoModelForCapability\(requestParams\.videoCapability\)/);
 });
 
 test("only explicit frame modes use dedicated upload controls", () => {

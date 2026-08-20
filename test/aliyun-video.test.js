@@ -59,6 +59,29 @@ test("builds Wan3.0 strict first and last frames", () => {
   assert.equal(request.payload.parameters.seed, 2147483647);
 });
 
+test("builds Wan3.0 Video Prime with the same multimodal contract", () => {
+  const request = buildAliyunVideoRequest({
+    provider: "wan30",
+    capability: "wan30-video-prime",
+    prompt: "Image 1 walks through the scene",
+    media: [image()],
+    duration: 5,
+    resolution: "480p",
+    ratio: "adaptive",
+  });
+  assert.equal(request.endpoint, VIDEO_SYNTHESIS_PATH);
+  assert.equal(request.payload.model, "wan3.0-video-prime");
+  assert.deepEqual(request.payload.input.media, [image()]);
+  assert.deepEqual(request.payload.parameters, {
+    resolution: "480P",
+    ratio: "adaptive",
+    duration: 5,
+    audio: true,
+    enable_thinking: false,
+    watermark: false,
+  });
+});
+
 test("rejects invalid Wan3.0 combinations and limits", () => {
   assert.throws(() => buildAliyunVideoRequest({
     capability: "wan30-video",

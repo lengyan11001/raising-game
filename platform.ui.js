@@ -1404,7 +1404,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   if (normalized === "qwen-image3") return "Qwen Image 3.0";
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
-  if (normalized === "wan30") return "Wan 3.0";
+  if (normalized === "wan30") return capability === "wan30-video-prime" ? "Wan 3.0 Prime" : "Wan 3.0";
   if (normalized === "seedance-nsfw") return "Seedance2.5 (NSFW)";
   if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
@@ -1431,7 +1431,7 @@ function prepareModalOpen() {
 }
 
 const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
-  "wan30-video",
+  "wan30-video", "wan30-video-prime",
   "wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit", "wan-legacy",
   "wan-animate-move", "wan-animate-mix", "happyhorse-t2v", "happyhorse-i2v",
   "happyhorse-r2v", "happyhorse-video-edit",
@@ -1440,6 +1440,9 @@ const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
 const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
   wan30: Object.freeze([
     Object.freeze({ value: "wan30-video", label: "Wan 3.0 Video" }),
+  ]),
+  "wan30-prime": Object.freeze([
+    Object.freeze({ value: "wan30-video-prime", label: "Wan 3.0 Video Prime" }),
   ]),
   wan27: Object.freeze([
     Object.freeze({ value: "wan27-i2v", label: "Image to Video" }),
@@ -1464,13 +1467,15 @@ const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
 
 function advancedEngineValue(provider = els.advancedProvider?.value || "", capability = "") {
   const normalizedCapability = String(capability || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (normalizedCapability === "wan30-video-prime") return "wan30-prime";
+  if (normalizedCapability === "wan30-video") return "wan30";
   if (normalizedCapability === "wan-legacy") return "wan-legacy";
   if (["wan-animate-move", "wan-animate-mix"].includes(normalizedCapability)) return "wan-animate";
   if (normalizedCapability.startsWith("happyhorse-")) return "happyhorse";
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1529,6 +1534,10 @@ function syncAdvancedSeedanceModeOptions(provider = currentAdvancedProvider()) {
 
 function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const activeEngine = advancedEngineValue(els.advancedProvider?.value || "");
+  if (["wan30", "wan30-prime"].includes(normalized) && ["wan30", "wan30-prime"].includes(activeEngine)) {
+    return activeEngine === "wan30-prime" ? "wan30-video-prime" : "wan30-video";
+  }
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(normalized)) return normalized;
   const options = advancedVideoCapabilityOptions(advancedEngineValue(value));
   const selected = String(els.advancedVideoCapability?.value || "").trim();
@@ -1549,6 +1558,7 @@ function advancedVideoInputDurationRule(provider = currentAdvancedProvider(), ca
   }
   const rules = {
     "wan30-video": { min: 1, max: 15.2, displayMin: 1, displayMax: 15 },
+    "wan30-video-prime": { min: 1, max: 15.2, displayMin: 1, displayMax: 15 },
     "wan27-i2v": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
     "wan27-r2v": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
     "wan27-video-edit": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
@@ -1746,14 +1756,22 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const adaptiveDuration = requestedDuration === -1;
     const billingDuration = adaptiveDuration ? 30 : Math.min(30, Math.max(2, Number.isFinite(requestedDuration) ? requestedDuration : 5));
     const normalizedResolution = normalizeAdvancedResolution(resolution || "1080p", normalizedProvider);
-    const configuredRates = state.config?.platform?.advancedPricing?.wan30CreditsPerSecondByResolution || {};
-    const fallbackRates = { "480p": 6.7466, "720p": 13.4933, "1080p": 26.9865 };
+    const capability = String(options.videoCapability || "wan30-video");
+    const prime = capability === "wan30-video-prime";
+    const pricingConfig = state.config?.platform?.advancedPricing || {};
+    const configuredRates = prime
+      ? pricingConfig.wan30PrimeCreditsPerSecondByResolution || {}
+      : pricingConfig.wan30CreditsPerSecondByResolution || {};
+    const standardFallbackRates = { "480p": 6.7466, "720p": 13.4933, "1080p": 26.9865 };
+    const fallbackRates = prime
+      ? Object.fromEntries(Object.entries(standardFallbackRates).map(([key, value]) => [key, value * 1.5]))
+      : standardFallbackRates;
     const creditsPerSecond = Number(configuredRates[normalizedResolution] ?? fallbackRates[normalizedResolution] ?? fallbackRates["1080p"]);
     const originalCredits = creditsAmount(billingDuration * creditsPerSecond);
     const multiplier = userPricingMultiplier();
     return {
       provider: "wan30",
-      capability: "wan30-video",
+      capability,
       duration: adaptiveDuration ? -1 : billingDuration,
       billingDuration,
       adaptiveDuration,
@@ -1767,7 +1785,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       credits: creditsAmount(originalCredits * multiplier),
       markup: 1,
       userPricingMultiplier: multiplier,
-      source: "configured_wan30_output_duration_rate",
+      source: prime ? "configured_wan30_prime_output_duration_rate" : "configured_wan30_output_duration_rate",
     };
   }
   if (normalizedProvider === "qwen-image3") {

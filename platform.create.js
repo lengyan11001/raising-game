@@ -58,7 +58,7 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
 }
 
 function advancedAliyunReferenceImageLimit(capability = currentAdvancedVideoCapability()) {
-  if (capability === "wan30-video") return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
+  if (["wan30-video", "wan30-video-prime"].includes(capability)) return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
   if (capability === "wan27-i2v") return 2;
   if (capability === "wan27-r2v") return 5;
   if (capability === "wan27-video-edit") return 4;
@@ -72,6 +72,7 @@ function advancedAliyunReferenceImageLimit(capability = currentAdvancedVideoCapa
 function advancedAliyunUsesSharedReferenceUpload(capability = currentAdvancedVideoCapability()) {
   return [
     "wan30-video",
+    "wan30-video-prime",
     "wan27-i2v",
     "wan27-r2v",
     "wan27-video-edit",
@@ -2397,7 +2398,7 @@ async function submitAdvancedGenerate() {
     const aliyunPrimaryCapabilities = new Set(["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"]);
     const usesAliyunPrimaryImage = aliyunPrimaryCapabilities.has(videoCapability)
       || (videoCapability === "wan-legacy" && !/t2v|r2v|vace/.test(legacyWanModel));
-    const aliyunReferenceCapabilities = new Set(["wan30-video", "wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"]);
+    const aliyunReferenceCapabilities = new Set(["wan30-video", "wan30-video-prime", "wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"]);
     const aliyunReferenceImages = aliyunReferenceCapabilities.has(videoCapability)
       ? referenceImages.map(seedanceImageRefPayload)
       : undefined;
