@@ -2782,6 +2782,7 @@ function galleryUnlockedSet() {
 }
 
 function isGalleryVideoUnlocked(character = {}, video = {}) {
+  if (creatorMembershipActive()) return true;
   const set = galleryUnlockedSet();
   return set.has(galleryCharacterUnlockKey(character.id || "")) || set.has(galleryUnlockKey(character.id || "", video.sceneId || "", video.sceneEntryId || "default"));
 }
@@ -2805,15 +2806,18 @@ function applyUnlockedCharacterVideos(characterId = "", videos = []) {
 
 async function unlockGallerySceneVideo(characterId = "") {
   if (!state.user) return openLogin();
-  const character = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
-  const unlockCost = formatCredits(character?.unlockCost || state.config?.homeVideo?.characterUnlockCost || 750);
-  const confirmed = await showInlineDialog({
-    title: t("gallery.character.unlockConfirmTitle"),
-    body: `<p class="job-note">${escapeHtml(t("gallery.character.unlockConfirmBody", { cost: unlockCost }))}</p>`,
-    confirmText: t("gallery.character.unlockConfirmButton"),
-    dialogClass: "is-frame-action",
-  });
-  if (confirmed !== "confirm") return;
+  if (!creatorMembershipActive()) {
+    const confirmed = await showInlineDialog({
+      title: "Creator Membership",
+      body: '<p class="job-note">A $99 lifetime membership unlocks watching and downloading every Explore video, referral rewards, and top-up bonuses.</p>',
+      confirmText: "Buy for $99",
+      dialogClass: "is-frame-action",
+    });
+    if (confirmed === "confirm") {
+      await startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, null);
+    }
+    return;
+  }
   const renderActiveCharacterView = () => {
     if (state.tab === "characters") renderCharactersPanel();
     else renderTemplates();
@@ -3124,7 +3128,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   const hasVideo = Boolean(video.videoUrl);
   const characterUnlocked = isGalleryVideoUnlocked(character, video);
   const guest = !state.user;
-  const unlocked = Boolean(state.user) && (index === 0 || characterUnlocked);
+  const unlocked = Boolean(state.user) && characterUnlocked;
   const loading = state.galleryUnlockLoadingKey === galleryCharacterUnlockKey(character.id || "");
   const canPlay = unlocked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
@@ -3133,10 +3137,8 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
     ? ""
     : guest
       ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("gallery.character.unlockLogin"))}</button>`
-    : index > 0
-      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="lock-keyhole"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : t("gallery.character.unlockBundle"))}</button>`
-      : "";
-  const mediaAction = !canPlay && (guest || index > 0)
+    : `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="crown"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : "Unlock with membership")}</button>`;
+  const mediaAction = !canPlay
     ? `data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
     : canPlay
       ? `data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
@@ -3497,6 +3499,11 @@ function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:
   else els.previewVideo.removeAttribute("poster");
   els.previewVideo.src = previewUrl;
   els.previewVideo.hidden = false;
+  if (els.previewActions) els.previewActions.hidden = false;
+  if (els.previewDownloadBtn) {
+    els.previewDownloadBtn.href = previewUrl;
+    els.previewDownloadBtn.setAttribute("download", `${String(title || "explore-video").replace(/[^a-z0-9_-]+/gi, "-") || "explore-video"}.mp4`);
+  }
   if (!els.previewDialog.open) els.previewDialog.showModal();
   els.previewVideo.load();
   els.previewVideo.play().catch(() => {});
@@ -3513,6 +3520,8 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
   els.previewVideo.load();
   els.previewImage.src = imageUrl;
   els.previewImage.hidden = false;
+  if (els.previewActions) els.previewActions.hidden = true;
+  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
   if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 
@@ -4024,7 +4033,7 @@ function topupPackages() {
 }
 
 function billingEnabled() {
-  return Boolean(state.billing?.enabled && tenantFeature("subscriptions", false));
+  return Boolean(state.billing?.enabled && (tenantFeature("subscriptions", false) || membershipProgramEnabled()));
 }
 
 function billingPlans() {
@@ -4049,6 +4058,7 @@ function selectBillingPlan(planId = "") {
 function billingPeriodLabel(plan = {}) {
   const count = Math.max(1, Number(plan.intervalCount || 1) || 1);
   const unit = String(plan.intervalUnit || "month").toLowerCase();
+  if (unit === "lifetime") return "lifetime";
   if (count === 1) return unit === "year" ? "year" : unit === "day" ? "day" : "month";
   return `${count} ${unit}s`;
 }
@@ -4056,7 +4066,7 @@ function billingPeriodLabel(plan = {}) {
 function renderToolSubscription() {
   if (!els.toolSubscriptionPanel) return;
   const plan = billingPlans()[0] || null;
-  const visible = Boolean(plan);
+  const visible = Boolean(plan && !membershipProgramEnabled());
   els.toolSubscriptionPanel.hidden = !visible;
   if (els.toolTopupLabel) els.toolTopupLabel.hidden = !visible;
   if (!plan) return;
@@ -4549,6 +4559,21 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
+  const enabled = tenantFeature("apiAccess", true) && membershipProgramEnabled();
+  const active = apiDocsAccessActive();
+  if (els.apiDocsPurchaseCard) els.apiDocsPurchaseCard.hidden = !enabled || active;
+  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled || !active;
+  if (els.buyApiDocsBtn) {
+    els.buyApiDocsBtn.disabled = !state.user || active;
+    els.buyApiDocsBtn.innerHTML = state.user
+      ? '<i data-lucide="lock-keyhole-open"></i>Unlock docs'
+      : '<i data-lucide="log-in"></i>Sign in to unlock';
+  }
+  if (els.apiDocsPurchaseStatus) {
+    els.apiDocsPurchaseStatus.textContent = active
+      ? "API documentation access is active."
+      : state.user ? "" : "Sign in before purchasing access.";
+  }
   ensureActiveAccessGuide();
   if (els.accessModeTabs) {
     els.accessModeTabs.hidden = true;
@@ -4571,6 +4596,8 @@ function renderAccessGuides() {
     els.accessDocs.innerHTML = "";
   }
   renderTokenDisplays();
+  renderApiSubtokens();
+  refreshIcons();
 }
 
 function userHasAdvancedAccess() {

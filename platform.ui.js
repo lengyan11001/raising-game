@@ -668,7 +668,8 @@ async function fetchLatestModelDocsMarkdown({ revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
   try {
-    const response = await fetch(docsUrl, { cache: "no-store" });
+    const headers = state.token ? { authorization: `Bearer ${state.token}` } : {};
+    const response = await fetch(docsUrl, { cache: "no-store", headers });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const markdown = await response.text();
     if (markdown && markdown.trim()) {
@@ -767,7 +768,7 @@ function apiSubtokenExpiresInputValue(value = "") {
 
 function renderApiSubtokens() {
   if (!els.accessSubtokens) return;
-  if (!tenantFeature("apiAccess", true)) {
+  if (!tenantFeature("apiAccess", true) || !apiDocsAccessActive()) {
     els.accessSubtokens.innerHTML = "";
     return;
   }
@@ -865,7 +866,7 @@ function renderApiSubtokens() {
 }
 
 async function loadApiSubtokens({ force = false } = {}) {
-  if (!tenantFeature("apiAccess", true) || !state.user || !els.accessSubtokens) {
+  if (!tenantFeature("apiAccess", true) || !apiDocsAccessActive() || !state.user || !els.accessSubtokens) {
     state.apiSubtokens = [];
     state.apiSubtokensLoaded = false;
     renderApiSubtokens();
@@ -986,6 +987,7 @@ async function submitApiSubtokenUpdate(event) {
 
 function renderTokenDisplays() {
   const apiAccessEnabled = tenantFeature("apiAccess", true);
+  const entitlementActive = apiDocsAccessActive();
   if (els.accessTokenDisplay) {
     els.accessTokenDisplay.textContent = currentTokenLabel(state.showAccessToken);
   }
@@ -1000,11 +1002,11 @@ function renderTokenDisplays() {
   }
   if (els.copyTokenBtn) {
     els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
-    els.copyTokenBtn.hidden = !apiAccessEnabled;
+    els.copyTokenBtn.hidden = !apiAccessEnabled || !entitlementActive;
     els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>Copy token + docs`;
   }
   const accountTokenBox = els.accountToken?.closest(".token-box");
-  if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled;
+  if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled || !entitlementActive;
   if (els.supportFab) {
     els.supportFab.hidden = !state.user;
   }
@@ -1021,17 +1023,18 @@ function renderTokenDisplays() {
   if (els.toggleAccountTokenBtn) {
     els.toggleAccountTokenBtn.textContent = state.showAccountToken ? t("common.hide") : t("common.showFull");
     els.toggleAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
-    els.toggleAccountTokenBtn.hidden = !apiAccessEnabled;
+    els.toggleAccountTokenBtn.hidden = !apiAccessEnabled || !entitlementActive;
   }
   if (els.copyAccountTokenBtn) {
     els.copyAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
-    els.copyAccountTokenBtn.hidden = !apiAccessEnabled;
+    els.copyAccountTokenBtn.hidden = !apiAccessEnabled || !entitlementActive;
   }
 }
 
 function renderAccountMenu() {
   const loggedIn = Boolean(state.user);
   const apiAccessEnabled = tenantFeature("apiAccess", true);
+  const entitlementActive = apiDocsAccessActive();
   if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
@@ -1044,7 +1047,7 @@ function renderAccountMenu() {
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
-  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !loggedIn;
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !entitlementActive || !loggedIn;
   if (els.menuLogoutBtn) {
     els.menuLogoutBtn.hidden = !loggedIn;
     els.menuLogoutBtn.disabled = !loggedIn;
@@ -3025,7 +3028,6 @@ function renderPricing() {
   const wanResolutions = ["720p", "1080p"];
   const commonDurations = [5, 10, 15];
   const creditsPerUsd = Number(state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
-  const unlockCost = Number(state.config?.homeVideo?.characterUnlockCost ?? state.config?.prices?.unlockVideo ?? 750) || 750;
   const packages = topupPackages();
 
   const publicCredits = (value) => `${formatCredits(creditsAmount(value))} 积分`;
@@ -3089,14 +3091,6 @@ function renderPricing() {
       unit: `${publicCredits(seedreamPrice("2K"))}/张`,
       common: `单张 ${publicCredits(seedreamPrice("2K"))}`,
       note: `第 2 张起参考图 +${publicCredits(seedreamReferenceExtra)}/张`,
-    },
-    {
-      category: "角色解锁",
-      model: "Character unlock",
-      spec: "每个角色",
-      unit: "-",
-      common: publicCredits(unlockCost),
-      note: "解锁角色剩余视频",
     },
   ];
   const packageChips = packages.length
@@ -3363,49 +3357,6 @@ function cloneWorkflowDefault() {
   };
 }
 
-function normalizeWorkflowLayout(workflow = {}) {
-  if (!workflow || !Array.isArray(workflow.nodes)) return workflow;
-  const step = WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP;
-  const upload = workflow.nodes.find((node) => node.type === "upload");
-  const output = workflow.nodes.find((node) => node.type === "output");
-  const videoNodes = workflow.nodes.filter((node) => node.type === "video");
-  videoNodes.forEach((node) => {
-    const data = { ...(node.data || {}) };
-    const aliasedModelId = WORKFLOW_MODEL_ALIASES?.[data.modelId] || data.modelId || "nude";
-    node.data = {
-      ...data,
-      modelId: aliasedModelId,
-      activeTab: data.activeTab || "preview",
-      stripFirst: data.stripFirst !== false,
-      faceSwapMode: data.faceSwapMode !== false,
-      addSound: data.addSound !== false,
-    };
-  });
-  if (videoNodes[0] && (videoNodes[0].title === "Nude V3 (Kling)" || videoNodes[0].data?.modelId === "nude")) {
-    videoNodes[0].title = "Nude";
-    videoNodes[0].data.modelId = "nude";
-  }
-  if (videoNodes[1] && videoNodes[1].id === "video-2" && videoNodes[1].title === "Deepthroat") {
-    videoNodes[1].title = "Nude Video";
-    videoNodes[1].data.modelId = "nude-video";
-  }
-  if (Number(workflow.layoutVersion || 0) >= WORKFLOW_NODE_LAYOUT_VERSION) return workflow;
-  if (upload) {
-    upload.x = 30;
-    upload.y = 150;
-  }
-  videoNodes.forEach((node, index) => {
-    node.x = 30 + step * (index + 1);
-    node.y = 150 + Math.max(0, index - 1) * 24;
-  });
-  if (output) {
-    output.x = 30 + step * (videoNodes.length + 1);
-    output.y = 150;
-  }
-  workflow.layoutVersion = WORKFLOW_NODE_LAYOUT_VERSION;
-  return workflow;
-}
-
 function normalizeWorkflowPreset(preset = {}) {
   const id = String(preset.id || preset.sourceId || "").trim();
   const label = String(preset.label || preset.name || id || "Workflow preset").trim();
@@ -3446,30 +3397,9 @@ function workflowUserStorageKey() {
 
 function ensureWorkflowState() {
   if (state.workflow?.nodes?.length) {
-    normalizeWorkflowLayout(state.workflow);
     return state.workflow;
   }
-  try {
-    const saved = JSON.parse(localStorage.getItem(workflowUserStorageKey()) || "null");
-    if (saved?.nodes?.length) {
-      state.workflow = {
-        nodes: saved.nodes.map((node) => ({ ...node, data: { ...(node.data || {}) } })),
-        edges: Array.isArray(saved.edges) ? saved.edges : [],
-        physics: Array.isArray(saved.physics) ? saved.physics : [],
-        directorPrompt: saved.directorPrompt || "",
-        zoom: normalizeWorkflowZoom(saved.zoom),
-        layoutVersion: Number(saved.layoutVersion || 0),
-        canvasWidth: Number(saved.canvasWidth || WORKFLOW_CANVAS_BASE_WIDTH),
-        canvasHeight: Number(saved.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
-        scrollLeft: Number(saved.scrollLeft || 0),
-        scrollTop: Number(saved.scrollTop || 0),
-      };
-      normalizeWorkflowLayout(state.workflow);
-      return state.workflow;
-    }
-  } catch (_) {}
   state.workflow = cloneWorkflowDefault();
-  normalizeWorkflowLayout(state.workflow);
   return state.workflow;
 }
 
@@ -3616,13 +3546,36 @@ function workflowIncomingEdges(nodeId = "") {
   return ensureWorkflowState().edges.filter((edge) => edge.to === nodeId);
 }
 
+function workflowDownstreamVideoNodes(nodeId = "") {
+  const workflow = ensureWorkflowState();
+  const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
+  const visited = new Set([nodeId]);
+  const videos = [];
+  const queue = [nodeId];
+  while (queue.length && visited.size <= workflow.nodes.length + 1) {
+    const currentId = queue.shift();
+    workflow.edges
+      .filter((edge) => edge.from === currentId)
+      .map((edge) => nodeById.get(edge.to))
+      .filter(Boolean)
+      .sort((left, right) => Number(left.x || 0) - Number(right.x || 0))
+      .forEach((node) => {
+        if (visited.has(node.id)) return;
+        visited.add(node.id);
+        if (node.type === "video") videos.push(node);
+        if (node.type !== "output") queue.push(node.id);
+      });
+  }
+  return videos;
+}
+
 function workflowOrderedVideoNodes() {
   const workflow = ensureWorkflowState();
   const upload = workflowUploadNode();
   if (!upload) return workflowVideoNodes();
   const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
   const videoNodes = workflowVideoNodes();
-  const reachableIds = new Set();
+  const reachableIds = new Set([upload.id]);
   const queue = [upload.id];
   for (let guard = 0; queue.length && guard < workflow.nodes.length * 4 + 8; guard += 1) {
     const currentId = queue.shift();
@@ -3631,53 +3584,56 @@ function workflowOrderedVideoNodes() {
       .sort((left, right) => Number(nodeById.get(left.to)?.x || 0) - Number(nodeById.get(right.to)?.x || 0))
       .forEach((edge) => {
         const next = nodeById.get(edge.to);
-        if (!next || next.type === "output" || reachableIds.has(next.id)) return;
-        if (next.type === "video") reachableIds.add(next.id);
+        if (!next || reachableIds.has(next.id)) return;
+        reachableIds.add(next.id);
+        if (next.type === "output") return;
         queue.push(next.id);
       });
   }
-  const candidates = reachableIds.size === videoNodes.length
-    ? videoNodes.filter((node) => reachableIds.has(node.id))
+  const reachableVideoIds = new Set(videoNodes.filter((node) => reachableIds.has(node.id)).map((node) => node.id));
+  const candidates = reachableVideoIds.size === videoNodes.length
+    ? videoNodes.filter((node) => reachableVideoIds.has(node.id))
     : videoNodes;
   if (!candidates.length) return [];
 
-  const candidateIds = new Set(candidates.map((node) => node.id));
-  const incomingCounts = new Map(candidates.map((node) => [node.id, 0]));
+  const graphIds = new Set(
+    workflow.nodes
+      .filter((node) => reachableIds.has(node.id) && node.type !== "output")
+      .map((node) => node.id),
+  );
+  const incomingCounts = new Map([...graphIds].map((nodeId) => [nodeId, 0]));
   workflow.edges.forEach((edge) => {
-    if (candidateIds.has(edge.from) && candidateIds.has(edge.to)) {
+    if (graphIds.has(edge.from) && graphIds.has(edge.to)) {
       incomingCounts.set(edge.to, (incomingCounts.get(edge.to) || 0) + 1);
     }
   });
-  const ordered = [];
-  const ready = candidates
-    .filter((node) => (incomingCounts.get(node.id) || 0) === 0)
+  const orderedGraph = [];
+  const ready = workflow.nodes
+    .filter((node) => graphIds.has(node.id) && (incomingCounts.get(node.id) || 0) === 0)
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
   while (ready.length) {
     const node = ready.shift();
-    if (!node || ordered.some((item) => item.id === node.id)) continue;
-    ordered.push(node);
+    if (!node || orderedGraph.some((item) => item.id === node.id)) continue;
+    orderedGraph.push(node);
     workflow.edges
-      .filter((edge) => edge.from === node.id && candidateIds.has(edge.to))
+      .filter((edge) => edge.from === node.id && graphIds.has(edge.to))
       .forEach((edge) => {
         incomingCounts.set(edge.to, Math.max(0, (incomingCounts.get(edge.to) || 0) - 1));
         if ((incomingCounts.get(edge.to) || 0) === 0) {
           const next = nodeById.get(edge.to);
-          if (next && !ordered.some((item) => item.id === next.id) && !ready.some((item) => item.id === next.id)) {
+          if (next && !orderedGraph.some((item) => item.id === next.id) && !ready.some((item) => item.id === next.id)) {
             ready.push(next);
             ready.sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
           }
         }
       });
   }
-  const missing = candidates.filter((node) => !ordered.some((item) => item.id === node.id));
-  return [...ordered, ...missing].sort((left, right) => {
-    const leftIndex = ordered.findIndex((node) => node.id === left.id);
-    const rightIndex = ordered.findIndex((node) => node.id === right.id);
-    if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex;
-    if (leftIndex >= 0) return -1;
-    if (rightIndex >= 0) return 1;
-    return Number(left.x || 0) - Number(right.x || 0);
-  });
+  const candidateIds = new Set(candidates.map((node) => node.id));
+  const ordered = orderedGraph.filter((node) => node.type === "video" && candidateIds.has(node.id));
+  const missing = candidates
+    .filter((node) => !ordered.some((item) => item.id === node.id))
+    .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
+  return [...ordered, ...missing];
 }
 
 function workflowFirstVideoNode() {
@@ -3829,11 +3785,37 @@ function workflowPhysicsPrompt() {
     .join(", ");
 }
 
+function workflowUpstreamPromptNodes(node = {}) {
+  const workflow = ensureWorkflowState();
+  const nodeById = new Map(workflow.nodes.map((item) => [item.id, item]));
+  const visited = new Set();
+  const prompts = new Map();
+  const visit = (nodeId) => {
+    if (!nodeId || visited.has(nodeId)) return;
+    visited.add(nodeId);
+    workflow.edges
+      .filter((edge) => edge.to === nodeId)
+      .map((edge) => nodeById.get(edge.from))
+      .filter(Boolean)
+      .sort((left, right) => Number(left.x || 0) - Number(right.x || 0))
+      .forEach((source) => {
+        visit(source.id);
+        if (source.type === "prompt" && String(source.data?.prompt || "").trim()) prompts.set(source.id, source);
+      });
+  };
+  visit(node.id);
+  return [...prompts.values()];
+}
+
 function workflowEffectivePrompt(node = {}) {
   const model = workflowModelById(node.data?.modelId);
+  const story = workflowUpstreamPromptNodes(node)
+    .map((promptNode) => String(promptNode.data?.prompt || "").trim())
+    .filter(Boolean)
+    .join(". ");
   const base = String(node.data?.prompt || "").trim() || model.prompt;
   const physics = workflowPhysicsPrompt();
-  return [base, physics].filter(Boolean).join(". ");
+  return [story, base, physics].filter(Boolean).join(". ");
 }
 
 function workflowImageKey(value = "") {
@@ -4314,7 +4296,7 @@ function workflowNodeAcceptsOutput(node = null) {
 }
 
 function workflowNodeAnchor(node = {}, side = "out") {
-  const yOffset = node.type === "video" ? 186 : 92;
+  const yOffset = node.type === "video" ? 184 : node.type === "prompt" ? 120 : 136;
   return {
     x: Number(node.x || 0) + (side === "out" ? WORKFLOW_NODE_WIDTH : 0),
     y: Number(node.y || 0) + yOffset,
@@ -4357,6 +4339,24 @@ function renderWorkflowNode(node = {}) {
           ${renderWorkflowUploadSlot(node, "faceImage", "Face", "scan-face")}
         </div>
         ${renderWorkflowUploadPreparedPreview(node)}
+      </article>
+    `;
+  }
+  if (node.type === "prompt") {
+    const downstreamCount = workflowDownstreamVideoNodes(node.id).length;
+    return `
+      <article class="workflow-node workflow-node-prompt ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
+        ${renderWorkflowConnectors(node)}
+        <header>
+          <span class="workflow-node-title-icon"><i data-lucide="notebook-pen"></i></span>
+          <strong>${escapeHtml(node.title || "Story Prompt")}</strong>
+          <button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete"><i data-lucide="trash-2"></i></button>
+        </header>
+        <label class="workflow-field">
+          <span>Story direction</span>
+          <textarea rows="7" data-workflow-story-prompt="${escapeHtml(node.id)}" placeholder="Describe the scene, subject, motion, camera, lighting, and continuity.">${escapeHtml(node.data?.prompt || "")}</textarea>
+        </label>
+        <footer><span>${downstreamCount} connected video${downstreamCount === 1 ? "" : "s"}</span><strong>Prompt</strong></footer>
       </article>
     `;
   }
@@ -4544,6 +4544,7 @@ function renderWorkflowPanel({ focusNodeId = "" } = {}) {
         <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run all"}</button>
         <button type="button" data-workflow-action="clear-results" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="eraser"></i>Clear results</button>
         <button type="button" data-workflow-action="add-video"><i data-lucide="plus"></i>Video</button>
+        <button type="button" data-workflow-action="add-prompt"><i data-lucide="notebook-pen"></i>Prompt</button>
         <button type="button" data-workflow-action="physics" class="${state.workflowShowPhysics ? "is-active" : ""}"><i data-lucide="sliders-horizontal"></i>Modifiers</button>
         <button type="button" data-workflow-action="reset"><i data-lucide="rotate-ccw"></i>Reset</button>
         <span class="workflow-status">${escapeHtml(state.workflowMessage || `${workflowVideoNodes().length} video nodes`)}</span>
@@ -4583,7 +4584,11 @@ function renderWorkflowPanel({ focusNodeId = "" } = {}) {
 }
 
 function updateWorkflowNodeFromControl(control) {
-  const nodeId = control.dataset.workflowPrompt || control.dataset.workflowDuration || control.dataset.workflowResolution || "";
+  const nodeId = control.dataset.workflowPrompt
+    || control.dataset.workflowDuration
+    || control.dataset.workflowResolution
+    || control.dataset.nodeId
+    || "";
   const node = workflowNodeById(nodeId);
   if (!node) return;
   if (control.dataset.workflowPrompt) {
@@ -4620,28 +4625,32 @@ async function handleWorkflowFileInput(input) {
   if (field === "startImage") workflowLog("Source image ready.");
 }
 
-function addWorkflowVideoNode(modelId = "") {
+function workflowInsertionPreviousNode() {
   const workflow = ensureWorkflowState();
-  const videoNodes = workflowVideoNodes();
-  const index = videoNodes.length + 1;
   const output = workflowNodeByType("output");
   const selected = selectedWorkflowNode();
   const outputIncoming = output ? workflowIncomingEdges(output.id)[0] : null;
   const outputPrevious = workflowNodeById(outputIncoming?.from || "");
-  const previous = (selected?.type === "video" || selected?.type === "upload")
+  return selected && selected.type !== "output"
     ? selected
-    : (outputPrevious?.type === "video" || outputPrevious?.type === "upload")
+    : outputPrevious && outputPrevious.type !== "output"
       ? outputPrevious
-      : videoNodes[videoNodes.length - 1] || workflowUploadNode();
-  const model = workflowModelById(modelId || WORKFLOW_MODEL_LIBRARY[index % WORKFLOW_MODEL_LIBRARY.length]?.id || "");
-  const node = {
-    id: `video-${Date.now().toString(36)}`,
-    type: "video",
-    title: model.label,
-    x: Number(previous?.x || 30) + WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP,
-    y: 150 + Math.max(0, index - 2) * 38,
-    data: { modelId: model.id, duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" },
-  };
+      : workflowVideoNodes()[workflowVideoNodes().length - 1] || workflowUploadNode();
+}
+
+function insertWorkflowNodeAfter(node = {}, previous = null) {
+  const workflow = ensureWorkflowState();
+  const output = workflowNodeByType("output");
+  const insertionX = Number(previous?.x || 30) + WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP;
+  workflow.nodes.forEach((item) => {
+    if (item.id !== previous?.id && Number(item.x || 0) >= insertionX) {
+      item.x = Math.min(
+        WORKFLOW_CANVAS_MAX_WIDTH - WORKFLOW_NODE_WIDTH,
+        Number(item.x || 0) + WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP,
+      );
+    }
+  });
+  node.x = insertionX;
   workflow.nodes.splice(Math.max(1, workflow.nodes.length - 1), 0, node);
   const displacedTargets = previous ? workflowOutgoingEdges(previous.id).map((edge) => edge.to).filter((toId) => toId !== node.id) : [];
   if (previous) {
@@ -4659,6 +4668,34 @@ function addWorkflowVideoNode(modelId = "") {
   state.workflowSelectedNodeId = node.id;
   persistWorkflowState();
   renderWorkflowPanel({ focusNodeId: node.id });
+}
+
+function addWorkflowPromptNode() {
+  const previous = workflowInsertionPreviousNode();
+  insertWorkflowNodeAfter({
+    id: `prompt-${Date.now().toString(36)}`,
+    type: "prompt",
+    title: "Story Prompt",
+    x: 0,
+    y: Number(previous?.y || 150),
+    data: { prompt: "" },
+  }, previous);
+}
+
+function addWorkflowVideoNode(modelId = "") {
+  const videoNodes = workflowVideoNodes();
+  const index = videoNodes.length + 1;
+  const previous = workflowInsertionPreviousNode();
+  const model = workflowModelById(modelId || WORKFLOW_MODEL_LIBRARY[index % WORKFLOW_MODEL_LIBRARY.length]?.id || "");
+  const node = {
+    id: `video-${Date.now().toString(36)}`,
+    type: "video",
+    title: model.label,
+    x: 0,
+    y: 150 + Math.max(0, index - 2) * 38,
+    data: { modelId: model.id, duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" },
+  };
+  insertWorkflowNodeAfter(node, previous);
 }
 
 function workflowCanceledError() {
@@ -5065,7 +5102,6 @@ async function runWorkflow() {
 
 function resetWorkflow() {
   state.workflow = cloneWorkflowDefault();
-  normalizeWorkflowLayout(state.workflow);
   state.workflowSelectedNodeId = "video-1";
   state.workflowMessage = "";
   state.workflowLogs = [];
@@ -5306,6 +5342,32 @@ function reconnectWorkflowEdge(oldFromId = "", oldToId = "", nextFromId = "", ne
   return connectWorkflowNodes(nextFromId, nextToId);
 }
 
+function removeWorkflowNode(nodeId = "") {
+  const workflow = ensureWorkflowState();
+  const node = workflow.nodes.find((item) => item.id === nodeId);
+  if (!node || !["prompt", "video"].includes(node.type)) return false;
+  const incoming = workflow.edges
+    .filter((edge) => edge.to === nodeId)
+    .map((edge) => workflowNodeById(edge.from))
+    .filter((item) => workflowNodeAcceptsOutput(item));
+  const outgoing = workflow.edges
+    .filter((edge) => edge.from === nodeId)
+    .map((edge) => workflowNodeById(edge.to))
+    .filter((item) => workflowNodeAcceptsInput(item));
+  workflow.nodes = workflow.nodes.filter((item) => item.id !== nodeId);
+  workflow.edges = workflow.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId);
+  const from = incoming[0];
+  const to = outgoing[0];
+  if (from && to && from.id !== to.id) workflow.edges.push({ from: from.id, to: to.id });
+  workflow.edges = workflow.edges.filter((edge, edgeIndex, edges) => (
+    edge.from && edge.to
+    && edges.findIndex((item) => item.from === edge.from && item.to === edge.to) === edgeIndex
+  ));
+  state.workflowSelectedNodeId = workflowVideoNodes()[0]?.id || workflowUploadNode()?.id || "";
+  persistWorkflowState();
+  return true;
+}
+
 function startWorkflowEdgeDrag(event, edgeEl) {
   const edgeFrom = edgeEl.dataset.edgeFrom || "";
   const edgeTo = edgeEl.dataset.edgeTo || "";
@@ -5458,12 +5520,7 @@ function handleWorkflowClick(event) {
   if (deleteButton) {
     event.stopPropagation();
     const nodeId = deleteButton.dataset.workflowDelete || "";
-    const workflow = ensureWorkflowState();
-    workflow.nodes = workflow.nodes.filter((node) => node.id !== nodeId);
-    workflow.edges = workflow.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId);
-    state.workflowSelectedNodeId = workflowVideoNodes()[0]?.id || "upload-1";
-    persistWorkflowState();
-    renderWorkflowPanel();
+    if (removeWorkflowNode(nodeId)) renderWorkflowPanel();
     return;
   }
   const nodeTabButton = event.target.closest("[data-workflow-node-tab]");
@@ -5520,6 +5577,7 @@ function handleWorkflowClick(event) {
     if (action === "cancel") requestWorkflowCancel();
     if (action === "clear-results") clearWorkflowExecutionResults();
     if (action === "add-video") addWorkflowVideoNode();
+    if (action === "add-prompt") addWorkflowPromptNode();
     if (action === "physics") {
       state.workflowShowPhysics = !state.workflowShowPhysics;
       renderWorkflowPanel();
@@ -5563,6 +5621,14 @@ function handleWorkflowInput(event) {
     const node = workflowNodeById(target.dataset.workflowPrompt || "");
     if (node) {
       node.data.prompt = target.value || "";
+      persistWorkflowState();
+    }
+    return;
+  }
+  if (target.matches("[data-workflow-story-prompt]")) {
+    const node = workflowNodeById(target.dataset.workflowStoryPrompt || "");
+    if (node) {
+      node.data = { ...(node.data || {}), prompt: target.value || "" };
       persistWorkflowState();
     }
     return;

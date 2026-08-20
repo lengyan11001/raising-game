@@ -919,6 +919,20 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
+els.buyApiDocsBtn?.addEventListener("click", () => {
+  startEntitlementCheckout({ productId: "api-docs-access" }, els.apiDocsPurchaseStatus);
+});
+els.buyMembershipBtn?.addEventListener("click", () => {
+  startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, els.membershipNote);
+});
+els.membershipCodeForm?.addEventListener("submit", redeemMembershipCode);
+els.previewDialog?.addEventListener("close", () => {
+  els.previewVideo?.pause();
+  els.previewVideo?.removeAttribute("src");
+  els.previewVideo?.load();
+  if (els.previewActions) els.previewActions.hidden = true;
+  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
+});
 function openSupportDialog() {
   if (!state.user) return openLogin();
   prepareModalOpen();

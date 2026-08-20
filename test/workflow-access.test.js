@@ -27,3 +27,16 @@ test("workflow wheel zoom only runs over empty canvas space", () => {
   assert.match(ui, /target\.closest\("\[data-workflow-node\]"\)/);
   assert.match(ui, /function handleWorkflowWheel\(event\) \{[\s\S]*?if \(workflowWheelZoomBlockedTarget\(event\.target\)\) return;[\s\S]*?event\.preventDefault\(\);/);
 });
+
+test("workflow story prompt nodes are executable inputs for downstream video prompts", () => {
+  const ui = read("platform.ui.js");
+  const config = read("platform.config.js");
+
+  assert.match(config, /type: "prompt", title: "Story Prompt"/);
+  assert.match(ui, /function workflowUpstreamPromptNodes\(node = \{\}\)/);
+  assert.match(ui, /function workflowEffectivePrompt\(node = \{\}\)[\s\S]*?workflowUpstreamPromptNodes\(node\)/);
+  assert.match(ui, /data-workflow-story-prompt=/);
+  assert.match(ui, /data-workflow-action="add-prompt"/);
+  assert.match(ui, /if \(action === "add-prompt"\) addWorkflowPromptNode\(\);/);
+  assert.match(ui, /function addWorkflowPromptNode\(\)/);
+});

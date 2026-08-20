@@ -5093,21 +5093,92 @@ function renderReferral() {
   const referral = state.referral || null;
   const loggedIn = Boolean(state.user);
   const invitedCount = Number(referral?.invitedCount || 0);
-  const remainingRewards = Math.max(0, Number(referral?.remainingRewards ?? 1));
-  const maxRewards = Math.max(1, Number(referral?.maxRewards || 1));
-  const rewardCount = Math.max(0, maxRewards - remainingRewards);
-  const progress = Math.max(0, Math.min(100, (rewardCount / maxRewards) * 100));
+  const paidInviteCount = Math.max(0, Number(referral?.paidInviteCount || 0));
+  const rewardCount = Math.max(0, Number(referral?.rewardCount || 0));
+  const membershipTarget = Math.max(1, Number(referral?.membershipTarget || 100));
+  const registrationProgress = Math.max(0, Math.min(100, (invitedCount / membershipTarget) * 100));
+  const member = creatorMembershipActive();
   if (els.referralLink) els.referralLink.textContent = loggedIn ? (referral?.inviteUrl || "") : t("referral.login");
-  if (els.referralProgressFill) els.referralProgressFill.style.width = `${progress}%`;
+  if (els.referralProgressFill) els.referralProgressFill.style.width = `${paidInviteCount ? Math.min(100, (rewardCount / paidInviteCount) * 100) : 0}%`;
   if (els.referralInvitedCount) els.referralInvitedCount.textContent = t("referral.invitedCount", { count: invitedCount });
   if (els.referralRewardStatus) {
-    els.referralRewardStatus.textContent = remainingRewards > 0
-      ? t("referral.rewardAvailable", { count: remainingRewards })
-      : t("referral.rewardUsed");
+    els.referralRewardStatus.textContent = member
+      ? `${rewardCount} rewards paid / ${paidInviteCount} paid invites`
+      : "Activate membership to earn paid-invite rewards";
   }
-  if (els.referralNote) els.referralNote.textContent = loggedIn ? t("referral.rules") : t("referral.login");
+  if (els.referralMembershipProgressText) els.referralMembershipProgressText.textContent = member
+    ? "Membership active"
+    : `${invitedCount} / ${membershipTarget} registrations`;
+  if (els.referralMembershipProgressFill) els.referralMembershipProgressFill.style.width = `${member ? 100 : registrationProgress}%`;
+  if (els.referralNote) els.referralNote.textContent = loggedIn
+    ? member
+      ? "Each invited user who registers and completes payment earns 100 credits."
+      : "Invite 100 registered users to unlock Creator Membership automatically."
+    : t("referral.login");
   if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || !referral?.inviteUrl;
+  renderMembershipCard();
   refreshIcons();
+}
+
+function renderMembershipCard() {
+  if (!els.membershipCard) return;
+  els.membershipCard.hidden = !membershipProgramEnabled();
+  if (!membershipProgramEnabled()) return;
+  const active = creatorMembershipActive();
+  if (els.membershipState) {
+    els.membershipState.textContent = active ? "Active" : "Not active";
+    els.membershipState.classList.toggle("is-active", active);
+  }
+  if (els.buyMembershipBtn) {
+    els.buyMembershipBtn.hidden = active;
+    els.buyMembershipBtn.disabled = !state.user;
+  }
+  if (els.membershipCodeForm) els.membershipCodeForm.hidden = active;
+  if (els.membershipNote && active) els.membershipNote.textContent = "Creator Membership is active on this account.";
+}
+
+async function startEntitlementCheckout(body = {}, statusElement = null) {
+  if (!state.user) return openLogin();
+  if (statusElement) statusElement.textContent = "Creating secure checkout...";
+  const returnUrl = `${window.location.origin}${window.location.pathname}#${state.tab || "referral"}`;
+  try {
+    const payload = await requestJson("/api/pay/paypal/checkout-sessions", {
+      method: "POST",
+      body: { ...body, returnUrl, cancelUrl: returnUrl },
+    });
+    const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
+    if (!checkoutUrl) throw new Error("PayPal checkout page was not created.");
+    window.location.href = checkoutUrl;
+  } catch (error) {
+    if (statusElement) statusElement.textContent = error.message || String(error);
+  }
+}
+
+async function redeemMembershipCode(event) {
+  event?.preventDefault?.();
+  if (!state.user) return openLogin();
+  const code = String(els.membershipCodeInput?.value || "").trim();
+  if (!code) {
+    if (els.membershipNote) els.membershipNote.textContent = "Enter an activation code.";
+    return;
+  }
+  if (els.redeemMembershipCodeBtn) els.redeemMembershipCodeBtn.disabled = true;
+  if (els.membershipNote) els.membershipNote.textContent = "Redeeming code...";
+  try {
+    const payload = await requestJson("/api/membership/redeem", { method: "POST", body: { code } });
+    if (payload.user) setUser(payload.user, { skipReferralRefresh: true });
+    if (state.billing) state.billing = { ...state.billing, membership: payload.membership || state.billing.membership };
+    if (els.membershipCodeInput) els.membershipCodeInput.value = "";
+    if (els.membershipNote) els.membershipNote.textContent = "Creator Membership activated.";
+    await loadReferralSummary({ force: true });
+    await refreshExploreMembershipAccess();
+    await loadBillingSummary();
+    renderMembershipCard();
+  } catch (error) {
+    if (els.membershipNote) els.membershipNote.textContent = error.message || String(error);
+  } finally {
+    if (els.redeemMembershipCodeBtn) els.redeemMembershipCodeBtn.disabled = false;
+  }
 }
 
 async function loadReferralSummary({ force = false } = {}) {
@@ -5402,7 +5473,7 @@ async function submitLogin() {
     if (state.tab === "spending") loadSpendingRecords(1);
     if (state.tab === "assets") loadUserAssets();
     if (state.tab === "referral") loadReferralSummary();
-    if (tenantFeature("subscriptions", false)) loadBillingSummary();
+    if (tenantFeature("subscriptions", false) || membershipProgramEnabled()) loadBillingSummary();
   } catch (error) {
     els.loginMessage.textContent = error.message;
   } finally {
@@ -5423,14 +5494,33 @@ async function loadMe() {
 }
 
 async function loadBillingSummary() {
-  if (!state.user || !tenantFeature("subscriptions", false)) return;
+  if (!state.user || (!tenantFeature("subscriptions", false) && !membershipProgramEnabled())) return;
   try {
     const payload = await requestJson("/api/billing/summary");
     state.billing = payload.billing || state.billing;
     if (payload.user) setUser(payload.user);
     renderTopupSummary();
+    renderMembershipCard();
+    renderAccessGuides();
   } catch (error) {
     console.warn("billing summary failed", error.message || error);
+  }
+}
+
+async function refreshExploreMembershipAccess() {
+  if (!state.user || !creatorMembershipActive()) return;
+  const limit = Math.max(20, Math.min(100, Number(state.homeCharacters?.length || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE));
+  try {
+    const payload = await requestJson(`/api/public/characters?page=1&limit=${encodeURIComponent(String(limit))}`);
+    state.homeCharacters = Array.isArray(payload.items) ? payload.items : state.homeCharacters;
+    state.homeCharactersPage = Number(payload.page || 1) || 1;
+    state.homeCharactersLimit = Number(payload.limit || limit) || limit;
+    state.homeCharactersTotal = Number(payload.total || state.homeCharacters.length) || state.homeCharacters.length;
+    state.homeCharactersTotalPages = Number(payload.totalPages || 1) || 1;
+    if (state.tab === "gallery") renderTemplates();
+    if (state.tab === "characters") renderCharactersPanel();
+  } catch (error) {
+    console.warn("membership Explore refresh failed", error.message || error);
   }
 }
 

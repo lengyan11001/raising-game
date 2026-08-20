@@ -1,5 +1,4 @@
 const WORKFLOW_CANVAS_ACTIVE_KEY = `${WORKFLOW_STORAGE_KEY}:active`;
-const WORKFLOW_CANVAS_MIGRATION_KEY = `${WORKFLOW_STORAGE_KEY}:migrated`;
 const WORKFLOW_CANVAS_SAVE_DELAY_MS = 1200;
 
 function workflowCanvasUserSuffix() {
@@ -21,7 +20,7 @@ function workflowCanvasSummary(canvas = {}) {
 
 function workflowCanvasStateFromPayload(value = {}) {
   const workflow = value && typeof value === "object" ? value : {};
-  return normalizeWorkflowLayout({
+  return {
     nodes: Array.isArray(workflow.nodes) ? workflow.nodes.map((node) => ({ ...node, data: { ...(node.data || {}) } })) : [],
     edges: Array.isArray(workflow.edges) ? workflow.edges.map((edge) => ({ ...edge })) : [],
     physics: Array.isArray(workflow.physics) ? [...workflow.physics] : [],
@@ -32,7 +31,7 @@ function workflowCanvasStateFromPayload(value = {}) {
     canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
     scrollLeft: Number(workflow.scrollLeft || 0),
     scrollTop: Number(workflow.scrollTop || 0),
-  });
+  };
 }
 
 function workflowCanvasSnapshot() {
@@ -82,28 +81,6 @@ function setActiveWorkflowCanvas(canvas = {}) {
   persistWorkflowState({ skipServer: true });
 }
 
-function legacyWorkflowCanvasValue() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(workflowUserStorageKey()) || "null");
-    return saved?.nodes?.length ? workflowCanvasStateFromPayload(saved) : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-async function migrateLegacyWorkflowCanvas(canvas = {}) {
-  const markerKey = workflowCanvasScopedKey(WORKFLOW_CANVAS_MIGRATION_KEY);
-  if (localStorage.getItem(markerKey) === "1") return null;
-  const legacy = legacyWorkflowCanvasValue();
-  localStorage.setItem(markerKey, "1");
-  if (!legacy?.nodes?.length || !canvas.id) return null;
-  const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvas.id)}`, {
-    method: "PUT",
-    body: { name: "Untitled workflow", workflow: legacy },
-  });
-  return payload.canvas || null;
-}
-
 async function fetchWorkflowCanvas(canvasId = "") {
   const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`);
   return payload.canvas || null;
@@ -128,8 +105,7 @@ async function loadWorkflowCanvases({ force = false } = {}) {
     const preferredId = localStorage.getItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY)) || "";
     const selected = state.workflowCanvases.find((canvas) => canvas.id === preferredId) || state.workflowCanvases[0];
     if (!selected) throw new Error("No workflow is available.");
-    const migrated = await migrateLegacyWorkflowCanvas(selected);
-    const canvas = migrated || await fetchWorkflowCanvas(selected.id);
+    const canvas = await fetchWorkflowCanvas(selected.id);
     if (!canvas) throw new Error("Workflow could not be loaded.");
     setActiveWorkflowCanvas(canvas);
     state.workflowCanvasMessage = "Saved";

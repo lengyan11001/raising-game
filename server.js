@@ -117,6 +117,11 @@ const {
   getBillingPlanInDb,
   getUserSubscriptionInDb,
   upsertUserSubscriptionInDb,
+  createMembershipActivationCodesInDb,
+  listMembershipActivationCodesInDb,
+  hasReferralRewardInDb,
+  setMembershipActivationCodeStatusInDb,
+  redeemMembershipActivationCodeInDb,
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,
@@ -360,9 +365,15 @@ const TELEGRAM_BOT_NOTIFIER_INTERVAL_MS = Math.max(10000, Number(process.env.TEL
 const VIPEAK_X_URL = "https://x.com/VipeakAI";
 const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
 const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
-const CHARACTER_UNLOCK_COST_CREDITS = 750;
+const CHARACTER_UNLOCK_COST_CREDITS = 0;
 const PUBLIC_CHARACTER_PAGE_SIZE = 20;
 const REFERRAL_REWARD_CREDITS = 100;
+const CREATOR_MEMBERSHIP_PLAN_ID = "plan-main-creator";
+const CREATOR_MEMBERSHIP_PRICE_USD = 99;
+const CREATOR_MEMBERSHIP_REFERRAL_TARGET = 100;
+const API_DOCS_PRODUCT_ID = "api-docs-access";
+const API_DOCS_PRICE_USD = 1000;
+const API_DOCS_TEST_CREDITS = 20000;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
 const UNDRESS_TOOL_EXAMPLE_DIR = path.join(ROOT, "assets", "admin", "undress-examples");
@@ -487,7 +498,6 @@ const TOPUP_PACKAGES = Object.freeze([
   Object.freeze({ id: "usd-100", amount: 100, credits: 12000 }),
   Object.freeze({ id: "usd-200", amount: 200, credits: 25000 }),
   Object.freeze({ id: "usd-500", amount: 500, credits: 65000 }),
-  Object.freeze({ id: "usd-1000", amount: 1000, credits: 140000 }),
 ]);
 const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.PAYPAL_CNY_CENTS_PER_UNIT ||
@@ -1681,7 +1691,7 @@ function tenantDescriptorFromHostname(hostname = "") {
   const toolId = toolTenantIdForHostname(host);
   const tool = TOOL_TENANT_SPECS[toolId] || null;
   const tenantPublic = Boolean(tool || isPublicTenantHostname(host));
-  const apiAccess = !tenantPublic && !tool;
+  const apiAccess = !tool;
   return {
     tenantPublic,
     tenantMode: tool ? "tool" : "platform",
@@ -1701,6 +1711,7 @@ function tenantDescriptorFromHostname(hostname = "") {
     assetLibrary: tool?.assetLibrary ?? true,
     accountMenu: true,
     subscriptions: Boolean(tool),
+    membershipProgram: !tool,
     videoProvider: tool?.videoProvider || "",
   };
 }
@@ -2365,8 +2376,102 @@ function publicTenantFeatures(tenant = {}) {
     assetLibrary: tenant.assetLibrary !== false,
     accountMenu: tenant.accountMenu !== false,
     subscriptions: Boolean(tenant.subscriptions),
+    membershipProgram: Boolean(tenant.membershipProgram),
     videoProvider: tenant.videoProvider || "",
   };
+}
+
+function creatorMembershipPayload(user = {}) {
+  return user.membership && typeof user.membership === "object" ? user.membership : {};
+}
+
+function userHasCreatorMembership(user = {}) {
+  const membership = creatorMembershipPayload(user);
+  return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
+}
+
+function userHasApiDocsAccess(user = {}) {
+  const entitlement = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+  return entitlement.status === "active" && Boolean(entitlement.grantedAt || entitlement.orderId);
+}
+
+function publicCreatorMembership(user = {}) {
+  const membership = creatorMembershipPayload(user);
+  return {
+    active: userHasCreatorMembership(user),
+    status: userHasCreatorMembership(user) ? "active" : "inactive",
+    planId: membership.planId || CREATOR_MEMBERSHIP_PLAN_ID,
+    activatedAt: String(membership.activatedAt || ""),
+    source: String(membership.source || ""),
+  };
+}
+
+function publicApiDocsEntitlement(user = {}) {
+  const entitlement = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+  return {
+    active: userHasApiDocsAccess(user),
+    status: userHasApiDocsAccess(user) ? "active" : "locked",
+    productId: API_DOCS_PRODUCT_ID,
+    grantedAt: String(entitlement.grantedAt || ""),
+  };
+}
+
+async function activateCreatorMembership(db, user, { source = "payment", orderId = "", codeId = "", referralCount = 0 } = {}) {
+  if (!user) return null;
+  const now = new Date().toISOString();
+  const current = creatorMembershipPayload(user);
+  user.membership = {
+    ...current,
+    status: "active",
+    planId: CREATOR_MEMBERSHIP_PLAN_ID,
+    activatedAt: current.activatedAt || now,
+    source: current.source || source,
+    orderId: current.orderId || orderId,
+    codeId: current.codeId || codeId,
+    referralCount: Math.max(Number(current.referralCount || 0), Number(referralCount || 0)),
+    updatedAt: now,
+  };
+  user.updatedAt = now;
+  if (dbEnabled()) {
+    await updateUserInDb(user);
+    const existing = await getUserSubscriptionInDb(user.id, DEFAULT_TENANT_ID);
+    await upsertUserSubscriptionInDb({
+      ...existing,
+      id: existing?.id || randomId("sub"),
+      tenantId: DEFAULT_TENANT_ID,
+      userId: user.id,
+      planId: CREATOR_MEMBERSHIP_PLAN_ID,
+      planName: "Creator Membership",
+      status: "active",
+      currentPeriodStart: existing?.currentPeriodStart || now,
+      currentPeriodEnd: "",
+      cancelAtPeriodEnd: false,
+      provider: source,
+      lastOrderId: orderId || existing?.lastOrderId || "",
+      activationCodeId: codeId || existing?.activationCodeId || "",
+      updatedAt: now,
+      createdAt: existing?.createdAt || now,
+    });
+  }
+  return user;
+}
+
+async function grantApiDocsAccess(db, user, { orderId = "", source = "payment" } = {}) {
+  if (!user) return null;
+  const now = new Date().toISOString();
+  const current = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+  user.apiDocsAccess = {
+    ...current,
+    status: "active",
+    productId: API_DOCS_PRODUCT_ID,
+    grantedAt: current.grantedAt || now,
+    source: current.source || source,
+    orderId: current.orderId || orderId,
+    updatedAt: now,
+  };
+  user.updatedAt = now;
+  if (dbEnabled()) await updateUserInDb(user);
+  return user;
 }
 
 function publicBillingPlan(plan = {}) {
@@ -2378,6 +2483,8 @@ function publicBillingPlan(plan = {}) {
     intervalUnit: String(plan.intervalUnit || "month"),
     intervalCount: Math.max(1, Math.trunc(Number(plan.intervalCount || 1) || 1)),
     includedCredits: creditsAmount(plan.includedCredits || 0),
+    lifetime: String(plan.intervalUnit || "").toLowerCase() === "lifetime",
+    benefits: Array.isArray(plan.benefits) ? plan.benefits : [],
   };
 }
 
@@ -2415,8 +2522,12 @@ function toolTopupPackagesForPlan(plan = null) {
 
 async function billingViewForRequest(req, auth = null) {
   const tenant = requestTenantDescriptor(req);
-  if (!tenant.subscriptions) return { enabled: false, plans: [], subscription: null };
-  const plans = await listBillingPlansInDb(tenant.tenantId);
+  const membershipProgram = Boolean(tenant.membershipProgram);
+  if (!tenant.subscriptions && !membershipProgram) return { enabled: false, plans: [], subscription: null };
+  const allPlans = await listBillingPlansInDb(tenant.tenantId);
+  const plans = membershipProgram
+    ? allPlans.filter((plan) => plan.id === CREATOR_MEMBERSHIP_PLAN_ID)
+    : allPlans;
   const primaryPlan = plans[0] || null;
   const subscription = auth?.user
     ? await getUserSubscriptionInDb(auth.user.id, tenant.tenantId)
@@ -2424,9 +2535,20 @@ async function billingViewForRequest(req, auth = null) {
   return {
     enabled: true,
     tenantId: tenant.tenantId,
+    membershipProgram,
     plans: plans.map(publicBillingPlan),
     subscription: publicBillingSubscription(subscription, plans.find((plan) => plan.id === subscription?.planId) || primaryPlan),
-    topupPackages: toolTopupPackagesForPlan(primaryPlan),
+    membership: auth?.user ? publicCreatorMembership(auth.user) : publicCreatorMembership(),
+    apiDocs: auth?.user ? publicApiDocsEntitlement(auth.user) : publicApiDocsEntitlement(),
+    products: membershipProgram ? [{
+      id: API_DOCS_PRODUCT_ID,
+      name: "API Documentation Access",
+      amount: API_DOCS_PRICE_USD,
+      currency: "USD",
+      includedCredits: API_DOCS_TEST_CREDITS,
+      owned: Boolean(auth?.user && userHasApiDocsAccess(auth.user)),
+    }] : [],
+    topupPackages: membershipProgram ? publicTopupPackages(auth?.user || null) : toolTopupPackagesForPlan(primaryPlan),
     recurringPaymentReady: false,
   };
 }
@@ -2496,7 +2618,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       options: walletOptions,
       suffixDigits: config.wallet.suffixDigits,
       creditsPerUsd: walletCreditsPerUsd(config.wallet),
-      topupPackages: publicTopupPackages(),
+      topupPackages: publicTopupPackages(auth?.user || null),
     },
     video: config.video,
     playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
@@ -5619,12 +5741,13 @@ function characterVideoPublicUrl(entry = {}, item = {}, auth = null, videoKey = 
 function publicCharacterVideoMaps(item = {}, auth = null) {
   const videos = publicCharacterVideoList(item);
   const loggedIn = Boolean(auth?.user);
+  const member = loggedIn && userHasCreatorMembership(auth.user);
   const bundleUnlocked = characterUnlockedByRecord(auth?.db || {}, auth?.user?.id || "", item.id || "");
   const homeSceneVideos = {};
   const unlockVideos = {};
   videos.forEach(({ key, entry }, index) => {
     const singleUnlocked = loggedIn && !bundleUnlocked && Boolean(findUserUnlock(auth?.db || {}, auth?.user?.id || "", item.id || "", entry.sceneId || "", entry.sceneEntryId || "default"));
-    const playable = loggedIn && (index === 0 || bundleUnlocked || singleUnlocked);
+    const playable = loggedIn && (member || bundleUnlocked || singleUnlocked);
     const locked = !playable;
     const publicVideo = publicCharacterSceneVideo(entry, {
       playable,
@@ -5637,7 +5760,7 @@ function publicCharacterVideoMaps(item = {}, auth = null) {
     if (index === 0) homeSceneVideos[outKey] = publicVideo;
     else unlockVideos[outKey] = publicVideo;
   });
-  return { homeSceneVideos, sceneVideos: {}, unlockVideos, unlocked: bundleUnlocked };
+  return { homeSceneVideos, sceneVideos: {}, unlockVideos, unlocked: member || bundleUnlocked, membershipRequired: !member };
 }
 
 function publicHomeVideoItem(item, auth = null) {
@@ -5699,6 +5822,7 @@ function publicHomeVideoItem(item, auth = null) {
     sceneVideos: characterVideos.sceneVideos,
     unlockVideos: characterVideos.unlockVideos,
     unlocked: characterVideos.unlocked,
+    membershipRequired: characterVideos.membershipRequired,
     unlockCost: CHARACTER_UNLOCK_COST_CREDITS,
   };
 }
@@ -6112,6 +6236,10 @@ function userView(user) {
     advancedAccess: user.advancedAccess === true,
     advancedAccessLevel: user.advancedAccess === true ? "advanced" : "platform",
     advancedAccessRequestedAt: user.advancedAccessRequestedAt || "",
+    membership: publicCreatorMembership(user),
+    membershipActive: userHasCreatorMembership(user),
+    apiDocs: publicApiDocsEntitlement(user),
+    apiDocsAccess: userHasApiDocsAccess(user),
     createdAt: user.createdAt,
   };
 }
@@ -6140,39 +6268,77 @@ function normalizeReferralCode(value = "") {
   return String(value || "").trim().replace(/^#/, "");
 }
 
-function referralRewardAlreadyGranted(db = {}, referrerUserId = "", referredUserId = "") {
+async function referralRewardAlreadyGranted(db = {}, referrerUserId = "", referredUserId = "") {
   const cleanReferrerId = String(referrerUserId || "").trim();
   const cleanReferredId = String(referredUserId || "").trim();
-  return (db.creditLedger || []).some((entry) => (
-    entry.type === "referral_reward" && (
-      String(entry.userId || "") === cleanReferrerId ||
-      String(entry.meta?.referrerUserId || "") === cleanReferrerId ||
-      String(entry.meta?.referredUserId || "") === cleanReferredId
-    )
+  const loaded = (db.creditLedger || []).some((entry) => (
+    entry.type === "referral_reward"
+    && String(entry.userId || entry.meta?.referrerUserId || "") === cleanReferrerId
+    && String(entry.meta?.referredUserId || "") === cleanReferredId
   ));
+  if (loaded || !dbEnabled()) return loaded;
+  return hasReferralRewardInDb(cleanReferrerId, cleanReferredId);
+}
+
+function referredUsersForUser(db = {}, user = {}) {
+  return (db.users || []).filter((entry) => (
+    entry?.id
+    && !isSoftDeleted(entry)
+    && recordBelongsToTenant(entry, recordTenantId(user))
+    && referralPayload(entry).referredByUserId === user.id
+  ));
+}
+
+function paidReferralUserIds(db = {}, user = {}) {
+  const invitedIds = new Set(referredUsersForUser(db, user).map((entry) => entry.id));
+  return new Set((db.walletOrders || [])
+    .filter((order) => invitedIds.has(order.userId) && String(order.status || "").toLowerCase() === "paid")
+    .map((order) => String(order.userId || ""))
+    .filter(Boolean));
+}
+
+async function ensureCreatorMembershipFromReferrals(db = {}, user = {}) {
+  if (!user?.id || userHasCreatorMembership(user)) return user;
+  const invitedCount = referredUsersForUser(db, user).length;
+  if (invitedCount < CREATOR_MEMBERSHIP_REFERRAL_TARGET) return user;
+  await activateCreatorMembership(db, user, {
+    source: "referral_registrations",
+    referralCount: invitedCount,
+  });
+  return user;
 }
 
 function publicReferralSummary(req, db = {}, user = {}) {
   const referral = referralPayload(user);
   const code = referralCodeForUser(user);
-  const invitedUserIds = new Set((db.users || [])
-    .filter((entry) => referralPayload(entry).referredByUserId === user.id)
-    .map((entry) => entry.id));
+  const invitedUserIds = new Set(referredUsersForUser(db, user).map((entry) => entry.id));
   if (referral.invitedUserId) invitedUserIds.add(referral.invitedUserId);
+  const paidUserIds = paidReferralUserIds(db, user);
   const rewardedUserIds = new Set((db.creditLedger || [])
     .filter((entry) => entry.type === "referral_reward" && entry.userId === user.id)
     .map((entry) => String(entry.meta?.referredUserId || ""))
     .filter(Boolean));
-  const rewardCount = rewardedUserIds.size || (referral.rewardedAt ? 1 : 0);
+  const rewardCount = Math.max(
+    rewardedUserIds.size,
+    Math.max(0, Number(referral.rewardCount || 0)),
+    referral.rewardedAt ? 1 : 0,
+  );
+  const membershipActive = userHasCreatorMembership(user);
+  const availableRewards = membershipActive ? Math.max(0, paidUserIds.size - rewardCount) : 0;
   const origin = pageOriginFromRequest(req);
   return {
     code,
     inviteUrl: `${origin}/?ref=${encodeURIComponent(code)}`,
     rewardCredits: REFERRAL_REWARD_CREDITS,
     invitedCount: invitedUserIds.size,
+    paidInviteCount: paidUserIds.size,
     rewardCount,
-    remainingRewards: Math.max(0, 1 - rewardCount),
-    maxRewards: 1,
+    remainingRewards: availableRewards,
+    maxRewards: Math.max(paidUserIds.size, rewardCount),
+    rewardEligible: membershipActive,
+    membershipActive,
+    membershipTarget: CREATOR_MEMBERSHIP_REFERRAL_TARGET,
+    remainingToMembership: Math.max(0, CREATOR_MEMBERSHIP_REFERRAL_TARGET - invitedUserIds.size),
     rewardedAt: referral.rewardedAt || "",
     referredByUserId: referral.referredByUserId || "",
     referredByUsername: referral.referredByUsername || "",
@@ -7527,7 +7693,7 @@ function insufficientCreditsPayload(cost, credits, extra = {}) {
 function stableLedgerId(type = "", meta = {}) {
   const cleanType = String(type || "ledger").trim() || "ledger";
   const stableKey = String(
-    (cleanType === "referral_reward" ? (meta?.referrerUserId || meta?.referredUserId) : "") ||
+    (cleanType === "referral_reward" ? `${meta?.referrerUserId || ""}:${meta?.referredUserId || ""}` : "") ||
     meta?.orderId ||
     meta?.taskId ||
     meta?.unlockId ||
@@ -7583,7 +7749,9 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
   if (!referredUser || !referrerId || referrerId === referredUser.id) return null;
   const referrer = (db.users || []).find((entry) => entry.id === referrerId);
   if (!referrer) return null;
-  if (referralRewardAlreadyGranted(db, referrer.id, referredUser.id) || referralPayload(referrer).rewardedAt) return null;
+  await ensureCreatorMembershipFromReferrals(db, referrer);
+  if (!userHasCreatorMembership(referrer)) return null;
+  if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) return null;
   const now = new Date().toISOString();
   const rewardMeta = {
     referrerUserId: referrer.id,
@@ -7601,6 +7769,7 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
     rewardedAt: now,
     rewardOrderId: order.id || "",
     rewardCredits: REFERRAL_REWARD_CREDITS,
+    rewardCount: Math.max(0, Number(referrerReferral.rewardCount || 0)) + 1,
   };
   referredUser.referral = {
     ...referral,
@@ -7615,6 +7784,22 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
     await updateUserInDb(referredUser);
   }
   return referrer;
+}
+
+async function grantPendingReferralRewardsForMember(db = {}, referrer = {}) {
+  if (!referrer?.id || !userHasCreatorMembership(referrer)) return 0;
+  const referredUsers = referredUsersForUser(db, referrer);
+  let granted = 0;
+  for (const referredUser of referredUsers) {
+    if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) continue;
+    const paidOrder = (db.walletOrders || []).find((order) => (
+      order.userId === referredUser.id && String(order.status || "").toLowerCase() === "paid"
+    ));
+    if (!paidOrder) continue;
+    const rewarded = await maybeGrantReferralReward(db, referredUser.id, paidOrder);
+    if (rewarded) granted += 1;
+  }
+  return granted;
 }
 
 function currentAuthContext() {
@@ -8096,11 +8281,14 @@ function walletCreditsPerUsd(wallet = {}) {
   return DEFAULT_CREDITS_PER_USD;
 }
 
-function publicTopupPackages() {
+function publicTopupPackages(user = null) {
+  const member = Boolean(user && userHasCreatorMembership(user));
   return TOPUP_PACKAGES.map((item) => ({
     id: item.id,
     amount: item.amount,
-    credits: item.credits,
+    credits: creditsAmount(member ? item.credits : item.amount * DEFAULT_CREDITS_PER_USD),
+    bonusCredits: creditsAmount(member ? Math.max(0, item.credits - item.amount * DEFAULT_CREDITS_PER_USD) : 0),
+    memberBonus: member,
     currency: "USD",
   }));
 }
@@ -8110,14 +8298,15 @@ function normalizeTopupAmount(value) {
   return Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0;
 }
 
-function findTopupPackage(input = {}) {
+function findTopupPackage(input = {}, user = null) {
   const packageId = String(input.packageId || input.topupPackageId || "").trim().toLowerCase();
+  const packages = publicTopupPackages(user);
   if (packageId) {
-    const byId = TOPUP_PACKAGES.find((item) => item.id === packageId);
+    const byId = packages.find((item) => item.id === packageId);
     if (byId) return byId;
   }
   const amount = normalizeTopupAmount(input.amount ?? input.baseAmount);
-  return TOPUP_PACKAGES.find((item) => normalizeTopupAmount(item.amount) === amount) || null;
+  return packages.find((item) => normalizeTopupAmount(item.amount) === amount) || null;
 }
 
 function normalizeWalletOption(option = {}, index = 0) {
@@ -9047,12 +9236,17 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
         includedCredits: order.creditAmount || 0,
       })
     : null;
-  const creditType = order.orderKind === "subscription" ? "subscription_credit_grant" : "wallet_topup";
+  const creditType = order.orderKind === "subscription"
+    ? "subscription_credit_grant"
+    : order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID
+      ? "api_docs_test_credit"
+      : "wallet_topup";
   const user = await changeUserCredits(db, order.userId, creditDelta, creditType, {
     orderId: order.id,
     tenantId: order.tenantId || DEFAULT_TENANT_ID,
     orderKind: order.orderKind || "topup",
     billingPlanId: order.billingPlanId || "",
+    productId: order.productId || "",
     amount: order.baseAmount,
     asset: order.asset,
     network: order.network,
@@ -9063,6 +9257,9 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
     chain: order.chain || order.network || "",
   });
   if (subscriptionPlan) await activatePaidSubscription(db, order, subscriptionPlan);
+  if (order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID) {
+    await grantApiDocsAccess(db, user, { orderId: order.id, source: order.paymentProvider || "payment" });
+  }
   order.status = "paid";
   order.paidAt = order.paidAt || now;
   order.updatedAt = now;
@@ -27635,11 +27832,15 @@ function buildModelDocsMarkdown(docs) {
 }
 
 async function handleModelsJson(req, res) {
+  const auth = await requireApiDocsAccess(req, res);
+  if (!auth) return;
   const docs = await buildModelDocs(req);
   return sendJson(res, 200, publicModelDocsView(docs));
 }
 
 async function handleModelsMarkdown(req, res) {
+  const auth = await requireApiDocsAccess(req, res);
+  if (!auth) return;
   const docs = await buildModelDocs(req);
   return sendMarkdown(res, 200, buildModelDocsMarkdown(publicModelDocsView(docs)));
 }
@@ -28350,6 +28551,14 @@ async function registerWithBody(req, res, body = {}) {
   } else {
     await writeDb(db);
   }
+  if (referrer?.id) {
+    const wasMember = userHasCreatorMembership(referrer);
+    await ensureCreatorMembershipFromReferrals(db, referrer);
+    if (!wasMember && userHasCreatorMembership(referrer)) {
+      await grantPendingReferralRewardsForMember(db, referrer);
+      if (!dbEnabled()) await writeDb(db);
+    }
+  }
   return sendJson(res, 200, { ok: true, token, user: userView(user) });
 }
 
@@ -28697,6 +28906,30 @@ async function sendTelegramNativeCreateMenu(chatId) {
   return telegramBotClient.sendMessage(chatId, "Choose a generation type, then send the requested media.", {
     reply_markup: telegramBotClient.createMarkup(),
   });
+}
+
+async function requireApiDocsAccess(req, res) {
+  if (!apiAccessEnabledForRequest(req)) {
+    sendApiAccessDisabled(res);
+    return null;
+  }
+  const auth = await requireUser(req, res);
+  if (!auth) return null;
+  if (!userHasApiDocsAccess(auth.user)) {
+    sendJson(res, 402, {
+      ok: false,
+      code: "API_DOCS_PURCHASE_REQUIRED",
+      message: "Purchase API Documentation Access to view the integration guide.",
+      product: {
+        id: API_DOCS_PRODUCT_ID,
+        amount: API_DOCS_PRICE_USD,
+        currency: "USD",
+        includedCredits: API_DOCS_TEST_CREDITS,
+      },
+    });
+    return null;
+  }
+  return auth;
 }
 
 async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "paypal") {
@@ -29058,11 +29291,144 @@ async function scanTelegramGenerationNotifications() {
 async function handleReferralSummary(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const wasMember = userHasCreatorMembership(auth.user);
+  await ensureCreatorMembershipFromReferrals(auth.db, auth.user);
+  if (!wasMember && userHasCreatorMembership(auth.user)) {
+    await grantPendingReferralRewardsForMember(auth.db, auth.user);
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
   return sendJson(res, 200, {
     ok: true,
     referral: publicReferralSummary(req, auth.db, auth.user),
     user: userView(auth.user),
   });
+}
+
+function normalizeMembershipActivationCode(value = "") {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function membershipActivationCodeHash(value = "") {
+  return crypto.createHash("sha256").update(normalizeMembershipActivationCode(value)).digest("hex");
+}
+
+function makeMembershipActivationCode() {
+  const body = crypto.randomBytes(9).toString("base64url").toUpperCase().replace(/[^A-Z0-9]/g, "").padEnd(12, "X").slice(0, 12);
+  return `VIP-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}`;
+}
+
+async function handleRedeemMembershipActivationCode(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const tenant = requestTenantDescriptor(req);
+  if (!tenant.membershipProgram) {
+    return sendJson(res, 404, { ok: false, code: "MEMBERSHIP_DISABLED", message: "Creator Membership is not available on this site." });
+  }
+  if (userHasCreatorMembership(auth.user)) {
+    return sendJson(res, 200, { ok: true, alreadyActive: true, membership: publicCreatorMembership(auth.user), user: userView(auth.user) });
+  }
+  const body = await readJson(req);
+  const normalizedCode = normalizeMembershipActivationCode(body.code || body.activationCode || "");
+  if (normalizedCode.length < 10) {
+    return sendJson(res, 400, { ok: false, code: "ACTIVATION_CODE_INVALID", message: "Enter a valid membership activation code." });
+  }
+  try {
+    const redemption = await redeemMembershipActivationCodeInDb({
+      tenantId: tenant.tenantId,
+      codeHash: membershipActivationCodeHash(normalizedCode),
+      userId: auth.user.id,
+      redemptionId: randomId("membership-redemption"),
+    });
+    await activateCreatorMembership(auth.db, auth.user, {
+      source: "activation_code",
+      codeId: redemption.code?.id || "",
+    });
+    await grantPendingReferralRewardsForMember(auth.db, auth.user);
+    return sendJson(res, 200, {
+      ok: true,
+      alreadyRedeemed: Boolean(redemption.alreadyRedeemed),
+      membership: publicCreatorMembership(auth.user),
+      user: userView(auth.user),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, {
+      ok: false,
+      code: error.code || "ACTIVATION_CODE_FAILED",
+      message: error.message || "Activation code could not be redeemed.",
+    });
+  }
+}
+
+async function handleAdminListMembershipActivationCodes(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 30, maxLimit: 200 });
+  const status = String(url?.searchParams?.get("status") || "").trim();
+  const search = String(url?.searchParams?.get("q") || "").trim();
+  const result = await listMembershipActivationCodesInDb(DEFAULT_TENANT_ID, {
+    limit: paging.limit,
+    offset: paging.offset,
+    status,
+    search,
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    codes: result.items,
+    page: paging.page,
+    limit: paging.limit,
+    total: result.total,
+    totalPages: Math.max(1, Math.ceil(result.total / paging.limit)),
+  });
+}
+
+async function handleAdminCreateMembershipActivationCodes(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const count = Math.max(1, Math.min(100, Math.trunc(Number(body.count || 1) || 1)));
+  const maxRedemptions = Math.max(1, Math.min(10000, Math.trunc(Number(body.maxRedemptions || 1) || 1)));
+  const notes = String(body.notes || "").trim().slice(0, 500);
+  let expiresAt = "";
+  if (body.expiresAt) {
+    const parsed = Date.parse(body.expiresAt);
+    if (!Number.isFinite(parsed) || parsed <= Date.now()) {
+      return sendJson(res, 400, { ok: false, code: "INVALID_EXPIRY", message: "Expiration must be a future date." });
+    }
+    expiresAt = new Date(parsed).toISOString();
+  }
+  const now = new Date().toISOString();
+  const rawCodes = Array.from({ length: count }, () => makeMembershipActivationCode());
+  const created = await createMembershipActivationCodesInDb(rawCodes.map((code) => ({
+    id: randomId("membership-code"),
+    tenantId: DEFAULT_TENANT_ID,
+    codeHash: membershipActivationCodeHash(code),
+    codePrefix: code.slice(0, 9),
+    expiresAt,
+    maxRedemptions,
+    notes,
+    createdByUserId: auth.user.id,
+    createdAt: now,
+  })));
+  return sendJson(res, 200, {
+    ok: true,
+    codes: created.map((record, index) => ({ ...record, code: rawCodes[index] })),
+  });
+}
+
+async function handleAdminUpdateMembershipActivationCode(req, res, codeId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const status = String(body.status || "").trim().toLowerCase();
+  if (!["active", "disabled"].includes(status)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_STATUS", message: "Status must be active or disabled." });
+  }
+  const code = await setMembershipActivationCodeStatusInDb(codeId, DEFAULT_TENANT_ID, status);
+  if (!code) return sendJson(res, 404, { ok: false, code: "ACTIVATION_CODE_NOT_FOUND", message: "Activation code not found." });
+  return sendJson(res, 200, { ok: true, code });
 }
 
 async function handleCreateSupportMessage(req, res) {
@@ -29481,6 +29847,18 @@ function addBillingInterval(value, unit = "month", count = 1) {
 
 async function activatePaidSubscription(db, order, plan) {
   const tenantId = normalizeTenantId(order.tenantId || DEFAULT_TENANT_ID);
+  if (tenantId === DEFAULT_TENANT_ID && plan.id === CREATOR_MEMBERSHIP_PLAN_ID) {
+    const user = (db.users || []).find((entry) => entry.id === order.userId);
+    await activateCreatorMembership(db, user, {
+      source: order.paymentProvider || "payment",
+      orderId: order.id,
+    });
+    await grantPendingReferralRewardsForMember(db, user);
+    const subscription = await getUserSubscriptionInDb(order.userId, tenantId);
+    order.subscriptionId = subscription?.id || "";
+    order.subscriptionPeriodEnd = "";
+    return subscription;
+  }
   const existing = await getUserSubscriptionInDb(order.userId, tenantId);
   if (existing?.lastOrderId === order.id) return existing;
   const now = new Date().toISOString();
@@ -29522,10 +29900,16 @@ async function handleCreateSubscriptionOrder(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const tenant = requestTenantDescriptor(req);
-  if (!tenant.subscriptions) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Subscriptions are not enabled for this site." });
+  if (!tenant.subscriptions && !tenant.membershipProgram) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Membership purchases are not enabled for this site." });
   const body = await readJson(req);
   const plan = await getBillingPlanInDb(tenant.tenantId, body.planId || body.plan_id);
   if (!plan) return sendJson(res, 404, { ok: false, code: "BILLING_PLAN_NOT_FOUND", message: "Subscription plan not found." });
+  if (tenant.membershipProgram && plan.id !== CREATOR_MEMBERSHIP_PLAN_ID) {
+    return sendJson(res, 404, { ok: false, code: "BILLING_PLAN_NOT_FOUND", message: "Membership plan not found." });
+  }
+  if (tenant.membershipProgram && userHasCreatorMembership(auth.user)) {
+    return sendJson(res, 409, { ok: false, code: "MEMBERSHIP_ALREADY_ACTIVE", message: "Creator Membership is already active." });
+  }
   const config = await readAppConfig();
   const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
   if (!walletOption?.address) return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT payment is not configured." });
@@ -29577,10 +29961,10 @@ async function handleCreatePaymentOrder(req, res) {
   const tenant = requestTenantDescriptor(req);
   const availablePackages = tenant.subscriptions
     ? toolTopupPackagesForPlan(await getBillingPlanInDb(tenant.tenantId))
-    : publicTopupPackages();
+    : publicTopupPackages(auth.user);
   const topupPackage = tenant.subscriptions
     ? await toolTopupPackageForRequest(req, body)
-    : findTopupPackage(body);
+    : findTopupPackage(body, auth.user);
   if (!topupPackage) {
     return sendJson(res, 400, {
       ok: false,
@@ -29742,30 +30126,33 @@ async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
-async function paypalTopupPackagesForRequest(req) {
+async function paypalTopupPackagesForRequest(req, user = null) {
   const tenant = requestTenantDescriptor(req);
   if (tenant.subscriptions) {
     const plan = await getBillingPlanInDb(tenant.tenantId);
     return toolTopupPackagesForPlan(plan);
   }
-  return publicTopupPackages();
+  return publicTopupPackages(user);
 }
 
-async function paypalTopupPackageForRequest(req, body = {}) {
+async function paypalTopupPackageForRequest(req, body = {}, user = null) {
   const tenant = requestTenantDescriptor(req);
   if (tenant.subscriptions) {
     return await toolTopupPackageForRequest(req, body);
   }
-  return findTopupPackage(body);
+  return findTopupPackage(body, user);
 }
 
-async function paypalCheckoutSelectionForRequest(req, body = {}) {
+async function paypalCheckoutSelectionForRequest(req, body = {}, user = null) {
   const tenant = requestTenantDescriptor(req);
   const billingPlanId = String(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id || "").trim();
   if (billingPlanId) {
-    if (!tenant.subscriptions) return null;
+    if (!tenant.subscriptions && !tenant.membershipProgram) return null;
     const plan = await getBillingPlanInDb(tenant.tenantId, billingPlanId);
-    if (!plan) return null;
+    if (!plan || (tenant.membershipProgram && plan.id !== CREATOR_MEMBERSHIP_PLAN_ID)) return null;
+    if (tenant.membershipProgram && user && userHasCreatorMembership(user)) {
+      return { alreadyOwned: true, kind: "subscription", id: plan.id };
+    }
     return {
       kind: "subscription",
       id: plan.id,
@@ -29774,7 +30161,18 @@ async function paypalCheckoutSelectionForRequest(req, body = {}) {
       plan,
     };
   }
-  const topupPackage = await paypalTopupPackageForRequest(req, body);
+  const productId = String(body.productId || body.product_id || "").trim();
+  if (productId === API_DOCS_PRODUCT_ID && tenant.membershipProgram) {
+    if (user && userHasApiDocsAccess(user)) return { alreadyOwned: true, kind: "product", id: API_DOCS_PRODUCT_ID };
+    return {
+      kind: "product",
+      id: API_DOCS_PRODUCT_ID,
+      amount: API_DOCS_PRICE_USD,
+      credits: API_DOCS_TEST_CREDITS,
+      product: { id: API_DOCS_PRODUCT_ID, name: "API Documentation Access" },
+    };
+  }
+  const topupPackage = await paypalTopupPackageForRequest(req, body, user);
   if (!topupPackage) return null;
   return {
     kind: "topup",
@@ -29811,7 +30209,9 @@ function paypalOrderBodyForCheckout(order = {}, { returnUrl = "", cancelUrl = ""
     custom_id: order.id || order.paypalCheckoutSessionId || "",
     description: order.orderKind === "subscription"
       ? `${PAYPAL_BRAND_NAME} ${order.billingPlanName || "subscription"}`
-      : `${PAYPAL_BRAND_NAME} credits`,
+      : order.orderKind === "product"
+        ? `${PAYPAL_BRAND_NAME} ${order.productName || "purchase"}`
+        : `${PAYPAL_BRAND_NAME} credits`,
     amount: {
       currency_code: PAYPAL_CURRENCY,
       value: amountValue,
@@ -29863,14 +30263,22 @@ async function createPayPalCheckoutSession(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const selection = await paypalCheckoutSelectionForRequest(req, body);
+  const selection = await paypalCheckoutSelectionForRequest(req, body, auth.user);
   if (!selection) {
     const requestedPlan = Boolean(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id);
     return sendJson(res, 400, {
       ok: false,
       code: requestedPlan ? "BILLING_PLAN_NOT_FOUND" : "INVALID_TOPUP_PACKAGE",
       message: requestedPlan ? "Subscription plan not found." : "Please select one of the available top-up packages.",
-      packages: await paypalTopupPackagesForRequest(req),
+      packages: await paypalTopupPackagesForRequest(req, auth.user),
+    });
+  }
+  if (selection.alreadyOwned) {
+    const membership = selection.kind === "subscription";
+    return sendJson(res, 409, {
+      ok: false,
+      code: membership ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED",
+      message: membership ? "Creator Membership is already active." : "API documentation access is already active.",
     });
   }
   const rawAmount = selection.amount;
@@ -29898,6 +30306,8 @@ async function createPayPalCheckoutSession(req, res) {
     creditAmount: selection.credits,
     packageId: selection.kind === "topup" ? selection.id : "",
     packageCredits: selection.credits,
+    productId: selection.product?.id || "",
+    productName: selection.product?.name || "",
     billingPlanId: selection.plan?.id || "",
     billingPlanName: selection.plan?.name || "",
     billingIntervalUnit: selection.plan?.intervalUnit || "",
@@ -29941,13 +30351,13 @@ async function handleCreatePayPalOrder(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const topupPackage = await paypalTopupPackageForRequest(req, body);
+  const topupPackage = await paypalTopupPackageForRequest(req, body, auth.user);
   if (!topupPackage) {
     return sendJson(res, 400, {
       ok: false,
       code: "INVALID_TOPUP_PACKAGE",
       message: "Please select one of the available top-up packages.",
-      packages: await paypalTopupPackagesForRequest(req),
+      packages: await paypalTopupPackagesForRequest(req, auth.user),
     });
   }
   const rawAmount = topupPackage.amount;
@@ -30438,6 +30848,8 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     orderKind: order.orderKind || "topup",
     billingPlanId: order.billingPlanId || "",
     billingPlanName: order.billingPlanName || "",
+    productId: order.productId || "",
+    productName: order.productName || "",
     paymentProvider,
     amount: order.baseAmount ?? "",
     creditAmount: creditsAmount(creditAmount),
@@ -30701,29 +31113,18 @@ async function handleUnlockVideo(req, res) {
   }
 
   let unlock = findUserCharacterUnlock(auth.db, auth.user.id, item.id);
-  const cost = CHARACTER_UNLOCK_COST_CREDITS;
-  let charged = false;
-
-  if (!unlock) {
-    if (auth.user.credits < cost) {
-      return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-    }
-    try {
-      assertSubtokenCanSpend(auth, cost);
-    } catch (error) {
-      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-    }
-    await chargeUserWithSubtoken(auth, {
-      cost,
-      type: "unlock_character_videos",
-      taskId: `${item.id}:character_bundle`,
-      meta: { itemId: item.id, unlockType: "character_bundle", count: lockedVideos.length },
+  const member = userHasCreatorMembership(auth.user);
+  if (!member && !unlock) {
+    return sendJson(res, 403, {
+      ok: false,
+      code: "MEMBERSHIP_REQUIRED",
+      message: "Creator Membership is required to watch and download Explore videos.",
+      membership: {
+        planId: CREATOR_MEMBERSHIP_PLAN_ID,
+        amount: CREATOR_MEMBERSHIP_PRICE_USD,
+        currency: "USD",
+      },
     });
-    unlock = characterBundleUnlockRecord(item, auth.user.id);
-    auth.db.userUnlocks.unshift(unlock);
-    charged = cost > 0;
-    if (dbEnabled()) await upsertUserUnlockInDb(unlock);
-    else await writeDb(auth.db);
   }
 
   const unlocks = (auth.db.userUnlocks || [])
@@ -30731,13 +31132,14 @@ async function handleUnlockVideo(req, res) {
     .map(publicUserUnlock);
   return sendJson(res, 200, {
     ok: true,
-    charged,
-    cost: charged ? cost : 0,
+    charged: false,
+    cost: 0,
+    membership: publicCreatorMembership(auth.user),
     user: userView(auth.user),
     unlock: publicUserUnlock(unlock),
     unlocks,
     videos: characterVideos.map(({ key, entry }, index) => ({
-      ...publicCharacterSceneVideo(entry, { playable: true, locked: false, price: cost }),
+      ...publicCharacterSceneVideo(entry, { playable: true, locked: false, price: 0 }),
       videoUrl: secureUnlockVideoUrl({
         userId: auth.user.id,
         itemId: item.id,
@@ -30839,11 +31241,11 @@ async function handleCreateGameAssetFromCharacterMedia(req, res) {
       ? publicCharacterVideoList(item).find(({ key }) => key === videoKey)
       : findCharacterVideoForItem(item, sceneId, sceneEntryId);
     if (!match) return sendJson(res, 404, { ok: false, message: "Video not found." });
-    const isFirst = publicCharacterVideoList(item)[0]?.key === match.key;
+    const member = userHasCreatorMembership(auth.user);
     const bundleUnlocked = characterUnlockedByRecord(auth.db, auth.user.id, item.id);
     const singleUnlocked = Boolean(findUserUnlock(auth.db, auth.user.id, item.id, match.entry.sceneId || "", match.entry.sceneEntryId || "default"));
-    if (!isFirst && !bundleUnlocked && !singleUnlocked) {
-      return sendJson(res, 403, { ok: false, message: "Unlock this character before using this video." });
+    if (!member && !bundleUnlocked && !singleUnlocked) {
+      return sendJson(res, 403, { ok: false, code: "MEMBERSHIP_REQUIRED", message: "Creator Membership is required before using this video." });
     }
     sourceUrl = getUnlockVideoUrl(match.entry);
     name = `${item.name || "Character"} video`;
@@ -30931,17 +31333,16 @@ async function handleStreamUnlockVideo(req, res, token) {
     sceneEntryId: "bundle",
   }) : null;
   const unlock = directUnlock || bundleUnlock || findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
+  const member = userHasCreatorMembership(user);
 
   let config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const item = findHomeVideoItem(config.homeVideo, payload.itemId);
   const match = item ? (findCharacterVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default") || findUnlockVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default")) : null;
   if (!match) return sendJson(res, 404, { ok: false, message: "Unlock video not found." });
-  const firstPlayable = publicCharacterVideoList(item)[0]?.entry;
-  const isFirstPlayableVideo = firstPlayable
-    && String(firstPlayable.sceneId || "") === String(payload.sceneId || "")
-    && String(firstPlayable.sceneEntryId || "default") === String(payload.sceneEntryId || "default");
-  if (!isFirstPlayableVideo && !unlock) return sendJson(res, 403, { ok: false, message: "Unlock required." });
+  if (!member && !unlock) {
+    return sendJson(res, 403, { ok: false, code: "MEMBERSHIP_REQUIRED", message: "Creator Membership is required." });
+  }
 
   const videoUrl = getUnlockVideoUrl(match.entry);
   if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Unlock video is still generating." });
@@ -38038,6 +38439,9 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
     }
+    if (req.method === "POST" && url.pathname === "/api/membership/redeem") {
+      return await handleRedeemMembershipActivationCode(req, res);
+    }
 
     const telegramSupportWebhookMatch = url.pathname.match(/^\/api\/telegram\/support-webhook\/([^/]+)$/);
     if (req.method === "POST" && telegramSupportWebhookMatch) {
@@ -38323,6 +38727,17 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/users") {
       return await handleAdminListUsers(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/membership-codes") {
+      return await handleAdminListMembershipActivationCodes(req, res, url);
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/membership-codes") {
+      return await handleAdminCreateMembershipActivationCodes(req, res);
+    }
+    const adminMembershipCodeMatch = url.pathname.match(/^\/api\/admin\/membership-codes\/([^/]+)$/);
+    if (req.method === "PATCH" && adminMembershipCodeMatch) {
+      return await handleAdminUpdateMembershipActivationCode(req, res, decodeURIComponent(adminMembershipCodeMatch[1]));
     }
 
     const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);

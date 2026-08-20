@@ -1128,6 +1128,33 @@ a { color: inherit; text-decoration: none; }
   border-radius: 10px;
   background: rgba(15, 23, 42, 0.03);
 }
+.adm-membership-code-layout { align-items: start; }
+.adm-membership-code-reveal[hidden] { display: none; }
+.adm-membership-code-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+  max-height: 340px;
+  overflow: auto;
+}
+.adm-membership-code-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--adm-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+  color: var(--adm-text);
+  cursor: pointer;
+}
+.adm-membership-code-list button:hover { border-color: rgba(46, 212, 207, .45); }
+.adm-membership-code-list code { min-width: 0; overflow-wrap: anywhere; }
+.adm-membership-code-list svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.adm-membership-code-table th:last-child,
+.adm-membership-code-table td:last-child { width: 120px; }
 
 .platform-template-editor textarea[data-f="requestJson"] {
   min-height: 230px;

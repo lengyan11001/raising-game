@@ -107,17 +107,19 @@ const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-dick", label: "Better Detail", prompt: "more coherent explicit detail when relevant" },
   { id: "bouncing-boobs", label: "Bouncing Boobs", prompt: "stronger natural bounce and secondary motion" },
 ];
-const WORKFLOW_NODE_LAYOUT_VERSION = 3;
+const WORKFLOW_NODE_LAYOUT_VERSION = 4;
 const WORKFLOW_NODE_WIDTH = 414;
 const WORKFLOW_NODE_GAP = 56;
 const WORKFLOW_DEFAULT_NODES = [
   { id: "upload-1", type: "upload", title: "Image Upload", x: 30, y: 150, data: { startImage: "", endImage: "", faceImage: "" } },
-  { id: "video-1", type: "video", title: "Nude", x: 500, y: 150, data: { modelId: "nude", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
-  { id: "video-2", type: "video", title: "Nude Video", x: 970, y: 150, data: { modelId: "nude-video", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
-  { id: "output-1", type: "output", title: "Final Output", x: 1440, y: 150, data: {} },
+  { id: "prompt-1", type: "prompt", title: "Story Prompt", x: 500, y: 150, data: { prompt: "" } },
+  { id: "video-1", type: "video", title: "Nude", x: 970, y: 150, data: { modelId: "nude", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
+  { id: "video-2", type: "video", title: "Nude Video", x: 1440, y: 150, data: { modelId: "nude-video", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
+  { id: "output-1", type: "output", title: "Final Output", x: 1910, y: 150, data: {} },
 ];
 const WORKFLOW_DEFAULT_EDGES = [
-  ["upload-1", "video-1"],
+  ["upload-1", "prompt-1"],
+  ["prompt-1", "video-1"],
   ["video-1", "video-2"],
   ["video-2", "output-1"],
 ];
@@ -130,7 +132,6 @@ const DEFAULT_TOPUP_PACKAGES = [
   { id: "usd-100", amount: 100, credits: 12000, currency: "USD" },
   { id: "usd-200", amount: 200, credits: 25000, currency: "USD" },
   { id: "usd-500", amount: 500, credits: 65000, currency: "USD" },
-  { id: "usd-1000", amount: 1000, credits: 140000, currency: "USD" },
 ];
 const DEFAULT_TOOL_TOPUP_PACKAGES = [
   { id: "tool-usd-10", amount: 10, credits: 1000, currency: "USD" },
@@ -846,6 +847,18 @@ function tenantFeature(name, fallback = true) {
   return Boolean(features[name]);
 }
 
+function membershipProgramEnabled() {
+  return tenantFeature("membershipProgram", false);
+}
+
+function creatorMembershipActive() {
+  return Boolean(state.user?.membershipActive || state.user?.membership?.active || state.billing?.membership?.active);
+}
+
+function apiDocsAccessActive() {
+  return Boolean(state.user?.apiDocsAccess || state.user?.apiDocs?.active || state.billing?.apiDocs?.active);
+}
+
 function canUseWorkflow() {
   return tenantFeature("workflow", true);
 }
@@ -988,6 +1001,10 @@ const els = {
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
   accessSubtokens: document.querySelector("#accessSubtokens"),
+  apiDocsPurchaseCard: document.querySelector("#apiDocsPurchaseCard"),
+  apiDocsUnlockedContent: document.querySelector("#apiDocsUnlockedContent"),
+  buyApiDocsBtn: document.querySelector("#buyApiDocsBtn"),
+  apiDocsPurchaseStatus: document.querySelector("#apiDocsPurchaseStatus"),
   accessTokenDisplay: document.querySelector("#accessTokenDisplay"),
   accessTokenHint: document.querySelector("#accessTokenHint"),
   toggleAccessTokenBtn: document.querySelector("#toggleAccessTokenBtn"),
@@ -1008,6 +1025,15 @@ const els = {
   referralRewardStatus: document.querySelector("#referralRewardStatus"),
   referralNote: document.querySelector("#referralNote"),
   copyReferralBtn: document.querySelector("#copyReferralBtn"),
+  membershipCard: document.querySelector("#membershipCard"),
+  membershipState: document.querySelector("#membershipState"),
+  buyMembershipBtn: document.querySelector("#buyMembershipBtn"),
+  membershipCodeForm: document.querySelector("#membershipCodeForm"),
+  membershipCodeInput: document.querySelector("#membershipCodeInput"),
+  redeemMembershipCodeBtn: document.querySelector("#redeemMembershipCodeBtn"),
+  membershipNote: document.querySelector("#membershipNote"),
+  referralMembershipProgressText: document.querySelector("#referralMembershipProgressText"),
+  referralMembershipProgressFill: document.querySelector("#referralMembershipProgressFill"),
   pricingRules: document.querySelector("#pricingRules"),
   spendingFilters: document.querySelector("#spendingFilters"),
   spendingSearch: document.querySelector("#spendingSearch"),
@@ -1078,6 +1104,8 @@ const els = {
   previewTitle: document.querySelector("#previewTitle"),
   previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
+  previewActions: document.querySelector("#previewActions"),
+  previewDownloadBtn: document.querySelector("#previewDownloadBtn"),
   supportFab: document.querySelector("#supportFab"),
   supportNavBtn: document.querySelector("#supportNavBtn"),
   supportDialog: document.querySelector("#supportDialog"),

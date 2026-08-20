@@ -14,8 +14,9 @@ test("workflow canvas state is normalized and bounded", () => {
   } = require("../workflow-canvases");
 
   const initial = defaultWorkflowCanvasState();
-  assert.equal(initial.nodes.length, 4);
-  assert.equal(initial.edges.length, 3);
+  assert.equal(initial.nodes.length, 5);
+  assert.equal(initial.edges.length, 4);
+  assert.equal(initial.nodes.find((node) => node.type === "prompt")?.title, "Story Prompt");
   assert.equal(normalizeWorkflowCanvasName("  My workflow  "), "My workflow");
   assert.equal(normalizeWorkflowCanvasName(" "), "Untitled workflow");
 
@@ -66,7 +67,7 @@ test("workflow canvas CRUD is authenticated and unavailable on tool tenants", ()
   assert.match(server, /WORKFLOW_CANVAS_LIMIT/);
 });
 
-test("workflow canvas UI supports migration, selection, create, save and delete", () => {
+test("workflow canvas UI supports selection, create, save and delete", () => {
   const loader = read("platform.js");
   const manager = read("platform.workflow-canvases.js");
   const ui = read("platform.ui.js");
@@ -74,7 +75,7 @@ test("workflow canvas UI supports migration, selection, create, save and delete"
 
   assert.match(loader, /"platform\.workflow-canvases\.js"/);
   assert.match(manager, /function loadWorkflowCanvases/);
-  assert.match(manager, /function migrateLegacyWorkflowCanvas/);
+  assert.doesNotMatch(manager, /migrateLegacyWorkflowCanvas|legacyWorkflowCanvasValue/);
   assert.match(manager, /function scheduleWorkflowCanvasSave/);
   assert.match(manager, /function createWorkflowCanvas/);
   assert.match(manager, /function saveWorkflowCanvas/);

@@ -470,6 +470,20 @@
       </section>
 
       <section class="access-panel" data-panel="access" hidden>
+        <section class="entitlement-card api-docs-entitlement" id="apiDocsPurchaseCard">
+          <div class="entitlement-icon"><i data-lucide="book-key"></i></div>
+          <div class="entitlement-copy">
+            <span>API Documentation Access</span>
+            <strong>Unlock the complete integration guide</strong>
+            <p>One-time purchase. Includes 20,000 test credits after payment.</p>
+          </div>
+          <div class="entitlement-action">
+            <strong>$1,000</strong>
+            <button class="copy-btn" id="buyApiDocsBtn" type="button"><i data-lucide="lock-keyhole-open"></i>Unlock docs</button>
+          </div>
+          <p class="job-note entitlement-status" id="apiDocsPurchaseStatus"></p>
+        </section>
+        <div id="apiDocsUnlockedContent" hidden>
         <div class="token-card" id="accessTokenCard">
           <div>
             <span data-i18n="access.currentToken">Current API token</span>
@@ -482,6 +496,7 @@
           </div>
         </div>
         <div class="access-subtokens" id="accessSubtokens"></div>
+        </div>
       </section>
 
       <section class="history-panel" data-panel="history" hidden>
@@ -490,18 +505,45 @@
       </section>
 
       <section class="referral-panel" data-panel="referral" hidden>
+        <section class="membership-card" id="membershipCard">
+          <div class="membership-card-head">
+            <div class="membership-card-icon"><i data-lucide="crown"></i></div>
+            <div>
+              <span>Creator Membership</span>
+              <strong>$99 lifetime access</strong>
+            </div>
+            <span class="membership-state" id="membershipState">Not active</span>
+          </div>
+          <div class="membership-benefits">
+            <span><i data-lucide="play"></i>Watch and download Explore videos</span>
+            <span><i data-lucide="users-round"></i>Earn paid-referral rewards</span>
+            <span><i data-lucide="gift"></i>Receive top-up package bonuses</span>
+          </div>
+          <div class="membership-actions">
+            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i>Buy membership</button>
+            <form class="membership-code-form" id="membershipCodeForm">
+              <input id="membershipCodeInput" type="text" placeholder="Activation code" autocomplete="off" />
+              <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit">Redeem</button>
+            </form>
+          </div>
+          <p class="job-note" id="membershipNote"></p>
+        </section>
         <div class="referral-card" id="referralCard">
           <div class="referral-copy">
             <span class="copy-kicker" data-i18n="referral.eyebrow">Referral</span>
-            <h2 data-i18n="referral.title">Invite one friend, earn credits</h2>
-            <p data-i18n="referral.subtitle">Share your invite link. When one invited user completes a payment, you receive 100 credits.</p>
+            <h2>Invite paying users, earn credits</h2>
+            <p>Members receive 100 credits for each invited user who registers and completes a payment.</p>
           </div>
           <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
           <div class="referral-link" id="referralLink">Login to get your invite link.</div>
           <div class="referral-progress" aria-hidden="true"><span id="referralProgressFill"></span></div>
           <div class="referral-stats">
             <strong id="referralInvitedCount">0 invited</strong>
-            <strong id="referralRewardStatus">1 reward available</strong>
+            <strong id="referralRewardStatus">Membership required for rewards</strong>
+          </div>
+          <div class="referral-membership-progress">
+            <div><span>Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
+            <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
           </div>
           <p class="job-note" id="referralNote"></p>
         </div>
@@ -830,6 +872,9 @@
           <img id="previewImage" alt="Preview" hidden />
           <video id="previewVideo" controls playsinline preload="metadata"></video>
         </div>
+        <footer class="preview-actions" id="previewActions" hidden>
+          <a class="copy-btn" id="previewDownloadBtn" href="#" download><i data-lucide="download"></i>Download</a>
+        </footer>
       </form>
     </dialog>
 
