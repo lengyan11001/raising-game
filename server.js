@@ -1783,12 +1783,14 @@ async function softDeleteAdminHomeItemStore(itemId = "") {
   return await softDeleteAdminHomeItemInDb(id, nowIso);
 }
 
-async function readAppConfig() {
+async function readAppConfig({ includeHomeItems = true } = {}) {
   const saved = await getKv("app_config", DEFAULT_CONFIG);
   const bySceneId = new Map(DEFAULT_CONFIG.scenes.map((scene) => [scene.id, scene]));
   const scenes = Array.isArray(saved.scenes) ? saved.scenes : DEFAULT_CONFIG.scenes;
-  let storedHomeItems = await readAdminHomeItemsStore();
-  const savedHomeItems = Array.isArray(saved.homeVideo?.items) ? saved.homeVideo.items.filter((item) => item && !isSoftDeleted(item)) : [];
+  let storedHomeItems = includeHomeItems ? await readAdminHomeItemsStore() : [];
+  const savedHomeItems = includeHomeItems && Array.isArray(saved.homeVideo?.items)
+    ? saved.homeVideo.items.filter((item) => item && !isSoftDeleted(item))
+    : [];
   const storedHomeIds = new Set(storedHomeItems.map((item) => String(item.id || "")));
   const missingSavedHomeItems = savedHomeItems.filter((item) => item?.id && !storedHomeIds.has(String(item.id)));
   if (missingSavedHomeItems.length) {
@@ -2931,8 +2933,8 @@ async function geoSiteSnapshot(req) {
   const origin = pageOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
   const [config, configUpdatedAt] = await Promise.all([
-    readAppConfig(),
-    getKvUpdatedAt("app_config"),
+    readAppConfig({ includeHomeItems: !tenantOptions.toolOnly }),
+    tenantOptions.toolOnly ? Promise.resolve("") : getKvUpdatedAt("app_config"),
   ]);
   const platform = normalizePlatformConfig(config.platform || {});
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
@@ -37702,7 +37704,7 @@ async function handleRequest(req, res) {
     applyPublicSecurityHeaders(req, res);
     if (sendHttpsRedirect(req, res, url)) return;
     if (sendCanonicalRedirect(req, res, url)) return;
-    await recordGeoVisitStats(req, url);
+    if (!requestTenantOptions(req).toolOnly) await recordGeoVisitStats(req, url);
 
     if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
       return await handleFavicon(req, res);
@@ -37779,12 +37781,16 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/config/public") {
-      let config = await readAppConfig();
-      config = await ensureSceneEntriesPersisted(config);
-      config = await refreshCompletedHomeVideoItems(config);
-      const auth = await getAuth(req);
+      const tenantOptions = requestTenantOptions(req);
+      const isToolOnly = Boolean(tenantOptions.toolOnly);
+      let config = await readAppConfig({ includeHomeItems: !isToolOnly });
+      if (!isToolOnly) {
+        config = await ensureSceneEntriesPersisted(config);
+        config = await refreshCompletedHomeVideoItems(config);
+      }
+      const auth = getBearerToken(req) ? await getAuth(req) : { user: null };
       const publicView = await attachBillingViewToPublicConfig(
-        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
+        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
         req,
         auth?.user ? auth : null,
       );

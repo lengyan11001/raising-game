@@ -34,6 +34,20 @@ test("undress.14vips.com is an isolated tenant without API or asset-library acce
   assert.match(ui, /function requestAdvancedEstimate[\s\S]*?tenantFeature\("toolOnly", false\)/);
 });
 
+test("tool public requests avoid loading the full home catalog and anonymous database snapshot", () => {
+  assert.match(server, /async function readAppConfig\(\{ includeHomeItems = true \} = \{\}\)/);
+  assert.match(server, /readAppConfig\(\{ includeHomeItems: !tenantOptions\.toolOnly \}\)/);
+  assert.match(server, /tenantOptions\.toolOnly \? Promise\.resolve\(""\) : getKvUpdatedAt\("app_config"\)/);
+  const publicConfigHandler = server.slice(
+    server.indexOf('if (req.method === "GET" && url.pathname === "/api/config/public")'),
+    server.indexOf('if (req.method === "GET" && url.pathname === "/api/public/characters")'),
+  );
+  assert.match(publicConfigHandler, /const isToolOnly = Boolean\(tenantOptions\.toolOnly\)/);
+  assert.match(publicConfigHandler, /if \(!isToolOnly\) \{[\s\S]*?ensureSceneEntriesPersisted[\s\S]*?refreshCompletedHomeVideoItems/);
+  assert.match(publicConfigHandler, /const auth = getBearerToken\(req\) \? await getAuth\(req\) : \{ user: null \}/);
+  assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) await recordGeoVisitStats\(req, url\)/);
+});
+
 test("the first image claim is atomic, persistent, and released only after a failed claim", () => {
   assert.match(db, /async function claimToolFreeGenerationInDb/);
   assert.match(db, /ON CONFLICT \(id\) DO NOTHING/);
