@@ -189,6 +189,97 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 8px 22px rgba(28, 39, 56, .08);
 }
 
+.workflow-node.workflow-node-reference,
+.workflow-node.workflow-node-prompt,
+.workflow-node.workflow-node-output {
+  padding: 0;
+  overflow: visible;
+  color: #253044;
+  background: #fff;
+  border: 1px solid #dce1e8;
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(28, 39, 56, .08);
+}
+
+.workflow-node.workflow-node-prompt,
+.workflow-node.workflow-node-output {
+  width: 360px;
+}
+
+.workflow-node.workflow-node-reference.is-selected,
+.workflow-node.workflow-node-prompt.is-selected,
+.workflow-node.workflow-node-output.is-selected {
+  border-color: #7182e9;
+  box-shadow: 0 0 0 2px rgba(113, 130, 233, .18), 0 12px 28px rgba(28, 39, 56, .12);
+}
+
+.workflow-node.workflow-node-reference header,
+.workflow-node.workflow-node-prompt header,
+.workflow-node.workflow-node-output header {
+  min-height: 44px;
+  padding: 0 12px;
+  color: #253044;
+  background: #fff;
+  border-bottom: 1px solid #edf0f4;
+  border-radius: 10px 10px 0 0;
+}
+
+.workflow-node.workflow-node-reference header strong,
+.workflow-node.workflow-node-prompt header strong,
+.workflow-node.workflow-node-output header strong {
+  color: #253044;
+}
+
+.workflow-node.workflow-node-reference header > button,
+.workflow-node.workflow-node-prompt header > button,
+.workflow-node.workflow-node-output header > button {
+  color: #7b8492;
+  background: transparent;
+}
+
+.workflow-node.workflow-node-reference footer,
+.workflow-node.workflow-node-prompt footer {
+  min-height: 32px;
+  padding: 0 12px;
+  color: #8993a3;
+  background: #fff;
+  border-top: 1px solid #edf0f4;
+  border-radius: 0 0 10px 10px;
+  font-size: 11px;
+}
+
+.workflow-node.workflow-node-reference .workflow-node-connect,
+.workflow-node.workflow-node-prompt .workflow-node-connect,
+.workflow-node.workflow-node-output .workflow-node-connect {
+  background: #fff;
+  border-color: #8a98ea;
+  box-shadow: 0 0 0 4px rgba(246,247,249,.92);
+}
+
+.workflow-node.workflow-node-reference .workflow-reference-dropzone {
+  margin: 12px;
+  border-color: #cfd6df;
+  background: #f7f8fa;
+  color: #667286;
+}
+
+.workflow-node.workflow-node-prompt .workflow-field {
+  margin: 12px;
+  color: #667286;
+}
+
+.workflow-node.workflow-node-prompt .workflow-field textarea {
+  color: #263348;
+  background: #f8f9fb;
+  border-color: #dce2ea;
+}
+
+.workflow-node.workflow-node-output .workflow-output-box {
+  margin: 12px;
+  color: #778398;
+  background: #f4f5f7;
+}
+
 .workflow-node.workflow-node-image-display.is-selected,
 .workflow-node.workflow-node-unified-video.is-selected {
   border-color: #7182e9;

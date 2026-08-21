@@ -18,12 +18,58 @@ function workflowCanvasSummary(canvas = {}) {
   };
 }
 
+function migrateWorkflowNodeGraph(workflow = {}) {
+  const nodes = Array.isArray(workflow.nodes) ? workflow.nodes.map((node) => ({ ...node, data: { ...(node.data || {}) } })) : [];
+  const edges = Array.isArray(workflow.edges) ? workflow.edges.map((edge) => ({ ...edge })) : [];
+  const migratedNodes = [];
+  const migratedEdges = [...edges];
+  nodes.forEach((node) => {
+    const isImageGeneration = node.type === "imageDisplay";
+    const isVideoGeneration = node.type === "unifiedVideoGen" || node.type === "video";
+    if (!isImageGeneration && !isVideoGeneration) {
+      migratedNodes.push(node);
+      return;
+    }
+    const generation = { ...node, type: isImageGeneration ? "imageGenerate" : "unifiedVideoGen", data: { ...(node.data || {}) } };
+    const mediaGroups = [
+      ["referenceImages", "imageReference", "imageUrl", "Image input"],
+      ["referenceVideos", "videoReference", "videoUrl", "Video input"],
+    ];
+    mediaGroups.forEach(([field, type, valueField, title], groupIndex) => {
+      const values = Array.isArray(generation.data[field]) ? generation.data[field].filter(Boolean) : [];
+      values.forEach((value, index) => {
+        const sourceId = `${generation.id}-${type}-${index + 1}`;
+        if (nodes.some((item) => item.id === sourceId) || migratedNodes.some((item) => item.id === sourceId)) return;
+        migratedNodes.push({
+          id: sourceId,
+          type,
+          title,
+          x: Math.max(0, Number(generation.x || 0) - WORKFLOW_NODE_WIDTH - WORKFLOW_NODE_GAP),
+          y: Math.max(0, Number(generation.y || 0) + groupIndex * 330 + index * 36),
+          data: { [valueField]: value },
+        });
+        migratedEdges.push({ from: sourceId, to: generation.id });
+      });
+      delete generation.data[field];
+    });
+    delete generation.data.referenceAudios;
+    migratedNodes.push(generation);
+  });
+  const nodeIds = new Set(migratedNodes.map((node) => node.id));
+  return {
+    ...workflow,
+    nodes: migratedNodes,
+    edges: migratedEdges.filter((edge, index, all) => edge.from !== edge.to && nodeIds.has(edge.from) && nodeIds.has(edge.to)
+      && all.findIndex((item) => item.from === edge.from && item.to === edge.to) === index),
+    layoutVersion: WORKFLOW_NODE_LAYOUT_VERSION,
+  };
+}
+
 function workflowCanvasStateFromPayload(value = {}) {
-  const workflow = value && typeof value === "object" ? value : {};
+  const original = value && typeof value === "object" ? value : {};
+  const workflow = Number(original.layoutVersion || 0) < WORKFLOW_NODE_LAYOUT_VERSION ? migrateWorkflowNodeGraph(original) : original;
   const layoutVersion = Number(workflow.layoutVersion || 0);
-  const hasLegacyFixedNodes = Array.isArray(workflow.nodes)
-    && workflow.nodes.some((node) => ["upload", "prompt", "video", "output", "imageReference", "videoReference"].includes(String(node?.type || "")));
-  if (layoutVersion < WORKFLOW_NODE_LAYOUT_VERSION || hasLegacyFixedNodes) {
+  if (layoutVersion < WORKFLOW_NODE_LAYOUT_VERSION && !Array.isArray(workflow.nodes)) {
     return {
       nodes: [],
       edges: [],
@@ -91,7 +137,7 @@ function setActiveWorkflowCanvas(canvas = {}) {
   state.workflow = canvas.workflow && Array.isArray(canvas.workflow.nodes)
     ? workflowCanvasStateFromPayload(canvas.workflow)
     : cloneWorkflowDefault();
-  state.workflowSelectedNodeId = state.workflow.nodes.find((node) => ["imageDisplay", "unifiedVideoGen"].includes(node.type))?.id || state.workflow.nodes[0]?.id || "";
+  state.workflowSelectedNodeId = state.workflow.nodes[0]?.id || "";
   state.workflowPickerNodeId = "";
   state.workflowPickerSearch = "";
   state.workflowMessage = "";

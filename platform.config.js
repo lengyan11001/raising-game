@@ -107,7 +107,7 @@ const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-dick", label: "Better Detail", prompt: "more coherent explicit detail when relevant" },
   { id: "bouncing-boobs", label: "Bouncing Boobs", prompt: "stronger natural bounce and secondary motion" },
 ];
-const WORKFLOW_NODE_LAYOUT_VERSION = 6;
+const WORKFLOW_NODE_LAYOUT_VERSION = 7;
 const WORKFLOW_NODE_WIDTH = 520;
 const WORKFLOW_NODE_GAP = 56;
 const WORKFLOW_DEFAULT_NODES = [];
