@@ -22,7 +22,7 @@ function workflowCanvasStateFromPayload(value = {}) {
   const workflow = value && typeof value === "object" ? value : {};
   const layoutVersion = Number(workflow.layoutVersion || 0);
   const hasLegacyFixedNodes = Array.isArray(workflow.nodes)
-    && workflow.nodes.some((node) => ["upload", "prompt", "video", "output"].includes(String(node?.type || "")));
+    && workflow.nodes.some((node) => ["upload", "prompt", "video", "output", "imageReference", "videoReference"].includes(String(node?.type || "")));
   if (layoutVersion < WORKFLOW_NODE_LAYOUT_VERSION || hasLegacyFixedNodes) {
     return {
       nodes: [],
@@ -91,7 +91,7 @@ function setActiveWorkflowCanvas(canvas = {}) {
   state.workflow = canvas.workflow && Array.isArray(canvas.workflow.nodes)
     ? workflowCanvasStateFromPayload(canvas.workflow)
     : cloneWorkflowDefault();
-  state.workflowSelectedNodeId = state.workflow.nodes.find((node) => node.type === "video")?.id || state.workflow.nodes[0]?.id || "";
+  state.workflowSelectedNodeId = state.workflow.nodes.find((node) => ["imageDisplay", "unifiedVideoGen"].includes(node.type))?.id || state.workflow.nodes[0]?.id || "";
   state.workflowPickerNodeId = "";
   state.workflowPickerSearch = "";
   state.workflowMessage = "";

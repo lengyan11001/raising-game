@@ -107,11 +107,26 @@ const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-dick", label: "Better Detail", prompt: "more coherent explicit detail when relevant" },
   { id: "bouncing-boobs", label: "Bouncing Boobs", prompt: "stronger natural bounce and secondary motion" },
 ];
-const WORKFLOW_NODE_LAYOUT_VERSION = 5;
-const WORKFLOW_NODE_WIDTH = 414;
+const WORKFLOW_NODE_LAYOUT_VERSION = 6;
+const WORKFLOW_NODE_WIDTH = 520;
 const WORKFLOW_NODE_GAP = 56;
 const WORKFLOW_DEFAULT_NODES = [];
 const WORKFLOW_DEFAULT_EDGES = [];
+const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
+  Object.freeze({ id: "qwen-image3", label: "Qwen Image 3.0", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro", "standard"], defaultTier: "pro", outputCounts: [1, 2, 3, 4, 5, 6], promptExtend: true, watermark: false, referenceLimit: 3 }),
+  Object.freeze({ id: "seedream5-image", label: "Seedream 5.0 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro"], defaultTier: "pro", referenceLimit: 9 }),
+  Object.freeze({ id: "wan27-image-edit", label: "Wan 2.7 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K", "4K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 1 }),
+]);
+const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
+  Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
+  Object.freeze({ id: "seedance25", label: "Seedance 2.5", resolution: "480p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "omini" }),
+  Object.freeze({ id: "seedance-nsfw", label: "Seedance2.5 (NSFW)", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
+  Object.freeze({ id: "wan30", label: "Wan 3.0 Video", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
+  Object.freeze({ id: "wan30-prime", label: "Wan 3.0 Video Prime", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
+  Object.freeze({ id: "wan27", label: "Wan 2.7", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["720p", "1080p"], ratios: ["9:16", "16:9", "1:1"], durations: [2, 5, 8, 10, 15], modes: [{ value: "auto", label: "Auto from inputs" }, { value: "wan27-t2v", label: "Text to Video" }, { value: "wan27-i2v", label: "Image to Video" }, { value: "wan27-r2v", label: "Reference to Video" }, { value: "wan27-video-edit", label: "Video Edit" }], mode: "auto" }),
+  Object.freeze({ id: "wan-animate", label: "Wan Animate", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["720p", "1080p"], ratios: ["9:16", "16:9", "1:1"], durations: [2, 5, 8, 10, 15, 20, 30], modes: [{ value: "auto", label: "Auto from inputs" }, { value: "wan-animate-move", label: "Image Animation" }, { value: "wan-animate-mix", label: "Character Replacement" }], mode: "auto" }),
+  Object.freeze({ id: "happyhorse", label: "HappyHorse", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["720p", "1080p"], ratios: ["9:16", "16:9", "1:1"], durations: [3, 5, 8, 10, 15], modes: [{ value: "auto", label: "Auto from inputs" }, { value: "happyhorse-t2v", label: "Text to Video" }, { value: "happyhorse-i2v", label: "Image to Video" }, { value: "happyhorse-r2v", label: "Reference to Video" }, { value: "happyhorse-video-edit", label: "Video Edit" }], mode: "auto" }),
+]);
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const DEFAULT_TOPUP_PACKAGES = [
