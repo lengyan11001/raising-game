@@ -43,7 +43,7 @@ function defaultWorkflowCanvasState() {
     physics: [],
     directorPrompt: "",
     zoom: 1,
-    layoutVersion: 6,
+    layoutVersion: 7,
     canvasWidth: 3200,
     canvasHeight: 720,
     scrollLeft: 0,

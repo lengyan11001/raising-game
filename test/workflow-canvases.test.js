@@ -16,6 +16,7 @@ test("workflow canvas state is normalized and bounded", () => {
   const initial = defaultWorkflowCanvasState();
   assert.equal(initial.nodes.length, 0);
   assert.equal(initial.edges.length, 0);
+  assert.equal(initial.layoutVersion, 7);
   assert.equal(normalizeWorkflowCanvasName("  My workflow  "), "My workflow");
   assert.equal(normalizeWorkflowCanvasName(" "), "Untitled workflow");
 
@@ -79,7 +80,7 @@ test("workflow canvas UI supports selection, create, save and delete", () => {
   assert.match(manager, /function createWorkflowCanvas/);
   assert.match(manager, /function saveWorkflowCanvas/);
   assert.match(manager, /function deleteWorkflowCanvas/);
-  assert.match(manager, /layoutVersion < WORKFLOW_NODE_LAYOUT_VERSION \|\| hasLegacyFixedNodes/);
+  assert.match(manager, /function migrateWorkflowNodeGraph/);
   assert.match(manager, /button\.disabled/);
   assert.match(manager, /data-workflow-canvas-select/);
   assert.match(ui, /scheduleWorkflowCanvasSave\(\);/);
@@ -118,24 +119,30 @@ test("workflow toolbar exposes only real controls", () => {
 
   assert.match(ui, /data-workflow-action="add-image"/);
   assert.match(ui, /data-workflow-action="add-video"/);
+  assert.match(ui, /data-workflow-action="add-image-reference"/);
+  assert.match(ui, /data-workflow-action="add-video-reference"/);
+  assert.match(ui, /data-workflow-action="add-prompt"/);
+  assert.match(ui, /data-workflow-action="add-output"/);
   assert.doesNotMatch(ui, /data-workflow-action="add-branch"/);
   assert.doesNotMatch(ui, /data-workflow-action="refiner"/);
-  assert.doesNotMatch(ui, /data-workflow-action="add-prompt"/);
   assert.doesNotMatch(ui, /data-workflow-action="physics"/);
 });
 
-test("workflow nodes are freeform image and video nodes", () => {
+test("workflow nodes separate sources, generation, and output", () => {
   const ui = read("platform.ui.js");
   assert.match(ui, /function addWorkflowImageNode\(\)/);
-  assert.match(ui, /type: "imageDisplay"/);
+  assert.match(ui, /type: "imageGenerate"/);
   assert.match(ui, /function addWorkflowVideoNode/);
   assert.match(ui, /workflowImageNodes\(\)\.length/);
   assert.match(ui, /type: "unifiedVideoGen"/);
   assert.match(ui, /if \(!node\) return false;/);
   assert.match(ui, /async function handleWorkflowDrop\(event\)/);
-  assert.match(ui, /type: isImage \? "imageDisplay" : "unifiedVideoGen"/);
+  assert.match(ui, /type: isImage \? "imageReference" : "videoReference"/);
+  assert.match(ui, /node\.type === "prompt"/);
+  assert.match(ui, /node\.type === "output"/);
   assert.match(ui, /function renderWorkflowImageEditor\(node = \{\}\)/);
   assert.match(ui, /function renderWorkflowVideoEditor\(node = \{\}\)/);
+  assert.doesNotMatch(ui, /renderWorkflowReferencePicker\(node, "referenceImages", "image", "图片"\)/);
 });
 
 test("workflow media results feed downstream generation with model-specific payloads", () => {
@@ -149,6 +156,17 @@ test("workflow media results feed downstream generation with model-specific payl
   assert.match(ui, /\["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"\]/);
   assert.match(ui, /resultImageUrl: imageUrl/);
   assert.match(ui, /resultVideoUrl: videoUrl/);
+});
+
+test("workflow graph supports fan-in, rejects loops, and migrates embedded references", () => {
+  const ui = read("platform.ui.js");
+  const manager = read("platform.workflow-canvases.js");
+
+  assert.doesNotMatch(ui, /workflow\.edges = workflow\.edges\.filter\(\(edge\) => edge\.to !== toId\)/);
+  assert.match(ui, /function workflowGraphReaches\(startId = "", targetId = ""\)/);
+  assert.match(ui, /if \(workflowGraphReaches\(toId, fromId\)\) return false/);
+  assert.match(manager, /\["referenceImages", "imageReference", "imageUrl", "Image input"\]/);
+  assert.match(manager, /delete generation\.data\[field\]/);
 });
 
 test("inline workflow dialogs use an explicit async confirm handler", () => {
