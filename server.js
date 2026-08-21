@@ -37421,7 +37421,11 @@ function awsQueryEncode(value = "") {
 function awsCanonicalQuery(params = []) {
   return params
     .map(([key, value]) => [awsQueryEncode(key), awsQueryEncode(value)])
-    .sort((left, right) => (left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0])))
+    // AWS canonical query ordering is bytewise ASCII, not locale-sensitive.
+    .sort((left, right) => {
+      if (left[0] === right[0]) return left[1] < right[1] ? -1 : left[1] > right[1] ? 1 : 0;
+      return left[0] < right[0] ? -1 : 1;
+    })
     .map(([key, value]) => `${key}=${value}`)
     .join("&");
 }
