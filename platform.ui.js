@@ -4851,17 +4851,13 @@ function workflowInsertionPreviousNode() {
 }
 
 function workflowNewNodePosition() {
-  const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
   const workflow = ensureWorkflowState();
-  const zoom = workflowZoom();
   const index = workflow.nodes.length;
-  const visibleX = (canvas?.scrollLeft || 0) / zoom + (canvas?.clientWidth || 900) / zoom / 2 - WORKFLOW_NODE_WIDTH / 2;
-  const visibleY = (canvas?.scrollTop || 0) / zoom + (canvas?.clientHeight || 520) / zoom / 2 - 150;
-  const column = index % 3;
-  const row = Math.floor(index / 3);
+  const column = index % 4;
+  const row = Math.floor(index / 4);
   return clampWorkflowNodePosition(
-    visibleX + column * (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP),
-    visibleY + row * 390,
+    80 + column * (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP),
+    80 + row * 520,
   );
 }
 
