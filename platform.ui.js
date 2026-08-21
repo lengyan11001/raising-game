@@ -1158,6 +1158,7 @@ async function downloadGenerationRecord(record = {}) {
   let href = generationRecordDownloadHref(record);
   if (!href) return;
   let fileName = generationRecordDownloadName(record);
+  let directSignedDownload = false;
   const taskId = String(record?.taskId || "").trim();
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
@@ -1166,15 +1167,21 @@ async function downloadGenerationRecord(record = {}) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {
+        href = payload.url;
         fileName = payload.fileName || fileName;
+        directSignedDownload = payload.source === "r2_signed";
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
   }
-  if (legacyHref) {
+  if (directSignedDownload) {
+    triggerBrowserDownload(href, fileName);
+    return;
+  }
+  if (href.startsWith("/api/") || legacyHref) {
     try {
-      await saveDownloadFromFetch(legacyHref, fileName);
+      await saveDownloadFromFetch(href.startsWith("/api/") ? href : legacyHref, fileName);
       return;
     } catch {
       // Fall through to the public URL when the authenticated proxy is unavailable.

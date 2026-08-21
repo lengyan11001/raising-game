@@ -37394,6 +37394,7 @@ function generationRecordDownloadTarget(record = {}) {
     return {
       url: videoUrl,
       localPath: localDownloadPathFromRecord(record, true, videoUrl),
+      objectStorageUrl: String(record.cdnVideoUrl || "").trim(),
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
@@ -37405,6 +37406,7 @@ function generationRecordDownloadTarget(record = {}) {
     return {
       url: imageUrl,
       localPath: localDownloadPathFromRecord(record, false, imageUrl),
+      objectStorageUrl: String(record.cdnImageUrl || "").trim(),
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
@@ -37467,18 +37469,18 @@ function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/
   return `${endpoint.protocol}//${endpoint.host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
-function generationRecordDownloadUrlPayload(target = {}) {
-  const key = r2KeyFromPublicDownloadUrl(target.url);
+function generationRecordDownloadUrlPayload(target = {}, fallbackUrl = "") {
+  const key = r2KeyFromPublicDownloadUrl(target.objectStorageUrl);
   const signedUrl = key ? makeR2PresignedDownloadUrl({
     key,
     fileName: target.fileName,
     contentType: target.mime,
   }) : "";
   return {
-    url: signedUrl || target.url || "",
+    url: signedUrl || fallbackUrl || "",
     fileName: target.fileName || "generation",
     expiresIn: signedUrl ? 600 : 0,
-    source: signedUrl ? "r2_signed" : "public_url",
+    source: signedUrl ? "r2_signed" : "authenticated_proxy",
   };
 }
 
@@ -37496,7 +37498,8 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId) {
   if (!target?.url && !target?.localPath) {
     return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
   }
-  return sendJson(res, 200, { ok: true, ...generationRecordDownloadUrlPayload(target) });
+  const fallbackUrl = `/api/generation-records/${encodeURIComponent(taskId)}/download`;
+  return sendJson(res, 200, { ok: true, ...generationRecordDownloadUrlPayload(target, fallbackUrl) });
 }
 
 async function handleDownloadGenerationRecord(req, res, taskId) {
