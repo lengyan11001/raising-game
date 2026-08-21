@@ -127,13 +127,28 @@ test("workflow toolbar exposes only real controls", () => {
 test("workflow nodes are freeform image and video nodes", () => {
   const ui = read("platform.ui.js");
   assert.match(ui, /function addWorkflowImageNode\(\)/);
-  assert.match(ui, /type: "imageReference"/);
+  assert.match(ui, /type: "imageDisplay"/);
   assert.match(ui, /function addWorkflowVideoNode/);
   assert.match(ui, /workflowImageNodes\(\)\.length/);
-  assert.match(ui, /type: "videoReference"/);
+  assert.match(ui, /type: "unifiedVideoGen"/);
   assert.match(ui, /if \(!node\) return false;/);
   assert.match(ui, /async function handleWorkflowDrop\(event\)/);
-  assert.match(ui, /type: isImage \? "imageReference" : "videoReference"/);
+  assert.match(ui, /type: isImage \? "imageDisplay" : "unifiedVideoGen"/);
+  assert.match(ui, /function renderWorkflowImageEditor\(node = \{\}\)/);
+  assert.match(ui, /function renderWorkflowVideoEditor\(node = \{\}\)/);
+});
+
+test("workflow media results feed downstream generation with model-specific payloads", () => {
+  const ui = read("platform.ui.js");
+
+  assert.match(ui, /function workflowNodeIncomingMedia\(node = \{\}\)/);
+  assert.match(ui, /const incoming = workflowNodeIncomingMedia\(node\)/);
+  assert.match(ui, /const imagePayload = seedanceFrameMode \? \[\] : workflowReferencePayload\(images\)/);
+  assert.match(ui, /referenceImages: imagePayload/);
+  assert.match(ui, /referenceVideoUrls: videoUrls/);
+  assert.match(ui, /\["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"\]/);
+  assert.match(ui, /resultImageUrl: imageUrl/);
+  assert.match(ui, /resultVideoUrl: videoUrl/);
 });
 
 test("inline workflow dialogs use an explicit async confirm handler", () => {
