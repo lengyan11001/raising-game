@@ -251,8 +251,12 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(css, /\.history-undress-result-actions[\s\S]*?border-radius: 10px/);
   assert.match(css, /\.history-undress-result-actions button[\s\S]*?width: 34px[\s\S]*?border-radius: 8px/);
   assert.match(css, /\.history-panel \.history-list[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(ui, /if \(legacyHref\) \{[\s\S]*?await saveDownloadFromFetch\(legacyHref, fileName\)[\s\S]*?return;/);
-  assert.doesNotMatch(ui, /directSignedDownload/);
+  assert.match(server, /r2KeyFromPublicDownloadUrl\(target\.objectStorageUrl\)/);
+  assert.match(server, /source: signedUrl \? "r2_signed" : "authenticated_proxy"/);
+  assert.match(ui, /href = payload\.url/);
+  assert.match(ui, /directSignedDownload = payload\.source === "r2_signed"/);
+  assert.match(ui, /if \(directSignedDownload\) \{[\s\S]*?triggerBrowserDownload\(href, fileName\)[\s\S]*?return;/);
+  assert.match(ui, /await saveDownloadFromFetch\(href\.startsWith\("\/api\/"\) \? href : legacyHref, fileName\)/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
   assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
 });
