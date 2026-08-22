@@ -811,6 +811,8 @@ const state = {
   workflowCanvasMessage: "",
   workflowCanvasSaveTimer: 0,
   workflowCanvasSaving: false,
+  workflowCanvasSaveQueued: false,
+  workflowCanvasSavePromise: null,
   workflowViewportSaveTimer: 0,
   workflowLogs: [],
   workflowPollTimers: {},

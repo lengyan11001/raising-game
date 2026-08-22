@@ -74,9 +74,11 @@ const {
 } = require("./undress-prompts");
 const {
   WORKFLOW_CANVAS_LIMIT,
+  WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES,
   defaultWorkflowCanvasState,
   normalizeWorkflowCanvasName,
   normalizeWorkflowCanvasState,
+  validateWorkflowCanvasForWrite,
   publicWorkflowCanvasSummary,
   publicWorkflowCanvasView,
 } = require("./workflow-canvases");
@@ -2749,9 +2751,9 @@ function workflowCanvasListView(canvases = []) {
 }
 
 function sendWorkflowCanvasValidationError(res, error) {
-  return sendJson(res, 400, {
+  return sendJson(res, Number(error?.statusCode || 400), {
     ok: false,
-    code: "INVALID_WORKFLOW_CANVAS",
+    code: error?.code || "INVALID_WORKFLOW_CANVAS",
     message: error?.message || "Workflow canvas is invalid.",
   });
 }
@@ -2775,7 +2777,8 @@ async function handleCreateWorkflowCanvas(req, res) {
     return sendJson(res, 400, { ok: false, code: "WORKFLOW_CANVAS_LIMIT", message: `You can save up to ${WORKFLOW_CANVAS_LIMIT} workflows.` });
   }
   try {
-    const body = await readJson(req);
+    const body = await readJson(req, WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES);
+    validateWorkflowCanvasForWrite(body.workflow || defaultWorkflowCanvasState());
     const canvas = await createWorkflowCanvasInDb({
       id: randomId("workflow"),
       userId: auth.user.id,
@@ -2801,8 +2804,19 @@ async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const updateKey = `${auth.user.id}:${canvasId}`;
+  if (workflowCanvasUpdatesInFlight.has(updateKey)) {
+    req.resume();
+    return sendJson(res, 429, {
+      ok: false,
+      code: "WORKFLOW_CANVAS_UPDATE_IN_PROGRESS",
+      message: "A workflow save is already in progress.",
+    });
+  }
+  workflowCanvasUpdatesInFlight.add(updateKey);
   try {
-    const body = await readJson(req);
+    const body = await readJson(req, WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES);
+    validateWorkflowCanvasForWrite(body.workflow);
     const canvas = await updateWorkflowCanvasInDb({
       id: canvasId,
       userId: auth.user.id,
@@ -2810,9 +2824,11 @@ async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
       workflow: normalizeWorkflowCanvasState(body.workflow),
     });
     if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
-    return sendJson(res, 200, { ok: true, canvas: publicWorkflowCanvasView(canvas) });
+    return sendJson(res, 200, { ok: true, canvas: publicWorkflowCanvasSummary(canvas) });
   } catch (error) {
     return sendWorkflowCanvasValidationError(res, error);
+  } finally {
+    workflowCanvasUpdatesInFlight.delete(updateKey);
   }
 }
 
@@ -16336,6 +16352,8 @@ function scheduleGenerationRecordRefreshDrain() {
   });
 }
 
+const workflowCanvasUpdatesInFlight = new Set();
+
 function queueGenerationRecordStatusRefresh(record = {}, { priority = false, reason = "list" } = {}) {
   const taskId = String(record.taskId || "");
   if (!taskId || generationRecordRefreshQueued.has(taskId)) return false;
@@ -19688,22 +19706,25 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
   return result;
 }
 
-async function readRawBody(req) {
+async function readRawBody(req, maxBytes = JSON_BODY_MAX_BYTES) {
   const chunks = [];
   let byteLength = 0;
   for await (const chunk of req) {
     chunks.push(chunk);
     byteLength += Buffer.byteLength(chunk);
-    if (byteLength > JSON_BODY_MAX_BYTES) {
-      throw new Error("Request body too large");
+    if (byteLength > maxBytes) {
+      const error = new Error("Request body too large");
+      error.statusCode = 413;
+      error.code = "REQUEST_BODY_TOO_LARGE";
+      throw error;
     }
   }
 
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readJson(req) {
-  const raw = await readRawBody(req);
+async function readJson(req, maxBytes = JSON_BODY_MAX_BYTES) {
+  const raw = await readRawBody(req, maxBytes);
   return raw ? JSON.parse(raw) : {};
 }
 
