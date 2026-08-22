@@ -32537,7 +32537,7 @@ async function handleWan27ImageEdit(req, res) {
   let externalImageUrls = imageEditUrlsFromBody(mergedBody);
   const originalSourceImageCount = assetIds.length + externalImageUrls.length;
   if (template && imageEditTemplateShouldUsePreview(template, originalSourceImageCount)) {
-    const previewUrl = String(template.previewUrl || "").trim();
+    const previewUrl = publicHttpUrlForUpstream(template.previewUrl);
     if (previewUrl && !externalImageUrls.includes(previewUrl)) externalImageUrls = [...externalImageUrls, previewUrl];
   }
   const prompt = template

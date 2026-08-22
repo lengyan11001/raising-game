@@ -40,6 +40,7 @@ test("Playflux image templates resolve prompts on the server", () => {
   assert.match(server, /body\.prompt,[\s\S]*bodyParams\.prompt,[\s\S]*imageEditPromptFromTemplate/);
   assert.match(server, /const templateId = String\(firstPresent\(body\.templateId, bodyParams\.templateId/);
   assert.match(server, /const template = findImageEditTemplate\(config, templateId\)/);
+  assert.match(server, /const previewUrl = publicHttpUrlForUpstream\(template\.previewUrl\)/);
   assert.match(server, /if \(!prompt\) return sendJson\(res, 400, \{ ok: false, message: "Prompt is required\." \}\)/);
   assert.match(platformExploreSource, /requestJson\("\/api\/wan27\/image-edit"/);
   assert.doesNotMatch(platformExploreSource.match(/requestJson\("\/api\/wan27\/image-edit"[\s\S]{0,900}?body: \{([\s\S]*?)\n        \},/g)?.join("\n") || "", /prompt:/);
