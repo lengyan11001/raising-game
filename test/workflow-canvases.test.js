@@ -41,6 +41,28 @@ test("workflow canvas state is normalized and bounded", () => {
   );
 });
 
+test("workflow canvas writes reject embedded media and oversized payloads", () => {
+  const {
+    WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES,
+    defaultWorkflowCanvasState,
+    validateWorkflowCanvasForWrite,
+  } = require("../workflow-canvases");
+
+  const initial = defaultWorkflowCanvasState();
+  assert.equal(validateWorkflowCanvasForWrite(initial), initial);
+  assert.throws(
+    () => validateWorkflowCanvasForWrite({
+      ...initial,
+      nodes: [{ id: "source", data: { imageUrl: "data:image/png;base64,aGVsbG8=" } }],
+    }),
+    (error) => error.code === "WORKFLOW_EMBEDDED_MEDIA_NOT_ALLOWED" && error.statusCode === 400,
+  );
+  assert.throws(
+    () => validateWorkflowCanvasForWrite({ ...initial, directorPrompt: "x".repeat(WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES) }),
+    (error) => error.code === "WORKFLOW_CANVAS_TOO_LARGE" && error.statusCode === 413,
+  );
+});
+
 test("workflow canvas database operations are owner scoped", () => {
   const db = read("db.js");
 
@@ -79,12 +101,29 @@ test("workflow canvas UI supports selection, create, save and delete", () => {
   assert.match(manager, /function scheduleWorkflowCanvasSave/);
   assert.match(manager, /function createWorkflowCanvas/);
   assert.match(manager, /function saveWorkflowCanvas/);
+  assert.match(manager, /state\.workflowCanvasSavePromise/);
+  assert.match(manager, /while \(state\.workflowCanvasSaveQueued/);
   assert.match(manager, /function deleteWorkflowCanvas/);
   assert.match(manager, /function migrateWorkflowNodeGraph/);
   assert.match(manager, /button\.disabled/);
   assert.match(manager, /data-workflow-canvas-select/);
   assert.match(ui, /scheduleWorkflowCanvasSave\(\);/);
   assert.match(explore, /loadWorkflowCanvases\(\);/);
+});
+
+test("workflow uploads store asset references instead of embedded media", () => {
+  const ui = read("platform.ui.js");
+  const server = read("server.js");
+
+  assert.match(ui, /async function uploadWorkflowMediaDataUrl/);
+  assert.match(ui, /async function migrateWorkflowEmbeddedMedia/);
+  assert.match(ui, /publicUrl \|\| asset\?\.localUrl/);
+  assert.doesNotMatch(ui, /values\.push\(await readFileAsDataUrl\(file\)\)/);
+  assert.match(server, /readJson\(req, WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES\)/);
+  assert.match(server, /validateWorkflowCanvasForWrite\(body\.workflow\)/);
+  assert.match(server, /canvas: publicWorkflowCanvasSummary\(canvas\)/);
+  assert.match(server, /workflowCanvasUpdatesInFlight\.has\(updateKey\)/);
+  assert.match(server, /WORKFLOW_CANVAS_UPDATE_IN_PROGRESS/);
 });
 
 test("workflow rerenders preserve the viewport without a side panel", () => {

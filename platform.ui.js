@@ -582,6 +582,8 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.workflowActiveCanvasId = "";
     state.workflowCanvasMessage = "";
     state.workflowCanvasSaving = false;
+    state.workflowCanvasSaveQueued = false;
+    state.workflowCanvasSavePromise = null;
     window.clearTimeout(state.workflowViewportSaveTimer);
     state.workflowViewportSaveTimer = 0;
     state.workflowSelectedNodeId = "video-1";
@@ -4794,6 +4796,74 @@ function updateWorkflowNodeFromControl(control) {
   renderWorkflowPanel({ focusNodeId: node.id });
 }
 
+async function uploadWorkflowMediaDataUrl(dataUrl = "", { name = "Workflow media", fileName = "workflow-media" } = {}) {
+  const payload = await requestJson("/api/user-assets", {
+    method: "POST",
+    body: { dataUrl, name, fileName },
+  });
+  const asset = payload.asset || null;
+  const url = String(asset?.publicUrl || asset?.localUrl || asset?.previewUrl || "").trim();
+  if (!asset?.id || !url) throw new Error("Failed to store workflow media.");
+  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+  return { assetId: asset.id, url };
+}
+
+async function uploadWorkflowFile(file, nodeId = "") {
+  const dataUrl = await readFileAsDataUrl(file);
+  return uploadWorkflowMediaDataUrl(dataUrl, {
+    name: file.name || "Workflow media",
+    fileName: file.name || `${nodeId || "workflow"}-media`,
+  });
+}
+
+async function migrateWorkflowEmbeddedMedia() {
+  const workflow = ensureWorkflowState();
+  let changed = false;
+  for (const node of workflow.nodes) {
+    const data = node.data || {};
+    for (const field of ["imageUrl", "videoUrl", "audioUrl", "startImage"]) {
+      const value = String(data[field] || "");
+      if (!/^data:(?:image|video|audio)\//i.test(value)) continue;
+      state.workflowCanvasMessage = "Migrating media...";
+      updateWorkflowCanvasSaveStatus();
+      const uploaded = await uploadWorkflowMediaDataUrl(value, {
+        name: node.title || "Workflow media",
+        fileName: `${node.id || "workflow"}-${field}`,
+      });
+      data[field] = uploaded.url;
+      data[`${field}AssetId`] = uploaded.assetId;
+      changed = true;
+    }
+    for (const field of ["referenceImages", "referenceVideos", "referenceAudios"]) {
+      if (!Array.isArray(data[field])) continue;
+      const values = [];
+      const assetIds = [];
+      for (let index = 0; index < data[field].length; index += 1) {
+        const value = String(data[field][index] || "");
+        if (!/^data:(?:image|video|audio)\//i.test(value)) {
+          values.push(value);
+          continue;
+        }
+        state.workflowCanvasMessage = "Migrating media...";
+        updateWorkflowCanvasSaveStatus();
+        const uploaded = await uploadWorkflowMediaDataUrl(value, {
+          name: node.title || "Workflow media",
+          fileName: `${node.id || "workflow"}-${field}-${index + 1}`,
+        });
+        values.push(uploaded.url);
+        assetIds.push(uploaded.assetId);
+        changed = true;
+      }
+      data[field] = values;
+      if (assetIds.length) data[`${field}AssetIds`] = assetIds;
+    }
+    node.data = data;
+  }
+  if (changed) persistWorkflowState({ skipServer: true });
+  return changed;
+}
+
 async function handleWorkflowFileInput(input) {
   const nodeId = input.dataset.nodeId || "";
   const field = input.dataset.workflowFile || "referenceImages";
@@ -4801,13 +4871,23 @@ async function handleWorkflowFileInput(input) {
   if (!files.length) return;
   const node = workflowNodeById(nodeId);
   if (!node) return;
-  const values = [];
-  for (const file of files) values.push(await readFileAsDataUrl(file));
+  state.workflowMessage = "Uploading media...";
+  renderWorkflowPanel({ focusNodeId: node.id });
+  const uploads = [];
+  for (const file of files) uploads.push(await uploadWorkflowFile(file, node.id));
+  const values = uploads.map((item) => item.url);
   const singleValueField = ["imageUrl", "videoUrl", "audioUrl"].includes(field);
   node.data = {
     ...(node.data || {}),
     [field]: singleValueField ? (values[0] || "") : [...workflowNodeReferences(node, field), ...values],
+    ...(singleValueField
+      ? { [`${field}AssetId`]: uploads[0]?.assetId || "" }
+      : { [`${field}AssetIds`]: [
+          ...(Array.isArray(node.data?.[`${field}AssetIds`]) ? node.data[`${field}AssetIds`] : []),
+          ...uploads.map((item) => item.assetId),
+        ] }),
   };
+  state.workflowMessage = "";
   clearWorkflowExecutionResults({ fromNodeId: node.id, message: "Input updated. Run the node again.", render: false });
   persistWorkflowState();
   renderWorkflowPanel({ focusNodeId: node.id });
@@ -4825,14 +4905,16 @@ async function handleWorkflowDrop(event) {
     const isImage = mime.startsWith("image/");
     const isVideo = mime.startsWith("video/");
     if (!isImage && !isVideo) continue;
-    const dataUrl = await readFileAsDataUrl(file);
+    const uploaded = await uploadWorkflowFile(file, `workflow-drop-${Date.now().toString(36)}-${offset}`);
     const node = {
       id: `${isImage ? "image-reference" : "video-reference"}-${Date.now().toString(36)}-${offset}`,
       type: isImage ? "imageReference" : "videoReference",
       title: `${isImage ? "Image" : "Video"} input`,
       x: point.x + offset,
       y: point.y + offset,
-      data: isImage ? { imageUrl: dataUrl } : { videoUrl: dataUrl },
+      data: isImage
+        ? { imageUrl: uploaded.url, imageUrlAssetId: uploaded.assetId }
+        : { videoUrl: uploaded.url, videoUrlAssetId: uploaded.assetId },
     };
     ensureWorkflowState().nodes.push(node);
     state.workflowSelectedNodeId = node.id;

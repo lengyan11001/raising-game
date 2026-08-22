@@ -126,6 +126,9 @@ function updateWorkflowCanvasSaveStatus() {
 }
 
 function setActiveWorkflowCanvas(canvas = {}) {
+  window.clearTimeout(state.workflowCanvasSaveTimer);
+  state.workflowCanvasSaveTimer = 0;
+  state.workflowCanvasSaveQueued = false;
   window.clearTimeout(state.workflowViewportSaveTimer);
   state.workflowViewportSaveTimer = 0;
   const summary = workflowCanvasSummary(canvas);
@@ -178,8 +181,12 @@ async function loadWorkflowCanvases({ force = false } = {}) {
       state.workflow = cloneWorkflowDefault();
       state.workflowSelectedNodeId = "";
     }
-    state.workflowCanvasMessage = "Saved";
     state.workflowCanvasesLoaded = true;
+    const migrated = typeof migrateWorkflowEmbeddedMedia === "function"
+      ? await migrateWorkflowEmbeddedMedia()
+      : false;
+    if (migrated) await saveWorkflowCanvas({ quiet: true });
+    state.workflowCanvasMessage = "Saved";
   } catch (error) {
     state.workflowCanvasMessage = error.message || String(error);
   } finally {
@@ -191,8 +198,10 @@ async function loadWorkflowCanvases({ force = false } = {}) {
 function scheduleWorkflowCanvasSave() {
   if (!state.user || !state.workflowCanvasesLoaded || !state.workflowActiveCanvasId) return;
   window.clearTimeout(state.workflowCanvasSaveTimer);
+  state.workflowCanvasSaveQueued = true;
   state.workflowCanvasMessage = "Unsaved";
   updateWorkflowCanvasSaveStatus();
+  if (state.workflowCanvasSaving) return;
   state.workflowCanvasSaveTimer = window.setTimeout(() => {
     state.workflowCanvasSaveTimer = 0;
     saveWorkflowCanvas({ quiet: true }).catch(() => {});
@@ -207,33 +216,46 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
   const canvasId = state.workflowActiveCanvasId;
   const current = activeWorkflowCanvasSummary();
   if (!canvasId || !current) return null;
+  if (name) current.name = String(name).trim().slice(0, 80) || "Untitled workflow";
   window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = 0;
-  const nextName = String(name || current.name || "Untitled workflow").trim().slice(0, 80) || "Untitled workflow";
+  state.workflowCanvasSaveQueued = true;
+  if (state.workflowCanvasSavePromise) return state.workflowCanvasSavePromise;
   state.workflowCanvasSaving = true;
   state.workflowCanvasMessage = "Saving...";
   updateWorkflowCanvasSaveStatus();
   if (!quiet && state.tab === "workflow") renderWorkflowPanel();
-  try {
-    const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`, {
-      method: "PUT",
-      body: { name: nextName, workflow: workflowCanvasSnapshot() },
-    });
-    if (state.workflowActiveCanvasId === canvasId && payload.canvas) {
-      const updated = workflowCanvasSummary(payload.canvas);
-      state.workflowCanvases = (state.workflowCanvases || []).map((canvas) => canvas.id === canvasId ? updated : canvas);
-      state.workflowCanvasMessage = "Saved";
+  state.workflowCanvasSavePromise = (async () => {
+    let savedCanvas = null;
+    try {
+      while (state.workflowCanvasSaveQueued && state.workflowActiveCanvasId === canvasId) {
+        state.workflowCanvasSaveQueued = false;
+        const latest = activeWorkflowCanvasSummary();
+        const nextName = String(latest?.name || "Untitled workflow").trim().slice(0, 80) || "Untitled workflow";
+        const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`, {
+          method: "PUT",
+          body: { name: nextName, workflow: workflowCanvasSnapshot() },
+        });
+        savedCanvas = payload.canvas || null;
+        if (state.workflowActiveCanvasId === canvasId && savedCanvas) {
+          const updated = workflowCanvasSummary(savedCanvas);
+          state.workflowCanvases = (state.workflowCanvases || []).map((canvas) => canvas.id === canvasId ? updated : canvas);
+        }
+      }
+      if (state.workflowActiveCanvasId === canvasId) state.workflowCanvasMessage = "Saved";
       updateWorkflowCanvasSaveStatus();
+      return savedCanvas;
+    } catch (error) {
+      if (state.workflowActiveCanvasId === canvasId) state.workflowCanvasMessage = error.message || String(error);
+      updateWorkflowCanvasSaveStatus();
+      throw error;
+    } finally {
+      state.workflowCanvasSaving = false;
+      state.workflowCanvasSavePromise = null;
+      if (!quiet && state.tab === "workflow") renderWorkflowPanel();
     }
-    return payload.canvas || null;
-  } catch (error) {
-    if (state.workflowActiveCanvasId === canvasId) state.workflowCanvasMessage = error.message || String(error);
-    updateWorkflowCanvasSaveStatus();
-    throw error;
-  } finally {
-    state.workflowCanvasSaving = false;
-    if (!quiet && state.tab === "workflow") renderWorkflowPanel();
-  }
+  })();
+  return state.workflowCanvasSavePromise;
 }
 
 async function switchWorkflowCanvas(canvasId = "") {
@@ -246,6 +268,10 @@ async function switchWorkflowCanvas(canvasId = "") {
     renderWorkflowPanel();
     const canvas = await fetchWorkflowCanvas(nextId);
     if (canvas) setActiveWorkflowCanvas(canvas);
+    const migrated = typeof migrateWorkflowEmbeddedMedia === "function"
+      ? await migrateWorkflowEmbeddedMedia()
+      : false;
+    if (migrated) await saveWorkflowCanvas({ quiet: true });
     state.workflowCanvasMessage = "Saved";
   } catch (error) {
     state.workflowCanvasMessage = error.message || String(error);
@@ -287,6 +313,7 @@ async function deleteWorkflowCanvas() {
     onConfirm: async () => {
       window.clearTimeout(state.workflowCanvasSaveTimer);
       state.workflowCanvasSaveTimer = 0;
+      state.workflowCanvasSaveQueued = false;
       const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(current.id)}`, { method: "DELETE" });
       state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
       const next = state.workflowCanvases[0];

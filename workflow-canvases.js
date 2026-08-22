@@ -4,6 +4,7 @@ const WORKFLOW_CANVAS_NODE_LIMIT = 100;
 const WORKFLOW_CANVAS_EDGE_LIMIT = 200;
 const WORKFLOW_DIRECTOR_PROMPT_LIMIT = 6000;
 const WORKFLOW_CANVAS_PAYLOAD_BYTES = 64 * 1024 * 1024;
+const WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 
 // New canvases start empty. Nodes are added explicitly, as in the reference editor.
 const DEFAULT_NODES = Object.freeze([]);
@@ -34,6 +35,40 @@ function safeJsonClone(value, fallback = {}) {
 
 function normalizeWorkflowCanvasName(value = "", fallback = "Untitled workflow") {
   return String(value || "").trim().slice(0, WORKFLOW_CANVAS_NAME_LIMIT) || fallback;
+}
+
+function validateWorkflowCanvasForWrite(value = {}) {
+  let json = "";
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    throw new Error("Workflow canvas must be valid JSON.");
+  }
+  if (Buffer.byteLength(json, "utf8") > WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES) {
+    const error = new Error("Workflow canvas is too large. Store media as uploaded asset references.");
+    error.statusCode = 413;
+    error.code = "WORKFLOW_CANVAS_TOO_LARGE";
+    throw error;
+  }
+  const stack = [value];
+  while (stack.length) {
+    const current = stack.pop();
+    if (typeof current === "string") {
+      if (/^data:(?:image|video|audio)\/[a-z0-9.+-]+;base64,/i.test(current)) {
+        const error = new Error("Workflow media must be uploaded and stored as an asset reference.");
+        error.statusCode = 400;
+        error.code = "WORKFLOW_EMBEDDED_MEDIA_NOT_ALLOWED";
+        throw error;
+      }
+      continue;
+    }
+    if (Array.isArray(current)) {
+      current.forEach((item) => stack.push(item));
+    } else if (plainObject(current)) {
+      Object.values(current).forEach((item) => stack.push(item));
+    }
+  }
+  return value;
 }
 
 function defaultWorkflowCanvasState() {
@@ -115,12 +150,14 @@ function publicWorkflowCanvasSummary(record = {}) {
 
 module.exports = {
   WORKFLOW_CANVAS_LIMIT,
+  WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES,
   WORKFLOW_CANVAS_NAME_LIMIT,
   WORKFLOW_CANVAS_NODE_LIMIT,
   WORKFLOW_CANVAS_EDGE_LIMIT,
   defaultWorkflowCanvasState,
   normalizeWorkflowCanvasName,
   normalizeWorkflowCanvasState,
+  validateWorkflowCanvasForWrite,
   publicWorkflowCanvasSummary,
   publicWorkflowCanvasView,
 };
