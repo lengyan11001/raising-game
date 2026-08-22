@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const platformExploreSource = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "platform.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
@@ -30,6 +31,18 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
   assert.match(engine, /value="seedance-nsfw">Seedance2\.5 \(NSFW\)/);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
+});
+
+test("Playflux image templates resolve prompts on the server", () => {
+  assert.match(server, /function findImageEditTemplate\(config = \{}, templateId = ""\)/);
+  assert.match(server, /function imageEditPromptFromTemplate\(template = \{\}, \{ sourceImageCount = 0/);
+  assert.match(server, /imageEditPromptFromTemplate\(template, \{/);
+  assert.match(server, /body\.prompt,[\s\S]*bodyParams\.prompt,[\s\S]*imageEditPromptFromTemplate/);
+  assert.match(server, /const templateId = String\(firstPresent\(body\.templateId, bodyParams\.templateId/);
+  assert.match(server, /const template = findImageEditTemplate\(config, templateId\)/);
+  assert.match(server, /if \(!prompt\) return sendJson\(res, 400, \{ ok: false, message: "Prompt is required\." \}\)/);
+  assert.match(platformExploreSource, /requestJson\("\/api\/wan27\/image-edit"/);
+  assert.doesNotMatch(platformExploreSource.match(/requestJson\("\/api\/wan27\/image-edit"[\s\S]{0,900}?body: \{([\s\S]*?)\n        \},/g)?.join("\n") || "", /prompt:/);
 });
 
 test("Seedance keeps only the two product modes", () => {

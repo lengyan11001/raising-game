@@ -326,9 +326,12 @@ function assertCount(media, type, min, max, capability) {
 
 function validateMedia(definition, media, parameters, capability) {
   if (definition.mediaKind === "wan30") {
-    const referenceTypes = new Set(["reference_image", "reference_video", "reference_audio"]);
+    const referenceTypes = new Set(["reference_image", "reference_video", "reference_audio", "file"]);
     const frameTypes = new Set(["first_frame", "last_frame"]);
     assertMediaTypes(media, new Set([...referenceTypes, ...frameTypes]), capability);
+    const fileCount = media.filter((item) => item.type === "file").length;
+    if (fileCount > 1) throw requestError("INVALID_MEDIA_COUNT", `${capability} accepts at most one file.`, { type: "file", count: fileCount, max: 1 });
+    if (fileCount && media.length > 1) throw requestError("INVALID_MEDIA_COMBINATION", `${capability} cannot mix a document with other media inputs.`);
     const hasReferences = media.some((item) => referenceTypes.has(item.type));
     const hasFrames = media.some((item) => frameTypes.has(item.type));
     if (hasReferences && hasFrames) {

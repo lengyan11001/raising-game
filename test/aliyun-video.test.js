@@ -59,6 +59,22 @@ test("builds Wan3.0 strict first and last frames", () => {
   assert.equal(request.payload.parameters.seed, 2147483647);
 });
 
+test("builds Wan3.0 document input and keeps it exclusive", () => {
+  const request = buildAliyunVideoRequest({
+    capability: "wan30-video",
+    prompt: "Use the uploaded document as the visual brief",
+    media: [{ type: "file", url: "https://example.com/brief.pdf" }],
+    duration: 5,
+  });
+  assert.deepEqual(request.payload.input.media, [{ type: "file", url: "https://example.com/brief.pdf" }]);
+  assert.throws(() => buildAliyunVideoRequest({
+    capability: "wan30-video",
+    prompt: "Create",
+    media: [{ type: "file", url: "https://example.com/brief.pdf" }, image()],
+    duration: 5,
+  }), /cannot mix a document/);
+});
+
 test("builds Wan3.0 Video Prime with the same multimodal contract", () => {
   const request = buildAliyunVideoRequest({
     provider: "wan30",

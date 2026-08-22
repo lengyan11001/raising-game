@@ -183,6 +183,16 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedDurationMessage = "";
       for (const file of files) {
         const mime = String(file.type || "").toLowerCase();
+        if (provider === "wan30" && isWan30DocumentFile(file)) {
+          if (state.advancedDocumentReference) {
+            skippedTooMany = true;
+            continue;
+          }
+          const document = await uploadAdvancedDocumentReference(file);
+          if (!document) continue;
+          state.activeAdvancedCaseId = "";
+          continue;
+        }
         if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
