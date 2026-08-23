@@ -2605,6 +2605,11 @@ dialog.tool-download-modal {
 .paypal-redirect-button svg {
   width: 16px;
   height: 16px;
+  color: #fff;
+  stroke: currentColor;
+}
+.paypal-checkout .paypal-redirect-button span {
+  color: #fff;
 }
 .paypal-redirect-note {
   margin: 8px 0 0;

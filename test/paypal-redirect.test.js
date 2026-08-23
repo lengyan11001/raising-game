@@ -7,6 +7,7 @@ const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8
 const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
 const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
 const main = fs.readFileSync(path.resolve(__dirname, "..", "platform.main.js"), "utf8");
+const css = fs.readFileSync(path.resolve(__dirname, "..", "platform.css"), "utf8");
 const platformHtml = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
 const payHtml = fs.readFileSync(path.resolve(__dirname, "..", "pay.html"), "utf8");
 const payJs = fs.readFileSync(path.resolve(__dirname, "..", "pay.js"), "utf8");
@@ -36,6 +37,7 @@ test("Top-up UI redirects to the payment session page instead of embedding PayPa
   assert.match(explore, /\/api\/pay\/paypal\/checkout-sessions/);
   assert.match(explore, /Continue to PayPal/);
   assert.match(explore, /paypal-redirect-button/);
+  assert.match(css, /\.paypal-checkout \.paypal-redirect-button span\s*\{\s*color:\s*#fff/);
   assert.doesNotMatch(explore, /www\.paypal\.com\/sdk\/js/);
 });
 
