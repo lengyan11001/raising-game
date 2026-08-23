@@ -82,6 +82,7 @@ SHARED_APP_FILES = (
     "test/seedance25-direct.test.js",
     "test/site-seo.test.js",
     "test/site-http.test.js",
+    "test/telegram-bot.test.js",
     "test/tool-video-provider.test.js",
     "test/undress-tool.test.js",
     "test/local-media-retention.test.js",
