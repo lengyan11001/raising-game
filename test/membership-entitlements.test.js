@@ -10,6 +10,9 @@ test("membership and API documentation entitlements use the requested products",
   const server = read("server.js");
   const html = read("platform.html");
   const main = read("platform.main.js");
+  const config = read("platform.config.js");
+  const create = read("platform.create.js");
+  const explore = read("platform.explore.js");
   const copy = read("platform.copy.js");
 
   assert.match(server, /CREATOR_MEMBERSHIP_PLAN_ID\s*=\s*"plan-main-creator"/);
@@ -36,8 +39,29 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(copy, /"membership\.badgeTopup": "最高 20%"/);
   assert.match(main, /topupMembershipLink\?\.addEventListener\("click"[\s\S]*?setTab\("referral"\)/);
   assert.match(main, /membershipCard\?\.scrollIntoView/);
-  assert.match(main, /productId:\s*"api-docs-access"/);
+  assert.match(config, /selectedProductId:\s*""/);
+  assert.match(main, /openEntitlementPaymentChoice\("api-docs-access", els\.apiDocsPurchaseStatus\)/);
+  assert.doesNotMatch(main, /startEntitlementCheckout\(\{ productId:\s*"api-docs-access"/);
+  assert.match(create, /function openEntitlementPaymentChoice/);
+  assert.match(create, /state\.selectedProductId = product\.id/);
+  assert.match(create, /setTopupStep\("payment"\)/);
+  assert.match(explore, /function selectedBillingProduct/);
+  assert.match(explore, /\? \{ productId: billingProduct\.id \}/);
+  assert.match(explore, /body: billingPlan[\s\S]*?\? \{ productId: billingProduct\.id, walletOptionId:/);
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
+});
+
+test("USDT API documentation checkout creates a product order", () => {
+  const server = read("server.js");
+  const handler = server.match(/async function handleCreatePaymentOrder[\s\S]*?\n}\r?\n\r?\nasync function handleListPaymentOrders/);
+  assert.ok(handler, "manual payment order handler should be present");
+  assert.match(handler[0], /requestedProductId === API_DOCS_PRODUCT_ID && tenant\.membershipProgram/);
+  assert.match(handler[0], /code: "PRODUCT_ALREADY_OWNED"/);
+  assert.match(handler[0], /kind: "product"/);
+  assert.match(handler[0], /amount: API_DOCS_PRICE_USD/);
+  assert.match(handler[0], /credits: API_DOCS_TEST_CREDITS/);
+  assert.match(handler[0], /orderKind: paymentSelection\.kind/);
+  assert.match(handler[0], /productId: paymentSelection\.kind === "product" \? paymentSelection\.id : ""/);
 });
 
 test("paid settlement grants product credits or membership without double settlement", () => {

@@ -679,6 +679,7 @@ els.topupMembershipLink?.addEventListener("click", () => {
 function openTopupDialog() {
   prepareModalOpen();
   state.selectedBillingPlanId = "";
+  state.selectedProductId = "";
   setTopupStep("packages");
   setTopupMethod("paypal");
   renderTopupSummary();
@@ -950,7 +951,7 @@ els.copyTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 els.buyApiDocsBtn?.addEventListener("click", () => {
-  startEntitlementCheckout({ productId: "api-docs-access" }, els.apiDocsPurchaseStatus);
+  openEntitlementPaymentChoice("api-docs-access", els.apiDocsPurchaseStatus);
 });
 els.buyMembershipBtn?.addEventListener("click", () => {
   startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, els.membershipNote);

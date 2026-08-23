@@ -764,6 +764,7 @@ const state = {
   topupPayStep: "transfer",
   selectedTopupPackageId: "",
   selectedBillingPlanId: "",
+  selectedProductId: "",
   billing: null,
   activeTopupOrder: null,
   paypalConfig: null,

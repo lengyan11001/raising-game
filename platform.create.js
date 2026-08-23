@@ -5241,6 +5241,30 @@ async function startEntitlementCheckout(body = {}, statusElement = null) {
   }
 }
 
+function openEntitlementPaymentChoice(productId = "", statusElement = null) {
+  if (!state.user) return openLogin();
+  const product = (state.billing?.products || []).find((item) => item.id === productId);
+  if (!product) {
+    if (statusElement) statusElement.textContent = "This product is not available.";
+    return;
+  }
+  if (product.owned) {
+    if (statusElement) statusElement.textContent = "API documentation access is already active.";
+    return;
+  }
+  if (statusElement) statusElement.textContent = "";
+  state.selectedBillingPlanId = "";
+  state.selectedProductId = product.id;
+  state.selectedTopupPackageId = "";
+  prepareModalOpen();
+  setTopupMethod("paypal", { skipSummary: true });
+  setTopupStep("payment");
+  renderTopupSummary();
+  if (!els.topupDialog?.open) els.topupDialog?.showModal();
+  syncTopupAutoRefresh();
+  refreshIcons();
+}
+
 async function redeemMembershipCode(event) {
   event?.preventDefault?.();
   if (!state.user) return openLogin();

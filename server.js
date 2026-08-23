@@ -30302,17 +30302,45 @@ async function handleCreatePaymentOrder(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenant = requestTenantDescriptor(req);
+  const requestedProductId = String(body.productId || body.product_id || "").trim();
   const availablePackages = tenant.subscriptions
     ? toolTopupPackagesForPlan(await getBillingPlanInDb(tenant.tenantId))
     : publicTopupPackages(auth.user);
-  const topupPackage = tenant.subscriptions
-    ? await toolTopupPackageForRequest(req, body)
-    : findTopupPackage(body, auth.user);
-  if (!topupPackage) {
+  let paymentSelection = null;
+  if (requestedProductId === API_DOCS_PRODUCT_ID && tenant.membershipProgram) {
+    if (userHasApiDocsAccess(auth.user)) {
+      return sendJson(res, 409, {
+        ok: false,
+        code: "PRODUCT_ALREADY_OWNED",
+        message: "API documentation access is already active.",
+      });
+    }
+    paymentSelection = {
+      kind: "product",
+      id: API_DOCS_PRODUCT_ID,
+      name: "API Documentation Access",
+      amount: API_DOCS_PRICE_USD,
+      credits: API_DOCS_TEST_CREDITS,
+    };
+  } else if (!requestedProductId) {
+    const topupPackage = tenant.subscriptions
+      ? await toolTopupPackageForRequest(req, body)
+      : findTopupPackage(body, auth.user);
+    if (topupPackage) {
+      paymentSelection = {
+        kind: "topup",
+        id: topupPackage.id,
+        name: "",
+        amount: topupPackage.amount,
+        credits: topupPackage.credits,
+      };
+    }
+  }
+  if (!paymentSelection) {
     return sendJson(res, 400, {
       ok: false,
-      code: "INVALID_TOPUP_PACKAGE",
-      message: "Please select one of the available top-up packages.",
+      code: requestedProductId ? "PRODUCT_NOT_FOUND" : "INVALID_TOPUP_PACKAGE",
+      message: requestedProductId ? "Payment product not found." : "Please select one of the available top-up packages.",
       packages: availablePackages,
     });
   }
@@ -30322,9 +30350,9 @@ async function handleCreatePaymentOrder(req, res) {
   }
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
-  const baseAmount = topupPackage.amount;
+  const baseAmount = paymentSelection.amount;
   const payment = makeUniquePaymentAmount(baseAmount, suffixDigits);
-  const creditAmount = creditsAmount(topupPackage.credits);
+  const creditAmount = creditsAmount(paymentSelection.credits);
   if (!dbEnabled()) {
     payment.amount = baseAmount;
     payment.payableAmountText = `${baseAmount}.${payment.suffix}`;
@@ -30334,11 +30362,13 @@ async function handleCreatePaymentOrder(req, res) {
     id: randomId("order"),
     tenantId: tenant.tenantId,
     userId: auth.user.id,
-    orderKind: "topup",
+    orderKind: paymentSelection.kind,
     baseAmount,
     creditAmount,
-    packageId: topupPackage.id,
-    packageCredits: topupPackage.credits,
+    packageId: paymentSelection.kind === "topup" ? paymentSelection.id : "",
+    packageCredits: paymentSelection.credits,
+    productId: paymentSelection.kind === "product" ? paymentSelection.id : "",
+    productName: paymentSelection.kind === "product" ? paymentSelection.name : "",
     creditsPerUsd: walletCreditsPerUsd(config.wallet),
     cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     suffix: payment.suffix,
