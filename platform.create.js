@@ -5189,17 +5189,17 @@ function renderReferral() {
   if (els.referralInvitedCount) els.referralInvitedCount.textContent = t("referral.invitedCount", { count: invitedCount });
   if (els.referralRewardStatus) {
     els.referralRewardStatus.textContent = member
-      ? `${rewardCount} rewards paid / ${paidInviteCount} paid invites`
-      : "Activate membership to earn paid-invite rewards";
+      ? t("membership.rewardStatusActive", { rewardCount, paidCount: paidInviteCount })
+      : t("membership.rewardStatusInactive");
   }
   if (els.referralMembershipProgressText) els.referralMembershipProgressText.textContent = member
-    ? "Membership active"
-    : `${invitedCount} / ${membershipTarget} registrations`;
+    ? t("membership.activeProgress")
+    : t("membership.progressCount", { count: invitedCount, target: membershipTarget });
   if (els.referralMembershipProgressFill) els.referralMembershipProgressFill.style.width = `${member ? 100 : registrationProgress}%`;
   if (els.referralNote) els.referralNote.textContent = loggedIn
     ? member
-      ? "Each invited user who registers and completes payment earns 100 credits."
-      : "Invite 100 registered users to unlock Creator Membership automatically."
+      ? t("membership.rewardNote")
+      : t("membership.unlockNote", { target: membershipTarget })
     : t("referral.login");
   if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || !referral?.inviteUrl;
   renderMembershipCard();
@@ -5213,7 +5213,7 @@ function renderMembershipCard() {
   if (!membershipProgramEnabled()) return;
   const active = creatorMembershipActive();
   if (els.membershipState) {
-    els.membershipState.textContent = active ? "Active" : "Not active";
+    els.membershipState.textContent = t(active ? "membership.active" : "membership.notActive");
     els.membershipState.classList.toggle("is-active", active);
   }
   if (els.buyMembershipBtn) {
@@ -5221,7 +5221,7 @@ function renderMembershipCard() {
     els.buyMembershipBtn.disabled = !state.user;
   }
   if (els.membershipCodeForm) els.membershipCodeForm.hidden = active;
-  if (els.membershipNote && active) els.membershipNote.textContent = "Creator Membership is active on this account.";
+  if (els.membershipNote && active) els.membershipNote.textContent = t("membership.activeNote");
 }
 
 async function startEntitlementCheckout(body = {}, statusElement = null) {
@@ -5246,17 +5246,17 @@ async function redeemMembershipCode(event) {
   if (!state.user) return openLogin();
   const code = String(els.membershipCodeInput?.value || "").trim();
   if (!code) {
-    if (els.membershipNote) els.membershipNote.textContent = "Enter an activation code.";
+    if (els.membershipNote) els.membershipNote.textContent = t("membership.enterCode");
     return;
   }
   if (els.redeemMembershipCodeBtn) els.redeemMembershipCodeBtn.disabled = true;
-  if (els.membershipNote) els.membershipNote.textContent = "Redeeming code...";
+  if (els.membershipNote) els.membershipNote.textContent = t("membership.redeeming");
   try {
     const payload = await requestJson("/api/membership/redeem", { method: "POST", body: { code } });
     if (payload.user) setUser(payload.user, { skipReferralRefresh: true });
     if (state.billing) state.billing = { ...state.billing, membership: payload.membership || state.billing.membership };
     if (els.membershipCodeInput) els.membershipCodeInput.value = "";
-    if (els.membershipNote) els.membershipNote.textContent = "Creator Membership activated.";
+    if (els.membershipNote) els.membershipNote.textContent = t("membership.activated");
     await loadReferralSummary({ force: true });
     await refreshExploreMembershipAccess();
     await loadBillingSummary();

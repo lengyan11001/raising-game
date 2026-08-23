@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-367-telegram-login" />
+    <link rel="stylesheet" href="./platform.css?v=ai-368-membership-copy" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -511,21 +511,21 @@
           <div class="membership-card-head">
             <div class="membership-card-icon"><i data-lucide="crown"></i></div>
             <div>
-              <span>Creator Membership</span>
-              <strong>$99 lifetime access</strong>
+              <span data-i18n="membership.eyebrow">Creator Membership</span>
+              <strong data-i18n="membership.lifetime">$99 lifetime benefits</strong>
             </div>
-            <span class="membership-state" id="membershipState">Not active</span>
+            <span class="membership-state" id="membershipState" data-i18n="membership.notActive">Not active</span>
           </div>
           <div class="membership-benefits">
-            <span><i data-lucide="play"></i>Watch and download Explore videos</span>
-            <span><i data-lucide="users-round"></i>Earn paid-referral rewards</span>
-            <span><i data-lucide="gift"></i>Receive top-up package bonuses</span>
+            <span><i data-lucide="play"></i><span data-i18n="membership.benefitExplore">Watch and download Explore videos for free</span></span>
+            <span><i data-lucide="users-round"></i><span data-i18n="membership.benefitReferral">Earn 100 credits per paid referral</span></span>
+            <span><i data-lucide="gift"></i><span data-i18n="membership.benefitTopup">Receive up to 20% top-up bonuses</span></span>
           </div>
           <div class="membership-actions">
-            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i>Buy membership</button>
+            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Unlock benefits</span></button>
             <form class="membership-code-form" id="membershipCodeForm">
-              <input id="membershipCodeInput" type="text" placeholder="Activation code" autocomplete="off" />
-              <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit">Redeem</button>
+              <input id="membershipCodeInput" type="text" placeholder="Activation code" data-i18n-placeholder="membership.activationCode" autocomplete="off" />
+              <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit" data-i18n="membership.redeem">Redeem</button>
             </form>
           </div>
           <p class="job-note" id="membershipNote"></p>
@@ -533,8 +533,8 @@
         <div class="referral-card" id="referralCard">
           <div class="referral-copy">
             <span class="copy-kicker" data-i18n="referral.eyebrow">Referral</span>
-            <h2>Invite paying users, earn credits</h2>
-            <p>Members receive 100 credits for each invited user who registers and completes a payment.</p>
+            <h2 data-i18n="membership.referralTitle">Invite paying users, earn credits</h2>
+            <p data-i18n="membership.referralSubtitle">Members earn 100 credits for each invited user who registers and completes a payment.</p>
           </div>
           <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
           <div class="referral-link" id="referralLink">Login to get your invite link.</div>
@@ -544,7 +544,7 @@
             <strong id="referralRewardStatus">Membership required for rewards</strong>
           </div>
           <div class="referral-membership-progress">
-            <div><span>Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
+            <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
             <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
           </div>
           <p class="job-note" id="referralNote"></p>
@@ -721,7 +721,10 @@
           </div>
           <button class="topup-membership-link" id="topupMembershipLink" type="button">
             <i data-lucide="crown"></i>
-            <span class="topup-membership-label" data-i18n="topup.membershipGuide">$99 lifetime membership</span>
+            <span class="topup-membership-label">
+              <strong data-i18n="topup.membershipGuide">$99 benefits</strong>
+              <small data-i18n="topup.membershipGuideHint">Unlock benefits and get up to 20% top-up bonuses</small>
+            </span>
             <span class="topup-membership-label-compact" aria-hidden="true">$99</span>
           </button>
           <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
@@ -1004,6 +1007,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-367-telegram-login"></script>
+    <script src="./platform.js?v=ai-368-membership-copy"></script>
   </body>
 </html>
