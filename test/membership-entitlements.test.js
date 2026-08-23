@@ -45,6 +45,7 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(create, /function openEntitlementPaymentChoice/);
   assert.match(create, /state\.selectedProductId = product\.id/);
   assert.match(create, /setTopupStep\("payment"\)/);
+  assert.match(create, /if \(payPalCheckoutVisible\(\)\) renderPayPalCheckout\(\)/);
   assert.match(explore, /function selectedBillingProduct/);
   assert.match(explore, /\? \{ productId: billingProduct\.id \}/);
   assert.match(explore, /body: billingPlan[\s\S]*?\? \{ productId: billingProduct\.id, walletOptionId:/);

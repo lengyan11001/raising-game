@@ -5261,6 +5261,7 @@ function openEntitlementPaymentChoice(productId = "", statusElement = null) {
   setTopupStep("payment");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
+  if (payPalCheckoutVisible()) renderPayPalCheckout();
   syncTopupAutoRefresh();
   refreshIcons();
 }
