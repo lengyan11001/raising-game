@@ -5209,6 +5209,7 @@ function renderReferral() {
 function renderMembershipCard() {
   if (!els.membershipCard) return;
   els.membershipCard.hidden = !membershipProgramEnabled();
+  if (els.topupMembershipLink) els.topupMembershipLink.hidden = !membershipProgramEnabled() || creatorMembershipActive();
   if (!membershipProgramEnabled()) return;
   const active = creatorMembershipActive();
   if (els.membershipState) {

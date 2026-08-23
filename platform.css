@@ -2255,7 +2255,7 @@ body.creator-picker-open {
 .topup-back-btn[hidden] { display: none; }
 .modal header.topup-dialog-header {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) 38px;
+  grid-template-columns: 92px minmax(0, 1fr) auto 38px;
   gap: 12px;
   align-items: center;
 }
@@ -2263,6 +2263,29 @@ body.creator-picker-open {
   min-width: 0;
   text-align: left;
 }
+.topup-membership-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 190, 72, .38);
+  border-radius: 8px;
+  color: #ffe1a3;
+  background: rgba(255, 190, 72, .1);
+  font-size: .78rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topup-membership-link:hover {
+  border-color: rgba(255, 190, 72, .68);
+  background: rgba(255, 190, 72, .16);
+}
+.topup-membership-link svg { width: 16px; height: 16px; }
+.modal header .topup-membership-link span { color: inherit; }
+.modal header .topup-membership-label-compact { display: none; }
 .modal-back-btn {
   display: inline-flex;
   align-items: center;
@@ -10028,6 +10051,21 @@ select:focus,
 }
 
 @media (max-width: 460px) {
+  .modal header.topup-dialog-header {
+    grid-template-columns: 38px minmax(0, 1fr) 62px 38px;
+    gap: 8px;
+  }
+  .topup-dialog-header .modal-back-btn {
+    width: 38px;
+    padding: 0;
+  }
+  .topup-dialog-header .modal-back-btn span { display: none; }
+  .topup-membership-link {
+    min-width: 62px;
+    padding: 7px 8px;
+  }
+  .modal header .topup-membership-label { display: none; }
+  .modal header .topup-membership-label-compact { display: inline; }
   .paypal-checkout {
     grid-template-columns: 1fr;
   }

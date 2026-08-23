@@ -1071,6 +1071,7 @@ const els = {
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
   topupBackBtn: document.querySelector("#topupBackBtn"),
+  topupMembershipLink: document.querySelector("#topupMembershipLink"),
   topupPackageStage: document.querySelector("#topupPackageStage"),
   topupPackageGrid: document.querySelector("#topupPackageGrid"),
   toolSubscriptionPanel: document.querySelector("#toolSubscriptionPanel"),

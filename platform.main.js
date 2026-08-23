@@ -668,6 +668,14 @@ els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) =>
 });
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
+els.topupMembershipLink?.addEventListener("click", () => {
+  els.topupDialog?.close("membership");
+  setTab("referral");
+  trackAnalyticsEvent("topup_membership_guide_click", { event_location: "topup_dialog" });
+  requestAnimationFrame(() => {
+    els.membershipCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+});
 function openTopupDialog() {
   prepareModalOpen();
   state.selectedBillingPlanId = "";
