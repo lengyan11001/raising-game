@@ -369,6 +369,12 @@ const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECR
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
 const TELEGRAM_BOT_NOTIFIER_INTERVAL_MS = Math.max(10000, Number(process.env.TELEGRAM_BOT_NOTIFIER_INTERVAL_MS || 15000) || 15000);
+const TELEGRAM_PAYMENT_BOT_TOKEN = String(process.env.TELEGRAM_PAYMENT_BOT_TOKEN || TELEGRAM_BOT_TOKEN || TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
+const TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS = [...new Set(String(process.env.TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS || "")
+  .split(/[\s,;]+/)
+  .map((value) => value.trim())
+  .filter((value) => /^-?\d+$/.test(value)))];
+const TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS = Math.max(10000, Number(process.env.TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS || 15000) || 15000);
 const VIPEAK_X_URL = "https://x.com/VipeakAI";
 const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
 const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
@@ -9211,6 +9217,125 @@ function paypalCaptureFromOrder(payload = {}) {
   return null;
 }
 
+function telegramPaymentNotifierEnabled() {
+  return Boolean(TELEGRAM_PAYMENT_BOT_TOKEN && TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS.length);
+}
+
+function telegramPaymentSiteLabel(order = {}) {
+  const source = String(order.sourceOrigin || "").trim();
+  if (source) {
+    try {
+      return new URL(source).hostname || source;
+    } catch {}
+  }
+  return String(order.tenantId || DEFAULT_TENANT_ID);
+}
+
+function telegramPaymentMethodLabel(order = {}) {
+  if (String(order.paymentProvider || "").toLowerCase() === "paypal" || String(order.network || "").toLowerCase() === "paypal") return "PayPal";
+  const network = String(order.network || order.chain || "").trim();
+  return network ? `USDT (${network})` : "USDT";
+}
+
+function telegramPaymentNotificationText(order = {}, user = {}) {
+  const amount = order.payableAmountText || order.payableAmount || order.baseAmount || 0;
+  const asset = String(order.asset || order.currency || (order.paymentProvider === "paypal" ? PAYPAL_CURRENCY : "USDT")).trim();
+  const credits = creditsAmount(order.creditAmount || order.packageCredits || 0);
+  const userLabel = user.username || user.email || order.username || order.userId || "unknown";
+  const lines = [
+    "充值成功",
+    `站点: ${telegramPaymentSiteLabel(order)}`,
+    `用户: ${userLabel}`,
+    `用户 ID: ${order.userId || user.id || ""}`,
+    `支付方式: ${telegramPaymentMethodLabel(order)}`,
+    `金额: ${amount} ${asset}`,
+    `到账积分: ${credits}`,
+    `订单号: ${order.id || ""}`,
+    `到账时间: ${order.paidAt || order.updatedAt || new Date().toISOString()}`,
+  ];
+  if (order.paypalPayerEmail) lines.push(`PayPal 账户: ${order.paypalPayerEmail}`);
+  if (order.transactionHash) lines.push(`交易哈希: ${order.transactionHash}`);
+  return lines.join("\n");
+}
+
+async function callTelegramPaymentApi(method, payload = {}) {
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_PAYMENT_BOT_TOKEN}/${method}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    const error = new Error(data.description || `Telegram payment notification failed (${response.status}).`);
+    error.statusCode = response.status || 502;
+    throw error;
+  }
+  return data;
+}
+
+async function notifyTelegramPaymentOrder(order = {}, user = {}) {
+  if (!telegramPaymentNotifierEnabled() || order.status !== "paid" || !order.telegramPaymentNotificationPendingAt) return false;
+  const sentChatIds = new Set(Array.isArray(order.telegramPaymentNotificationSentChatIds)
+    ? order.telegramPaymentNotificationSentChatIds.map(String)
+    : []);
+  const pendingChatIds = TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS.filter((chatId) => !sentChatIds.has(chatId));
+  if (!pendingChatIds.length) {
+    order.telegramPaymentNotificationStatus = "sent";
+    order.telegramPaymentNotificationSentAt = order.telegramPaymentNotificationSentAt || new Date().toISOString();
+    return false;
+  }
+  const now = new Date().toISOString();
+  order.telegramPaymentNotificationLastAttemptAt = now;
+  order.telegramPaymentNotificationAttempts = Math.max(0, Number(order.telegramPaymentNotificationAttempts || 0)) + 1;
+  const errors = [];
+  for (const chatId of pendingChatIds) {
+    try {
+      await callTelegramPaymentApi("sendMessage", {
+        chat_id: chatId,
+        text: telegramPaymentNotificationText(order, user),
+        disable_web_page_preview: true,
+      });
+      sentChatIds.add(chatId);
+    } catch (error) {
+      errors.push(`${chatId}: ${error.message || error}`);
+    }
+  }
+  order.telegramPaymentNotificationSentChatIds = Array.from(sentChatIds);
+  if (errors.length) {
+    order.telegramPaymentNotificationStatus = "retry";
+    order.telegramPaymentNotificationError = errors.join("; ").slice(0, 1000);
+  } else {
+    order.telegramPaymentNotificationStatus = "sent";
+    order.telegramPaymentNotificationError = "";
+    order.telegramPaymentNotificationSentAt = now;
+  }
+  order.updatedAt = now;
+  return true;
+}
+
+let telegramPaymentNotificationScanRunning = false;
+async function scanTelegramPaymentNotifications() {
+  if (telegramPaymentNotificationScanRunning || !telegramPaymentNotifierEnabled()) return;
+  telegramPaymentNotificationScanRunning = true;
+  try {
+    const db = await readDb();
+    const orders = (db.walletOrders || [])
+      .filter((order) => order.status === "paid" && order.telegramPaymentNotificationPendingAt && order.telegramPaymentNotificationStatus !== "sent")
+      .slice(0, 50);
+    const userMap = new Map((db.users || []).map((user) => [user.id, user]));
+    for (const order of orders) {
+      await notifyTelegramPaymentOrder(order, userMap.get(order.userId) || {});
+      if (dbEnabled()) await updateWalletOrderInDb(order);
+    }
+    if (orders.length && !dbEnabled()) await writeDb(db);
+  } catch (error) {
+    console.warn("[telegram-payment-notify-failed]", error.message || error);
+  } finally {
+    telegramPaymentNotificationScanRunning = false;
+  }
+}
+
 async function settleWalletOrderPayment(db, order, config, meta = {}) {
   if (!order) {
     const error = new Error("Payment order not found.");
@@ -9292,6 +9417,8 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   }
   order.status = "paid";
   order.paidAt = order.paidAt || now;
+  order.telegramPaymentNotificationPendingAt = order.telegramPaymentNotificationPendingAt || now;
+  order.telegramPaymentNotificationStatus = order.telegramPaymentNotificationStatus || "pending";
   order.updatedAt = now;
   if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
   await maybeGrantReferralReward(db, order.userId, order);
@@ -30155,6 +30282,7 @@ async function handleCreateSubscriptionOrder(req, res) {
     qrUrl: walletOption.qrUrl,
     explorerUrl: walletOption.explorerUrl || "",
     status: "pending",
+    sourceOrigin: pageOriginFromRequest(req),
     createdAt: new Date().toISOString(),
   };
   auth.db.walletOrders.unshift(order);
@@ -30224,6 +30352,7 @@ async function handleCreatePaymentOrder(req, res) {
     qrUrl: walletOption.qrUrl,
     explorerUrl: walletOption.explorerUrl || "",
     status: "pending",
+    sourceOrigin: pageOriginFromRequest(req),
     createdAt: new Date().toISOString(),
   };
   auth.db.walletOrders.unshift(order);
@@ -39394,6 +39523,12 @@ function startTelegramBotScheduler() {
   setInterval(() => scanTelegramGenerationNotifications(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
 }
 
+function startTelegramPaymentNotificationScheduler() {
+  if (!telegramPaymentNotifierEnabled()) return;
+  setTimeout(() => scanTelegramPaymentNotifications(), 5000).unref?.();
+  setInterval(() => scanTelegramPaymentNotifications(), TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS).unref?.();
+}
+
 async function bootstrap() {
   if (!dbEnabled()) {
     throw new Error("DATABASE_URL is required. Runtime data must be stored in PostgreSQL, not JSON files.");
@@ -39410,6 +39545,7 @@ async function bootstrap() {
   startStaleSubmitGenerationRecordScheduler();
   startActiveGenerationRecordScheduler();
   startTelegramBotScheduler();
+  startTelegramPaymentNotificationScheduler();
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
   startLocalMediaCleanupScheduler();

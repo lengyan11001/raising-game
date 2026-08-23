@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-368-membership-copy" />
+    <link rel="stylesheet" href="./platform.css?v=ai-369-membership-badges" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -517,9 +517,21 @@
             <span class="membership-state" id="membershipState" data-i18n="membership.notActive">Not active</span>
           </div>
           <div class="membership-benefits">
-            <span><i data-lucide="play"></i><span data-i18n="membership.benefitExplore">Watch and download Explore videos for free</span></span>
-            <span><i data-lucide="users-round"></i><span data-i18n="membership.benefitReferral">Earn 100 credits per paid referral</span></span>
-            <span><i data-lucide="gift"></i><span data-i18n="membership.benefitTopup">Receive up to 20% top-up bonuses</span></span>
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Free</em>
+              <i data-lucide="play"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitExplore">Watch and download Explore videos</span>
+            </span>
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
+              <i data-lucide="users-round"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span>
+            </span>
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
+              <i data-lucide="gift"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitTopup">Receive top-up package bonuses</span>
+            </span>
           </div>
           <div class="membership-actions">
             <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Unlock benefits</span></button>
@@ -1007,6 +1019,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-368-membership-copy"></script>
+    <script src="./platform.js?v=ai-369-membership-badges"></script>
   </body>
 </html>

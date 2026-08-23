@@ -93,6 +93,7 @@ SHARED_APP_FILES = (
     "test/workflow-access.test.js",
     "test/workflow-canvases.test.js",
     "test/membership-entitlements.test.js",
+    "test/payment-telegram-notifications.test.js",
 )
 
 SHARED_TOOLING_FILES = (
