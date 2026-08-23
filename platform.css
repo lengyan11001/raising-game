@@ -2277,7 +2277,6 @@ body.creator-picker-open {
   font-size: .78rem;
   font-weight: 900;
   cursor: pointer;
-  white-space: nowrap;
 }
 .topup-membership-link:hover {
   border-color: rgba(255, 190, 72, .68);
@@ -2285,6 +2284,25 @@ body.creator-picker-open {
 }
 .topup-membership-link svg { width: 16px; height: 16px; }
 .modal header .topup-membership-link span { color: inherit; }
+.modal header .topup-membership-label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+.modal header .topup-membership-label strong,
+.modal header .topup-membership-label small {
+  color: inherit;
+  line-height: 1.2;
+}
+.modal header .topup-membership-label strong { font-size: .78rem; }
+.modal header .topup-membership-label small {
+  max-width: 250px;
+  color: rgba(255, 225, 163, .78);
+  font-size: .66rem;
+  font-weight: 700;
+  white-space: normal;
+}
 .modal header .topup-membership-label-compact { display: none; }
 .modal-back-btn {
   display: inline-flex;

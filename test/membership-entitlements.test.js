@@ -10,6 +10,7 @@ test("membership and API documentation entitlements use the requested products",
   const server = read("server.js");
   const html = read("platform.html");
   const main = read("platform.main.js");
+  const copy = read("platform.copy.js");
 
   assert.match(server, /CREATOR_MEMBERSHIP_PLAN_ID\s*=\s*"plan-main-creator"/);
   assert.match(server, /CREATOR_MEMBERSHIP_PRICE_USD\s*=\s*99/);
@@ -22,6 +23,13 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(html, /id="buyApiDocsBtn"/);
   assert.match(html, /id="buyMembershipBtn"/);
   assert.match(html, /id="topupMembershipLink"/);
+  assert.match(html, /data-i18n="topup\.membershipGuideHint"/);
+  assert.match(html, /data-i18n="membership\.benefitReferral"/);
+  assert.match(html, /data-i18n="membership\.benefitTopup"/);
+  assert.match(copy, /"topup\.membershipGuideHint": "开通权益，领取最高 20% 充值套餐奖励"/);
+  assert.match(copy, /"membership\.benefitExplore": "免费观看和下载 Explore 视频"/);
+  assert.match(copy, /"membership\.benefitReferral": "每位付费邀请奖励 100 积分"/);
+  assert.match(copy, /"membership\.benefitTopup": "充值套餐最高奖励 20%"/);
   assert.match(main, /topupMembershipLink\?\.addEventListener\("click"[\s\S]*?setTab\("referral"\)/);
   assert.match(main, /membershipCard\?\.scrollIntoView/);
   assert.match(main, /productId:\s*"api-docs-access"/);
