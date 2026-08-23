@@ -543,9 +543,29 @@ function videoOrPoster(item) {
 }
 
 /* ============ dialog helpers ============ */
+function stopDialogMedia(root) {
+  root?.querySelectorAll?.("video, audio").forEach((media) => {
+    try {
+      media.pause();
+    } catch {
+      /* ignore */
+    }
+    media.removeAttribute("src");
+    media.querySelectorAll?.("source").forEach((source) => source.removeAttribute("src"));
+    try {
+      media.load();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+els.dialog?.addEventListener("close", () => stopDialogMedia(els.dialogBody));
+
 function openDialog({ title, body, confirmText = "确定", cancelText = "取消", showCancel = true, hideConfirm = false, onConfirm, onOpen }) {
   els.dialogTitle.textContent = title || "";
   delete els.dialogBody.dataset.recordDetailToken;
+  stopDialogMedia(els.dialogBody);
   els.dialogBody.innerHTML = "";
   if (typeof body === "string") {
     els.dialogBody.innerHTML = body;

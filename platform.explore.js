@@ -3607,6 +3607,7 @@ function openHistoryDetail(index) {
   const videos = recordVideoAssets(record);
   const canDownload = canDownloadGenerationRecord(record);
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
+  stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
     <section class="history-detail-section">
       <header>

@@ -146,6 +146,23 @@ function renderSimplePager(holder, data, onPage, options = {}) {
   });
 }
 
+function stopModalMedia(root) {
+  root?.querySelectorAll?.("video, audio").forEach((media) => {
+    try {
+      media.pause();
+    } catch {
+      /* ignore */
+    }
+    media.removeAttribute("src");
+    media.querySelectorAll?.("source").forEach((source) => source.removeAttribute("src"));
+    try {
+      media.load();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", keepOpenOnConfirm = false, onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
   prepareModalOpen();
@@ -155,6 +172,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
     .filter(Boolean)
     .forEach((className) => els.inlineDialog.classList.add(className));
   els.inlineDialogTitle.textContent = title || "";
+  stopModalMedia(els.inlineDialogBody);
   els.inlineDialogBody.innerHTML = body || "";
   if (els.inlineDialogConfirm) {
     // Handle the button explicitly so dialog's native method=dialog behavior
@@ -167,6 +185,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
   refreshIcons();
   return new Promise((resolve) => {
     const cleanup = () => {
+      stopModalMedia(els.inlineDialogBody);
       els.inlineDialogForm.removeEventListener("submit", submitHandler);
       if (els.inlineDialogConfirm?.onclick === submitHandler) els.inlineDialogConfirm.onclick = null;
       els.inlineDialogClose?.removeEventListener("click", closeHandler);

@@ -3297,6 +3297,13 @@ function bindEvents() {
     } catch {
       /* ignore */
     }
+    els.resultVideo.removeAttribute("src");
+    els.resultVideo.removeAttribute("poster");
+    try {
+      els.resultVideo.load();
+    } catch {
+      /* ignore */
+    }
   });
 
   els.gameStage.addEventListener("pointerdown", handleDragStart);

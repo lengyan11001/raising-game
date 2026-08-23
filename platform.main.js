@@ -729,6 +729,9 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo.removeAttribute("style");
   els.previewVideo.load();
 });
+els.historyDetailDialog?.addEventListener("close", () => {
+  stopModalMedia(els.historyDetailBody);
+});
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedPresetSearch?.addEventListener("input", () => {
   state.advancedPresetSearch = els.advancedPresetSearch.value || "";

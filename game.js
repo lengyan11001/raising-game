@@ -650,9 +650,27 @@ async function pollGeneration(taskId, root) {
   throw new Error("Still processing. Check history later.");
 }
 
+function stopActionDialogMedia() {
+  els.actionBody?.querySelectorAll?.("video, audio").forEach((media) => {
+    try {
+      media.pause();
+    } catch {
+      /* ignore */
+    }
+    media.removeAttribute("src");
+    media.querySelectorAll?.("source").forEach((source) => source.removeAttribute("src"));
+    try {
+      media.load();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 async function showActionDialog({ title, body, submitText = "Generate", onOpen, onSubmit }) {
   if (!els.actionDialog) return;
   els.actionTitle.textContent = title;
+  stopActionDialogMedia();
   els.actionBody.innerHTML = body;
   els.actionSubmitBtn.textContent = submitText;
   els.actionSubmitBtn.disabled = false;
@@ -660,6 +678,7 @@ async function showActionDialog({ title, body, submitText = "Generate", onOpen, 
   onOpen?.(els.actionBody);
   return new Promise((resolve) => {
     const onClose = () => {
+      stopActionDialogMedia();
       els.actionDialog.removeEventListener("close", onClose);
       els.actionSubmitBtn.removeEventListener("click", onSubmitClick);
       resolve(els.actionDialog.returnValue);
