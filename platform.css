@@ -2592,10 +2592,10 @@ dialog.tool-download-modal {
   min-height: 44px;
   border: 0;
   border-radius: 8px;
-  color: #07142f;
-  background: linear-gradient(135deg, #ffffff, #dbeafe);
+  color: #fff;
+  background: #ff4fa3;
   font-weight: 900;
-  box-shadow: 0 14px 30px rgba(37, 99, 235, .22);
+  box-shadow: 0 12px 28px rgba(255, 79, 163, .24);
   cursor: pointer;
 }
 .paypal-redirect-button:disabled {
@@ -3399,12 +3399,13 @@ dialog.tool-download-modal {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
-.membership-benefits span {
+.membership-benefits > .membership-benefit {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 10px 12px;
+  min-height: 76px;
+  padding: 34px 12px 12px;
   border: 1px solid #dfe7e3;
   border-radius: 8px;
   background: #fff;
@@ -3412,6 +3413,26 @@ dialog.tool-download-modal {
   font-size: .82rem;
   font-weight: 700;
   line-height: 1.35;
+}
+.membership-benefit-copy { min-width: 0; }
+.membership-benefit-badge {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  max-width: calc(100% - 18px);
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 4px;
+  background: #f50087;
+  color: #fff;
+  font-size: .7rem;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 5px 14px rgba(245, 0, 135, .24);
 }
 .membership-benefits svg { width: 17px; height: 17px; flex: 0 0 auto; color: #0b8d6d; }
 .membership-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -3452,7 +3473,7 @@ dialog.tool-download-modal {
   border-color: rgba(255, 255, 255, .2);
   color: rgba(255, 255, 255, .72);
 }
-.referral-panel .membership-card .membership-benefits span {
+.referral-panel .membership-card .membership-benefits > .membership-benefit {
   border-color: rgba(255, 255, 255, .12);
   background: rgba(255, 255, 255, .06);
   color: rgba(255, 255, 255, .88);

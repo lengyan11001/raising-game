@@ -26,10 +26,14 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(html, /data-i18n="topup\.membershipGuideHint"/);
   assert.match(html, /data-i18n="membership\.benefitReferral"/);
   assert.match(html, /data-i18n="membership\.benefitTopup"/);
+  assert.match(html, /class="membership-benefit-badge" data-i18n="membership\.badgeExplore"/);
+  assert.match(html, /class="membership-benefit-badge" data-i18n="membership\.badgeReferral"/);
+  assert.match(html, /class="membership-benefit-badge" data-i18n="membership\.badgeTopup"/);
   assert.match(copy, /"topup\.membershipGuideHint": "开通权益，领取最高 20% 充值套餐奖励"/);
-  assert.match(copy, /"membership\.benefitExplore": "免费观看和下载 Explore 视频"/);
-  assert.match(copy, /"membership\.benefitReferral": "每位付费邀请奖励 100 积分"/);
-  assert.match(copy, /"membership\.benefitTopup": "充值套餐最高奖励 20%"/);
+  assert.match(copy, /"membership\.benefitExplore": "观看和下载 Explore 视频"/);
+  assert.match(copy, /"membership\.badgeExplore": "免费"/);
+  assert.match(copy, /"membership\.badgeReferral": "每位 100 积分"/);
+  assert.match(copy, /"membership\.badgeTopup": "最高 20%"/);
   assert.match(main, /topupMembershipLink\?\.addEventListener\("click"[\s\S]*?setTab\("referral"\)/);
   assert.match(main, /membershipCard\?\.scrollIntoView/);
   assert.match(main, /productId:\s*"api-docs-access"/);
