@@ -4047,10 +4047,17 @@ function selectedBillingPlan() {
   return plans.find((item) => item.id === state.selectedBillingPlanId) || null;
 }
 
+function selectedBillingProduct() {
+  const products = Array.isArray(state.billing?.products) ? state.billing.products : [];
+  if (!products.length) return null;
+  return products.find((item) => item.id === state.selectedProductId) || null;
+}
+
 function selectBillingPlan(planId = "") {
   const plan = billingPlans().find((item) => item.id === planId) || billingPlans()[0];
   if (!plan) return;
   state.selectedBillingPlanId = plan.id;
+  state.selectedProductId = "";
   state.selectedTopupPackageId = "";
   setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
@@ -4089,7 +4096,7 @@ function renderToolSubscription() {
 }
 
 function selectedTopupPackage() {
-  if (state.selectedBillingPlanId) return null;
+  if (state.selectedBillingPlanId || state.selectedProductId) return null;
   const packages = topupPackages();
   if (!packages.length) return null;
   return packages.find((item) => item.id === state.selectedTopupPackageId) || packages[0];
@@ -4110,6 +4117,7 @@ function selectTopupPackage(packageId = "") {
   const selected = packages.find((item) => item.id === packageId) || packages[0];
   if (!selected) return;
   state.selectedBillingPlanId = "";
+  state.selectedProductId = "";
   state.selectedTopupPackageId = selected.id;
   setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
@@ -4270,7 +4278,9 @@ function copyTopupAddress(address = "") {
 function renderTopupPackages() {
   if (!els.topupPackageGrid) return;
   const packages = topupPackages();
-  if (!state.selectedTopupPackageId && !state.selectedBillingPlanId && packages[0]) state.selectedTopupPackageId = packages[0].id;
+  if (!state.selectedTopupPackageId && !state.selectedBillingPlanId && !state.selectedProductId && packages[0]) {
+    state.selectedTopupPackageId = packages[0].id;
+  }
   els.topupPackageGrid.innerHTML = packages.map((item) => {
     const active = item.id === state.selectedTopupPackageId;
     return `
@@ -4291,15 +4301,18 @@ function renderTopupSummary() {
   renderToolSubscription();
   renderTopupPackages();
   const selectedPlan = selectedBillingPlan();
+  const selectedProduct = selectedBillingProduct();
   const selectedPackage = selectedTopupPackage();
-  const amount = selectedPlan?.amount || selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
-  const credits = selectedPlan?.includedCredits || selectedPackage?.credits || walletCreditsForAmount(amount);
+  const amount = selectedProduct?.amount || selectedPlan?.amount || selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
+  const credits = selectedProduct?.includedCredits || selectedPlan?.includedCredits || selectedPackage?.credits || walletCreditsForAmount(amount);
   const asset = state.wallet?.asset || "USDT";
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
   if (els.topupSelectedPackage) {
-    els.topupSelectedPackage.textContent = selectedPlan
+    els.topupSelectedPackage.textContent = selectedProduct
+      ? `${selectedProduct.name || "API Documentation Access"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
+      : selectedPlan
       ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
       : selectedPackage
       ? `$${formatCredits(selectedPackage.amount)} / ${formatCredits(selectedPackage.credits)} ${t("common.credits")}`
@@ -4330,6 +4343,10 @@ function setBackButtonVisibility(button, visible) {
 
 function syncTopupBackButtons() {
   setBackButtonVisibility(els.topupBackBtn, state.topupStep === "payment");
+  if (els.topupBackBtn) {
+    const label = els.topupBackBtn.querySelector("span");
+    if (label) label.textContent = state.selectedProductId ? t("common.back", {}, "Back") : t("topup.changePackage", {}, "Packages");
+  }
   if (els.topupQrBackBtn) {
     const label = els.topupQrBackBtn.querySelector("span");
     if (label) label.textContent = state.topupPayStep === "confirm" ? t("topup.stepTransfer", {}, "Transfer") : t("common.back", {}, "Back");
@@ -4352,6 +4369,11 @@ function handleTopupBack() {
     renderTopupSummary();
     syncTopupAutoRefresh();
     refreshIcons();
+    return;
+  }
+  if (els.topupDialog?.open && state.selectedProductId) {
+    els.topupDialog.close();
+    state.selectedProductId = "";
     return;
   }
   if (els.topupDialog?.open) setTopupStep("packages");
@@ -4387,9 +4409,10 @@ async function loadPayPalConfig() {
 async function startPayPalRedirectCheckout() {
   if (!state.user) return openLogin();
   const billingPlan = selectedBillingPlan();
+  const billingProduct = selectedBillingProduct();
   const topupPackage = selectedTopupPackage();
-  const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
-  if ((!billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+  const amount = Number(billingProduct?.amount || billingPlan?.amount || topupPackage?.amount || 0);
+  if ((!billingProduct && !billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
     return;
   }
@@ -4402,7 +4425,11 @@ async function startPayPalRedirectCheckout() {
       method: "POST",
       body: {
         amount,
-        ...(billingPlan ? { billingPlanId: billingPlan.id } : { packageId: topupPackage.id }),
+        ...(billingProduct
+          ? { productId: billingProduct.id }
+          : billingPlan
+          ? { billingPlanId: billingPlan.id }
+          : { packageId: topupPackage.id }),
         returnUrl,
         cancelUrl: returnUrl,
       },
@@ -4422,8 +4449,9 @@ async function renderPayPalCheckout() {
   try {
     const config = await loadPayPalConfig();
     const billingPlan = selectedBillingPlan();
+    const billingProduct = selectedBillingProduct();
     const topupPackage = selectedTopupPackage();
-    const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
+    const amount = Number(billingProduct?.amount || billingPlan?.amount || topupPackage?.amount || 0);
     if (!config.enabled) {
       els.paypalBox.hidden = false;
       els.paypalButtons.hidden = false;
@@ -4530,9 +4558,10 @@ async function payTopupWithTronLink(order = {}) {
 async function createTopupOrder() {
   if (!state.user) return openLogin();
   const billingPlan = selectedBillingPlan();
+  const billingProduct = selectedBillingProduct();
   const topupPackage = selectedTopupPackage();
-  const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
-  if ((!billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+  const amount = Number(billingProduct?.amount || billingPlan?.amount || topupPackage?.amount || 0);
+  if ((!billingProduct && !billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     if (els.topupRate) els.topupRate.textContent = t("topup.invalid");
     return;
   }
@@ -4544,6 +4573,8 @@ async function createTopupOrder() {
       method: "POST",
       body: billingPlan
         ? { planId: billingPlan.id, walletOptionId: selectedWalletOption()?.id || "" }
+        : billingProduct
+        ? { productId: billingProduct.id, walletOptionId: selectedWalletOption()?.id || "" }
         : { amount, packageId: topupPackage.id, walletOptionId: selectedWalletOption()?.id || "" },
     });
     renderTopupOrder(payload.order);
