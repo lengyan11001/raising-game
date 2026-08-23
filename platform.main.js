@@ -183,6 +183,16 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedDurationMessage = "";
       for (const file of files) {
         const mime = String(file.type || "").toLowerCase();
+        if (provider === "wan30" && isWan30DocumentFile(file)) {
+          if (state.advancedDocumentReference) {
+            skippedTooMany = true;
+            continue;
+          }
+          const document = await uploadAdvancedDocumentReference(file);
+          if (!document) continue;
+          state.activeAdvancedCaseId = "";
+          continue;
+        }
         if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
@@ -658,6 +668,14 @@ els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) =>
 });
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
+els.topupMembershipLink?.addEventListener("click", () => {
+  els.topupDialog?.close("membership");
+  setTab("referral");
+  trackAnalyticsEvent("topup_membership_guide_click", { event_location: "topup_dialog" });
+  requestAnimationFrame(() => {
+    els.membershipCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+});
 function openTopupDialog() {
   prepareModalOpen();
   state.selectedBillingPlanId = "";
@@ -701,7 +719,6 @@ function openToolDownload() {
 els.topupHeadBtn?.addEventListener("click", openTopupDialog);
 els.toolDownloadBtn?.addEventListener("click", openToolDownload);
 els.mobileToolDownloadBtn?.addEventListener("click", openToolDownload);
-els.topupTriggerBtn?.addEventListener("click", openTopupDialog);
 els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
@@ -711,6 +728,9 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo.removeAttribute("poster");
   els.previewVideo.removeAttribute("style");
   els.previewVideo.load();
+});
+els.historyDetailDialog?.addEventListener("close", () => {
+  stopModalMedia(els.historyDetailBody);
 });
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedPresetSearch?.addEventListener("input", () => {
@@ -903,6 +923,7 @@ els.loginForm?.addEventListener("submit", (event) => {
   }
   submitLogin();
 });
+els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
@@ -976,6 +997,7 @@ els.mobileDrawerLoginBtn?.addEventListener("click", () => {
   closeMobileDrawer();
   openLogin();
 });
+els.mobileDrawerLogoutBtn?.addEventListener("click", logout);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
   await navigator.clipboard.writeText(state.user.apiToken);

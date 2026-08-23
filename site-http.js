@@ -5,7 +5,7 @@ const CONTENT_SECURITY_POLICY = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://oauth.telegram.org",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data: blob:",
   "media-src 'self' https: blob:",
@@ -18,6 +18,7 @@ const CONTENT_SECURITY_POLICY = [
 
 const PUBLIC_SECURITY_HEADERS = Object.freeze({
   "content-security-policy": CONTENT_SECURITY_POLICY,
+  "cross-origin-opener-policy": "same-origin-allow-popups",
   "permissions-policy": "camera=(), geolocation=(), microphone=(), browsing-topics=()",
   "referrer-policy": "strict-origin-when-cross-origin",
   "x-content-type-options": "nosniff",

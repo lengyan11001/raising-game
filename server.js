@@ -182,10 +182,13 @@ const {
   httpsRedirectLocation,
 } = require("./site-http");
 const {
+  createTelegramLoginNonce,
   createTelegramBotClient,
+  parseTelegramLoginNonce,
   parseTelegramWebAppInitData,
   telegramStatusStage,
   telegramUserLabel: telegramBotUserLabel,
+  verifyTelegramOidcIdToken,
 } = require("./telegram-bot");
 
 const ROOT = __dirname;
@@ -360,6 +363,8 @@ const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
 const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_UNDRESS_BOT_TOKEN || "").trim();
+const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || TELEGRAM_BOT_TOKEN || "").trim();
+const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -818,6 +823,15 @@ const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const WAN30_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const WAN30_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
+const WAN30_DOCUMENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const WAN30_DOCUMENT_EXTENSIONS = new Set([".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".pdf", ".txt", ".md"]);
+const WAN30_DOCUMENT_MIMES = new Set([
+  "application/pdf", "text/plain", "text/markdown", "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/octet-stream",
+]);
 const VIDEO_DURATION_PROBE_TIMEOUT_MS = Math.max(3000, Number(process.env.VIDEO_DURATION_PROBE_TIMEOUT_MS || 10000) || 10000);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
@@ -10131,15 +10145,37 @@ function mediaExtFromMime(mime = "", fallbackPath = "") {
   return "";
 }
 
+function documentMimeFromKnownPath(filePath = "") {
+  const ext = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
+  const map = {
+    ".pdf": "application/pdf", ".txt": "text/plain", ".md": "text/markdown", ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  };
+  return map[ext] || "";
+}
+
 function decodeWanMediaDataUrl(dataUrl = "") {
-  const match = String(dataUrl || "").match(/^data:((?:image\/(?:png|jpeg|jpg|webp|bmp))|(?:audio\/(?:mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))|(?:video\/(?:mp4|webm|quicktime|x-m4v)));base64,([a-z0-9+/=]+)$/i);
+  const match = String(dataUrl || "").match(/^data:([^;,]+);base64,([a-z0-9+/=]+)$/i);
   if (!match) {
-    const error = new Error("Only image, audio, or video data URLs are supported.");
+    const error = new Error("Only supported image, audio, video, or Wan 3.0 document data URLs are supported.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const mime = match[1].toLowerCase().replace("image/jpg", "image/jpeg").replace("audio/mp3", "audio/mpeg");
+  const supportedMediaMimes = new Set([
+    "image/png", "image/jpeg", "image/webp", "image/bmp",
+    "audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm",
+    "video/mp4", "video/webm", "video/quicktime", "video/x-m4v",
+  ]);
+  if (!(supportedMediaMimes.has(mime) || WAN30_DOCUMENT_MIMES.has(mime))) {
+    const error = new Error("Unsupported upload format.");
     error.statusCode = 400;
     throw error;
   }
   return {
-    mime: match[1].replace("image/jpg", "image/jpeg").replace("audio/mp3", "audio/mpeg"),
+    mime,
     bytes: Buffer.from(match[2], "base64"),
   };
 }
@@ -10153,7 +10189,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
   }
 
   const assetId = randomId("asset");
-  const fallbackExt = mime.startsWith("image/") ? imageExtFromMime(mime) : ".bin";
+  const fallbackExt = mime.startsWith("image/") ? imageExtFromMime(mime) : documentMimeFromKnownPath(fileName) ? path.extname(fileName).toLowerCase() : ".bin";
   const storedFileName = `${assetId}${mediaExtFromMime(mime, fileName) || fallbackExt}`;
   const dir = path.join(USER_UPLOAD_DIR, user.id);
   const localPath = path.join(dir, storedFileName);
@@ -10256,9 +10292,19 @@ function userMediaUploadLimits(provider = "") {
 }
 
 async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "Wan media", fileName = "", provider = "" } = {}) {
-  const { mime, bytes } = decodeWanMediaDataUrl(dataUrl);
+  let { mime, bytes } = decodeWanMediaDataUrl(dataUrl);
+  if (mime === "application/octet-stream") {
+    mime = documentMimeFromKnownPath(fileName);
+    if (!mime) {
+      const error = new Error("A document file extension is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
   const limits = userMediaUploadLimits(provider);
-  const maxBytes = mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
+  const maxBytes = WAN30_DOCUMENT_MIMES.has(mime) && !mime.startsWith("image/") && !mime.startsWith("audio/") && !mime.startsWith("video/")
+    ? WAN30_DOCUMENT_UPLOAD_MAX_BYTES
+    : mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
   return createUserMediaAssetFromBytes(db, user, {
     bytes,
     mime,
@@ -14331,6 +14377,7 @@ function validateWan27MediaKind(assetOrUrl = {}, expectedKind = "image", label =
     if (expectedKind === "image" && !mime.startsWith("image/")) throw new Error(`${label} must be an image.`);
     if (expectedKind === "audio" && !mime.startsWith("audio/")) throw new Error(`${label} must be audio.`);
     if (expectedKind === "video" && !mime.startsWith("video/")) throw new Error(`${label} must be a video.`);
+    if (expectedKind === "document" && !WAN30_DOCUMENT_MIMES.has(mime)) throw new Error(`${label} must be a supported document.`);
   }
   const url = String(assetOrUrl.url || assetOrUrl.publicUrl || assetOrUrl.localUrl || "");
   const ext = path.extname(url.split("?")[0]).toLowerCase();
@@ -14338,6 +14385,7 @@ function validateWan27MediaKind(assetOrUrl = {}, expectedKind = "image", label =
     if (expectedKind === "image" && ![".jpg", ".jpeg", ".png", ".bmp", ".webp"].includes(ext)) throw new Error(`${label} must be an image URL.`);
     if (expectedKind === "audio" && ![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) throw new Error(`${label} must be an audio URL.`);
     if (expectedKind === "video" && ![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) throw new Error(`${label} must be a video URL.`);
+    if (expectedKind === "document" && !WAN30_DOCUMENT_EXTENSIONS.has(ext)) throw new Error(`${label} must be a supported document URL.`);
   }
 }
 
@@ -14474,6 +14522,13 @@ function aliyunReferenceAudioInputs(body = {}) {
   return aliyunMediaInputs(values, { mediaKind: "audio", type: "reference_audio" });
 }
 
+function aliyunReferenceFileInput(body = {}) {
+  return aliyunMediaInput(
+    firstPresent(body.referenceFile, body.reference_file, body.referenceFileAssetId ? { assetId: body.referenceFileAssetId } : null),
+    { mediaKind: "document", type: "file" },
+  );
+}
+
 function aliyunFirstFrameInput(body = {}, fallbackAsset = null) {
   const input = aliyunMediaInput({
     assetId: firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, body.userAssetId),
@@ -14527,7 +14582,7 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     validateWan27MediaKind(asset, input.mediaKind, label);
     const wan30 = normalizeAdvancedProvider(input.provider || "") === "wan30";
     asset = await ensurePublicUrlForUserMediaAsset(db, asset, {
-      normalizeImage: true,
+      normalizeImage: input.mediaKind !== "document",
       imageMinDimension: wan30 ? 240 : SEEDANCE_IMAGE_DIMENSION_MIN,
       imageMaxDimension: wan30 ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
     });
@@ -14625,6 +14680,14 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
       const seconds = durationSecondsFromValue(item.durationSeconds) || await probeVideoDurationSeconds(item.url);
       if (seconds < 1 || seconds > 15) throw advancedValidationError("WAN30_AUDIO_DURATION_INVALID", `${label} duration must be between 1 and 15 seconds.`, { duration: seconds });
       totalAudioSeconds += seconds;
+      continue;
+    }
+    if (item.type === "file") {
+      const extension = path.extname(String(item.url || "").split("?")[0]).toLowerCase();
+      if (!WAN30_DOCUMENT_MIMES.has(mime) && !WAN30_DOCUMENT_EXTENSIONS.has(extension)) {
+        throw advancedValidationError("WAN30_DOCUMENT_FORMAT_INVALID", `${label} must be PDF, Word, Excel, PowerPoint, TXT, or Markdown.`);
+      }
+      if (sizeBytes > WAN30_DOCUMENT_UPLOAD_MAX_BYTES) throw advancedValidationError("WAN30_DOCUMENT_TOO_LARGE", `${label} must be 100MB or smaller.`);
     }
   }
   if (totalVideoSeconds > 15) throw advancedValidationError("WAN30_VIDEO_TOTAL_DURATION_INVALID", "Wan 3.0 reference videos must total 15 seconds or less.", { totalVideoSeconds });
@@ -14644,7 +14707,7 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
     const frameMode = ["first_frame", "first_last_frame", "frames"].includes(rawMode);
     let inputs = frameMode
       ? [aliyunFirstFrameInput(body, fallbackAsset), aliyunLastFrameInput(body)].filter(Boolean)
-      : [...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body), ...aliyunReferenceAudioInputs(body)];
+      : [...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body), ...aliyunReferenceAudioInputs(body), ...[aliyunReferenceFileInput(body)].filter(Boolean)];
     inputs = inputs.map((input) => ({ ...input, provider: "wan30" }));
     const resolvedMedia = [];
     for (let index = 0; index < inputs.length; index += 1) {
@@ -14655,10 +14718,12 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
       images: media.filter((item) => item.type === "reference_image").length,
       videos: media.filter((item) => item.type === "reference_video").length,
       audios: media.filter((item) => item.type === "reference_audio").length,
+      files: media.filter((item) => item.type === "file").length,
     };
-    if (inputCounts.images > 10 || inputCounts.videos > 5 || inputCounts.audios > 5) {
-      throw advancedValidationError("WAN30_MEDIA_COUNT_INVALID", "Wan 3.0 accepts up to 10 images, 5 videos, and 5 audios.", inputCounts);
+    if (inputCounts.images > 10 || inputCounts.videos > 5 || inputCounts.audios > 5 || inputCounts.files > 1) {
+      throw advancedValidationError("WAN30_MEDIA_COUNT_INVALID", "Wan 3.0 accepts up to 10 images, 5 videos, 5 audios, or one document.", inputCounts);
     }
+    if (inputCounts.files && media.length > 1) throw advancedValidationError("WAN30_MEDIA_COMBINATION_INVALID", "Wan 3.0 documents cannot be combined with other media inputs.");
     if (frameMode && (!media.some((item) => item.type === "first_frame") || !media.some((item) => item.type === "last_frame"))) {
       throw advancedValidationError("WAN30_FRAMES_REQUIRED", "Wan 3.0 First + Last Frame mode requires both frame images.");
     }
@@ -18979,6 +19044,8 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
     || pathValue === "/api/telegram/webapp-auth"
+    || pathValue === "/api/telegram/login/options"
+    || pathValue === "/api/telegram/login"
     || pathValue.startsWith("/api/telegram/webhook")
     || (pathValue.startsWith("/api/generation-records") && undressToolGenerationRecordPathAllowed(method, pathValue))
     || pathValue.startsWith("/api/undress-tool/")
@@ -26184,9 +26251,9 @@ function qwenImage3ParameterFields() {
 
 function advancedAssetParameterFields() {
   return [
-    { name: "/api/user-assets", type: "endpoint", required: "No", description: "Upload a reusable image, video, or audio for Advanced generation. Reuse the returned asset.id in later requests.", default: "-" },
+    { name: "/api/user-assets", type: "endpoint", required: "No", description: "Upload a reusable image, video, audio, or (with provider=wan30) document for Advanced generation. Reuse the returned asset.id in later requests.", default: "-" },
     { name: "url / imageUrl / videoUrl / audioUrl", type: "string", required: "For URL upload", description: "Public http(s) media URL. The server imports the file into your asset library.", default: "-" },
-    { name: "dataUrl", type: "string", required: "For inline upload", description: "Base64 image, video, or audio data URL.", default: "-" },
+    { name: "dataUrl", type: "string", required: "For inline upload", description: "Base64 image, video, audio, or Wan 3.0 document data URL.", default: "-" },
     { name: "name / fileName", type: "string", required: "No", description: "Asset display name and original file name.", default: "Upload" },
     { name: "durationSeconds", type: "number", required: "No", description: "Known media duration in seconds. Supplying it avoids an extra duration probe when applicable.", default: "-" },
     { name: "provider", type: "string", required: "No", description: "Set to `wan30` when uploading media for Wan 3.0 so its media-size limits are applied.", default: "-" },
@@ -26203,6 +26270,7 @@ function wan30VideoParameterFields() {
     { name: "referenceImages", type: "array", required: "For image references", description: "0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
     { name: "referenceVideos", type: "array", required: "For video references", description: "0-5 videos. Each item accepts assetId, url/videoUrl, or dataUrl plus optional fileName.", default: "[]" },
     { name: "referenceAudios", type: "array", required: "For audio references", description: "0-5 audios. Each item accepts assetId, url/audioUrl, or dataUrl plus optional fileName.", default: "[]" },
+    { name: "referenceFileAssetId / referenceFile", type: "string/object", required: "For document input", description: "One PDF, Word, Excel, PowerPoint, TXT, or Markdown document, up to 100MB. It cannot be combined with other media inputs.", default: "-" },
     { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image.", default: "-" },
     { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frame images are required.", default: "-" },
     { name: "resolution", type: "enum", required: "No", description: "`480p`, `720p`, or `1080p`.", default: "1080p" },
@@ -28660,10 +28728,42 @@ function telegramBotWebhookPathMatches(pathname = "") {
     || (TELEGRAM_BOT_WEBHOOK_SECRET && pathValue === `${basePath}/${TELEGRAM_BOT_WEBHOOK_SECRET}`);
 }
 
-function telegramUserFromDb(db, telegramUserId = "") {
+const TELEGRAM_OIDC_JWKS_URL = "https://oauth.telegram.org/.well-known/jwks.json";
+let telegramOidcJwksCache = { expiresAt: 0, value: null };
+
+async function telegramOidcJwks() {
+  if (telegramOidcJwksCache.value && telegramOidcJwksCache.expiresAt > Date.now()) {
+    return telegramOidcJwksCache.value;
+  }
+  const response = await fetch(TELEGRAM_OIDC_JWKS_URL, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    const error = new Error(`Telegram signing keys are unavailable (${response.status}).`);
+    error.statusCode = 503;
+    error.code = "TELEGRAM_LOGIN_UNAVAILABLE";
+    throw error;
+  }
+  const value = await response.json();
+  if (!Array.isArray(value?.keys) || !value.keys.length) {
+    const error = new Error("Telegram signing keys are unavailable.");
+    error.statusCode = 503;
+    error.code = "TELEGRAM_LOGIN_UNAVAILABLE";
+    throw error;
+  }
+  telegramOidcJwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, value };
+  return value;
+}
+
+function telegramLoginConfigured() {
+  return Boolean(TELEGRAM_LOGIN_BOT_TOKEN && /^\d+$/.test(TELEGRAM_LOGIN_CLIENT_ID));
+}
+
+function telegramUserFromDb(db, telegramUserId = "", tenantId = UNDRESS_TOOL_TENANT_ID) {
   const id = String(telegramUserId || "").trim();
   if (!id) return null;
-  return (db?.users || []).find((user) => String(user.telegramUserId || "") === id && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID)) || null;
+  return (db?.users || []).find((user) => String(user.telegramUserId || "") === id && recordBelongsToTenant(user, tenantId)) || null;
 }
 
 function telegramUsernameCandidate(telegramUser = {}) {
@@ -28672,11 +28772,11 @@ function telegramUsernameCandidate(telegramUser = {}) {
   return `tg_${clean}`.slice(0, 24);
 }
 
-function uniqueTelegramUsername(db, telegramUser = {}) {
+function uniqueTelegramUsername(db, telegramUser = {}, tenantId = UNDRESS_TOOL_TENANT_ID) {
   const base = telegramUsernameCandidate(telegramUser);
   let candidate = base;
   let suffix = 1;
-  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID))) {
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, tenantId))) {
     const suffixText = `_${suffix}`;
     candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
     suffix += 1;
@@ -28684,7 +28784,13 @@ function uniqueTelegramUsername(db, telegramUser = {}) {
   return candidate;
 }
 
-async function ensureTelegramUserAccount(telegramUser = {}) {
+async function ensureTelegramUserAccount(telegramUser = {}, {
+  tenantId = UNDRESS_TOOL_TENANT_ID,
+  host = "",
+  registrationMedium = "telegram-mini-app",
+  referralCode = "",
+} = {}) {
+  const normalizedTenant = normalizeTenantId(tenantId);
   const telegramUserId = String(telegramUser.id || "").trim();
   if (!telegramUserId) {
     const error = new Error("Telegram user information is missing.");
@@ -28694,13 +28800,18 @@ async function ensureTelegramUserAccount(telegramUser = {}) {
   }
   const now = new Date().toISOString();
   const db = await readDb();
-  let user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
-    || telegramUserFromDb(db, telegramUserId);
+  let user = await getUserByTelegramIdInDb(telegramUserId, normalizedTenant)
+    || telegramUserFromDb(db, telegramUserId, normalizedTenant);
+  let created = false;
+  let referrer = null;
   if (!user) {
+    const normalizedReferralCode = normalizeReferralCode(referralCode);
+    const referrerId = userIdFromReferralCode(normalizedReferralCode);
+    referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
     user = {
       id: randomId("user"),
-      tenantId: UNDRESS_TOOL_TENANT_ID,
-      username: uniqueTelegramUsername(db, telegramUser),
+      tenantId: normalizedTenant,
+      username: uniqueTelegramUsername(db, telegramUser, normalizedTenant),
       passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
       role: "user",
       credits: 0,
@@ -28710,56 +28821,139 @@ async function ensureTelegramUserAccount(telegramUser = {}) {
       registrationChannel: "telegram",
       registrationAttribution: {
         channel: "telegram",
-        medium: "telegram-mini-app",
+        medium: String(registrationMedium || "telegram-login").slice(0, 80),
         landingPath: "/",
-        host: "undress.14vips.com",
+        host: String(host || "").trim().slice(0, 160),
         registeredAt: now,
       },
       createdAt: now,
       updatedAt: now,
     };
+    if (referrer?.id && recordBelongsToTenant(referrer, normalizedTenant)) {
+      user.referral = {
+        referredByUserId: referrer.id,
+        referredByUsername: referrer.username || "",
+        referralCode: normalizedReferralCode,
+        registeredAt: now,
+      };
+    }
     db.users.push(user);
+    created = true;
   }
 
-  user.tenantId = UNDRESS_TOOL_TENANT_ID;
+  user.tenantId = normalizedTenant;
   user.telegramUserId = telegramUserId;
   user.telegramChatId = telegramUserId;
   user.telegramUsername = String(telegramUser.username || "").trim();
   user.telegramFirstName = String(telegramUser.first_name || "").trim().slice(0, 80);
   user.telegramLastName = String(telegramUser.last_name || "").trim().slice(0, 80);
   user.telegramLanguageCode = String(telegramUser.language_code || "").trim().slice(0, 16);
+  user.telegramPhotoUrl = String(telegramUser.photo_url || "").trim().slice(0, 1000);
+  user.telegramPhoneNumber = String(telegramUser.phone_number || "").trim().slice(0, 40);
   user.telegramUpdatedAt = now;
   user.updatedAt = now;
   ensureUserApiToken(user, db);
 
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(db);
+  if (created && referrer?.id) {
+    const wasMember = userHasCreatorMembership(referrer);
+    await ensureCreatorMembershipFromReferrals(db, referrer);
+    if (!wasMember && userHasCreatorMembership(referrer)) await grantPendingReferralRewardsForMember(db, referrer);
+    if (!dbEnabled()) await writeDb(db);
+  }
   telegramUserContextCache.set(user.id, { user, expiresAt: Date.now() + 60000 });
   return { db, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
 }
 
-async function telegramUserSessionFromInitData(initData = "") {
-  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
-  const account = await ensureTelegramUserAccount(parsed.user || {});
+async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT_ID) {
+  const normalizedTenant = normalizeTenantId(tenantId);
   const now = new Date().toISOString();
   const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: account.user.id, tenantId: UNDRESS_TOOL_TENANT_ID, createdAt: now };
+  const session = { token, userId: account.user.id, tenantId: normalizedTenant, createdAt: now };
   account.db.sessions.push(session);
   if (dbEnabled()) await createSessionInDb(session);
   else await writeDb(account.db);
-  return { token, user: account.user, telegram: account.telegram };
+  return { token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
+}
+
+async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "" } = {}) {
+  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
+  const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app" });
+  return createTelegramUserSession(account, tenantId);
 }
 
 async function handleTelegramWebAppAuth(req, res) {
-  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
+  const tenant = requestTenantDescriptor(req);
   const body = await readJson(req);
-  const result = await telegramUserSessionFromInitData(body.initData || "");
+  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req) });
   return sendJson(res, 200, {
     ok: true,
     token: result.token,
     user: userView(result.user),
-    tenantId: UNDRESS_TOOL_TENANT_ID,
+    tenantId: result.tenantId,
+    telegram: result.telegram,
+  });
+}
+
+function telegramUserFromOidcClaims(claims = {}) {
+  return {
+    id: String(claims.sub || claims.id || "").trim(),
+    username: String(claims.preferred_username || claims.username || "").trim(),
+    first_name: String(claims.given_name || claims.first_name || claims.name || "").trim(),
+    last_name: String(claims.family_name || claims.last_name || "").trim(),
+    language_code: String(claims.locale || claims.language_code || "").trim(),
+    photo_url: String(claims.picture || claims.photo_url || "").trim(),
+    phone_number: String(claims.phone_number || "").trim(),
+  };
+}
+
+async function handleTelegramLoginOptions(req, res) {
+  if (!telegramLoginConfigured()) {
+    return sendJson(res, 503, { ok: false, code: "TELEGRAM_LOGIN_NOT_CONFIGURED", message: "Telegram login is not configured." });
+  }
+  const tenant = requestTenantDescriptor(req);
+  const host = requestHostname(req);
+  const nonce = createTelegramLoginNonce(TELEGRAM_LOGIN_BOT_TOKEN, { tenantId: tenant.tenantId, host });
+  return sendJson(res, 200, { ok: true, clientId: TELEGRAM_LOGIN_CLIENT_ID, nonce });
+}
+
+async function handleTelegramLogin(req, res) {
+  if (!telegramLoginConfigured()) {
+    return sendJson(res, 503, { ok: false, code: "TELEGRAM_LOGIN_NOT_CONFIGURED", message: "Telegram login is not configured." });
+  }
+  const tenant = requestTenantDescriptor(req);
+  const host = requestHostname(req);
+  const body = await readJson(req);
+  const idToken = String(body.idToken || body.id_token || "").trim();
+  const tokenParts = idToken.split(".");
+  if (tokenParts.length !== 3) return sendJson(res, 401, { ok: false, code: "TELEGRAM_LOGIN_INVALID", message: "Telegram login response is invalid." });
+  let unsignedClaims = null;
+  try {
+    unsignedClaims = JSON.parse(Buffer.from(tokenParts[1], "base64url").toString("utf8"));
+  } catch {
+    unsignedClaims = null;
+  }
+  const nonce = String(unsignedClaims?.nonce || "").trim();
+  parseTelegramLoginNonce(nonce, TELEGRAM_LOGIN_BOT_TOKEN, { tenantId: tenant.tenantId, host });
+  const claims = verifyTelegramOidcIdToken(idToken, {
+    clientId: TELEGRAM_LOGIN_CLIENT_ID,
+    expectedNonce: nonce,
+    jwks: await telegramOidcJwks(),
+  });
+  const account = await ensureTelegramUserAccount(telegramUserFromOidcClaims(claims), {
+    tenantId: tenant.tenantId,
+    host,
+    registrationMedium: "telegram-oidc",
+    referralCode: body.referralCode || body.referral || body.ref || "",
+  });
+  const result = await createTelegramUserSession(account, tenant.tenantId);
+  return sendJson(res, 200, {
+    ok: true,
+    token: result.token,
+    user: userView(result.user),
+    tenantId: result.tenantId,
     telegram: result.telegram,
   });
 }
@@ -31425,17 +31619,27 @@ async function handleUploadUserAsset(req, res) {
     return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
   }
 
-  const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
-  if (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/")) {
-    return sendJson(res, 400, { ok: false, message: "Only image, video, or audio assets are supported." });
+  let { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
+  const fileName = String(body.fileName || body.name || "");
+  if (mime === "application/octet-stream") {
+    const inferredDocumentMime = documentMimeFromKnownPath(fileName);
+    if (!inferredDocumentMime) return sendJson(res, 400, { ok: false, message: "A document file extension is required." });
+    mime = inferredDocumentMime;
+  }
+  const isDocument = WAN30_DOCUMENT_MIMES.has(mime) && !mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/");
+  if (isDocument && uploadProvider !== "wan30") {
+    return sendJson(res, 400, { ok: false, message: "Document assets are currently supported only for Wan 3.0." });
+  }
+  if (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/") && !isDocument) {
+    return sendJson(res, 400, { ok: false, message: "Only image, video, audio, or Wan 3.0 document assets are supported." });
   }
   const limits = userMediaUploadLimits(uploadProvider);
-  const maxBytes = mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
+  const maxBytes = isDocument ? WAN30_DOCUMENT_UPLOAD_MAX_BYTES : mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
   const userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
     bytes,
     mime,
     name: body.name || "Upload",
-    fileName: body.fileName || body.name || "",
+    fileName,
     maxBytes,
     durationSeconds: firstPresent(body.durationSeconds, body.duration, body.videoDurationSeconds, body.audioDurationSeconds),
   });
@@ -31886,7 +32090,7 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
 
 function publicUserAsset(asset = {}) {
   const mime = String(asset.mime || "").toLowerCase();
-  const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "image";
+  const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : (WAN30_DOCUMENT_MIMES.has(mime) || documentMimeFromKnownPath(asset.name || asset.fileName)) ? "document" : "image";
   const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
   return {
     id: asset.id,
@@ -32383,6 +32587,72 @@ function imageEditUrlsFromBody(body = {}) {
   return [...new Set(urls.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
+function findImageEditTemplate(config = {}, templateId = "") {
+  const id = String(templateId || "").trim();
+  if (!id) return null;
+  const playfluxTemplates = Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [];
+  const platformTemplates = Array.isArray(config.platform?.templates) ? config.platform.templates : [];
+  return [...playfluxTemplates, ...platformTemplates]
+    .find((item) => String(item?.id || "").trim() === id) || null;
+}
+
+function imageEditTemplateShouldUsePreview(template = {}, sourceImageCount = 0) {
+  if (String(template.tab || "").trim().toLowerCase() === "video" || !template.previewUrl) return false;
+  if (sourceImageCount < 1) return false;
+  const requiredCount = Number(template.sourceCount || 0);
+  return requiredCount <= 1 && sourceImageCount <= 1;
+}
+
+function imageEditPromptFromTemplate(template = {}, { sourceImageCount = 0, userPrompt = "" } = {}) {
+  const requestJson = template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)
+    ? template.requestJson
+    : {};
+  const params = template.params && typeof template.params === "object" && !Array.isArray(template.params)
+    ? template.params
+    : {};
+  const prompts = template.prompts && typeof template.prompts === "object" && !Array.isArray(template.prompts)
+    ? template.prompts
+    : {};
+  const negativePrompt = firstNonEmptyText(
+    requestJson.negative_prompt,
+    requestJson.negativePrompt,
+    params.negative_prompt,
+    params.negativePrompt,
+    template.negativePrompt,
+    template.negative_prompt,
+    prompts.negative,
+  );
+  const basePrompt = [
+    firstNonEmptyText(
+      requestJson.prompt,
+      params.prompt,
+      template.prompt,
+      template.imagePrompt,
+      template.image_prompt,
+      prompts.image,
+      prompts.anime,
+      prompts.default,
+    ),
+    String(userPrompt || "").trim(),
+    negativePrompt ? `Negative prompt: ${negativePrompt}` : "",
+  ].filter(Boolean).join("\n\n");
+  if (!imageEditTemplateShouldUsePreview(template, sourceImageCount)) return basePrompt;
+  const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
+  const guide = sourceImageCount > 0
+    ? `CRITICAL: Image 1 is the user's selected character/source and must be the dominant subject. Preserve Image 1 identity, face, body type, skin tone, hair, and main visual features. Image ${previewIndex} is NOT the target result and NOT a character reference; use it only as a loose reference for pose, composition, camera angle, scene intent, and general style. Do not copy the person, face, body, clothing, background, watermark, text, colors, or artifacts from Image ${previewIndex}. If Image 1 conflicts with Image ${previewIndex}, Image 1 always wins. The final result must look like a transformed version of Image 1, not a copy of Image ${previewIndex}.`
+    : "";
+  return [guide, basePrompt].filter(Boolean).join("\n\n");
+}
+
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const text = value.trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 async function handleWan27ImageEdit(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -32391,13 +32661,26 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   const body = await readJson(req);
-  const prompt = String(body.prompt || "").trim();
-  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const bodyParams = requestParamsFromBody(body);
   const mergedBody = { ...bodyParams, ...body };
-  const asyncResponse = boolFromRequest(firstPresent(mergedBody.async, mergedBody.asyncResponse, mergedBody.returnImmediately), false);
+  const config = await readAppConfig();
+  const templateId = String(firstPresent(body.templateId, bodyParams.templateId, "") || "").trim();
+  const template = findImageEditTemplate(config, templateId);
   const assetIds = imageEditAssetIdsFromBody(mergedBody);
   let externalImageUrls = imageEditUrlsFromBody(mergedBody);
+  const originalSourceImageCount = assetIds.length + externalImageUrls.length;
+  if (template && imageEditTemplateShouldUsePreview(template, originalSourceImageCount)) {
+    const previewUrl = publicHttpUrlForUpstream(template.previewUrl);
+    if (previewUrl && !externalImageUrls.includes(previewUrl)) externalImageUrls = [...externalImageUrls, previewUrl];
+  }
+  const prompt = template
+    ? imageEditPromptFromTemplate(template, {
+      sourceImageCount: originalSourceImageCount,
+      userPrompt: firstNonEmptyText(body.prompt, bodyParams.prompt),
+    })
+    : firstNonEmptyText(body.prompt, bodyParams.prompt);
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  const asyncResponse = boolFromRequest(firstPresent(mergedBody.async, mergedBody.asyncResponse, mergedBody.returnImmediately), false);
   const invalidExternalImageUrl = externalImageUrls.find((url) => !isPublicHttpUrl(url));
   if (invalidExternalImageUrl) {
     return sendJson(res, 400, { ok: false, code: "INVALID_IMAGE_URL", message: "Wan2.7 image URLs must be public http(s) URLs." });
@@ -32423,7 +32706,6 @@ async function handleWan27ImageEdit(req, res) {
     return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
   }
 
-  const config = await readAppConfig();
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
   const imageOptions = wan27ImageRequestOptions(mergedBody, {
     defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
@@ -38090,6 +38372,7 @@ const PRIVATE_STATIC_ROOT_FILES = new Set([
   "/session_handoff_2026-06-06.md",
   "/site-http.js",
   "/site-seo.js",
+  "/telegram-bot.js",
   "/video-tools.js",
 ]);
 
@@ -38458,6 +38741,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/telegram/webapp-auth") {
       return await handleTelegramWebAppAuth(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/telegram/login/options") {
+      return await handleTelegramLoginOptions(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/telegram/login") {
+      return await handleTelegramLogin(req, res);
     }
 
     if (req.method === "POST" && telegramBotWebhookPathMatches(url.pathname)) {

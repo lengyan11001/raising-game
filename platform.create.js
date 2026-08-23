@@ -318,7 +318,8 @@ function renderAdvancedAssets(assets) {
     const url = assetPreviewUrl(asset);
     const video = isVideoAsset(asset);
     const audio = isAudioAsset(asset);
-    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
+    const document = isDocumentAsset(asset);
+    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : document ? "Document" : t("assets.image");
     return `
       <article class="advanced-asset-card">
         <div class="advanced-asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-advanced-asset-preview="${escapeHtml(asset.id)}"` : ""}>
@@ -326,6 +327,8 @@ function renderAdvancedAssets(assets) {
             ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video><span class="advanced-case-video-mark"><i data-lucide="play"></i></span>`
             : audio
               ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i></div>`
+              : document
+                ? `<div class="audio-asset-preview"><i data-lucide="file-text"></i></div>`
               : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
         </div>
         <div class="advanced-asset-meta">
@@ -334,7 +337,7 @@ function renderAdvancedAssets(assets) {
         </div>
         <div class="advanced-asset-actions">
           ${canAddAssetToGeneration ? `<button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>` : ""}
-          ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
+          ${!video && !audio && !document ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
           <button class="ghost-button danger" type="button" data-advanced-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
         </div>
       </article>
@@ -360,7 +363,7 @@ function renderAdvancedAssets(assets) {
       const previewUrl = assetPreviewUrl(asset);
       if (isVideoAsset(asset)) {
         playPreview({ title: asset.name || asset.id, previewUrl, ratio: "16:9" });
-      } else if (!isAudioAsset(asset)) {
+      } else if (!isAudioAsset(asset) && !isDocumentAsset(asset)) {
         previewImage({ title: asset.name || asset.id, imageUrl: previewUrl });
       }
     });
@@ -1303,6 +1306,53 @@ function publicAliyunModelsEnabled() {
   return state.config?.tenantFeatures?.aliyunModels !== false;
 }
 
+const WAN30_DOCUMENT_EXTENSIONS = new Set([".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf", ".txt", ".md"]);
+
+function isWan30DocumentFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+  return WAN30_DOCUMENT_EXTENSIONS.has(ext);
+}
+
+async function uploadAdvancedDocumentReference(file) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file || currentAdvancedProvider() !== "wan30" || !isWan30DocumentFile(file)) return null;
+  if (file.size > ADVANCED_WAN30_DOCUMENT_MAX_BYTES) {
+    if (els.advancedNote) els.advancedNote.textContent = "Wan 3.0 documents must be 100MB or smaller.";
+    return null;
+  }
+  const pending = addAdvancedPendingReference("document", file);
+  try {
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: {
+        dataUrl: await readFileAsDataUrl(file),
+        name: file.name || "Document reference",
+        fileName: file.name || "",
+        provider: "wan30",
+      },
+    });
+    const asset = payload.asset || null;
+    if (!asset?.id || asset.kind !== "document") throw new Error("Invalid document asset");
+    state.advancedDocumentReference = { assetId: asset.id, fileName: asset.name || file.name || "", name: asset.name || file.name || "", kind: "document", order: pending.order };
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    renderAdvancedAssets();
+    renderAdvancedReferencePreviews();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+    return asset;
+  } catch (error) {
+    removeAdvancedPendingReference(pending.pendingId);
+    throw error;
+  }
+}
+
 function publicWan27ModelsEnabled() {
   return state.config?.tenantFeatures?.aliyunWan27Models === true;
 }
@@ -1554,6 +1604,7 @@ function updateAdvancedModelControls() {
         allowedTargetTypes.has("image") ? "image/*" : "",
         allowedTargetTypes.has("video") ? "video/mp4,video/webm,video/quicktime,video/*" : "",
         allowedTargetTypes.has("audio") ? "audio/*" : "",
+        provider === "wan30" ? ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" : "",
       ].filter(Boolean).join(",");
       els.advancedImage.accept = sharedReferenceUpload ? sharedAccept : advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = allowManualReferenceUpload && (
@@ -1615,10 +1666,11 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
   const sharedUpload = advancedUsesSharedReferenceUpload(provider, capability);
   const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
   els.advancedImage.accept = sharedUpload
-    ? [
+      ? [
         allowedTypes.has("image") ? "image/*" : "",
         allowedTypes.has("video") ? "video/mp4,video/webm,video/quicktime,video/*" : "",
         allowedTypes.has("audio") ? "audio/*" : "",
+        provider === "wan30" ? ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" : "",
       ].filter(Boolean).join(",") || advancedCreateUploadAcceptValue()
     : "image/*";
   els.advancedImage.multiple = !characterPresetUpload && (
@@ -1766,6 +1818,7 @@ function clearAdvancedCreationInputs() {
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
   state.advancedReferenceImages = [];
+  state.advancedDocumentReference = null;
   state.advancedSeedanceVideoReferences = [];
   state.advancedSeedanceAudioReferences = [];
   state.advancedSeedanceGenerateAudio = true;
@@ -2138,6 +2191,7 @@ async function submitAdvancedGenerate() {
         ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
       ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
     : selectedAdvancedReferenceImages();
+  const documentReference = provider === "wan30" && state.advancedDocumentReference ? state.advancedDocumentReference : null;
   const isWanI2v = provider === "wan27" && videoCapability === "wan27-i2v";
   const wanI2vFrames = isWanI2v
     ? resolvedWanI2vFrames(referenceImages)
@@ -2215,12 +2269,17 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
     return;
   }
-  if (provider === "wan30" && !prompt && !referenceImages.length && !seedanceVideoRefs.length && !seedanceAudioRefs.length && !seedanceFrameMode) {
+  if (provider === "wan30" && !prompt && !referenceImages.length && !seedanceVideoRefs.length && !seedanceAudioRefs.length && !documentReference && !seedanceFrameMode) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = "Prompt or reference media is required.";
     return;
   }
   if (provider === "wan30") {
+    if (documentReference && (referenceImages.length || seedanceVideoRefs.length || seedanceAudioRefs.length || seedanceFrameMode)) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Wan 3.0 documents cannot be combined with other media inputs.";
+      return;
+    }
     const videoSeconds = seedanceVideoRefs.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0);
     const audioSeconds = seedanceAudioRefs.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0);
     if (videoSeconds > 15 || audioSeconds > 15) {
@@ -2328,6 +2387,7 @@ async function submitAdvancedGenerate() {
         ...referenceImages.map((item) => item.assetId || ""),
         ...seedanceVideoAssetIds,
         ...seedanceAudioAssetIds,
+        documentReference?.assetId || "",
       ]
     : [
         state.advancedFirstFrameAssetId,
@@ -2436,6 +2496,7 @@ async function submitAdvancedGenerate() {
         referenceVideoUrls: sharedReferenceProvider && !seedanceFrameMode ? effectiveSeedanceVideoUrls : undefined,
         referenceVideoDurationSeconds: sharedReferenceProvider && !seedanceFrameMode ? inputVideoSeconds : undefined,
         referenceAudioUrls: sharedReferenceProvider && !seedanceFrameMode ? seedanceAudioUrls : undefined,
+        referenceFileAssetId: provider === "wan30" && !seedanceFrameMode ? (documentReference?.assetId || "") : undefined,
         videoAssetId: provider === "wan27" || provider === "happyhorse" ? (state.advancedWanClipAssetId || "") : undefined,
         videoDataUrl: provider === "wan27" || provider === "happyhorse" ? wanClipDataUrl : undefined,
         videoUrl: provider === "wan27" || provider === "happyhorse" ? wanClipUrl : undefined,
@@ -2759,6 +2820,10 @@ function isImageAsset(asset = {}) {
 
 function isAudioAsset(asset = {}) {
   return asset.kind === "audio" || String(asset.mime || "").toLowerCase().startsWith("audio/");
+}
+
+function isDocumentAsset(asset = {}) {
+  return asset.kind === "document";
 }
 
 function assetPreviewUrl(asset = {}) {
@@ -3670,6 +3735,7 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
   const sharedUpload = advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability());
   const referenceVideos = sharedUpload ? advancedSeedanceVideoReferences() : [];
   const referenceAudios = sharedUpload ? advancedSeedanceAudioReferences() : [];
+  const documentItems = provider === "wan30" && state.advancedDocumentReference ? [{ kind: "document", index: 0, label: "Document", item: state.advancedDocumentReference, order: advancedReferenceOrderValue(state.advancedDocumentReference, 1) }] : [];
   const displayImages = [...images, ...pendingRefs.filter((item) => item.kind === "image")]
     .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
   const imageItems = displayImages.map((item, index) => ({
@@ -3697,7 +3763,7 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
     item,
     order: advancedReferenceOrderValue(item, displayImages.length + displayVideos.length + index + 1),
   }));
-  return [...imageItems, ...videoItems, ...audioItems].sort((left, right) => left.order - right.order);
+  return [...imageItems, ...videoItems, ...audioItems, ...documentItems].sort((left, right) => left.order - right.order);
 }
 
 function advancedPromptMentionStableKey(entry = {}) {
@@ -3983,6 +4049,8 @@ function renderAdvancedReferencePreviews() {
     const url = item.dataUrl || item.previewUrl || item.url || "";
     const removeAttr = kind === "image"
       ? `data-remove-advanced-ref="${index}"`
+      : kind === "document"
+        ? `data-remove-advanced-document="${index}"`
       : `data-remove-shared-${kind}="${index}"`;
     const pendingText = t("advanced.uploadingReference", {}, "Uploading...");
     const media = pending
@@ -3991,6 +4059,8 @@ function renderAdvancedReferencePreviews() {
       ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
+        : kind === "document"
+          ? `<div class="advanced-audio-ref"><i data-lucide="file-text"></i><span>${escapeHtml(item.fileName || item.name || "Document")}</span></div>`
         : (url ? `<img src="${escapeHtml(url)}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
     return `
       <figure class="advanced-reference-chip is-${escapeHtml(kind)} ${pending ? "is-pending" : ""}" title="${escapeHtml(item.name || item.fileName || label)}">
@@ -4019,6 +4089,15 @@ function renderAdvancedReferencePreviews() {
       event.preventDefault();
       event.stopPropagation();
       removeAdvancedSeedanceMediaReference("audio", Number(button.dataset.removeSharedAudio));
+    });
+  });
+  els.advancedUploadPreview.querySelectorAll("[data-remove-advanced-document]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      state.advancedDocumentReference = null;
+      renderAdvancedReferencePreviews();
+      updateAdvancedModelControls();
+      updateAdvancedButtonCost();
     });
   });
   els.advancedUploadBox?.classList.toggle("has-image", refs.length > 0);
@@ -4090,7 +4169,8 @@ function renderAssets(assets = state.userAssets || []) {
     const url = assetPreviewUrl(asset);
     const video = isVideoAsset(asset);
     const audio = isAudioAsset(asset);
-    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
+    const document = isDocumentAsset(asset);
+    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : document ? "Document" : t("assets.image");
     return `
       <article class="asset-card">
         <div class="asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-asset-preview="${escapeHtml(asset.id)}"` : ""}>
@@ -4098,6 +4178,8 @@ function renderAssets(assets = state.userAssets || []) {
             ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" controls></video>`
             : audio
               ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i><audio src="${escapeHtml(url)}" controls preload="metadata"></audio></div>`
+              : document
+                ? `<div class="audio-asset-preview"><i data-lucide="file-text"></i></div>`
               : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
         </div>
         <div class="asset-info">
@@ -4105,9 +4187,9 @@ function renderAssets(assets = state.userAssets || []) {
           <span>${escapeHtml(typeLabel)}</span>
         </div>
         <div class="asset-actions">
-          ${!video && !audio ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
-          ${!video && !audio ? `<button class="copy-btn" type="button" data-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
-          ${!video && !audio ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
+          ${!video && !audio && !document ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
+          ${!video && !audio && !document ? `<button class="copy-btn" type="button" data-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
+          ${!video && !audio && !document ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
           ${video ? `<button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>` : ""}
           ${video ? `<button class="ghost-button" type="button" data-asset-frame="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extractFrame"))}</button>` : ""}
           <button class="ghost-button danger" type="button" data-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
@@ -4268,6 +4350,10 @@ function clearDeletedAdvancedAssetReference(assetId = "") {
   const nextSeedanceAudios = seedanceAudios.filter((item) => item.assetId !== assetId);
   if (nextSeedanceAudios.length !== seedanceAudios.length) {
     setAdvancedSeedanceAudioReferences(nextSeedanceAudios);
+    changed = true;
+  }
+  if (state.advancedDocumentReference?.assetId === assetId) {
+    state.advancedDocumentReference = null;
     changed = true;
   }
   if (!changed) return;
@@ -5123,6 +5209,7 @@ function renderReferral() {
 function renderMembershipCard() {
   if (!els.membershipCard) return;
   els.membershipCard.hidden = !membershipProgramEnabled();
+  if (els.topupMembershipLink) els.topupMembershipLink.hidden = !membershipProgramEnabled() || creatorMembershipActive();
   if (!membershipProgramEnabled()) return;
   const active = creatorMembershipActive();
   if (els.membershipState) {
@@ -5408,6 +5495,7 @@ function openAccount() {
 }
 
 function logout() {
+  closeMobileDrawer();
   state.token = "";
   state.user = null;
   state.showAccessToken = false;
@@ -5433,7 +5521,33 @@ function renderLoginForm() {
   const label = t("nav.login");
   if (els.loginTitle) els.loginTitle.textContent = label;
   if (els.loginSubmit) els.loginSubmit.textContent = label;
-  els.loginMessage.textContent = "";
+  if (els.loginSubmit) els.loginSubmit.disabled = false;
+  if (els.telegramLoginBtn) els.telegramLoginBtn.disabled = false;
+  if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = "";
+  if (els.loginMessage) els.loginMessage.textContent = "";
+}
+
+async function refreshAfterLogin() {
+  if (state.tab === "access") renderAccessGuides();
+  const refreshes = [];
+  if (state.tab === "access") refreshes.push(loadApiSubtokens({ force: true }));
+  if (state.tab === "history") refreshes.push(loadHistory());
+  if (state.tab === "topups") refreshes.push(loadTopupRecords(1));
+  if (state.tab === "spending") refreshes.push(loadSpendingRecords(1));
+  if (state.tab === "assets") refreshes.push(loadUserAssets());
+  if (state.tab === "referral") refreshes.push(loadReferralSummary());
+  if (tenantFeature("subscriptions", false) || membershipProgramEnabled()) refreshes.push(loadBillingSummary());
+  await Promise.allSettled(refreshes);
+}
+
+async function completeLogin(payload = {}) {
+  const token = String(payload.token || "").trim();
+  if (!token || !payload.user) throw new Error("Login response is invalid.");
+  state.token = token;
+  localStorage.setItem(TOKEN_KEY, token);
+  setUser(payload.user);
+  els.loginDialog?.close();
+  await refreshAfterLogin();
 }
 
 async function submitLogin() {
@@ -5462,18 +5576,7 @@ async function submitLogin() {
         attribution: registrationAttribution,
       },
     });
-    state.token = payload.token;
-    setUser(payload.user);
-    localStorage.setItem(TOKEN_KEY, payload.token);
-    els.loginDialog.close();
-    if (state.tab === "access") renderAccessGuides();
-    if (state.tab === "access") loadApiSubtokens({ force: true });
-    if (state.tab === "history") loadHistory();
-    if (state.tab === "topups") loadTopupRecords(1);
-    if (state.tab === "spending") loadSpendingRecords(1);
-    if (state.tab === "assets") loadUserAssets();
-    if (state.tab === "referral") loadReferralSummary();
-    if (tenantFeature("subscriptions", false) || membershipProgramEnabled()) loadBillingSummary();
+    await completeLogin(payload);
   } catch (error) {
     els.loginMessage.textContent = error.message;
   } finally {

@@ -3607,6 +3607,7 @@ function openHistoryDetail(index) {
   const videos = recordVideoAssets(record);
   const canDownload = canDownloadGenerationRecord(record);
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
+  stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
     <section class="history-detail-section">
       <header>
@@ -4307,10 +4308,6 @@ function renderTopupSummary() {
   if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
   if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
   syncTopupBackButtons();
-  currentTopupCreditsEls().forEach((element) => {
-    element.hidden = !state.user;
-    element.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
-  });
   if (els.topupRate) {
     els.topupRate.textContent = state.user
       ? state.topupStep === "packages"

@@ -1,6 +1,7 @@
 "use strict";
 
 let telegramSdkPromise = null;
+let telegramLoginSdkPromise = null;
 
 function telegramMiniApp() {
   return window.Telegram?.WebApp || null;
@@ -23,6 +24,93 @@ function ensureTelegramMiniAppSdk() {
     }
   });
   return telegramSdkPromise;
+}
+
+function ensureTelegramLoginSdk() {
+  if (window.Telegram?.Login?.auth) return Promise.resolve(window.Telegram.Login);
+  if (telegramLoginSdkPromise) return telegramLoginSdkPromise;
+  telegramLoginSdkPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-telegram-login-sdk="true"]');
+    const script = existing || document.createElement("script");
+    const finish = () => {
+      if (window.Telegram?.Login?.auth) resolve(window.Telegram.Login);
+      else reject(new Error("Telegram login SDK is unavailable."));
+    };
+    script.addEventListener("load", finish, { once: true });
+    script.addEventListener("error", () => reject(new Error("Telegram login SDK could not be loaded.")), { once: true });
+    if (!existing) {
+      script.src = "https://oauth.telegram.org/js/telegram-login.js?5";
+      script.async = true;
+      script.dataset.telegramLoginSdk = "true";
+      document.head.appendChild(script);
+    }
+  }).catch((error) => {
+    telegramLoginSdkPromise = null;
+    throw error;
+  });
+  return telegramLoginSdkPromise;
+}
+
+function telegramLoginResult(options = {}) {
+  return new Promise((resolve, reject) => {
+    window.Telegram.Login.auth(options, (result = {}) => {
+      if (result.error) {
+        reject(new Error(String(result.error || "Authorization was cancelled.")));
+        return;
+      }
+      const idToken = String(result.id_token || "").trim();
+      if (!idToken) {
+        reject(new Error("Telegram did not return an ID token."));
+        return;
+      }
+      resolve(idToken);
+    });
+  });
+}
+
+async function authorizeTelegramLogin() {
+  if (!els.telegramLoginBtn || els.telegramLoginBtn.disabled) return;
+  els.telegramLoginBtn.disabled = true;
+  if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = t("auth.telegramStarting");
+  if (els.loginMessage) els.loginMessage.textContent = "";
+  try {
+    if (telegramMiniApp() && String(telegramMiniApp().initData || "").trim()) {
+      const authenticated = await loadTelegramMiniAppAuth();
+      if (!authenticated || !state.token) throw new Error("Telegram Mini App authorization is unavailable.");
+      els.loginDialog?.close();
+      await refreshAfterLogin();
+      return;
+    }
+
+    const [login, options] = await Promise.all([
+      ensureTelegramLoginSdk(),
+      requestJson("/api/telegram/login/options"),
+    ]);
+    if (!login?.auth) throw new Error("Telegram login SDK is unavailable.");
+    const clientId = Number(options.clientId);
+    if (!Number.isSafeInteger(clientId) || clientId <= 0 || !String(options.nonce || "").trim()) {
+      throw new Error("Telegram login configuration is invalid.");
+    }
+    const idToken = await telegramLoginResult({
+      client_id: clientId,
+      scope: ["profile"],
+      lang: String(state.lang || "en"),
+      nonce: String(options.nonce),
+    });
+    const payload = await requestJson("/api/telegram/login", {
+      method: "POST",
+      body: {
+        idToken,
+        referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "",
+      },
+    });
+    await completeLogin(payload);
+  } catch (error) {
+    const message = String(error?.message || error || "Authorization failed.");
+    if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = t("auth.telegramFailed", { message });
+  } finally {
+    if (els.telegramLoginBtn) els.telegramLoginBtn.disabled = false;
+  }
 }
 
 function telegramMiniAppView() {

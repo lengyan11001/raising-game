@@ -14,6 +14,8 @@ const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.cre
 
 test("public security headers cover browser-facing responses", () => {
   assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /frame-ancestors 'none'/);
+  assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /https:\/\/oauth\.telegram\.org/);
+  assert.equal(PUBLIC_SECURITY_HEADERS["cross-origin-opener-policy"], "same-origin-allow-popups");
   assert.equal(PUBLIC_SECURITY_HEADERS["x-content-type-options"], "nosniff");
   assert.equal(PUBLIC_SECURITY_HEADERS["x-frame-options"], "DENY");
   assert.equal(PUBLIC_SECURITY_HEADERS["referrer-policy"], "strict-origin-when-cross-origin");

@@ -35,6 +35,7 @@ test("Undress alone gets a responsive idle-loaded ambient background", () => {
 
 test("login and registration share one form and one endpoint", () => {
   assert.match(html, /<form method="dialog" id="loginForm">/);
+  assert.match(html, /data-i18n="auth\.autoRegisterHint"/);
   assert.doesNotMatch(html, /toggleLoginMode/);
   assert.doesNotMatch(config, /loginMode|toggleLoginMode/);
   assert.match(create, /requestJson\("\/api\/auth\/login-or-register"/);
@@ -48,6 +49,21 @@ test("mobile drawer shows one authentication entry while logged out", () => {
   assert.match(config, /mobileDrawerUser: document\.querySelector\("#mobileDrawerUser"\)/);
   assert.match(ui, /els\.mobileDrawerUser\.hidden = !loggedIn/);
   assert.match(ui, /els\.mobileDrawerLoginBtn\.hidden = loggedIn/);
+  assert.match(html, /id="mobileDrawerLogoutBtn"[^>]*hidden/);
+  assert.match(config, /mobileDrawerLogoutBtn: document\.querySelector\("#mobileDrawerLogoutBtn"\)/);
+  assert.match(ui, /els\.mobileDrawerLogoutBtn\.hidden = !loggedIn/);
+  assert.match(main, /els\.mobileDrawerLogoutBtn\?\.addEventListener\("click", logout\)/);
+  assert.match(create, /function logout\(\) \{\s*closeMobileDrawer\(\);/);
+});
+
+test("account dropdown avoids duplicate top-up and referral entries", () => {
+  const accountMenu = html.match(/<div class="account-menu" id="accountMenu" hidden>([\s\S]*?)<\/div>\s*<\/div>\s*<\/header>/)?.[1] || "";
+  assert.ok(accountMenu);
+  assert.doesNotMatch(accountMenu, /id="topupTriggerBtn"/);
+  assert.doesNotMatch(accountMenu, /data-tab="referral"/);
+  assert.equal((accountMenu.match(/id="menuBalanceValue"/g) || []).length, 1);
+  assert.match(html, /id="topupHeadBtn"/);
+  assert.match(html, /class="top-tab" data-tab="referral"/);
 });
 
 test("legal documents are tucked into account menus instead of a visible footer", () => {

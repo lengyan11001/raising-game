@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-365-direct-download" />
+    <link rel="stylesheet" href="./platform.css?v=ai-367-telegram-login" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -133,6 +133,10 @@
           <strong id="mobileDrawerCredits" hidden>0</strong>
         </div>
         <button class="ghost-button mobile-drawer-login" id="mobileDrawerLoginBtn" type="button" data-i18n="nav.login">Login / Sign up</button>
+        <button class="menu-item mobile-drawer-logout" id="mobileDrawerLogoutBtn" type="button" hidden>
+          <i data-lucide="log-out"></i>
+          <span data-i18n="account.logout">Log out</span>
+        </button>
         <details class="account-legal-menu mobile-drawer-legal">
           <summary class="menu-item">
             <i data-lucide="shield-check"></i>
@@ -183,9 +187,7 @@
             <span data-i18n="account.credits">Credits</span>
             <strong id="menuBalanceValue">0</strong>
           </div>
-          <button class="menu-item" id="topupTriggerBtn" type="button"><i data-lucide="wallet"></i><span data-i18n="topup.compact">Top Up</span><strong id="topupTriggerCredits" hidden></strong></button>
           <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
-          <button class="menu-item" data-tab="referral" type="button"><i data-lucide="share-2"></i><span data-i18n="nav.referral">Referral</span></button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
@@ -281,7 +283,7 @@
               </div>
             </details>
             <label class="upload-box advanced-upload-box" id="advancedUploadBox" hidden>
-              <input id="advancedImage" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
+              <input id="advancedImage" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
               <div class="advanced-upload-previews" id="advancedUploadPreview"></div>
               <span data-i18n="advanced.uploadReference"><i data-lucide="plus"></i>Upload reference content</span>
             </label>
@@ -653,11 +655,21 @@
           <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
+          <button class="telegram-login-button" id="telegramLoginBtn" type="button">
+            <i data-lucide="send"></i>
+            <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
+          </button>
+          <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
           <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
+          <p class="auth-register-hint">
+            <i data-lucide="info"></i>
+            <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
+          </p>
           <div class="auth-actions">
             <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
           </div>
+          <p class="job-note" id="telegramLoginStatus"></p>
           <p class="job-note" id="loginMessage"></p>
         </div>
       </form>
@@ -707,6 +719,11 @@
             <span data-i18n="topup.title">Top Up</span>
             <strong data-i18n="topup.dialogTitle">Top up credits</strong>
           </div>
+          <button class="topup-membership-link" id="topupMembershipLink" type="button">
+            <i data-lucide="crown"></i>
+            <span class="topup-membership-label" data-i18n="topup.membershipGuide">$99 lifetime membership</span>
+            <span class="topup-membership-label-compact" aria-hidden="true">$99</span>
+          </button>
           <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
@@ -987,6 +1004,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-365-direct-download"></script>
+    <script src="./platform.js?v=ai-367-telegram-login"></script>
   </body>
 </html>

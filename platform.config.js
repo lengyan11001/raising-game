@@ -55,6 +55,7 @@ const ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT = 5;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
 const ADVANCED_WAN30_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 const ADVANCED_WAN30_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
+const ADVANCED_WAN30_DOCUMENT_MAX_BYTES = 100 * 1024 * 1024;
 const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
@@ -544,8 +545,8 @@ function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
 
 function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   if (currentAdvancedProvider() === "seedream5-image") return "image/*";
-  if (["seedance", "wan27"].includes(currentAdvancedProvider())) {
-    return "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*";
+  if (["seedance", "wan27", "wan30"].includes(currentAdvancedProvider())) {
+    return `${currentAdvancedProvider() === "wan30" ? "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" : "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*"}`;
   }
   if (advancedCreateUploadIsVideo(mode)) return "video/mp4,video/webm,video/quicktime,video/*";
   return "image/*";
@@ -737,6 +738,7 @@ const state = {
   advancedSourceImageAssetId: "",
   advancedFirstFrameAssetId: "",
   advancedReferenceImages: [],
+  advancedDocumentReference: null,
   advancedSeedanceVideoReferences: [],
   advancedSeedanceAudioReferences: [],
   advancedSeedanceGenerateAudio: true,
@@ -1065,10 +1067,9 @@ const els = {
   topupMethodTabs: document.querySelector("#topupMethodTabs"),
   topupPaypalPanel: document.querySelector("#topupPaypalPanel"),
   topupUsdtPanel: document.querySelector("#topupUsdtPanel"),
-  topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
-  topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
   topupBackBtn: document.querySelector("#topupBackBtn"),
+  topupMembershipLink: document.querySelector("#topupMembershipLink"),
   topupPackageStage: document.querySelector("#topupPackageStage"),
   topupPackageGrid: document.querySelector("#topupPackageGrid"),
   toolSubscriptionPanel: document.querySelector("#toolSubscriptionPanel"),
@@ -1215,6 +1216,7 @@ const els = {
   mobileDrawerCredits: document.querySelector("#mobileDrawerCredits"),
   mobileDrawerTopupBtn: document.querySelector("#mobileDrawerTopupBtn"),
   mobileDrawerLoginBtn: document.querySelector("#mobileDrawerLoginBtn"),
+  mobileDrawerLogoutBtn: document.querySelector("#mobileDrawerLogoutBtn"),
   accountMenuWrap: document.querySelector("#accountMenuWrap"),
   accountMenuBtn: document.querySelector("#accountMenuBtn"),
   accountMenuLabel: document.querySelector("#accountMenuLabel"),
@@ -1235,12 +1237,10 @@ const els = {
   loginDialog: document.querySelector("#loginDialog"),
   loginForm: document.querySelector("#loginForm"),
   loginTitle: document.querySelector("#loginTitle"),
+  telegramLoginBtn: document.querySelector("#telegramLoginBtn"),
+  telegramLoginStatus: document.querySelector("#telegramLoginStatus"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
   loginSubmit: document.querySelector("#loginSubmit"),
   loginMessage: document.querySelector("#loginMessage"),
 };
-
-function currentTopupCreditsEls() {
-  return [els.topupTriggerCredits].filter(Boolean);
-}

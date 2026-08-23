@@ -21,6 +21,9 @@ test("membership and API documentation entitlements use the requested products",
   assert.doesNotMatch(server, /id:\s*"usd-1000"/);
   assert.match(html, /id="buyApiDocsBtn"/);
   assert.match(html, /id="buyMembershipBtn"/);
+  assert.match(html, /id="topupMembershipLink"/);
+  assert.match(main, /topupMembershipLink\?\.addEventListener\("click"[\s\S]*?setTab\("referral"\)/);
+  assert.match(main, /membershipCard\?\.scrollIntoView/);
   assert.match(main, /productId:\s*"api-docs-access"/);
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
 });
