@@ -719,7 +719,6 @@ function openToolDownload() {
 els.topupHeadBtn?.addEventListener("click", openTopupDialog);
 els.toolDownloadBtn?.addEventListener("click", openToolDownload);
 els.mobileToolDownloadBtn?.addEventListener("click", openToolDownload);
-els.topupTriggerBtn?.addEventListener("click", openTopupDialog);
 els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;

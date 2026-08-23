@@ -50,6 +50,16 @@ test("mobile drawer shows one authentication entry while logged out", () => {
   assert.match(ui, /els\.mobileDrawerLoginBtn\.hidden = loggedIn/);
 });
 
+test("account dropdown avoids duplicate top-up and referral entries", () => {
+  const accountMenu = html.match(/<div class="account-menu" id="accountMenu" hidden>([\s\S]*?)<\/div>\s*<\/div>\s*<\/header>/)?.[1] || "";
+  assert.ok(accountMenu);
+  assert.doesNotMatch(accountMenu, /id="topupTriggerBtn"/);
+  assert.doesNotMatch(accountMenu, /data-tab="referral"/);
+  assert.equal((accountMenu.match(/id="menuBalanceValue"/g) || []).length, 1);
+  assert.match(html, /id="topupHeadBtn"/);
+  assert.match(html, /class="top-tab" data-tab="referral"/);
+});
+
 test("legal documents are tucked into account menus instead of a visible footer", () => {
   assert.match(html, /class="account-legal-menu mobile-drawer-legal"/);
   assert.equal((html.match(/class="account-legal-menu(?: mobile-drawer-legal)?"/g) || []).length, 2);

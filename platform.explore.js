@@ -4307,10 +4307,6 @@ function renderTopupSummary() {
   if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
   if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
   syncTopupBackButtons();
-  currentTopupCreditsEls().forEach((element) => {
-    element.hidden = !state.user;
-    element.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
-  });
   if (els.topupRate) {
     els.topupRate.textContent = state.user
       ? state.topupStep === "packages"

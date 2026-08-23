@@ -1067,8 +1067,6 @@ const els = {
   topupMethodTabs: document.querySelector("#topupMethodTabs"),
   topupPaypalPanel: document.querySelector("#topupPaypalPanel"),
   topupUsdtPanel: document.querySelector("#topupUsdtPanel"),
-  topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
-  topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
   topupBackBtn: document.querySelector("#topupBackBtn"),
   topupMembershipLink: document.querySelector("#topupMembershipLink"),
@@ -1243,7 +1241,3 @@ const els = {
   loginSubmit: document.querySelector("#loginSubmit"),
   loginMessage: document.querySelector("#loginMessage"),
 };
-
-function currentTopupCreditsEls() {
-  return [els.topupTriggerCredits].filter(Boolean);
-}

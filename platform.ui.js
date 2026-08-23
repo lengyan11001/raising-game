@@ -1043,12 +1043,11 @@ function renderAccountMenu() {
   const entitlementActive = apiDocsAccessActive();
   if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
-  if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
   if (els.mobileDrawerTopupBtn) els.mobileDrawerTopupBtn.hidden = !loggedIn;
   if (els.mobileDrawerUser) els.mobileDrawerUser.hidden = !loggedIn;
   if (els.mobileDrawerLoginBtn) els.mobileDrawerLoginBtn.hidden = loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
-    const publicTab = ["pricing", "referral"].includes(button.dataset.tab || "");
+    const publicTab = button.dataset.tab === "pricing";
     button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && !publicTab);
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
