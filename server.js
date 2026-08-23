@@ -182,10 +182,13 @@ const {
   httpsRedirectLocation,
 } = require("./site-http");
 const {
+  createTelegramLoginNonce,
   createTelegramBotClient,
+  parseTelegramLoginNonce,
   parseTelegramWebAppInitData,
   telegramStatusStage,
   telegramUserLabel: telegramBotUserLabel,
+  verifyTelegramOidcIdToken,
 } = require("./telegram-bot");
 
 const ROOT = __dirname;
@@ -360,6 +363,8 @@ const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
 const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_UNDRESS_BOT_TOKEN || "").trim();
+const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || TELEGRAM_BOT_TOKEN || "").trim();
+const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -19039,6 +19044,8 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
     || pathValue === "/api/telegram/webapp-auth"
+    || pathValue === "/api/telegram/login/options"
+    || pathValue === "/api/telegram/login"
     || pathValue.startsWith("/api/telegram/webhook")
     || (pathValue.startsWith("/api/generation-records") && undressToolGenerationRecordPathAllowed(method, pathValue))
     || pathValue.startsWith("/api/undress-tool/")
@@ -28721,10 +28728,42 @@ function telegramBotWebhookPathMatches(pathname = "") {
     || (TELEGRAM_BOT_WEBHOOK_SECRET && pathValue === `${basePath}/${TELEGRAM_BOT_WEBHOOK_SECRET}`);
 }
 
-function telegramUserFromDb(db, telegramUserId = "") {
+const TELEGRAM_OIDC_JWKS_URL = "https://oauth.telegram.org/.well-known/jwks.json";
+let telegramOidcJwksCache = { expiresAt: 0, value: null };
+
+async function telegramOidcJwks() {
+  if (telegramOidcJwksCache.value && telegramOidcJwksCache.expiresAt > Date.now()) {
+    return telegramOidcJwksCache.value;
+  }
+  const response = await fetch(TELEGRAM_OIDC_JWKS_URL, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    const error = new Error(`Telegram signing keys are unavailable (${response.status}).`);
+    error.statusCode = 503;
+    error.code = "TELEGRAM_LOGIN_UNAVAILABLE";
+    throw error;
+  }
+  const value = await response.json();
+  if (!Array.isArray(value?.keys) || !value.keys.length) {
+    const error = new Error("Telegram signing keys are unavailable.");
+    error.statusCode = 503;
+    error.code = "TELEGRAM_LOGIN_UNAVAILABLE";
+    throw error;
+  }
+  telegramOidcJwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, value };
+  return value;
+}
+
+function telegramLoginConfigured() {
+  return Boolean(TELEGRAM_LOGIN_BOT_TOKEN && /^\d+$/.test(TELEGRAM_LOGIN_CLIENT_ID));
+}
+
+function telegramUserFromDb(db, telegramUserId = "", tenantId = UNDRESS_TOOL_TENANT_ID) {
   const id = String(telegramUserId || "").trim();
   if (!id) return null;
-  return (db?.users || []).find((user) => String(user.telegramUserId || "") === id && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID)) || null;
+  return (db?.users || []).find((user) => String(user.telegramUserId || "") === id && recordBelongsToTenant(user, tenantId)) || null;
 }
 
 function telegramUsernameCandidate(telegramUser = {}) {
@@ -28733,11 +28772,11 @@ function telegramUsernameCandidate(telegramUser = {}) {
   return `tg_${clean}`.slice(0, 24);
 }
 
-function uniqueTelegramUsername(db, telegramUser = {}) {
+function uniqueTelegramUsername(db, telegramUser = {}, tenantId = UNDRESS_TOOL_TENANT_ID) {
   const base = telegramUsernameCandidate(telegramUser);
   let candidate = base;
   let suffix = 1;
-  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID))) {
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, tenantId))) {
     const suffixText = `_${suffix}`;
     candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
     suffix += 1;
@@ -28745,7 +28784,13 @@ function uniqueTelegramUsername(db, telegramUser = {}) {
   return candidate;
 }
 
-async function ensureTelegramUserAccount(telegramUser = {}) {
+async function ensureTelegramUserAccount(telegramUser = {}, {
+  tenantId = UNDRESS_TOOL_TENANT_ID,
+  host = "",
+  registrationMedium = "telegram-mini-app",
+  referralCode = "",
+} = {}) {
+  const normalizedTenant = normalizeTenantId(tenantId);
   const telegramUserId = String(telegramUser.id || "").trim();
   if (!telegramUserId) {
     const error = new Error("Telegram user information is missing.");
@@ -28755,13 +28800,18 @@ async function ensureTelegramUserAccount(telegramUser = {}) {
   }
   const now = new Date().toISOString();
   const db = await readDb();
-  let user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
-    || telegramUserFromDb(db, telegramUserId);
+  let user = await getUserByTelegramIdInDb(telegramUserId, normalizedTenant)
+    || telegramUserFromDb(db, telegramUserId, normalizedTenant);
+  let created = false;
+  let referrer = null;
   if (!user) {
+    const normalizedReferralCode = normalizeReferralCode(referralCode);
+    const referrerId = userIdFromReferralCode(normalizedReferralCode);
+    referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
     user = {
       id: randomId("user"),
-      tenantId: UNDRESS_TOOL_TENANT_ID,
-      username: uniqueTelegramUsername(db, telegramUser),
+      tenantId: normalizedTenant,
+      username: uniqueTelegramUsername(db, telegramUser, normalizedTenant),
       passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
       role: "user",
       credits: 0,
@@ -28771,56 +28821,139 @@ async function ensureTelegramUserAccount(telegramUser = {}) {
       registrationChannel: "telegram",
       registrationAttribution: {
         channel: "telegram",
-        medium: "telegram-mini-app",
+        medium: String(registrationMedium || "telegram-login").slice(0, 80),
         landingPath: "/",
-        host: "undress.14vips.com",
+        host: String(host || "").trim().slice(0, 160),
         registeredAt: now,
       },
       createdAt: now,
       updatedAt: now,
     };
+    if (referrer?.id && recordBelongsToTenant(referrer, normalizedTenant)) {
+      user.referral = {
+        referredByUserId: referrer.id,
+        referredByUsername: referrer.username || "",
+        referralCode: normalizedReferralCode,
+        registeredAt: now,
+      };
+    }
     db.users.push(user);
+    created = true;
   }
 
-  user.tenantId = UNDRESS_TOOL_TENANT_ID;
+  user.tenantId = normalizedTenant;
   user.telegramUserId = telegramUserId;
   user.telegramChatId = telegramUserId;
   user.telegramUsername = String(telegramUser.username || "").trim();
   user.telegramFirstName = String(telegramUser.first_name || "").trim().slice(0, 80);
   user.telegramLastName = String(telegramUser.last_name || "").trim().slice(0, 80);
   user.telegramLanguageCode = String(telegramUser.language_code || "").trim().slice(0, 16);
+  user.telegramPhotoUrl = String(telegramUser.photo_url || "").trim().slice(0, 1000);
+  user.telegramPhoneNumber = String(telegramUser.phone_number || "").trim().slice(0, 40);
   user.telegramUpdatedAt = now;
   user.updatedAt = now;
   ensureUserApiToken(user, db);
 
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(db);
+  if (created && referrer?.id) {
+    const wasMember = userHasCreatorMembership(referrer);
+    await ensureCreatorMembershipFromReferrals(db, referrer);
+    if (!wasMember && userHasCreatorMembership(referrer)) await grantPendingReferralRewardsForMember(db, referrer);
+    if (!dbEnabled()) await writeDb(db);
+  }
   telegramUserContextCache.set(user.id, { user, expiresAt: Date.now() + 60000 });
   return { db, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
 }
 
-async function telegramUserSessionFromInitData(initData = "") {
-  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
-  const account = await ensureTelegramUserAccount(parsed.user || {});
+async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT_ID) {
+  const normalizedTenant = normalizeTenantId(tenantId);
   const now = new Date().toISOString();
   const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: account.user.id, tenantId: UNDRESS_TOOL_TENANT_ID, createdAt: now };
+  const session = { token, userId: account.user.id, tenantId: normalizedTenant, createdAt: now };
   account.db.sessions.push(session);
   if (dbEnabled()) await createSessionInDb(session);
   else await writeDb(account.db);
-  return { token, user: account.user, telegram: account.telegram };
+  return { token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
+}
+
+async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "" } = {}) {
+  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
+  const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app" });
+  return createTelegramUserSession(account, tenantId);
 }
 
 async function handleTelegramWebAppAuth(req, res) {
-  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
+  const tenant = requestTenantDescriptor(req);
   const body = await readJson(req);
-  const result = await telegramUserSessionFromInitData(body.initData || "");
+  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req) });
   return sendJson(res, 200, {
     ok: true,
     token: result.token,
     user: userView(result.user),
-    tenantId: UNDRESS_TOOL_TENANT_ID,
+    tenantId: result.tenantId,
+    telegram: result.telegram,
+  });
+}
+
+function telegramUserFromOidcClaims(claims = {}) {
+  return {
+    id: String(claims.sub || claims.id || "").trim(),
+    username: String(claims.preferred_username || claims.username || "").trim(),
+    first_name: String(claims.given_name || claims.first_name || claims.name || "").trim(),
+    last_name: String(claims.family_name || claims.last_name || "").trim(),
+    language_code: String(claims.locale || claims.language_code || "").trim(),
+    photo_url: String(claims.picture || claims.photo_url || "").trim(),
+    phone_number: String(claims.phone_number || "").trim(),
+  };
+}
+
+async function handleTelegramLoginOptions(req, res) {
+  if (!telegramLoginConfigured()) {
+    return sendJson(res, 503, { ok: false, code: "TELEGRAM_LOGIN_NOT_CONFIGURED", message: "Telegram login is not configured." });
+  }
+  const tenant = requestTenantDescriptor(req);
+  const host = requestHostname(req);
+  const nonce = createTelegramLoginNonce(TELEGRAM_LOGIN_BOT_TOKEN, { tenantId: tenant.tenantId, host });
+  return sendJson(res, 200, { ok: true, clientId: TELEGRAM_LOGIN_CLIENT_ID, nonce });
+}
+
+async function handleTelegramLogin(req, res) {
+  if (!telegramLoginConfigured()) {
+    return sendJson(res, 503, { ok: false, code: "TELEGRAM_LOGIN_NOT_CONFIGURED", message: "Telegram login is not configured." });
+  }
+  const tenant = requestTenantDescriptor(req);
+  const host = requestHostname(req);
+  const body = await readJson(req);
+  const idToken = String(body.idToken || body.id_token || "").trim();
+  const tokenParts = idToken.split(".");
+  if (tokenParts.length !== 3) return sendJson(res, 401, { ok: false, code: "TELEGRAM_LOGIN_INVALID", message: "Telegram login response is invalid." });
+  let unsignedClaims = null;
+  try {
+    unsignedClaims = JSON.parse(Buffer.from(tokenParts[1], "base64url").toString("utf8"));
+  } catch {
+    unsignedClaims = null;
+  }
+  const nonce = String(unsignedClaims?.nonce || "").trim();
+  parseTelegramLoginNonce(nonce, TELEGRAM_LOGIN_BOT_TOKEN, { tenantId: tenant.tenantId, host });
+  const claims = verifyTelegramOidcIdToken(idToken, {
+    clientId: TELEGRAM_LOGIN_CLIENT_ID,
+    expectedNonce: nonce,
+    jwks: await telegramOidcJwks(),
+  });
+  const account = await ensureTelegramUserAccount(telegramUserFromOidcClaims(claims), {
+    tenantId: tenant.tenantId,
+    host,
+    registrationMedium: "telegram-oidc",
+    referralCode: body.referralCode || body.referral || body.ref || "",
+  });
+  const result = await createTelegramUserSession(account, tenant.tenantId);
+  return sendJson(res, 200, {
+    ok: true,
+    token: result.token,
+    user: userView(result.user),
+    tenantId: result.tenantId,
     telegram: result.telegram,
   });
 }
@@ -38239,6 +38372,7 @@ const PRIVATE_STATIC_ROOT_FILES = new Set([
   "/session_handoff_2026-06-06.md",
   "/site-http.js",
   "/site-seo.js",
+  "/telegram-bot.js",
   "/video-tools.js",
 ]);
 
@@ -38607,6 +38741,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/telegram/webapp-auth") {
       return await handleTelegramWebAppAuth(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/telegram/login/options") {
+      return await handleTelegramLoginOptions(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/telegram/login") {
+      return await handleTelegramLogin(req, res);
     }
 
     if (req.method === "POST" && telegramBotWebhookPathMatches(url.pathname)) {

@@ -923,6 +923,7 @@ els.loginForm?.addEventListener("submit", (event) => {
   }
   submitLogin();
 });
+els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
@@ -996,6 +997,7 @@ els.mobileDrawerLoginBtn?.addEventListener("click", () => {
   closeMobileDrawer();
   openLogin();
 });
+els.mobileDrawerLogoutBtn?.addEventListener("click", logout);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
   await navigator.clipboard.writeText(state.user.apiToken);

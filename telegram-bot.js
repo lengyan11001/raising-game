@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 
 const TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60;
 const TELEGRAM_API_TIMEOUT_MS = 15000;
+const TELEGRAM_LOGIN_NONCE_MAX_AGE_SECONDS = 10 * 60;
 
 function normalizedText(value = "", maxLength = 4096) {
   return String(value || "")
@@ -84,6 +85,105 @@ function parseTelegramWebAppInitData(initData = "", botToken = "", { maxAgeSecon
     authDate,
     params,
   };
+}
+
+function telegramAuthError(message, code = "TELEGRAM_LOGIN_INVALID", statusCode = 401) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = statusCode;
+  return error;
+}
+
+function base64UrlJson(value = "") {
+  try {
+    return JSON.parse(Buffer.from(String(value || ""), "base64url").toString("utf8"));
+  } catch {
+    throw telegramAuthError("Telegram login payload is invalid.");
+  }
+}
+
+function createTelegramLoginNonce(secret = "", payload = {}, { nowMs = Date.now(), maxAgeSeconds = TELEGRAM_LOGIN_NONCE_MAX_AGE_SECONDS } = {}) {
+  const key = String(secret || "").trim();
+  if (!key) throw telegramAuthError("Telegram login is not configured.", "TELEGRAM_LOGIN_NOT_CONFIGURED", 503);
+  const issuedAt = Math.floor(Number(nowMs || Date.now()) / 1000);
+  const body = Buffer.from(JSON.stringify({
+    v: 1,
+    tenantId: String(payload.tenantId || "").trim(),
+    host: String(payload.host || "").trim().toLowerCase(),
+    iat: issuedAt,
+    exp: issuedAt + Math.max(60, Number(maxAgeSeconds || TELEGRAM_LOGIN_NONCE_MAX_AGE_SECONDS)),
+    random: crypto.randomBytes(18).toString("base64url"),
+  })).toString("base64url");
+  const signature = crypto.createHmac("sha256", key).update(body).digest("base64url");
+  return `${body}.${signature}`;
+}
+
+function parseTelegramLoginNonce(nonce = "", secret = "", { tenantId = "", host = "", nowMs = Date.now() } = {}) {
+  const key = String(secret || "").trim();
+  const [body = "", signature = "", extra = ""] = String(nonce || "").trim().split(".");
+  if (!key || !body || !signature || extra) throw telegramAuthError("Telegram login nonce is invalid.");
+  const expected = crypto.createHmac("sha256", key).update(body).digest();
+  let received = null;
+  try {
+    received = Buffer.from(signature, "base64url");
+  } catch {
+    received = null;
+  }
+  if (!received || received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
+    throw telegramAuthError("Telegram login nonce is invalid.");
+  }
+  const payload = base64UrlJson(body);
+  const nowSeconds = Math.floor(Number(nowMs || Date.now()) / 1000);
+  if (Number(payload.exp || 0) <= nowSeconds || Number(payload.iat || 0) > nowSeconds + 60) {
+    throw telegramAuthError("Telegram login nonce has expired.", "TELEGRAM_LOGIN_EXPIRED");
+  }
+  if (String(payload.tenantId || "") !== String(tenantId || "").trim()) {
+    throw telegramAuthError("Telegram login tenant does not match.");
+  }
+  if (String(payload.host || "") !== String(host || "").trim().toLowerCase()) {
+    throw telegramAuthError("Telegram login host does not match.");
+  }
+  return payload;
+}
+
+function verifyTelegramOidcIdToken(idToken = "", { clientId = "", expectedNonce = "", jwks = {}, nowMs = Date.now() } = {}) {
+  const parts = String(idToken || "").trim().split(".");
+  if (parts.length !== 3) throw telegramAuthError("Telegram ID token is invalid.");
+  const header = base64UrlJson(parts[0]);
+  const claims = base64UrlJson(parts[1]);
+  if (header.alg !== "RS256" || !header.kid) {
+    throw telegramAuthError("Telegram ID token algorithm is not supported.");
+  }
+  const keys = Array.isArray(jwks?.keys) ? jwks.keys : [];
+  const jwk = keys.find((item) => item?.kid === header.kid && item?.kty === "RSA");
+  if (!jwk) throw telegramAuthError("Telegram signing key was not found.");
+  let verified = false;
+  try {
+    verified = crypto.verify(
+      "RSA-SHA256",
+      Buffer.from(`${parts[0]}.${parts[1]}`),
+      crypto.createPublicKey({ key: jwk, format: "jwk" }),
+      Buffer.from(parts[2], "base64url"),
+    );
+  } catch {
+    verified = false;
+  }
+  if (!verified) throw telegramAuthError("Telegram ID token signature is invalid.");
+
+  const nowSeconds = Math.floor(Number(nowMs || Date.now()) / 1000);
+  const audience = Array.isArray(claims.aud) ? claims.aud.map(String) : [String(claims.aud || "")];
+  if (claims.iss !== "https://oauth.telegram.org") throw telegramAuthError("Telegram ID token issuer is invalid.");
+  if (!audience.includes(String(clientId || ""))) throw telegramAuthError("Telegram ID token audience is invalid.");
+  if (Number(claims.exp || 0) <= nowSeconds || Number(claims.iat || 0) > nowSeconds + 60) {
+    throw telegramAuthError("Telegram ID token has expired.", "TELEGRAM_LOGIN_EXPIRED");
+  }
+  if (!expectedNonce || String(claims.nonce || "") !== String(expectedNonce)) {
+    throw telegramAuthError("Telegram ID token nonce is invalid.");
+  }
+  if (!String(claims.sub || claims.id || "").trim()) {
+    throw telegramAuthError("Telegram user information is missing.", "TELEGRAM_USER_MISSING");
+  }
+  return claims;
 }
 
 function telegramUserLabel(user = {}) {
@@ -334,7 +434,10 @@ function createTelegramBotClient({
 
 module.exports = {
   TELEGRAM_INIT_DATA_MAX_AGE_SECONDS,
+  TELEGRAM_LOGIN_NONCE_MAX_AGE_SECONDS,
+  createTelegramLoginNonce,
   createTelegramBotClient,
+  parseTelegramLoginNonce,
   parseTelegramWebAppInitData,
   telegramMenuMarkup,
   telegramCreateMarkup,
@@ -342,4 +445,5 @@ module.exports = {
   telegramMiniAppUrl,
   telegramStatusStage,
   telegramUserLabel,
+  verifyTelegramOidcIdToken,
 };

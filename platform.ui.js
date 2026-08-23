@@ -1065,6 +1065,7 @@ function renderAccountMenu() {
   if (els.mobileDrawerTopupBtn) els.mobileDrawerTopupBtn.hidden = !loggedIn;
   if (els.mobileDrawerUser) els.mobileDrawerUser.hidden = !loggedIn;
   if (els.mobileDrawerLoginBtn) els.mobileDrawerLoginBtn.hidden = loggedIn;
+  if (els.mobileDrawerLogoutBtn) els.mobileDrawerLogoutBtn.hidden = !loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
     const publicTab = button.dataset.tab === "pricing";
     button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && !publicTab);

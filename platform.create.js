@@ -5495,6 +5495,7 @@ function openAccount() {
 }
 
 function logout() {
+  closeMobileDrawer();
   state.token = "";
   state.user = null;
   state.showAccessToken = false;
@@ -5520,7 +5521,33 @@ function renderLoginForm() {
   const label = t("nav.login");
   if (els.loginTitle) els.loginTitle.textContent = label;
   if (els.loginSubmit) els.loginSubmit.textContent = label;
-  els.loginMessage.textContent = "";
+  if (els.loginSubmit) els.loginSubmit.disabled = false;
+  if (els.telegramLoginBtn) els.telegramLoginBtn.disabled = false;
+  if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = "";
+  if (els.loginMessage) els.loginMessage.textContent = "";
+}
+
+async function refreshAfterLogin() {
+  if (state.tab === "access") renderAccessGuides();
+  const refreshes = [];
+  if (state.tab === "access") refreshes.push(loadApiSubtokens({ force: true }));
+  if (state.tab === "history") refreshes.push(loadHistory());
+  if (state.tab === "topups") refreshes.push(loadTopupRecords(1));
+  if (state.tab === "spending") refreshes.push(loadSpendingRecords(1));
+  if (state.tab === "assets") refreshes.push(loadUserAssets());
+  if (state.tab === "referral") refreshes.push(loadReferralSummary());
+  if (tenantFeature("subscriptions", false) || membershipProgramEnabled()) refreshes.push(loadBillingSummary());
+  await Promise.allSettled(refreshes);
+}
+
+async function completeLogin(payload = {}) {
+  const token = String(payload.token || "").trim();
+  if (!token || !payload.user) throw new Error("Login response is invalid.");
+  state.token = token;
+  localStorage.setItem(TOKEN_KEY, token);
+  setUser(payload.user);
+  els.loginDialog?.close();
+  await refreshAfterLogin();
 }
 
 async function submitLogin() {
@@ -5549,18 +5576,7 @@ async function submitLogin() {
         attribution: registrationAttribution,
       },
     });
-    state.token = payload.token;
-    setUser(payload.user);
-    localStorage.setItem(TOKEN_KEY, payload.token);
-    els.loginDialog.close();
-    if (state.tab === "access") renderAccessGuides();
-    if (state.tab === "access") loadApiSubtokens({ force: true });
-    if (state.tab === "history") loadHistory();
-    if (state.tab === "topups") loadTopupRecords(1);
-    if (state.tab === "spending") loadSpendingRecords(1);
-    if (state.tab === "assets") loadUserAssets();
-    if (state.tab === "referral") loadReferralSummary();
-    if (tenantFeature("subscriptions", false) || membershipProgramEnabled()) loadBillingSummary();
+    await completeLogin(payload);
   } catch (error) {
     els.loginMessage.textContent = error.message;
   } finally {
