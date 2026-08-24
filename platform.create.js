@@ -5549,6 +5549,11 @@ function renderLoginForm() {
   if (els.loginSubmit) els.loginSubmit.disabled = false;
   if (els.telegramLoginBtn) els.telegramLoginBtn.disabled = false;
   if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = "";
+  if (els.googleLoginBtn) els.googleLoginBtn.disabled = false;
+  if (els.googleLoginStatus) {
+    els.googleLoginStatus.textContent = "";
+    els.googleLoginStatus.hidden = true;
+  }
   if (els.loginMessage) els.loginMessage.textContent = "";
 }
 
@@ -5715,6 +5720,7 @@ async function bootstrap() {
   const platform = payload.config?.platform || {};
   initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
   state.config = payload.config;
+  configureGoogleLogin();
   state.wallet = payload.config?.wallet || null;
   state.billing = payload.config?.billing || null;
   ensureSelectedWalletOption();

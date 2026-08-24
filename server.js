@@ -110,6 +110,7 @@ const {
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
   getUserByTelegramIdInDb,
+  getUserByGoogleIdInDb,
   getUserByIdInDb,
   createSessionInDb,
   getSessionByTokenInDb,
@@ -365,6 +366,7 @@ const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBH
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_UNDRESS_BOT_TOKEN || "").trim();
 const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
+const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -2619,6 +2621,12 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
   const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
   const view = {
+    auth: {
+      google: {
+        enabled: Boolean(GOOGLE_LOGIN_CLIENT_ID),
+        clientId: GOOGLE_LOGIN_CLIENT_ID,
+      },
+    },
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: publicTenantFeatures(tenant),
@@ -19167,6 +19175,7 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
   return pathValue === "/api/health"
     || pathValue === "/api/config/public"
     || pathValue.startsWith("/api/auth/")
+    || pathValue === "/api/google/login"
     || pathValue.startsWith("/api/billing/")
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
@@ -28815,6 +28824,176 @@ async function handleLogin(req, res) {
 
 async function handleLoginOrRegister(req, res) {
   return loginWithBody(req, res, await readJson(req), { registerIfMissing: true });
+}
+
+function googleUserFromDb(db, googleId = "", tenantId = DEFAULT_TENANT_ID) {
+  const id = String(googleId || "").trim();
+  if (!id) return null;
+  return (db?.users || []).find((user) => String(user.googleId || "") === id && recordBelongsToTenant(user, tenantId)) || null;
+}
+
+function googleUsernameCandidate(claims = {}) {
+  const email = String(claims.email || "").trim().toLowerCase();
+  const local = email.split("@")[0] || String(claims.sub || "").slice(-12);
+  const clean = local.replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 17) || "user";
+  return `g_${clean}`.slice(0, 24);
+}
+
+function uniqueGoogleUsername(db, claims = {}, tenantId = DEFAULT_TENANT_ID) {
+  const base = googleUsernameCandidate(claims);
+  let candidate = base;
+  let suffix = 1;
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, tenantId))) {
+    const suffixText = `_${suffix}`;
+    candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+async function verifyGoogleIdToken(idToken = "") {
+  const token = String(idToken || "").trim();
+  if (!token || token.length > 12000) {
+    const error = new Error("Google login response is invalid.");
+    error.statusCode = 401;
+    error.code = "GOOGLE_LOGIN_INVALID";
+    throw error;
+  }
+  if (!GOOGLE_LOGIN_CLIENT_ID) {
+    const error = new Error("Google login is not configured.");
+    error.statusCode = 503;
+    error.code = "GOOGLE_LOGIN_NOT_CONFIGURED";
+    throw error;
+  }
+  let response;
+  try {
+    response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    const error = new Error("Google authentication service is unavailable.");
+    error.statusCode = 503;
+    error.code = "GOOGLE_LOGIN_UNAVAILABLE";
+    throw error;
+  }
+  let claims = {};
+  try { claims = await response.json(); } catch { claims = {}; }
+  const issuer = String(claims.iss || "").trim();
+  const audience = String(claims.aud || "").trim();
+  const subject = String(claims.sub || "").trim();
+  const expiresAt = Number(claims.exp || 0);
+  const email = String(claims.email || "").trim().toLowerCase();
+  const emailVerified = claims.email_verified === true || String(claims.email_verified || "").toLowerCase() === "true";
+  if (!response.ok || !subject || audience !== GOOGLE_LOGIN_CLIENT_ID
+    || !["accounts.google.com", "https://accounts.google.com"].includes(issuer)
+    || !Number.isFinite(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)
+    || !email || !emailVerified) {
+    const error = new Error("Google account verification failed.");
+    error.statusCode = 401;
+    error.code = "GOOGLE_LOGIN_INVALID";
+    throw error;
+  }
+  return {
+    sub: subject,
+    email,
+    name: String(claims.name || "").trim().slice(0, 120),
+    picture: String(claims.picture || "").trim().slice(0, 1000),
+  };
+}
+
+async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_ID, host = "", referralCode = "" } = {}) {
+  const normalizedTenant = normalizeTenantId(tenantId);
+  const googleId = String(claims.sub || "").trim();
+  if (!googleId) {
+    const error = new Error("Google account information is missing.");
+    error.statusCode = 401;
+    error.code = "GOOGLE_USER_MISSING";
+    throw error;
+  }
+  const now = new Date().toISOString();
+  const db = await readDb();
+  let user = await getUserByGoogleIdInDb(googleId, normalizedTenant) || googleUserFromDb(db, googleId, normalizedTenant);
+  let created = false;
+  let referrer = null;
+  if (!user) {
+    const normalizedReferralCode = normalizeReferralCode(referralCode);
+    const referrerId = userIdFromReferralCode(normalizedReferralCode);
+    referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
+    user = {
+      id: randomId("user"),
+      tenantId: normalizedTenant,
+      username: uniqueGoogleUsername(db, claims, normalizedTenant),
+      passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
+      role: db.users.length === 0 ? "admin" : "user",
+      credits: 0,
+      pricingMultiplier: 1,
+      apiPricingMultiplier: 1,
+      apiToken: makeUniqueApiToken(db),
+      registrationChannel: "google",
+      registrationAttribution: {
+        channel: "google",
+        medium: "google-oauth",
+        landingPath: "/",
+        host: String(host || "").trim().slice(0, 160),
+        registeredAt: now,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (referrer?.id && recordBelongsToTenant(referrer, normalizedTenant)) {
+      user.referral = {
+        referredByUserId: referrer.id,
+        referredByUsername: referrer.username || "",
+        referralCode: normalizedReferralCode,
+        registeredAt: now,
+      };
+    }
+    db.users.push(user);
+    created = true;
+  }
+  user.tenantId = normalizedTenant;
+  user.googleId = googleId;
+  user.googleEmail = String(claims.email || "").trim().toLowerCase().slice(0, 320);
+  user.googleName = String(claims.name || "").trim().slice(0, 120);
+  user.googleAvatarUrl = String(claims.picture || "").trim().slice(0, 1000);
+  user.googleUpdatedAt = now;
+  user.updatedAt = now;
+  ensureUserApiToken(user, db);
+  if (dbEnabled()) await updateUserInDb(user);
+  else await writeDb(db);
+  if (created && referrer?.id) {
+    const wasMember = userHasCreatorMembership(referrer);
+    await ensureCreatorMembershipFromReferrals(db, referrer);
+    if (!wasMember && userHasCreatorMembership(referrer)) await grantPendingReferralRewardsForMember(db, referrer);
+    if (!dbEnabled()) await writeDb(db);
+  }
+  return { db, user };
+}
+
+async function handleGoogleLogin(req, res) {
+  if (!GOOGLE_LOGIN_CLIENT_ID) {
+    return sendJson(res, 503, { ok: false, code: "GOOGLE_LOGIN_NOT_CONFIGURED", message: "Google login is not configured." });
+  }
+  const tenant = requestTenantDescriptor(req);
+  const body = await readJson(req);
+  try {
+    const claims = await verifyGoogleIdToken(body.credential || body.idToken || body.id_token || "");
+    const account = await ensureGoogleUserAccount(claims, {
+      tenantId: tenant.tenantId,
+      host: requestHostname(req),
+      referralCode: body.referralCode || body.referral || body.ref || "",
+    });
+    const now = new Date().toISOString();
+    const token = crypto.randomBytes(32).toString("hex");
+    const session = { token, userId: account.user.id, tenantId: tenant.tenantId, createdAt: now };
+    account.db.sessions.push(session);
+    if (dbEnabled()) await createSessionInDb(session);
+    else await writeDb(account.db);
+    return sendJson(res, 200, { ok: true, token, user: userView(account.user) });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 401, { ok: false, code: error.code || "GOOGLE_LOGIN_INVALID", message: error.message || "Google login failed." });
+  }
 }
 
 async function handleMe(req, res) {
@@ -38892,6 +39071,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/auth/login-or-register") {
       return await handleLoginOrRegister(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/google/login") {
+      return await handleGoogleLogin(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
