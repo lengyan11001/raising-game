@@ -1156,6 +1156,7 @@ const els = {
   advancedQwenOutputCount: document.querySelector("#advancedQwenOutputCount"),
   advancedQwenPromptExtend: document.querySelector("#advancedQwenPromptExtend"),
   advancedQwenWatermark: document.querySelector("#advancedQwenWatermark"),
+  advancedWanPromptExtend: document.querySelector("#advancedWanPromptExtend"),
   advancedQwen37Thinking: document.querySelector("#advancedQwen37Thinking"),
   advancedQwen37MaxTokens: document.querySelector("#advancedQwen37MaxTokens"),
   advancedQwen37Temperature: document.querySelector("#advancedQwen37Temperature"),

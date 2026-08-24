@@ -1497,6 +1497,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-qwen-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenImage;
   });
+  document.querySelectorAll(".advanced-wan-prompt-extend-option").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
+  });
   document.querySelectorAll(".advanced-qwen37-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenText;
   });
@@ -1781,6 +1784,8 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = params.preprocessReference === true;
+  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+    && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
@@ -1853,6 +1858,7 @@ function clearAdvancedCreationInputs() {
   });
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = false;
+  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
   [
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
@@ -2223,6 +2229,7 @@ async function submitAdvancedGenerate() {
     : [...seedanceVideoRefUrls, ...seedanceVideoUrls, ...(caseVideoUrl ? [caseVideoUrl] : [])];
   const seedanceAudioUrls = seedanceFrameMode ? [] : [...seedanceAudioRefUrls, ...splitUrlList(els.advancedSeedanceAudioUrls?.value || "")];
   const seedanceGenerateAudio = sharedReferenceProvider ? advancedBoolFromValue(els.advancedSeedanceGenerateAudio?.value, true) : true;
+  const promptExtend = provider === "wan30" && Boolean(els.advancedWanPromptExtend?.checked);
   if (sharedReferenceProvider) state.advancedSeedanceGenerateAudio = seedanceGenerateAudio;
   const selectedClipAsset = state.advancedWanClipAssetId
     ? [...(state.advancedAssets || []), ...(state.userAssets || [])].find((asset) => asset.id === state.advancedWanClipAssetId)
@@ -2426,6 +2433,7 @@ async function submitAdvancedGenerate() {
       videoCapability: videoCapability || undefined,
       model: legacyWanModel || undefined,
       animateMode: wanAnimateMode || undefined,
+      ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
       ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
     },
     ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
@@ -2472,6 +2480,7 @@ async function submitAdvancedGenerate() {
         animateMode: wanAnimateMode || undefined,
         seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
+        prompt_extend: provider === "wan30" ? promptExtend : undefined,
         generateAudio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         generate_audio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         dataUrl: usesAliyunPrimaryImage && !wanFirstFrameAssetId ? firstFrameDataUrl : undefined,
@@ -2525,7 +2534,11 @@ async function submitAdvancedGenerate() {
           videoCapability: videoCapability || undefined,
           model: legacyWanModel || undefined,
           animateMode: wanAnimateMode || undefined,
-          parameters: wanAnimateMode ? { mode: wanAnimateMode } : undefined,
+          parameters: {
+            ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+            ...(wanAnimateMode ? { mode: wanAnimateMode } : {}),
+          },
+          ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
           ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
         },
       },
@@ -2547,6 +2560,7 @@ async function submitAdvancedGenerate() {
         videoCapability: videoCapability || undefined,
         model: legacyWanModel || undefined,
         animateMode: wanAnimateMode || undefined,
+        ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
         ...(sharedReferenceProvider ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
       },
       ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
@@ -3004,6 +3018,8 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedResolution) els.advancedResolution.value = resolution;
   if (els.advancedDuration) els.advancedDuration.value = duration;
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || params.parameters?.seed || "";
+  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+    && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
   if (els.advancedSeedanceTier) {
     const model = String(record.model || params.model || "").toLowerCase();
     els.advancedSeedanceTier.value = model.includes("fast") || params.seedanceTier === "fast" ? "fast" : "standard";

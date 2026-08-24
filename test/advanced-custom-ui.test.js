@@ -112,6 +112,18 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
+test("Wan3.0 prompt extension is an opt-in control for both Wan capabilities", () => {
+  assert.match(html, /class="field advanced-wan-prompt-extend-option" hidden/);
+  assert.match(html, /id="advancedWanPromptExtend" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /id="advancedWanPromptExtend"[^>]*checked/);
+  assert.match(create, /\["wan30-video", "wan30-video-prime"\]\.includes\(capability\)/);
+  assert.match(create, /const promptExtend = provider === "wan30" && Boolean\(els\.advancedWanPromptExtend\?\.checked\)/);
+  assert.match(create, /prompt_extend: provider === "wan30" \? promptExtend : undefined/);
+  assert.match(create, /\(provider === "wan30" \? \{ prompt_extend: promptExtend \} : \{\}\)/);
+  assert.match(create, /els\.advancedWanPromptExtend\.checked = false/);
+  assert.match(server, /prompt_extend: provider === "wan30"[\s\S]*?boolFromRequest\(firstPresent\(body\.prompt_extend/);
+});
+
 test("Advanced image files enter the asset library before generation", () => {
   assert.match(create, /async function uploadAdvancedImageReference/);
   assert.match(create, /requestJson\("\/api\/user-assets", \{[\s\S]*?provider,/);
