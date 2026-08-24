@@ -69,8 +69,10 @@ test("account dropdown avoids duplicate top-up and referral entries", () => {
 test("legal documents are tucked into account menus instead of a visible footer", () => {
   assert.match(html, /class="account-legal-menu mobile-drawer-legal"/);
   assert.equal((html.match(/class="account-legal-menu(?: mobile-drawer-legal)?"/g) || []).length, 2);
-  assert.equal((html.match(/data-legal-doc="privacy"/g) || []).length, 3);
-  assert.equal((html.match(/data-legal-doc="registration"/g) || []).length, 3);
+  assert.equal((html.match(/data-legal-doc="privacy"/g) || []).length, 2);
+  assert.equal((html.match(/data-legal-doc="registration"/g) || []).length, 2);
+  assert.match(html, /href="\/privacy"/);
+  assert.match(html, /href="\/terms"/);
   assert.equal((html.match(/data-legal-doc="disclaimer"/g) || []).length, 3);
   assert.match(css, /\.site-foot \{[\s\S]*?display: none;/);
   assert.doesNotMatch(css, /\.seo-discovery\s*\{[^}]*display:\s*none/);
