@@ -366,6 +366,7 @@ const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBH
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_UNDRESS_BOT_TOKEN || "").trim();
 const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
+const GOOGLE_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GOOGLE_LOGIN_ENABLED || "0").trim());
 const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
@@ -2675,8 +2676,8 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
   const view = {
     auth: {
       google: {
-        enabled: Boolean(GOOGLE_LOGIN_CLIENT_ID),
-        clientId: GOOGLE_LOGIN_CLIENT_ID,
+        enabled: GOOGLE_LOGIN_ENABLED && Boolean(GOOGLE_LOGIN_CLIENT_ID),
+        clientId: GOOGLE_LOGIN_ENABLED ? GOOGLE_LOGIN_CLIENT_ID : "",
       },
     },
     defaultCompanionId: config.defaultCompanionId,
@@ -28911,7 +28912,7 @@ async function verifyGoogleIdToken(idToken = "") {
     error.code = "GOOGLE_LOGIN_INVALID";
     throw error;
   }
-  if (!GOOGLE_LOGIN_CLIENT_ID) {
+  if (!GOOGLE_LOGIN_ENABLED || !GOOGLE_LOGIN_CLIENT_ID) {
     const error = new Error("Google login is not configured.");
     error.statusCode = 503;
     error.code = "GOOGLE_LOGIN_NOT_CONFIGURED";
@@ -29024,7 +29025,7 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
 }
 
 async function handleGoogleLogin(req, res) {
-  if (!GOOGLE_LOGIN_CLIENT_ID) {
+  if (!GOOGLE_LOGIN_ENABLED || !GOOGLE_LOGIN_CLIENT_ID) {
     return sendJson(res, 503, { ok: false, code: "GOOGLE_LOGIN_NOT_CONFIGURED", message: "Google login is not configured." });
   }
   const tenant = requestTenantDescriptor(req);
