@@ -896,6 +896,9 @@ const R2 = {
 const R2_UPLOAD_TIMEOUT_MS = Math.max(25000, Number(process.env.R2_UPLOAD_TIMEOUT_MS || 120000) || 120000);
 const R2_UPLOAD_MAX_TIMEOUT_MS = Math.max(R2_UPLOAD_TIMEOUT_MS, Number(process.env.R2_UPLOAD_MAX_TIMEOUT_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const R2_UPLOAD_MIN_BYTES_PER_SECOND = Math.max(64 * 1024, Number(process.env.R2_UPLOAD_MIN_BYTES_PER_SECOND || 256 * 1024) || 256 * 1024);
+const R2_UPLOAD_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_UPLOAD_RETRY_COUNT || 5) || 5));
+const R2_UPLOAD_RETRY_BASE_DELAY_MS = Math.max(250, Math.min(10000, Number(process.env.R2_UPLOAD_RETRY_BASE_DELAY_MS || 1000) || 1000));
+const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_PUBLIC_READY_RETRY_COUNT || 4) || 4));
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
@@ -10915,6 +10918,28 @@ async function findUploadedR2Object(key = "") {
   return null;
 }
 
+async function waitForR2PublicObject(publicUrl = "") {
+  if (!publicUrl) return false;
+  for (let attempt = 1; attempt <= R2_PUBLIC_READY_RETRY_COUNT; attempt += 1) {
+    try {
+      const response = await fetch(publicUrl, {
+        method: "HEAD",
+        redirect: "follow",
+        headers: { "cache-control": "no-cache" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (response.ok) return true;
+      if (![404, 408, 425, 429].includes(response.status) && response.status < 500) return false;
+    } catch {
+      // The custom domain can briefly lag behind the R2 PUT response.
+    }
+    if (attempt < R2_PUBLIC_READY_RETRY_COUNT) {
+      await delay(Math.min(8000, R2_UPLOAD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)));
+    }
+  }
+  return false;
+}
+
 async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
   requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
@@ -10924,7 +10949,7 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
 
   const uploadTimeoutMs = r2UploadTimeoutMs(bytes?.byteLength ?? bytes?.length ?? 0);
   let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= R2_UPLOAD_RETRY_COUNT; attempt += 1) {
     try {
       const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
       const response = await fetch(auth.url, {
@@ -10935,17 +10960,28 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
       });
       const text = await response.text();
       if (response.ok) {
-        return {
+        const result = {
           key,
           r2Url: auth.url,
           publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
         };
+        if (await waitForR2PublicObject(result.publicUrl)) return result;
+        const error = new Error(`R2 object uploaded but public URL is not ready: ${result.publicUrl}`);
+        error.statusCode = 502;
+        error.retryable = true;
+        lastError = error;
       }
-      const error = new Error(`R2 upload failed: ${response.status} ${text}`);
-      error.statusCode = 502;
-      error.retryable = response.status === 429 || response.status >= 500;
-      lastError = error;
-      if (attempt >= 3 || !error.retryable) throw error;
+      else {
+        const error = new Error(`R2 upload failed: ${response.status} ${text}`);
+        error.statusCode = 502;
+        error.retryable = response.status === 429 || response.status >= 500;
+        lastError = error;
+        if (error.retryable) {
+          const published = await findUploadedR2Object(key);
+          if (published && await waitForR2PublicObject(published.publicUrl)) return published;
+        }
+        if (attempt >= R2_UPLOAD_RETRY_COUNT || !error.retryable) throw error;
+      }
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
       if (timeout) {
@@ -10959,9 +10995,9 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
       }
       if (!uploadError.statusCode) uploadError.statusCode = 502;
       lastError = uploadError;
-      if (attempt >= 3 || uploadError.retryable === false || uploadError.statusCode !== 502) throw uploadError;
+      if (attempt >= R2_UPLOAD_RETRY_COUNT || uploadError.retryable === false || uploadError.statusCode !== 502) throw uploadError;
     }
-    await delay(500 * attempt);
+    await delay(Math.min(10000, R2_UPLOAD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)));
   }
   throw lastError || new Error("R2 upload failed.");
 }
@@ -13038,7 +13074,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     resolution: firstPresent(parameterExtras.resolution, source.resolution, "720p"),
     duration: followInputDuration ? 0 : firstPresent(parameterExtras.duration, source.duration, source.durationSeconds),
     ratio: firstPresent(parameterExtras.ratio, source.ratio, source.aspect_ratio),
-    prompt_extend: boolFromRequest(firstPresent(parameterExtras.prompt_extend, source.prompt_extend, source.promptExtend), false),
+    prompt_extend: boolFromRequest(firstPresent(parameterExtras.prompt_extend, source.prompt_extend, source.promptExtend), true),
     watermark: boolFromRequest(firstPresent(parameterExtras.watermark, source.watermark), false),
     audio: boolFromRequest(firstPresent(parameterExtras.audio, source.audio, source.generateAudio, source.generate_audio), true),
     audio_setting: firstPresent(parameterExtras.audio_setting, source.audio_setting),
@@ -15021,7 +15057,16 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
     });
   }
   const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasConfiguredObjectStorageMirror(userAsset);
-  if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) return userAsset;
+  if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) {
+    if (publicUrlMatchesStorageBase(userAsset.publicUrl, R2.publicDomain) && !await waitForR2PublicObject(userAsset.publicUrl)) {
+      const error = new Error("R2 public media is not ready yet. Please retry shortly.");
+      error.statusCode = 502;
+      error.code = "R2_PUBLIC_NOT_READY";
+      error.retryable = true;
+      throw error;
+    }
+    return userAsset;
+  }
   const localPublicUrl = !objectStorageEnabled() ? publicUrlForAssetPath(userAsset.localUrl) : "";
   if (localPublicUrl) {
     userAsset.publicUrl = localPublicUrl;
@@ -17680,8 +17725,8 @@ async function downloadRemoteFileToBuffer(fileUrl, {
   label = "file",
   maxBytes = 200 * 1024 * 1024,
   timeoutMs = 15 * 60 * 1000,
-  retryCount = 0,
-  retryDelayMs = 500,
+  retryCount = 2,
+  retryDelayMs = 1000,
 } = {}) {
   const retries = Math.max(0, Math.min(3, Math.floor(Number(retryCount) || 0)));
   let response = null;
@@ -26466,6 +26511,7 @@ function wan30VideoParameterFields() {
     { name: "ratio", type: "enum", required: "No", description: "`16:9`, `4:3`, `1:1`, `3:4`, `9:16`, or `adaptive`.", default: "adaptive" },
     { name: "duration", type: "integer", required: "No", description: "Output duration from 2-30 seconds. Use `-1` for adaptive output duration.", default: "5" },
     { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether the output should include generated audio.", default: "true" },
+    { name: "prompt_extend", type: "boolean", required: "No", description: "Whether to rewrite and expand the prompt before generation. Disable it for strict professional prompt adherence; it is enabled by default.", default: "true" },
     { name: "seed", type: "integer", required: "No", description: "Integer from 0 to 2147483647.", default: "-" },
     { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
     { name: "image limits", type: "rule", required: "For image", description: "JPG/JPEG, PNG, BMP, or WebP; max 20MB; width and height 240-8000px; aspect ratio no wider than 8:1. PNG transparency is not supported.", default: "-" },

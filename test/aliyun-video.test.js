@@ -38,7 +38,7 @@ test("builds Wan3.0 multimodal requests for the mainland endpoint contract", () 
     ratio: "adaptive",
     duration: -1,
     audio: false,
-    enable_thinking: false,
+    prompt_extend: true,
     watermark: false,
   });
 });
@@ -93,9 +93,20 @@ test("builds Wan3.0 Video Prime with the same multimodal contract", () => {
     ratio: "adaptive",
     duration: 5,
     audio: true,
-    enable_thinking: false,
+    prompt_extend: true,
     watermark: false,
   });
+});
+
+test("Wan3.0 prompt extension defaults on and can be disabled", () => {
+  const request = buildAliyunVideoRequest({
+    capability: "wan30-video",
+    prompt: "Keep the exact choreography.",
+    duration: 5,
+    parameters: { prompt_extend: false },
+  });
+  assert.equal(request.payload.parameters.prompt_extend, false);
+  assert.equal(Object.hasOwn(request.payload.parameters, "enable_thinking"), false);
 });
 
 test("rejects invalid Wan3.0 combinations and limits", () => {
