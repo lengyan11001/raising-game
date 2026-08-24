@@ -25211,6 +25211,9 @@ async function handleAdvancedGenerate(req, res) {
           durationBounds.max,
         ),
     generateAudio: boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio, caseParams.generateAudio, caseParams.generate_audio), true),
+    prompt_extend: provider === "wan30"
+      ? boolFromRequest(firstPresent(body.prompt_extend, body.promptExtend, bodyParams.prompt_extend, bodyParams.promptExtend, mergedProviderParameters.prompt_extend, mergedProviderParameters.promptExtend, caseParams.prompt_extend, caseParams.promptExtend), true)
+      : undefined,
   };
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
   requestParams.resolution = isAliyunVideoProvider(provider) ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);

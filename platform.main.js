@@ -772,6 +772,7 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedResolution) els.advancedResolution.value = "1080p";
     if (els.advancedDuration) els.advancedDuration.value = "5";
     if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
+    if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
   }
   if (currentAdvancedProvider() === "qwen-image3") {
     if (els.advancedRatio) els.advancedRatio.value = "1:1";
@@ -794,7 +795,7 @@ els.advancedSeedanceTier?.addEventListener("change", () => {
 els.advancedSeedreamTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
-[els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark].forEach((control) => {
+[els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark, els.advancedWanPromptExtend].forEach((control) => {
   control?.addEventListener("change", () => {
     state.advancedEstimateKey = "";
     updateAdvancedButtonCost();
