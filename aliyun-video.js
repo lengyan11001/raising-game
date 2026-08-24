@@ -504,7 +504,9 @@ function buildAliyunVideoRequest(options = {}) {
           ratio,
           duration,
           audio: sourceParameters.audio === undefined ? true : Boolean(sourceParameters.audio),
-          enable_thinking: false,
+          prompt_extend: sourceParameters.prompt_extend === undefined && options.promptExtend === undefined
+            ? true
+            : Boolean(sourceParameters.prompt_extend ?? options.promptExtend),
           watermark: sourceParameters.watermark === undefined ? false : Boolean(sourceParameters.watermark),
           ...(seed === undefined ? {} : { seed }),
         },
