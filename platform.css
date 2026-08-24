@@ -7311,6 +7311,32 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   width: 18px;
   height: 18px;
 }
+.google-login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(66, 133, 244, 0.55);
+  border-radius: 8px;
+  color: #202124;
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+.google-login-button:hover {
+  background: #f8fafd;
+}
+.google-login-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.google-login-button svg {
+  width: 18px;
+  height: 18px;
+  color: #4285f4;
+}
 .auth-divider {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

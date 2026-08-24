@@ -925,6 +925,7 @@ els.loginForm?.addEventListener("submit", (event) => {
   submitLogin();
 });
 els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
+els.googleLoginBtn?.addEventListener("click", authorizeGoogleLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());

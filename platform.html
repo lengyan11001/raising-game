@@ -667,9 +667,13 @@
           <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
-          <button class="telegram-login-button" id="telegramLoginBtn" type="button">
+          <button class="telegram-login-button" id="telegramLoginBtn" type="button" hidden>
             <i data-lucide="send"></i>
             <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
+          </button>
+          <button class="google-login-button" id="googleLoginBtn" type="button" hidden>
+            <i data-lucide="globe"></i>
+            <span data-i18n="auth.googleLogin">Continue with Google</span>
           </button>
           <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
           <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
@@ -681,7 +685,8 @@
           <div class="auth-actions">
             <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
           </div>
-          <p class="job-note" id="telegramLoginStatus"></p>
+          <p class="job-note" id="telegramLoginStatus" hidden></p>
+          <p class="job-note" id="googleLoginStatus" hidden></p>
           <p class="job-note" id="loginMessage"></p>
         </div>
       </form>

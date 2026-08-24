@@ -1239,6 +1239,8 @@ const els = {
   loginForm: document.querySelector("#loginForm"),
   loginTitle: document.querySelector("#loginTitle"),
   telegramLoginBtn: document.querySelector("#telegramLoginBtn"),
+  googleLoginBtn: document.querySelector("#googleLoginBtn"),
+  googleLoginStatus: document.querySelector("#googleLoginStatus"),
   telegramLoginStatus: document.querySelector("#telegramLoginStatus"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),

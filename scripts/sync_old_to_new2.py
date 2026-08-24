@@ -34,6 +34,7 @@ SHARED_APP_FILES = (
     "platform.ui.js",
     "platform.workflow-canvases.js",
     "platform.telegram.js",
+    "platform.google.js",
     "platform.explore.js",
     "platform.create.js",
     "platform.main.js",
