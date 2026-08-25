@@ -7,9 +7,21 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const platformUi = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 
 test("admin pricing rows use their server definition when saving", () => {
   assert.match(server, /ADVANCED_PRICING_ROWS_BY_KEY\.get\(key\)/);
+});
+
+test("public pricing uses the same configured model rows as the admin", () => {
+  assert.match(server, /rows: publicAdvancedPricingRows\(normalized\)/);
+  assert.match(server, /ADVANCED_PRICING_ROWS\s*\n\s*\.filter\(publicAdvancedPricingRowVisible\)/);
+  assert.match(server, /saleCreditsPerUnit = advancedSaleCreditsPerSecond/);
+  assert.match(server, /key: "wan27-image"[\s\S]*?saleCreditsPerUnit: advancedSaleImageCredits/);
+  assert.match(server, /key: `qwen-image3-\$\{tier\}-\$\{resolution\.toLowerCase\(\)\}`/);
+  assert.match(platformUi, /const configuredRows = Array\.isArray\(pricing\.rows\)/);
+  assert.match(platformUi, /row\.saleCreditsPerUnit \?\? row\.saleCreditsPerSecond/);
+  assert.match(platformUi, /Prices come directly from the current admin sale-price configuration/);
 });
 
 test("admin pricing keeps current models and omits early Wan models", () => {
