@@ -2397,6 +2397,8 @@ function publicAdvancedPricingView(pricing = {}) {
     if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete view.happyhorseCreditsPerSecondByResolution;
     if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) delete view.qwenImage3;
   }
+  delete view.wan30PrimeCreditsPerSecondByResolution;
+  delete view.happyhorseCreditsPerSecondByResolution;
   return view;
 }
 
@@ -35525,9 +35527,11 @@ const ADVANCED_PRICING_ROW_KEYS = new Set([
 const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => [row.key, row]));
 
 function publicAdvancedPricingRowVisible(row = {}) {
+  const key = String(row.key || "").trim().toLowerCase();
   const provider = String(row.provider || "").trim().toLowerCase();
+  if (key.startsWith("wan30-prime-")) return false;
+  if (provider === "happyhorse") return false;
   if (provider === "wan30") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED;
-  if (provider === "happyhorse") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED;
   if (provider === "wan27" || provider === "wan27-image") {
     return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED;
   }

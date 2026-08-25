@@ -1401,20 +1401,21 @@ function syncAdvancedProviderExposure() {
   const qwenImage3Enabled = publicQwenImage3ModelsEnabled();
   els.advancedProvider.querySelectorAll("option").forEach((option) => {
     const raw = String(option.value || "").trim().toLowerCase();
-    option.hidden = !enabled && hiddenProviders.has(raw) && !(
+    const permanentlyHidden = raw === "wan30-prime" || raw === "happyhorse";
+    option.hidden = permanentlyHidden || (!enabled && hiddenProviders.has(raw) && !(
       (wan30Enabled && isPublicWan30ProviderOption(raw))
       || (wan27Enabled && isPublicWan27ProviderOption(raw))
       || (happyhorseEnabled && isPublicHappyhorseProviderOption(raw))
       || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(raw))
-    );
+    ));
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
-  if (!enabled && hiddenProviders.has(current) && !(
+  if (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
     || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
-  )) {
+  ))) {
     els.advancedProvider.value = "seedance25";
   }
 }
