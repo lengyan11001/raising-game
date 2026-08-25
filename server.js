@@ -2370,6 +2370,7 @@ function publicAdvancedPricingView(pricing = {}) {
       defaultTemperature: qwen37Pricing.defaultTemperature,
       defaultThinking: qwen37Pricing.defaultThinking === true,
     },
+    rows: publicAdvancedPricingRows(normalized),
   };
   const selectiveAliyunExposureEnabled = PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED
     || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED
@@ -35522,6 +35523,113 @@ const ADVANCED_PRICING_ROW_KEYS = new Set([
   "qwen-image3-standard-reference",
 ]);
 const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => [row.key, row]));
+
+function publicAdvancedPricingRowVisible(row = {}) {
+  const provider = String(row.provider || "").trim().toLowerCase();
+  if (provider === "wan30") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED;
+  if (provider === "happyhorse") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED;
+  if (provider === "wan27" || provider === "wan27-image") {
+    return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED;
+  }
+  if (provider === "qwen-image3") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED;
+  return true;
+}
+
+function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const rows = ADVANCED_PRICING_ROWS
+    .filter(publicAdvancedPricingRowVisible)
+    .map((row) => {
+      const saleCreditsPerUnit = advancedSaleCreditsPerSecond(
+        normalized,
+        row.provider,
+        row.resolution,
+        row.rateKind,
+        row.seedanceTier,
+        row.capability,
+        row.mode,
+        row.model,
+        row.variant,
+      );
+      return {
+        key: row.key,
+        provider: row.provider,
+        providerLabel: row.providerLabel,
+        model: row.model || "",
+        resolution: row.resolution,
+        rateKind: row.rateKind || "output",
+        unit: row.unit || "output_second",
+        usageLabel: row.usageLabel || "",
+        saleCreditsPerUnit,
+      };
+    });
+
+  const imageRows = [
+    {
+      key: "wan27-image",
+      provider: "wan27-image",
+      providerLabel: "Wan2.7 Image Pro",
+      model: normalized.wan27ImagePro.model,
+      resolution: "1K / 2K",
+      rateKind: "output",
+      unit: "image",
+      usageLabel: "Generated image",
+      saleCreditsPerUnit: advancedSaleImageCredits(normalized),
+    },
+    ...["1K", "2K"].map((resolution) => ({
+      key: `seedream5-pro-${resolution.toLowerCase()}`,
+      provider: "seedream5-image",
+      providerLabel: "Seedream 5.0 Pro",
+      model: "seedream-5.0-pro",
+      resolution,
+      rateKind: "output",
+      unit: "image",
+      usageLabel: "Generated image",
+      saleCreditsPerUnit: advancedSaleSeedream5Credits(normalized, resolution),
+    })),
+    {
+      key: "seedream5-pro-reference",
+      provider: "seedream5-image",
+      providerLabel: "Seedream 5.0 Pro Reference",
+      model: "seedream-5.0-pro",
+      resolution: "reference",
+      rateKind: "input",
+      unit: "reference_image",
+      usageLabel: "Each reference image after the first",
+      saleCreditsPerUnit: advancedSaleSeedream5ReferenceCredits(normalized),
+    },
+    ...["pro", "standard"].flatMap((tier) => {
+      const tierConfig = normalized.qwenImage3[tier];
+      const label = `Qwen Image 3.0 ${tier === "pro" ? "Pro" : "Standard"}`;
+      return [
+        ...["1K", "2K"].map((resolution) => ({
+          key: `qwen-image3-${tier}-${resolution.toLowerCase()}`,
+          provider: "qwen-image3",
+          providerLabel: label,
+          model: QWEN_IMAGE3_MODELS[tier],
+          resolution,
+          rateKind: "output",
+          unit: "image",
+          usageLabel: "Generated image",
+          saleCreditsPerUnit: pricingNumber(tierConfig.saleUsdPerImageByResolution[resolution] * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+        })),
+        {
+          key: `qwen-image3-${tier}-reference`,
+          provider: "qwen-image3",
+          providerLabel: `${label} Reference`,
+          model: QWEN_IMAGE3_MODELS[tier],
+          resolution: "reference",
+          rateKind: "input",
+          unit: "reference_image",
+          usageLabel: "Each reference image",
+          saleCreditsPerUnit: pricingNumber(tierConfig.saleUsdPerReferenceImage * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+        },
+      ];
+    }),
+  ].filter(publicAdvancedPricingRowVisible);
+
+  return [...rows, ...imageRows];
+}
 
 function pricingPayloadError(message, code = "INVALID_PRICING_ROWS") {
   const error = new Error(message);

@@ -3690,6 +3690,14 @@ dialog.tool-download-modal {
 .pricing-shot-table td:nth-child(5) {
   color: #fff;
 }
+.pricing-model-id {
+  display: block;
+  margin-top: 3px;
+  color: rgba(247,247,251,.5);
+  font-size: .72rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
 .pricing-shot-table tr:last-child td {
   border-bottom: 0;
 }

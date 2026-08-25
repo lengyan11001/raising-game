@@ -3053,14 +3053,104 @@ function pricingTable(title, description, columns = [], rows = []) {
   `;
 }
 
+function renderConfiguredPricingRows(pricing = {}, packages = []) {
+  const configuredRows = Array.isArray(pricing.rows) ? pricing.rows.filter(Boolean) : [];
+  if (!configuredRows.length) return false;
+  const creditsPerUsd = Number(pricing.creditsPerUsd || 100) || 100;
+  const publicCredits = (value) => `${formatCredits(creditsAmount(value))} credits`;
+  const commonDurations = [5, 10, 15];
+  const rowCategory = (row) => {
+    if (row.unit === "image") return "Image generation";
+    if (row.unit === "reference_image") return "Reference image surcharge";
+    if (row.unit === "input_second") return "Video input surcharge";
+    if (row.unit === "combined_second") return "Video generation + input";
+    return "Video generation";
+  };
+  const rowUnit = (row, rate) => {
+    if (row.unit === "image") return `${publicCredits(rate)}/image`;
+    if (row.unit === "reference_image") return `${publicCredits(rate)}/reference`;
+    if (row.unit === "combined_second") return `${publicCredits(rate)}/combined second`;
+    return `${publicCredits(rate)}/second`;
+  };
+  const rowCommonPrice = (row, rate) => {
+    if (row.unit === "image") return `1 image ${publicCredits(rate)}`;
+    if (row.unit === "reference_image") return `1 reference +${publicCredits(rate)}`;
+    if (row.unit === "combined_second") {
+      return `5s output + 5s input ${publicCredits(rate * 10)}`;
+    }
+    const prefix = row.unit === "input_second" ? "+" : "";
+    return commonDurations.map((duration) => `${duration}s ${prefix}${publicCredits(rate * duration)}`).join(" / ");
+  };
+  const rows = configuredRows.map((row) => {
+    const rate = Number(row.saleCreditsPerUnit ?? row.saleCreditsPerSecond ?? 0) || 0;
+    return {
+      category: rowCategory(row),
+      model: String(row.providerLabel || row.provider || row.model || "Model"),
+      modelId: String(row.model || ""),
+      spec: String(row.resolution || "-"),
+      unit: rowUnit(row, rate),
+      common: rowCommonPrice(row, rate),
+      note: String(row.usageLabel || ""),
+    };
+  });
+  const packageChips = packages.length
+    ? packages.map((item) => `<span><strong>${escapeHtml(item.currency)} $${escapeHtml(formatCredits(item.amount))}</strong>${escapeHtml(publicCredits(item.credits))}</span>`).join("")
+    : "";
+
+  els.pricingRules.innerHTML = `
+    <div class="pricing-shot-card">
+      <div class="pricing-shot-title">
+        <div>
+          <p>Vipeak AI</p>
+          <h3>Public price list</h3>
+        </div>
+        <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} credits</span>
+      </div>
+      <div class="pricing-shot-table-wrap">
+        <table class="pricing-shot-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Model</th>
+              <th>Specification</th>
+              <th>Unit price</th>
+              <th>Common prices</th>
+              <th>Billing</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.category)}</td>
+                <td><strong>${escapeHtml(row.model)}</strong>${row.modelId && row.modelId !== row.model ? `<small class="pricing-model-id">${escapeHtml(row.modelId)}</small>` : ""}</td>
+                <td>${escapeHtml(row.spec)}</td>
+                <td>${escapeHtml(row.unit)}</td>
+                <td>${escapeHtml(row.common)}</td>
+                <td>${escapeHtml(row.note)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="pricing-shot-foot">
+        <span>Prices come directly from the current admin sale-price configuration. User-specific web or API multipliers are applied when a task is submitted.</span>
+        ${packageChips ? `<div class="pricing-package-list">${packageChips}</div>` : ""}
+      </div>
+    </div>
+  `;
+  return true;
+}
+
 function renderPricing() {
   if (!els.pricingRules) return;
+  const configuredPricing = state.config?.platform?.advancedPricing || {};
+  const packages = topupPackages();
+  if (renderConfiguredPricingRows(configuredPricing, packages)) return;
   const seedanceResolutions = ["480p", "720p", "1080p", "4k"];
   const seedanceFastResolutions = ["480p", "720p"];
   const wanResolutions = ["720p", "1080p"];
   const commonDurations = [5, 10, 15];
   const creditsPerUsd = Number(state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
-  const packages = topupPackages();
 
   const publicCredits = (value) => `${formatCredits(creditsAmount(value))} 积分`;
   const publicPricingCredits = (pricing = {}) => creditsAmount(pricing.originalCredits ?? pricing.baseCredits ?? pricing.credits ?? 0);
