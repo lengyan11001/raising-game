@@ -79,6 +79,7 @@ SHARED_APP_FILES = (
     "test/qwen-image3.test.js",
     "test/referral-tools.test.js",
     "test/mobile-tool-ux.test.js",
+    "test/ourdream-import.test.js",
     "test/seedance25.test.js",
     "test/seedance25-direct.test.js",
     "test/site-seo.test.js",
@@ -99,6 +100,7 @@ SHARED_APP_FILES = (
 
 SHARED_TOOLING_FILES = (
     "scripts/check-r2-storage.js",
+    "scripts/import-ourdream-explore.js",
     "scripts/deploy_site.py",
     "scripts/deploy_pull.py",
     "scripts/generate-official-presets.js",
