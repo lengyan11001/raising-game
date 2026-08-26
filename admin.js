@@ -3176,13 +3176,12 @@ function openEditUserDialog(id, users) {
   if (!user) return;
   const tpl = document.createElement("div");
   tpl.innerHTML = `
-    <div class="adm-form-row"><span>API Docs access</span><label class="adm-checkbox"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} /><span>Allow external API Token calls</span></label><small class="adm-muted">Only affects external API tokens; the signed-in website frontend is not affected.</small></div>
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
     <div class="adm-form-row"><span>角色</span><select id="editRole">
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>会员 / API 文档权益</span><input value="${escapeHtml(user.membership?.active ? "Creator Membership 已激活" : "会员未激活")} / ${escapeHtml(user.apiDocs?.active ? "API 文档已解锁" : "API 文档未解锁")}" disabled /></div>
+    <div class="adm-form-row"><span>API 文档接口权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} style="width:18px;height:18px;" /><span>${user.apiDocs?.active ? "已解锁，可调用外部 API" : "未解锁，外部 API 不可用"}</span></label><small class="adm-muted">只影响 Bearer API Token / 子 Token，不影响网站前端登录后的生成。</small></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
