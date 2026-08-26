@@ -2768,6 +2768,7 @@ function hasAdvancedCharacterImage() {
 }
 
 function advancedCreateKindConfig(kind = state.advancedCreateKind) {
+  if (kind === ADVANCED_CUSTOM_KIND.id) return ADVANCED_CUSTOM_KIND;
   return ADVANCED_CREATE_KINDS.find((item) => item.id === kind) || ADVANCED_CREATE_KINDS[1];
 }
 
@@ -2917,6 +2918,7 @@ function renderAdvancedCreateControls() {
     `).join("");
   }
   applyAdvancedCreateMode();
+  if (typeof syncMainTabState === "function") syncMainTabState();
   refreshIcons();
 }
 

@@ -5767,7 +5767,7 @@ async function bootstrap() {
   renderTopupSummary();
   renderPricing();
   renderTokenDisplays();
-  setTab(state.tab);
+  setTab(window.location.hash || state.tab);
   refreshIcons();
   if (!isTenantTool("undress")) loadPlatformEstimates();
 }

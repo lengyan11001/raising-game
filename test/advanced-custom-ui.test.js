@@ -18,6 +18,20 @@ function elementMarkup(id) {
   return match[1];
 }
 
+test("Custom is a main navigation entry backed by the Advanced workspace", () => {
+  assert.match(html, /class="top-tab" data-tab="custom"[\s\S]*?data-i18n="advanced\.modeCustom"/);
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(root, "platform.config.js"), "utf8").match(/const ADVANCED_CREATE_KINDS = \[([\s\S]*?)\];/)?.[1] || "",
+    /id: "custom"/,
+  );
+  assert.match(ui, /if \(kind === ADVANCED_CUSTOM_KIND\.id\) return ADVANCED_CUSTOM_KIND/);
+  assert.match(platformExploreSource, /const customAdvancedRoute = isAdvancedCustomRoute\(tab\)/);
+  assert.match(platformExploreSource, /nextTab === "advanced" && state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id[\s\S]*?"#custom"/);
+  assert.match(css, /\.advanced-workspace \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-workspace\.is-create-custom \.advanced-create-switch \{[\s\S]*?display: none !important/);
+  assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.copy-card, \.advanced-workspace, \.topup-strip \{ grid-template-columns: 1fr; \}/);
+});
+
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);

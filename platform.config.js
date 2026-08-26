@@ -420,8 +420,8 @@ const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
 const ADVANCED_CREATE_KINDS = [
   { id: "image", labelKey: "advanced.createKindImage", icon: "image" },
   { id: "video", labelKey: "advanced.createKindVideo", icon: "clapperboard" },
-  { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal" },
 ];
+const ADVANCED_CUSTOM_KIND = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal" };
 const ADVANCED_CUSTOM_MODE = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal", custom: true, placeholderKey: "advanced.promptPlaceholder" };
 const ADVANCED_CREATE_MODES = {
   image: [
@@ -601,7 +601,12 @@ function replacePlatformUrlForCharacter(characterId = "", source = "", tab = sta
 function normalizePlatformTab(value = "") {
   const normalized = platformHashParts(value).tab;
   if (PLAYFLUX_GALLERY_HASHES.has(String(normalized || "").toLowerCase())) return DEFAULT_PLATFORM_TAB;
+  if (normalized === "custom") return "advanced";
   return ALL_TABS.has(normalized) ? normalized : DEFAULT_PLATFORM_TAB;
+}
+
+function isAdvancedCustomRoute(value = "") {
+  return String(platformHashParts(value).tab || "").toLowerCase() === "custom";
 }
 
 function galleryModeFromPlatformRoute(value = "") {
@@ -707,8 +712,8 @@ const state = {
   activeAdvancedCaseId: "",
   activeAdvancedCaseTab: "hot",
   advancedCasePages: { hot: 1, extend: 1, replace: 1 },
-  advancedCreateKind: "video",
-  advancedCreateMode: "video-image",
+  advancedCreateKind: isAdvancedCustomRoute(window.location.hash) ? "custom" : "video",
+  advancedCreateMode: isAdvancedCustomRoute(window.location.hash) ? ADVANCED_CUSTOM_MODE.id : "video-image",
   advancedMobileTab: "create",
   advancedEstimate: null,
   advancedEstimateKey: "",
@@ -964,7 +969,7 @@ function isTenantTool(toolId = "") {
 
 function isTabAllowed(tab) {
   const raw = platformHashParts(tab).tab || String(tab || "").trim();
-  const normalized = ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
+  const normalized = raw === "custom" ? "advanced" : ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
   const allowed = tenantAllowedTabs();
   if (allowed.length && !allowed.includes(normalized)) return false;
   if (tenantDisabledTabs().includes(normalized)) return false;

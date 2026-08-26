@@ -3872,7 +3872,7 @@ dialog.tool-download-modal {
 }
 .advanced-workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
   width: 100%;
@@ -9567,7 +9567,7 @@ select:focus,
 .advanced-reference-summary {
   display: none !important;
 }
-.advanced-workspace.is-create-custom .advanced-create-mode-tabs {
+.advanced-workspace.is-create-custom .advanced-create-switch {
   display: none !important;
 }
 

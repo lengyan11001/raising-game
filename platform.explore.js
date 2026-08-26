@@ -38,6 +38,7 @@ function trackAnalyticsEvent(eventName, params = {}) {
 
 function setTab(tab) {
   const previousTab = state.tab;
+  const customAdvancedRoute = isAdvancedCustomRoute(tab);
   const hashRoute = platformHashParts(tab);
   let routeGalleryMode = galleryModeFromPlatformRoute(tab);
   if (routeGalleryMode && !isGalleryModeAllowed(routeGalleryMode)) routeGalleryMode = "";
@@ -57,6 +58,15 @@ function setTab(tab) {
     nextTab = state.tab || nextTab;
   }
   state.tab = nextTab;
+  if (nextTab === "advanced") {
+    if (customAdvancedRoute) {
+      state.advancedCreateKind = ADVANCED_CUSTOM_KIND.id;
+      state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
+    } else if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) {
+      state.advancedCreateKind = "video";
+      state.advancedCreateMode = advancedCreateModesForKind("video")[0]?.id || "video-image";
+    }
+  }
   if (nextTab === "characters") {
     state.characterPanelTab = state.routeCharacterId || state.activeGalleryCharacterId
       ? "list"
@@ -69,7 +79,11 @@ function setTab(tab) {
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
-    : nextTab === DEFAULT_PLATFORM_TAB ? galleryModeHash(state.galleryMode) : `#${nextTab}`;
+    : nextTab === DEFAULT_PLATFORM_TAB
+      ? galleryModeHash(state.galleryMode)
+      : nextTab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id
+        ? "#custom"
+        : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
     const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
@@ -97,11 +111,7 @@ function setTab(tab) {
     control.hidden = nextTab !== "history";
     if (control.hidden) control.open = false;
   });
-  document.querySelectorAll("[data-tab]").forEach((button) => {
-    const active = button.dataset.tab === nextTab
-      && (button.dataset.tab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
-    button.classList.toggle("is-active", active);
-  });
+  syncMainTabState();
   syncGalleryShortcutNav();
   if (typeof renderVideoToolActions === "function") renderVideoToolActions();
   if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
@@ -136,6 +146,19 @@ function setTab(tab) {
   closeAccountMenu();
   closeMobileDrawer();
   trackGooglePageView();
+}
+
+function syncMainTabState() {
+  const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    const buttonTab = button.dataset.tab || "";
+    const active = buttonTab === "custom"
+      ? customActive
+      : buttonTab === state.tab
+        && !(buttonTab === "advanced" && customActive)
+        && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
+    button.classList.toggle("is-active", active);
+  });
 }
 
 function setCategory(category) {
