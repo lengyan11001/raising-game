@@ -453,15 +453,17 @@ function renderAdvancedResultPanel() {
           <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
-          ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
-          ${canDownload ? `
-            <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
-              <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+          <div class="advanced-result-actions">
+            ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
+            ${canDownload ? `
+              <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
+                <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+              </button>
+            ` : ""}
+            <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
+              <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
             </button>
-          ` : ""}
-          <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
-            <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
-          </button>
+          </div>
         </div>
       </article>
     `;

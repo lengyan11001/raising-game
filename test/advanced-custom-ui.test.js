@@ -48,6 +48,13 @@ test("Advanced hides the asset panel without removing it from Custom", () => {
   assert.match(platformExploreSource, /state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id\) loadAdvancedAssets\(\)/);
 });
 
+test("Advanced results use a compact multi-column card grid", () => {
+  assert.match(css, /\.advanced-result-list \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@media \(min-width: 1440px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(create, /class="advanced-result-actions"/);
+  assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
+});
+
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);

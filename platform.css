@@ -4542,7 +4542,7 @@ dialog.tool-download-modal {
 }
 .advanced-result-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .advanced-result-empty {
@@ -4685,10 +4685,28 @@ dialog.tool-download-modal {
   word-break: break-word;
   white-space: normal;
 }
-.advanced-result-regenerate {
-  width: fit-content;
+.advanced-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 4px;
-  padding: 0 12px;
+}
+.advanced-result-actions .history-download {
+  flex: 1 1 96px;
+  width: auto;
+  min-width: 0;
+  min-height: 34px;
+  justify-content: center;
+  padding: 0 9px;
+  font-size: .75rem;
+}
+.advanced-result-actions .history-download svg {
+  flex: 0 0 auto;
+}
+@media (min-width: 1440px) {
+  .advanced-result-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 .advanced-fields {
   display: grid;
