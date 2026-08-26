@@ -3176,6 +3176,7 @@ function openEditUserDialog(id, users) {
   if (!user) return;
   const tpl = document.createElement("div");
   tpl.innerHTML = `
+    <div class="adm-form-row"><span>API Docs access</span><label class="adm-checkbox"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} /><span>Allow external API Token calls</span></label><small class="adm-muted">Only affects external API tokens; the signed-in website frontend is not affected.</small></div>
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
     <div class="adm-form-row"><span>角色</span><select id="editRole">
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
@@ -3192,6 +3193,7 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
+      const apiDocsAccess = Boolean(tpl.querySelector("#editApiDocsAccess")?.checked);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -3202,7 +3204,7 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
-      const body = { role };
+      const body = { role, apiDocsAccess };
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });

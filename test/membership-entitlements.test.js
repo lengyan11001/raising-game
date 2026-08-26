@@ -52,6 +52,21 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
 });
 
+test("API documentation access can be revoked for external tokens without blocking the site frontend", () => {
+  const server = read("server.js");
+  const admin = read("admin.js");
+  assert.match(server, /async function requireExternalApiDocsAccess\(/);
+  assert.match(server, /tokenSource === "api_token" \|\| tokenSource === "subtoken"/);
+  assert.match(server, /code: "API_DOCS_ACCESS_REQUIRED"/);
+  assert.match(server, /if \(typeof body\.apiDocsAccess === "boolean"\)/);
+  assert.match(server, /status: "revoked"/);
+  assert.match(server, /status: "active"/);
+  assert.match(server, /requireExternalApiDocsAccess\(req, res\)/);
+  assert.match(admin, /id="editApiDocsAccess"/);
+  assert.match(admin, /const apiDocsAccess = Boolean\(tpl\.querySelector\("#editApiDocsAccess"\)/);
+  assert.match(admin, /const body = \{ role, apiDocsAccess \}/);
+});
+
 test("USDT API documentation checkout creates a product order", () => {
   const server = read("server.js");
   const handler = server.match(/async function handleCreatePaymentOrder[\s\S]*?\n}\r?\n\r?\nasync function handleListPaymentOrders/);

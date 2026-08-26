@@ -29592,6 +29592,33 @@ async function requireApiDocsAccess(req, res) {
   return auth;
 }
 
+// External API calls require the purchased API documentation entitlement;
+// session-authenticated site requests continue to use the frontend normally.
+async function requireExternalApiDocsAccess(req, res) {
+  if (!apiAccessEnabledForRequest(req)) {
+    sendApiAccessDisabled(res);
+    return null;
+  }
+  const auth = await requireUser(req, res);
+  if (!auth) return null;
+  const tokenSource = String(auth.tokenSource || "").toLowerCase();
+  if ((tokenSource === "api_token" || tokenSource === "subtoken") && !userHasApiDocsAccess(auth.user)) {
+    sendJson(res, 402, {
+      ok: false,
+      code: "API_DOCS_ACCESS_REQUIRED",
+      message: "API documentation access is required for external API calls.",
+      product: {
+        id: API_DOCS_PRODUCT_ID,
+        amount: API_DOCS_PRICE_USD,
+        currency: "USD",
+        includedCredits: API_DOCS_TEST_CREDITS,
+      },
+    });
+    return null;
+  }
+  return auth;
+}
+
 async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "paypal") {
   const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "paypal";
   const plan = await getBillingPlanInDb(UNDRESS_TOOL_TENANT_ID);
@@ -37617,6 +37644,29 @@ async function handleAdminUpdateUser(req, res, userId) {
     if (body.advancedAccess) user.advancedAccessReviewedAt = new Date().toISOString();
     changed = true;
   }
+  if (typeof body.apiDocsAccess === "boolean") {
+    const now = new Date().toISOString();
+    const current = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+    user.apiDocsAccess = body.apiDocsAccess
+      ? {
+          ...current,
+          status: "active",
+          productId: API_DOCS_PRODUCT_ID,
+          grantedAt: current.grantedAt || now,
+          source: current.source || "admin",
+          orderId: current.orderId || "",
+          updatedAt: now,
+        }
+      : {
+          ...current,
+          status: "revoked",
+          productId: API_DOCS_PRODUCT_ID,
+          revokedAt: now,
+          revokedBy: auth.user.id,
+          updatedAt: now,
+        };
+    changed = true;
+  }
   if (
     Object.prototype.hasOwnProperty.call(body, "pricingMultiplier") ||
     Object.prototype.hasOwnProperty.call(body, "priceMultiplier") ||
@@ -39317,28 +39367,28 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/v3/contents/generations/tasks") {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleByteplusV3CreateTask(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/v3/images/generations") {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleByteplusV3ImageGeneration(req, res);
     }
 
     const byteplusV3TaskMatch = url.pathname.match(/^\/api\/v3\/contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "GET" && byteplusV3TaskMatch) {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleByteplusV3GetTask(req, res, decodeURIComponent(byteplusV3TaskMatch[1]));
     }
 
     const volcengineTaskMatch = url.pathname.match(/^\/(?:v3\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "POST" && /^\/(?:v3\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleVolcengineCreateGenerationTask(req, res);
     }
     if (req.method === "GET" && volcengineTaskMatch) {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleVolcengineGetGenerationTask(req, res, decodeURIComponent(volcengineTaskMatch[1]));
     }
 
