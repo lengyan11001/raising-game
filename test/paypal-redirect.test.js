@@ -48,3 +48,15 @@ test("Dedicated payment page exists and can start a PayPal checkout session", ()
   assert.match(payJs, /Continue to PayPal/);
   assert.match(payJs, /Opening PayPal checkout/);
 });
+
+test("PayPal checkout failures retain safe diagnostics and advance the retry id", () => {
+  assert.match(server, /function paypalErrorSummary\(payload = \{\}, statusCode = 0\)/);
+  assert.match(server, /paypalErrorCode = summary\.issue \|\| summary\.name/);
+  assert.match(server, /order\.paypalDebugId = summary\.debugId/);
+  assert.match(server, /order\.paypalCheckoutAttempt = checkoutAttempt \+ 1/);
+  assert.match(server, /\[paypal-checkout-create-failed\]/);
+  assert.match(server, /message: paypalPublicFailureMessage\(summary\)/);
+  assert.match(server, /errorMessage: order\.paypalErrorCode \? paypalPublicFailureMessage\(failureSummary\) : ""/);
+  assert.match(payJs, /PayPal reference: \$\{reference\}/);
+  assert.match(payJs, /failed \? "Try PayPal again"/);
+});

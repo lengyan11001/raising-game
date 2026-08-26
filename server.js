@@ -9259,10 +9259,35 @@ async function paypalRequest(pathname, { method = "GET", body, headers = {} } = 
   if (!response.ok) {
     const error = new Error(payload.message || payload.error_description || payload.name || "PayPal request failed.");
     error.statusCode = response.status || 502;
+    error.code = paypalErrorSummary(payload, response.status).issue || payload.name || "PAYPAL_REQUEST_FAILED";
     error.details = payload;
     throw error;
   }
   return payload;
+}
+
+function paypalErrorSummary(payload = {}, statusCode = 0) {
+  const details = Array.isArray(payload?.details) ? payload.details : [];
+  const first = details.find((item) => item && typeof item === "object") || {};
+  return {
+    name: String(payload?.name || payload?.error || "").slice(0, 80),
+    issue: String(first.issue || payload?.issue || "").slice(0, 120),
+    description: String(first.description || payload?.error_description || payload?.message || "").slice(0, 500),
+    field: String(first.field || "").slice(0, 160),
+    debugId: String(payload?.debug_id || payload?.debugId || "").slice(0, 120),
+    httpStatus: Number(statusCode || payload?.status || 0) || 0,
+  };
+}
+
+function paypalPublicFailureMessage(summary = {}) {
+  const issue = String(summary.issue || summary.name || "").toUpperCase();
+  if (/PAYEE_ACCOUNT_(?:RESTRICTED|LOCKED_OR_CLOSED)|PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING/.test(issue)) {
+    return "PayPal is temporarily unavailable for this merchant. Please use USDT or contact support.";
+  }
+  if (/DUPLICATE_INVOICE_ID/.test(issue)) {
+    return "PayPal could not reuse this payment reference. Please try again.";
+  }
+  return "PayPal could not create this payment. Please try again or use USDT.";
 }
 
 function findPayPalApprovalLink(orderPayload = {}) {
@@ -30844,6 +30869,7 @@ async function paypalCheckoutSelectionForRequest(req, body = {}, user = null) {
 function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
   const publicOrder = publicTopupOrder(order, config.wallet, options);
   const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
+  const failureSummary = { issue: order.paypalErrorCode || "", name: order.paypalErrorCode || "" };
   return {
     id: String(order.id || ""),
     sessionId: String(order.paypalCheckoutSessionId || ""),
@@ -30857,6 +30883,10 @@ function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
     order: publicOrder,
     createdAt: String(order.paypalCheckoutSessionCreatedAt || order.createdAt || ""),
     startedAt: String(order.paypalCheckoutStartedAt || ""),
+    errorCode: String(order.paypalErrorCode || ""),
+    errorMessage: order.paypalErrorCode ? paypalPublicFailureMessage(failureSummary) : "",
+    debugId: String(order.paypalDebugId || ""),
+    errorAt: String(order.paypalErrorAt || ""),
   };
 }
 
@@ -31243,19 +31273,56 @@ async function handleStartPayPalCheckoutSession(req, res, sessionId) {
   }
   const checkoutAttempt = Number(order.paypalCheckoutAttempt || 0) || 0;
   order.paypalInvoiceId = `${order.id}-${checkoutAttempt}`;
-  const paypalOrder = order.paypalOrderId
-    ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
-    : await paypalRequest("/v2/checkout/orders", {
-        method: "POST",
-        headers: {
-          "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
-        },
-        body: paypalOrderBodyForCheckout(order),
-      });
+  let paypalOrder;
+  try {
+    paypalOrder = order.paypalOrderId
+      ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
+      : await paypalRequest("/v2/checkout/orders", {
+          method: "POST",
+          headers: {
+            "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
+          },
+          body: paypalOrderBodyForCheckout(order),
+        });
+  } catch (error) {
+    const summary = paypalErrorSummary(error.details, error.statusCode);
+    const now = new Date().toISOString();
+    order.paypalCheckoutAttempt = checkoutAttempt + 1;
+    order.paypalCheckoutSessionStatus = "failed";
+    order.paypalErrorCode = summary.issue || summary.name || error.code || "PAYPAL_REQUEST_FAILED";
+    order.paypalErrorDescription = summary.description || error.message || "PayPal request failed.";
+    order.paypalErrorField = summary.field;
+    order.paypalDebugId = summary.debugId;
+    order.paypalErrorHttpStatus = summary.httpStatus || error.statusCode || 502;
+    order.paypalErrorAt = now;
+    order.note = `PayPal checkout failed: ${order.paypalErrorCode}`.slice(0, 200);
+    order.updatedAt = now;
+    await updateWalletOrderInDb(order);
+    if (!dbEnabled()) await writeDb(db);
+    console.error("[paypal-checkout-create-failed]", {
+      orderId: order.id,
+      sessionId: order.paypalCheckoutSessionId,
+      attempt: checkoutAttempt,
+      ...summary,
+    });
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: order.paypalErrorCode,
+      message: paypalPublicFailureMessage(summary),
+      debugId: summary.debugId,
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
   order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
   order.approvalUrl = findPayPalApprovalLink(paypalOrder);
   order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
   order.paypalCheckoutSessionStatus = "started";
+  order.paypalErrorCode = "";
+  order.paypalErrorDescription = "";
+  order.paypalErrorField = "";
+  order.paypalDebugId = "";
+  order.paypalErrorHttpStatus = 0;
+  order.paypalErrorAt = "";
   order.paypalCheckoutStartedAt = new Date().toISOString();
   order.updatedAt = new Date().toISOString();
   await updateWalletOrderInDb(order);

@@ -29,7 +29,9 @@
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) {
-      throw new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
+      const reference = String(payload.debugId || "").trim();
+      const message = payload.message || payload.detail || `Request failed: ${response.status}`;
+      throw new Error(reference ? `${message} PayPal reference: ${reference}` : message);
     }
     return payload;
   }
@@ -43,6 +45,7 @@
     const status = String(order.status || session?.status || "pending").toLowerCase();
     const paid = status === "paid" || String(session?.status || "").toLowerCase() === "paid";
     const expired = String(session?.status || "").toLowerCase() === "expired";
+    const failed = String(session?.status || "").toLowerCase() === "failed";
 
     if (els.summary) {
       els.summary.innerHTML = `
@@ -54,10 +57,15 @@
     if (els.returnLink && session?.returnUrl) els.returnLink.href = session.returnUrl;
     if (els.button) {
       els.button.disabled = paid || expired;
-      els.button.textContent = paid ? "Payment completed" : expired ? "Session expired" : "Continue to PayPal";
+      els.button.textContent = paid ? "Payment completed" : expired ? "Session expired" : failed ? "Try PayPal again" : "Continue to PayPal";
     }
     if (paid) setStatus("Payment completed. Credits have been added to your account.", "success");
     else if (expired) setStatus("This payment session has expired. Please create a new top-up order.", "error");
+    else if (failed) {
+      const reference = String(session?.debugId || "").trim();
+      const message = session?.errorMessage || "PayPal could not create this payment. Please try again or use USDT.";
+      setStatus(reference ? `${message} PayPal reference: ${reference}` : message, "error");
+    }
     else if (params.get("status") === "cancelled") setStatus("Payment was cancelled. You can try again or return to the site.", "");
     else if (params.get("status") === "error") setStatus("PayPal did not complete this payment. Please try again.", "error");
     else setStatus("Review the amount, then continue to PayPal to complete payment.", "");
