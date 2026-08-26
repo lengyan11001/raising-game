@@ -794,7 +794,7 @@ const state = {
   historyRecordsTotalPages: 1,
   assetSearchTimer: 0,
   advancedAssetSearchTimer: 0,
-  advancedSideTab: "result",
+  advancedSideTab: isAdvancedCustomRoute(window.location.hash) ? "assets" : "result",
   advancedResultRecords: [],
   advancedResultTaskId: "",
   advancedResultTimer: 0,

@@ -36,14 +36,16 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
   assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.advanced-workspace\.is-create-custom \{ grid-template-columns: 1fr; \}/);
 });
 
-test("Advanced keeps uploads in the editor and removes the duplicate asset panel", () => {
-  assert.doesNotMatch(html, /data-advanced-mobile-tab="assets"/);
-  assert.doesNotMatch(html, /data-advanced-side-tab="assets"/);
-  assert.doesNotMatch(html, /id="advancedAssetsView"/);
+test("Advanced hides the asset panel without removing it from Custom", () => {
+  assert.match(html, /data-advanced-mobile-tab="assets"/);
+  assert.match(html, /data-advanced-side-tab="assets"/);
+  assert.match(html, /id="advancedAssetsView"/);
   assert.match(html, /id="advancedResultView" data-advanced-side-view="result"/);
-  assert.match(config, /advancedSideTab: "result"/);
-  assert.match(create, /const next = tab === "result" \? "result" : "create"/);
-  assert.match(platformExploreSource, /if \(nextTab === "advanced"\) \{\s*renderAdvanced\(\);\s*renderAdvancedResultPanel\(\)/);
+  assert.match(config, /advancedSideTab: isAdvancedCustomRoute\(window\.location\.hash\) \? "assets" : "result"/);
+  assert.match(create, /const assetsAllowed = state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id/);
+  assert.match(css, /\.advanced-workspace:not\(\.is-create-custom\) \.advanced-side-tabs/);
+  assert.match(css, /\.advanced-workspace:not\(\.is-create-custom\) \[data-advanced-mobile-tab="assets"\]/);
+  assert.match(platformExploreSource, /state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id\) loadAdvancedAssets\(\)/);
 });
 
 test("Advanced engine list contains English model families, not task modes", () => {

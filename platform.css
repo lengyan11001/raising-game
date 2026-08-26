@@ -4332,6 +4332,10 @@ dialog.tool-download-modal {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
+.advanced-workspace:not(.is-create-custom) .advanced-side-tabs,
+.advanced-workspace:not(.is-create-custom) [data-advanced-mobile-tab="assets"] {
+  display: none !important;
+}
 .advanced-side-tab {
   display: inline-flex;
   align-items: center;
@@ -9668,6 +9672,9 @@ select:focus,
     background: rgba(15,15,18,.92);
     backdrop-filter: blur(10px);
   }
+  .advanced-workspace.is-create-custom .advanced-mobile-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .advanced-mobile-tab {
     display: inline-flex;
     min-height: 38px;
@@ -9675,7 +9682,12 @@ select:focus,
     font-size: .82rem;
   }
   .advanced-workspace[data-advanced-mobile-tab="create"] .advanced-side-panel,
+  .advanced-workspace[data-advanced-mobile-tab="assets"] .advanced-form-card,
   .advanced-workspace[data-advanced-mobile-tab="result"] .advanced-form-card {
+    display: none !important;
+  }
+  .advanced-workspace[data-advanced-mobile-tab="assets"] .advanced-side-tabs,
+  .advanced-workspace[data-advanced-mobile-tab="result"] .advanced-side-tabs {
     display: none !important;
   }
   body.mobile-drawer-open {

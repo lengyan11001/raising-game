@@ -62,9 +62,12 @@ function setTab(tab) {
     if (customAdvancedRoute) {
       state.advancedCreateKind = ADVANCED_CUSTOM_KIND.id;
       state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
+      state.advancedSideTab = "assets";
     } else if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) {
       state.advancedCreateKind = "video";
       state.advancedCreateMode = advancedCreateModesForKind("video")[0]?.id || "video-image";
+      state.advancedSideTab = "result";
+      if (state.advancedMobileTab === "assets") state.advancedMobileTab = "create";
     }
   }
   if (nextTab === "characters") {
@@ -134,6 +137,7 @@ function setTab(tab) {
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
     renderAdvanced();
+    if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
     if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
   }

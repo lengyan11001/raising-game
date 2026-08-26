@@ -5,7 +5,7 @@ function renderAdvanced() {
   if (!state.user) {
     renderAdvancedCreateControls();
     renderAdvancedAssets([]);
-    setAdvancedSideTab("result", { silent: true });
+    setAdvancedSideTab(state.advancedSideTab, { silent: true });
     setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
@@ -14,14 +14,15 @@ function renderAdvanced() {
   }
   renderAdvancedCreateControls();
   renderAdvancedAssets();
-  setAdvancedSideTab("result", { silent: true });
+  setAdvancedSideTab(state.advancedSideTab, { silent: true });
   setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
 function setAdvancedMobileTab(tab = "create", { silent = false, skipSideTab = false } = {}) {
-  const next = tab === "result" ? "result" : "create";
+  const assetsAllowed = state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  const next = tab === "result" || (tab === "assets" && assetsAllowed) ? tab : "create";
   state.advancedMobileTab = next;
   if (els.advancedWorkspace) els.advancedWorkspace.dataset.advancedMobileTab = next;
   els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((button) => {
@@ -29,16 +30,18 @@ function setAdvancedMobileTab(tab = "create", { silent = false, skipSideTab = fa
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
-  if (!skipSideTab && next === "result") {
+  if (!skipSideTab && (next === "assets" || next === "result")) {
     setAdvancedSideTab(next, { silent });
   }
   refreshIcons();
 }
 
 function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false } = {}) {
-  const next = "result";
+  const assetsAllowed = state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  const next = tab === "assets" && assetsAllowed ? "assets" : "result";
   state.advancedSideTab = next;
-  if (els.advancedResultView) els.advancedResultView.hidden = false;
+  if (els.advancedAssetsView) els.advancedAssetsView.hidden = next !== "assets";
+  if (els.advancedResultView) els.advancedResultView.hidden = next !== "result";
   els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.advancedSideTab === next);
   });
@@ -52,7 +55,7 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
       scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
     }
   }
-  if (syncMobile) setAdvancedMobileTab(tab === "result" ? "result" : "create", { silent: true, skipSideTab: true });
+  if (syncMobile) setAdvancedMobileTab(next, { silent: true, skipSideTab: true });
   refreshIcons();
 }
 
