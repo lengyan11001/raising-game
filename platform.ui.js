@@ -504,6 +504,9 @@ function applyTenantFeatures() {
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });
+  document.querySelectorAll(".tenant-main-only").forEach((element) => {
+    element.hidden = toolOnly;
+  });
   document.querySelectorAll(".tenant-compact-only").forEach((element) => {
     element.hidden = accountMenuEnabled;
   });

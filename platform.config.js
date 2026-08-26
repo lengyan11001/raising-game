@@ -981,6 +981,9 @@ function isTabAllowed(tab) {
 
 const els = {
   brandName: document.querySelector("#brandName"),
+  wan30LaunchBanner: document.querySelector("#wan30LaunchBanner"),
+  wan30LaunchBtn: document.querySelector("#wan30LaunchBtn"),
+  wan30LaunchClose: document.querySelector("#wan30LaunchClose"),
   languageSelect: document.querySelector("#languageSelect"),
   ageGate: document.querySelector("#ageGate"),
   ageGateConfirmBtn: document.querySelector("#ageGateConfirmBtn"),

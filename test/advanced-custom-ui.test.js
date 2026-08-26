@@ -36,6 +36,18 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
   assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.advanced-workspace\.is-create-custom \{ grid-template-columns: 1fr; \}/);
 });
 
+test("Wan3.0 launch banner opens Custom with Wan3.0 selected and can be dismissed", () => {
+  assert.match(html, /id="wan30LaunchBanner"/);
+  assert.match(html, /id="wan30LaunchBtn"/);
+  assert.match(html, /Wan3\.0 上新，欢迎体验/);
+  assert.match(html, /id="wan30LaunchClose"/);
+  assert.match(main, /setTab\("#custom"\)/);
+  assert.match(main, /els\.advancedProvider\.value = "wan30"/);
+  assert.match(main, /WAN30_LAUNCH_DISMISSED_KEY/);
+  assert.match(css, /\.launch-banner \{/);
+  assert.match(css, /body\.wan30-launch-visible \.site-head/);
+});
+
 test("Advanced hides the asset panel without removing it from Custom", () => {
   assert.match(html, /data-advanced-mobile-tab="assets"/);
   assert.match(html, /data-advanced-side-tab="assets"/);

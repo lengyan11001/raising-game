@@ -653,6 +653,9 @@ a { color: inherit; text-decoration: none; }
   padding: 14px 28px 8px;
   background: transparent;
 }
+body.wan30-launch-visible .site-head { top: 44px; }
+.launch-banner + .site-head { margin-top: 44px; }
+body.wan30-launch-dismissed .launch-banner + .site-head { margin-top: 0; }
 .brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
 .brand-mark {
   width: 28px;
@@ -959,6 +962,55 @@ a { color: inherit; text-decoration: none; }
 .account-legal-menu {
   width: 100%;
 }
+.launch-banner {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 48px 0 16px;
+  color: #fff;
+  background: linear-gradient(90deg, #2146b7, #2c65df);
+  box-shadow: 0 4px 14px rgba(20, 52, 150, 0.24);
+}
+.launch-banner-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 34px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.launch-banner-spark { color: #ffe84d; font-size: 1.1rem; }
+.launch-banner-cta {
+  padding: 5px 13px;
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 600;
+}
+.launch-banner-close {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  transform: translateY(-50%);
+  border: 0;
+  color: rgba(255,255,255,.9);
+  background: transparent;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.launch-banner-close:hover { color: #fff; }
 .account-legal-menu > summary {
   list-style: none;
   cursor: pointer;
@@ -9890,6 +9942,8 @@ select:focus,
     border-bottom: 1px solid rgba(255,255,255,.08);
     backdrop-filter: blur(12px);
   }
+  .launch-banner + .site-head,
+  body.wan30-launch-dismissed .launch-banner + .site-head { margin-top: 0; }
   .brand {
     min-width: 0;
   }
@@ -9983,6 +10037,18 @@ select:focus,
     padding: 7px 10px;
     justify-content: center;
   }
+  body.wan30-launch-visible .site-head,
+  body.wan30-launch-dismissed .site-head { top: 0; }
+  .launch-banner {
+    position: fixed;
+    inset: 54px 0 auto 0;
+    z-index: 60;
+    min-height: 42px;
+    padding-inline: 34px;
+    font-size: .82rem;
+  }
+  body.wan30-launch-visible { padding-top: 96px; }
+  body.wan30-launch-dismissed { padding-top: 54px; }
   .mobile-drawer-logout {
     width: 100%;
     justify-content: center;

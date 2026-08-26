@@ -22,6 +22,34 @@ document.addEventListener("click", (event) => {
   if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });
+const WAN30_LAUNCH_DISMISSED_KEY = "vipeakWan30LaunchDismissed";
+function syncWan30LaunchVisibility(visible) {
+  document.body.classList.toggle("wan30-launch-visible", visible);
+  document.body.classList.toggle("wan30-launch-dismissed", !visible);
+}
+function openWan30Launch() {
+  if (typeof setTab !== "function") return;
+  setTab("#custom");
+  requestAnimationFrame(() => {
+    if (!els.advancedProvider) return;
+    els.advancedProvider.value = "wan30";
+    els.advancedProvider.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+els.wan30LaunchBtn?.addEventListener("click", openWan30Launch);
+els.wan30LaunchClose?.addEventListener("click", () => {
+  try { localStorage.setItem(WAN30_LAUNCH_DISMISSED_KEY, "1"); } catch (error) {}
+  if (els.wan30LaunchBanner) els.wan30LaunchBanner.hidden = true;
+  syncWan30LaunchVisibility(false);
+});
+try {
+  if (localStorage.getItem(WAN30_LAUNCH_DISMISSED_KEY) === "1" && els.wan30LaunchBanner) {
+    els.wan30LaunchBanner.hidden = true;
+    syncWan30LaunchVisibility(false);
+  } else {
+    syncWan30LaunchVisibility(true);
+  }
+} catch (error) { syncWan30LaunchVisibility(true); }
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
 els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
 window.addEventListener("hashchange", () => setTab(window.location.hash));
