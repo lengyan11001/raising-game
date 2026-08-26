@@ -3872,10 +3872,13 @@ dialog.tool-download-modal {
 }
 .advanced-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
   width: 100%;
+}
+.advanced-workspace.is-create-custom {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .advanced-panel {
   padding: 0;
@@ -3902,7 +3905,7 @@ dialog.tool-download-modal {
 }
 .advanced-create-kind-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid rgba(255,255,255,.12);
@@ -9592,6 +9595,7 @@ select:focus,
   .character-video-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .gallery-advanced-grid.is-case-list { grid-template-columns: 1fr; }
   .copy-card, .advanced-workspace, .topup-strip { grid-template-columns: 1fr; }
+  .advanced-workspace.is-create-custom { grid-template-columns: 1fr; }
   .advanced-form-card { position: static; }
   .advanced-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .advanced-asset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
