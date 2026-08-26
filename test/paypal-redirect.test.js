@@ -12,13 +12,17 @@ const platformHtml = fs.readFileSync(path.resolve(__dirname, "..", "platform.htm
 const payHtml = fs.readFileSync(path.resolve(__dirname, "..", "pay.html"), "utf8");
 const payJs = fs.readFileSync(path.resolve(__dirname, "..", "pay.js"), "utf8");
 
-test("PayPal redirect checkout uses a dedicated payment host and keeps the legacy order endpoint", () => {
+test("PayPal launches are restricted to the dedicated payment host", () => {
   assert.match(server, /PAYMENT_HOSTS/);
   assert.match(server, /pay\.seed2\.io/);
   assert.match(server, /\/api\/pay\/paypal\/checkout-sessions/);
   assert.match(server, /\/paypal-return/);
   assert.match(server, /\/paypal-cancel/);
-  assert.match(server, /async function handleCreatePayPalOrder/);
+  assert.match(server, /function sendPayPalCheckoutHostRequired/);
+  assert.match(server, /code: "PAYPAL_CHECKOUT_REQUIRED"/);
+  assert.match(server, /url\.pathname === "\/api\/pay\/paypal\/orders"\) \{\s*return sendPayPalCheckoutHostRequired\(res\)/);
+  assert.match(server, /paypalCheckoutSessionStartMatch\) \{\s*if \(!isPaymentHostRequest\(req\)\) return sendPayPalCheckoutHostRequired\(res\)/);
+  assert.match(server, /paypalCaptureMatch\) \{\s*if \(!isPaymentHostRequest\(req\)\) return sendPayPalCheckoutHostRequired\(res\)/);
   assert.match(server, /paypalOrderId: order\.paypalOrderId/);
   assert.match(server, /"payer-action", "approve"/);
   assert.match(server, /order\.paypalOrderId\s*\? await paypalRequest\(`\/v2\/checkout\/orders\/\$\{encodeURIComponent\(order\.paypalOrderId\)\}`\)/);
@@ -35,6 +39,7 @@ test("PayPal is the default payment method while USDT remains selectable", () =>
 
 test("Top-up UI redirects to the payment session page instead of embedding PayPal SDK", () => {
   assert.match(explore, /\/api\/pay\/paypal\/checkout-sessions/);
+  assert.doesNotMatch(explore, /\/api\/pay\/paypal\/orders/);
   assert.match(explore, /Continue to PayPal/);
   assert.match(explore, /paypal-redirect-button/);
   assert.match(css, /\.paypal-checkout \.paypal-redirect-button span\s*\{\s*color:\s*#fff/);
@@ -47,6 +52,7 @@ test("Dedicated payment page exists and can start a PayPal checkout session", ()
   assert.match(payJs, /checkout-sessions/);
   assert.match(payJs, /Continue to PayPal/);
   assert.match(payJs, /Opening PayPal checkout/);
+  assert.match(payJs, /checkout-sessions\/\$\{encodeURIComponent\(sessionId\)\}\/start/);
 });
 
 test("PayPal checkout failures retain safe diagnostics and advance the retry id", () => {

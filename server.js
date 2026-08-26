@@ -1634,6 +1634,15 @@ function isPaymentHostRequest(req) {
   return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname()));
 }
 
+function sendPayPalCheckoutHostRequired(res) {
+  return sendJson(res, 409, {
+    ok: false,
+    code: "PAYPAL_CHECKOUT_REQUIRED",
+    message: "PayPal payments must be started from the secure checkout page.",
+    checkoutBaseUrl: PAYPAL_CHECKOUT_BASE_URL,
+  });
+}
+
 function configuredPublicBaseUrl() {
   return (PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 }
@@ -39424,7 +39433,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/orders") {
-      return await handleCreatePayPalOrder(req, res);
+      return sendPayPalCheckoutHostRequired(res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/checkout-sessions") {
@@ -39438,11 +39447,13 @@ async function handleRequest(req, res) {
 
     const paypalCheckoutSessionStartMatch = url.pathname.match(/^\/api\/pay\/paypal\/checkout-sessions\/([^/]+)\/start$/);
     if (req.method === "POST" && paypalCheckoutSessionStartMatch) {
+      if (!isPaymentHostRequest(req)) return sendPayPalCheckoutHostRequired(res);
       return await handleStartPayPalCheckoutSession(req, res, decodeURIComponent(paypalCheckoutSessionStartMatch[1]));
     }
 
     const paypalCaptureMatch = url.pathname.match(/^\/api\/pay\/paypal\/orders\/([^/]+)\/capture$/);
     if (req.method === "POST" && paypalCaptureMatch) {
+      if (!isPaymentHostRequest(req)) return sendPayPalCheckoutHostRequired(res);
       return await handleCapturePayPalOrder(req, res, decodeURIComponent(paypalCaptureMatch[1]));
     }
 
