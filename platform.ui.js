@@ -562,7 +562,6 @@ function applyLanguage() {
   if (state.tab === "spending") loadSpendingRecords();
   if (state.tab === "referral") renderReferral();
   if (state.tab === "assets") loadUserAssets();
-  if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens();
   refreshIcons();
 }

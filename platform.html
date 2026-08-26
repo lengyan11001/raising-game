@@ -245,9 +245,6 @@
             <button class="advanced-mobile-tab is-active" type="button" data-advanced-mobile-tab="create" role="tab" aria-selected="true">
               <i data-lucide="sparkles"></i><span data-i18n="characters.createTab">Create</span>
             </button>
-            <button class="advanced-mobile-tab" type="button" data-advanced-mobile-tab="assets" role="tab" aria-selected="false">
-              <i data-lucide="folder"></i><span data-i18n="advanced.assets">Assets</span>
-            </button>
             <button class="advanced-mobile-tab" type="button" data-advanced-mobile-tab="result" role="tab" aria-selected="false">
               <i data-lucide="play-circle"></i><span data-i18n="history.result">Result</span>
             </button>
@@ -411,36 +408,7 @@
             <p class="job-note" id="advancedNote"></p>
           </section>
           <section class="advanced-case-panel advanced-side-panel">
-            <div class="advanced-side-tabs" id="advancedSideTabs" role="tablist" aria-label="Create side panel">
-              <button class="advanced-side-tab is-active" type="button" data-advanced-side-tab="assets"><i data-lucide="folder"></i><span>Assets</span></button>
-              <button class="advanced-side-tab" type="button" data-advanced-side-tab="result"><i data-lucide="sparkles"></i><span>Result</span></button>
-            </div>
-            <div class="advanced-side-view" id="advancedAssetsView" data-advanced-side-view="assets">
-              <div class="section-head compact advanced-asset-head">
-                <div>
-                  <p class="eyebrow" data-i18n="advanced.assets">Assets</p>
-                  <h2 data-i18n="advanced.assetTitle">Add from assets</h2>
-                </div>
-                <div class="advanced-asset-head-actions">
-                  <label class="asset-upload-control advanced-asset-upload-control">
-                    <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
-                    <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
-                  </label>
-                  <button class="ghost-button" id="refreshAdvancedAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
-                </div>
-              </div>
-              <div class="advanced-asset-toolbar">
-                <input id="advancedAssetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" aria-label="Search assets" />
-                <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select>
-              </div>
-              <div class="advanced-asset-targets" id="advancedAssetTargets"></div>
-              <p class="job-note" id="advancedAssetNote"></p>
-              <div class="advanced-asset-grid" id="advancedAssetGrid">
-                <div class="advanced-asset-empty"><strong data-i18n="assets.loading">Loading assets...</strong></div>
-              </div>
-              <div class="ledger-pager advanced-asset-pager" id="advancedAssetPager"></div>
-            </div>
-            <div class="advanced-side-view" id="advancedResultView" data-advanced-side-view="result" hidden>
+            <div class="advanced-side-view" id="advancedResultView" data-advanced-side-view="result">
               <div class="section-head compact advanced-result-head">
                 <div>
                   <p class="eyebrow">Result</p>

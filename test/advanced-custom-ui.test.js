@@ -11,6 +11,7 @@ const platformExploreSource = fs.readFileSync(path.join(root, "platform.explore.
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "platform.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const config = fs.readFileSync(path.join(root, "platform.config.js"), "utf8");
 
 function elementMarkup(id) {
   const match = html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)<\\/select>`));
@@ -33,6 +34,16 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
   assert.match(css, /\.advanced-workspace\.is-create-custom \.advanced-create-switch \{[\s\S]*?display: none !important/);
   assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.copy-card, \.advanced-workspace, \.topup-strip \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.advanced-workspace\.is-create-custom \{ grid-template-columns: 1fr; \}/);
+});
+
+test("Advanced keeps uploads in the editor and removes the duplicate asset panel", () => {
+  assert.doesNotMatch(html, /data-advanced-mobile-tab="assets"/);
+  assert.doesNotMatch(html, /data-advanced-side-tab="assets"/);
+  assert.doesNotMatch(html, /id="advancedAssetsView"/);
+  assert.match(html, /id="advancedResultView" data-advanced-side-view="result"/);
+  assert.match(config, /advancedSideTab: "result"/);
+  assert.match(create, /const next = tab === "result" \? "result" : "create"/);
+  assert.match(platformExploreSource, /if \(nextTab === "advanced"\) \{\s*renderAdvanced\(\);\s*renderAdvancedResultPanel\(\)/);
 });
 
 test("Advanced engine list contains English model families, not task modes", () => {
