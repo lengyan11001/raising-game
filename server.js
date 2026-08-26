@@ -37594,10 +37594,10 @@ async function handleAdminResetPassword(req, res, userId) {
   }
   user.passwordHash = hashPassword(password);
   user.updatedAt = new Date().toISOString();
-  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId || s.token === auth.session.token);
+  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId);
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(auth.db);
-  await deleteUserSessionsInDb(userId, auth.session?.token || "");
+  await deleteUserSessionsInDb(userId);
   return sendJson(res, 200, { ok: true, user: userView(user) });
 }
 
