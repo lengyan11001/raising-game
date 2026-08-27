@@ -64,6 +64,35 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  const localPresetUpload = state.advancedLocalUploadSlot === "character"
+    && state.advancedCreateKind !== "custom"
+    && advancedCreateModeActivePresetSlots().includes("character");
+  if (localPresetUpload) {
+    try {
+      const file = files[0];
+      if (!uploadedFileMime(file).startsWith("image/")) {
+        if (els.advancedNote) els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advancedPreset.character"), type: "image" });
+        return;
+      }
+      const ref = await uploadAdvancedImageReference(file, { provider });
+      if (!ref) return;
+      state.advancedReferenceImages = [ref];
+      state.advancedUploadDataUrl = ref.dataUrl || ref.url || "";
+      state.advancedFirstFrameAssetId = "";
+      state.advancedSourceImageAssetId = "";
+      setAdvancedLocalCharacterPreset(ref);
+      state.activeAdvancedCaseId = "";
+      renderAdvancedPresetBuilder();
+      updateAdvancedModelControls();
+      updateAdvancedButtonCost();
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    } finally {
+      state.advancedLocalUploadSlot = "";
+      els.advancedImage.value = "";
+    }
+    return;
+  }
   if (["seedream5-image", "qwen-image3"].includes(provider)) {
     try {
       const imageLimit = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
@@ -71,7 +100,7 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedTooLarge = false;
       let skippedTooMany = false;
       for (const file of files) {
-        const mime = String(file.type || "").toLowerCase();
+        const mime = uploadedFileMime(file);
         if (!mime.startsWith("image/")) {
           skippedWrongType = true;
           continue;
@@ -126,7 +155,7 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedTooLarge = false;
       let skippedTooMany = false;
       for (const file of files) {
-        const mime = String(file.type || "").toLowerCase();
+        const mime = uploadedFileMime(file);
         if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
@@ -210,7 +239,7 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedTooMany = false;
       let skippedDurationMessage = "";
       for (const file of files) {
-        const mime = String(file.type || "").toLowerCase();
+        const mime = uploadedFileMime(file);
         if (provider === "wan30" && isWan30DocumentFile(file)) {
           if (state.advancedDocumentReference) {
             skippedTooMany = true;
@@ -286,8 +315,8 @@ els.advancedImage?.addEventListener("change", async () => {
     return;
   }
   const firstFile = files[0];
-  const firstFileIsVideo = String(firstFile.type || "").startsWith("video/");
-  const firstFileIsImage = String(firstFile.type || "").startsWith("image/");
+  const firstFileIsVideo = uploadedFileMime(firstFile).startsWith("video/");
+  const firstFileIsImage = uploadedFileMime(firstFile).startsWith("image/");
   const uploadIsVideo = advancedCreateUploadIsVideo();
   if (uploadIsVideo && firstFileIsVideo) {
     try {

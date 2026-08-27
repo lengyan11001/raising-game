@@ -2214,7 +2214,7 @@ function advancedCharacterPresetFromItem(item = {}, source = "system") {
   const imageUrl = characterReferenceImageUrl(item) || characterUsableImage(item);
   if (!item?.id || !imageUrl || isGenericCharacterPoster(imageUrl)) return null;
   const sourceLabel = source === "custom" ? t("characters.customTab") : t("characters.systemTab");
-  const label = item.name || item.title || "Character";
+  const label = item.name || item.label || item.title || "Character";
   return {
     id: String(item.id || ""),
     label,
@@ -2225,6 +2225,8 @@ function advancedCharacterPresetFromItem(item = {}, source = "system") {
     imageUrl,
     referenceImageUrl: imageUrl,
     tags: Array.isArray(item.tags) ? item.tags : [],
+    gender: item.gender || "",
+    style: item.style || "",
     assetId: item.assetId || "",
     sourceType: source,
     characterId: item.id || "",
@@ -2241,8 +2243,11 @@ function advancedCharacterPresetItems(source = state.advancedPresetCharacterSour
     .filter((item) => item && !item.deletedAt && characterUsableImage(item))
     .map((item) => advancedCharacterPresetFromItem(item, "custom"))
     .filter(Boolean);
+  const ourdreamItems = (advancedPresetSet("character").items || [])
+    .map((item) => advancedCharacterPresetFromItem(item, "ourdream"))
+    .filter(Boolean);
   const seen = new Set();
-  const pool = source === "custom" ? customItems : systemItems;
+  const pool = source === "custom" ? customItems : [...ourdreamItems, ...systemItems];
   return pool.filter((item) => {
     const key = `${item.sourceType}:${item.id}`;
     if (seen.has(key)) return false;
@@ -2253,7 +2258,34 @@ function advancedCharacterPresetItems(source = state.advancedPresetCharacterSour
 
 function advancedPresetItems(slot = "") {
   if (slot === "character") return advancedCharacterPresetItems();
-  return Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
+  const items = Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
+  const character = selectedAdvancedPreset("character") || {};
+  const gender = ["Female", "Male", "Trans"].includes(character.gender) ? character.gender : "Female";
+  const anime = String(character.style || "").toLowerCase() === "anime";
+  if (slot !== "action") {
+    return items.map((item) => {
+      const variant = item.variants?.[`${gender}:${anime ? "Anime" : "Realistic"}`]
+        || item.variants?.[`Female:${anime ? "Anime" : "Realistic"}`]
+        || item.variants?.[`${gender}:Realistic`]
+        || null;
+      return variant ? {
+        ...item,
+        prompt: variant.prompt || item.prompt || "",
+        imageUrl: variant.imageUrl || item.imageUrl || "",
+        referenceImageUrl: variant.imageUrl || item.referenceImageUrl || item.imageUrl || "",
+      } : item;
+    });
+  }
+  return items.map((item) => {
+    const videoVariant = item.videos?.[gender] || item.videos?.Female || item.videos?.Male || item.videos?.Trans || {};
+    const thumbnailVariant = item.thumbnails?.[gender] || item.thumbnails?.Female || item.thumbnails?.Male || item.thumbnails?.Trans || {};
+    return {
+      ...item,
+      imageUrl: (anime ? thumbnailVariant.animeThumbnailUrl : thumbnailVariant.thumbnailUrl) || thumbnailVariant.thumbnailUrl || item.imageUrl || "",
+      referenceImageUrl: (anime ? thumbnailVariant.animeThumbnailUrl : thumbnailVariant.thumbnailUrl) || thumbnailVariant.thumbnailUrl || item.referenceImageUrl || item.imageUrl || "",
+      videoUrl: (anime ? videoVariant.animeVideoUrl : videoVariant.videoUrl) || videoVariant.videoUrl || item.videoUrl || "",
+    };
+  });
 }
 
 function hasMoreSystemCharacterPresets() {
@@ -2335,9 +2367,10 @@ async function loadAdvancedPresets() {
   if (state.advancedPresetsLoaded || state.advancedPresetsLoading) return;
   state.advancedPresetsLoading = true;
   try {
-    const response = await fetch(`${OURDREAM_PRESET_URL}?v=2`, { cache: "force-cache" });
+    const response = await fetch(`${OURDREAM_PRESET_URL}?v=4`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Preset request failed: ${response.status}`);
-    const payload = await response.json();
+    const rawPayload = await response.json();
+    const payload = rawPayload?.presets || rawPayload;
     state.advancedPresetData = {
       sets: Array.isArray(payload.sets) ? payload.sets : [],
       categories: payload.categories && typeof payload.categories === "object" ? payload.categories : {},
@@ -2357,6 +2390,10 @@ function presetImageUrl(item = {}) {
 
 function presetPromptText(item = {}) {
   return String(item.prompt || item.description || item.label || "").trim();
+}
+
+function presetVideoUrl(item = {}) {
+  return String(item.videoUrl || item.referenceVideoUrl || "").trim();
 }
 
 function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(slot)) {
@@ -2380,9 +2417,29 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
 
 function advancedPresetReferenceImages() {
   return advancedCreateModeActivePresetSlots()
+    .filter((slot) => !(slot === "action" && presetVideoUrl(selectedAdvancedPreset(slot) || {})))
     .map((slot) => advancedPresetReferenceImage(slot))
     .filter(Boolean)
     .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+}
+
+function advancedPresetVideoReferences() {
+  if (!advancedCreateModeActivePresetSlots().includes("action")) return [];
+  const item = selectedAdvancedPreset("action");
+  const url = presetVideoUrl(item || {});
+  if (!url) return [];
+  return [{
+    assetId: item.assetId || "",
+    dataUrl: url,
+    url,
+    videoUrl: url,
+    fileName: `${item.id || "action"}.mp4`,
+    name: `${advancedPresetLabel("action")}: ${item.label || "Action"}`,
+    presetId: item.id || "",
+    presetSlot: "action",
+    fromPreset: true,
+    sourceUrl: url,
+  }];
 }
 
 function setAdvancedLocalCharacterPreset(ref = {}) {
@@ -2430,9 +2487,11 @@ async function confirmAdvancedSimpleActionCost(costLabel = "") {
 
 function advancedPresetImageRolePrompt() {
   const refs = advancedPresetReferenceImages();
-  if (!refs.length) return "";
+  const videos = advancedPresetVideoReferences();
+  if (!refs.length && !videos.length) return "";
   const roles = {
     character: "character identity and first-frame subject",
+    pose: "pose, body position, and composition",
     action: "action, pose, and motion direction",
     outfit: "outfit and styling",
     scene: "environment, lighting, and background",
@@ -2440,13 +2499,16 @@ function advancedPresetImageRolePrompt() {
   const lines = refs.map((item, index) => (
     `Image ${index + 1}: ${roles[item.presetSlot] || item.presetSlot} reference (${item.name || item.label || item.presetSlot}).`
   ));
+  const videoLines = videos.map((item, index) => (
+    `Reference video ${index + 1}: action, pose sequence, timing, and motion reference (${item.name || item.presetSlot}).`
+  ));
   return [
-    "Follow the selected reference images exactly for their roles.",
+    "Follow the selected reference media exactly for their assigned roles.",
     ...lines,
-    "Image 1 is the highest-priority character identity reference. The final video must use Image 1 for the main subject's face, identity, hairstyle, body type, and overall character consistency.",
-    "Use later reference images only for their assigned role: action references only for pose and motion, outfit references only for clothing and styling, and scene references only for environment, lighting, and background.",
-    "Do not copy faces, identities, body types, or extra people from the action, outfit, or scene reference images unless they are explicitly described in the prompt.",
-    "Do not ignore the action or scene references when composing the video.",
+    ...videoLines,
+    refs.some((item) => item.presetSlot === "character") ? "The character image is the highest-priority identity reference. Preserve its face, identity, hairstyle, body type, age impression, and overall character consistency." : "",
+    "Use pose media only for body position and composition, action video only for motion and timing, outfit images only for clothing and styling, and scene images only for environment, lighting, and background.",
+    "Do not copy faces, identities, body types, or extra people from pose, action, outfit, or scene references.",
   ].join(" ");
 }
 
@@ -2638,7 +2700,15 @@ function selectAdvancedPreset(slot = "", presetId = "") {
   const preset = advancedPresetItems(slot).find((item) => item.id === presetId);
   if (!preset) return;
   state.advancedSelectedPresets = { ...(state.advancedSelectedPresets || {}), [slot]: preset };
-  if (slot === "character") applyAdvancedCharacterPreset(preset);
+  if (slot === "character") {
+    ["pose", "action", "outfit", "scene"].forEach((dependentSlot) => {
+      const selectedId = state.advancedSelectedPresets?.[dependentSlot]?.id;
+      if (!selectedId) return;
+      const resolved = advancedPresetItems(dependentSlot).find((item) => item.id === selectedId);
+      if (resolved) state.advancedSelectedPresets[dependentSlot] = resolved;
+    });
+    applyAdvancedCharacterPreset(preset);
+  }
   els.advancedPresetDialog?.close();
   renderAdvancedPresetBuilder();
   if (els.advancedNote) els.advancedNote.textContent = "";
@@ -2698,6 +2768,7 @@ function advancedPresetSelectionPayload() {
       category: item.category || "",
       prompt: presetPromptText(item),
       imageUrl: item.localUpload ? "" : presetImageUrl(item),
+      videoUrl: item.localUpload ? "" : presetVideoUrl(item),
       sourceType: item.localUpload ? "local" : item.sourceType || "",
     } : null];
   }));
@@ -2718,6 +2789,7 @@ function hydrateAdvancedPresetsFromParams(params = {}) {
       prompt: savedItem.prompt || "",
       imageUrl: savedItem.imageUrl || "",
       referenceImageUrl: savedItem.imageUrl || "",
+      videoUrl: savedItem.videoUrl || "",
     };
   });
   state.advancedSelectedPresets = next;
@@ -2753,6 +2825,7 @@ function promptWithoutPresetParts(prompt = "", params = {}) {
 function advancedEffectivePrompt(basePrompt = "") {
   const prompt = String(basePrompt || "").trim();
   if (state.advancedCreateKind === "custom") return prompt;
+  if (state.advancedCreateMode === "video-image") return advancedCreateModeDefaultPrompt("video-image");
   return [...advancedPresetPromptParts(), prompt]
     .filter(Boolean)
     .join("\n");
@@ -2760,9 +2833,7 @@ function advancedEffectivePrompt(basePrompt = "") {
 
 function nonCustomAdvancedNeedsCharacterImage() {
   if (state.advancedCreateKind === "custom") return false;
-  const provider = currentAdvancedProvider();
-  if (provider === "wan27-image-edit") return false;
-  return provider === "seedance" && advancedCreateModeActivePresetSlots().includes("character");
+  return advancedCreateModeActivePresetSlots().includes("character");
 }
 
 function hasAdvancedCharacterImage() {
@@ -2875,6 +2946,9 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   }
   if (!custom) {
     if (els.advancedProvider && config.provider) els.advancedProvider.value = config.provider;
+    if (config.videoCapability && typeof syncAdvancedVideoCapabilityOptions === "function") {
+      syncAdvancedVideoCapabilityOptions(config.videoCapability);
+    }
     if (config.seedanceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = advancedCreateModePreferredSeedanceMode(config);
     if (config.wanMode && els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(config.wanMode);
     if (config.assetTarget) {

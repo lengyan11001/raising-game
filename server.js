@@ -82,6 +82,7 @@ const {
   publicWorkflowCanvasSummary,
   publicWorkflowCanvasView,
 } = require("./workflow-canvases");
+const { getOurDreamPresetLibrary } = require("./ourdream-presets");
 const {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
@@ -39719,6 +39720,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
       return await handlePublicCharacters(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
+      const presets = await getOurDreamPresetLibrary();
+      return sendJson(res, 200, { ok: true, presets });
     }
 
     if (req.method === "GET" && url.pathname === "/api/chat/conversations") {

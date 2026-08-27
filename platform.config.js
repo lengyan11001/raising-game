@@ -60,10 +60,11 @@ const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
-const OURDREAM_PRESET_URL = "/assets/ourdream/presets/presets.json";
-const ADVANCED_PRESET_SLOT_ORDER = ["character", "action", "outfit", "scene"];
+const OURDREAM_PRESET_URL = "/api/ourdream/presets";
+const ADVANCED_PRESET_SLOT_ORDER = ["character", "pose", "action", "outfit", "scene"];
 const ADVANCED_PRESET_SLOT_META = {
   character: { labelKey: "advancedPreset.character", icon: "user-round", required: true },
+  pose: { labelKey: "advancedPreset.pose", icon: "person-standing", required: false },
   action: { labelKey: "advancedPreset.action", icon: "clapperboard", required: true },
   outfit: { labelKey: "advancedPreset.outfit", icon: "shirt", required: false },
   scene: { labelKey: "advancedPreset.scene", icon: "image", required: false },
@@ -425,12 +426,12 @@ const ADVANCED_CUSTOM_KIND = { id: "custom", labelKey: "advanced.modeCustom", ic
 const ADVANCED_CUSTOM_MODE = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal", custom: true, placeholderKey: "advanced.promptPlaceholder" };
 const ADVANCED_CREATE_MODES = {
   image: [
-    { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageCreate" },
+    { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", activeSlots: ["character", "pose", "outfit", "scene"], placeholderKey: "advanced.promptImageCreate" },
     { id: "image-edit", labelKey: "advanced.modeImageEdit", icon: "wand-sparkles", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageEdit" },
   ],
   video: [
-    { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoText" },
-    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoImage" },
+    { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "wan30", videoCapability: "wan30-video", seedanceMode: "reference_video", assetTarget: "referenceImages", activeSlots: ["character", "action", "outfit", "scene"], placeholderKey: "advanced.promptVideoText" },
+    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "wan27", videoCapability: "wan27-video-edit", assetTarget: "referenceImages", activeSlots: ["character", "action"], placeholderKey: "advanced.promptVideoImage" },
     { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoExtend" },
     { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoReplace" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
@@ -466,7 +467,7 @@ function seedanceModeNeedsReferenceVideo(mode = "") {
 }
 
 function advancedCreateModeUsesAutoPrompt(mode = state.advancedCreateMode) {
-  return ["video-extend", "video-replace"].includes(mode);
+  return ["video-image", "video-extend", "video-replace"].includes(mode);
 }
 
 function advancedCreateModeIsSimpleEdit(mode = state.advancedCreateMode) {
@@ -479,8 +480,10 @@ function advancedCreateModeUsesSingleUpload(mode = state.advancedCreateMode) {
 
 function advancedCreateModeActivePresetSlots(mode = state.advancedCreateMode) {
   if (advancedCreateModeIsSimpleEdit(mode)) return [];
+  const configured = Object.values(ADVANCED_CREATE_MODES).flat().find((item) => item.id === mode);
+  if (Array.isArray(configured?.activeSlots)) return configured.activeSlots;
   if (["video-extend", "video-replace"].includes(mode)) return ["character", "action"];
-  return ADVANCED_PRESET_SLOT_ORDER;
+  return ["character", "action", "outfit", "scene"];
 }
 
 function advancedCreateModeUsesPresetBuilder(mode = state.advancedCreateMode) {
@@ -536,6 +539,9 @@ function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConf
 }
 
 function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
+  if (mode === "video-image") {
+    return "将视频中的人物替换成图片中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
+  }
   if (mode === "video-extend") {
     return "Generate a cinematic video using Image 1 as the main adult character and Image 2 as the action reference. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
   }
@@ -550,6 +556,29 @@ function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   }
   if (advancedCreateUploadIsVideo(mode)) return "video/mp4,video/webm,video/quicktime,video/*";
   return "image/*";
+}
+
+function uploadedFileMime(file = {}) {
+  const declared = String(file.type || "").trim().toLowerCase();
+  if (declared) return declared;
+  const extension = String(file.name || "").trim().toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+  const known = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    gif: "image/gif",
+    mp4: "video/mp4",
+    mov: "video/quicktime",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    ogg: "audio/ogg",
+  };
+  return known[extension] || "";
 }
 
 const CHARACTER_ROUTE_PARAM_NAMES = ["characterId", "character", "itemId", "id"];

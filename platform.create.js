@@ -195,8 +195,9 @@ function selectedAdvancedImageAsset() {
     || null;
 }
 
-async function ensureAdvancedImageEditAssets() {
-  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+async function ensureAdvancedImageEditAssets(inputReferences = null) {
+  const references = (Array.isArray(inputReferences) ? inputReferences : selectedAdvancedReferenceImages("wan27-image-edit"))
+    .slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (!references.length) return { assets: [], imageUrls: [] };
   const resolved = [];
   const imageUrls = [];
@@ -712,7 +713,7 @@ async function uploadAdvancedImageReference(file, { provider = currentAdvancedPr
     return null;
   }
   if (!file) return null;
-  if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+  if (!uploadedFileMime(file).startsWith("image/")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
     return null;
   }
@@ -914,7 +915,7 @@ function stampAdvancedReferenceOrder(ref = {}) {
 
 async function readMediaDuration(file) {
   if (!file) return 0;
-  const tag = String(file.type || "").startsWith("audio/") ? "audio" : "video";
+  const tag = uploadedFileMime(file).startsWith("audio/") ? "audio" : "video";
   const media = document.createElement(tag);
   const url = URL.createObjectURL(file);
   return await new Promise((resolve) => {
@@ -1414,12 +1415,13 @@ function syncAdvancedProviderExposure() {
     ));
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
-  if (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
+  const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
+  if (current !== modeProvider && (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
     || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
-  ))) {
+  )))) {
     els.advancedProvider.value = "seedance25";
   }
 }
@@ -1937,6 +1939,8 @@ async function submitAdvancedGenerate() {
   const seedanceTier = currentSeedanceTier();
   const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
+  const presetReferenceImages = usingPresetFlow ? advancedPresetReferenceImages() : [];
+  const presetVideoReferences = usingPresetFlow ? advancedPresetVideoReferences() : [];
   if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     const enableThinking = els.advancedQwen37Thinking?.value === "true";
     const maxTokens = Math.max(1, Math.min(8192, Number(els.advancedQwen37MaxTokens?.value || 1024) || 1024));
@@ -2087,7 +2091,11 @@ async function submitAdvancedGenerate() {
     return;
   }
   if (provider === "wan27-image-edit") {
-    const referencesReady = await guardAdvancedSubmitAssets(selectedAdvancedReferenceImages("wan27-image-edit").map((item) => item.assetId));
+    const imageReferences = dedupeAdvancedReferenceImages([
+      ...presetReferenceImages,
+      ...selectedAdvancedReferenceImages("wan27-image-edit"),
+    ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    const referencesReady = await guardAdvancedSubmitAssets(imageReferences.map((item) => item.assetId));
     if (!referencesReady) {
       els.advancedSubmitBtn.disabled = false;
       return;
@@ -2117,7 +2125,7 @@ async function submitAdvancedGenerate() {
     renderAdvancedResultPanel();
     if (els.advancedNote) els.advancedNote.textContent = "";
     try {
-      const { assets, imageUrls } = await ensureAdvancedImageEditAssets();
+      const { assets, imageUrls } = await ensureAdvancedImageEditAssets(imageReferences);
       renderAdvancedResultPanel();
       const payload = await requestJson("/api/wan27/image-edit", {
         method: "POST",
@@ -2184,7 +2192,6 @@ async function submitAdvancedGenerate() {
     : provider === "wan27" && (videoCapability === "wan27-i2v" || videoCapability === "wan-legacy")
       ? resolvedWanSubmitMediaMode(rawWanMediaMode)
       : videoCapability;
-  const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
   const presetReferenceMode = provider === "seedance"
     && usingPresetFlow
     && advancedCreateModeUsesCharacterPresetReference()
@@ -2196,11 +2203,13 @@ async function submitAdvancedGenerate() {
   const seedance25VideoOnlyMode = provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode);
   const referenceImages = seedanceFrameMode || seedance25VideoOnlyMode
     ? []
-    : presetReferenceMode
+    : usingPresetFlow
     ? dedupeAdvancedReferenceImages([
         ...presetReferenceImages,
         ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
-      ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
+      ]).slice(0, provider === "wan30" || provider === "wan27" || provider === "happyhorse"
+        ? advancedAliyunReferenceImageLimit(videoCapability)
+        : ADVANCED_SEEDANCE_REFERENCE_LIMIT)
     : selectedAdvancedReferenceImages();
   const documentReference = provider === "wan30" && state.advancedDocumentReference ? state.advancedDocumentReference : null;
   const isWanI2v = provider === "wan27" && videoCapability === "wan27-i2v";
@@ -2220,7 +2229,9 @@ async function submitAdvancedGenerate() {
   const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
-  const seedanceVideoRefs = sharedReferenceProvider && !seedanceFrameMode ? advancedSeedanceVideoReferences() : [];
+  const seedanceVideoRefs = sharedReferenceProvider && !seedanceFrameMode
+    ? dedupeAdvancedMediaReferences([...presetVideoReferences, ...advancedSeedanceVideoReferences()]).slice(0, advancedVideoReferenceLimit(provider))
+    : [];
   const seedanceAudioRefs = sharedReferenceProvider && !seedanceFrameMode && !seedance25VideoOnlyMode ? advancedSeedanceAudioReferences() : [];
   const seedanceVideoAssetIds = seedanceVideoRefs.map((item) => item.assetId || "").filter(Boolean);
   const seedanceAudioAssetIds = seedanceAudioRefs.map((item) => item.assetId || "").filter(Boolean);
@@ -2347,7 +2358,7 @@ async function submitAdvancedGenerate() {
     const usesWanFrameModes = provider === "wan27" && (videoCapability === "wan27-i2v" || videoCapability === "wan-legacy");
     const hasPrimaryImage = Boolean(wanFirstFrameSource || wanFirstFrameAssetId || referenceImages[0]);
     const hasReferenceImages = referenceImages.length > 0;
-    const hasVideo = Boolean(state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() || state.advancedWanClipAssetId);
+    const hasVideo = Boolean(presetVideoReferences[0]?.url || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() || state.advancedWanClipAssetId);
     const durationMessage = hasVideo
       ? advancedVideoInputDurationMessage(aliyunInputVideoSeconds, provider, videoCapability, { allowUnknown: true })
       : "";
@@ -2462,12 +2473,15 @@ async function submitAdvancedGenerate() {
     const capabilityUsesVideo = [
       "wan27-r2v", "wan27-video-edit", "wan-animate-move", "wan-animate-mix", "happyhorse-video-edit",
     ].includes(videoCapability) || (videoCapability === "wan-legacy" && /r2v|vace/.test(legacyWanModel));
-    const wanClipSource = capabilityUsesVideo ? state.advancedWanClipDataUrl : selectedWanClipData(mediaMode);
+    const presetActionVideo = presetVideoReferences[0] || null;
+    const wanClipSource = capabilityUsesVideo
+      ? (state.advancedWanClipDataUrl || presetActionVideo?.url || presetActionVideo?.videoUrl || "")
+      : selectedWanClipData(mediaMode);
     const wanClipDataUrl = dataUrlValue(wanClipSource);
     const wanClipUrl = capabilityUsesVideo
-      ? (String(els.advancedWanClipUrl?.value || "").trim() || absoluteHttpUrl(wanClipSource))
+      ? (String(els.advancedWanClipUrl?.value || "").trim() || absoluteHttpUrl(wanClipSource) || presetActionVideo?.url || "")
       : (selectedWanClipUrl(mediaMode) || absoluteHttpUrl(wanClipSource));
-    const wanClipFileName = capabilityUsesVideo ? state.advancedWanClipFileName : selectedWanClipFileName(mediaMode);
+    const wanClipFileName = capabilityUsesVideo ? (state.advancedWanClipFileName || presetActionVideo?.fileName || "action.mp4") : selectedWanClipFileName(mediaMode);
     const aliyunPrimaryCapabilities = new Set(["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"]);
     const usesAliyunPrimaryImage = aliyunPrimaryCapabilities.has(videoCapability)
       || (videoCapability === "wan-legacy" && !/t2v|r2v|vace/.test(legacyWanModel));
