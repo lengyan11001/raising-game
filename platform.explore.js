@@ -738,14 +738,15 @@ function playfluxTemplateNeedsSource(template = {}) {
 }
 
 function playfluxTemplateVideoProvider() {
-  const provider = tenantStringFeature("videoProvider", "wan27");
+  const provider = tenantStringFeature("videoProvider", "wan30");
   return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
 
-const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan27-r2v";
+const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan30-video";
 
 function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvider()) {
-  if (provider === "wan27") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
+  if (provider === "wan30") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
+  if (provider === "wan27") return "wan27-r2v";
   if (provider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }

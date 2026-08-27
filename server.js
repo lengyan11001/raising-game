@@ -288,16 +288,17 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
-const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
+const TOOL_VIDEO_DEFAULT_PROVIDER = "wan30";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
+  if (normalizedProvider === "wan30") return "wan30-video";
   if (normalizedProvider === "wan27") return "wan27-r2v";
   if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
 
-const TOOL_VIDEO_PROVIDER = ["wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
+const TOOL_VIDEO_PROVIDER = ["wan30", "wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
   ? String(process.env.TOOL_VIDEO_PROVIDER).trim().toLowerCase()
   : TOOL_VIDEO_DEFAULT_PROVIDER;
 const TOOL_TENANT_SPECS = Object.freeze({
@@ -27674,7 +27675,7 @@ async function handleAdvancedEstimate(req, res) {
   const tenant = requestTenantDescriptor(req);
   const isToolVideoTemplateEstimate = tenant.toolId === "video";
   const effectiveProvider = isToolVideoTemplateEstimate
-    ? (["seedance", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan27")
+    ? (["seedance", "wan30", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan30")
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);

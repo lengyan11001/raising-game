@@ -11,10 +11,10 @@ const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 
 test("all Video template surfaces default to guided Wan2.7 Reference to Video", () => {
-  assert.match(server, /const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";/);
-  assert.match(server, /if \(normalizedProvider === "wan27"\) return "wan27-r2v";/);
+  assert.match(server, /const TOOL_VIDEO_DEFAULT_PROVIDER = "wan30";/);
+  assert.match(server, /if \(normalizedProvider === "wan30"\) return "wan30-video";/);
   assert.match(server, /isToolVideoTemplateRequest \? toolVideoDefaultCapability\(toolVideoProvider\) : ""/);
-  assert.match(explore, /tenantStringFeature\("videoProvider", "wan27"\)/);
+  assert.match(explore, /tenantStringFeature\("videoProvider", "wan30"\)/);
   assert.doesNotMatch(explore, /isTenantTool\("video"\)\s*\?\s*tenantStringFeature\("videoProvider"/);
 });
 
