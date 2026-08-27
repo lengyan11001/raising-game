@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-371-byteplus-language" />
+    <link rel="stylesheet" href="./platform.css?v=ai-372-character-chat" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -76,6 +76,10 @@
         <button class="top-tab" data-tab="characters" type="button">
           <i data-lucide="user-round-plus"></i>
           <span data-i18n="nav.characters">Characters</span>
+        </button>
+        <button class="top-tab" data-tab="chat" type="button">
+          <i data-lucide="message-circle-heart"></i>
+          <span>Chat</span>
         </button>
         <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
           <i data-lucide="film"></i>
@@ -513,6 +517,49 @@
           </div>
         </div>
         <div class="access-subtokens" id="accessSubtokens"></div>
+        </div>
+      </section>
+
+      <section class="chat-panel" data-panel="chat" hidden>
+        <div class="chat-shell" id="chatShell">
+          <aside class="chat-list-pane">
+            <div class="chat-pane-head">
+              <strong>Chats</strong>
+              <span><button class="icon-btn" id="chatBrowseBtn" type="button" aria-label="Browse characters" title="Browse characters"><i data-lucide="message-square-plus"></i></button><button class="icon-btn chat-mobile-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button></span>
+            </div>
+            <label class="chat-search"><i data-lucide="search"></i><input id="chatSearch" type="search" placeholder="Search chats..." /></label>
+            <div class="chat-conversation-list" id="chatConversationList"></div>
+          </aside>
+          <section class="chat-main-pane">
+            <header class="chat-main-head" id="chatMainHead"></header>
+            <div class="chat-empty" id="chatEmpty">
+              <i data-lucide="messages-square"></i>
+              <strong>Start a character chat</strong>
+              <button class="primary-button" id="chatEmptyBrowseBtn" type="button">Browse characters</button>
+            </div>
+            <div class="chat-thread" id="chatThread" hidden></div>
+            <div class="chat-suggestion" id="chatSuggestion" hidden>
+              <span>Suggested reply</span>
+              <button type="button" id="chatSuggestionBtn"></button>
+            </div>
+            <form class="chat-composer" id="chatComposer" hidden>
+              <textarea id="chatInput" rows="2" maxlength="12000" placeholder="Send a message"></textarea>
+              <div class="chat-composer-actions">
+                <button class="icon-btn" id="chatContinueBtn" type="button" aria-label="Continue response" title="Continue"><i data-lucide="fast-forward"></i></button>
+                <button class="generate-btn chat-send-btn" id="chatSendBtn" type="submit"><i data-lucide="send"></i><span>Send</span></button>
+              </div>
+            </form>
+          </section>
+          <aside class="chat-detail-pane" id="chatDetailPane">
+            <button class="icon-btn chat-mobile-close chat-detail-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button>
+            <div class="chat-character-card" id="chatCharacterCard"></div>
+            <div class="chat-settings-tabs" role="tablist">
+              <button class="is-active" type="button" data-chat-setting="style">Style</button>
+              <button type="button" data-chat-setting="memory">Memory</button>
+              <button type="button" data-chat-setting="preferences">Preferences</button>
+            </div>
+            <div class="chat-settings-body" id="chatSettingsBody"></div>
+          </aside>
         </div>
       </section>
 
@@ -1039,6 +1086,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-371-byteplus-language"></script>
+    <script src="./platform.js?v=ai-372-character-chat"></script>
   </body>
 </html>

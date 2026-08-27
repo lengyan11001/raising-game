@@ -394,6 +394,30 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_conversations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_conversations_user_updated_idx ON app_chat_conversations (user_id, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES app_chat_conversations(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_user_unlocks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -1649,6 +1673,67 @@ async function upsertUserUnlockInDb(unlock = {}) {
     ],
   );
   return unlock;
+}
+
+async function listChatConversationsInDb(userId = "", limit = 80) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_conversations
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY updated_at DESC LIMIT $2
+  `, [String(userId || ""), Math.max(1, Math.min(200, Number(limit || 80) || 80))]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function getChatConversationInDb(id = "", userId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [String(id || ""), String(userId || "")]);
+  return rows[0]?.payload || null;
+}
+
+async function upsertChatConversationInDb(conversation = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...conversation };
+  await query(`
+    INSERT INTO app_chat_conversations(id, user_id, character_id, payload, deleted_at, created_at, updated_at)
+    VALUES ($1, $2, $3, $4::jsonb, NULLIF($5, '')::timestamptz, $6::timestamptz, $7::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, deleted_at = EXCLUDED.deleted_at, updated_at = EXCLUDED.updated_at
+  `, [payload.id, payload.userId, payload.characterId, JSON.stringify(payload), payload.deletedAt || "", payload.createdAt, payload.updatedAt]);
+  return payload;
+}
+
+async function listChatMessagesInDb(conversationId = "", userId = "", limit = 200) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_messages WHERE conversation_id = $1 AND user_id = $2
+    ORDER BY created_at ASC LIMIT $3
+  `, [String(conversationId || ""), String(userId || ""), Math.max(1, Math.min(500, Number(limit || 200) || 200))]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function insertChatMessageInDb(message = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...message };
+  await query(`
+    INSERT INTO app_chat_messages(id, conversation_id, user_id, role, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, $7::timestamptz)
+  `, [payload.id, payload.conversationId, payload.userId, payload.role, JSON.stringify(payload), payload.createdAt, payload.updatedAt]);
+  return payload;
+}
+
+async function deleteChatMessagesAfterInDb(conversationId = "", userId = "", messageId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    DELETE FROM app_chat_messages WHERE conversation_id = $1 AND user_id = $2
+      AND created_at >= (SELECT created_at FROM app_chat_messages WHERE id = $3 AND conversation_id = $1 AND user_id = $2)
+  `, [String(conversationId || ""), String(userId || ""), String(messageId || "")]);
+  return rowCount || 0;
 }
 
 async function claimToolFreeGenerationInDb({ id = "", userId = "", tenantId = "", taskId = "", kind = "" } = {}) {
@@ -2938,6 +3023,12 @@ module.exports = {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   upsertUserCharacterInDb,
+  listChatConversationsInDb,
+  getChatConversationInDb,
+  upsertChatConversationInDb,
+  listChatMessagesInDb,
+  insertChatMessageInDb,
+  deleteChatMessagesAfterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,

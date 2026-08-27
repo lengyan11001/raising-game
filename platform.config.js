@@ -6,7 +6,7 @@ const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["gallery", "characters", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
+const ALL_TABS = new Set(["gallery", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -708,6 +708,13 @@ const state = {
   galleryUnlocksLoaded: false,
   galleryUnlockMessage: "",
   galleryUnlockLoadingKey: "",
+  chatConversations: [],
+  chatActiveConversationId: "",
+  chatMessages: [],
+  chatLoading: false,
+  chatSending: false,
+  chatSearch: "",
+  chatSetting: "style",
   advancedCases: [],
   activeAdvancedCaseId: "",
   activeAdvancedCaseTab: "hot",
@@ -1001,6 +1008,22 @@ const els = {
   characterCreatePrompt: document.querySelector("#characterCreatePrompt"),
   characterCreateBtn: document.querySelector("#characterCreateBtn"),
   characterCreateStatus: document.querySelector("#characterCreateStatus"),
+  chatShell: document.querySelector("#chatShell"),
+  chatBrowseBtn: document.querySelector("#chatBrowseBtn"),
+  chatEmptyBrowseBtn: document.querySelector("#chatEmptyBrowseBtn"),
+  chatSearch: document.querySelector("#chatSearch"),
+  chatConversationList: document.querySelector("#chatConversationList"),
+  chatMainHead: document.querySelector("#chatMainHead"),
+  chatEmpty: document.querySelector("#chatEmpty"),
+  chatThread: document.querySelector("#chatThread"),
+  chatSuggestion: document.querySelector("#chatSuggestion"),
+  chatSuggestionBtn: document.querySelector("#chatSuggestionBtn"),
+  chatComposer: document.querySelector("#chatComposer"),
+  chatInput: document.querySelector("#chatInput"),
+  chatContinueBtn: document.querySelector("#chatContinueBtn"),
+  chatSendBtn: document.querySelector("#chatSendBtn"),
+  chatCharacterCard: document.querySelector("#chatCharacterCard"),
+  chatSettingsBody: document.querySelector("#chatSettingsBody"),
   templateDialog: document.querySelector("#templateDialog"),
   modalType: document.querySelector("#modalType"),
   modalTitle: document.querySelector("#modalTitle"),

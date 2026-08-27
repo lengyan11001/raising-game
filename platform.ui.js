@@ -550,6 +550,7 @@ function applyLanguage() {
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
+  if (state.tab === "chat") renderChatPanel();
   if (state.tab === "characters") renderCharactersPanel({ forceCreator: true });
   renderAccountMenu();
   renderTopupSummary();
@@ -587,6 +588,9 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.galleryUnlocks = [];
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
+    state.chatConversations = [];
+    state.chatActiveConversationId = "";
+    state.chatMessages = [];
     state.referral = null;
     state.referralLoadedUserId = "";
     state.referralLoadedAt = 0;
@@ -633,6 +637,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
+  if (state.tab === "chat") loadChatConversations({ selectFirst: true });
   if (state.tab === "workflow") loadWorkflowCanvases({ force: true });
   if (state.tab === "referral") {
     if (state.user && !skipReferralRefresh) loadReferralSummary({ force: true });

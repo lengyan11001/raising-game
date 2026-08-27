@@ -130,6 +130,12 @@ const {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   upsertUserCharacterInDb,
+  listChatConversationsInDb,
+  getChatConversationInDb,
+  upsertChatConversationInDb,
+  listChatMessagesInDb,
+  insertChatMessageInDb,
+  deleteChatMessagesAfterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
@@ -662,6 +668,7 @@ function defaultAliyunLegacySaleCreditsByModel() {
 
 const QWEN37_FLASH_MODEL = String(process.env.ALIYUN_QWEN37_MODEL || "qwen3.7-flash").trim() || "qwen3.7-flash";
 const BYTEPLUS_LANGUAGE_MODEL = String(process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw").trim() || "ep-20260827122554-8fsgw";
+const CHAT_MESSAGE_CREDITS = creditsAmount(process.env.CHAT_MESSAGE_CREDITS || 1);
 const QWEN37_FLASH_MAX_OUTPUT_TOKENS = Math.floor(clampNumber(process.env.QWEN37_FLASH_MAX_OUTPUT_TOKENS, 8192, 1, 32768));
 const QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS = Object.freeze([
   Object.freeze({ maxInputTokens: 32768, input: 0.225, output: 0.974 }),
@@ -13057,6 +13064,177 @@ async function byteplusLanguageRequest(body = {}, { timeoutMs = 180000 } = {}) {
     throw error;
   }
   return payload;
+}
+
+function chatCharacterView(item = {}) {
+  return publicAssetUrlsForClient({
+    id: String(item.id || ""),
+    name: String(item.name || item.title || "Character"),
+    description: String(item.description || item.summary || item.title || ""),
+    posterUrl: characterPosterForGeo(item),
+    tags: characterTagsForGeo(item, 8),
+    creatorUsername: String(item.creatorUsername || ""),
+  });
+}
+
+async function chatCharacterById(characterId = "") {
+  const config = await readAppConfig();
+  const items = normalizeHomeVideo(config.homeVideo || {}).items || [];
+  return items.find((item) => String(item.id || "") === String(characterId || "")) || null;
+}
+
+function publicChatConversation(conversation = {}) {
+  return publicAssetUrlsForClient({
+    id: conversation.id,
+    characterId: conversation.characterId,
+    character: conversation.character || {},
+    title: conversation.title || conversation.character?.name || "Chat",
+    style: conversation.style || "balanced",
+    memory: conversation.memory || "",
+    instructions: conversation.instructions || "",
+    backgroundEnabled: conversation.backgroundEnabled !== false,
+    lastMessage: conversation.lastMessage || "",
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+  });
+}
+
+function publicChatMessage(message = {}) {
+  return {
+    id: message.id,
+    conversationId: message.conversationId,
+    role: message.role === "user" ? "user" : "assistant",
+    content: String(message.content || ""),
+    createdAt: message.createdAt,
+  };
+}
+
+function chatSystemPrompt(conversation = {}) {
+  const character = conversation.character || {};
+  const styleGuide = {
+    balanced: "Keep replies conversational, vivid, and concise.",
+    immersive: "Write immersive roleplay with sensory detail and distinct character voice.",
+    concise: "Keep replies short and direct while staying in character.",
+    cinematic: "Write cinematic scenes with action, atmosphere, and clear dialogue.",
+  }[conversation.style] || "Keep replies conversational, vivid, and concise.";
+  return [
+    `You are roleplaying as ${character.name || "the character"}.`,
+    `Character background: ${character.description || "Stay consistent with the established character."}`,
+    character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
+    styleGuide,
+    "Stay in character. Advance the scene naturally. Use first-person dialogue and italicized action beats when useful.",
+    "Never claim to be an AI, never write the user's actions or decisions for them, and do not repeat the same passage.",
+    conversation.memory ? `Pinned memory: ${conversation.memory}` : "",
+    conversation.instructions ? `User instructions: ${conversation.instructions}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function handleListChatConversations(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversations = await listChatConversationsInDb(auth.user.id, 100);
+  return sendJson(res, 200, { ok: true, conversations: conversations.map(publicChatConversation) });
+}
+
+async function handleCreateChatConversation(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const character = await chatCharacterById(String(body.characterId || ""));
+  if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_CHARACTER_NOT_FOUND", message: "Character not found." });
+  const now = new Date().toISOString();
+  const characterView = chatCharacterView(character);
+  const conversation = {
+    id: randomId("chat"), userId: auth.user.id, characterId: characterView.id, character: characterView,
+    title: characterView.name, style: "balanced", memory: "", instructions: "", backgroundEnabled: true,
+    lastMessage: characterView.description || `Start chatting with ${characterView.name}.`, createdAt: now, updatedAt: now,
+  };
+  await upsertChatConversationInDb(conversation);
+  const greeting = {
+    id: randomId("msg"), conversationId: conversation.id, userId: auth.user.id, role: "assistant",
+    content: characterView.description || `Hi, I'm ${characterView.name}. What would you like to talk about?`, createdAt: now, updatedAt: now,
+  };
+  await insertChatMessageInDb(greeting);
+  return sendJson(res, 201, { ok: true, conversation: publicChatConversation(conversation), messages: [publicChatMessage(greeting)] });
+}
+
+async function handleGetChatConversation(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const messages = await listChatMessagesInDb(conversation.id, auth.user.id, 300);
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(conversation), messages: messages.map(publicChatMessage) });
+}
+
+async function handleUpdateChatConversation(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const next = {
+    ...conversation,
+    style: ["balanced", "immersive", "concise", "cinematic"].includes(body.style) ? body.style : conversation.style,
+    memory: body.memory === undefined ? conversation.memory : String(body.memory || "").trim().slice(0, 4000),
+    instructions: body.instructions === undefined ? conversation.instructions : String(body.instructions || "").trim().slice(0, 4000),
+    backgroundEnabled: body.backgroundEnabled === undefined ? conversation.backgroundEnabled : body.backgroundEnabled !== false,
+    updatedAt: new Date().toISOString(),
+  };
+  await upsertChatConversationInDb(next);
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(next) });
+}
+
+async function handleSendChatMessage(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!ARK_API_KEY) return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Chat is not configured." });
+  let conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const action = String(body.action || "send");
+  if (!["send", "continue", "regenerate", "edit"].includes(action)) return sendJson(res, 400, { ok: false, message: "Invalid chat action." });
+  const targetMessageId = String(body.targetMessageId || "");
+  let content = String(body.content || "").trim().slice(0, 12000);
+  if (action === "continue") content = "Continue the scene naturally from where you stopped.";
+  if (auth.user.credits < CHAT_MESSAGE_CREDITS) return sendJson(res, 402, insufficientCreditsPayload(CHAT_MESSAGE_CREDITS, auth.user.credits));
+  if (action === "regenerate" || action === "edit") {
+    if (!targetMessageId) return sendJson(res, 400, { ok: false, message: "targetMessageId is required." });
+    await deleteChatMessagesAfterInDb(conversation.id, auth.user.id, targetMessageId);
+  }
+  if (!["regenerate", "continue"].includes(action)) {
+    if (!content) return sendJson(res, 400, { ok: false, message: "Message is required." });
+    const now = new Date().toISOString();
+    await insertChatMessageInDb({ id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content, createdAt: now, updatedAt: now });
+  }
+  const billingId = randomId("chat-bill");
+  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { conversationId, model: BYTEPLUS_LANGUAGE_MODEL } });
+  if (!dbEnabled()) await writeDb(auth.db);
+  try {
+    const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
+    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: String(message.content || "") }));
+    if (action === "continue") messages.push({ role: "user", content });
+    const raw = await byteplusLanguageRequest({
+      model: BYTEPLUS_LANGUAGE_MODEL,
+      messages: [{ role: "system", content: chatSystemPrompt(conversation) }, ...messages],
+      temperature: 0.9,
+      max_tokens: 1200,
+    });
+    const reply = qwen37FlashResponseText(raw);
+    if (!reply) throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });
+    const now = new Date().toISOString();
+    const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
+    await insertChatMessageInDb(assistantMessage);
+    conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now };
+    await upsertChatConversationInDb(conversation);
+    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: auth.user.credits - CHAT_MESSAGE_CREDITS });
+  } catch (error) {
+    const db = await readDb();
+    await changeUserCredits(db, auth.user.id, CHAT_MESSAGE_CREDITS, "character_chat_refund", { conversationId, billingId, error: error.message || "Chat failed." });
+    if (!dbEnabled()) await writeDb(db);
+    const info = normalizeErrorPayload(error);
+    return sendJson(res, error.statusCode || 502, { ok: false, code: info.code || "CHAT_FAILED", message: info.message || "Chat failed." });
+  }
 }
 
 function normalizeWan27MediaItem(item = {}) {
@@ -39355,6 +39533,24 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
       return await handlePublicCharacters(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/chat/conversations") {
+      return await handleListChatConversations(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/conversations") {
+      return await handleCreateChatConversation(req, res);
+    }
+    const chatConversationMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/?$/);
+    if (req.method === "GET" && chatConversationMatch) {
+      return await handleGetChatConversation(req, res, decodeURIComponent(chatConversationMatch[1]));
+    }
+    if (req.method === "PATCH" && chatConversationMatch) {
+      return await handleUpdateChatConversation(req, res, decodeURIComponent(chatConversationMatch[1]));
+    }
+    const chatMessageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages\/?$/);
+    if (req.method === "POST" && chatMessageMatch) {
+      return await handleSendChatMessage(req, res, decodeURIComponent(chatMessageMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/video-tools/estimate") {

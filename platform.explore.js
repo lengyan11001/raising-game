@@ -123,6 +123,7 @@ function setTab(tab) {
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
+  if (nextTab === "chat") loadChatConversations({ selectFirst: true });
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);
@@ -3098,6 +3099,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
           </div>
         </div>
         <div class="character-detail-actions">
+          <button class="primary-button compact" data-character-chat="${escapeHtml(item.id || "")}" type="button"><i data-lucide="message-circle-heart"></i>Chat</button>
           <button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>
           ${item.custom ? `<button class="ghost-button danger compact" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
         </div>
@@ -3115,6 +3117,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
     else renderTemplates();
   });
   root.querySelector("[data-character-use]")?.addEventListener("click", () => useHomeCharacter(item.id || ""));
+  root.querySelector("[data-character-chat]")?.addEventListener("click", () => startCharacterChat(item.id || ""));
   root.querySelector("[data-character-delete]")?.addEventListener("click", (event) => {
     event.stopPropagation();
     deleteCustomCharacter(item.id || "", event.currentTarget);
