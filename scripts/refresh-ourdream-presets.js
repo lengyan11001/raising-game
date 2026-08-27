@@ -12,6 +12,7 @@ const ROOT = path.resolve(__dirname, "..");
 const OUTPUT = path.join(ROOT, "assets", "ourdream", "presets", "presets.json");
 const ACTION_OUTPUT = path.join(ROOT, "assets", "ourdream", "presets", "video-actions.json");
 const mirror = process.argv.includes("--mirror");
+const actionsOnly = process.argv.includes("--actions-only");
 const concurrencyArg = process.argv.find((arg) => arg.startsWith("--concurrency="));
 const concurrency = Math.max(1, Math.min(20, Number(concurrencyArg?.split("=")[1]) || 8));
 const cache = new Map();
@@ -181,7 +182,7 @@ async function main() {
     for (const [name, value] of Object.entries(R2)) required(`R2_${name}`, value);
   }
   const library = await fetchOurDreamPresetLibrary({ characterLimit: 100 });
-  const jobs = collectMedia(library);
+  const jobs = collectMedia(library).filter((job) => !actionsOnly || job.kind === "actions" || job.kind === "action-media");
   // Reuse the already imported local catalog for stable preset images. Only newly
   // discovered URLs (especially action videos) need a network download.
   const existing = JSON.parse(await fs.readFile(OUTPUT, "utf8").catch(() => "{\"sets\":[]}"));
