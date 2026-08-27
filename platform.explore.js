@@ -738,22 +738,23 @@ function playfluxTemplateNeedsSource(template = {}) {
 }
 
 function playfluxTemplateVideoProvider() {
-  const provider = tenantStringFeature("videoProvider", "wan30");
-  return ["wan30", "wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan30";
+  const provider = tenantStringFeature("videoProvider", "wan27");
+  return ["wan30", "wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
 
 const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan30-video";
+const PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY = "wan27-video-edit";
 
 function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvider()) {
   if (provider === "wan30") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
-  if (provider === "wan27") return "wan27-r2v";
+  if (provider === "wan27") return PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY;
   if (provider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
 
 function playfluxTemplateOutputDuration(template = {}, provider = playfluxTemplateVideoProvider()) {
   const configuredDuration = Number(template.duration || 5) || 5;
-  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== "wan27-r2v") return configuredDuration;
+  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY) return configuredDuration;
   const referenceDuration = Number(template.referenceVideoDurationSeconds || configuredDuration) || configuredDuration;
   return Math.max(2, Math.min(10, Math.round(referenceDuration)));
 }
@@ -874,7 +875,8 @@ function playfluxSeedanceModeNeedsReferenceVideo(mode = "") {
 }
 
 function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
-  return "";
+  if (template.tab !== "video" || !usesReferenceVideo || !hasSourceImage) return "";
+  return "让上传图片中的人物复刻参考视频中的单人动作。保持人物身份、脸部、服装和主体画面一致，严格参考视频的动作顺序、姿态变化、节奏、运镜和构图，不复制参考视频中的人物身份、文字或水印。";
 }
 
 function playfluxTemplateFromDialog(template = {}, root = null) {
@@ -1116,13 +1118,15 @@ async function submitPlayfluxTemplate(template = {}, root) {
         ? {
             provider,
             templateId: effectiveTemplate.id || "",
-            videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY,
+            videoCapability: PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY,
+            prompt: playfluxTemplateVideoPrompt(effectiveTemplate, { usesReferenceVideo: true, hasSourceImage: Boolean(reference) }),
             referenceImages: reference ? [reference] : [],
-            referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
+            videoUrl: playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""),
             ratio,
             resolution,
             duration,
             inputVideoSeconds: referenceVideoSeconds,
+            followInputDuration: true,
             params: { ...recordBase.params },
           }
         : provider === "happyhorse"

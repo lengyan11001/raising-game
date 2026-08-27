@@ -288,12 +288,12 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
-const TOOL_VIDEO_DEFAULT_PROVIDER = "wan30";
+const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
   if (normalizedProvider === "wan30") return "wan30-video";
-  if (normalizedProvider === "wan27") return "wan27-r2v";
+  if (normalizedProvider === "wan27") return "wan27-video-edit";
   if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
@@ -26037,7 +26037,7 @@ async function handleAdvancedGenerate(req, res) {
   }
   const isPlayfluxVideoReferenceRequest = isPlayfluxVideoTemplateRequest && (
     (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
-    || (provider === "wan27" && requestParams.videoCapability === "wan27-r2v")
+    || (provider === "wan27" && requestParams.videoCapability === "wan27-video-edit")
   );
   if (isPlayfluxVideoReferenceRequest) {
     prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
@@ -26045,7 +26045,7 @@ async function handleAdvancedGenerate(req, res) {
         ? wan27Media.some((item) => ["first_frame", "reference_image"].includes(item.type))
         : Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
       hasReferenceVideo: provider === "wan27"
-        ? wan27Media.some((item) => item.type === "reference_video")
+        ? wan27Media.some((item) => ["video", "reference_video"].includes(item.type))
         : Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
   }
@@ -27681,7 +27681,7 @@ async function handleAdvancedEstimate(req, res) {
   const tenant = requestTenantDescriptor(req);
   const isToolVideoTemplateEstimate = tenant.toolId === "video";
   const effectiveProvider = isToolVideoTemplateEstimate
-    ? (["seedance", "wan30", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan30")
+    ? (["seedance", "wan30", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : TOOL_VIDEO_DEFAULT_PROVIDER)
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
