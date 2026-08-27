@@ -195,11 +195,18 @@ async function main() {
     if (local && !job.url.includes("vid.ourdream.ai")) job.localUrl = local;
   }
   const unique = [...new Map(jobs.map((job) => [job.url, job])).values()];
-  const mirrored = mirror ? await mapConcurrent(unique, async (job) => ({ ...job, localUrl: job.localUrl ? await mirrorLocalUrl(job.localUrl, job.kind, job.id) : await mirrorUrl(job.url, job.kind, job.id) })) : unique.map((job) => ({ ...job, localUrl: job.localUrl || job.url }));
+  const mirrored = mirror ? await mapConcurrent(unique, async (job) => {
+    try {
+      return { ...job, localUrl: job.localUrl ? await mirrorLocalUrl(job.localUrl, job.kind, job.id) : await mirrorUrl(job.url, job.kind, job.id) };
+    } catch (error) {
+      console.warn(`[skip] ${job.url}: ${error.message || error}`);
+      return { ...job, localUrl: "" };
+    }
+  }) : unique.map((job) => ({ ...job, localUrl: job.localUrl || job.url }));
   const bySource = new Map(mirrored.map((job) => [job.url, job.localUrl]));
   for (const job of jobs) {
     job.item.sourceUrl = job.item.sourceUrl || job.url;
-    job.item[job.field] = bySource.get(job.url) || job.localUrl;
+    job.item[job.field] = bySource.get(job.url) || job.localUrl || "";
   }
   const clean = JSON.parse(JSON.stringify(library));
   function scrub(value) {
