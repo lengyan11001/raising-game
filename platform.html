@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-378-character-chat-feedback" />
+    <link rel="stylesheet" href="./platform.css?v=ai-379-character-chat-tools" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -543,8 +543,18 @@
               <button type="button" id="chatSuggestionBtn"></button>
             </div>
             <form class="chat-composer" id="chatComposer" hidden>
+              <div class="chat-mode-control">
+                <button class="icon-btn" id="chatModeBtn" type="button" aria-label="Generation mode" title="Generation mode"><i data-lucide="message-circle"></i></button>
+                <div class="chat-mode-menu" id="chatModeMenu" role="menu" hidden>
+                  <button type="button" data-chat-mode="chat" role="menuitem"><i data-lucide="message-circle"></i><span>Chat</span></button>
+                  <button type="button" data-chat-mode="image" role="menuitem"><i data-lucide="image"></i><span>Image</span></button>
+                  <button type="button" data-chat-scene role="menuitem"><i data-lucide="scan-eye"></i><span>Generate scene</span></button>
+                  <button type="button" data-chat-tracker role="menuitem"><i data-lucide="list-tree"></i><span>State tracker</span></button>
+                </div>
+              </div>
               <textarea id="chatInput" rows="2" maxlength="12000" placeholder="Send a message"></textarea>
               <div class="chat-composer-actions">
+                <button class="icon-btn" id="chatVoiceBtn" type="button" aria-label="Voice input" title="Voice input"><i data-lucide="mic"></i></button>
                 <button class="icon-btn" id="chatContinueBtn" type="button" aria-label="Continue response" title="Continue"><i data-lucide="fast-forward"></i></button>
                 <button class="generate-btn chat-send-btn" id="chatSendBtn" type="submit"><i data-lucide="send"></i><span>Send</span></button>
               </div>
@@ -553,6 +563,7 @@
           <aside class="chat-detail-pane" id="chatDetailPane">
             <button class="icon-btn chat-mobile-close chat-detail-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button>
             <div class="chat-character-card" id="chatCharacterCard"></div>
+            <section class="chat-tracker" id="chatTracker"></section>
             <div class="chat-settings-tabs" role="tablist">
               <button class="is-active" type="button" data-chat-setting="style">Style</button>
               <button type="button" data-chat-setting="memory">Memory</button>
@@ -1086,6 +1097,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-378-character-chat-feedback"></script>
+    <script src="./platform.js?v=ai-379-character-chat-tools"></script>
   </body>
 </html>

@@ -1726,6 +1726,28 @@ async function insertChatMessageInDb(message = {}) {
   return payload;
 }
 
+async function updateChatMessageInDb(message = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...message, updatedAt: message.updatedAt || new Date().toISOString() };
+  const { rows } = await query(`
+    UPDATE app_chat_messages
+    SET role = $4, payload = $5::jsonb, updated_at = $6::timestamptz
+    WHERE id = $1 AND conversation_id = $2 AND user_id = $3
+    RETURNING payload
+  `, [payload.id, payload.conversationId, payload.userId, payload.role, JSON.stringify(payload), payload.updatedAt]);
+  return rows[0]?.payload || null;
+}
+
+async function deleteChatMessageInDb(conversationId = "", userId = "", messageId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    DELETE FROM app_chat_messages WHERE id = $1 AND conversation_id = $2 AND user_id = $3
+  `, [String(messageId || ""), String(conversationId || ""), String(userId || "")]);
+  return rowCount || 0;
+}
+
 async function deleteChatMessagesAfterInDb(conversationId = "", userId = "", messageId = "") {
   if (!dbEnabled()) return 0;
   await ensureSchema();
@@ -3028,6 +3050,8 @@ module.exports = {
   upsertChatConversationInDb,
   listChatMessagesInDb,
   insertChatMessageInDb,
+  updateChatMessageInDb,
+  deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,

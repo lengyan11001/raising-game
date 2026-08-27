@@ -135,6 +135,8 @@ const {
   upsertChatConversationInDb,
   listChatMessagesInDb,
   insertChatMessageInDb,
+  updateChatMessageInDb,
+  deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
@@ -13092,6 +13094,8 @@ function publicChatConversation(conversation = {}) {
     style: conversation.style || "balanced",
     memory: conversation.memory || "",
     instructions: conversation.instructions || "",
+    tracker: plainObject(conversation.tracker),
+    trackerUpdatedAt: conversation.trackerUpdatedAt || "",
     backgroundEnabled: conversation.backgroundEnabled !== false,
     lastMessage: conversation.lastMessage || "",
     createdAt: conversation.createdAt,
@@ -13100,13 +13104,72 @@ function publicChatConversation(conversation = {}) {
 }
 
 function publicChatMessage(message = {}) {
-  return {
+  return publicAssetUrlsForClient({
     id: message.id,
     conversationId: message.conversationId,
     role: message.role === "user" ? "user" : "assistant",
     content: String(message.content || ""),
+    kind: String(message.kind || "text"),
+    imageUrl: String(message.imageUrl || ""),
+    videoUrl: String(message.videoUrl || ""),
+    taskId: String(message.taskId || ""),
+    status: String(message.status || ""),
+    error: String(message.error || ""),
     createdAt: message.createdAt,
-  };
+  });
+}
+
+function parseChatTrackerJson(value = "") {
+  const source = String(value || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    const parsed = JSON.parse(source);
+    return {
+      dateTime: String(parsed.dateTime || parsed.date_time || "").trim().slice(0, 160),
+      location: String(parsed.location || "").trim().slice(0, 240),
+      outfit: String(parsed.outfit || "").trim().slice(0, 400),
+      relationship: String(parsed.relationship || "").trim().slice(0, 240),
+      mood: String(parsed.mood || "").trim().slice(0, 160),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function refreshChatTrackerInBackground(conversation = {}, messages = []) {
+  setImmediate(async () => {
+    try {
+      const transcript = messages.slice(-12).map((message) => `${message.role === "user" ? "User" : conversation.character?.name || "Character"}: ${String(message.content || "").slice(0, 1200)}`).join("\n");
+      const raw = await byteplusLanguageRequest({
+        model: BYTEPLUS_LANGUAGE_MODEL,
+        messages: [
+          { role: "system", content: "Extract the current roleplay scene state. Return only valid JSON with keys dateTime, location, outfit, relationship, mood. Use an empty string when unknown." },
+          { role: "user", content: `Character: ${conversation.character?.name || conversation.title}\nBackground: ${conversation.character?.description || ""}\nConversation:\n${transcript}` },
+        ],
+        temperature: 0.1,
+        max_tokens: 220,
+      }, { timeoutMs: 60000 });
+      const tracker = parseChatTrackerJson(qwen37FlashResponseText(raw));
+      if (!tracker) return;
+      const latest = await getChatConversationInDb(conversation.id, conversation.userId);
+      if (!latest) return;
+      await upsertChatConversationInDb({ ...latest, tracker, trackerUpdatedAt: new Date().toISOString() });
+    } catch (error) {
+      console.warn("[character-chat-tracker-failed]", conversation.id || "", error.message || error);
+    }
+  });
+}
+
+function chatImagePrompt(conversation = {}, messages = [], userPrompt = "", mode = "image") {
+  const character = conversation.character || {};
+  const recent = messages.slice(-10).map((message) => `${message.role === "user" ? "User" : character.name || "Character"}: ${String(message.content || "").slice(0, 900)}`).join("\n");
+  const request = String(userPrompt || "").trim();
+  return [
+    `Create a polished cinematic roleplay image featuring ${character.name || "the character"}.`,
+    `Character description: ${character.description || "Keep the established appearance."}`,
+    character.tags?.length ? `Visual traits: ${character.tags.join(", ")}.` : "",
+    mode === "scene" ? `Depict the current scene from this recent conversation:\n${recent}` : `User image request: ${request}`,
+    "Keep the character identity consistent. One coherent scene, realistic composition, no text, no watermark.",
+  ].filter(Boolean).join("\n");
 }
 
 function chatSystemPrompt(conversation = {}) {
@@ -13185,6 +13248,100 @@ async function handleUpdateChatConversation(req, res, conversationId) {
   return sendJson(res, 200, { ok: true, conversation: publicChatConversation(next) });
 }
 
+async function handleCreateChatImage(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const mode = body.mode === "scene" ? "scene" : "image";
+  const userPrompt = String(body.prompt || "").trim().slice(0, 4000);
+  if (mode === "image" && !userPrompt) return sendJson(res, 400, { ok: false, message: "Describe the image you want." });
+  const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
+  const prompt = chatImagePrompt(conversation, history, userPrompt, mode);
+  const imageBody = {
+    provider: "seedream5-image",
+    model: SEEDREAM5_PRO_ENDPOINT_ID,
+    seedreamTier: "pro",
+    resolution: "1K",
+    ratio: "3:4",
+    prompt,
+    watermark: false,
+  };
+  const posterUrl = String(conversation.character?.posterUrl || "").trim();
+  if (posterUrl) imageBody.image = [posterUrl];
+  const captured = captureJsonResponse();
+  await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, imageBody), captured, { auth, body: imageBody });
+  const payload = capturedJsonPayload(captured);
+  if (captured.statusCode >= 400 || !payload?.taskId) return sendJson(res, captured.statusCode || 502, payload || { ok: false, message: "Image generation failed." });
+  const now = new Date().toISOString();
+  const message = {
+    id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", kind: "image",
+    content: userPrompt || `Current scene with ${conversation.character?.name || conversation.title}`,
+    imageUrl: String(payload.imageUrl || payload.record?.imageResultUrl || ""), taskId: payload.taskId,
+    status: payload.imageUrl || payload.record?.imageResultUrl ? "succeeded" : "generating", error: "", createdAt: now, updatedAt: now,
+  };
+  await insertChatMessageInDb(message);
+  const nextConversation = { ...conversation, lastMessage: mode === "scene" ? "Generated a scene image" : `Image: ${userPrompt}`.slice(0, 220), updatedAt: now };
+  await upsertChatConversationInDb(nextConversation);
+  return sendJson(res, 202, { ok: true, taskId: payload.taskId, message: publicChatMessage(message), conversation: publicChatConversation(nextConversation), record: payload.record || null });
+}
+
+async function handleRefreshChatImage(req, res, conversationId, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const captured = captureJsonResponse();
+  await handleGetGenerationRecord(req, captured, taskId);
+  const payload = capturedJsonPayload(captured);
+  if (captured.statusCode >= 400 || !payload?.record) return sendJson(res, captured.statusCode || 404, payload || { ok: false, message: "Image task not found." });
+  const messages = await listChatMessagesInDb(conversationId, auth.user.id, 500);
+  const message = messages.find((item) => String(item.taskId || "") === String(taskId || ""));
+  if (!message) return sendJson(res, 404, { ok: false, message: "Chat image message not found." });
+  const record = payload.record;
+  const status = isSucceededStatus(record.status) ? "succeeded" : isFailedStatus(record.status) ? "failed" : "generating";
+  const imageUrl = String(record.imageResultUrl || record.imageUrl || record.downloadUrl || message.imageUrl || "");
+  const updated = await updateChatMessageInDb({ ...message, status, imageUrl, error: status === "failed" ? String(record.error || "Image generation failed.") : "", updatedAt: new Date().toISOString() });
+  return sendJson(res, 200, { ok: true, done: status !== "generating", message: publicChatMessage(updated || message), record });
+}
+
+async function handleDeleteChatMessage(req, res, conversationId, messageId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const deleted = await deleteChatMessageInDb(conversationId, auth.user.id, messageId);
+  if (!deleted) return sendJson(res, 404, { ok: false, message: "Message not found." });
+  const messages = await listChatMessagesInDb(conversationId, auth.user.id, 500);
+  const last = messages[messages.length - 1];
+  const next = { ...conversation, lastMessage: String(last?.content || "Start chatting").slice(0, 220), updatedAt: new Date().toISOString() };
+  await upsertChatConversationInDb(next);
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(next), messages: messages.map(publicChatMessage) });
+}
+
+async function handleBranchChatConversation(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const messageId = String(body.messageId || "");
+  const messages = await listChatMessagesInDb(conversationId, auth.user.id, 500);
+  const branchIndex = messages.findIndex((item) => item.id === messageId);
+  if (branchIndex < 0) return sendJson(res, 404, { ok: false, message: "Message not found." });
+  const now = new Date().toISOString();
+  const branch = { ...conversation, id: randomId("chat"), title: `${conversation.title} - Branch`, lastMessage: String(messages[branchIndex].content || "Branch").slice(0, 220), createdAt: now, updatedAt: now };
+  await upsertChatConversationInDb(branch);
+  const copied = [];
+  for (const source of messages.slice(0, branchIndex + 1)) {
+    const copy = { ...source, id: randomId("msg"), conversationId: branch.id, userId: auth.user.id, createdAt: new Date(Date.now() + copied.length).toISOString(), updatedAt: now };
+    await insertChatMessageInDb(copy);
+    copied.push(copy);
+  }
+  return sendJson(res, 201, { ok: true, conversation: publicChatConversation(branch), messages: copied.map(publicChatMessage) });
+}
+
 async function handleSendChatMessage(req, res, conversationId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -13227,6 +13384,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     await insertChatMessageInDb(assistantMessage);
     conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now };
     await upsertChatConversationInDb(conversation);
+    refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
     return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: auth.user.credits - CHAT_MESSAGE_CREDITS });
   } catch (error) {
     const db = await readDb();
@@ -39547,6 +39705,22 @@ async function handleRequest(req, res) {
     }
     if (req.method === "PATCH" && chatConversationMatch) {
       return await handleUpdateChatConversation(req, res, decodeURIComponent(chatConversationMatch[1]));
+    }
+    const chatImageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/images\/?$/);
+    if (req.method === "POST" && chatImageMatch) {
+      return await handleCreateChatImage(req, res, decodeURIComponent(chatImageMatch[1]));
+    }
+    const chatImageRefreshMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/images\/([^/]+)\/refresh\/?$/);
+    if (req.method === "POST" && chatImageRefreshMatch) {
+      return await handleRefreshChatImage(req, res, decodeURIComponent(chatImageRefreshMatch[1]), decodeURIComponent(chatImageRefreshMatch[2]));
+    }
+    const chatBranchMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/branch\/?$/);
+    if (req.method === "POST" && chatBranchMatch) {
+      return await handleBranchChatConversation(req, res, decodeURIComponent(chatBranchMatch[1]));
+    }
+    const chatSingleMessageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages\/([^/]+)\/?$/);
+    if (req.method === "DELETE" && chatSingleMessageMatch) {
+      return await handleDeleteChatMessage(req, res, decodeURIComponent(chatSingleMessageMatch[1]), decodeURIComponent(chatSingleMessageMatch[2]));
     }
     const chatMessageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages\/?$/);
     if (req.method === "POST" && chatMessageMatch) {

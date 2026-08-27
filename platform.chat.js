@@ -14,6 +14,10 @@ function chatTimeLabel(value = "") {
   return date.toLocaleDateString(state.lang || "en", { month: "short", day: "numeric" });
 }
 
+function chatFormattedText(value = "") {
+  return escapeHtml(String(value || "")).replace(/\*([^*\n]+)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+}
+
 function renderChatConversationList() {
   if (!els.chatConversationList) return;
   const query = String(state.chatSearch || "").trim().toLowerCase();
@@ -32,16 +36,43 @@ function renderChatConversationList() {
 
 function chatMessageMarkup(message = {}) {
   const assistant = message.role !== "user";
+  const media = message.kind === "image";
+  const mediaMarkup = media ? (message.imageUrl
+    ? `<figure class="chat-message-media"><img src="${escapeHtml(message.imageUrl)}" alt="${escapeHtml(message.content || "Generated scene")}" /><figcaption>${chatFormattedText(message.content || "Generated scene")}</figcaption></figure>`
+    : `<div class="chat-media-pending ${message.status === "failed" ? "is-failed" : ""}"><i data-lucide="${message.status === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(message.error || "Generating image...")}</span></div>`) : chatFormattedText(message.content || "");
   return `
     <article class="chat-message ${assistant ? "is-assistant" : "is-user"}" data-chat-message="${escapeHtml(message.id || "")}">
-      <div class="chat-message-content">${escapeHtml(message.content || "").replace(/\n/g, "<br>")}</div>
+      <div class="chat-message-content">${mediaMarkup}</div>
       <div class="chat-message-actions">
         <button class="icon-btn" type="button" data-chat-copy aria-label="Copy" title="Copy"><i data-lucide="copy"></i></button>
-        ${assistant
+        ${assistant && !media ? `<button class="icon-btn" type="button" data-chat-read aria-label="Read aloud" title="Read aloud"><i data-lucide="volume-2"></i></button>` : ""}
+        ${assistant && !media
           ? `<button class="icon-btn" type="button" data-chat-regenerate aria-label="Regenerate" title="Regenerate"><i data-lucide="refresh-cw"></i></button>`
-          : `<button class="icon-btn" type="button" data-chat-edit aria-label="Edit" title="Edit"><i data-lucide="pencil"></i></button>`}
+          : !assistant ? `<button class="icon-btn" type="button" data-chat-edit aria-label="Edit" title="Edit"><i data-lucide="pencil"></i></button>` : ""}
+        ${assistant && !media ? `<button class="icon-btn" type="button" data-chat-continue aria-label="Continue" title="Continue"><i data-lucide="fast-forward"></i></button>` : ""}
+        ${media && message.status === "succeeded" ? `<button class="icon-btn" type="button" data-chat-animate aria-label="Create video" title="Create video"><i data-lucide="clapperboard"></i></button>` : ""}
+        <details class="chat-message-more"><summary class="icon-btn" aria-label="More" title="More"><i data-lucide="ellipsis"></i></summary><div>
+          <button type="button" data-chat-branch><i data-lucide="git-branch"></i>Branch from here</button>
+          <button type="button" data-chat-report><i data-lucide="flag"></i>Report</button>
+          <button type="button" data-chat-delete><i data-lucide="trash-2"></i>Delete</button>
+        </div></details>
       </div>
     </article>`;
+}
+
+function renderChatTracker(conversation = activeChatConversation()) {
+  if (!els.chatTracker) return;
+  els.chatTracker.hidden = !conversation || !state.chatTrackerVisible;
+  if (els.chatTracker.hidden) return;
+  const tracker = conversation.tracker || {};
+  const fields = [
+    ["clock-3", "Date and time", tracker.dateTime],
+    ["map-pin", "Location", tracker.location],
+    ["shirt", `${conversation.character?.name || "Character"}'s outfit`, tracker.outfit],
+    ["heart-handshake", "Relationship", tracker.relationship],
+    ["smile", "Mood", tracker.mood],
+  ].filter(([, , value]) => value);
+  els.chatTracker.innerHTML = `<header><strong>State tracker</strong><span>Live</span></header>${fields.length ? fields.map(([icon, label, value]) => `<div><i data-lucide="${icon}"></i><span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span></div>`).join("") : `<p>State appears after the next character reply.</p>`}`;
 }
 
 function renderChatSettings(conversation = activeChatConversation()) {
@@ -101,8 +132,14 @@ function renderChatPanel() {
     els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMarkup || `<div class="chat-list-empty">No messages yet</div>`;
     els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
       const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
-      article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.content || ""));
+      article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.imageUrl || message?.content || ""));
+      article.querySelector("[data-chat-read]")?.addEventListener("click", () => readChatMessage(message));
       article.querySelector("[data-chat-regenerate]")?.addEventListener("click", () => sendChatMessage({ action: "regenerate", targetMessageId: message?.id || "" }));
+      article.querySelector("[data-chat-continue]")?.addEventListener("click", () => sendChatMessage({ action: "continue", targetMessageId: message?.id || "" }));
+      article.querySelector("[data-chat-branch]")?.addEventListener("click", () => branchChatFromMessage(message?.id || ""));
+      article.querySelector("[data-chat-report]")?.addEventListener("click", () => reportChatMessage(message));
+      article.querySelector("[data-chat-delete]")?.addEventListener("click", () => deleteChatMessage(message?.id || ""));
+      article.querySelector("[data-chat-animate]")?.addEventListener("click", (event) => openChatImageInVideo(message, event.currentTarget));
       article.querySelector("[data-chat-edit]")?.addEventListener("click", () => {
         if (!els.chatInput) return;
         els.chatInput.value = message?.content || "";
@@ -111,6 +148,7 @@ function renderChatPanel() {
       });
     });
     requestAnimationFrame(() => { els.chatThread.scrollTop = els.chatThread.scrollHeight; });
+    state.chatMessages.filter((message) => message.kind === "image" && message.taskId && message.status === "generating").forEach((message) => pollChatImage(conversation.id, message.taskId));
   }
   if (els.chatCharacterCard) {
     els.chatCharacterCard.innerHTML = hasConversation ? `
@@ -120,6 +158,8 @@ function renderChatPanel() {
       <div>${(conversation.character?.tags || []).slice(0, 5).map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : "";
   }
   if (els.chatSuggestionBtn && hasConversation) els.chatSuggestionBtn.textContent = `Tell me more, ${String(conversation.character?.name || "").split(/\s+/)[0] || "please"}.`;
+  renderChatTracker(conversation);
+  renderChatMode();
   renderChatSettings(conversation);
   refreshIcons();
 }
@@ -175,7 +215,134 @@ async function startCharacterChat(characterId = "") {
   setTab("chat");
 }
 
+function renderChatMode() {
+  const imageMode = state.chatMode === "image";
+  if (els.chatInput) els.chatInput.placeholder = imageMode ? "Describe an image..." : "Send a message";
+  if (els.chatModeBtn) {
+    els.chatModeBtn.innerHTML = `<i data-lucide="${imageMode ? "image" : "message-circle"}"></i>`;
+    els.chatModeBtn.title = imageMode ? "Image mode" : "Chat mode";
+  }
+  if (els.chatSendBtn && !state.chatSending) els.chatSendBtn.innerHTML = `<i data-lucide="${imageMode ? "sparkles" : "send"}"></i><span>${imageMode ? "Generate" : "Send"}</span>`;
+  if (els.chatContinueBtn) els.chatContinueBtn.hidden = imageMode;
+  if (els.chatVoiceBtn) els.chatVoiceBtn.hidden = imageMode;
+  els.chatModeMenu?.querySelectorAll("[data-chat-mode]").forEach((button) => button.classList.toggle("is-active", button.dataset.chatMode === state.chatMode));
+}
+
+function readChatMessage(message = {}) {
+  if (!message.content || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(String(message.content).replace(/\*/g, ""));
+  utterance.lang = state.lang || "en-US";
+  window.speechSynthesis.speak(utterance);
+}
+
+function reportChatMessage(message = {}) {
+  if (typeof openSupportDialog !== "function") return;
+  openSupportDialog();
+  if (els.supportSubject) els.supportSubject.value = "Character chat message report";
+  if (els.supportMessage) els.supportMessage.value = `Conversation: ${message.conversationId || ""}\nMessage: ${message.id || ""}\n\nPlease describe the issue:`;
+}
+
+function scheduleChatTrackerRefresh(conversationId = "") {
+  [10000, 26000].forEach((delayMs) => window.setTimeout(async () => {
+    if (state.chatActiveConversationId !== conversationId) return;
+    try {
+      const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+      const index = state.chatConversations.findIndex((item) => item.id === conversationId);
+      if (index >= 0) state.chatConversations[index] = payload.conversation;
+      renderChatTracker(payload.conversation);
+      refreshIcons();
+    } catch {}
+  }, delayMs));
+}
+
+async function branchChatFromMessage(messageId = "") {
+  const conversation = activeChatConversation();
+  if (!conversation || !messageId) return;
+  const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/branch`, { method: "POST", body: { messageId } });
+  state.chatConversations.unshift(payload.conversation);
+  state.chatActiveConversationId = payload.conversation.id;
+  state.chatMessages = payload.messages || [];
+  renderChatPanel();
+}
+
+async function deleteChatMessage(messageId = "") {
+  const conversation = activeChatConversation();
+  if (!conversation || !messageId || !window.confirm("Delete this message?")) return;
+  const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages/${encodeURIComponent(messageId)}`, { method: "DELETE" });
+  state.chatMessages = payload.messages || [];
+  const index = state.chatConversations.findIndex((item) => item.id === conversation.id);
+  if (index >= 0) state.chatConversations[index] = payload.conversation;
+  renderChatPanel();
+}
+
+async function openChatImageInVideo(message = {}, button = null) {
+  if (!message.taskId) return;
+  if (button) button.disabled = true;
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(message.taskId)}/add-asset`, { method: "POST" });
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+      if (typeof useAssetInAdvanced === "function") useAssetInAdvanced(payload.asset, "use");
+      setTab("advanced");
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function pollChatImage(conversationId = "", taskId = "") {
+  const key = `${conversationId}:${taskId}`;
+  if (!conversationId || !taskId || state.chatImagePolls.has(key)) return;
+  const poll = async () => {
+    try {
+      const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}/images/${encodeURIComponent(taskId)}/refresh`, { method: "POST" });
+      const index = state.chatMessages.findIndex((message) => message.taskId === taskId);
+      if (index >= 0 && payload.message) state.chatMessages[index] = payload.message;
+      if (state.chatActiveConversationId === conversationId) renderChatPanel();
+      if (payload.done) {
+        state.chatImagePolls.delete(key);
+        return;
+      }
+    } catch (error) {
+      console.warn("Chat image refresh failed", error);
+    }
+    state.chatImagePolls.set(key, window.setTimeout(poll, 3500));
+  };
+  state.chatImagePolls.set(key, window.setTimeout(poll, 1200));
+}
+
+async function generateChatImage({ mode = "image" } = {}) {
+  const conversation = activeChatConversation();
+  if (!conversation || state.chatSending) return;
+  const prompt = String(els.chatInput?.value || "").trim();
+  if (mode === "image" && !prompt) return;
+  state.chatSending = true;
+  renderChatPanel();
+  if (els.chatSendBtn) {
+    els.chatSendBtn.disabled = true;
+    els.chatSendBtn.innerHTML = `<i data-lucide="loader-circle"></i><span>Creating...</span>`;
+  }
+  try {
+    const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/images`, { method: "POST", body: { mode, prompt } });
+    if (els.chatInput) els.chatInput.value = "";
+    state.chatMessages.push(payload.message);
+    const index = state.chatConversations.findIndex((item) => item.id === conversation.id);
+    if (index >= 0) state.chatConversations[index] = payload.conversation;
+    renderChatPanel();
+    pollChatImage(conversation.id, payload.taskId);
+  } catch (error) {
+    if (els.chatInput && !els.chatInput.value) els.chatInput.value = prompt;
+    window.alert(error.message || "Image generation failed.");
+  } finally {
+    state.chatSending = false;
+    if (els.chatSendBtn) els.chatSendBtn.disabled = false;
+    renderChatPanel();
+  }
+}
+
 async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
+  if (state.chatMode === "image" && action === "send") return generateChatImage({ mode: "image" });
   const conversation = activeChatConversation();
   if (!conversation || state.chatSending) return;
   const editMessageId = els.chatInput?.dataset.editMessageId || "";
@@ -206,6 +373,7 @@ async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
     }
     if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
     await openChatConversation(conversation.id);
+    scheduleChatTrackerRefresh(conversation.id);
     renderAccountMenu();
     renderTopupSummary();
   } catch (error) {
@@ -241,5 +409,40 @@ els.chatInput?.addEventListener("keydown", (event) => {
 });
 els.chatContinueBtn?.addEventListener("click", () => sendChatMessage({ action: "continue" }));
 els.chatSuggestionBtn?.addEventListener("click", () => { if (els.chatInput) { els.chatInput.value = els.chatSuggestionBtn.textContent || ""; els.chatInput.focus(); } });
+els.chatModeBtn?.addEventListener("click", () => { if (els.chatModeMenu) els.chatModeMenu.hidden = !els.chatModeMenu.hidden; });
+els.chatModeMenu?.querySelectorAll("[data-chat-mode]").forEach((button) => button.addEventListener("click", () => {
+  state.chatMode = button.dataset.chatMode === "image" ? "image" : "chat";
+  els.chatModeMenu.hidden = true;
+  renderChatMode();
+  refreshIcons();
+  els.chatInput?.focus();
+}));
+els.chatModeMenu?.querySelector("[data-chat-scene]")?.addEventListener("click", () => {
+  els.chatModeMenu.hidden = true;
+  if (window.confirm("Generate an image from the current scene? Image generation credits apply.")) generateChatImage({ mode: "scene" });
+});
+els.chatModeMenu?.querySelector("[data-chat-tracker]")?.addEventListener("click", () => {
+  state.chatTrackerVisible = !state.chatTrackerVisible;
+  els.chatModeMenu.hidden = true;
+  renderChatPanel();
+});
+els.chatVoiceBtn?.addEventListener("click", () => {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    window.alert("Voice input is not supported in this browser.");
+    return;
+  }
+  const recognition = new Recognition();
+  recognition.lang = state.lang || "en-US";
+  recognition.interimResults = false;
+  recognition.onstart = () => els.chatVoiceBtn?.classList.add("is-recording");
+  recognition.onend = () => els.chatVoiceBtn?.classList.remove("is-recording");
+  recognition.onerror = () => els.chatVoiceBtn?.classList.remove("is-recording");
+  recognition.onresult = (event) => {
+    const transcript = String(event.results?.[0]?.[0]?.transcript || "").trim();
+    if (transcript && els.chatInput) els.chatInput.value = `${els.chatInput.value ? `${els.chatInput.value} ` : ""}${transcript}`;
+  };
+  recognition.start();
+});
 document.querySelectorAll("[data-chat-setting]").forEach((button) => button.addEventListener("click", () => { state.chatSetting = button.dataset.chatSetting || "style"; renderChatSettings(); refreshIcons(); }));
 document.querySelectorAll("[data-chat-close-panels]").forEach((button) => button.addEventListener("click", () => els.chatShell?.classList.remove("mobile-list-open", "mobile-settings-open")));

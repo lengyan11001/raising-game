@@ -43,4 +43,22 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /Thinking\.\.\./);
   assert.match(chat, /pending-\$\{Date\.now\(\)\}/);
   assert.match(chat, /chatContinueBtn\.disabled = true/);
+  assert.match(html, /data-chat-mode="image"/);
+  assert.match(chat, /generateChatImage/);
+  assert.match(chat, /pollChatImage/);
+  assert.match(chat, /SpeechSynthesisUtterance/);
+  assert.match(chat, /SpeechRecognition/);
+  assert.match(chat, /data-chat-branch/);
+  assert.match(chat, /data-chat-delete/);
+});
+
+test("character chat supports generated media, state tracking and conversation branching", () => {
+  assert.match(server, /handleCreateChatImage/);
+  assert.match(server, /handleRefreshChatImage/);
+  assert.match(server, /refreshChatTrackerInBackground/);
+  assert.match(server, /handleBranchChatConversation/);
+  assert.match(server, /handleDeleteChatMessage/);
+  assert.match(server, /kind: "image"/);
+  assert.match(db, /updateChatMessageInDb/);
+  assert.match(db, /deleteChatMessageInDb/);
 });
