@@ -170,8 +170,12 @@ function collectMedia(library) {
         for (const field of ["imageUrl", "referenceImageUrl"]) if (/^https?:\/\//i.test(String(variant[field] || ""))) jobs.push({ item: variant, field, url: variant[field], kind: set.slot, id: `${id}-${variantKey}` });
       }
       for (const field of ["videoUrl", "imageUrl", "referenceImageUrl"]) if (/^https?:\/\//i.test(String(item[field] || ""))) jobs.push({ item, field, url: item[field], kind: `${set.slot}-media`, id });
-      for (const [gender, variant] of Object.entries(item.videos || {})) for (const field of ["videoUrl", "animeVideoUrl"]) if (/^https?:\/\//i.test(String(variant[field] || ""))) jobs.push({ item: variant, field, url: variant[field], kind: "actions", id: `${id}-${gender}` });
-      for (const [gender, variant] of Object.entries(item.thumbnails || {})) for (const field of ["thumbnailUrl", "animeThumbnailUrl"]) if (/^https?:\/\//i.test(String(variant[field] || ""))) jobs.push({ item: variant, field, url: variant[field], kind: "actions", id: `${id}-${gender}` });
+      for (const gender of ["Female", "Male"]) {
+        const variant = item.videos?.[gender];
+        if (/^https?:\/\//i.test(String(variant?.videoUrl || ""))) jobs.push({ item: variant, field: "videoUrl", url: variant.videoUrl, kind: "actions", id: `${id}-${gender}` });
+        const thumb = item.thumbnails?.[gender];
+        if (/^https?:\/\//i.test(String(thumb?.thumbnailUrl || ""))) jobs.push({ item: thumb, field: "thumbnailUrl", url: thumb.thumbnailUrl, kind: "actions", id: `${id}-${gender}` });
+      }
     }
   }
   return jobs;
@@ -213,7 +217,10 @@ async function main() {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) return value.forEach(scrub);
     if (typeof value.remoteImageUrl === "string") value.remoteImageUrl = "";
-    for (const child of Object.values(value)) scrub(child);
+    for (const [key, child] of Object.entries(value)) {
+      if (/url/i.test(key) && key !== "sourceUrl" && typeof child === "string" && /^https?:\/\//i.test(child)) value[key] = "";
+      else scrub(child);
+    }
   }
   scrub(clean);
   clean.source = "OurDream catalog mirrored to this site's R2 bucket";
