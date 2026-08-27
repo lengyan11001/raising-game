@@ -4,6 +4,8 @@ function activeChatConversation() {
   return state.chatConversations.find((item) => item.id === state.chatActiveConversationId) || null;
 }
 
+function chatCopy(en, zh) { return state.lang === "zh" ? zh : en; }
+
 function chatPoster(character = {}) {
   return String(character.posterUrl || DEFAULT_TEMPLATE_COVER);
 }
@@ -123,6 +125,9 @@ function renderChatSettings(conversation = activeChatConversation()) {
 }
 
 function renderChatPanel() {
+  const emptyTitle = document.querySelector("#chatEmpty strong");
+  if (emptyTitle) emptyTitle.textContent = chatCopy("Start a character chat", "开始角色聊天");
+  if (els.chatEmptyBrowseBtn) els.chatEmptyBrowseBtn.textContent = chatCopy("Browse characters", "浏览角色");
   renderChatConversationList();
   const conversation = activeChatConversation();
   const hasConversation = Boolean(conversation);
@@ -138,7 +143,7 @@ function renderChatPanel() {
   if (els.chatThread && hasConversation) {
     els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
     els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
-    const pendingMarkup = state.chatSending ? `<article class="chat-message is-assistant chat-message-pending" aria-live="polite"><div class="chat-message-content"><i data-lucide="loader-circle"></i><span>Thinking...</span></div></article>` : "";
+    const pendingMarkup = state.chatSending ? `<article class="chat-message is-assistant chat-message-pending" aria-live="polite"><div class="chat-message-content"><i data-lucide="loader-circle"></i><span>${chatCopy("Thinking...", "思考中...")}</span></div></article>` : "";
     els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMarkup || `<div class="chat-list-empty">No messages yet</div>`;
     els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
       const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
