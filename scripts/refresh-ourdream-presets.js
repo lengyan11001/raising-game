@@ -172,9 +172,11 @@ function collectMedia(library) {
       for (const field of ["videoUrl", "imageUrl", "referenceImageUrl"]) if (/^https?:\/\//i.test(String(item[field] || ""))) jobs.push({ item, field, url: item[field], kind: `${set.slot}-media`, id });
       for (const gender of ["Female", "Male"]) {
         const variant = item.videos?.[gender];
-        if (/^https?:\/\//i.test(String(variant?.videoUrl || ""))) jobs.push({ item: variant, field: "videoUrl", url: variant.videoUrl, kind: "actions", id: `${id}-${gender}` });
+        const videoSource = variant?.videoUrl || variant?.sourceUrl || "";
+        if (/^https?:\/\//i.test(String(videoSource))) jobs.push({ item: variant, field: "videoUrl", url: videoSource, kind: "actions", id: `${id}-${gender}` });
         const thumb = item.thumbnails?.[gender];
-        if (/^https?:\/\//i.test(String(thumb?.thumbnailUrl || ""))) jobs.push({ item: thumb, field: "thumbnailUrl", url: thumb.thumbnailUrl, kind: "actions", id: `${id}-${gender}` });
+        const thumbSource = thumb?.thumbnailUrl || thumb?.sourceUrl || "";
+        if (/^https?:\/\//i.test(String(thumbSource))) jobs.push({ item: thumb, field: "thumbnailUrl", url: thumbSource, kind: "actions", id: `${id}-${gender}` });
       }
     }
   }
