@@ -75,6 +75,16 @@ function renderChatTracker(conversation = activeChatConversation()) {
   els.chatTracker.innerHTML = `<header><strong>State tracker</strong><span>Live</span></header>${fields.length ? fields.map(([icon, label, value]) => `<div><i data-lucide="${icon}"></i><span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span></div>`).join("") : `<p>State appears after the next character reply.</p>`}`;
 }
 
+function syncChatViewportHeight() {
+  if (!els.chatShell) return;
+  if (window.innerWidth > 720) {
+    els.chatShell.style.removeProperty("height");
+    return;
+  }
+  const documentTop = Math.max(0, Math.round(els.chatShell.getBoundingClientRect().top + window.scrollY));
+  els.chatShell.style.height = `${Math.max(320, window.innerHeight - documentTop)}px`;
+}
+
 function renderChatSettings(conversation = activeChatConversation()) {
   if (!els.chatSettingsBody) return;
   document.querySelectorAll("[data-chat-setting]").forEach((button) => button.classList.toggle("is-active", button.dataset.chatSetting === state.chatSetting));
@@ -162,6 +172,7 @@ function renderChatPanel() {
   renderChatMode();
   renderChatSettings(conversation);
   refreshIcons();
+  requestAnimationFrame(syncChatViewportHeight);
 }
 
 async function loadChatConversations({ selectFirst = true } = {}) {
@@ -446,3 +457,4 @@ els.chatVoiceBtn?.addEventListener("click", () => {
 });
 document.querySelectorAll("[data-chat-setting]").forEach((button) => button.addEventListener("click", () => { state.chatSetting = button.dataset.chatSetting || "style"; renderChatSettings(); refreshIcons(); }));
 document.querySelectorAll("[data-chat-close-panels]").forEach((button) => button.addEventListener("click", () => els.chatShell?.classList.remove("mobile-list-open", "mobile-settings-open")));
+window.addEventListener("resize", syncChatViewportHeight);

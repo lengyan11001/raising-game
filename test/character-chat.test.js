@@ -48,6 +48,7 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /pollChatImage/);
   assert.match(chat, /SpeechSynthesisUtterance/);
   assert.match(chat, /SpeechRecognition/);
+  assert.match(chat, /syncChatViewportHeight/);
   assert.match(chat, /data-chat-branch/);
   assert.match(chat, /data-chat-delete/);
 });
