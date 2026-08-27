@@ -22,6 +22,9 @@ function chatFormattedText(value = "") {
 
 function renderChatConversationList() {
   if (!els.chatConversationList) return;
+  const zh = String(state.lang || "").toLowerCase().startsWith("zh");
+  const search = document.querySelector("#chatSearch");
+  if (search) search.placeholder = zh ? "搜索聊天..." : "Search chats...";
   const query = String(state.chatSearch || "").trim().toLowerCase();
   const items = state.chatConversations.filter((item) => !query || `${item.title} ${item.lastMessage}`.toLowerCase().includes(query));
   els.chatConversationList.innerHTML = items.length ? items.map((item) => `
@@ -30,7 +33,7 @@ function renderChatConversationList() {
       <span><strong>${escapeHtml(item.title || item.character?.name || "Chat")}</strong><small>${escapeHtml(item.lastMessage || "Start chatting")}</small></span>
       <time>${escapeHtml(chatTimeLabel(item.updatedAt))}</time>
     </button>
-  `).join("") : `<div class="chat-list-empty">${state.chatLoading ? "Loading..." : "No chats yet"}</div>`;
+  `).join("") : `<div class="chat-list-empty">${state.chatLoading ? (zh ? "加载中..." : "Loading...") : (zh ? "暂无聊天" : "No chats yet")}</div>`;
   els.chatConversationList.querySelectorAll("[data-chat-conversation]").forEach((button) => {
     button.addEventListener("click", () => { els.chatShell?.classList.remove("mobile-list-open"); openChatConversation(button.dataset.chatConversation || ""); });
   });
@@ -67,14 +70,15 @@ function renderChatTracker(conversation = activeChatConversation()) {
   els.chatTracker.hidden = !conversation || !state.chatTrackerVisible;
   if (els.chatTracker.hidden) return;
   const tracker = conversation.tracker || {};
+  const zh = String(state.lang || "").toLowerCase().startsWith("zh");
   const fields = [
-    ["clock-3", "Date and time", tracker.dateTime],
-    ["map-pin", "Location", tracker.location],
-    ["shirt", `${conversation.character?.name || "Character"}'s outfit`, tracker.outfit],
-    ["heart-handshake", "Relationship", tracker.relationship],
-    ["smile", "Mood", tracker.mood],
+    ["clock-3", zh ? "日期和时间" : "Date and time", tracker.dateTime],
+    ["map-pin", zh ? "地点" : "Location", tracker.location],
+    ["shirt", zh ? "服装" : `${conversation.character?.name || "Character"}'s outfit`, tracker.outfit],
+    ["heart-handshake", zh ? "关系" : "Relationship", tracker.relationship],
+    ["smile", zh ? "心情" : "Mood", tracker.mood],
   ].filter(([, , value]) => value);
-  els.chatTracker.innerHTML = `<header><strong>State tracker</strong><span>Live</span></header>${fields.length ? fields.map(([icon, label, value]) => `<div><i data-lucide="${icon}"></i><span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span></div>`).join("") : `<p>State appears after the next character reply.</p>`}`;
+  els.chatTracker.innerHTML = `<header><strong>${zh ? "状态追踪" : "State tracker"}</strong><span>${zh ? "实时" : "Live"}</span></header>${fields.length ? fields.map(([icon, label, value]) => `<div><i data-lucide="${icon}"></i><span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span></div>`).join("") : `<p>${zh ? "下一次角色回复后显示状态。" : "State appears after the next character reply."}</p>`}`;
 }
 
 function syncChatViewportHeight() {
@@ -125,6 +129,9 @@ function renderChatSettings(conversation = activeChatConversation()) {
 }
 
 function renderChatPanel() {
+  const zh = String(state.lang || "").toLowerCase().startsWith("zh");
+  const chatTitle = document.querySelector("[data-panel=chat] .chat-list-head strong");
+  if (chatTitle) chatTitle.textContent = zh ? "聊天" : "Chats";
   const emptyTitle = document.querySelector("#chatEmpty strong");
   if (emptyTitle) emptyTitle.textContent = chatCopy("Start a character chat", "开始角色聊天");
   if (els.chatEmptyBrowseBtn) els.chatEmptyBrowseBtn.textContent = chatCopy("Browse characters", "浏览角色");
@@ -172,7 +179,7 @@ function renderChatPanel() {
       <p>${escapeHtml(conversation.character?.description || "")}</p>
       <div>${(conversation.character?.tags || []).slice(0, 5).map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : "";
   }
-  if (els.chatSuggestionBtn && hasConversation) els.chatSuggestionBtn.textContent = `Tell me more, ${String(conversation.character?.name || "").split(/\s+/)[0] || "please"}.`;
+  if (els.chatSuggestionBtn && hasConversation) els.chatSuggestionBtn.textContent = zh ? `告诉我更多，${String(conversation.character?.name || "").split(/\s+/)[0] || "请"}。` : `Tell me more, ${String(conversation.character?.name || "").split(/\s+/)[0] || "please"}.`;
   renderChatTracker(conversation);
   renderChatMode();
   renderChatSettings(conversation);
