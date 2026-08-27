@@ -215,7 +215,14 @@ async function main() {
   const clean = JSON.parse(JSON.stringify(library));
   function scrub(value) {
     if (!value || typeof value !== "object") return;
-    if (Array.isArray(value)) return value.forEach(scrub);
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        const child = value[index];
+        if (typeof child === "string" && /^https?:\/\//i.test(child) && /ourdream\.ai/i.test(child)) value[index] = "";
+        else scrub(child);
+      }
+      return;
+    }
     if (typeof value.remoteImageUrl === "string") value.remoteImageUrl = "";
     for (const [key, child] of Object.entries(value)) {
       if (/url/i.test(key) && key !== "sourceUrl" && typeof child === "string" && /^https?:\/\//i.test(child)) value[key] = "";

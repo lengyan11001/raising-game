@@ -1,7 +1,7 @@
 {
-  "version": 1,
-  "source": "https://ourdream.ai/_next/static/chunks/f47dee13803a3979.js?dpl=dpl_88wtguM2KoFZu6bt8mVTZMdrrY89",
-  "generatedAt": "2026-08-27T14:42:33.894Z",
+  "version": 2,
+  "source": "OurDream catalog mirrored to this site's R2 bucket",
+  "generatedAt": "2026-08-27T16:37:54.438Z",
   "items": [
     {
       "id": "custom",
@@ -15,38 +15,43 @@
       ],
       "prompt": "Custom",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/b1174f2e-c387-4364-88ce-cd189fb492ca",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/b1174f2e-c387-4364-88ce-cd189fb492ca",
-      "videoUrl": "https://vid.ourdream.ai/80605ce5-317b-48af-b238-02e03bfcced8",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/80605ce5-317b-48af-b238-02e03bfcced8",
-          "animeVideoUrl": "https://vid.ourdream.ai/fb611660-54fc-496d-83e9-dff1bf1f31f1"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/80605ce5-317b-48af-b238-02e03bfcced8"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/67b8139a-3f28-43af-95fc-cb581e1a3650",
-          "animeVideoUrl": "https://vid.ourdream.ai/67b8139a-3f28-43af-95fc-cb581e1a3650"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/67b8139a-3f28-43af-95fc-cb581e1a3650"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/9d37878d-b777-4c9a-b52f-eb600a0dbbfe",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/b1174f2e-c387-4364-88ce-cd189fb492ca",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/7ff6d115-4448-44f5-8e8d-fe6b113afdcc"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/b1174f2e-c387-4364-88ce-cd189fb492ca"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/006e16b7-9705-433a-8b42-c2a054fb71b1",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/006e16b7-9705-433a-8b42-c2a054fb71b1"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/006e16b7-9705-433a-8b42-c2a054fb71b1"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/0eec4763-04ff-45a3-8abe-ade4b58fe69f",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/80605ce5-317b-48af-b238-02e03bfcced8"
     },
     {
       "id": "pov-missionary",
@@ -62,38 +67,43 @@
       ],
       "prompt": "POV missionary, ",
       "promptPrefix": "POV missionary, ",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/1d2e3c01-0921-4090-a58b-5aecee73e690",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/1d2e3c01-0921-4090-a58b-5aecee73e690",
-      "videoUrl": "https://vid.ourdream.ai/1aa1d58c-3527-4729-959f-a177aa2257bb",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/1aa1d58c-3527-4729-959f-a177aa2257bb",
-          "animeVideoUrl": "https://vid.ourdream.ai/0f2c1d07-4287-4e2c-a889-9dcc853a3c7c"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/1aa1d58c-3527-4729-959f-a177aa2257bb"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/54417fb3-5bd8-47a0-9ebf-2581d50a7bd0",
-          "animeVideoUrl": "https://vid.ourdream.ai/54417fb3-5bd8-47a0-9ebf-2581d50a7bd0"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/54417fb3-5bd8-47a0-9ebf-2581d50a7bd0"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/aab3b302-d92f-40e2-a047-60f51c629532",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/1d2e3c01-0921-4090-a58b-5aecee73e690",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/931eacb1-18c6-4809-9548-5b044134f9be"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/1d2e3c01-0921-4090-a58b-5aecee73e690"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/8716a354-a2b4-4e59-a539-fc52209a94a5",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/8716a354-a2b4-4e59-a539-fc52209a94a5"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/8716a354-a2b4-4e59-a539-fc52209a94a5"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/cfb64b33-207d-408b-9eb7-80a51112711b",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/1aa1d58c-3527-4729-959f-a177aa2257bb"
     },
     {
       "id": "cowgirl",
@@ -109,30 +119,33 @@
       ],
       "prompt": "POV cowgirl, ",
       "promptPrefix": "POV cowgirl, ",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/679223e0-a584-4208-91cb-c915be7400f3",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/679223e0-a584-4208-91cb-c915be7400f3",
-      "videoUrl": "https://vid.ourdream.ai/18da69f6-bc42-4bbd-9f9b-5dc80b979a2d",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/18da69f6-bc42-4bbd-9f9b-5dc80b979a2d",
-          "animeVideoUrl": "https://vid.ourdream.ai/abd2d4d6-9a92-4401-ab5e-d5a1382d8663"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/18da69f6-bc42-4bbd-9f9b-5dc80b979a2d"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/6d70460c-2f11-429c-bbb2-d6e750120381",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/679223e0-a584-4208-91cb-c915be7400f3",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/335ac280-7d9f-465e-a029-c190cf2e544c"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/679223e0-a584-4208-91cb-c915be7400f3"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/11de24cc-8a0d-4458-9716-8824d30fdfb1",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/18da69f6-bc42-4bbd-9f9b-5dc80b979a2d"
     },
     {
       "id": "cumshot",
@@ -148,38 +161,43 @@
       ],
       "prompt": "Cumshot",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/99a6120a-12d9-491d-ada5-3324bcf1d969",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/99a6120a-12d9-491d-ada5-3324bcf1d969",
-      "videoUrl": "https://vid.ourdream.ai/a72aeb59-c2c1-4db7-85d6-1065a9c299dc",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/a72aeb59-c2c1-4db7-85d6-1065a9c299dc",
-          "animeVideoUrl": "https://vid.ourdream.ai/a680a930-3a9a-4586-a48f-07f2b940ebde"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/a72aeb59-c2c1-4db7-85d6-1065a9c299dc"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/8d0dd602-ebff-47ad-87bd-1c39ef8c79b2",
-          "animeVideoUrl": "https://vid.ourdream.ai/8d0dd602-ebff-47ad-87bd-1c39ef8c79b2"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/8d0dd602-ebff-47ad-87bd-1c39ef8c79b2"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/a72aeb59-c2c1-4db7-85d6-1065a9c299dc",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/99a6120a-12d9-491d-ada5-3324bcf1d969",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/7c3a8846-8042-43d8-80e7-5d11350d8234"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/99a6120a-12d9-491d-ada5-3324bcf1d969"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/0c6231dd-2172-4d9c-bbc0-8f958a24733a",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/0c6231dd-2172-4d9c-bbc0-8f958a24733a"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/0c6231dd-2172-4d9c-bbc0-8f958a24733a"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/99a6120a-12d9-491d-ada5-3324bcf1d969",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/a72aeb59-c2c1-4db7-85d6-1065a9c299dc"
     },
     {
       "id": "doggy-style",
@@ -195,30 +213,33 @@
       ],
       "prompt": "POV Doggy style, ",
       "promptPrefix": "POV Doggy style, ",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/91bb0e93-8d84-4f7d-8c84-a00b6e268806",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/91bb0e93-8d84-4f7d-8c84-a00b6e268806",
-      "videoUrl": "https://vid.ourdream.ai/a3db5287-ada7-4777-88e6-a8bec168511d",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/a3db5287-ada7-4777-88e6-a8bec168511d",
-          "animeVideoUrl": "https://vid.ourdream.ai/2569aa12-a73d-4d6f-b3d3-d0533dd712eb"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/a3db5287-ada7-4777-88e6-a8bec168511d"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/a3db5287-ada7-4777-88e6-a8bec168511d",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/91bb0e93-8d84-4f7d-8c84-a00b6e268806",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/000b156d-87e6-4942-bd46-68197f4c3b62"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/91bb0e93-8d84-4f7d-8c84-a00b6e268806"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/91bb0e93-8d84-4f7d-8c84-a00b6e268806",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/a3db5287-ada7-4777-88e6-a8bec168511d"
     },
     {
       "id": "blowjob",
@@ -234,38 +255,43 @@
       ],
       "prompt": "Blowjob",
       "promptPrefix": "Blowjob",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/969e2b7e-4096-4be1-8316-e668d12a0101",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/969e2b7e-4096-4be1-8316-e668d12a0101",
-      "videoUrl": "https://vid.ourdream.ai/2403c017-1c43-4bbf-a584-72d1ef5ffc55-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/2403c017-1c43-4bbf-a584-72d1ef5ffc55-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/a207c6bd-f1ee-4a41-9374-7683bf643ad5"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/2403c017-1c43-4bbf-a584-72d1ef5ffc55-reversed"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/b5bde420-3ba2-4cdb-a3b1-54febd23530e",
-          "animeVideoUrl": "https://vid.ourdream.ai/b5bde420-3ba2-4cdb-a3b1-54febd23530e"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/b5bde420-3ba2-4cdb-a3b1-54febd23530e"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/3853f43f-bb7d-4d46-9d34-c0df9b25fa46",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/969e2b7e-4096-4be1-8316-e668d12a0101",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/9a3feb1b-dc41-446e-ad9f-0914bbcc476e"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/969e2b7e-4096-4be1-8316-e668d12a0101"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/edfb8a45-baff-4c07-91c2-ef60640849e5",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/edfb8a45-baff-4c07-91c2-ef60640849e5"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/edfb8a45-baff-4c07-91c2-ef60640849e5"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/c98e67d8-f840-4c81-b12d-8413ba5267ab",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/2403c017-1c43-4bbf-a584-72d1ef5ffc55-reversed"
     },
     {
       "id": "anal",
@@ -281,38 +307,43 @@
       ],
       "prompt": "POV Doggy Style, anal, ",
       "promptPrefix": "POV Doggy Style, anal, ",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/da332d06-ae97-4e6b-9aa4-ce5ea89fc9be",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/da332d06-ae97-4e6b-9aa4-ce5ea89fc9be",
-      "videoUrl": "https://vid.ourdream.ai/266d4ac0-8f74-4592-94a6-2e99aa416fb0",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/266d4ac0-8f74-4592-94a6-2e99aa416fb0",
-          "animeVideoUrl": "https://vid.ourdream.ai/fb38b72f-a95f-4dd6-8613-60f17aed0b6e"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/266d4ac0-8f74-4592-94a6-2e99aa416fb0"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/09771fca-f1cb-42d7-a756-fec3c1df82a1-reversed",
-          "animeVideoUrl": ""
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/09771fca-f1cb-42d7-a756-fec3c1df82a1-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/266d4ac0-8f74-4592-94a6-2e99aa416fb0",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/da332d06-ae97-4e6b-9aa4-ce5ea89fc9be",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/73db2432-bb86-4667-a983-fc5e149b7f07"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/da332d06-ae97-4e6b-9aa4-ce5ea89fc9be"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/5ffa3215-ea37-4787-9d8f-561dd3674840",
-          "animeThumbnailUrl": ""
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/5ffa3215-ea37-4787-9d8f-561dd3674840"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/da332d06-ae97-4e6b-9aa4-ce5ea89fc9be",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/266d4ac0-8f74-4592-94a6-2e99aa416fb0"
     },
     {
       "id": "standing-doggy",
@@ -324,38 +355,43 @@
       "tags": [],
       "prompt": "Standing Doggy",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/a586071d-94a0-4d54-a5a3-51749fa73164",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/a586071d-94a0-4d54-a5a3-51749fa73164",
-      "videoUrl": "https://vid.ourdream.ai/8c3a58cb-dc23-4662-a8eb-bc350c65686a-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/8c3a58cb-dc23-4662-a8eb-bc350c65686a-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/9b257c55-cdb3-49fa-80d3-0e3fc8e03070-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/8c3a58cb-dc23-4662-a8eb-bc350c65686a-reversed"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/0a3e1248-a64e-4202-bfc6-e6a63e2a9a22",
-          "animeVideoUrl": "https://vid.ourdream.ai/0a3e1248-a64e-4202-bfc6-e6a63e2a9a22"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/0a3e1248-a64e-4202-bfc6-e6a63e2a9a22"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/84e44cc6-7abb-42d2-8e22-10c0dfbecbf6-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/a586071d-94a0-4d54-a5a3-51749fa73164",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/8b7a0d3b-e5ad-4214-83df-843ab7b552ed"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/a586071d-94a0-4d54-a5a3-51749fa73164"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/956395f2-6835-4d07-8d84-d31949cc6304",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/956395f2-6835-4d07-8d84-d31949cc6304"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/956395f2-6835-4d07-8d84-d31949cc6304"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/a28ece68-0855-42b6-9835-819d6ceb77e6",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/8c3a58cb-dc23-4662-a8eb-bc350c65686a-reversed"
     },
     {
       "id": "missionary-cumshot",
@@ -371,30 +407,33 @@
       ],
       "prompt": "cumshot, ejaculation, orgasm",
       "promptPrefix": "cumshot, ejaculation, orgasm",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/b765a435-a47f-4b69-83c9-c18cfc9fb403",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/b765a435-a47f-4b69-83c9-c18cfc9fb403",
-      "videoUrl": "https://vid.ourdream.ai/241ad411-30c3-43ed-af30-d6d7535d8f55",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/241ad411-30c3-43ed-af30-d6d7535d8f55",
-          "animeVideoUrl": "https://vid.ourdream.ai/dc231ca2-61e9-4e8b-9d70-e37f2acaf34d"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/241ad411-30c3-43ed-af30-d6d7535d8f55"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/241ad411-30c3-43ed-af30-d6d7535d8f55",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/b765a435-a47f-4b69-83c9-c18cfc9fb403",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/8d10dc50-42bd-4168-8b87-76f5eda142f0"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/b765a435-a47f-4b69-83c9-c18cfc9fb403"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/b765a435-a47f-4b69-83c9-c18cfc9fb403",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/241ad411-30c3-43ed-af30-d6d7535d8f55"
     },
     {
       "id": "deep-throat",
@@ -410,30 +449,33 @@
       ],
       "prompt": "Deep Throat",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/66b00cc9-af38-44c7-b745-ad37befacbf1",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/66b00cc9-af38-44c7-b745-ad37befacbf1",
-      "videoUrl": "https://vid.ourdream.ai/7f474d3b-ad26-42c5-b8f7-df671d521384-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/7f474d3b-ad26-42c5-b8f7-df671d521384-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/ff18e3a6-740f-4aae-b11c-eb86b59376fb"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/7f474d3b-ad26-42c5-b8f7-df671d521384-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/7f474d3b-ad26-42c5-b8f7-df671d521384-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/66b00cc9-af38-44c7-b745-ad37befacbf1",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/8d6ea2d2-6a28-4a64-abf3-b6c36eb8f96d"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/66b00cc9-af38-44c7-b745-ad37befacbf1"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/66b00cc9-af38-44c7-b745-ad37befacbf1",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/7f474d3b-ad26-42c5-b8f7-df671d521384-reversed"
     },
     {
       "id": "female-masturbation",
@@ -449,22 +491,25 @@
       ],
       "prompt": "Female Masturbation",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/0417d853-4fb7-4bb0-8525-69531214daaf",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/0417d853-4fb7-4bb0-8525-69531214daaf",
-      "videoUrl": "https://vid.ourdream.ai/1ed07d60-4bdb-4900-aa50-cc1eba22c357",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/1ed07d60-4bdb-4900-aa50-cc1eba22c357",
-          "animeVideoUrl": "https://vid.ourdream.ai/7482c1ed-85f6-4509-b35c-4e26d4537e28"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/1ed07d60-4bdb-4900-aa50-cc1eba22c357"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/0417d853-4fb7-4bb0-8525-69531214daaf",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/bf6c72e8-c3e7-45b1-b9b1-377bef94895a"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/0417d853-4fb7-4bb0-8525-69531214daaf"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/1ed07d60-4bdb-4900-aa50-cc1eba22c357"
     },
     {
       "id": "reverse-cowgirl",
@@ -480,30 +525,33 @@
       ],
       "prompt": "POV reverse cowgirl, ",
       "promptPrefix": "POV reverse cowgirl, ",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/f03f93ca-0bac-4627-94f3-55815bdf4c5a",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/f03f93ca-0bac-4627-94f3-55815bdf4c5a",
-      "videoUrl": "https://vid.ourdream.ai/f3cc0437-a5ad-4d65-a522-60183601112c",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/f3cc0437-a5ad-4d65-a522-60183601112c",
-          "animeVideoUrl": "https://vid.ourdream.ai/c537dbd7-5f94-407c-8493-f5dacaa0153c"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/f3cc0437-a5ad-4d65-a522-60183601112c"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/f3cc0437-a5ad-4d65-a522-60183601112c",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/f03f93ca-0bac-4627-94f3-55815bdf4c5a",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/f7674cda-5c09-4036-b1c2-f60b15a5fccd"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/f03f93ca-0bac-4627-94f3-55815bdf4c5a"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/f03f93ca-0bac-4627-94f3-55815bdf4c5a",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/f3cc0437-a5ad-4d65-a522-60183601112c"
     },
     {
       "id": "prone-bone",
@@ -519,22 +567,25 @@
       ],
       "prompt": "Prone Bone, sex",
       "promptPrefix": "Prone Bone, sex",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/3e4f1831-f7ec-4524-8c60-83828b00d5d4",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/3e4f1831-f7ec-4524-8c60-83828b00d5d4",
-      "videoUrl": "https://vid.ourdream.ai/484b5889-a142-43b4-adaf-8450bb870fae-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/484b5889-a142-43b4-adaf-8450bb870fae-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/63234450-7158-4fc8-a527-02be99af2cba"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/484b5889-a142-43b4-adaf-8450bb870fae-reversed"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/3e4f1831-f7ec-4524-8c60-83828b00d5d4",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/90e2e4c9-7950-4d52-a006-e81ee0114403"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/3e4f1831-f7ec-4524-8c60-83828b00d5d4"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/484b5889-a142-43b4-adaf-8450bb870fae-reversed"
     },
     {
       "id": "orgasm",
@@ -549,38 +600,43 @@
       ],
       "prompt": "Orgasm",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/8af119d0-8143-490d-870f-c3a22a77a10c",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/8af119d0-8143-490d-870f-c3a22a77a10c",
-      "videoUrl": "https://vid.ourdream.ai/33d0e03f-ad71-4ebc-9ad6-0a0f4c0b08b4-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/33d0e03f-ad71-4ebc-9ad6-0a0f4c0b08b4-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/78d079a9-bd6a-44b5-a732-a35a1b1786ab"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/33d0e03f-ad71-4ebc-9ad6-0a0f4c0b08b4-reversed"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/9eeef4e9-ef6f-4dc1-a4ac-260f7fdd1e4b",
-          "animeVideoUrl": "https://vid.ourdream.ai/9eeef4e9-ef6f-4dc1-a4ac-260f7fdd1e4b"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/9eeef4e9-ef6f-4dc1-a4ac-260f7fdd1e4b"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/9c1301a2-f4c4-4ca6-9e3b-cfa36df971e7-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/8af119d0-8143-490d-870f-c3a22a77a10c",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/10a17df2-a768-4373-93c2-cd85419f9348"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/8af119d0-8143-490d-870f-c3a22a77a10c"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/bb9199cf-de10-4119-8557-bc1e0d529724",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/bb9199cf-de10-4119-8557-bc1e0d529724"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/bb9199cf-de10-4119-8557-bc1e0d529724"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/5f0cafdb-d726-4ef3-be16-5d9d801d2c88",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/33d0e03f-ad71-4ebc-9ad6-0a0f4c0b08b4-reversed"
     },
     {
       "id": "titjob",
@@ -596,30 +652,33 @@
       ],
       "prompt": "titjob, seductively",
       "promptPrefix": "titjob, seductively",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/440f1730-1051-4a80-b4ce-7fdf0ebbdaaa",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/440f1730-1051-4a80-b4ce-7fdf0ebbdaaa",
-      "videoUrl": "https://vid.ourdream.ai/295ad415-ebc0-4485-af25-a5d72ee35240-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/295ad415-ebc0-4485-af25-a5d72ee35240-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/231cd581-6f55-4c9f-87ee-8d2ca7e1e2e5"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/295ad415-ebc0-4485-af25-a5d72ee35240-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/295ad415-ebc0-4485-af25-a5d72ee35240-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/440f1730-1051-4a80-b4ce-7fdf0ebbdaaa",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/256e6adf-9071-4ccc-8874-f67788a9969b"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/440f1730-1051-4a80-b4ce-7fdf0ebbdaaa"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/440f1730-1051-4a80-b4ce-7fdf0ebbdaaa",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/295ad415-ebc0-4485-af25-a5d72ee35240-reversed"
     },
     {
       "id": "gangbang",
@@ -635,22 +694,25 @@
       ],
       "prompt": "Orgy, gangbang",
       "promptPrefix": "Orgy, gangbang",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/4468c43c-0ddc-43cb-8250-2306bf87ef5b",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/4468c43c-0ddc-43cb-8250-2306bf87ef5b",
-      "videoUrl": "https://vid.ourdream.ai/3953b80a-17e9-4502-bca1-915c04cbd922-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/3953b80a-17e9-4502-bca1-915c04cbd922-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/f9655da0-d50e-4f30-aee7-ffeb5346bf07"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/3953b80a-17e9-4502-bca1-915c04cbd922-reversed"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/4468c43c-0ddc-43cb-8250-2306bf87ef5b",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/febf55b0-2770-4d35-b1f0-87a720226d80"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/4468c43c-0ddc-43cb-8250-2306bf87ef5b"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/3953b80a-17e9-4502-bca1-915c04cbd922-reversed"
     },
     {
       "id": "twerk",
@@ -666,22 +728,25 @@
       ],
       "prompt": "Twerk",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/73e6ca78-0a75-4bce-a132-c48d98c940a5",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/73e6ca78-0a75-4bce-a132-c48d98c940a5",
-      "videoUrl": "https://vid.ourdream.ai/4e23f842-dcb7-4123-a2f5-733068683d95-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/4e23f842-dcb7-4123-a2f5-733068683d95-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/8442c9e6-5d54-41c1-9ba7-dad5463a0b98"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/4e23f842-dcb7-4123-a2f5-733068683d95-reversed"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/73e6ca78-0a75-4bce-a132-c48d98c940a5",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/26d02522-46c8-4688-a2bc-a96a7451de43"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/73e6ca78-0a75-4bce-a132-c48d98c940a5"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/4e23f842-dcb7-4123-a2f5-733068683d95-reversed"
     },
     {
       "id": "blowjob-side-view",
@@ -697,22 +762,25 @@
       ],
       "prompt": "Blowjob, Seductive",
       "promptPrefix": "Blowjob, Seductive",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/3522eb2f-f5f5-4da2-9f24-65b9b57b3a0a",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/3522eb2f-f5f5-4da2-9f24-65b9b57b3a0a",
-      "videoUrl": "https://vid.ourdream.ai/c3cda0e6-4b41-4bb1-b544-f5b14cc668dc-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/c3cda0e6-4b41-4bb1-b544-f5b14cc668dc-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/731c6e1d-05dd-4059-9d3e-b4f5cffedc33"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/c3cda0e6-4b41-4bb1-b544-f5b14cc668dc-reversed"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/3522eb2f-f5f5-4da2-9f24-65b9b57b3a0a",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/1f267792-2db7-4b58-87ac-b34ffa7947dd"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/3522eb2f-f5f5-4da2-9f24-65b9b57b3a0a"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/c3cda0e6-4b41-4bb1-b544-f5b14cc668dc-reversed"
     },
     {
       "id": "cowgirl-bounce-fest",
@@ -728,22 +796,25 @@
       ],
       "prompt": "side profile view, side view emphasizes breasts and ass, anal reverse cowgirl sex, she bounces in many long smooth strokes, heavy breast jiggle synchronized with each stroke, her butt jiggles synchronized with each stroke",
       "promptPrefix": "side profile view, side view emphasizes breasts and ass, anal reverse cowgirl sex, she bounces in many long smooth strokes, heavy breast jiggle synchronized with each stroke, her butt jiggles synchronized with each stroke",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/e455990d-39c6-4cae-adec-01ca822a98a1",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/e455990d-39c6-4cae-adec-01ca822a98a1",
-      "videoUrl": "https://vid.ourdream.ai/67a78cb4-39d1-41f7-adfe-56654cf8584a",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/67a78cb4-39d1-41f7-adfe-56654cf8584a",
-          "animeVideoUrl": "https://vid.ourdream.ai/bff58610-63d4-4ba8-9b73-b53e853a874b"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/67a78cb4-39d1-41f7-adfe-56654cf8584a"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/e455990d-39c6-4cae-adec-01ca822a98a1",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/b0e334c6-5ca2-4316-9091-7f53ce4ca6e5"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/e455990d-39c6-4cae-adec-01ca822a98a1"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/67a78cb4-39d1-41f7-adfe-56654cf8584a"
     },
     {
       "id": "side-view-cowgirl",
@@ -759,30 +830,33 @@
       ],
       "prompt": "Side View Cowgirl",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/775ca072-c8b5-4a76-a06a-934b0f95715b",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/775ca072-c8b5-4a76-a06a-934b0f95715b",
-      "videoUrl": "https://vid.ourdream.ai/a1fd9c67-778d-4fbd-9fb7-7a4f04f99bcb",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/a1fd9c67-778d-4fbd-9fb7-7a4f04f99bcb",
-          "animeVideoUrl": "https://vid.ourdream.ai/80eb9a42-d55c-47ef-a967-dcac2166f434"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/a1fd9c67-778d-4fbd-9fb7-7a4f04f99bcb"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/7faaed80-a7d6-49d5-b406-74ce46368331",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/775ca072-c8b5-4a76-a06a-934b0f95715b",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/96a50dba-7156-4328-88f1-39b26c4da100"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/775ca072-c8b5-4a76-a06a-934b0f95715b"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/da7de338-36ca-43a2-ad84-eaf42ba562de",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/a1fd9c67-778d-4fbd-9fb7-7a4f04f99bcb"
     },
     {
       "id": "titty-drop",
@@ -798,30 +872,33 @@
       ],
       "prompt": "Titty Drop",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/321f0627-e3fa-4cb3-ae71-3b8722697009",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/321f0627-e3fa-4cb3-ae71-3b8722697009",
-      "videoUrl": "https://vid.ourdream.ai/dccf7365-af8b-4148-9a22-26b9742f8d6b",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/dccf7365-af8b-4148-9a22-26b9742f8d6b",
-          "animeVideoUrl": "https://vid.ourdream.ai/f46441d8-2416-4bb9-8898-9f66e7fef56a"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/dccf7365-af8b-4148-9a22-26b9742f8d6b"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/dccf7365-af8b-4148-9a22-26b9742f8d6b",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/321f0627-e3fa-4cb3-ae71-3b8722697009",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/dad2a143-65c7-44dd-8839-49f0fbdf22a8"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/321f0627-e3fa-4cb3-ae71-3b8722697009"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/321f0627-e3fa-4cb3-ae71-3b8722697009",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/dccf7365-af8b-4148-9a22-26b9742f8d6b"
     },
     {
       "id": "side-missionary",
@@ -837,22 +914,25 @@
       ],
       "prompt": "Side Missionary",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/69e61bbc-5f75-420d-84b0-a9b964b5c36c",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/69e61bbc-5f75-420d-84b0-a9b964b5c36c",
-      "videoUrl": "https://vid.ourdream.ai/58d03ae4-0144-49d4-87c0-aeec0612b543",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/58d03ae4-0144-49d4-87c0-aeec0612b543",
-          "animeVideoUrl": "https://vid.ourdream.ai/b4ce2b20-c3d5-491d-a6e8-47314c0b91a2"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/58d03ae4-0144-49d4-87c0-aeec0612b543"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/69e61bbc-5f75-420d-84b0-a9b964b5c36c",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/2deb9b1f-0f90-4277-902e-97b84e5f519d"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/69e61bbc-5f75-420d-84b0-a9b964b5c36c"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/58d03ae4-0144-49d4-87c0-aeec0612b543"
     },
     {
       "id": "handjob",
@@ -868,38 +948,43 @@
       ],
       "prompt": "Handjob",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/b057e068-ba36-40a2-8fd7-2cbff8d4533e",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/b057e068-ba36-40a2-8fd7-2cbff8d4533e",
-      "videoUrl": "https://vid.ourdream.ai/567ea512-eccd-44d5-8e5e-f15fe3241114",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/567ea512-eccd-44d5-8e5e-f15fe3241114",
-          "animeVideoUrl": "https://vid.ourdream.ai/b327897a-8b8e-4668-b7ad-967c6b3de485"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/567ea512-eccd-44d5-8e5e-f15fe3241114"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/91e80d95-22c3-43fe-b208-c56365628e96",
-          "animeVideoUrl": "https://vid.ourdream.ai/91e80d95-22c3-43fe-b208-c56365628e96"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/91e80d95-22c3-43fe-b208-c56365628e96"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/567ea512-eccd-44d5-8e5e-f15fe3241114",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/b057e068-ba36-40a2-8fd7-2cbff8d4533e",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/43239fe7-ee77-44a2-bf38-d35475dae41f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/b057e068-ba36-40a2-8fd7-2cbff8d4533e"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/4e8dc975-c4fc-4ccb-b476-dd7713f35535",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/4e8dc975-c4fc-4ccb-b476-dd7713f35535"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/4e8dc975-c4fc-4ccb-b476-dd7713f35535"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/b057e068-ba36-40a2-8fd7-2cbff8d4533e",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/567ea512-eccd-44d5-8e5e-f15fe3241114"
     },
     {
       "id": "dildo-ride",
@@ -915,22 +1000,25 @@
       ],
       "prompt": "Dildo Ride",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/7f140bab-54dc-4063-8192-3a000750b556",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/7f140bab-54dc-4063-8192-3a000750b556",
-      "videoUrl": "https://vid.ourdream.ai/4762c6ad-72c5-400a-a71e-926b96d3c627",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/4762c6ad-72c5-400a-a71e-926b96d3c627",
-          "animeVideoUrl": "https://vid.ourdream.ai/fc25a0a4-d145-4608-acd5-422c4980e712"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/4762c6ad-72c5-400a-a71e-926b96d3c627"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/7f140bab-54dc-4063-8192-3a000750b556",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/8a1f4337-9021-458b-baee-b673bb82b68c"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/7f140bab-54dc-4063-8192-3a000750b556"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/4762c6ad-72c5-400a-a71e-926b96d3c627"
     },
     {
       "id": "flirting",
@@ -946,30 +1034,33 @@
       ],
       "prompt": "(biting finger in mouth), (blush), (looking away), (shy)",
       "promptPrefix": "(biting finger in mouth), (blush), (looking away), (shy)",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/dfc05c7e-1eca-4e0a-bd7f-10c23d8f7ece",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/dfc05c7e-1eca-4e0a-bd7f-10c23d8f7ece",
-      "videoUrl": "https://vid.ourdream.ai/36d3f7e0-5fd3-421b-b3d0-5b294bce5342",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/36d3f7e0-5fd3-421b-b3d0-5b294bce5342",
-          "animeVideoUrl": "https://vid.ourdream.ai/6e3d6acd-5711-4f17-b783-28144ca6da41"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/36d3f7e0-5fd3-421b-b3d0-5b294bce5342"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/36d3f7e0-5fd3-421b-b3d0-5b294bce5342",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/dfc05c7e-1eca-4e0a-bd7f-10c23d8f7ece",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/141f63f1-f051-4304-a729-054b0f32bb92"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/dfc05c7e-1eca-4e0a-bd7f-10c23d8f7ece"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/dfc05c7e-1eca-4e0a-bd7f-10c23d8f7ece",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/36d3f7e0-5fd3-421b-b3d0-5b294bce5342"
     },
     {
       "id": "walking",
@@ -985,22 +1076,25 @@
       ],
       "prompt": "Walking toward viewer, tits bouncing",
       "promptPrefix": "Walking toward viewer, tits bouncing",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/cd86e8c2-80ed-401e-b8f2-23b323518447",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/cd86e8c2-80ed-401e-b8f2-23b323518447",
-      "videoUrl": "https://vid.ourdream.ai/45f2a337-51cf-4225-8e0b-0542250a066d",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/45f2a337-51cf-4225-8e0b-0542250a066d",
-          "animeVideoUrl": "https://vid.ourdream.ai/ae5bad1c-ce27-42d4-ad81-72a8707bcdea"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/45f2a337-51cf-4225-8e0b-0542250a066d"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/cd86e8c2-80ed-401e-b8f2-23b323518447",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/fd8a9b1c-c18e-4a12-b515-26456ed70feb"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/cd86e8c2-80ed-401e-b8f2-23b323518447"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/45f2a337-51cf-4225-8e0b-0542250a066d"
     },
     {
       "id": "begging",
@@ -1015,22 +1109,25 @@
       ],
       "prompt": "Begging",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/ca23a119-e1e1-4eaa-bd53-76fd1eab371e",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/ca23a119-e1e1-4eaa-bd53-76fd1eab371e",
-      "videoUrl": "https://vid.ourdream.ai/09c28245-3a44-4c6e-922f-7d94f0c89769",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/09c28245-3a44-4c6e-922f-7d94f0c89769",
-          "animeVideoUrl": "https://vid.ourdream.ai/594c89c3-78d2-4325-bf91-19b197dbf146"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/09c28245-3a44-4c6e-922f-7d94f0c89769"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/ca23a119-e1e1-4eaa-bd53-76fd1eab371e",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/758131c3-45b5-418f-97bf-ec72321b061f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/ca23a119-e1e1-4eaa-bd53-76fd1eab371e"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/09c28245-3a44-4c6e-922f-7d94f0c89769"
     },
     {
       "id": "all-fours",
@@ -1046,22 +1143,25 @@
       ],
       "prompt": "Ass, Seductive",
       "promptPrefix": "Ass, Seductive",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/5862d409-e3b4-4d35-a88c-167dba78225c",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/5862d409-e3b4-4d35-a88c-167dba78225c",
-      "videoUrl": "https://vid.ourdream.ai/6bf05d2f-ae80-4d59-b44d-77aa05cdb5dc",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/6bf05d2f-ae80-4d59-b44d-77aa05cdb5dc",
-          "animeVideoUrl": "https://vid.ourdream.ai/e0cf41a8-878e-49a0-ab38-215b9f232060"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/6bf05d2f-ae80-4d59-b44d-77aa05cdb5dc"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/5862d409-e3b4-4d35-a88c-167dba78225c",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/811407dd-955b-4e25-8b00-931e5e052d49"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/5862d409-e3b4-4d35-a88c-167dba78225c"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/6bf05d2f-ae80-4d59-b44d-77aa05cdb5dc"
     },
     {
       "id": "masturbation",
@@ -1077,30 +1177,33 @@
       ],
       "prompt": "stroking penis masturbating, ",
       "promptPrefix": "stroking penis masturbating, ",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/25e9ee17-b4d3-4cc7-b210-a73d24d1da51",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/25e9ee17-b4d3-4cc7-b210-a73d24d1da51",
-      "videoUrl": "https://vid.ourdream.ai/558a75c7-1ec6-4c24-886a-539fb2bc36a5",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/558a75c7-1ec6-4c24-886a-539fb2bc36a5",
-          "animeVideoUrl": ""
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/558a75c7-1ec6-4c24-886a-539fb2bc36a5"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/fbdb9bd4-b659-4405-a182-c0cbcba10f83",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/25e9ee17-b4d3-4cc7-b210-a73d24d1da51",
-          "animeThumbnailUrl": ""
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/25e9ee17-b4d3-4cc7-b210-a73d24d1da51"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/fcc6c811-25b0-408f-b5bc-77d7b68c4213",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/558a75c7-1ec6-4c24-886a-539fb2bc36a5"
     },
     {
       "id": "lesbian-kissing",
@@ -1116,22 +1219,25 @@
       ],
       "prompt": "Kissing",
       "promptPrefix": "Kissing",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/a05ba055-0dc4-4e7c-83cd-bcd382817193",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/a05ba055-0dc4-4e7c-83cd-bcd382817193",
-      "videoUrl": "https://vid.ourdream.ai/45d6e319-7ba6-418f-9f8f-2f34d89894b8",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/45d6e319-7ba6-418f-9f8f-2f34d89894b8",
-          "animeVideoUrl": "https://vid.ourdream.ai/939cb86e-af7b-4e3b-838c-317341b792dc"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/45d6e319-7ba6-418f-9f8f-2f34d89894b8"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/a05ba055-0dc4-4e7c-83cd-bcd382817193",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/a880ab6d-4c40-44fe-b942-7cc9d0cfadfe"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/a05ba055-0dc4-4e7c-83cd-bcd382817193"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/45d6e319-7ba6-418f-9f8f-2f34d89894b8"
     },
     {
       "id": "ahegao-face",
@@ -1147,22 +1253,25 @@
       ],
       "prompt": "AHEGAO_FACE, ahegao face",
       "promptPrefix": "AHEGAO_FACE, ahegao face",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/4c25825b-79bf-45c3-9141-bf9b2079f655",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/4c25825b-79bf-45c3-9141-bf9b2079f655",
-      "videoUrl": "https://vid.ourdream.ai/97259603-9f55-4652-8c51-ed17bebe5237",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/97259603-9f55-4652-8c51-ed17bebe5237",
-          "animeVideoUrl": "https://vid.ourdream.ai/e37bfae4-7e5e-47cf-93a4-133d654241fa"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/97259603-9f55-4652-8c51-ed17bebe5237"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/4c25825b-79bf-45c3-9141-bf9b2079f655",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/a1cbe513-4c26-4212-85cb-c6e64f5f695d"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/4c25825b-79bf-45c3-9141-bf9b2079f655"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/97259603-9f55-4652-8c51-ed17bebe5237"
     },
     {
       "id": "double-blowjob",
@@ -1178,22 +1287,25 @@
       ],
       "prompt": "Double Blowjob",
       "promptPrefix": "Double Blowjob",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/4f7162f9-0367-4d03-a4a0-d84ced7880cc",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/4f7162f9-0367-4d03-a4a0-d84ced7880cc",
-      "videoUrl": "https://vid.ourdream.ai/e4cd8dfb-dab7-454f-9f66-a5e57aaaa79f",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/e4cd8dfb-dab7-454f-9f66-a5e57aaaa79f",
-          "animeVideoUrl": "https://vid.ourdream.ai/6116361f-e69e-4093-ae96-934373c16c4e"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/e4cd8dfb-dab7-454f-9f66-a5e57aaaa79f"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/4f7162f9-0367-4d03-a4a0-d84ced7880cc",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/ef55dd80-3b94-4858-8506-e69cb57092fc"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/4f7162f9-0367-4d03-a4a0-d84ced7880cc"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/e4cd8dfb-dab7-454f-9f66-a5e57aaaa79f"
     },
     {
       "id": "titjob-handjob-hybrid",
@@ -1210,30 +1322,33 @@
       ],
       "prompt": "Titjob-Handjob Hybrid",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/7142f1fb-5f25-4af3-9747-1fa073ad1f81",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/7142f1fb-5f25-4af3-9747-1fa073ad1f81",
-      "videoUrl": "https://vid.ourdream.ai/075e8e38-32c5-4ad8-969e-d18c7768f6cd",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/075e8e38-32c5-4ad8-969e-d18c7768f6cd",
-          "animeVideoUrl": "https://vid.ourdream.ai/ea5f2487-d1f8-429d-bf30-26377d0b5941"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/075e8e38-32c5-4ad8-969e-d18c7768f6cd"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/075e8e38-32c5-4ad8-969e-d18c7768f6cd",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/7142f1fb-5f25-4af3-9747-1fa073ad1f81",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/4349e1ff-c7c2-4f7c-af47-ca7486cd538d"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/7142f1fb-5f25-4af3-9747-1fa073ad1f81"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/7142f1fb-5f25-4af3-9747-1fa073ad1f81",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/075e8e38-32c5-4ad8-969e-d18c7768f6cd"
     },
     {
       "id": "dancing",
@@ -1249,38 +1364,43 @@
       ],
       "prompt": "Dancing",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/d66e3119-b268-44b6-8b58-166a6ebc4705",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/d66e3119-b268-44b6-8b58-166a6ebc4705",
-      "videoUrl": "https://vid.ourdream.ai/f2170819-5c36-4ff3-953a-2e20c4c9aeac",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/f2170819-5c36-4ff3-953a-2e20c4c9aeac",
-          "animeVideoUrl": "https://vid.ourdream.ai/06df2765-28e3-499a-a3e4-21bf3e25d206"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/f2170819-5c36-4ff3-953a-2e20c4c9aeac"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/1cbc1841-ff8d-4dbe-a403-98a4049f8ea3",
-          "animeVideoUrl": "https://vid.ourdream.ai/1cbc1841-ff8d-4dbe-a403-98a4049f8ea3"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/1cbc1841-ff8d-4dbe-a403-98a4049f8ea3"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/ef608ef6-9bb7-4b04-9a35-84237deaf198",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/d66e3119-b268-44b6-8b58-166a6ebc4705",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/881052d2-c956-469f-b50e-aff360f9e23e"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/d66e3119-b268-44b6-8b58-166a6ebc4705"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/d5584220-102f-40c9-8ef2-5cc1fafef1db",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/d5584220-102f-40c9-8ef2-5cc1fafef1db"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/d5584220-102f-40c9-8ef2-5cc1fafef1db"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/eccc21db-9343-4f7e-a96a-c174aa50aa3b",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/f2170819-5c36-4ff3-953a-2e20c4c9aeac"
     },
     {
       "id": "lesbian-orgy",
@@ -1296,22 +1416,25 @@
       ],
       "prompt": "Lesbian Orgy",
       "promptPrefix": "Lesbian Orgy",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/c2f4e84c-2207-45b2-978b-b47503ad2fbc",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/c2f4e84c-2207-45b2-978b-b47503ad2fbc",
-      "videoUrl": "https://vid.ourdream.ai/d067400e-2486-4d2a-9868-e8aa511b9ebe",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/d067400e-2486-4d2a-9868-e8aa511b9ebe",
-          "animeVideoUrl": "https://vid.ourdream.ai/6f49f5a0-7f13-4a4e-8e8b-0f83f33d80fc"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/d067400e-2486-4d2a-9868-e8aa511b9ebe"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/c2f4e84c-2207-45b2-978b-b47503ad2fbc",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/de1c472e-5310-49ac-bf70-bff3419e2f0f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/c2f4e84c-2207-45b2-978b-b47503ad2fbc"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/d067400e-2486-4d2a-9868-e8aa511b9ebe"
     },
     {
       "id": "feet",
@@ -1327,22 +1450,25 @@
       ],
       "prompt": "Slowly lowering feet towards you",
       "promptPrefix": "Slowly lowering feet towards you",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/59d1063b-d2d8-48bc-a5ec-3d80f9ad90b2",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/59d1063b-d2d8-48bc-a5ec-3d80f9ad90b2",
-      "videoUrl": "https://vid.ourdream.ai/6fe7f12d-f81c-49e2-958b-e458d3452cee",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/6fe7f12d-f81c-49e2-958b-e458d3452cee",
-          "animeVideoUrl": "https://vid.ourdream.ai/b8c3cc80-8d52-4eee-831d-9138561e3c8c"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/6fe7f12d-f81c-49e2-958b-e458d3452cee"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/59d1063b-d2d8-48bc-a5ec-3d80f9ad90b2",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/eec21e3b-5c1f-48cb-9d02-c64287061a3a"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/59d1063b-d2d8-48bc-a5ec-3d80f9ad90b2"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/6fe7f12d-f81c-49e2-958b-e458d3452cee"
     },
     {
       "id": "panty-teasing",
@@ -1358,22 +1484,25 @@
       ],
       "prompt": "seated, legs spread wide, sexy teasing with panties, biting lower lip seductively, looking at viewer",
       "promptPrefix": "seated, legs spread wide, sexy teasing with panties, biting lower lip seductively, looking at viewer",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/3558ceb2-67d1-4160-8818-5972d527bd4d",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/3558ceb2-67d1-4160-8818-5972d527bd4d",
-      "videoUrl": "https://vid.ourdream.ai/335173e8-97d6-449b-aa8e-04c3d58cbaf3",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/335173e8-97d6-449b-aa8e-04c3d58cbaf3",
-          "animeVideoUrl": "https://vid.ourdream.ai/05a110e1-61c6-46cf-92ff-a8c5d51c4e3b"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/335173e8-97d6-449b-aa8e-04c3d58cbaf3"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/3558ceb2-67d1-4160-8818-5972d527bd4d",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/7a7c217a-6328-486b-8928-9a11139e4603"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/3558ceb2-67d1-4160-8818-5972d527bd4d"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/335173e8-97d6-449b-aa8e-04c3d58cbaf3"
     },
     {
       "id": "showering",
@@ -1389,22 +1518,25 @@
       ],
       "prompt": "Showering, Seductive",
       "promptPrefix": "Showering, Seductive",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/df344ced-85cc-4d0e-be7e-d8dd6bec2fc7",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/df344ced-85cc-4d0e-be7e-d8dd6bec2fc7",
-      "videoUrl": "https://vid.ourdream.ai/f5575214-abd1-44ae-a5ff-e2a0070dbc7d",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/f5575214-abd1-44ae-a5ff-e2a0070dbc7d",
-          "animeVideoUrl": "https://vid.ourdream.ai/ce9fef0a-86a8-4ff0-9522-68713a0e8a9d"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/f5575214-abd1-44ae-a5ff-e2a0070dbc7d"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/df344ced-85cc-4d0e-be7e-d8dd6bec2fc7",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/ec9173eb-7839-4770-afeb-0019cab63bab"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/df344ced-85cc-4d0e-be7e-d8dd6bec2fc7"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/f5575214-abd1-44ae-a5ff-e2a0070dbc7d"
     },
     {
       "id": "blowjob-under-table",
@@ -1420,22 +1552,25 @@
       ],
       "prompt": "Blowjob",
       "promptPrefix": "Blowjob",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/e5a8a41c-a713-4670-a657-bdd2c4bff40f",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/e5a8a41c-a713-4670-a657-bdd2c4bff40f",
-      "videoUrl": "https://vid.ourdream.ai/c04b5e58-c8ae-4ca2-9bc3-034d2a6a2485",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/c04b5e58-c8ae-4ca2-9bc3-034d2a6a2485",
-          "animeVideoUrl": "https://vid.ourdream.ai/2a58ec76-d332-4483-9732-b672f86164d0"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/c04b5e58-c8ae-4ca2-9bc3-034d2a6a2485"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/e5a8a41c-a713-4670-a657-bdd2c4bff40f",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/53d868a3-93a7-4429-a492-b1922ffed2b6"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/e5a8a41c-a713-4670-a657-bdd2c4bff40f"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/c04b5e58-c8ae-4ca2-9bc3-034d2a6a2485"
     },
     {
       "id": "come-here-baby",
@@ -1451,30 +1586,33 @@
       ],
       "prompt": "Come Here Baby",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/03dd6573-b2cf-4385-9f6e-f9ad7289084e",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/03dd6573-b2cf-4385-9f6e-f9ad7289084e",
-      "videoUrl": "https://vid.ourdream.ai/7f8fbb69-f32a-4c67-9b9e-0ebe6bbd24f1",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/7f8fbb69-f32a-4c67-9b9e-0ebe6bbd24f1",
-          "animeVideoUrl": "https://vid.ourdream.ai/ac1965b7-994d-49b3-99ee-c3d1c3c5d10b"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/7f8fbb69-f32a-4c67-9b9e-0ebe6bbd24f1"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/a0160ae2-9a8a-4dcc-8a34-582f47dac44a",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/03dd6573-b2cf-4385-9f6e-f9ad7289084e",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/57ef12f6-0435-46c0-a375-2e083d84c2d3"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/03dd6573-b2cf-4385-9f6e-f9ad7289084e"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/42a5086b-51b9-4b5c-bd63-39116d7f1f19",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/7f8fbb69-f32a-4c67-9b9e-0ebe6bbd24f1"
     },
     {
       "id": "hand-in-panties",
@@ -1490,22 +1628,25 @@
       ],
       "prompt": "Hand in Panties",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/0477eda6-4f6c-40f7-80bb-3e069bdf5148",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/0477eda6-4f6c-40f7-80bb-3e069bdf5148",
-      "videoUrl": "https://vid.ourdream.ai/b170aad5-dcc8-4ca2-a515-58da25c91997",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/b170aad5-dcc8-4ca2-a515-58da25c91997",
-          "animeVideoUrl": "https://vid.ourdream.ai/1e54c646-270f-44a3-9be8-7948120726e8"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/b170aad5-dcc8-4ca2-a515-58da25c91997"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/0477eda6-4f6c-40f7-80bb-3e069bdf5148",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/5518bb28-4e29-4648-96ac-ed26543915b2"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/0477eda6-4f6c-40f7-80bb-3e069bdf5148"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/b170aad5-dcc8-4ca2-a515-58da25c91997"
     },
     {
       "id": "mfm-handjob",
@@ -1521,22 +1662,25 @@
       ],
       "prompt": "Threesome Handjob",
       "promptPrefix": "Threesome Handjob",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/dc1059ba-87bd-475a-8f5a-166871d1b10b",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/dc1059ba-87bd-475a-8f5a-166871d1b10b",
-      "videoUrl": "https://vid.ourdream.ai/e6d60b42-5b22-4eab-aea3-67101961b928-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/e6d60b42-5b22-4eab-aea3-67101961b928-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/ced6a69f-5afa-4105-bf8a-17fe693c123d"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/e6d60b42-5b22-4eab-aea3-67101961b928-reversed"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/dc1059ba-87bd-475a-8f5a-166871d1b10b",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/0d066529-958f-4824-9e0f-e27ff426b0d8"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/dc1059ba-87bd-475a-8f5a-166871d1b10b"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/e6d60b42-5b22-4eab-aea3-67101961b928-reversed"
     },
     {
       "id": "glory-hole",
@@ -1553,22 +1697,25 @@
       ],
       "prompt": "Glory hole, blowjob",
       "promptPrefix": "Glory hole, blowjob",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/6f1be880-4af4-4b01-9023-4cae744070ce",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/6f1be880-4af4-4b01-9023-4cae744070ce",
-      "videoUrl": "https://vid.ourdream.ai/429e7757-742b-402f-ac3a-5d38fb7eacf4",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/429e7757-742b-402f-ac3a-5d38fb7eacf4",
-          "animeVideoUrl": "https://vid.ourdream.ai/20d93a3f-54fd-4aa9-9227-08cc4e5775e9"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/429e7757-742b-402f-ac3a-5d38fb7eacf4"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/6f1be880-4af4-4b01-9023-4cae744070ce",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/b859f918-1c7e-408c-b8dc-376713726a59"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/6f1be880-4af4-4b01-9023-4cae744070ce"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/429e7757-742b-402f-ac3a-5d38fb7eacf4"
     },
     {
       "id": "cuddling",
@@ -1584,22 +1731,25 @@
       ],
       "prompt": "cuddling, seductively",
       "promptPrefix": "cuddling, seductively",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/f03be136-e302-49ec-9f73-071ff74acc81",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/f03be136-e302-49ec-9f73-071ff74acc81",
-      "videoUrl": "https://vid.ourdream.ai/cf7f2787-6669-4cd2-8f22-8fa06ad0b533",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/cf7f2787-6669-4cd2-8f22-8fa06ad0b533",
-          "animeVideoUrl": "https://vid.ourdream.ai/644571fa-f7c3-44c4-9843-2bd90093c7bb"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/cf7f2787-6669-4cd2-8f22-8fa06ad0b533"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/f03be136-e302-49ec-9f73-071ff74acc81",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/88975fe7-02d5-413e-a49f-cbf6cfc6b60f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/f03be136-e302-49ec-9f73-071ff74acc81"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/cf7f2787-6669-4cd2-8f22-8fa06ad0b533"
     },
     {
       "id": "hands-through-hair",
@@ -1615,30 +1765,33 @@
       ],
       "prompt": "brushing hands through hair.",
       "promptPrefix": "brushing hands through hair.",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/90417e66-d76a-49e3-bd5a-2cfaa0dcbbab",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/90417e66-d76a-49e3-bd5a-2cfaa0dcbbab",
-      "videoUrl": "https://vid.ourdream.ai/aed82753-9896-4a3a-9bfd-08439b51c375",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/aed82753-9896-4a3a-9bfd-08439b51c375",
-          "animeVideoUrl": "https://vid.ourdream.ai/79aa07c3-8922-4980-b1da-eb89b08b94f7"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/aed82753-9896-4a3a-9bfd-08439b51c375"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/aed82753-9896-4a3a-9bfd-08439b51c375",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/90417e66-d76a-49e3-bd5a-2cfaa0dcbbab",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/85c8817c-c835-447c-918e-742190f0ffb5"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/90417e66-d76a-49e3-bd5a-2cfaa0dcbbab"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/90417e66-d76a-49e3-bd5a-2cfaa0dcbbab",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/aed82753-9896-4a3a-9bfd-08439b51c375"
     },
     {
       "id": "blowing-kiss",
@@ -1654,38 +1807,43 @@
       ],
       "prompt": "blows a kiss at the viewer",
       "promptPrefix": "blows a kiss at the viewer",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/a804e19e-9720-4a57-aa52-585569ba9031",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/a804e19e-9720-4a57-aa52-585569ba9031",
-      "videoUrl": "https://vid.ourdream.ai/dbcf01a5-b0a7-4f63-8662-11013ec44a99",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/dbcf01a5-b0a7-4f63-8662-11013ec44a99",
-          "animeVideoUrl": "https://vid.ourdream.ai/732ae3ba-bfa3-4310-a24a-dbb78b44c736"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/dbcf01a5-b0a7-4f63-8662-11013ec44a99"
         },
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/3f6e7b05-c29e-4d8e-b80a-8956651553bc",
-          "animeVideoUrl": "https://vid.ourdream.ai/3f6e7b05-c29e-4d8e-b80a-8956651553bc"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/3f6e7b05-c29e-4d8e-b80a-8956651553bc"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/3a62eac1-2e49-46ea-a4bc-52e05b8b19dc",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/a804e19e-9720-4a57-aa52-585569ba9031",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/6a5d6279-9272-42c2-a3a2-8518da3d607f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/a804e19e-9720-4a57-aa52-585569ba9031"
         },
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/4ac6ab56-1edb-4649-9e0e-f94e8347ccb2",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/4ac6ab56-1edb-4649-9e0e-f94e8347ccb2"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/4ac6ab56-1edb-4649-9e0e-f94e8347ccb2"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/3017a47c-70be-431f-b37d-8adc01a80089",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/dbcf01a5-b0a7-4f63-8662-11013ec44a99"
     },
     {
       "id": "penis",
@@ -1700,30 +1858,33 @@
       ],
       "prompt": "Penis",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/20cebeba-71dc-4ae3-ab42-988ca16b64a7",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/20cebeba-71dc-4ae3-ab42-988ca16b64a7",
-      "videoUrl": "https://vid.ourdream.ai/3bcdc0ec-dd0f-4989-b79d-77c1fe30cfce",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/3bcdc0ec-dd0f-4989-b79d-77c1fe30cfce",
-          "animeVideoUrl": ""
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/3bcdc0ec-dd0f-4989-b79d-77c1fe30cfce"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/d13d7210-4f49-4fe6-a09c-642455ee2b0d",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/20cebeba-71dc-4ae3-ab42-988ca16b64a7",
-          "animeThumbnailUrl": ""
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/20cebeba-71dc-4ae3-ab42-988ca16b64a7"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/747c26d0-bd51-47c1-9a35-909a7e285fa9",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/3bcdc0ec-dd0f-4989-b79d-77c1fe30cfce"
     },
     {
       "id": "flaccid-penis",
@@ -1738,30 +1899,33 @@
       ],
       "prompt": "Flaccid Penis",
       "promptPrefix": "",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/bb115c53-649e-4ac5-a599-b3f31c0290b3",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/bb115c53-649e-4ac5-a599-b3f31c0290b3",
-      "videoUrl": "https://vid.ourdream.ai/e47a1367-3997-4ecd-b3d3-3cfd99eede39",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Male": {
-          "videoUrl": "https://vid.ourdream.ai/e47a1367-3997-4ecd-b3d3-3cfd99eede39",
-          "animeVideoUrl": ""
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/e47a1367-3997-4ecd-b3d3-3cfd99eede39"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/50ed5585-5d09-431b-9f83-605a1eaa8d36-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Male": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/bb115c53-649e-4ac5-a599-b3f31c0290b3",
-          "animeThumbnailUrl": ""
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/bb115c53-649e-4ac5-a599-b3f31c0290b3"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/1cc39784-81be-484a-a854-f5269e6e26a1",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/e47a1367-3997-4ecd-b3d3-3cfd99eede39"
     },
     {
       "id": "eating",
@@ -1777,30 +1941,33 @@
       ],
       "prompt": "Eating",
       "promptPrefix": "Eating",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/296b06a5-b2e9-42ab-9c47-98f74c15d299",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/296b06a5-b2e9-42ab-9c47-98f74c15d299",
-      "videoUrl": "https://vid.ourdream.ai/f20c68a7-ac2a-4b7b-ad18-10a5b6cd98fc",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/f20c68a7-ac2a-4b7b-ad18-10a5b6cd98fc",
-          "animeVideoUrl": "https://vid.ourdream.ai/631df0c8-3d5c-46fd-bb81-e578a0515f6b"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/f20c68a7-ac2a-4b7b-ad18-10a5b6cd98fc"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/95e1c03d-c4a5-4cfb-b001-5c10b2739de3",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/296b06a5-b2e9-42ab-9c47-98f74c15d299",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/85c06268-e968-4497-856d-aa13079a4925"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/296b06a5-b2e9-42ab-9c47-98f74c15d299"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/b1635ae2-4e85-4cf8-b78c-024ed73205e1",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/f20c68a7-ac2a-4b7b-ad18-10a5b6cd98fc"
     },
     {
       "id": "bouncing-boobs",
@@ -1816,30 +1983,33 @@
       ],
       "prompt": "bouncing boobs, breast bounce",
       "promptPrefix": "bouncing boobs, breast bounce",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/41d8d3d8-577f-4b03-8cd7-d40dfd8d43e2",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/41d8d3d8-577f-4b03-8cd7-d40dfd8d43e2",
-      "videoUrl": "https://vid.ourdream.ai/70ddcb5f-be89-40cd-9b6f-8587b24cceb6-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/70ddcb5f-be89-40cd-9b6f-8587b24cceb6-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/7ded6c4f-1d2f-41b4-a664-3c32b82be79b-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/70ddcb5f-be89-40cd-9b6f-8587b24cceb6-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/61138410-a161-4e63-8579-53d049645a41-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/41d8d3d8-577f-4b03-8cd7-d40dfd8d43e2",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/1e042a91-1717-4262-b561-39b3cf7ad71f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/41d8d3d8-577f-4b03-8cd7-d40dfd8d43e2"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/6901cfda-e44a-4254-be5e-11f515b29bbe",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/70ddcb5f-be89-40cd-9b6f-8587b24cceb6-reversed"
     },
     {
       "id": "bouncy-walk",
@@ -1855,30 +2025,33 @@
       ],
       "prompt": "bouncy walk, walking seductively",
       "promptPrefix": "bouncy walk, walking seductively",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/4067e60f-e994-4020-bfaf-704446891d9c",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/4067e60f-e994-4020-bfaf-704446891d9c",
-      "videoUrl": "https://vid.ourdream.ai/24d017d9-0107-4a53-ba22-45e0f84b7152-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/24d017d9-0107-4a53-ba22-45e0f84b7152-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/5eb45418-0df1-4294-b732-27fa312f98a1-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/24d017d9-0107-4a53-ba22-45e0f84b7152-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/2df5571b-6b56-4e6f-8143-526a9ba773e8-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/4067e60f-e994-4020-bfaf-704446891d9c",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/1e25e052-8717-4bf3-b810-f3946a8ea703"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/4067e60f-e994-4020-bfaf-704446891d9c"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/216329fd-a998-44c2-922a-7529400229ea",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/24d017d9-0107-4a53-ba22-45e0f84b7152-reversed"
     },
     {
       "id": "fondled",
@@ -1894,30 +2067,33 @@
       ],
       "prompt": "fondled, groping, touching",
       "promptPrefix": "fondled, groping, touching",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/c3be8dfe-7d13-4c35-90ee-ded7e643cd5a",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/c3be8dfe-7d13-4c35-90ee-ded7e643cd5a",
-      "videoUrl": "https://vid.ourdream.ai/b6d87489-618c-409e-a43a-3d401149bb49-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/b6d87489-618c-409e-a43a-3d401149bb49-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/151455ac-cead-4fce-8e04-5ece94fd160d-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/b6d87489-618c-409e-a43a-3d401149bb49-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/b6d87489-618c-409e-a43a-3d401149bb49-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/c3be8dfe-7d13-4c35-90ee-ded7e643cd5a",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/6ea9a754-aff1-4ca8-8702-756fba2579a3"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/c3be8dfe-7d13-4c35-90ee-ded7e643cd5a"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/c3be8dfe-7d13-4c35-90ee-ded7e643cd5a",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/b6d87489-618c-409e-a43a-3d401149bb49-reversed"
     },
     {
       "id": "posing-nude",
@@ -1933,30 +2109,33 @@
       ],
       "prompt": "posing nude, nude posing",
       "promptPrefix": "posing nude, nude posing",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/c24d1eb7-d964-4b9e-bbf0-b5667dc38da8",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/c24d1eb7-d964-4b9e-bbf0-b5667dc38da8",
-      "videoUrl": "https://vid.ourdream.ai/b186eac3-917f-43af-a98b-3130eed18040-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/b186eac3-917f-43af-a98b-3130eed18040-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/9d8886f8-f22d-4824-a444-56515870fed6-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/b186eac3-917f-43af-a98b-3130eed18040-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/f4722a16-6480-478d-8c67-619be3cb1a41-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/c24d1eb7-d964-4b9e-bbf0-b5667dc38da8",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/d09a1fcb-99bd-4892-a9eb-3eb32a87b7d9"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/c24d1eb7-d964-4b9e-bbf0-b5667dc38da8"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/38e436fa-1df3-44c4-835b-eb0c913c3209",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/b186eac3-917f-43af-a98b-3130eed18040-reversed"
     },
     {
       "id": "assertive-cowgirl",
@@ -1972,30 +2151,33 @@
       ],
       "prompt": "assertive cowgirl, riding aggressively",
       "promptPrefix": "assertive cowgirl, riding aggressively",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/77b5e094-e2b2-4805-8fe7-667ab58478e6",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/77b5e094-e2b2-4805-8fe7-667ab58478e6",
-      "videoUrl": "https://vid.ourdream.ai/25e3085a-4a18-4adb-b05a-95c1a71d088a-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/25e3085a-4a18-4adb-b05a-95c1a71d088a-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/5d00c5a0-bc1b-4864-b519-a0e53e8c689f-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/25e3085a-4a18-4adb-b05a-95c1a71d088a-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/96316d31-685d-4bbc-9962-d03e33dd6693-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/77b5e094-e2b2-4805-8fe7-667ab58478e6",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/cef2f32b-d992-4b62-a831-aaee8f8384fb"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/77b5e094-e2b2-4805-8fe7-667ab58478e6"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/d0091656-4abf-48f4-9553-d45409418df8",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/25e3085a-4a18-4adb-b05a-95c1a71d088a-reversed"
     },
     {
       "id": "bouncy-forward-bends",
@@ -2011,22 +2193,25 @@
       ],
       "prompt": "forward bend, bending over, bouncing",
       "promptPrefix": "forward bend, bending over, bouncing",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/576ba93f-b490-48ba-9363-bbc625208613",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/576ba93f-b490-48ba-9363-bbc625208613",
-      "videoUrl": "https://vid.ourdream.ai/254d142a-f31f-4ea4-95eb-33e72f9ba71d-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/254d142a-f31f-4ea4-95eb-33e72f9ba71d-reversed",
-          "animeVideoUrl": ""
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/254d142a-f31f-4ea4-95eb-33e72f9ba71d-reversed"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/576ba93f-b490-48ba-9363-bbc625208613",
-          "animeThumbnailUrl": ""
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/576ba93f-b490-48ba-9363-bbc625208613"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/254d142a-f31f-4ea4-95eb-33e72f9ba71d-reversed"
     },
     {
       "id": "spanking",
@@ -2042,30 +2227,33 @@
       ],
       "prompt": "spanking, being spanked",
       "promptPrefix": "spanking, being spanked",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/51847561-13de-4dbc-9c00-185c13cb8339",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/51847561-13de-4dbc-9c00-185c13cb8339",
-      "videoUrl": "https://vid.ourdream.ai/89552b88-021a-456b-a933-68496b302fd0-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/89552b88-021a-456b-a933-68496b302fd0-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/ac0a3801-4f0e-42d6-b953-7cb427a7e62a-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/89552b88-021a-456b-a933-68496b302fd0-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/89552b88-021a-456b-a933-68496b302fd0-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/51847561-13de-4dbc-9c00-185c13cb8339",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/dd96f64f-46ca-452f-9e68-15621896dfce"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/51847561-13de-4dbc-9c00-185c13cb8339"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/51847561-13de-4dbc-9c00-185c13cb8339",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/89552b88-021a-456b-a933-68496b302fd0-reversed"
     },
     {
       "id": "glass-kiss",
@@ -2081,30 +2269,33 @@
       ],
       "prompt": "kissing glass, lips pressed against glass",
       "promptPrefix": "kissing glass, lips pressed against glass",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/0e240d4c-e9c1-492f-b92a-132bc10ec402",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/0e240d4c-e9c1-492f-b92a-132bc10ec402",
-      "videoUrl": "https://vid.ourdream.ai/ae57dd4c-cbc5-4d5d-9b29-2158e90a2c5e",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/ae57dd4c-cbc5-4d5d-9b29-2158e90a2c5e",
-          "animeVideoUrl": "https://vid.ourdream.ai/387d5526-8f18-4fac-bd29-a434b681dd20-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/ae57dd4c-cbc5-4d5d-9b29-2158e90a2c5e"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/ae57dd4c-cbc5-4d5d-9b29-2158e90a2c5e",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/0e240d4c-e9c1-492f-b92a-132bc10ec402",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/56371355-936d-4e3e-a8a7-705ee9c0ed8d"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/0e240d4c-e9c1-492f-b92a-132bc10ec402"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/0e240d4c-e9c1-492f-b92a-132bc10ec402",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/ae57dd4c-cbc5-4d5d-9b29-2158e90a2c5e"
     },
     {
       "id": "massage-tits",
@@ -2120,30 +2311,33 @@
       ],
       "prompt": "massaging breasts, breast massage",
       "promptPrefix": "massaging breasts, breast massage",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/e057a53c-7322-4380-b2c9-59e31461554f",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/e057a53c-7322-4380-b2c9-59e31461554f",
-      "videoUrl": "https://vid.ourdream.ai/6ee5ef14-ffde-48ad-b963-f99b84a356f5-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/6ee5ef14-ffde-48ad-b963-f99b84a356f5-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/359db9a1-4f8d-4597-a43a-44c6e536bf76-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/6ee5ef14-ffde-48ad-b963-f99b84a356f5-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/6ee5ef14-ffde-48ad-b963-f99b84a356f5-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/e057a53c-7322-4380-b2c9-59e31461554f",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/ccf720cc-efbe-4135-8241-093d760caf9b"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/e057a53c-7322-4380-b2c9-59e31461554f"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/e057a53c-7322-4380-b2c9-59e31461554f",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/6ee5ef14-ffde-48ad-b963-f99b84a356f5-reversed"
     },
     {
       "id": "seductive-turns",
@@ -2159,30 +2353,33 @@
       ],
       "prompt": "seductive turn, turning seductively",
       "promptPrefix": "seductive turn, turning seductively",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/36788de4-57fd-4340-a48c-ac73a98abecb",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/36788de4-57fd-4340-a48c-ac73a98abecb",
-      "videoUrl": "https://vid.ourdream.ai/c03c2760-6dec-4d57-94c6-41c28bd299d5-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/c03c2760-6dec-4d57-94c6-41c28bd299d5-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/c5e008b3-74e3-4182-9c70-8f1820e447ad-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/c03c2760-6dec-4d57-94c6-41c28bd299d5-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/4f6a13af-ce96-4104-bc1c-45f6b90345cb-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/36788de4-57fd-4340-a48c-ac73a98abecb",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/c2f01f2f-4c41-493a-8ca8-ef371a9c179f"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/36788de4-57fd-4340-a48c-ac73a98abecb"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/fb986399-e5bf-47c2-bf38-d52a32aa12ca",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/c03c2760-6dec-4d57-94c6-41c28bd299d5-reversed"
     },
     {
       "id": "cheek-fuck",
@@ -2198,30 +2395,33 @@
       ],
       "prompt": "cheek fuck, penis against cheek",
       "promptPrefix": "cheek fuck, penis against cheek",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/40867860-4527-4b71-8c5c-f23be13668fb",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/40867860-4527-4b71-8c5c-f23be13668fb",
-      "videoUrl": "https://vid.ourdream.ai/e2d0588d-479b-4ad8-b159-d08afe8d57c6-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/e2d0588d-479b-4ad8-b159-d08afe8d57c6-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/901913cf-c244-4b07-8c32-62e64cddc9fa-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/e2d0588d-479b-4ad8-b159-d08afe8d57c6-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/e2d0588d-479b-4ad8-b159-d08afe8d57c6-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/40867860-4527-4b71-8c5c-f23be13668fb",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/2845f68a-7b44-418f-b771-74f3e57d168c"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/40867860-4527-4b71-8c5c-f23be13668fb"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/40867860-4527-4b71-8c5c-f23be13668fb",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/e2d0588d-479b-4ad8-b159-d08afe8d57c6-reversed"
     },
     {
       "id": "assume-position",
@@ -2236,30 +2436,33 @@
       ],
       "prompt": "assuming position, getting into position",
       "promptPrefix": "assuming position, getting into position",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/645f0f3a-1f49-4bb7-9a4d-3c7b9b7ee25a",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/645f0f3a-1f49-4bb7-9a4d-3c7b9b7ee25a",
-      "videoUrl": "https://vid.ourdream.ai/88ede429-7ea1-4f22-8a40-f676b46eb1d9-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/88ede429-7ea1-4f22-8a40-f676b46eb1d9-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/58302c49-24e4-4e30-b595-babaa64aa0b8-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/88ede429-7ea1-4f22-8a40-f676b46eb1d9-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/8260c24f-bcca-4feb-bbac-376d57d3d5fa-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/645f0f3a-1f49-4bb7-9a4d-3c7b9b7ee25a",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/26be3ee4-a9f7-4e07-a906-c0ceec8ed3d5"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/645f0f3a-1f49-4bb7-9a4d-3c7b9b7ee25a"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/d5f299b0-3d5b-4985-a032-1e142835a225",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/88ede429-7ea1-4f22-8a40-f676b46eb1d9-reversed"
     },
     {
       "id": "slapping-breasts",
@@ -2275,30 +2478,33 @@
       ],
       "prompt": "slapping breasts, breast slap",
       "promptPrefix": "slapping breasts, breast slap",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/50aee9d7-e454-4644-be24-ec244bf7e17a",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/50aee9d7-e454-4644-be24-ec244bf7e17a",
-      "videoUrl": "https://vid.ourdream.ai/5e9bc004-6aae-4381-8c8b-107833f44bd8-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/5e9bc004-6aae-4381-8c8b-107833f44bd8-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/598f6157-861a-4746-8fb6-8fc3f9b75763-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/5e9bc004-6aae-4381-8c8b-107833f44bd8-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/5e9bc004-6aae-4381-8c8b-107833f44bd8-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/50aee9d7-e454-4644-be24-ec244bf7e17a",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/17e143df-865b-4e1b-8a26-131a05b0403b"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/50aee9d7-e454-4644-be24-ec244bf7e17a"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/50aee9d7-e454-4644-be24-ec244bf7e17a",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/5e9bc004-6aae-4381-8c8b-107833f44bd8-reversed"
     },
     {
       "id": "small-penis-humiliation",
@@ -2314,30 +2520,33 @@
       ],
       "prompt": "A woman makes a SPH gesture",
       "promptPrefix": "A woman makes a SPH gesture",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/900ea40a-4429-4c5e-95f2-bae83d8c989d",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/900ea40a-4429-4c5e-95f2-bae83d8c989d",
-      "videoUrl": "https://vid.ourdream.ai/616b320d-12df-43ee-a16a-c2a833066c14-reversed",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/616b320d-12df-43ee-a16a-c2a833066c14-reversed",
-          "animeVideoUrl": "https://vid.ourdream.ai/53e56fc0-4ca3-4583-a106-4fb99eb89f0c-reversed"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/616b320d-12df-43ee-a16a-c2a833066c14-reversed"
         },
         "Trans": {
-          "videoUrl": "https://vid.ourdream.ai/616b320d-12df-43ee-a16a-c2a833066c14-reversed",
+          "videoUrl": "",
           "animeVideoUrl": ""
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/900ea40a-4429-4c5e-95f2-bae83d8c989d",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/0f634bf9-8f34-4664-8508-1449cb51167e"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/900ea40a-4429-4c5e-95f2-bae83d8c989d"
         },
         "Trans": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/900ea40a-4429-4c5e-95f2-bae83d8c989d",
+          "thumbnailUrl": "",
           "animeThumbnailUrl": ""
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/616b320d-12df-43ee-a16a-c2a833066c14-reversed"
     },
     {
       "id": "mating-press",
@@ -2353,22 +2562,25 @@
       ],
       "prompt": "Mating Press",
       "promptPrefix": "Mating Press",
-      "imageUrl": "https://media.ourdream.ai/presets/video-action/12d101ce-a01f-43e2-8e3f-152b236f9e5d",
-      "referenceImageUrl": "https://media.ourdream.ai/presets/video-action/12d101ce-a01f-43e2-8e3f-152b236f9e5d",
-      "videoUrl": "https://vid.ourdream.ai/107c5302-5b80-46a5-ac09-2f377db380a2",
+      "imageUrl": "",
+      "referenceImageUrl": "",
+      "videoUrl": "",
       "videos": {
         "Female": {
-          "videoUrl": "https://vid.ourdream.ai/107c5302-5b80-46a5-ac09-2f377db380a2",
-          "animeVideoUrl": "https://vid.ourdream.ai/2f4b508a-b4ad-440e-943e-b8ca995fce18"
+          "videoUrl": "",
+          "animeVideoUrl": "",
+          "sourceUrl": "https://vid.ourdream.ai/107c5302-5b80-46a5-ac09-2f377db380a2"
         }
       },
       "thumbnails": {
         "Female": {
-          "thumbnailUrl": "https://media.ourdream.ai/presets/video-action/12d101ce-a01f-43e2-8e3f-152b236f9e5d",
-          "animeThumbnailUrl": "https://media.ourdream.ai/presets/video-action/d692eb3f-207c-4531-9091-5f93c71e5ef0"
+          "thumbnailUrl": "",
+          "animeThumbnailUrl": "",
+          "sourceUrl": "https://media.ourdream.ai/presets/video-action/12d101ce-a01f-43e2-8e3f-152b236f9e5d"
         }
       },
-      "sourceType": "ourdream-video-action"
+      "sourceType": "ourdream-video-action",
+      "sourceUrl": "https://vid.ourdream.ai/107c5302-5b80-46a5-ac09-2f377db380a2"
     }
   ]
 }
