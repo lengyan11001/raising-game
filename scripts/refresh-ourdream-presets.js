@@ -80,6 +80,30 @@ function authFor(key, bytes, mime) {
   return { url: `${endpoint.protocol}//${endpoint.host}${canonicalUri}`, headers: { ...headers, authorization: `AWS4-HMAC-SHA256 Credential=${R2.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}` } };
 }
 
+async function uploadBytes(bytes, mime, kind, id, extension = ".bin") {
+  const digest = sha256(bytes).slice(0, 20);
+  const safeKind = String(kind || "asset").replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
+  const safeId = String(id || "item").replace(/[^a-z0-9_-]+/gi, "-").toLowerCase().slice(0, 80);
+  const key = `assets/ourdream/mirrored/${safeKind}/${safeId}-${digest}${extension}`;
+  const auth = authFor(key, bytes, mime);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  const response = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes, signal: controller.signal });
+  clearTimeout(timer);
+  if (!response.ok) throw new Error(`R2 upload failed ${response.status}`);
+  return `${String(R2.publicDomain).replace(/\/+$/, "")}/${key}`;
+}
+
+async function mirrorLocalUrl(localUrl, kind, id) {
+  const relative = String(localUrl || "").split("?")[0].replace(/^\/+/, "");
+  const root = path.normalize(path.join(ROOT, relative));
+  if (!root.startsWith(path.normalize(path.join(ROOT, "assets")))) throw new Error(`Invalid local asset path: ${localUrl}`);
+  const bytes = await fs.readFile(root);
+  const ext = path.extname(root).toLowerCase() || ".bin";
+  const mime = ({ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm" })[ext] || "application/octet-stream";
+  return uploadBytes(bytes, mime, kind, id, ext);
+}
+
 async function mirrorUrl(sourceUrl, kind, id) {
   const source = String(sourceUrl || "").trim();
   if (!/^https?:\/\//i.test(source)) return source;
@@ -158,8 +182,19 @@ async function main() {
   }
   const library = await fetchOurDreamPresetLibrary({ characterLimit: 100 });
   const jobs = collectMedia(library);
+  // Reuse the already imported local catalog for stable preset images. Only newly
+  // discovered URLs (especially action videos) need a network download.
+  const existing = JSON.parse(await fs.readFile(OUTPUT, "utf8").catch(() => "{\"sets\":[]}"));
+  const existingBySource = new Map();
+  for (const set of existing.sets || []) for (const item of set.items || []) {
+    for (const key of [item.remoteImageUrl, item.sourceUrl]) if (key && /^https?:\/\//i.test(key) && item.imageUrl?.startsWith("/assets/")) existingBySource.set(key, item.imageUrl);
+  }
+  for (const job of jobs) {
+    const local = existingBySource.get(job.url);
+    if (local && !job.url.includes("vid.ourdream.ai")) job.localUrl = local;
+  }
   const unique = [...new Map(jobs.map((job) => [job.url, job])).values()];
-  const mirrored = mirror ? await mapConcurrent(unique, async (job) => ({ ...job, localUrl: await mirrorUrl(job.url, job.kind, job.id) })) : unique.map((job) => ({ ...job, localUrl: job.url }));
+  const mirrored = mirror ? await mapConcurrent(unique, async (job) => ({ ...job, localUrl: job.localUrl ? await mirrorLocalUrl(job.localUrl, job.kind, job.id) : await mirrorUrl(job.url, job.kind, job.id) })) : unique.map((job) => ({ ...job, localUrl: job.localUrl || job.url }));
   const bySource = new Map(mirrored.map((job) => [job.url, job.localUrl]));
   for (const job of jobs) {
     job.item.sourceUrl = job.item.sourceUrl || job.url;
