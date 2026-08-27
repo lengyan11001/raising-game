@@ -13363,6 +13363,7 @@ async function handleSendChatMessage(req, res, conversationId) {
   let conversation = await getChatConversationInDb(conversationId, auth.user.id);
   if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
   const body = await readJson(req);
+  const responseLanguage = chatResponseLanguage(body.language);
   const action = String(body.action || "send");
   if (!["send", "continue", "regenerate", "edit"].includes(action)) return sendJson(res, 400, { ok: false, message: "Invalid chat action." });
   const targetMessageId = String(body.targetMessageId || "");
