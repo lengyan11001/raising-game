@@ -10,22 +10,28 @@ const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 
-test("all Video template surfaces default to guided Wan2.7 Reference to Video", () => {
+test("all Video template surfaces default to guided Wan3.0 multimodal video", () => {
   assert.match(server, /const TOOL_VIDEO_DEFAULT_PROVIDER = "wan30";/);
   assert.match(server, /if \(normalizedProvider === "wan30"\) return "wan30-video";/);
   assert.match(server, /isToolVideoTemplateRequest \? toolVideoDefaultCapability\(toolVideoProvider\) : ""/);
   assert.match(explore, /tenantStringFeature\("videoProvider", "wan30"\)/);
+  assert.match(explore, /return \["wan30", "wan27", "happyhorse", "seedance"\]\.includes\(provider\) \? provider : "wan30"/);
+  assert.match(explore, /const generateBody = provider === "wan30"/);
+  assert.match(explore, /videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY/);
+  assert.match(explore, /mediaMode: "multimodal"/);
   assert.doesNotMatch(explore, /isTenantTool\("video"\)\s*\?\s*tenantStringFeature\("videoProvider"/);
 });
 
-test("Video tool submits the uploaded image and reference video to Wan2.7", () => {
+test("Video tool submits the uploaded image and reference video to Wan3.0", () => {
   const body = explore.slice(
-    explore.indexOf("const generateBody = provider === \"wan27\""),
-    explore.indexOf(": provider === \"happyhorse\"", explore.indexOf("const generateBody = provider === \"wan27\"")),
+    explore.indexOf("const generateBody = provider === \"wan30\""),
+    explore.indexOf(": provider === \"wan27\"", explore.indexOf("const generateBody = provider === \"wan30\"")),
   );
   assert.match(body, /videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY/);
+  assert.match(body, /mediaMode: "multimodal"/);
   assert.match(body, /referenceImages: reference \? \[reference\] : \[\]/);
   assert.match(body, /referenceVideoUrls:/);
+  assert.match(body, /generateAudio: true/);
   assert.doesNotMatch(body, /firstFrameDataUrl|parameters: \{ mode:/);
 });
 
@@ -63,6 +69,6 @@ test("game feed does not contain Video tool estimate state", () => {
 
 test("Video template provider is shared across old, new2, and tool tenant", () => {
   assert.match(explore, /function playfluxTemplateVideoProvider\(\)/);
-  assert.match(explore, /return \["wan27", "happyhorse", "seedance"\]\.includes\(provider\) \? provider : "wan27"/);
+  assert.match(explore, /return \["wan30", "wan27", "happyhorse", "seedance"\]\.includes\(provider\) \? provider : "wan30"/);
   assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
 });

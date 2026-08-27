@@ -739,7 +739,7 @@ function playfluxTemplateNeedsSource(template = {}) {
 
 function playfluxTemplateVideoProvider() {
   const provider = tenantStringFeature("videoProvider", "wan30");
-  return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
+  return ["wan30", "wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan30";
 }
 
 const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan30-video";
@@ -1096,7 +1096,23 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
       const referenceVideoSeconds = playfluxTemplateVideoInputSeconds(effectiveTemplate, sourceMode, duration);
       const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider);
-      const generateBody = provider === "wan27"
+      const generateBody = provider === "wan30"
+        ? {
+            provider,
+            templateId: effectiveTemplate.id || "",
+            videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY,
+            mediaMode: "multimodal",
+            referenceImages: reference ? [reference] : [],
+            referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
+            ratio,
+            resolution,
+            duration,
+            inputVideoSeconds: referenceVideoSeconds,
+            referenceVideoDurationSeconds: referenceVideoSeconds,
+            generateAudio: true,
+            params: { ...recordBase.params },
+          }
+        : provider === "wan27"
         ? {
             provider,
             templateId: effectiveTemplate.id || "",
