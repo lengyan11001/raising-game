@@ -388,7 +388,7 @@ async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
   try {
     const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
       method: "POST",
-      body: { content, action: effectiveAction, targetMessageId: targetMessageId || editMessageId, language: state.lang },
+      body: { content, action: effectiveAction, targetMessageId: targetMessageId || editMessageId, language: els.languageSelect?.value || state.lang },
     });
     if (els.chatInput) {
       els.chatInput.value = "";

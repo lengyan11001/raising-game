@@ -13197,7 +13197,7 @@ function chatSystemPrompt(conversation = {}, language = "") {
     `Character background: ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
     styleGuide,
-    `Reply in ${chatResponseLanguage(language)}. Keep all dialogue, narration, and action beats in that language unless the user explicitly asks for another language.`,
+    `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every dialogue line, narration sentence, and action beat in that language. Do not use English unless that is the requested language.`,
     "Stay in character. Advance the scene naturally. Use first-person dialogue and italicized action beats when useful.",
     "Never claim to be an AI, never write the user's actions or decisions for them, and do not repeat the same passage.",
     conversation.memory ? `Pinned memory: ${conversation.memory}` : "",
