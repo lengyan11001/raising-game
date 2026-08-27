@@ -98,3 +98,7 @@ test("public character pages do not emit missing local media URLs", () => {
   assert.equal(publicGeoMediaUrl("https://cdn.example.com/image.jpg"), "https://cdn.example.com/image.jpg");
   assert.match(serverSource, /posterUrl: publicGeoMediaUrl\(posterUrl, fallbackPosterUrl\)/);
 });
+
+test("homepage social previews use the fixed brand image", () => {
+  assert.match(serverSource, /\/assets\/brand\/vipeak-google-logo\.png\?v=share-20260827-1/);
+});
