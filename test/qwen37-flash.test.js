@@ -11,8 +11,8 @@ const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 
-test("Qwen3.7 Flash is available as a text-only Advanced model", () => {
-  assert.match(html, /<option value="qwen37-flash">Qwen3\.7 Flash<\/option>/);
+test("Qwen3.7 Flash remains supported but is hidden from the Custom model list", () => {
+  assert.doesNotMatch(html, /<option value="qwen37-flash">Qwen3\.7 Flash<\/option>/);
   assert.match(html, /id="advancedQwen37Thinking"[\s\S]*?<option value="false" selected>Off<\/option>/);
   assert.match(html, /id="advancedQwen37MaxTokens"/);
   assert.match(html, /id="advancedQwen37Temperature"/);
