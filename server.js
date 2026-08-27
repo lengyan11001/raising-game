@@ -13174,14 +13174,15 @@ function chatImagePrompt(conversation = {}, messages = [], userPrompt = "", mode
 }
 
 function chatResponseLanguage(value = "") {
-  const code = String(value || "").trim().toLowerCase().slice(0, 16);
+  const code = String(value || "").trim().toLowerCase();
   if (code === "simplified chinese") return "Simplified Chinese";
   if (code === "traditional chinese") return "Traditional Chinese";
+  const normalized = code.slice(0, 16);
   return ({
     en: "English", zh: "Simplified Chinese", "zh-cn": "Simplified Chinese", "zh-tw": "Traditional Chinese",
     ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
     ru: "Russian", it: "Italian", tr: "Turkish", vi: "Vietnamese", th: "Thai",
-  })[code] || "English";
+  })[normalized] || "English";
 }
 
 function chatSystemPrompt(conversation = {}, language = "") {
