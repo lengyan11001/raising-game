@@ -26042,7 +26042,7 @@ async function handleAdvancedGenerate(req, res) {
     (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
     || (provider === "wan27" && requestParams.videoCapability === "wan27-video-edit")
   );
-  if (isPlayfluxVideoReferenceRequest) {
+  if (isPlayfluxVideoReferenceRequest && provider !== "wan27") {
     prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
       hasReferenceImage: provider === "wan27"
         ? wan27Media.some((item) => ["first_frame", "reference_image"].includes(item.type))

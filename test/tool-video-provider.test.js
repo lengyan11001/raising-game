@@ -36,12 +36,11 @@ test("Video tool submits the uploaded image and reference video to Wan2.7 video 
   assert.doesNotMatch(body, /firstFrameDataUrl|parameters: \{ mode:/);
 });
 
-test("Video tool applies the image-identity-first prompt guide to Wan2.7", () => {
+test("Video tool uses the documented single-person action prompt for Wan2.7", () => {
   assert.match(server, /provider === "wan27" && requestParams\.videoCapability === "wan27-video-edit"/);
   assert.match(server, /requestParams\.videoCapability === "wan27-video-edit"\s*&&\s*requestParams\.followInputDuration/);
-  assert.match(server, /Image 1 is the user's selected character\/source image/);
-  assert.match(server, /Use Video 1 only for motion, action, camera, and composition/);
-  assert.match(server, /Keep every major action beat at the same relative timestamp/);
+  assert.match(explore, /return "让图片中的人物模仿视频中的人的动作。";/);
+  assert.match(server, /if \(isPlayfluxVideoReferenceRequest && provider !== "wan27"\)/);
 });
 
 test("Video tool matches Wan2.7 output duration and billing to the reference video", () => {
