@@ -122,7 +122,7 @@ function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
 function advancedAssetTargetItems() {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return [];
   const provider = currentAdvancedProvider();
-  if (provider === "qwen37-flash") return [];
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) return [];
   const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
@@ -1438,7 +1438,7 @@ function updateAdvancedModelControls() {
   const isImageEdit = provider === "wan27-image-edit";
   const isSeedreamImage = provider === "seedream5-image";
   const isQwenImage = provider === "qwen-image3";
-  const isQwenText = provider === "qwen37-flash";
+  const isQwenText = ["qwen37-flash", "byteplus-language"].includes(provider);
   const isStandaloneImage = isSeedreamImage || isQwenImage;
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
@@ -1937,7 +1937,7 @@ async function submitAdvancedGenerate() {
   const seedanceTier = currentSeedanceTier();
   const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
-  if (provider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     const enableThinking = els.advancedQwen37Thinking?.value === "true";
     const maxTokens = Math.max(1, Math.min(8192, Number(els.advancedQwen37MaxTokens?.value || 1024) || 1024));
     const temperature = Math.max(0, Math.min(2, Number(els.advancedQwen37Temperature?.value || 0.7)));
@@ -1945,9 +1945,9 @@ async function submitAdvancedGenerate() {
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
       status: "submitting",
-      model: "qwen3.7-flash",
+      model: provider === "byteplus-language" ? "ep-20260827122554-8fsgw" : "qwen3.7-flash",
       provider,
-      source: "advanced-qwen37-flash",
+      source: provider === "byteplus-language" ? "advanced-byteplus-language" : "advanced-qwen37-flash",
       kind: "advanced-text",
       prompt,
       params: { enable_thinking: enableThinking, max_tokens: maxTokens, temperature },
@@ -1963,7 +1963,7 @@ async function submitAdvancedGenerate() {
         method: "POST",
         body: {
           provider,
-          model: "qwen3.7-flash",
+          model: provider === "byteplus-language" ? "ep-20260827122554-8fsgw" : "qwen3.7-flash",
           prompt,
           enable_thinking: enableThinking,
           max_tokens: maxTokens,
@@ -3035,7 +3035,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     if (els.advancedQwenPromptExtend) els.advancedQwenPromptExtend.value = advancedBoolFromValue(params.prompt_extend ?? params.promptExtend, true) ? "true" : "false";
     if (els.advancedQwenWatermark) els.advancedQwenWatermark.value = advancedBoolFromValue(params.watermark, false) ? "true" : "false";
   }
-  if (provider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     if (els.advancedQwen37Thinking) els.advancedQwen37Thinking.value = advancedBoolFromValue(params.enable_thinking ?? params.enableThinking, false) ? "true" : "false";
     if (els.advancedQwen37MaxTokens) els.advancedQwen37MaxTokens.value = String(Math.max(1, Math.min(8192, Number(params.max_tokens || params.maxTokens || 1024))));
     if (els.advancedQwen37Temperature) els.advancedQwen37Temperature.value = String(Math.max(0, Math.min(2, Number(params.temperature ?? 0.7))));
@@ -3049,7 +3049,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     ? references.slice(1)
     : provider === "qwen-image3"
     ? references.slice(0, ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT)
-    : provider === "qwen37-flash"
+    : ["qwen37-flash", "byteplus-language"].includes(provider)
     ? []
     : references;
   state.advancedUploadDataUrl = restoredSeedanceFirstFrame ? "" : (references[0]?.dataUrl || "");

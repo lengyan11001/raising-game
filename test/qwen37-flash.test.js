@@ -16,7 +16,7 @@ test("Qwen3.7 Flash is available as a text-only Advanced model", () => {
   assert.match(html, /id="advancedQwen37Thinking"[\s\S]*?<option value="false" selected>Off<\/option>/);
   assert.match(html, /id="advancedQwen37MaxTokens"/);
   assert.match(html, /id="advancedQwen37Temperature"/);
-  assert.match(create, /if \(provider === "qwen37-flash"\) return \[\];/);
+  assert.match(create, /\["qwen37-flash", "byteplus-language"\]\.includes\(provider\).*?return \[\];/);
   assert.match(create, /\|\| isQwenText\s*\|\| usesDedicatedFrameUpload/);
 });
 
@@ -25,7 +25,7 @@ test("Qwen3.7 Flash uses the Singapore OpenAI-compatible endpoint", () => {
   assert.match(server, /\/compatible-mode\/v1\/chat\/completions/);
   assert.match(server, /authorization: `Bearer \$\{ALIYUN_QWEN37_API_KEY\}`/);
   assert.match(server, /"X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER/);
-  assert.match(server, /model: QWEN37_FLASH_MODEL,[\s\S]*messages: \[\{ role: "user", content: prompt \}\]/);
+  assert.match(server, /model,[\s\S]*?\[\{ role: "user", content: prompt \}\]/);
   assert.match(server, /enable_thinking: enableThinking === true/);
   assert.match(server, /max_tokens: maxTokens/);
 });
@@ -39,7 +39,7 @@ test("Qwen3.7 Flash bills from actual token usage and exposes text results", () 
   assert.match(server, /textResult,[\s\S]*responseText: textResult/);
   assert.match(create, /class="advanced-result-text"/);
   assert.match(create, /function renderAdvancedResultPanel\(\)[\s\S]*?querySelectorAll\("\[data-advanced-result-copy\]"\)/);
-  assert.match(ui, /normalizedProvider === "qwen37-flash"/);
+  assert.match(ui, /\["qwen37-flash", "byteplus-language"\]\.includes\(normalizedProvider\)/);
 });
 
 test("Qwen3.7 Flash estimate uses the estimate request parameters", () => {
