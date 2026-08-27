@@ -25537,11 +25537,13 @@ async function handleAdvancedGenerate(req, res) {
     "",
   ) || "").trim().toLowerCase() === "video";
   const isVideoTemplateRequest = isToolVideoTemplateRequest || isPlayfluxVideoTemplateRequest;
+  const forcePlayfluxWan27VideoEdit = isPlayfluxVideoTemplateRequest;
   const toolVideoProvider = ["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
     ? requestTenant.videoProvider
     : "wan27";
   const providerHint = firstPresent(
     isToolVideoTemplateRequest ? toolVideoProvider : "",
+    forcePlayfluxWan27VideoEdit ? "wan27" : "",
     body.provider,
     bodyParams.provider,
     selectedCase?.provider,
@@ -25690,6 +25692,7 @@ async function handleAdvancedGenerate(req, res) {
   const forwardModelToGateway = provider !== "seedance" && requestedModel !== undefined;
   const requestedVideoCapability = firstPresent(
     isToolVideoTemplateRequest ? toolVideoDefaultCapability(toolVideoProvider) : "",
+    forcePlayfluxWan27VideoEdit ? "wan27-video-edit" : "",
     body.videoCapability,
     body.aliyunVideoCapability,
     body.wanCapability,

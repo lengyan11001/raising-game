@@ -17,6 +17,9 @@ test("all Video template surfaces default to Wan2.7 video edit", () => {
   assert.match(explore, /tenantStringFeature\("videoProvider", "wan27"\)/);
   assert.match(explore, /return \["wan30", "wan27", "happyhorse", "seedance"\]\.includes\(provider\) \? provider : "wan27"/);
   assert.match(explore, /const PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY = "wan27-video-edit"/);
+  assert.match(server, /const forcePlayfluxWan27VideoEdit = isPlayfluxVideoTemplateRequest;/);
+  assert.match(server, /forcePlayfluxWan27VideoEdit \? "wan27"/);
+  assert.match(server, /forcePlayfluxWan27VideoEdit \? "wan27-video-edit"/);
   assert.doesNotMatch(explore, /isTenantTool\("video"\)\s*\?\s*tenantStringFeature\("videoProvider"/);
 });
 
