@@ -62,4 +62,5 @@ test("character chat supports generated media, state tracking and conversation b
   assert.match(server, /kind: "image"/);
   assert.match(db, /updateChatMessageInDb/);
   assert.match(db, /deleteChatMessageInDb/);
+  assert.match(server, /"platform\.chat\.js"/);
 });

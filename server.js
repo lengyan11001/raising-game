@@ -210,6 +210,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.telegram.js",
   "platform.workflow-canvases.js",
   "platform.explore.js",
+  "platform.chat.js",
   "platform.create.js",
   "platform.video-tools.js",
   "platform.undress-tool.js",
