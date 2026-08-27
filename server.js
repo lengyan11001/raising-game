@@ -39521,6 +39521,7 @@ async function serveStatic(req, res, url) {
   const shouldRedirectAssetToR2 =
     (req.method === "GET" || req.method === "HEAD") &&
     pathname.startsWith("/assets/") &&
+    !pathname.startsWith("/assets/brand/") &&
     !pathname.startsWith("/assets/generated/") &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain;
