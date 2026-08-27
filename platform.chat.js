@@ -97,7 +97,8 @@ function renderChatPanel() {
   if (els.chatThread && hasConversation) {
     els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
     els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
-    els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") || `<div class="chat-list-empty">No messages yet</div>`;
+    const pendingMarkup = state.chatSending ? `<article class="chat-message is-assistant chat-message-pending" aria-live="polite"><div class="chat-message-content"><i data-lucide="loader-circle"></i><span>Thinking...</span></div></article>` : "";
+    els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMarkup || `<div class="chat-list-empty">No messages yet</div>`;
     els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
       const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
       article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.content || ""));
@@ -181,8 +182,19 @@ async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
   const content = String(els.chatInput?.value || "").trim();
   const effectiveAction = editMessageId && action === "send" ? "edit" : action;
   if (!["continue", "regenerate"].includes(effectiveAction) && !content) return;
+  const previousMessages = state.chatMessages.slice();
+  if (effectiveAction === "send") {
+    state.chatMessages = [...state.chatMessages, { id: `pending-${Date.now()}`, role: "user", content }];
+    if (els.chatInput) els.chatInput.value = "";
+  }
   state.chatSending = true;
-  if (els.chatSendBtn) els.chatSendBtn.disabled = true;
+  renderChatPanel();
+  if (els.chatSendBtn) {
+    els.chatSendBtn.disabled = true;
+    els.chatSendBtn.innerHTML = `<i data-lucide="loader-circle"></i><span>Thinking...</span>`;
+  }
+  if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
+  refreshIcons();
   try {
     const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
       method: "POST",
@@ -197,11 +209,17 @@ async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
     renderAccountMenu();
     renderTopupSummary();
   } catch (error) {
+    state.chatMessages = previousMessages;
     if (els.chatInput && !els.chatInput.value && content) els.chatInput.value = content;
     window.alert(error.message || "Chat failed.");
   } finally {
     state.chatSending = false;
-    if (els.chatSendBtn) els.chatSendBtn.disabled = false;
+    if (els.chatSendBtn) {
+      els.chatSendBtn.disabled = false;
+      els.chatSendBtn.innerHTML = `<i data-lucide="send"></i><span>Send</span>`;
+    }
+    if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
+    renderChatPanel();
   }
 }
 

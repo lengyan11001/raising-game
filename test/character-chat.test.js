@@ -40,4 +40,7 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /data-chat-regenerate/);
   assert.match(chat, /data-chat-edit/);
   assert.match(chat, /Pinned memory/);
+  assert.match(chat, /Thinking\.\.\./);
+  assert.match(chat, /pending-\$\{Date\.now\(\)\}/);
+  assert.match(chat, /chatContinueBtn\.disabled = true/);
 });
