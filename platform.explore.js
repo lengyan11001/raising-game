@@ -876,7 +876,7 @@ function playfluxSeedanceModeNeedsReferenceVideo(mode = "") {
 
 function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
   if (template.tab !== "video" || !usesReferenceVideo || !hasSourceImage) return "";
-  return "让图片中的人物模仿视频中的人的动作。";
+  return "将视频中的人物替换成图片中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 }
 
 function playfluxTemplateFromDialog(template = {}, root = null) {
