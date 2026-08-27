@@ -4175,7 +4175,7 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
   const tenant = tenantOptions?.tenant || tenantOptions || {};
   const displayBrand = tenant.brand || brand;
   const description = tenant.description || homeDescriptionForGeo(platform);
-  const image = absoluteUrlFromBase("/assets/brand/vipeak-google-logo.png?v=share-20260827-1", origin);
+  const image = absoluteUrlFromBase("/assets/brand/vipeak-google-logo.png?v=share-20260827-2", origin);
   const title = tenant.title || `${displayBrand} | AI Character Video Generator`;
   const sameAs = [VIPEAK_X_URL, VIPEAK_TELEGRAM_CHANNEL_URL];
   const jsonLd = [
