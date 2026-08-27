@@ -13173,7 +13173,16 @@ function chatImagePrompt(conversation = {}, messages = [], userPrompt = "", mode
   ].filter(Boolean).join("\n");
 }
 
-function chatSystemPrompt(conversation = {}) {
+function chatResponseLanguage(value = "") {
+  const code = String(value || "").trim().toLowerCase().slice(0, 16);
+  return ({
+    en: "English", zh: "Simplified Chinese", "zh-cn": "Simplified Chinese", "zh-tw": "Traditional Chinese",
+    ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
+    ru: "Russian", it: "Italian", tr: "Turkish", vi: "Vietnamese", th: "Thai",
+  })[code] || "English";
+}
+
+function chatSystemPrompt(conversation = {}, language = "") {
   const character = conversation.character || {};
   const styleGuide = {
     balanced: "Keep replies conversational, vivid, and concise.",
@@ -13186,6 +13195,7 @@ function chatSystemPrompt(conversation = {}) {
     `Character background: ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
     styleGuide,
+    `Reply in ${chatResponseLanguage(language)}. Keep all dialogue, narration, and action beats in that language unless the user explicitly asks for another language.`,
     "Stay in character. Advance the scene naturally. Use first-person dialogue and italicized action beats when useful.",
     "Never claim to be an AI, never write the user's actions or decisions for them, and do not repeat the same passage.",
     conversation.memory ? `Pinned memory: ${conversation.memory}` : "",
@@ -13204,6 +13214,7 @@ async function handleCreateChatConversation(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
+  const responseLanguage = chatResponseLanguage(body.language);
   const character = await chatCharacterById(String(body.characterId || ""));
   if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_CHARACTER_NOT_FOUND", message: "Character not found." });
   const now = new Date().toISOString();
@@ -13374,7 +13385,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     if (action === "continue") messages.push({ role: "user", content });
     const raw = await byteplusLanguageRequest({
       model: BYTEPLUS_LANGUAGE_MODEL,
-      messages: [{ role: "system", content: chatSystemPrompt(conversation) }, ...messages],
+      messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage) }, ...messages],
       temperature: 0.9,
       max_tokens: 1200,
     });
