@@ -13401,6 +13401,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
     return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: auth.user.credits - CHAT_MESSAGE_CREDITS });
   } catch (error) {
+    console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
     const db = await readDb();
     await changeUserCredits(db, auth.user.id, CHAT_MESSAGE_CREDITS, "character_chat_refund", { conversationId, billingId, error: error.message || "Chat failed." });
     if (!dbEnabled()) await writeDb(db);
