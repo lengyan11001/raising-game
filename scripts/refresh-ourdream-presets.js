@@ -225,7 +225,7 @@ async function main() {
     }
     if (typeof value.remoteImageUrl === "string") value.remoteImageUrl = "";
     for (const [key, child] of Object.entries(value)) {
-      if (/url/i.test(key) && key !== "sourceUrl" && typeof child === "string" && /^https?:\/\//i.test(child)) value[key] = "";
+      if (/url/i.test(key) && key !== "sourceUrl" && typeof child === "string" && /ourdream\.ai/i.test(child)) value[key] = "";
       else scrub(child);
     }
   }
