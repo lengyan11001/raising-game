@@ -293,6 +293,7 @@ a { color: inherit; text-decoration: none; }
   .chat-composer { grid-template-columns: auto minmax(0,1fr); }
   .chat-composer-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .chat-send-btn { flex: 1; max-width: 150px; }
+  body:has(.chat-panel:not([hidden])) .support-fab { display: none; }
   .chat-message { max-width: 94%; }
 }
 
