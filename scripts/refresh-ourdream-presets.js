@@ -84,8 +84,23 @@ async function mirrorUrl(sourceUrl, kind, id) {
   const source = String(sourceUrl || "").trim();
   if (!/^https?:\/\//i.test(source)) return source;
   if (cache.has(source)) return cache.get(source);
-  const response = await fetch(source, { headers: { accept: "*/*", referer: "https://ourdream.ai/" } });
-  if (!response.ok) throw new Error(`Download failed ${response.status}: ${source}`);
+  let response;
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    try {
+      response = await fetch(source, { headers: { accept: "*/*", referer: "https://ourdream.ai/" }, signal: controller.signal });
+      clearTimeout(timer);
+      if (response.ok) break;
+      lastError = new Error(`Download failed ${response.status}: ${source}`);
+    } catch (error) {
+      clearTimeout(timer);
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+  if (!response?.ok) throw lastError || new Error(`Download failed: ${source}`);
   const bytes = Buffer.from(await response.arrayBuffer());
   const mime = contentType(response, source);
   const digest = sha256(source).slice(0, 20);
@@ -93,7 +108,10 @@ async function mirrorUrl(sourceUrl, kind, id) {
   const safeId = String(id || "item").replace(/[^a-z0-9_-]+/gi, "-").toLowerCase().slice(0, 80);
   const key = `assets/ourdream/mirrored/${safeKind}/${safeId}-${digest}${extFor(mime, source)}`;
   const auth = authFor(key, bytes, mime);
-  const upload = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes });
+  const uploadController = new AbortController();
+  const uploadTimer = setTimeout(() => uploadController.abort(), 120000);
+  const upload = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes, signal: uploadController.signal });
+  clearTimeout(uploadTimer);
   if (!upload.ok) throw new Error(`R2 upload failed ${upload.status}: ${source}`);
   const publicUrl = `${String(R2.publicDomain).replace(/\/+$/, "")}/${key}`;
   cache.set(source, publicUrl);
