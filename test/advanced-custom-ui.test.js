@@ -74,7 +74,7 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
   assert.match(engine, /value="wan27" selected>Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
-  assert.match(engine, /value="wan-animate">Wan Animate/);
+  assert.doesNotMatch(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
   assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
