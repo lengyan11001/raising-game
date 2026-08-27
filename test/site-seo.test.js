@@ -101,4 +101,6 @@ test("public character pages do not emit missing local media URLs", () => {
 
 test("homepage social previews use the fixed brand image", () => {
   assert.match(serverSource, /\/assets\/brand\/vipeak-google-logo\.png\?v=share-20260827-2/);
+  assert.match(serverSource, /og:image:width" content="512"/);
+  assert.match(serverSource, /cacheControl: "no-cache, no-store, must-revalidate"/);
 });

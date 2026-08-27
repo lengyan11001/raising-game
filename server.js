@@ -4152,6 +4152,10 @@ function geoMetaTags({ title, description, url, image, type = "website", jsonLd 
     : "";
   const imageTag = image ? `
     <meta property="og:image" content="${htmlEscape(image)}" />
+    <meta property="og:image:secure_url" content="${htmlEscape(image)}" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
     <meta name="twitter:image" content="${htmlEscape(image)}" />` : "";
   const ld = (Array.isArray(jsonLd) ? jsonLd : [jsonLd]).filter(Boolean).map(jsonLdScript).join("\n    ");
   return `
@@ -4839,7 +4843,7 @@ async function servePlatformHtmlWithGeo(req, res) {
   const versionedHtml = applyPlatformAssetVersion(html, await currentPlatformAssetVersion());
   const snapshot = await geoSiteSnapshot(req);
   return sendHtml(res, 200, injectPlatformGeoHead(versionedHtml, snapshot, requestTenantOptions(req)), {
-    cacheControl: "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+    cacheControl: "no-cache, no-store, must-revalidate",
     head: req.method === "HEAD",
   });
 }
