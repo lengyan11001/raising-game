@@ -15267,7 +15267,9 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     mediaKind: input.mediaKind,
     userAssetId: asset?.id || "",
     localUrl: asset?.localUrl || "",
-    mime: asset?.mime || "",
+    // Public template URLs do not have an asset record, so preserve their
+    // supported media type from the URL when no stored MIME is available.
+    mime: asset?.mime || (input.mediaKind === "video" ? videoMimeFromKnownPath(url) : ""),
     sizeBytes: Number(asset?.sizeBytes || 0),
     width: Number(asset?.width || asset?.videoWidth || 0),
     height: Number(asset?.height || asset?.videoHeight || 0),
