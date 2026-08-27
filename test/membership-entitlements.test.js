@@ -50,6 +50,12 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(explore, /\? \{ productId: billingProduct\.id \}/);
   assert.match(explore, /body: billingPlan[\s\S]*?\? \{ productId: billingProduct\.id, walletOptionId:/);
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
+  assert.match(main, /openBillingPaymentChoice\(\{[\s\S]*billingPlanId:\s*"plan-main-creator"/);
+  assert.match(create, /function openBillingPaymentChoice/);
+  assert.match(create, /state\.selectedBillingPlanId = plan\?\.id \|\| ""/);
+  assert.match(explore, /function isOwnGalleryCharacter/);
+  assert.match(explore, /ownCharacter/);
+  assert.doesNotMatch(explore, /if \(confirmed === "confirm"\) \{[\s\S]*?startEntitlementCheckout\(\{ billingPlanId:/);
 });
 
 test("API documentation access can be revoked for external tokens without blocking the site frontend", () => {

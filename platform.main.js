@@ -984,7 +984,10 @@ els.buyApiDocsBtn?.addEventListener("click", () => {
   openEntitlementPaymentChoice("api-docs-access", els.apiDocsPurchaseStatus);
 });
 els.buyMembershipBtn?.addEventListener("click", () => {
-  startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, els.membershipNote);
+  openBillingPaymentChoice({
+    billingPlanId: "plan-main-creator",
+    statusElement: els.membershipNote,
+  });
 });
 els.membershipCodeForm?.addEventListener("submit", redeemMembershipCode);
 els.previewDialog?.addEventListener("close", () => {

@@ -5262,20 +5262,26 @@ async function startEntitlementCheckout(body = {}, statusElement = null) {
   }
 }
 
-function openEntitlementPaymentChoice(productId = "", statusElement = null) {
+function openBillingPaymentChoice({ billingPlanId = "", productId = "", statusElement = null } = {}) {
   if (!state.user) return openLogin();
-  const product = (state.billing?.products || []).find((item) => item.id === productId);
-  if (!product) {
+  const plan = billingPlanId
+    ? (typeof billingPlans === "function" ? billingPlans() : []).find((item) => item.id === billingPlanId)
+    : null;
+  const product = productId
+    ? (state.billing?.products || []).find((item) => item.id === productId)
+    : null;
+  if (!plan && !product) {
     if (statusElement) statusElement.textContent = "This product is not available.";
     return;
   }
-  if (product.owned) {
+  if (product?.owned) {
     if (statusElement) statusElement.textContent = "API documentation access is already active.";
     return;
   }
   if (statusElement) statusElement.textContent = "";
-  state.selectedBillingPlanId = "";
-  state.selectedProductId = product.id;
+  state.selectedBillingPlanId = plan?.id || "";
+  if (product) state.selectedProductId = product.id;
+  else state.selectedProductId = "";
   state.selectedTopupPackageId = "";
   prepareModalOpen();
   setTopupMethod("paypal", { skipSummary: true });
@@ -5285,6 +5291,10 @@ function openEntitlementPaymentChoice(productId = "", statusElement = null) {
   if (payPalCheckoutVisible()) renderPayPalCheckout();
   syncTopupAutoRefresh();
   refreshIcons();
+}
+
+function openEntitlementPaymentChoice(productId = "", statusElement = null) {
+  return openBillingPaymentChoice({ productId, statusElement });
 }
 
 async function redeemMembershipCode(event) {

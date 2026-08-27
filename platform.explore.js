@@ -2815,6 +2815,15 @@ function isGalleryVideoUnlocked(character = {}, video = {}) {
   return set.has(galleryCharacterUnlockKey(character.id || "")) || set.has(galleryUnlockKey(character.id || "", video.sceneId || "", video.sceneEntryId || "default"));
 }
 
+function isOwnGalleryCharacter(character = {}) {
+  const id = String(character.id || "");
+  return Boolean(
+    character.myCharacter === true ||
+    character.custom === true ||
+    (state.myCharacters || []).some((item) => String(item?.id || "") === id),
+  );
+}
+
 function applyUnlockedCharacterVideos(characterId = "", videos = []) {
   const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
   if (!item || !Array.isArray(videos)) return;
@@ -2842,7 +2851,7 @@ async function unlockGallerySceneVideo(characterId = "") {
       dialogClass: "is-frame-action",
     });
     if (confirmed === "confirm") {
-      await startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, null);
+      openBillingPaymentChoice({ billingPlanId: "plan-main-creator" });
     }
     return;
   }
@@ -3138,6 +3147,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
 
 function renderCharacterVideoSection(title = "", videos = [], character = {}, { locked = false } = {}) {
   const visibleVideos = videos;
+  const ownCharacter = isOwnGalleryCharacter(character);
   return `
     <section class="character-video-section">
       <div class="character-video-section-head">
@@ -3145,30 +3155,32 @@ function renderCharacterVideoSection(title = "", videos = [], character = {}, { 
         <span>${escapeHtml(String(visibleVideos.length))}</span>
       </div>
       <div class="character-video-list">
-        ${visibleVideos.length ? visibleVideos.map((video, index) => renderCharacterVideoCard(video, character, { locked: Boolean(video.locked), index })).join("") : `<div class="job-note">${escapeHtml(t("gallery.character.noVideos"))}</div>`}
+        ${visibleVideos.length ? visibleVideos.map((video, index) => renderCharacterVideoCard(video, character, { locked: Boolean(video.locked), index, ownCharacter })).join("") : `<div class="job-note">${escapeHtml(t("gallery.character.noVideos"))}</div>`}
       </div>
     </section>
   `;
 }
 
-function renderCharacterVideoCard(video = {}, character = {}, { locked = false, index = 0 } = {}) {
+function renderCharacterVideoCard(video = {}, character = {}, { locked = false, index = 0, ownCharacter = false } = {}) {
   const sceneId = video.sceneId || `role-${index}`;
   const sceneEntryId = video.sceneEntryId || "default";
   const poster = characterVideoPoster(video, character);
   const hasVideo = Boolean(video.videoUrl);
   const characterUnlocked = isGalleryVideoUnlocked(character, video);
   const guest = !state.user;
-  const unlocked = Boolean(state.user) && characterUnlocked;
+  const unlocked = ownCharacter || (Boolean(state.user) && characterUnlocked);
   const loading = state.galleryUnlockLoadingKey === galleryCharacterUnlockKey(character.id || "");
   const canPlay = unlocked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
   const meta = [video.duration ? `${video.duration}s` : "", video.likes ? `${compactNumber(video.likes)} likes` : ""].filter(Boolean).join(" / ");
-  const action = canPlay
+  const action = ownCharacter
+    ? ""
+    : canPlay
     ? ""
     : guest
       ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("gallery.character.unlockLogin"))}</button>`
     : `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="crown"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : "Unlock with membership")}</button>`;
-  const mediaAction = !canPlay
+  const mediaAction = !canPlay && !ownCharacter
     ? `data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
     : canPlay
       ? `data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
