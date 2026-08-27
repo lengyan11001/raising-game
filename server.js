@@ -13175,6 +13175,8 @@ function chatImagePrompt(conversation = {}, messages = [], userPrompt = "", mode
 
 function chatResponseLanguage(value = "") {
   const code = String(value || "").trim().toLowerCase().slice(0, 16);
+  if (code === "simplified chinese") return "Simplified Chinese";
+  if (code === "traditional chinese") return "Traditional Chinese";
   return ({
     en: "English", zh: "Simplified Chinese", "zh-cn": "Simplified Chinese", "zh-tw": "Traditional Chinese",
     ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
