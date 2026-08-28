@@ -51,6 +51,7 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(explore, /body: billingPlan[\s\S]*?\? \{ productId: billingProduct\.id, walletOptionId:/);
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
   assert.match(main, /openBillingPaymentChoice\(\{[\s\S]*billingPlanId:\s*"plan-main-creator"/);
+  assert.match(main, /function openTopupDialog\(\)[\s\S]*?topupMembershipLink\.hidden = !membershipProgramEnabled\(\)/);
   assert.match(create, /function openBillingPaymentChoice/);
   assert.match(create, /state\.selectedBillingPlanId = plan\?\.id \|\| ""/);
   assert.match(explore, /function isOwnGalleryCharacter/);

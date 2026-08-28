@@ -735,6 +735,9 @@ els.topupMembershipLink?.addEventListener("click", () => {
 });
 function openTopupDialog() {
   prepareModalOpen();
+  if (els.topupMembershipLink) {
+    els.topupMembershipLink.hidden = !membershipProgramEnabled() || creatorMembershipActive();
+  }
   state.selectedBillingPlanId = "";
   state.selectedProductId = "";
   setTopupStep("packages");
