@@ -237,6 +237,13 @@ test("admin user actions stay visible in wide tables", () => {
   assert.match(adminCss, /\.adm-user-table \.adm-user-action-btn \{[\s\S]*?width: 34px;[\s\S]*?height: 34px;/);
 });
 
+test("admin user list exposes registration time", () => {
+  assert.match(server, /function userView\(user\)[\s\S]*?createdAt: user\.createdAt/);
+  assert.match(server, /list\.sort\(\(a, b\) => String\(b\.createdAt \|\| \"\"\)\.localeCompare\(String\(a\.createdAt \|\| \"\"\)\)\)/);
+  assert.match(admin, /<th>注册时间<\/th>/);
+  assert.match(admin, /<td>\$\{fmtDate\(u\.createdAt\)\}<\/td>/);
+});
+
 test("admin generation search queries the complete database instead of the latest 500 records", () => {
   const dbSource = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
   const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
