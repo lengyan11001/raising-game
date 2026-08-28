@@ -4099,6 +4099,15 @@ function billingPlans() {
   return billingEnabled() && Array.isArray(state.billing?.plans) ? state.billing.plans : [];
 }
 
+function isHiddenToolSubscriptionPlan(plan = {}) {
+  return Boolean(
+    tenantFeature("subscriptions", false) &&
+    Number(plan.amount || 0) === 20 &&
+    String(plan.intervalUnit || "").toLowerCase() === "month" &&
+    Number(plan.intervalCount || 1) === 1,
+  );
+}
+
 function selectedBillingPlan() {
   const plans = billingPlans();
   if (!plans.length) return null;
@@ -4131,7 +4140,7 @@ function billingPeriodLabel(plan = {}) {
 
 function renderToolSubscription() {
   if (!els.toolSubscriptionPanel) return;
-  const plan = billingPlans()[0] || null;
+  const plan = billingPlans().find((item) => !isHiddenToolSubscriptionPlan(item)) || null;
   const visible = Boolean(plan && !membershipProgramEnabled());
   els.toolSubscriptionPanel.hidden = !visible;
   if (els.toolTopupLabel) els.toolTopupLabel.hidden = !visible;

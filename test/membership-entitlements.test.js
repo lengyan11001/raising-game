@@ -55,6 +55,9 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(create, /state\.selectedBillingPlanId = plan\?\.id \|\| ""/);
   assert.match(explore, /function isOwnGalleryCharacter/);
   assert.match(explore, /ownCharacter/);
+  assert.match(explore, /function isHiddenToolSubscriptionPlan/);
+  assert.match(explore, /Number\(plan\.amount \|\| 0\) === 20/);
+  assert.match(explore, /intervalUnit \|\| ""\)\.toLowerCase\(\) === "month"/);
   assert.doesNotMatch(explore, /if \(confirmed === "confirm"\) \{[\s\S]*?startEntitlementCheckout\(\{ billingPlanId:/);
 });
 
