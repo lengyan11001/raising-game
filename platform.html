@@ -435,7 +435,7 @@
                 </div>
                 <div class="advanced-asset-head-actions">
                   <label class="asset-upload-control advanced-asset-upload-control">
-                    <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
+                    <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
                     <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
                   </label>
                   <button class="ghost-button" id="refreshAdvancedAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
@@ -443,7 +443,7 @@
               </div>
               <div class="advanced-asset-toolbar">
                 <input id="advancedAssetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" aria-label="Search assets" />
-                <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select>
+                <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option><option value="document">Documents</option></select>
               </div>
               <div class="advanced-asset-targets" id="advancedAssetTargets"></div>
               <p class="job-note" id="advancedAssetNote"></p>
@@ -475,9 +475,9 @@
       <section class="asset-panel" data-panel="assets" hidden>
         <div class="asset-toolbar">
           <label><span data-i18n="ledger.search">Search</span><input id="assetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
-          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select></label>
+          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option><option value="document">Documents</option></select></label>
           <label class="asset-upload-control">
-            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
+            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
             <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
             <small class="file-picker-name" data-file-name-for="assetUploadInput" data-i18n="file.none">No file selected</small>
           </label>

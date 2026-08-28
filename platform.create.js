@@ -163,6 +163,7 @@ function advancedAssetTargetItems() {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
     targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+    if (provider === "wan30") targets.push({ id: "document", label: "Document", type: "document" });
   }
   if (["wan27-t2v", "happyhorse-t2v"].includes(capability) || (capability === "wan-legacy" && String(els.advancedLegacyWanModel?.value || "").includes("t2v"))) return [];
   return targets.length ? targets : [{ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" }];
@@ -174,6 +175,7 @@ function activeAdvancedAssetTarget() {
 }
 
 function preferredAdvancedAssetTargetForAsset(asset = {}) {
+  if (currentAdvancedProvider() === "wan30" && isDocumentAsset(asset)) return "document";
   if (advancedCreateModeNeedsReplacePair()) {
     if (isImageAsset(asset)) return "primary";
   }
@@ -628,7 +630,13 @@ async function uploadAdvancedAssets(files = []) {
         : 0;
       await requestJson("/api/user-assets", {
         method: "POST",
-        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "", durationSeconds },
+        body: {
+          dataUrl,
+          name: file.name || "Upload",
+          fileName: file.name || "",
+          durationSeconds,
+          provider: isWan30DocumentFile(file) ? "wan30" : undefined,
+        },
       });
       uploaded += 1;
     }
@@ -1147,12 +1155,14 @@ async function captureAdvancedExtendFrameFromSource(source, fileName = "video-la
 function assetTargetTypeLabel(type = "image") {
   if (type === "video") return t("assets.video");
   if (type === "audio") return t("assets.audio");
+  if (type === "document") return "document";
   return t("assets.image");
 }
 
 function assetMatchesTarget(asset = {}, target = activeAdvancedAssetTarget()) {
   if (target.type === "video") return isVideoAsset(asset);
   if (target.type === "audio") return isAudioAsset(asset);
+  if (target.type === "document") return isDocumentAsset(asset);
   return isImageAsset(asset);
 }
 
@@ -1180,7 +1190,24 @@ async function addAssetToAdvancedTarget(assetId = "") {
   const provider = currentAdvancedProvider();
   const url = assetPreviewUrl(asset);
   state.activeAdvancedCaseId = "";
-  if (target.id === "primary" || target.id === "sourceImage" || target.id === "sourceImages" || target.id === "referenceImages") {
+  if (target.id === "document") {
+    if (provider !== "wan30" || !isDocumentAsset(asset)) return;
+    state.advancedDocumentReference = {
+      assetId: asset.id,
+      fileName: asset.name || asset.fileName || "Document reference",
+      name: asset.name || asset.fileName || "Document reference",
+      kind: "document",
+      order: nextAdvancedReferenceOrder(),
+    };
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    setAdvancedSeedanceVideoReferences([]);
+    setAdvancedSeedanceAudioReferences([]);
+    renderAdvancedReferencePreviews();
+  } else if (target.id === "primary" || target.id === "sourceImage" || target.id === "sourceImages" || target.id === "referenceImages") {
     if (!isImageAsset(asset)) return;
     if (target.id === "sourceImage" || target.id === "sourceImages") state.advancedSourceImageAssetId = asset.id;
     else state.advancedFirstFrameAssetId = asset.id;

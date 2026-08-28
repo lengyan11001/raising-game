@@ -163,6 +163,9 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.match(main, /Wan 3\.0 documents cannot be combined with other media inputs/);
   assert.match(config, /const ADVANCED_WAN30_DOCUMENT_MAX_BYTES = 100 \* 1024 \* 1024/);
   assert.match(create, /Wan 3\.0 documents must be 100MB or smaller/);
+  assert.match(create, /id: "document", label: "Document", type: "document"/);
+  assert.match(create, /currentAdvancedProvider\(\) === "wan30" && isDocumentAsset\(asset\)/);
+  assert.match(create, /target\.id === "document"/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
