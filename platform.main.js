@@ -227,7 +227,7 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (provider === "wan27" || provider === "happyhorse") {
+  if (provider === "wan30" || provider === "wan27" || provider === "happyhorse") {
     try {
       const capability = currentAdvancedVideoCapability();
       const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
@@ -292,7 +292,7 @@ els.advancedImage?.addEventListener("change", async () => {
         }
       }
       if (skippedWrongType && els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: provider === "wan30" ? "image / video / audio / document" : "image / video / audio" });
       }
       if (skippedTooLarge && els.advancedNote) {
         els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Some media files are too large.");

@@ -158,6 +158,10 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
+  assert.match(main, /if \(provider === "wan30" \|\| provider === "wan27" \|\| provider === "happyhorse"\)/);
+  assert.match(main, /uploadAdvancedDocumentReference\(file\)/);
+  assert.match(config, /const ADVANCED_WAN30_DOCUMENT_MAX_BYTES = 100 \* 1024 \* 1024/);
+  assert.match(create, /Wan 3\.0 documents must be 100MB or smaller/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
