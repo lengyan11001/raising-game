@@ -7594,6 +7594,21 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   width: 100%;
   justify-content: center;
 }
+.auth-email-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.auth-email-row .ghost-button { white-space: nowrap; }
+.account-security-box {
+  display: grid;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.account-security-box p { margin: 0; }
 .account-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -5587,6 +5587,10 @@ function openLogin() {
 function openAccount() {
   prepareModalOpen();
   renderTokenDisplays();
+  if (els.accountEmail) els.accountEmail.value = state.user?.email || "";
+  if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "";
+  const securityBox = els.accountEmail?.closest(".account-security-box");
+  if (securityBox) securityBox.hidden = !Boolean(state.config?.auth?.email?.enabled);
   els.accountDialog?.showModal();
   refreshIcons();
 }
@@ -5627,6 +5631,10 @@ function renderLoginForm() {
     els.googleLoginStatus.hidden = true;
   }
   if (els.loginMessage) els.loginMessage.textContent = "";
+  const emailEnabled = Boolean(state.config?.auth?.email?.enabled);
+  if (els.loginEmail) els.loginEmail.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
+  if (els.loginEmailCode) els.loginEmailCode.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
+  if (els.forgotPasswordBtn) els.forgotPasswordBtn.hidden = !emailEnabled;
 }
 
 async function refreshAfterLogin() {
@@ -5684,6 +5692,34 @@ async function submitLogin() {
   } finally {
     if (els.loginSubmit) els.loginSubmit.disabled = false;
   }
+}
+
+async function requestEmailLoginCode() {
+  const email = els.loginEmail?.value.trim() || "";
+  try { await requestJson("/api/auth/email/request", { method: "POST", body: { email } }); if (els.loginMessage) els.loginMessage.textContent = "Verification code sent."; }
+  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+}
+
+async function verifyEmailLogin() {
+  const email = els.loginEmail?.value.trim() || ""; const code = els.loginEmailCode?.value.trim() || "";
+  try { await completeLogin(await requestJson("/api/auth/email/verify", { method: "POST", body: { email, code } })); }
+  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+}
+
+async function forgotPassword() {
+  const email = window.prompt("Enter your bound login email"); if (!email) return;
+  try { await requestJson("/api/auth/password/reset/request", { method: "POST", body: { email } }); const code = window.prompt("Enter the verification code"); const password = window.prompt("Enter a new password (at least 6 characters)"); if (code && password) { await requestJson("/api/auth/password/reset", { method: "POST", body: { email, code, password } }); if (els.loginMessage) els.loginMessage.textContent = "Password updated. Please sign in."; } }
+  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+}
+
+async function requestAccountEmailCode() {
+  try { await requestJson("/api/account/email/request", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", password: els.accountCurrentPassword?.value || "" } }); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Verification code sent."; }
+  catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
+}
+
+async function verifyAccountEmail() {
+  try { const payload = await requestJson("/api/account/email/verify", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", code: els.accountEmailCode?.value.trim() || "" } }); if (payload.user) setUser(payload.user); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Email bound successfully."; }
+  catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
 }
 
 async function loadMe() {

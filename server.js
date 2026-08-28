@@ -379,6 +379,10 @@ const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || 
 const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
 const GOOGLE_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GOOGLE_LOGIN_ENABLED || "0").trim());
 const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
+const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || Boolean(RESEND_API_KEY);
+const EMAIL_FROM = String(process.env.EMAIL_FROM || "Vipeak <no-reply@123vips.com>").trim();
+const emailChallenges = new Map();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -2703,6 +2707,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
   const view = {
     auth: {
+      email: { enabled: EMAIL_LOGIN_ENABLED },
       google: {
         enabled: GOOGLE_LOGIN_ENABLED && Boolean(GOOGLE_LOGIN_CLIENT_ID),
         clientId: GOOGLE_LOGIN_ENABLED ? GOOGLE_LOGIN_CLIENT_ID : "",
@@ -29416,6 +29421,154 @@ async function handleLogin(req, res) {
   return loginWithBody(req, res, await readJson(req));
 }
 
+function normalizeEmail(value = "") {
+  const email = String(value || "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 254 ? email : "";
+}
+
+async function sendEmailMessage({ to, subject, html }) {
+  if (!EMAIL_LOGIN_ENABLED || !RESEND_API_KEY) {
+    const error = new Error("Email service is not configured.");
+    error.statusCode = 503;
+    error.code = "EMAIL_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const error = new Error("Unable to send email right now.");
+    error.statusCode = 502;
+    error.code = "EMAIL_SEND_FAILED";
+    error.payload = detail.slice(0, 500);
+    throw error;
+  }
+}
+
+function emailChallengeKey(kind, email, tenantId) {
+  return `${kind}:${tenantId}:${email}`;
+}
+
+async function issueEmailCode(req, res, { kind = "login", email = "" } = {}) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  const tenantId = requestTenantId(req);
+  const key = emailChallengeKey(kind, normalized, tenantId);
+  const previous = emailChallenges.get(key);
+  if (previous && previous.sentAt > Date.now() - 60_000) {
+    return sendJson(res, 429, { ok: false, message: "Please wait before requesting another code." });
+  }
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  emailChallenges.set(key, { hash: crypto.createHash("sha256").update(code).digest("hex"), expiresAt: Date.now() + 10 * 60_000, sentAt: Date.now(), attempts: 0 });
+  try {
+    await sendEmailMessage({
+      to: normalized,
+      subject: "Your Vipeak verification code",
+      html: `<p>Your verification code is <strong style="font-size:24px;letter-spacing:4px">${code}</strong>.</p><p>It expires in 10 minutes. If you did not request this, ignore this email.</p>`,
+    });
+  } catch (error) {
+    emailChallenges.delete(key);
+    return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "EMAIL_SEND_FAILED", message: error.message });
+  }
+  return sendJson(res, 200, { ok: true, expiresIn: 600 });
+}
+
+function consumeEmailCode(kind, email, tenantId, code) {
+  const key = emailChallengeKey(kind, email, tenantId);
+  const challenge = emailChallenges.get(key);
+  if (!challenge || challenge.expiresAt < Date.now() || challenge.attempts >= 5) return false;
+  challenge.attempts += 1;
+  const actual = crypto.createHash("sha256").update(String(code || "").trim()).digest("hex");
+  if (actual.length !== challenge.hash.length || !crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(challenge.hash))) return false;
+  emailChallenges.delete(key);
+  return true;
+}
+
+function emailUsernameCandidate(db, email, tenantId) {
+  const base = `e_${email.split("@")[0].replace(/[^a-z0-9_]+/g, "_").slice(0, 20) || "user"}`.slice(0, 24);
+  let candidate = base;
+  let suffix = 1;
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, tenantId))) {
+    const suffixText = `_${suffix++}`;
+    candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
+  }
+  return candidate;
+}
+
+async function createEmailSession(req, res, email) {
+  const tenantId = requestTenantId(req);
+  const db = await readDb();
+  let user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, tenantId));
+  const now = new Date().toISOString();
+  if (!user) {
+    user = { id: randomId("user"), tenantId, username: emailUsernameCandidate(db, email, tenantId), passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")), role: "user", credits: 0, pricingMultiplier: 1, apiPricingMultiplier: 1, apiToken: makeUniqueApiToken(db), email, emailVerifiedAt: now, registrationChannel: "email", createdAt: now, updatedAt: now };
+    db.users.push(user);
+  } else {
+    user.email = email;
+    user.emailVerifiedAt = now;
+    user.updatedAt = now;
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  const session = { token, userId: user.id, tenantId, createdAt: now };
+  db.sessions.push(session);
+  if (dbEnabled()) { await updateUserInDb(user); await createSessionInDb(session); } else await writeDb(db);
+  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+}
+
+async function handleEmailLoginRequest(req, res) {
+  const body = await readJson(req);
+  return issueEmailCode(req, res, { kind: "login", email: body.email });
+}
+
+async function handleEmailLoginVerify(req, res) {
+  const body = await readJson(req); const email = normalizeEmail(body.email);
+  if (!email || !consumeEmailCode("login", email, requestTenantId(req), body.code)) return sendJson(res, 401, { ok: false, message: "Invalid or expired verification code." });
+  return createEmailSession(req, res, email);
+}
+
+async function handlePasswordResetRequest(req, res) {
+  const body = await readJson(req); const email = normalizeEmail(body.email);
+  if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  const db = await readDb();
+  const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  if (user) await issueEmailCode(req, res, { kind: "reset", email });
+  else sendJson(res, 200, { ok: true, expiresIn: 600 });
+}
+
+async function handlePasswordReset(req, res) {
+  const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  if (!email || password.length < 6 || !consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
+  const db = await readDb(); const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  if (!user) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
+  user.passwordHash = hashPassword(password); user.updatedAt = new Date().toISOString();
+  db.sessions = (db.sessions || []).filter((session) => session.userId !== user.id);
+  if (dbEnabled()) { await updateUserInDb(user); await deleteUserSessionsInDb(user.id); } else await writeDb(db);
+  return sendJson(res, 200, { ok: true });
+}
+
+async function handleAccountEmailRequest(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  if (auth.user.passwordHash && !verifyPassword(password, auth.user.passwordHash)) return sendJson(res, 401, { ok: false, message: "Current password is incorrect." });
+  return issueEmailCode(req, res, { kind: "bind", email });
+}
+
+async function handleAccountEmailVerify(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  const body = await readJson(req); const email = normalizeEmail(body.email);
+  if (!email || !consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
+  const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  if (duplicate) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
+  auth.user.email = email; auth.user.emailVerifiedAt = new Date().toISOString(); auth.user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(auth.user); else { const index = db.users.findIndex((item) => item.id === auth.user.id); if (index >= 0) db.users[index] = auth.user; await writeDb(db); }
+  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
+}
+
 async function handleLoginOrRegister(req, res) {
   return loginWithBody(req, res, await readJson(req), { registerIfMissing: true });
 }
@@ -39912,6 +40065,13 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/auth/login-or-register") {
       return await handleLoginOrRegister(req, res);
     }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/email/request") return await handleEmailLoginRequest(req, res);
+    if (req.method === "POST" && url.pathname === "/api/auth/email/verify") return await handleEmailLoginVerify(req, res);
+    if (req.method === "POST" && url.pathname === "/api/auth/password/reset/request") return await handlePasswordResetRequest(req, res);
+    if (req.method === "POST" && url.pathname === "/api/auth/password/reset") return await handlePasswordReset(req, res);
+    if (req.method === "POST" && url.pathname === "/api/account/email/request") return await handleAccountEmailRequest(req, res);
+    if (req.method === "POST" && url.pathname === "/api/account/email/verify") return await handleAccountEmailVerify(req, res);
 
     if (req.method === "POST" && url.pathname === "/api/google/login") {
       return await handleGoogleLogin(req, res);

@@ -997,6 +997,11 @@ els.loginForm?.addEventListener("submit", (event) => {
 });
 els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
 els.googleLoginBtn?.addEventListener("click", authorizeGoogleLogin);
+els.requestEmailLoginCodeBtn?.addEventListener("click", requestEmailLoginCode);
+els.verifyEmailLoginBtn?.addEventListener("click", verifyEmailLogin);
+els.forgotPasswordBtn?.addEventListener("click", forgotPassword);
+els.requestAccountEmailCodeBtn?.addEventListener("click", requestAccountEmailCode);
+els.verifyAccountEmailBtn?.addEventListener("click", verifyAccountEmail);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());

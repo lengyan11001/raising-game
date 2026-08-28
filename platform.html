@@ -749,6 +749,9 @@
           <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
           <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
+          <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email login" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
+          <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Email verification code" maxlength="6" /><button class="ghost-button" id="verifyEmailLoginBtn" type="button">Email login</button></div>
+          <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
           <p class="auth-register-hint">
             <i data-lucide="info"></i>
             <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
@@ -790,6 +793,14 @@
               <button class="ghost-button" id="toggleAccountTokenBtn" type="button">Show full</button>
               <button class="copy-btn" id="copyAccountTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="copy"></i>Copy token</button>
             </div>
+          </div>
+          <div class="account-security-box">
+            <strong>Account security</strong>
+            <p class="adm-muted">Bind an email to sign in with a code or reset your password.</p>
+            <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
+            <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
+            <input id="accountCurrentPassword" type="password" autocomplete="current-password" placeholder="Current password" />
+            <p class="job-note" id="accountSecurityMessage"></p>
           </div>
           <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
         </div>
