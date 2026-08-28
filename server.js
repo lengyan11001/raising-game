@@ -82,6 +82,7 @@ const {
   publicWorkflowCanvasSummary,
   publicWorkflowCanvasView,
 } = require("./workflow-canvases");
+const { getOurDreamPresetLibrary } = require("./ourdream-presets");
 const {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
@@ -288,12 +289,12 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
-const TOOL_VIDEO_DEFAULT_PROVIDER = "wan30";
+const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
   if (normalizedProvider === "wan30") return "wan30-video";
-  if (normalizedProvider === "wan27") return "wan27-r2v";
+  if (normalizedProvider === "wan27") return "wan27-video-edit";
   if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
@@ -15267,7 +15268,9 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     mediaKind: input.mediaKind,
     userAssetId: asset?.id || "",
     localUrl: asset?.localUrl || "",
-    mime: asset?.mime || "",
+    // Public template URLs do not have an asset record, so preserve their
+    // supported media type from the URL when no stored MIME is available.
+    mime: asset?.mime || (input.mediaKind === "video" ? videoMimeFromKnownPath(url) : ""),
     sizeBytes: Number(asset?.sizeBytes || 0),
     width: Number(asset?.width || asset?.videoWidth || 0),
     height: Number(asset?.height || asset?.videoHeight || 0),
@@ -25535,11 +25538,13 @@ async function handleAdvancedGenerate(req, res) {
     "",
   ) || "").trim().toLowerCase() === "video";
   const isVideoTemplateRequest = isToolVideoTemplateRequest || isPlayfluxVideoTemplateRequest;
+  const forcePlayfluxWan27VideoEdit = isPlayfluxVideoTemplateRequest;
   const toolVideoProvider = ["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
     ? requestTenant.videoProvider
     : "wan27";
   const providerHint = firstPresent(
     isToolVideoTemplateRequest ? toolVideoProvider : "",
+    forcePlayfluxWan27VideoEdit ? "wan27" : "",
     body.provider,
     bodyParams.provider,
     selectedCase?.provider,
@@ -25688,6 +25693,7 @@ async function handleAdvancedGenerate(req, res) {
   const forwardModelToGateway = provider !== "seedance" && requestedModel !== undefined;
   const requestedVideoCapability = firstPresent(
     isToolVideoTemplateRequest ? toolVideoDefaultCapability(toolVideoProvider) : "",
+    forcePlayfluxWan27VideoEdit ? "wan27-video-edit" : "",
     body.videoCapability,
     body.aliyunVideoCapability,
     body.wanCapability,
@@ -26035,15 +26041,15 @@ async function handleAdvancedGenerate(req, res) {
   }
   const isPlayfluxVideoReferenceRequest = isPlayfluxVideoTemplateRequest && (
     (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
-    || (provider === "wan27" && requestParams.videoCapability === "wan27-r2v")
+    || (provider === "wan27" && requestParams.videoCapability === "wan27-video-edit")
   );
-  if (isPlayfluxVideoReferenceRequest) {
+  if (isPlayfluxVideoReferenceRequest && provider !== "wan27") {
     prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
       hasReferenceImage: provider === "wan27"
         ? wan27Media.some((item) => ["first_frame", "reference_image"].includes(item.type))
         : Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
       hasReferenceVideo: provider === "wan27"
-        ? wan27Media.some((item) => item.type === "reference_video")
+        ? wan27Media.some((item) => ["video", "reference_video"].includes(item.type))
         : Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
   }
@@ -27679,7 +27685,7 @@ async function handleAdvancedEstimate(req, res) {
   const tenant = requestTenantDescriptor(req);
   const isToolVideoTemplateEstimate = tenant.toolId === "video";
   const effectiveProvider = isToolVideoTemplateEstimate
-    ? (["seedance", "wan30", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan30")
+    ? (["seedance", "wan30", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : TOOL_VIDEO_DEFAULT_PROVIDER)
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
@@ -39714,6 +39720,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
       return await handlePublicCharacters(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
+      const presets = await getOurDreamPresetLibrary();
+      return sendJson(res, 200, { ok: true, presets });
     }
 
     if (req.method === "GET" && url.pathname === "/api/chat/conversations") {
