@@ -69,6 +69,10 @@ test("server owns Video tool pricing, orchestration, splitting, and stitching", 
   assert.match(server, /composeVideoToolSegments\(taskId, generatedPaths\)/);
   assert.match(server, /upstreamSource: "video-tool-orchestrator"/);
   assert.match(server, /startVideoToolJobRecoveryScheduler\(\)/);
+  assert.match(server, /VIDEO_TOOL_JOB_CONCURRENCY/);
+  assert.match(server, /videoToolJobQueue\.push\(job\)/);
+  assert.match(server, /videoToolJobActive < VIDEO_TOOL_JOB_CONCURRENCY/);
+  assert.match(server, /drainVideoToolJobQueue\(\)/);
   assert.match(server, /upstreamTaskIds\[segment\.index\]/);
   assert.match(server, /billingStatus: cost > 0 \? "pre_deducted" : "free"/);
   assert.match(server, /refundVideoToolTask\(job\.taskId/);

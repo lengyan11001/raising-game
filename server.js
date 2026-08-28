@@ -19418,29 +19418,56 @@ async function runVideoToolUndressVideoLegacy(job) {
 }
 
 const activeVideoToolJobIds = new Set();
+const videoToolJobQueue = [];
+const VIDEO_TOOL_JOB_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.VIDEO_TOOL_JOB_CONCURRENCY || 2) || 2));
+let videoToolJobActive = 0;
+let videoToolJobDrainScheduled = false;
 
-function startVideoToolJob(job) {
-  if (!job?.taskId || activeVideoToolJobIds.has(job.taskId)) return false;
-  activeVideoToolJobIds.add(job.taskId);
+function videoToolRunnerForJob(job = {}) {
+  return job.action === "image-face-swap"
+    ? runVideoToolImageFaceSwap
+    : job.action === "undress-image-video"
+      ? runVideoToolUndressImageVideo
+    : ["face-swap", "undress-video"].includes(job.action)
+      ? runVideoToolFaceSwap
+      : job.action === "undress" && job.pricing?.outputKind !== "image"
+        ? runVideoToolUndressVideoLegacy
+        : runVideoToolUndress;
+}
+
+function scheduleVideoToolJobDrain() {
+  if (videoToolJobDrainScheduled) return;
+  videoToolJobDrainScheduled = true;
   setImmediate(() => {
-    const runner = job.action === "image-face-swap"
-      ? runVideoToolImageFaceSwap
-      : job.action === "undress-image-video"
-        ? runVideoToolUndressImageVideo
-      : ["face-swap", "undress-video"].includes(job.action)
-        ? runVideoToolFaceSwap
-        : job.action === "undress" && job.pricing?.outputKind !== "image"
-          ? runVideoToolUndressVideoLegacy
-          : runVideoToolUndress;
-    runner(job).catch(async (error) => {
+    videoToolJobDrainScheduled = false;
+    drainVideoToolJobQueue();
+  });
+}
+
+function drainVideoToolJobQueue() {
+  while (videoToolJobActive < VIDEO_TOOL_JOB_CONCURRENCY && videoToolJobQueue.length) {
+    const job = videoToolJobQueue.shift();
+    videoToolJobActive += 1;
+    Promise.resolve().then(() => videoToolRunnerForJob(job)(job)).catch(async (error) => {
       console.error("[video-tool-job-failed]", job.taskId, error.message || error);
       try {
         await refundVideoToolTask(job.taskId, error.message || "Video generation failed.", error.payload || null);
       } catch (refundError) {
         console.error("[video-tool-refund-failed]", job.taskId, refundError.message || refundError);
       }
-    }).finally(() => activeVideoToolJobIds.delete(job.taskId));
-  });
+    }).finally(() => {
+      videoToolJobActive -= 1;
+      activeVideoToolJobIds.delete(job.taskId);
+      scheduleVideoToolJobDrain();
+    });
+  }
+}
+
+function startVideoToolJob(job) {
+  if (!job?.taskId || activeVideoToolJobIds.has(job.taskId)) return false;
+  activeVideoToolJobIds.add(job.taskId);
+  videoToolJobQueue.push(job);
+  scheduleVideoToolJobDrain();
   return true;
 }
 
