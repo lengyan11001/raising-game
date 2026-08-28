@@ -154,9 +154,27 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedWrongType = false;
       let skippedTooLarge = false;
       let skippedTooMany = false;
+      let documentConflict = false;
       for (const file of files) {
         const mime = uploadedFileMime(file);
-        if (mime.startsWith("image/")) {
+        const hasExistingWan30Media = Boolean(
+          state.advancedDocumentReference ||
+          state.advancedReferenceImages?.length ||
+          advancedSeedanceVideoReferences().length ||
+          advancedSeedanceAudioReferences().length ||
+          state.advancedSeedanceFirstFrameAssetId ||
+          state.advancedSeedanceLastFrameAssetId,
+        );
+        if (provider === "wan30" && isWan30DocumentFile(file)) {
+          if (hasExistingWan30Media || files.length !== 1) {
+            documentConflict = true;
+            continue;
+          }
+          const document = await uploadAdvancedDocumentReference(file);
+          if (document) state.activeAdvancedCaseId = "";
+        } else if (provider === "wan30" && state.advancedDocumentReference) {
+          documentConflict = true;
+        } else if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
             continue;
@@ -205,8 +223,10 @@ els.advancedImage?.addEventListener("change", async () => {
           skippedWrongType = true;
         }
       }
-      if (skippedWrongType && els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
+      if (documentConflict && els.advancedNote) {
+        els.advancedNote.textContent = "Wan 3.0 documents cannot be combined with other media inputs.";
+      } else if (skippedWrongType && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: provider === "wan30" ? "image / video / audio / document" : "image / video / audio" });
       }
       if (skippedTooLarge && els.advancedNote) {
         els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -227,7 +247,7 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (provider === "wan30" || provider === "wan27" || provider === "happyhorse") {
+  if (provider === "wan27" || provider === "happyhorse") {
     try {
       const capability = currentAdvancedVideoCapability();
       const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
@@ -240,16 +260,6 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedDurationMessage = "";
       for (const file of files) {
         const mime = uploadedFileMime(file);
-        if (provider === "wan30" && isWan30DocumentFile(file)) {
-          if (state.advancedDocumentReference) {
-            skippedTooMany = true;
-            continue;
-          }
-          const document = await uploadAdvancedDocumentReference(file);
-          if (!document) continue;
-          state.activeAdvancedCaseId = "";
-          continue;
-        }
         if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
@@ -292,7 +302,7 @@ els.advancedImage?.addEventListener("change", async () => {
         }
       }
       if (skippedWrongType && els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: provider === "wan30" ? "image / video / audio / document" : "image / video / audio" });
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
       }
       if (skippedTooLarge && els.advancedNote) {
         els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Some media files are too large.");
