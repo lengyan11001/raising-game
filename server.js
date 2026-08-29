@@ -538,6 +538,10 @@ const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.USD_CNY_CENTS ||
   "";
 let paypalTokenCache = { accessToken: "", expiresAt: 0 };
+const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || "").trim();
+const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+const STRIPE_CURRENCY = String(process.env.STRIPE_CURRENCY || "usd").trim().toLowerCase() || "usd";
+const STRIPE_CHECKOUT_SESSION_TTL_SECONDS = Math.max(300, Math.min(86400, Number(process.env.STRIPE_CHECKOUT_SESSION_TTL_SECONDS || 1800) || 1800));
 const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
@@ -31464,6 +31468,195 @@ async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
+function stripeEnabled() {
+  return Boolean(STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET);
+}
+
+function stripePublicConfig() {
+  return { enabled: stripeEnabled(), currency: STRIPE_CURRENCY };
+}
+
+async function stripeRequest(pathname, params) {
+  if (!STRIPE_SECRET_KEY) {
+    const error = new Error("Stripe is not configured.");
+    error.statusCode = 503;
+    error.code = "STRIPE_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch(`https://api.stripe.com${pathname}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: params instanceof URLSearchParams ? params : new URLSearchParams(params || {}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || "Stripe request failed.");
+    error.statusCode = response.status || 502;
+    error.code = payload?.error?.code || "STRIPE_REQUEST_FAILED";
+    error.details = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function stripeCheckoutProductName(order = {}) {
+  if (order.orderKind === "subscription") return order.billingPlanName || "Membership subscription";
+  if (order.orderKind === "product") return order.productName || "API documentation access";
+  return "Vipeak AI credits";
+}
+
+function stripeCheckoutAmountCents(order = {}) {
+  return Math.round(Number(order.baseAmount || 0) * 100);
+}
+
+async function createStripeCheckoutSession(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!stripeEnabled()) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const selection = await paypalCheckoutSelectionForRequest(req, body, auth.user);
+  if (!selection) {
+    const requestedPlan = Boolean(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id);
+    return sendJson(res, 400, {
+      ok: false,
+      code: requestedPlan ? "BILLING_PLAN_NOT_FOUND" : "INVALID_TOPUP_PACKAGE",
+      message: requestedPlan ? "Subscription plan not found." : "Please select one of the available top-up packages.",
+      packages: await paypalTopupPackagesForRequest(req, auth.user),
+    });
+  }
+  if (selection.alreadyOwned) {
+    return sendJson(res, 409, {
+      ok: false,
+      code: selection.kind === "subscription" ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED",
+      message: selection.kind === "subscription" ? "Creator Membership is already active." : "API documentation access is already active.",
+    });
+  }
+  const amount = Number(selection.amount || 0);
+  const amountCents = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amountCents < 100 || amountCents > 100000000) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_STRIPE_AMOUNT", message: "Stripe amount must be between 1 and 1,000,000 USD." });
+  }
+  const origin = pageOriginFromRequest(req);
+  const order = {
+    id: randomId("stripe"),
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
+    userId: auth.user.id,
+    paymentProvider: "stripe",
+    orderKind: selection.kind,
+    baseAmount: amount,
+    creditAmount: creditsAmount(selection.credits),
+    packageId: selection.kind === "topup" ? selection.id : "",
+    packageCredits: selection.credits,
+    productId: selection.product?.id || "",
+    productName: selection.product?.name || "",
+    billingPlanId: selection.plan?.id || "",
+    billingPlanName: selection.plan?.name || "",
+    billingIntervalUnit: selection.plan?.intervalUnit || "",
+    billingIntervalCount: selection.plan?.intervalCount || 0,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    cnyCentsPerUnit: paypalCnyCentsPerUnit(config.wallet),
+    currency: STRIPE_CURRENCY.toUpperCase(),
+    payableAmount: amount,
+    payableAmountText: amount.toFixed(2),
+    asset: STRIPE_CURRENCY.toUpperCase(),
+    network: "Stripe",
+    chain: "stripe",
+    status: "pending",
+    sourceOrigin: origin,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await createWalletOrderInDb(order);
+  const params = new URLSearchParams();
+  params.set("mode", "payment");
+  params.set("success_url", `${origin}/?stripe_session_id={CHECKOUT_SESSION_ID}#topups`);
+  params.set("cancel_url", `${origin}/#topups`);
+  params.set("client_reference_id", order.id);
+  params.set("expires_at", String(Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_SESSION_TTL_SECONDS));
+  params.set("line_items[0][price_data][currency]", STRIPE_CURRENCY);
+  params.set("line_items[0][price_data][unit_amount]", String(amountCents));
+  params.set("line_items[0][price_data][product_data][name]", stripeCheckoutProductName(order));
+  params.set("line_items[0][quantity]", "1");
+  params.set("metadata[order_id]", order.id);
+  params.set("metadata[user_id]", auth.user.id);
+  params.set("metadata[tenant_id]", order.tenantId);
+  params.set("metadata[order_kind]", order.orderKind);
+  try {
+    const session = await stripeRequest("/v1/checkout/sessions", params);
+    order.stripeCheckoutSessionId = String(session.id || "");
+    order.stripePaymentStatus = String(session.payment_status || "");
+    order.stripePaymentIntentId = String(session.payment_intent || "");
+    order.stripeCheckoutUrl = String(session.url || "");
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, {
+      ok: true,
+      checkoutUrl: order.stripeCheckoutUrl,
+      order: publicTopupOrder(order, config.wallet, tenantOptions),
+    });
+  } catch (error) {
+    order.status = "failed";
+    order.note = error.message || "Stripe checkout creation failed.";
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order).catch(() => {});
+    return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "STRIPE_CHECKOUT_FAILED", message: "Stripe checkout could not be created." });
+  }
+}
+
+function verifyStripeSignature(rawBody, signatureHeader) {
+  if (!STRIPE_WEBHOOK_SECRET || !rawBody || !signatureHeader) return false;
+  const values = {};
+  for (const part of String(signatureHeader).split(",")) {
+    const [key, value] = part.split("=", 2);
+    if (key && value) values[key] = value;
+  }
+  const timestamp = Number(values.t || 0);
+  const signature = String(values.v1 || "");
+  if (!timestamp || !signature || Math.abs(Date.now() / 1000 - timestamp) > 300) return false;
+  const expected = crypto.createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(`${timestamp}.${rawBody}`, "utf8").digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signature, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+async function handleStripeWebhook(req, res) {
+  const rawBody = await readRawBody(req, 2 * 1024 * 1024);
+  if (!STRIPE_WEBHOOK_SECRET) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED" });
+  if (!verifyStripeSignature(rawBody, req.headers["stripe-signature"])) return sendJson(res, 400, { ok: false, code: "STRIPE_SIGNATURE_INVALID", message: "Invalid Stripe webhook signature." });
+  let event;
+  try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid Stripe webhook body." }); }
+  if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") return sendJson(res, 200, { ok: true, ignored: true });
+  const session = event.data?.object || {};
+  const orderId = String(session.metadata?.order_id || session.client_reference_id || "").trim();
+  if (!orderId) return sendJson(res, 200, { ok: true, ignored: true, reason: "missing_order_id" });
+  const db = await readDb();
+  const order = await getWalletOrderByIdInDb(orderId) || (db.walletOrders || []).find((entry) => entry.id === orderId);
+  if (!order || order.paymentProvider !== "stripe") return sendJson(res, 200, { ok: true, ignored: true, reason: "order_not_found" });
+  const amountTotal = Number(session.amount_total || 0);
+  const currency = String(session.currency || "").toLowerCase();
+  if (amountTotal !== stripeCheckoutAmountCents(order) || currency !== STRIPE_CURRENCY) {
+    order.note = "Stripe checkout amount or currency mismatch. Manual review required.";
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 400, { ok: false, code: "STRIPE_AMOUNT_MISMATCH" });
+  }
+  order.stripeCheckoutSessionId = String(session.id || order.stripeCheckoutSessionId || "");
+  order.stripePaymentIntentId = String(session.payment_intent || order.stripePaymentIntentId || "");
+  order.stripePaymentStatus = String(session.payment_status || "paid");
+  const config = await readAppConfig();
+  const settled = await safeSettleWalletOrderPayment(db, order, config, { note: "Paid by Stripe Checkout webhook." });
+  await updateWalletOrderInDb(order);
+  if (!settled.settled && settled.error) return sendJson(res, 500, { ok: false, message: "Stripe payment received but settlement failed." });
+  return sendJson(res, 200, { ok: true, settled: true });
+}
+
 async function paypalTopupPackagesForRequest(req, user = null) {
   const tenant = requestTenantDescriptor(req);
   if (tenant.subscriptions) {
@@ -32259,6 +32452,9 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: order.stripePaymentIntentId || "",
+    stripePaymentStatus: order.stripePaymentStatus || "",
     createdAt: order.createdAt || "",
     paidAt: order.paidAt || "",
     note: order.note || "",
@@ -40161,6 +40357,18 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") {
       return await handlePayPalConfig(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/pay/stripe/config") {
+      return sendJson(res, 200, { ok: true, stripe: stripePublicConfig() });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/stripe/checkout-sessions") {
+      return await createStripeCheckoutSession(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/stripe/webhook") {
+      return await handleStripeWebhook(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/orders") {

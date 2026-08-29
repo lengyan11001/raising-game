@@ -5291,12 +5291,12 @@ async function startEntitlementCheckout(body = {}, statusElement = null) {
   if (statusElement) statusElement.textContent = "Creating secure checkout...";
   const returnUrl = `${window.location.origin}${window.location.pathname}#${state.tab || "referral"}`;
   try {
-    const payload = await requestJson("/api/pay/paypal/checkout-sessions", {
+    const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
       method: "POST",
       body: { ...body, returnUrl, cancelUrl: returnUrl },
     });
     const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
-    if (!checkoutUrl) throw new Error("PayPal checkout page was not created.");
+    if (!checkoutUrl) throw new Error("Stripe checkout page was not created.");
     window.location.href = checkoutUrl;
   } catch (error) {
     if (statusElement) statusElement.textContent = error.message || String(error);
@@ -5325,11 +5325,11 @@ function openBillingPaymentChoice({ billingPlanId = "", productId = "", statusEl
   else state.selectedProductId = "";
   state.selectedTopupPackageId = "";
   prepareModalOpen();
-  setTopupMethod("paypal", { skipSummary: true });
+  setTopupMethod("usdt", { skipSummary: true });
   setTopupStep("payment");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
-  if (payPalCheckoutVisible()) renderPayPalCheckout();
+  if (stripeCheckoutVisible()) renderStripeCheckout();
   syncTopupAutoRefresh();
   refreshIcons();
 }

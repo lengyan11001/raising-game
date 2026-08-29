@@ -858,22 +858,22 @@
                 <strong id="topupSelectedPackage">0 credits</strong>
               </div>
               <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
-                <button class="topup-method-tab is-active" type="button" data-topup-method="paypal" role="tab" aria-selected="true">
+                <button class="topup-method-tab is-active" type="button" data-topup-method="stripe" role="tab" aria-selected="true">
                   <i data-lucide="credit-card"></i>
-                  <span data-i18n="topup.paypalTab">PayPal</span>
+                  <span data-i18n="topup.stripeTab">Stripe</span>
                 </button>
                 <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
                   <i data-lucide="wallet"></i>
                   <span data-i18n="topup.usdtTab">USDT</span>
                 </button>
               </div>
-              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal">
-                <div class="paypal-checkout" id="paypalBox" hidden>
+              <div class="topup-method-panel" id="topupStripePanel" data-topup-panel="stripe">
+                <div class="paypal-checkout stripe-checkout" id="stripeBox" hidden>
                   <div>
-                    <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
-                    <small id="paypalStatus" data-i18n="topup.paypalLoading">Loading PayPal...</small>
+                    <span data-i18n="topup.stripeTitle">Stripe Checkout</span>
+                    <small id="stripeStatus" data-i18n="topup.stripeLoading">Loading Stripe...</small>
                   </div>
-                  <div class="paypal-buttons" id="paypalButtons"></div>
+                  <div class="paypal-buttons" id="stripeButtons"></div>
                 </div>
               </div>
               <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
