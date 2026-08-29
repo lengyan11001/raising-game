@@ -461,7 +461,7 @@ function hasPollableGenerationRecords(records = []) {
 }
 
 function recordPreviewUrl(record = {}) {
-  return recordVideoUrl(record) || recordRemoteVideoUrl(record) || recordImageResultUrl(record) || "";
+  return recordRemoteVideoUrl(record) || recordVideoUrl(record) || recordImageResultUrl(record) || "";
 }
 
 function generationRecordSignature(record = {}) {
@@ -1770,10 +1770,12 @@ function historyRecordHtml(r, idx) {
 /* ============ GENERATION RECORDS ============ */
 function recordVideoUrl(record) {
   return toAbsoluteHttpUrl(
+    record.remoteVideoUrl ||
+    record.providerVideoUrl ||
+    record.upstreamVideoUrl ||
+    record.videoUrl ||
     record.cdnVideoUrl ||
     record.localVideoUrl ||
-    record.videoUrl ||
-    record.remoteVideoUrl ||
     "",
   );
 }

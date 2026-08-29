@@ -17232,6 +17232,37 @@ const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
 const generatedMediaMaintenanceQueue = [];
 const generatedMediaMaintenanceQueued = new Set();
 let generatedMediaMaintenanceRunning = false;
+const generatedVideoDownloadQueued = new Set();
+
+function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download") {
+  const cleanTaskId = String(taskId || "").trim();
+  const remote = String(remoteVideoUrl || "").trim();
+  if (!cleanTaskId || !remote || generatedVideoDownloadQueued.has(cleanTaskId)) return false;
+  generatedVideoDownloadQueued.add(cleanTaskId);
+  setImmediate(() => Promise.resolve().then(async () => {
+    const current = await getGenerationRecord(cleanTaskId);
+    if (!current || current.localVideoUrl) return;
+    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote);
+    await upsertAndSettleGenerationRecord({
+      taskId: cleanTaskId,
+      status: current.status,
+      remoteVideoUrl: remote,
+      localVideoUrl: downloaded.localVideoUrl || "",
+      localVideoPath: downloaded.localVideoPath || "",
+      localPosterUrl: downloaded.localPosterUrl || "",
+      localPosterPath: downloaded.localPosterPath || "",
+      cdnVideoUrl: downloaded.cdnVideoUrl || "",
+      cdnPosterUrl: downloaded.cdnPosterUrl || "",
+      cdnError: downloaded.cdnError || "",
+      error: current.error || "",
+    }, reason);
+  }).catch((error) => {
+    console.warn("[generated-video-background-download-failed]", cleanTaskId, error.message || error);
+  }).finally(() => {
+    generatedVideoDownloadQueued.delete(cleanTaskId);
+  }));
+  return true;
+}
 
 function generationRecordNeedsMediaMaintenance(record = {}) {
   if (!record?.taskId || !record.localVideoUrl || generationRecordIsApiTask(record)) return false;
@@ -36279,28 +36310,18 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
   const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
   const task = gatewayTask || normalizeTask(raw);
-  let localVideoUrl = "";
-  let localVideoPath = "";
-  let cdnVideoUrl = "";
-  let cdnPosterUrl = "";
-  let cdnError = "";
-  let downloadError = "";
-  if (isSucceededStatus(task.status) && task.videoUrl) {
-    try {
-      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
-      localVideoUrl = localVideo.localVideoUrl;
-      localVideoPath = localVideo.localVideoPath;
-      cdnVideoUrl = localVideo.cdnVideoUrl || "";
-      cdnPosterUrl = localVideo.cdnPosterUrl || "";
-      cdnError = localVideo.cdnError || "";
-    } catch (error) {
-      downloadError = error.message || "Failed to download scene video.";
-    }
-  }
-
   const nowIso = new Date().toISOString();
   const sceneVideos = { ...(record.sceneVideos || {}) };
   const previous = sceneVideos[matchedVideoKey] || {};
+  const localVideoUrl = previous.localVideoUrl || "";
+  const localVideoPath = previous.localVideoPath || "";
+  const cdnVideoUrl = previous.cdnVideoUrl || "";
+  const cdnPosterUrl = previous.cdnPosterUrl || "";
+  const cdnError = previous.cdnError || "";
+  const downloadError = "";
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    queueGeneratedVideoDownload(task.taskId || taskId, task.videoUrl, "character-scene-background-download");
+  }
   sceneVideos[matchedVideoKey] = {
     ...previous,
     sceneId: previous.sceneId || matchedSceneBaseId,
@@ -39128,13 +39149,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
       let downloadError = "";
       const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
       if (isSucceededStatus(task.status) && remoteVideoUrl) {
-        try {
-          const localVideo = await downloadGeneratedVideo(taskId, remoteVideoUrl);
-          localVideoUrl = localVideo.localVideoUrl;
-          localVideoPath = localVideo.localVideoPath;
-        } catch (error) {
-          downloadError = error.message || "Failed to download generated video.";
-        }
+        queueGeneratedVideoDownload(taskId, remoteVideoUrl, "generation-detail-background-download");
       }
       nextRecord = await upsertAndSettleGenerationRecord({
         taskId,
@@ -39810,18 +39825,11 @@ async function handleGetSceneVideo(req, res, taskId) {
   const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
   const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
   const task = gatewayTask || normalizeTask(raw);
-  let localVideoUrl = "";
-  let localVideoPath = "";
-  let downloadError = "";
-
+  const localVideoUrl = "";
+  const localVideoPath = "";
+  const downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
-    try {
-      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
-      localVideoUrl = localVideo.localVideoUrl;
-      localVideoPath = localVideo.localVideoPath;
-    } catch (error) {
-      downloadError = error.message || "Failed to download generated video.";
-    }
+    queueGeneratedVideoDownload(task.taskId || taskId, task.videoUrl, "scene-background-download");
   }
 
   await upsertAndSettleGenerationRecord({
@@ -39839,7 +39847,7 @@ async function handleGetSceneVideo(req, res, taskId) {
     task: {
       taskId: task.taskId || taskId,
       status: task.status,
-      videoUrl: localVideoUrl || task.videoUrl,
+      videoUrl: task.videoUrl || localVideoUrl,
       remoteVideoUrl: task.videoUrl,
       localVideoUrl,
       error: task.error || downloadError,

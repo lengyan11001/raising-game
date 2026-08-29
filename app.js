@@ -263,6 +263,9 @@ const state = {
   pendingSceneEntry: null,
   pendingScene: scenes[0],
   uploadedDataUrl: "",
+  pendingUploadFile: null,
+  pendingUploadObjectUrl: "",
+  uploadPreparing: false,
   pendingPayment: null,
   characterTimer: null,
   characterRequestId: 0,
@@ -1024,7 +1027,15 @@ function showVideoResult(videoUrl) {
 }
 
 function generationRecordVideoUrl(record) {
-  return String(record?.localVideoUrl || record?.videoUrl || record?.remoteVideoUrl || "").trim();
+  return String(
+    record?.remoteVideoUrl ||
+    record?.providerVideoUrl ||
+    record?.upstreamVideoUrl ||
+    record?.videoUrl ||
+    record?.localVideoUrl ||
+    record?.cdnVideoUrl ||
+    "",
+  ).trim();
 }
 
 function generationRecordKindLabel(record) {
@@ -1155,6 +1166,7 @@ async function playGenerationHistoryRecord(record, button) {
     if (existingUrl) showVideoResult(existingUrl);
     return;
   }
+  if (existingUrl) showVideoResult(existingUrl);
   const previousHtml = button?.innerHTML || "";
   if (button) {
     button.disabled = true;
@@ -1165,11 +1177,9 @@ async function playGenerationHistoryRecord(record, button) {
     const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
     const nextRecord = payload.record || {};
     const videoUrl = generationRecordVideoUrl(nextRecord);
-    if (videoUrl) {
+    if (videoUrl && videoUrl !== existingUrl) {
       showVideoResult(videoUrl);
-    } else if (existingUrl) {
-      showVideoResult(existingUrl);
-    } else {
+    } else if (!videoUrl && !existingUrl) {
       updateJob("Video not ready", "Refresh the record later. The generation task is still in progress.", 0);
     }
     loadGenerationHistory();
@@ -2961,7 +2971,7 @@ function pollUserCharacterSceneTask(taskId, scene, characterId, requestId, entry
 
       if (["succeeded", "success", "done", "completed"].includes(status)) {
         window.clearInterval(state.sceneTimer);
-        const playbackUrl = result.sceneVideo?.videoUrl || task.localVideoUrl || task.videoUrl || "";
+        const playbackUrl = result.sceneVideo?.remoteVideoUrl || result.sceneVideo?.videoUrl || task.remoteVideoUrl || task.videoUrl || task.localVideoUrl || "";
         bumpStats({ bond: 4, mood: 6, energy: -5 });
         bumpIntimacy(characterId, 1);
         if (playbackUrl) showVideoResult(playbackUrl);
@@ -3015,7 +3025,7 @@ function pollSceneVideoTask(taskId, scene, prompt, requestId, entry = null) {
 
       if (["succeeded", "success", "done", "completed"].includes(status)) {
         window.clearInterval(state.sceneTimer);
-        const playbackUrl = task.localVideoUrl || task.videoUrl || "";
+        const playbackUrl = task.remoteVideoUrl || task.videoUrl || task.localVideoUrl || "";
         bumpStats({ bond: 4, mood: 6, energy: -5 });
         const activeItem = getActiveHomeVideoItem();
         if (activeItem?.id) bumpIntimacy(activeItem.id, 1);
@@ -3063,6 +3073,19 @@ function handleUpload(event) {
   const [file] = event.target.files;
   if (!file) return;
 
+  if (file) {
+    if (state.pendingUploadObjectUrl) URL.revokeObjectURL(state.pendingUploadObjectUrl);
+    state.pendingUploadFile = file;
+    state.pendingUploadObjectUrl = URL.createObjectURL(file);
+    state.uploadedDataUrl = "";
+    state.selectedUserAssetId = "";
+    els.uploadPreview.src = state.pendingUploadObjectUrl;
+    els.uploadPreview.classList.add("ready");
+    updateJob("Photo ready", "Preview is shown locally. It will upload when you submit generation.", 0);
+    els.uploadGenerateBtn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return;
+  }
+
   const reader = new FileReader();
   reader.addEventListener("load", async () => {
     state.uploadedDataUrl = String(reader.result);
@@ -3087,6 +3110,39 @@ function handleUpload(event) {
     }
   });
   reader.readAsDataURL(file);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("Failed to read the selected photo.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function ensurePendingUserAssetUploaded() {
+  if (state.selectedUserAssetId) return state.selectedUserAssetId;
+  const file = state.pendingUploadFile;
+  if (!file || state.uploadPreparing) return "";
+  state.uploadPreparing = true;
+  try {
+    updateJob("Uploading photo", "Preparing the selected photo for generation...", 8);
+    state.uploadedDataUrl = await readFileAsDataUrl(file);
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: JSON.stringify({ name: file.name, dataUrl: state.uploadedDataUrl }),
+    });
+    if (payload.asset) {
+      state.userAssets.unshift(payload.asset);
+      state.selectedUserAssetId = payload.asset.id;
+      state.pendingUploadFile = null;
+      renderAssetLibrary();
+    }
+    return state.selectedUserAssetId;
+  } finally {
+    state.uploadPreparing = false;
+  }
 }
 
 function handleChat() {
@@ -3214,10 +3270,20 @@ function bindEvents() {
 
   els.uploadInput.addEventListener("change", handleUpload);
 
-  els.uploadGenerateBtn.addEventListener("click", () => {
-    if (!state.selectedUserAssetId) {
+  els.uploadGenerateBtn.addEventListener("click", async () => {
+    if (!state.selectedUserAssetId && !state.pendingUploadFile) {
       updateJob("Upload a reference first", "Upload a photo, then you can start a paid generation.", 0);
       return;
+    }
+
+    if (!state.selectedUserAssetId && state.pendingUploadFile) {
+      try {
+        const assetId = await ensurePendingUserAssetUploaded();
+        if (!assetId) throw new Error("Photo upload did not return an asset id.");
+      } catch (error) {
+        updateJob("Asset upload failed", error.message || String(error), 0);
+        return;
+      }
     }
 
     openPayment({
