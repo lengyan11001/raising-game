@@ -383,6 +383,8 @@ const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || Boolean(RESEND_API_KEY);
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "Vipeak <no-reply@123vips.com>").trim();
 const emailChallenges = new Map();
+const publicConfigCache = new Map();
+let publicPresetsCache = { value: null, expiresAt: 0 };
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -39890,17 +39892,22 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/config/public") {
       const tenantOptions = requestTenantOptions(req);
       const isToolOnly = Boolean(tenantOptions.toolOnly);
-      let config = await readAppConfig({ includeHomeItems: !isToolOnly });
-      if (!isToolOnly) {
-        config = await ensureSceneEntriesPersisted(config);
-        config = await refreshCompletedHomeVideoItems(config);
-      }
       const auth = getBearerToken(req) ? await getAuth(req) : { user: null };
-      const publicView = await attachBillingViewToPublicConfig(
-        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
-        req,
-        auth?.user ? auth : null,
-      );
+      const cacheKey = `${requestHostname(req)}:${isToolOnly ? "tool" : "main"}`;
+      let publicView = !auth.user ? publicConfigCache.get(cacheKey)?.value : null;
+      if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {
+        let config = await readAppConfig({ includeHomeItems: !isToolOnly });
+        if (!isToolOnly) {
+          config = await ensureSceneEntriesPersisted(config);
+          config = await refreshCompletedHomeVideoItems(config);
+        }
+        publicView = await attachBillingViewToPublicConfig(
+          publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
+          req,
+          auth?.user ? auth : null,
+        );
+        if (!auth.user) publicConfigCache.set(cacheKey, { value: publicView, expiresAt: Date.now() + 30_000 });
+      }
       const cacheControl = getBearerToken(req)
         ? "private, no-store"
         : "public, max-age=30, s-maxage=30, stale-while-revalidate=120";
@@ -39912,7 +39919,12 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
-      const presets = await getOurDreamPresetLibrary();
+      let presets = publicPresetsCache.expiresAt > Date.now() ? publicPresetsCache.value : null;
+      if (!presets) {
+        // const presets = await getOurDreamPresetLibrary(); (cached below)
+        presets = await getOurDreamPresetLibrary();
+        publicPresetsCache = { value: presets, expiresAt: Date.now() + 300_000 };
+      }
       return sendJson(res, 200, { ok: true, presets }, {
         cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
       });
