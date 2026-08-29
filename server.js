@@ -15899,7 +15899,10 @@ async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = false) 
     asset: prepared,
     referenceAssetUri: preprocess ? (prepared.syntheticReferenceAssetUri || prepared.assetUri || "") : (prepared.assetUri || ""),
     imageUrl: preprocess
-      ? (prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.publicUrl || prepared.localUrl || "")
+      // The local character-reference path is redirected to R2 by serveStatic.
+      // Persist the CDN URL when available so task history does not point at
+      // an object key that was never uploaded under assets/user-characters.
+      ? (publicImageUrl || prepared.syntheticReferencePublicUrl || prepared.publicUrl || prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.localUrl || "")
       : (prepared.publicUrl || prepared.localUrl || ""),
     publicImageUrl,
     sourceImageUrl: prepared.sourceImageUrl || prepared.localUrl || "",
