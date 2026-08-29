@@ -1299,11 +1299,12 @@ const DEFAULT_CONFIG = {
   ],
 };
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
+    "cache-control": cacheControl,
+    "vary": "Accept-Encoding",
   });
   res.end(body);
 }
@@ -39895,7 +39896,10 @@ async function handleRequest(req, res) {
         req,
         auth?.user ? auth : null,
       );
-      return sendJson(res, 200, { ok: true, config: publicView });
+      const cacheControl = getBearerToken(req)
+        ? "private, no-store"
+        : "public, max-age=30, s-maxage=30, stale-while-revalidate=120";
+      return sendJson(res, 200, { ok: true, config: publicView }, { cacheControl });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
@@ -39904,7 +39908,9 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
       const presets = await getOurDreamPresetLibrary();
-      return sendJson(res, 200, { ok: true, presets });
+      return sendJson(res, 200, { ok: true, presets }, {
+        cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
+      });
     }
 
     if (req.method === "GET" && url.pathname === "/api/chat/conversations") {

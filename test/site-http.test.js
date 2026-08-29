@@ -60,6 +60,13 @@ test("HTTPS responses receive HSTS and the shared security policy", () => {
   assert.equal(headers.get("x-frame-options"), "DENY");
 });
 
+test("large public catalogs use edge caching while authenticated config stays private", () => {
+  assert.match(serverSource, /function sendJson\(res, statusCode, payload, \{ cacheControl = "no-store" \} = \{\}\)/);
+  assert.match(serverSource, /public, max-age=30, s-maxage=30, stale-while-revalidate=120/);
+  assert.match(serverSource, /private, no-store/);
+  assert.match(serverSource, /public, max-age=300, s-maxage=300, stale-while-revalidate=3600/);
+});
+
 test("Alibaba model exposure is independently switchable without disabling the API", () => {
   assert.match(serverSource, /PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED/);
   assert.match(serverSource, /PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED/);
