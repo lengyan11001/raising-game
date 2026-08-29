@@ -507,6 +507,7 @@ const INTERNAL_CNY_PER_USD = clampNumber(process.env.INTERNAL_CNY_PER_USD || pro
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, INTERNAL_CNY_PER_USD * 100, 1, 100000);
 const UPSTREAM_USD_CNY_RATE = clampNumber(process.env.UPSTREAM_USD_CNY_RATE || process.env.SEEDANCE_USD_CNY_RATE || process.env.USD_CNY_RATE, INTERNAL_CNY_PER_USD, 0.0001, 100000);
 const PAYPAL_ENV = /sandbox/i.test(process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || "") ? "sandbox" : "live";
+const PAYPAL_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PAYPAL_ENABLED || ""));
 const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
 const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim();
 const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
@@ -9191,7 +9192,7 @@ function startWalletScanScheduler() {
 }
 
 function paypalEnabled() {
-  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+  return Boolean(PAYPAL_ENABLED && PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
 }
 
 function randomSecretToken(prefix = "token") {
