@@ -65,6 +65,7 @@ test("large public catalogs use edge caching while authenticated config stays pr
   assert.match(serverSource, /public, max-age=30, s-maxage=30, stale-while-revalidate=120/);
   assert.match(serverSource, /private, no-store/);
   assert.match(serverSource, /public, max-age=300, s-maxage=300, stale-while-revalidate=3600/);
+  assert.match(serverSource, /cloudflare-cdn-cache-control/);
 });
 
 test("Alibaba model exposure is independently switchable without disabling the API", () => {

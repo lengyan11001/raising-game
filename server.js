@@ -1301,11 +1301,16 @@ const DEFAULT_CONFIG = {
 
 function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) {
   const body = JSON.stringify(payload);
-  res.writeHead(statusCode, {
+  const headers = {
     "content-type": "application/json; charset=utf-8",
     "cache-control": cacheControl,
     "vary": "Accept-Encoding",
-  });
+  };
+  if (cacheControl.startsWith("public")) {
+    headers["cdn-cache-control"] = cacheControl;
+    headers["cloudflare-cdn-cache-control"] = cacheControl;
+  }
+  res.writeHead(statusCode, headers);
   res.end(body);
 }
 
