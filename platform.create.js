@@ -890,6 +890,9 @@ function advancedPendingReferences(provider = currentAdvancedProvider()) {
 }
 
 function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
+  const previewUrl = typeof Blob !== "undefined" && file instanceof Blob && typeof URL !== "undefined"
+    ? URL.createObjectURL(file)
+    : "";
   const ref = {
     pendingId: `pending-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     provider: normalizeAdvancedProvider(options.provider || currentAdvancedProvider()),
@@ -897,6 +900,7 @@ function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
     isPending: true,
     name: file?.name || options.name || (kind === "audio" ? "Audio reference" : kind === "video" ? "Video reference" : "Image reference"),
     fileName: file?.name || options.fileName || "",
+    previewUrl,
     order: options.order || nextAdvancedReferenceOrder(),
   };
   state.advancedPendingReferences = [...(state.advancedPendingReferences || []), ref];
@@ -907,6 +911,8 @@ function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
 
 function removeAdvancedPendingReference(pendingId = "", { render = true } = {}) {
   if (!pendingId) return;
+  const removed = (state.advancedPendingReferences || []).find((item) => item?.pendingId === pendingId);
+  if (removed?.previewUrl?.startsWith("blob:") && typeof URL !== "undefined") URL.revokeObjectURL(removed.previewUrl);
   state.advancedPendingReferences = (state.advancedPendingReferences || []).filter((item) => item?.pendingId !== pendingId);
   if (render) {
     renderAdvancedReferencePreviews();
@@ -4115,8 +4121,10 @@ function renderAdvancedReferencePreviews() {
         ? `data-remove-advanced-document="${index}"`
       : `data-remove-shared-${kind}="${index}"`;
     const pendingText = t("advanced.uploadingReference", {}, "Uploading...");
-    const media = pending
-      ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
+    const media = pending && url && (kind === "image" || kind === "video")
+      ? `<div class="advanced-reference-pending has-preview">${kind === "video" ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<div class="advanced-reference-upload-status"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div></div>`
+      : pending
+        ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
       ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
       : kind === "audio"

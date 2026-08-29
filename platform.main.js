@@ -442,19 +442,31 @@ els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedSeedanceFirstFramePreview) {
+    els.advancedSeedanceFirstFramePreview.src = localPreviewUrl;
+    els.advancedSeedanceFirstFramePreview.classList.add("is-visible");
+    els.advancedSeedanceFirstFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   try {
     const ref = await uploadAdvancedImageReference(file);
-    if (!ref) return;
+    if (!ref) {
+      if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+      return;
+    }
     state.advancedSeedanceFirstFrameDataUrl = ref.dataUrl;
     state.advancedSeedanceFirstFrameAssetId = ref.assetId;
     state.advancedFirstFrameAssetId = ref.assetId;
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     els.advancedSeedanceFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     updateAdvancedModelControls();
     return;
   }
   state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl;
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+  if (els.advancedSeedanceFirstFramePreview) els.advancedSeedanceFirstFramePreview.src = state.advancedSeedanceFirstFrameDataUrl;
   els.advancedSeedanceFirstFrame.value = "";
   updateAdvancedModelControls();
 });
@@ -467,17 +479,28 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedSeedanceLastFramePreview) {
+    els.advancedSeedanceLastFramePreview.src = localPreviewUrl;
+    els.advancedSeedanceLastFramePreview.classList.add("is-visible");
+    els.advancedSeedanceLastFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   try {
     const ref = await uploadAdvancedImageReference(file);
-    if (!ref) return;
+    if (!ref) {
+      if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+      return;
+    }
     state.advancedSeedanceLastFrameDataUrl = ref.dataUrl;
     state.advancedSeedanceLastFrameAssetId = ref.assetId;
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     els.advancedSeedanceLastFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     updateAdvancedModelControls();
     return;
   }
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
@@ -490,16 +513,27 @@ els.advancedWanFirstFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedWanFirstFramePreview) {
+    els.advancedWanFirstFramePreview.src = localPreviewUrl;
+    els.advancedWanFirstFramePreview.classList.add("is-visible");
+    els.advancedWanFirstFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   let ref = null;
   try {
     ref = await uploadAdvancedImageReference(file);
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     els.advancedWanFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     updateAdvancedModelControls();
     return;
   }
-  if (!ref) return;
+  if (!ref) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+    return;
+  }
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
   state.advancedReferenceImages = [ref];
   state.advancedUploadDataUrl = ref.dataUrl;
   state.advancedFirstFrameAssetId = ref.assetId;
@@ -533,12 +567,22 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     if (els.advancedNote) els.advancedNote.textContent = "Last frame image must be 20MB or smaller.";
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedWanLastFramePreview) {
+    els.advancedWanLastFramePreview.src = localPreviewUrl;
+    els.advancedWanLastFramePreview.classList.add("is-visible");
+    els.advancedWanLastFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   try {
     const ref = await uploadAdvancedImageReference(file);
-    if (!ref) return;
+    if (!ref) {
+      if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+      return;
+    }
     state.advancedWanLastFrameDataUrl = ref.dataUrl;
     state.advancedWanLastFrameAssetId = ref.assetId;
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     state.advancedWanLastFrameDataUrl = "";
     state.advancedWanLastFrameAssetId = "";
     els.advancedWanLastFrame.value = "";
@@ -546,6 +590,7 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
   if (els.advancedWanLastFramePreview) {
     els.advancedWanLastFramePreview.src = state.advancedWanLastFrameDataUrl;
     els.advancedWanLastFramePreview.classList.add("is-visible");

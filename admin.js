@@ -33,8 +33,6 @@ function pricingMultiplierText(value) {
 
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
-  { id: "platform", title: "首页广场", render: renderPlatform },
-  { id: "advanced-cases", title: "高级案例", render: renderAdvancedCases },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "users", title: "用户管理", render: renderUsers },
@@ -52,6 +50,7 @@ ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0
   render: renderGeo,
 });
 const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "undress-config", "config"]);
+const REMOVED_ADMIN_ROUTES = new Set(["platform", "advanced-cases"]);
 
 function isTenantAdminHost() {
   return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(window.location.hostname || "");
@@ -406,7 +405,7 @@ function routeFromHash() {
   const hash = window.location.hash.replace(/^#\//, "").trim();
   const routes = visibleAdminRoutes();
   const route = routes.find((r) => r.id === hash) || routes[0] || ROUTES[0];
-  if (hash && route.id !== hash && isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(hash)) {
+  if (hash && route.id !== hash && (REMOVED_ADMIN_ROUTES.has(hash) || (isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(hash)))) {
     window.history.replaceState(null, "", `#/${route.id}`);
   }
   const routeId = route.id;
@@ -2136,26 +2135,6 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
       if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt 已复制。");
     });
   });
-  pane.querySelectorAll("[data-act='promote-advanced']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        const record = records[Number(button.dataset.index || 0)];
-        if (record) promoteRecordToAdvancedCaseWithCategory(await fetchAdminGenerationRecordDetail(record), button);
-      } catch (error) {
-        toast(error.message || "加载详情失败。", "error");
-      }
-    });
-  });
-  pane.querySelectorAll("[data-act='promote-platform']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        const record = records[Number(button.dataset.index || 0)];
-        if (record) promoteRecordToPlatformGallery(await fetchAdminGenerationRecordDetail(record), button);
-      } catch (error) {
-        toast(error.message || "加载详情失败。", "error");
-      }
-    });
-  });
   pane.querySelectorAll("[data-act='attach-character-video']").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
@@ -2207,8 +2186,6 @@ function generationRecordRowHtml(record, index) {
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>详情</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
         ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="attach-character-video" data-index="${index}"><i data-lucide="list-video"></i>角色视频</button>` : ""}
-        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="promote-platform" data-index="${index}"><i data-lucide="layout-template"></i>广场</button>` : ""}
-        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>高级案例</button>` : ""}
       </td>
     </tr>
   `;
