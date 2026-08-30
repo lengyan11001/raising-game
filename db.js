@@ -814,7 +814,10 @@ async function readAppDbFromTables(defaultDb = {}) {
     query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
     query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
     query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
+    // The admin recharge ledger needs the complete credit history. Limiting
+    // this read to the newest rows makes older, valid entries disappear from
+    // the admin view even though they remain in PostgreSQL.
+    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
