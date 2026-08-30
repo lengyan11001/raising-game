@@ -543,6 +543,10 @@ const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || "").trim();
 const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 const STRIPE_CURRENCY = String(process.env.STRIPE_CURRENCY || "usd").trim().toLowerCase() || "usd";
 const STRIPE_CHECKOUT_SESSION_TTL_SECONDS = Math.max(300, Math.min(86400, Number(process.env.STRIPE_CHECKOUT_SESSION_TTL_SECONDS || 1800) || 1800));
+const STRIPE_CHECKOUT_BASE_URL = String(
+  process.env.STRIPE_CHECKOUT_BASE_URL ||
+  "https://pay.storycut.club",
+).trim().replace(/\/+$/, "");
 const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
@@ -1659,9 +1663,13 @@ function paymentCheckoutHostname() {
   return normalizeHostname(PAYPAL_CHECKOUT_BASE_URL);
 }
 
+function stripeCheckoutHostname() {
+  return normalizeHostname(STRIPE_CHECKOUT_BASE_URL);
+}
+
 function isPaymentHostRequest(req) {
   const host = requestHostname(req);
-  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname()));
+  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname() || host === stripeCheckoutHostname()));
 }
 
 function sendPayPalCheckoutHostRequired(res) {
@@ -31544,6 +31552,55 @@ function stripeCheckoutAmountCents(order = {}) {
   return Math.round(Number(order.baseAmount || 0) * 100);
 }
 
+function stripeCheckoutSessionExpired(order = {}) {
+  const createdMs = Date.parse(order.createdAt || order.updatedAt || "");
+  if (!Number.isFinite(createdMs)) return false;
+  return Date.now() - createdMs > STRIPE_CHECKOUT_SESSION_TTL_SECONDS * 1000;
+}
+
+function stripeCheckoutUrl(orderId = "") {
+  const url = new URL("/", `${STRIPE_CHECKOUT_BASE_URL}/`);
+  url.searchParams.set("stripe_sid", String(orderId || ""));
+  return url.toString();
+}
+
+async function findStripeCheckoutOrder(orderId = "") {
+  const id = String(orderId || "").trim();
+  if (!id) return null;
+  const db = await readDb();
+  const stored = await getWalletOrderByIdInDb(id);
+  if (stored && String(stored.paymentProvider || "").toLowerCase() === "stripe") return stored;
+  return (db.walletOrders || []).find((order) => (
+    String(order.id || "") === id && String(order.paymentProvider || "").toLowerCase() === "stripe"
+  )) || null;
+}
+
+async function startStripeCheckoutForOrder(order, config, { requestOrigin = "" } = {}) {
+  const params = new URLSearchParams();
+  const origin = String(order.sourceOrigin || requestOrigin || "https://123vips.com").replace(/\/+$/, "");
+  params.set("mode", "payment");
+  params.set("success_url", `${origin}/?stripe_session_id={CHECKOUT_SESSION_ID}#topups`);
+  params.set("cancel_url", `${origin}/#topups`);
+  params.set("client_reference_id", order.id);
+  params.set("expires_at", String(Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_SESSION_TTL_SECONDS));
+  params.set("line_items[0][price_data][currency]", STRIPE_CURRENCY);
+  params.set("line_items[0][price_data][unit_amount]", String(stripeCheckoutAmountCents(order)));
+  params.set("line_items[0][price_data][product_data][name]", stripeCheckoutProductName(order));
+  params.set("line_items[0][quantity]", "1");
+  params.set("metadata[order_id]", order.id);
+  params.set("metadata[user_id]", order.userId || "");
+  params.set("metadata[tenant_id]", order.tenantId || "");
+  params.set("metadata[order_kind]", order.orderKind || "topup");
+  const session = await stripeRequest("/v1/checkout/sessions", params);
+  order.stripeCheckoutSessionId = String(session.id || "");
+  order.stripePaymentStatus = String(session.payment_status || "");
+  order.stripePaymentIntentId = String(session.payment_intent || "");
+  order.stripeCheckoutUrl = String(session.url || "");
+  order.updatedAt = new Date().toISOString();
+  await updateWalletOrderInDb(order);
+  return session;
+}
+
 async function createStripeCheckoutSession(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -31604,33 +31661,32 @@ async function createStripeCheckoutSession(req, res) {
     updatedAt: new Date().toISOString(),
   };
   await createWalletOrderInDb(order);
-  const params = new URLSearchParams();
-  params.set("mode", "payment");
-  params.set("success_url", `${origin}/?stripe_session_id={CHECKOUT_SESSION_ID}#topups`);
-  params.set("cancel_url", `${origin}/#topups`);
-  params.set("client_reference_id", order.id);
-  params.set("expires_at", String(Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_SESSION_TTL_SECONDS));
-  params.set("line_items[0][price_data][currency]", STRIPE_CURRENCY);
-  params.set("line_items[0][price_data][unit_amount]", String(amountCents));
-  params.set("line_items[0][price_data][product_data][name]", stripeCheckoutProductName(order));
-  params.set("line_items[0][quantity]", "1");
-  params.set("metadata[order_id]", order.id);
-  params.set("metadata[user_id]", auth.user.id);
-  params.set("metadata[tenant_id]", order.tenantId);
-  params.set("metadata[order_kind]", order.orderKind);
+  return sendJson(res, 200, {
+    ok: true,
+    checkoutUrl: stripeCheckoutUrl(order.id),
+    cashierUrl: stripeCheckoutUrl(order.id),
+    order: publicTopupOrder(order, config.wallet, tenantOptions),
+  });
+}
+
+async function handleStripeCheckoutSessionDetails(req, res, orderId) {
+  const order = await findStripeCheckoutOrder(orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "STRIPE_CHECKOUT_NOT_FOUND", message: "Stripe checkout session not found." });
+  const config = await readAppConfig();
+  return sendJson(res, 200, { ok: true, session: { id: order.id, status: order.status || "pending", stripeStatus: order.stripePaymentStatus || "", checkoutUrl: order.stripeCheckoutUrl || "", returnUrl: `${String(order.sourceOrigin || "https://123vips.com").replace(/\/+$/, "")}/#topups`, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
+}
+
+async function handleStartStripeCheckoutSession(req, res, orderId) {
+  if (!stripeEnabled()) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const order = await findStripeCheckoutOrder(orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "STRIPE_CHECKOUT_NOT_FOUND", message: "Stripe checkout session not found." });
+  const config = await readAppConfig();
+  if (order.status === "paid") return sendJson(res, 200, { ok: true, checkoutUrl: "", session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
+  if (stripeCheckoutSessionExpired(order)) return sendJson(res, 410, { ok: false, code: "STRIPE_CHECKOUT_EXPIRED", message: "This payment session has expired. Please create a new top-up order." });
+  if (order.stripeCheckoutUrl) return sendJson(res, 200, { ok: true, checkoutUrl: order.stripeCheckoutUrl, session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
   try {
-    const session = await stripeRequest("/v1/checkout/sessions", params);
-    order.stripeCheckoutSessionId = String(session.id || "");
-    order.stripePaymentStatus = String(session.payment_status || "");
-    order.stripePaymentIntentId = String(session.payment_intent || "");
-    order.stripeCheckoutUrl = String(session.url || "");
-    order.updatedAt = new Date().toISOString();
-    await updateWalletOrderInDb(order);
-    return sendJson(res, 200, {
-      ok: true,
-      checkoutUrl: order.stripeCheckoutUrl,
-      order: publicTopupOrder(order, config.wallet, tenantOptions),
-    });
+    const stripeSession = await startStripeCheckoutForOrder(order, config, { requestOrigin: pageOriginFromRequest(req) });
+    return sendJson(res, 200, { ok: true, checkoutUrl: String(stripeSession.url || order.stripeCheckoutUrl || ""), session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
   } catch (error) {
     order.status = "failed";
     order.note = error.message || "Stripe checkout creation failed.";
@@ -40374,6 +40430,17 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/pay/stripe/checkout-sessions") {
       return await createStripeCheckoutSession(req, res);
+    }
+
+    const stripeCheckoutSessionMatch = url.pathname.match(/^\/api\/pay\/stripe\/checkout-sessions\/([^/]+)$/);
+    if (req.method === "GET" && stripeCheckoutSessionMatch) {
+      return await handleStripeCheckoutSessionDetails(req, res, decodeURIComponent(stripeCheckoutSessionMatch[1]));
+    }
+
+    const stripeCheckoutSessionStartMatch = url.pathname.match(/^\/api\/pay\/stripe\/checkout-sessions\/([^/]+)\/start$/);
+    if (req.method === "POST" && stripeCheckoutSessionStartMatch) {
+      if (!isPaymentHostRequest(req)) return sendJson(res, 409, { ok: false, code: "STRIPE_CHECKOUT_REQUIRED", message: "Stripe payments must be started from the secure checkout page.", checkoutBaseUrl: STRIPE_CHECKOUT_BASE_URL });
+      return await handleStartStripeCheckoutSession(req, res, decodeURIComponent(stripeCheckoutSessionStartMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/stripe/webhook") {

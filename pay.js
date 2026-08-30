@@ -7,6 +7,9 @@
   };
   const params = new URLSearchParams(window.location.search || "");
   const sessionId = String(params.get("sid") || "").trim();
+  const stripeSessionId = String(params.get("stripe_sid") || "").trim();
+  const isStripe = Boolean(stripeSessionId);
+  const activeId = stripeSessionId || sessionId;
   let activeSession = null;
 
   function setStatus(message = "", tone = "") {
@@ -31,7 +34,7 @@
     if (!response.ok || payload.ok === false) {
       const reference = String(payload.debugId || "").trim();
       const message = payload.message || payload.detail || `Request failed: ${response.status}`;
-      throw new Error(reference ? `${message} PayPal reference: ${reference}` : message);
+      throw new Error(reference ? `${message} payment reference: ${reference}` : message);
     }
     return payload;
   }
@@ -51,20 +54,21 @@
       els.summary.innerHTML = `
         <span>Payment amount</span>
         <strong>${amount ? `$${String(amount).replace(/^\$/, "")}` : "--"} ${currency}</strong>
-        <small>${formatCredits(credits)} credits will be added after PayPal confirms the payment.</small>
+        <small>${formatCredits(credits)} credits will be added after ${isStripe ? "Stripe" : "PayPal"} confirms the payment.</small>
       `;
     }
     if (els.returnLink && session?.returnUrl) els.returnLink.href = session.returnUrl;
     if (els.button) {
       els.button.disabled = paid || expired;
-      els.button.textContent = paid ? "Payment completed" : expired ? "Session expired" : failed ? "Try PayPal again" : "Continue to PayPal";
+      els.button.textContent = paid ? "Payment completed" : expired ? "Session expired" : failed ? "Try PayPal again" : (isStripe ? "Continue to Stripe" : "Continue to PayPal");
+      if (failed && isStripe) els.button.textContent = "Try Stripe again";
     }
     if (paid) setStatus("Payment completed. Credits have been added to your account.", "success");
     else if (expired) setStatus("This payment session has expired. Please create a new top-up order.", "error");
     else if (failed) {
       const reference = String(session?.debugId || "").trim();
-      const message = session?.errorMessage || "PayPal could not create this payment. Please try again or use USDT.";
-      setStatus(reference ? `${message} PayPal reference: ${reference}` : message, "error");
+      const message = session?.errorMessage || `${isStripe ? "Stripe" : "PayPal"} could not create this payment. Please try again.`;
+      setStatus(reference ? `${message} Payment reference: ${reference}` : message, "error");
     }
     else if (params.get("status") === "cancelled") setStatus("Payment was cancelled. You can try again or return to the site.", "");
     else if (params.get("status") === "error") setStatus("PayPal did not complete this payment. Please try again.", "error");
@@ -72,14 +76,15 @@
   }
 
   async function loadSession() {
-    if (!sessionId) {
+    if (!activeId) {
       if (els.summary) els.summary.innerHTML = "<span>No payment session was found.</span>";
       if (els.button) els.button.disabled = true;
-      setStatus("Please start PayPal payment from the top-up dialog.", "error");
+      setStatus("Please start payment from the top-up dialog.", "error");
       return;
     }
     try {
-      const payload = await requestJson(`/api/pay/paypal/checkout-sessions/${encodeURIComponent(sessionId)}`);
+      const providerPath = isStripe ? "stripe" : "paypal";
+      const payload = await requestJson(`/api/pay/${providerPath}/checkout-sessions/${encodeURIComponent(activeId)}`);
       renderSession(payload.session);
     } catch (error) {
       if (els.summary) els.summary.innerHTML = "<span>Payment session unavailable.</span>";
@@ -89,16 +94,17 @@
   }
 
   async function startPayment() {
-    if (!sessionId || !els.button) return;
+    if (!activeId || !els.button) return;
     els.button.disabled = true;
-    setStatus("Opening PayPal checkout...", "");
+    setStatus(`Opening ${isStripe ? "Stripe" : "PayPal"} checkout...`, "");
     try {
-      const payload = await requestJson(`/api/pay/paypal/checkout-sessions/${encodeURIComponent(sessionId)}/start`, {
+      const providerPath = isStripe ? "stripe" : "paypal";
+      const payload = await requestJson(`/api/pay/${providerPath}/checkout-sessions/${encodeURIComponent(activeId)}/start`, {
         method: "POST",
         body: {},
       });
       if (payload.session) renderSession(payload.session);
-      const approvalUrl = String(payload.approvalUrl || payload.session?.approvalUrl || "").trim();
+      const approvalUrl = String(payload.checkoutUrl || payload.approvalUrl || payload.session?.checkoutUrl || payload.session?.approvalUrl || "").trim();
       if (approvalUrl) {
         window.location.href = approvalUrl;
         return;
@@ -107,7 +113,7 @@
         setStatus("Payment completed. Credits have been added to your account.", "success");
         return;
       }
-      throw new Error("PayPal approval link was not returned.");
+      throw new Error(`${isStripe ? "Stripe" : "PayPal"} checkout link was not returned.`);
     } catch (error) {
       els.button.disabled = false;
       setStatus(error.message || String(error), "error");
