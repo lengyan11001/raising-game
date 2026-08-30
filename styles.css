@@ -2285,6 +2285,29 @@ input[type="text"]:focus {
   display: block;
 }
 
+.legacy-payment-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0 12px;
+}
+
+.legacy-payment-tab {
+  border: 1px solid rgba(255, 244, 247, 0.18);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: #f7dfe5;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.legacy-payment-tab.is-active {
+  color: #fff;
+  background: #d84b72;
+  border-color: #f17a9b;
+}
+
 .recharge-static {
   display: grid;
   gap: 10px;

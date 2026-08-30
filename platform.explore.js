@@ -4130,7 +4130,7 @@ function selectBillingPlan(planId = "") {
   state.selectedBillingPlanId = plan.id;
   state.selectedProductId = "";
   state.selectedTopupPackageId = "";
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("stripe", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4190,7 +4190,7 @@ function selectTopupPackage(packageId = "") {
   state.selectedBillingPlanId = "";
   state.selectedProductId = "";
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("stripe", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4266,7 +4266,7 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "usdt", options = {}) {
+function setTopupMethod(method = "stripe", options = {}) {
   const next = String(method || "").toLowerCase() === "stripe" ? "stripe" : "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {

@@ -419,6 +419,14 @@
     <dialog id="rechargeDialog" class="pay-dialog recharge-dialog">
       <form method="dialog">
         <h3>USDT · TRC20</h3>
+        <div class="legacy-payment-tabs" role="tablist" aria-label="Payment method">
+          <button id="legacyStripeTab" class="legacy-payment-tab is-active" type="button" data-payment-method="stripe">Stripe</button>
+          <button id="legacyUsdtTab" class="legacy-payment-tab" type="button" data-payment-method="usdt">USDT</button>
+        </div>
+        <div id="legacyStripePanel" class="legacy-payment-panel">
+          <p class="recharge-note">Continue to the secure Stripe payment page. Credits are added after Stripe confirms payment.</p>
+        </div>
+        <div id="legacyUsdtPanel" class="legacy-payment-panel" hidden>
         <div class="recharge-static">
           <img class="recharge-qr" src="./assets/wallet/usdt-trc20-qr.png?v=home-en10" width="168" height="168" alt="USDT TRC20 QR" />
           <div class="recharge-addr-row">
@@ -429,6 +437,7 @@
           </div>
           <p class="recharge-note">TRC20 USDT only — wrong token/network is lost. <strong>1 USDT = 1 credit.</strong> After you create an order, send the <strong>exact</strong> USDT amount shown (includes a match suffix).</p>
         </div>
+        </div>
         <label class="recharge-amount-label" for="rechargeAmount">Credits to buy</label>
         <input id="rechargeAmount" type="number" min="1" step="1" value="100" />
         <div id="orderResult" class="order-result"></div>
@@ -436,7 +445,7 @@
           <button class="secondary-btn" value="cancel" type="submit" formnovalidate>Close</button>
           <button id="createOrderBtn" class="primary-btn" value="cancel" type="button">
             <i data-lucide="receipt"></i>
-            Create order
+            Continue to payment
           </button>
         </div>
       </form>
@@ -531,6 +540,6 @@
     </template>
 
     <script src="./assets/vendor/three.min.js"></script>
-    <script src="./app.js?v=home-en27"></script>
+    <script src="./app.js?v=payment-stripe-1"></script>
   </body>
 </html>

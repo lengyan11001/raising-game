@@ -776,7 +776,7 @@ document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
 els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
-  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "usdt"));
+  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "stripe"));
 });
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
@@ -796,7 +796,7 @@ function openTopupDialog() {
   state.selectedBillingPlanId = "";
   state.selectedProductId = "";
   setTopupStep("packages");
-  setTopupMethod("usdt");
+  setTopupMethod("stripe");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();

@@ -237,8 +237,8 @@ function telegramCreateMarkup() {
   };
 }
 
-function telegramRechargeMarkup(packages = [], paymentMethod = "paypal") {
-  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "paypal";
+function telegramRechargeMarkup(packages = [], paymentMethod = "stripe") {
+  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "stripe";
   const buttons = (Array.isArray(packages) ? packages : [])
     .filter((item) => item && item.id && Number(item.amount) > 0)
     .slice(0, 6)
@@ -249,7 +249,7 @@ function telegramRechargeMarkup(packages = [], paymentMethod = "paypal") {
   const rows = [];
   for (let index = 0; index < buttons.length; index += 2) rows.push(buttons.slice(index, index + 2));
   rows.push([
-    { text: method === "paypal" ? "PayPal (selected)" : "PayPal", callback_data: "tg:payment:paypal" },
+    { text: method === "stripe" ? "Stripe (selected)" : "Stripe", callback_data: "tg:payment:stripe" },
     { text: method === "usdt" ? "USDT (selected)" : "USDT", callback_data: "tg:payment:usdt" },
   ]);
   return { inline_keyboard: rows };

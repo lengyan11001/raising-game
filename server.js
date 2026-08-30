@@ -30282,13 +30282,13 @@ async function requireExternalApiDocsAccess(req, res) {
   return auth;
 }
 
-async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "paypal") {
-  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "paypal";
+async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "stripe") {
+  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "stripe";
   const plan = await getBillingPlanInDb(UNDRESS_TOOL_TENANT_ID);
   const packages = toolTopupPackagesForPlan(plan);
   return telegramBotClient.sendMessage(
     chatId,
-    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nPayment: ${method === "paypal" ? "PayPal" : "USDT"}\nChoose a package:`,
+    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nPayment: ${method === "stripe" ? "Stripe" : "USDT"}\nChoose a package:`,
     { reply_markup: telegramBotClient.rechargeMarkup(packages, method) },
   );
 }
@@ -30445,11 +30445,39 @@ async function telegramNativeCreateUsdtOrder(user, chatId, packageId) {
   if (qrUrl) await telegramBotClient.sendPhoto(chatId, qrUrl, `Scan to pay ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`).catch(() => {});
 }
 
-async function telegramNativeCreateOrder(user, chatId, packageId, paymentMethod = "paypal") {
+async function telegramNativeCreateStripeOrder(user, chatId, packageId) {
+  const returnUrl = telegramBotClient.miniAppUrl("topups");
+  const result = await invokeTelegramJsonHandler(createStripeCheckoutSession, user, {
+    method: "POST",
+    pathname: "/api/pay/stripe/checkout-sessions",
+    body: { packageId, returnUrl, cancelUrl: returnUrl },
+  });
+  if (result.statusCode >= 400 || !result.payload?.checkoutUrl) {
+    throw new Error(result.payload?.message || "Unable to create a Stripe recharge order.");
+  }
+  const order = result.payload.order || {};
+  const lines = [
+    "Stripe recharge",
+    `Pay: ${order.payableAmountText || order.payableAmount || order.amount} ${order.currency || "USD"}`,
+    `Credits after payment: ${Number(order.creditAmount || 0).toFixed(2)}`,
+    `Order: ${order.id || ""}`,
+    "Tap the button below to continue on the secure payment page.",
+  ];
+  return telegramBotClient.sendMessage(chatId, lines.join("\n"), {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Continue to Stripe", url: result.payload.checkoutUrl }],
+        [{ text: "Use USDT instead", callback_data: `tg:topup:usdt:${String(packageId).slice(0, 48)}` }],
+      ],
+    },
+  });
+}
+
+async function telegramNativeCreateOrder(user, chatId, packageId, paymentMethod = "stripe") {
   if (String(paymentMethod || "").trim().toLowerCase() === "usdt") {
     return telegramNativeCreateUsdtOrder(user, chatId, packageId);
   }
-  return telegramNativeCreatePayPalOrder(user, chatId, packageId);
+  return telegramNativeCreateStripeOrder(user, chatId, packageId);
 }
 
 async function handleTelegramNativeText(message, user) {
@@ -30519,17 +30547,17 @@ async function handleTelegramNativeCallback(callbackQuery) {
     await sendTelegramNativeRechargeMenu(chatId, user);
     return;
   }
-  const paymentMethod = data.match(/^tg:payment:(paypal|usdt)$/i)?.[1]?.toLowerCase() || "";
+  const paymentMethod = data.match(/^tg:payment:(stripe|usdt)$/i)?.[1]?.toLowerCase() || "";
   if (paymentMethod) {
     await sendTelegramNativeRechargeMenu(chatId, user, paymentMethod);
     return;
   }
-  const packageMatch = data.match(/^tg:topup:(paypal|usdt):([a-z0-9_-]+)$/i);
+  const packageMatch = data.match(/^tg:topup:(stripe|usdt):([a-z0-9_-]+)$/i);
   const legacyPackageId = data.match(/^tg:topup:([a-z0-9_-]+)$/i)?.[1] || "";
   const packageId = packageMatch?.[2] || legacyPackageId;
   if (packageId) {
     try {
-      await telegramNativeCreateOrder(user, chatId, packageId, packageMatch?.[1] || "usdt");
+      await telegramNativeCreateOrder(user, chatId, packageId, packageMatch?.[1] || "stripe");
     } catch (error) {
       await telegramBotClient.sendMessage(chatId, String(error.message || "Unable to create a recharge order.").slice(0, 500));
     }

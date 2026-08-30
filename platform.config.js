@@ -803,7 +803,7 @@ const state = {
   advancedAudioOrder: 0,
   wallet: null,
   selectedWalletOptionId: "",
-  topupMethod: "usdt",
+  topupMethod: "stripe",
   topupStep: "packages",
   topupPayStep: "transfer",
   selectedTopupPackageId: "",

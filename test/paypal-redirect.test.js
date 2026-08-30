@@ -30,11 +30,11 @@ test("PayPal launches are restricted to the dedicated payment host", () => {
   assert.doesNotMatch(server, /async function handleCreatePayPalOrder[\s\S]*?orderKind: selection\.kind/);
 });
 
-test("PayPal is the default payment method while USDT remains selectable", () => {
-  assert.match(config, /topupMethod: "paypal"/);
-  assert.match(main, /setTopupMethod\("paypal"\)/);
-  assert.match(explore, /setTopupMethod\("paypal", \{ skipSummary: true \}\)/);
-  assert.ok(platformHtml.indexOf('data-topup-method="paypal"') < platformHtml.indexOf('data-topup-method="usdt"'));
+test("Stripe is the default payment method while USDT remains selectable", () => {
+  assert.match(config, /topupMethod: "stripe"/);
+  assert.match(main, /setTopupMethod\("stripe"\)/);
+  assert.match(explore, /setTopupMethod\("stripe", \{ skipSummary: true \}\)/);
+  assert.ok(platformHtml.indexOf('data-topup-method="stripe"') < platformHtml.indexOf('data-topup-method="usdt"'));
 });
 
 test("Top-up UI redirects to the payment session page instead of embedding PayPal SDK", () => {

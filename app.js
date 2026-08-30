@@ -278,6 +278,7 @@ const state = {
   dragStartFrame: 0,
   dragging: false,
   paymentRunning: false,
+  rechargeMethod: "stripe",
   eventsBound: false,
   stats: { ...companions[0].stats },
 };
@@ -378,6 +379,10 @@ const els = {
   rechargeAmount: document.querySelector("#rechargeAmount"),
   createOrderBtn: document.querySelector("#createOrderBtn"),
   orderResult: document.querySelector("#orderResult"),
+  legacyStripeTab: document.querySelector("#legacyStripeTab"),
+  legacyUsdtTab: document.querySelector("#legacyUsdtTab"),
+  legacyStripePanel: document.querySelector("#legacyStripePanel"),
+  legacyUsdtPanel: document.querySelector("#legacyUsdtPanel"),
   staticWalletAddr: document.querySelector("#staticWalletAddr"),
   copyWalletBtn: document.querySelector("#copyWalletBtn"),
   userAssetList: document.querySelector("#userAssetList"),
@@ -600,6 +605,9 @@ function openRechargeDialog() {
     return;
   }
   els.orderResult.textContent = "";
+  const rechargeTitle = els.rechargeDialog?.querySelector("h3");
+  if (rechargeTitle) rechargeTitle.textContent = "Recharge credits";
+  setRechargeMethod("stripe");
   els.rechargeDialog.showModal();
   refreshIcons();
 }
@@ -2438,6 +2446,25 @@ async function submitLogin() {
 
 async function createRechargeOrder() {
   const amount = Number(els.rechargeAmount.value || 0);
+  if (state.rechargeMethod === "stripe") {
+    els.createOrderBtn.disabled = true;
+    els.orderResult.textContent = "Creating secure Stripe checkout...";
+    try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}`;
+      const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
+        method: "POST",
+        body: JSON.stringify({ amount, returnUrl, cancelUrl: returnUrl }),
+      });
+      const checkoutUrl = String(payload.checkoutUrl || payload.cashierUrl || "").trim();
+      if (!checkoutUrl) throw new Error("Stripe checkout page was not created.");
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      els.orderResult.textContent = error.message || String(error);
+    } finally {
+      els.createOrderBtn.disabled = false;
+    }
+    return;
+  }
   try {
     const payload = await requestJson("/api/pay/orders", {
       method: "POST",
@@ -3112,6 +3139,23 @@ function handleUpload(event) {
   reader.readAsDataURL(file);
 }
 
+function setRechargeMethod(method = "stripe") {
+  const next = String(method || "").toLowerCase() === "usdt" ? "usdt" : "stripe";
+  state.rechargeMethod = next;
+  [els.legacyStripeTab, els.legacyUsdtTab].forEach((button) => {
+    if (!button) return;
+    const active = button.dataset.paymentMethod === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (els.legacyStripePanel) els.legacyStripePanel.hidden = next !== "stripe";
+  if (els.legacyUsdtPanel) els.legacyUsdtPanel.hidden = next !== "usdt";
+  if (els.createOrderBtn) els.createOrderBtn.innerHTML = next === "stripe"
+    ? '<i data-lucide="credit-card"></i>Continue to Stripe'
+    : '<i data-lucide="receipt"></i>Create USDT order';
+  refreshIcons();
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -3327,6 +3371,8 @@ function bindEvents() {
   });
 
   els.loginSubmitBtn?.addEventListener("click", submitLogin);
+  els.legacyStripeTab?.addEventListener("click", () => setRechargeMethod("stripe"));
+  els.legacyUsdtTab?.addEventListener("click", () => setRechargeMethod("usdt"));
   els.createOrderBtn?.addEventListener("click", createRechargeOrder);
   els.confirmPayBtn?.addEventListener("click", (event) => {
     event.preventDefault();

@@ -5333,7 +5333,7 @@ function openBillingPaymentChoice({ billingPlanId = "", productId = "", statusEl
   else state.selectedProductId = "";
   state.selectedTopupPackageId = "";
   prepareModalOpen();
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("stripe", { skipSummary: true });
   setTopupStep("payment");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
