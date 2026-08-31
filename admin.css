@@ -227,7 +227,7 @@ a { color: inherit; text-decoration: none; }
 .adm-mobile-only { display: none; }
 
 /* ============ generic layout ============ */
-.adm-page { display: grid; gap: 18px; max-width: 1400px; }
+.adm-page { display: grid; gap: 18px; width: 100%; max-width: none; }
 .adm-page > h2 { margin: 0; font-size: 1.18rem; }
 .adm-page-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
