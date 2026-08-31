@@ -3398,10 +3398,11 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th><th class="adm-text-right">操作</th></tr></thead>
+              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
+                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id || "-")}</strong></td>
                     <td class="adm-mono adm-truncate">${escapeHtml(o.stripeChargeId || o.paypalCaptureId || "-")}</td>
                     <td class="adm-truncate"><strong>${escapeHtml(o.username || "-")}</strong></td>
                     <td class="adm-truncate">${escapeHtml(o.stripeCustomerEmail || o.paypalPayerEmail || "-")}</td>
@@ -3414,11 +3415,6 @@ async function renderWallet(pageArg = null, limitArg = null) {
                     <td class="adm-error-text adm-truncate" title="${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "")}">${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "-")}</td>
                     <td>${fmtDate(o.stripeCreatedAt || o.createdAt)}</td>
                     <td>${o.paymentProvider === "stripe" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="stripe-details" type="button">查看</button>` : `<span class="adm-muted">-</span>`}</td>
-                    <td>
-                      <div class="adm-row-actions">
-                        ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>取消订单</button>` : ""}
-                      </div>
-                    </td>
                   </tr>`).join("")}
               </tbody>
             </table>
@@ -3484,11 +3480,6 @@ async function renderWallet(pageArg = null, limitArg = null) {
         hideConfirm: true,
         cancelText: "关闭",
       });
-    });
-    tr.querySelector('[data-act="cancel-order"]')?.addEventListener("click", async () => {
-      await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "cancelled" } });
-      toast("订单已取消。", "success");
-      renderWallet();
     });
   });
 }
