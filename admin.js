@@ -3417,7 +3417,6 @@ async function renderWallet(pageArg = null, limitArg = null) {
                     <td>${o.paymentProvider === "stripe" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="stripe-details" type="button">查看</button>` : `<span class="adm-muted">-</span>`}</td>
                     <td>
                       <div class="adm-row-actions">
-                        ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>标记已支付</button>` : ""}
                         ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>取消订单</button>` : ""}
                       </div>
                     </td>
@@ -3467,7 +3466,6 @@ async function renderWallet(pageArg = null, limitArg = null) {
     tr.querySelector('[data-act="stripe-details"]')?.addEventListener("click", () => {
       if (!order) return;
       const details = [
-        ["订单 ID", order.id],
         ["Stripe Charge ID", order.stripeChargeId],
         ["Payment Intent", order.stripePaymentIntentId],
         ["Checkout Session", order.stripeCheckoutSessionId],
@@ -3483,15 +3481,10 @@ async function renderWallet(pageArg = null, limitArg = null) {
       ];
       openDialog({
         title: "Stripe 支付详情",
-        body: `<div class="adm-detail-grid">${details.map(([label, value]) => `<div><span class="adm-muted">${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></div>`).join("")}</div>`,
+        body: `<div class="adm-detail-grid adm-stripe-detail-grid">${details.map(([label, value]) => `<div class="adm-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></div>`).join("")}</div>`,
         hideConfirm: true,
         cancelText: "关闭",
       });
-    });
-    tr.querySelector('[data-act="mark-paid"]')?.addEventListener("click", async () => {
-      await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "paid" } });
-      toast("已标记支付并增加积分。", "success");
-      renderWallet();
     });
     tr.querySelector('[data-act="cancel-order"]')?.addEventListener("click", async () => {
       await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "cancelled" } });
