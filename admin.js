@@ -3309,7 +3309,7 @@ async function renderRecharges(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${records.length ? `
             <table class="adm-table adm-recharge-table">
-              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
+              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>Charge ID</th><th>邮箱</th><th>客户名</th><th>支付方式</th><th>失败原因</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
               <tbody>
                 ${records.map((r) => `
                   <tr>
@@ -3317,6 +3317,11 @@ async function renderRecharges(pageArg = null, limitArg = null) {
                     <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
                     <td><strong ${Number(r.credits || 0) < 0 ? 'style="color:var(--adm-danger)"' : ""}>${Number(r.credits || 0) > 0 ? "+" : ""}${escapeHtml(r.credits ?? 0)}</strong></td>
                     <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(r.stripeChargeId || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(r.stripeCustomerEmail || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(r.stripeCustomerName || "-")}</td>
+                    <td>${escapeHtml(r.stripePaymentMethodType || r.paymentProvider || "-")}</td>
+                    <td class="adm-error-text adm-truncate" title="${escapeHtml(r.stripeFailureMessage || r.stripeFailureCode || "")}">${escapeHtml(r.stripeFailureMessage || r.stripeFailureCode || "-")}</td>
                     <td class="adm-truncate">
                       ${r.source === "manual_admin"
                         ? `<strong>${escapeHtml(r.adminUsername || r.adminUserId || "admin")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.adminUserId || "")}</span>`
