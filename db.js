@@ -2677,6 +2677,25 @@ async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDel
   return rows.map((row) => row.payload);
 }
 
+async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.min(500, Math.max(1, Math.trunc(Number(limit || 100) || 100)));
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND (
+        (COALESCE(payload->>'cdnVideoUrl', '') = '' AND (COALESCE(payload->>'localVideoUrl', '') <> '' OR COALESCE(payload->>'remoteVideoUrl', '') <> ''))
+        OR (COALESCE(payload->>'cdnImageUrl', '') = '' AND (COALESCE(payload->>'localImageUrl', '') <> '' OR COALESCE(payload->>'remoteImageUrl', '') <> ''))
+      )
+    ORDER BY updated_at DESC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => row.payload);
+}
+
 async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8 } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -3473,6 +3492,7 @@ module.exports = {
   getKvUpdatedAt,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
+  getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,

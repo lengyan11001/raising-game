@@ -180,6 +180,7 @@ const {
   revokeApiSubtokenInDb,
   recordApiSubtokenUsageInDb,
   getGenerationRecordsFromDb,
+  getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
@@ -17323,6 +17324,20 @@ async function recoverGenerationRecordR2Urls(record = {}) {
     const found = await findUploadedR2Object(objectStoragePath("generated", "posters", `${taskId}.jpg`));
     if (found?.publicUrl) updates.cdnPosterUrl = found.publicUrl;
   }
+  if (!String(record.cdnImageUrl || "").trim()) {
+    const imageCandidates = [];
+    const localImage = String(record.localImageUrl || record.imageResultUrl || "").split("?")[0];
+    const localName = localImage.match(/\/([^/]+\.(?:png|jpe?g|webp))$/i)?.[1];
+    if (localName) imageCandidates.push(localName);
+    imageCandidates.push(`${taskId}.png`, `${taskId}.jpg`, `${taskId}.jpeg`, `${taskId}.webp`);
+    for (const name of [...new Set(imageCandidates)]) {
+      const found = await findUploadedR2Object(objectStoragePath("generated", "images", name));
+      if (found?.publicUrl) {
+        updates.cdnImageUrl = found.publicUrl;
+        break;
+      }
+    }
+  }
   if (!Object.keys(updates).length) return record;
   const next = await upsertGenerationRecord({
     taskId: record.taskId,
@@ -19566,7 +19581,9 @@ async function scanGenerationRecordMediaRecovery(reason = "timer") {
   if (generationMediaRecoveryRunning || !objectStorageEnabled()) return;
   generationMediaRecoveryRunning = true;
   try {
-    const records = await readGenerationRecords();
+    const records = dbEnabled()
+      ? await getGenerationRecordsNeedingR2RecoveryFromDb({ limit: 100 })
+      : await readGenerationRecords();
     const candidates = records
       .filter((record) => isSucceededStatus(record.status) && generationRecordNeedsMediaMaintenance(record))
       .slice(0, 25);
