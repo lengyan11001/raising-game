@@ -1540,7 +1540,7 @@ async function getAdminWalletOrdersPageFromDb({ page = 1, limit = 20, queryText 
     SELECT o.*, COALESCE(u.username, o.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
     FROM app_wallet_orders o LEFT JOIN app_users u ON u.id = o.user_id
     WHERE ($1 = '' OR LOWER(o.status) = $1)
-      AND ($2 = '' OR LOWER(CONCAT_WS(' ', o.id, o.user_id, COALESCE(u.username, o.payload->>'username', ''), o.chain, o.payload->>'network', o.payload->>'address', o.transaction_hash, o.paypal_order_id)) LIKE '%' || $2 || '%')
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', o.id, o.user_id, COALESCE(u.username, o.payload->>'username', ''), o.chain, o.payload->>'network', o.payload->>'address', o.transaction_hash, o.paypal_order_id, o.payload->>'stripeChargeId', o.payload->>'stripeCustomerEmail', o.payload->>'stripeCustomerName', o.payload->>'stripeFailureMessage')) LIKE '%' || $2 || '%')
     ORDER BY o.created_at DESC
     LIMIT $3 OFFSET $4
   `, [cleanStatus, q, safeLimit, safeOffset]);

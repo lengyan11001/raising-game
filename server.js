@@ -31661,20 +31661,23 @@ function stripePublicConfig() {
   return { enabled: stripeEnabled(), currency: STRIPE_CURRENCY };
 }
 
-async function stripeRequest(pathname, params) {
+async function stripeRequest(pathname, params, method = "POST") {
   if (!STRIPE_SECRET_KEY) {
     const error = new Error("Stripe is not configured.");
     error.statusCode = 503;
     error.code = "STRIPE_NOT_CONFIGURED";
     throw error;
   }
-  const response = await fetch(`https://api.stripe.com${pathname}`, {
-    method: "POST",
+  const requestMethod = String(method || "POST").toUpperCase();
+  const query = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params || {}).toString();
+  const url = requestMethod === "GET" && query ? `https://api.stripe.com${pathname}?${query}` : `https://api.stripe.com${pathname}`;
+  const response = await fetch(url, {
+    method: requestMethod,
     headers: {
       authorization: `Bearer ${STRIPE_SECRET_KEY}`,
       "content-type": "application/x-www-form-urlencoded",
     },
-    body: params instanceof URLSearchParams ? params : new URLSearchParams(params || {}),
+    ...(requestMethod === "GET" || requestMethod === "HEAD" ? {} : { body: params instanceof URLSearchParams ? params : new URLSearchParams(params || {}) }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -31736,6 +31739,9 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "" }
   params.set("metadata[user_id]", order.userId || "");
   params.set("metadata[tenant_id]", order.tenantId || "");
   params.set("metadata[order_kind]", order.orderKind || "topup");
+  params.set("payment_intent_data[metadata][order_id]", order.id || "");
+  params.set("payment_intent_data[metadata][user_id]", order.userId || "");
+  params.set("payment_intent_data[metadata][tenant_id]", order.tenantId || "");
   const session = await stripeRequest("/v1/checkout/sessions", params);
   order.stripeCheckoutSessionId = String(session.id || "");
   order.stripePaymentStatus = String(session.payment_status || "");
@@ -31859,30 +31865,169 @@ function verifyStripeSignature(rawBody, signatureHeader) {
   }
 }
 
+function stripeObjectId(value = "") {
+  if (value && typeof value === "object") return String(value.id || "");
+  return String(value || "");
+}
+
+function stripeIsoFromTimestamp(value) {
+  const seconds = Number(value || 0);
+  return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : "";
+}
+
+function stripeAmountMajor(value) {
+  const cents = Number(value);
+  return Number.isFinite(cents) ? Math.round((cents / 100) * 100) / 100 : 0;
+}
+
+function stripeFailureDetails(...objects) {
+  for (const object of objects) {
+    const error = object?.last_payment_error || object?.failure_details || object || {};
+    const code = String(error.code || object?.failure_code || "").trim();
+    const message = String(error.message || object?.failure_message || object?.outcome?.seller_message || "").trim();
+    if (code || message) return { code, message };
+  }
+  return { code: "", message: "" };
+}
+
+async function hydrateStripeOrderDetails(order, sessionHint = null, paymentIntentHint = null, chargeHint = null) {
+  if (!order || String(order.paymentProvider || "").toLowerCase() !== "stripe") return order;
+  let session = sessionHint && typeof sessionHint === "object" ? sessionHint : null;
+  let paymentIntent = paymentIntentHint && typeof paymentIntentHint === "object" ? paymentIntentHint : null;
+  let charge = chargeHint && typeof chargeHint === "object" ? chargeHint : null;
+  let customer = null;
+  try {
+    const sessionId = stripeObjectId(session) || String(order.stripeCheckoutSessionId || "");
+    if (sessionId && (!session || !session.customer_details)) {
+      const params = new URLSearchParams();
+      params.append("expand[]", "payment_intent.latest_charge");
+      params.append("expand[]", "payment_intent.payment_method");
+      params.append("expand[]", "customer");
+      session = await stripeRequest(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, params, "GET");
+    }
+  } catch (error) {
+    console.warn("[stripe-session-details-failed]", error.message || error);
+  }
+  if (!paymentIntent) paymentIntent = session?.payment_intent && typeof session.payment_intent === "object" ? session.payment_intent : null;
+  const paymentIntentId = stripeObjectId(paymentIntent) || stripeObjectId(session?.payment_intent) || String(order.stripePaymentIntentId || "");
+  if (paymentIntentId && (!paymentIntent || !paymentIntent.last_payment_error || !paymentIntent.payment_method)) {
+    try {
+      const params = new URLSearchParams();
+      params.append("expand[]", "latest_charge");
+      params.append("expand[]", "payment_method");
+      paymentIntent = await stripeRequest(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`, params, "GET");
+    } catch (error) {
+      console.warn("[stripe-payment-intent-details-failed]", error.message || error);
+    }
+  }
+  if (!charge) charge = paymentIntent?.latest_charge && typeof paymentIntent.latest_charge === "object" ? paymentIntent.latest_charge : null;
+  const chargeId = stripeObjectId(charge) || stripeObjectId(paymentIntent?.latest_charge);
+  if (chargeId && (!charge || !charge.payment_method_details)) {
+    try {
+      charge = await stripeRequest(`/v1/charges/${encodeURIComponent(chargeId)}`, null, "GET");
+    } catch (error) {
+      console.warn("[stripe-charge-details-failed]", error.message || error);
+    }
+  }
+  customer = session?.customer && typeof session.customer === "object" ? session.customer : null;
+  const customerId = stripeObjectId(customer) || stripeObjectId(session?.customer) || String(order.stripeCustomerId || "");
+  if (customerId && !customer) {
+    try { customer = await stripeRequest(`/v1/customers/${encodeURIComponent(customerId)}`, null, "GET"); } catch (error) {
+      console.warn("[stripe-customer-details-failed]", error.message || error);
+    }
+  }
+  const failure = stripeFailureDetails(paymentIntent, charge, session);
+  const methodType = String(
+    paymentIntent?.payment_method?.type ||
+    charge?.payment_method_details?.type ||
+    session?.payment_method_types?.[0] ||
+    order.stripePaymentMethodType ||
+    "",
+  );
+  const amountReceived = paymentIntent?.amount_received ?? charge?.amount ?? session?.amount_total;
+  const refundedAmount = charge?.amount_refunded ?? paymentIntent?.amount_refunded;
+  const detailsAvailable = Boolean(session || paymentIntent || charge || customer);
+  Object.assign(order, {
+    stripeCheckoutSessionId: stripeObjectId(session) || order.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: paymentIntentId || order.stripePaymentIntentId || "",
+    stripeChargeId: chargeId || order.stripeChargeId || "",
+    stripeCustomerId: customerId || order.stripeCustomerId || "",
+    stripeCustomerEmail: String(session?.customer_details?.email || customer?.email || order.stripeCustomerEmail || ""),
+    stripeCustomerName: String(session?.customer_details?.name || customer?.name || order.stripeCustomerName || ""),
+    stripePaymentMethodType: methodType,
+    stripePaymentStatus: String(session?.payment_status || paymentIntent?.status || order.stripePaymentStatus || ""),
+    stripeFailureCode: failure.code || order.stripeFailureCode || "",
+    stripeFailureMessage: failure.message || order.stripeFailureMessage || "",
+    stripeAmountReceived: amountReceived !== undefined ? stripeAmountMajor(amountReceived) : (order.stripeAmountReceived || 0),
+    stripeRefundedAmount: refundedAmount !== undefined ? stripeAmountMajor(refundedAmount) : (order.stripeRefundedAmount || 0),
+    stripeCreatedAt: stripeIsoFromTimestamp(charge?.created || paymentIntent?.created || session?.created) || order.stripeCreatedAt || "",
+    stripeDetailsSyncedAt: detailsAvailable ? new Date().toISOString() : (order.stripeDetailsSyncedAt || ""),
+  });
+  order.updatedAt = new Date().toISOString();
+  return order;
+}
+
 async function handleStripeWebhook(req, res) {
   const rawBody = await readRawBody(req, 2 * 1024 * 1024);
   if (!STRIPE_WEBHOOK_SECRET) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED" });
   if (!verifyStripeSignature(rawBody, req.headers["stripe-signature"])) return sendJson(res, 400, { ok: false, code: "STRIPE_SIGNATURE_INVALID", message: "Invalid Stripe webhook signature." });
   let event;
   try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid Stripe webhook body." }); }
-  if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") return sendJson(res, 200, { ok: true, ignored: true });
-  const session = event.data?.object || {};
-  const orderId = String(session.metadata?.order_id || session.client_reference_id || "").trim();
-  if (!orderId) return sendJson(res, 200, { ok: true, ignored: true, reason: "missing_order_id" });
+  const supportedEvents = new Set([
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+    "checkout.session.expired",
+    "payment_intent.payment_failed",
+    "charge.refunded",
+  ]);
+  if (!supportedEvents.has(event.type)) return sendJson(res, 200, { ok: true, ignored: true });
+  const object = event.data?.object || {};
+  const session = event.type.startsWith("checkout.session.") ? object : null;
+  const paymentIntent = event.type.startsWith("payment_intent.") ? object : null;
+  const charge = event.type.startsWith("charge.") ? object : null;
+  let orderId = String(
+    session?.metadata?.order_id || session?.client_reference_id ||
+    paymentIntent?.metadata?.order_id || charge?.metadata?.order_id || "",
+  ).trim();
   const db = await readDb();
+  if (!orderId) {
+    const paymentIntentId = stripeObjectId(paymentIntent) || stripeObjectId(charge?.payment_intent);
+    const matched = (db.walletOrders || []).find((entry) =>
+      String(entry.paymentProvider || "").toLowerCase() === "stripe" &&
+      paymentIntentId && String(entry.stripePaymentIntentId || "") === paymentIntentId,
+    );
+    orderId = String(matched?.id || "");
+  }
+  if (!orderId) return sendJson(res, 200, { ok: true, ignored: true, reason: "missing_order_id" });
   const order = await getWalletOrderByIdInDb(orderId) || (db.walletOrders || []).find((entry) => entry.id === orderId);
   if (!order || order.paymentProvider !== "stripe") return sendJson(res, 200, { ok: true, ignored: true, reason: "order_not_found" });
-  const amountTotal = Number(session.amount_total || 0);
-  const currency = String(session.currency || "").toLowerCase();
+  await hydrateStripeOrderDetails(order, session, paymentIntent, charge);
+  if (event.type === "charge.refunded") {
+    order.stripeRefundedAmount = stripeAmountMajor(object.amount_refunded ?? object.amount);
+    order.stripeRefundStatus = object.refunded ? "refunded" : "partial_refund";
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, { ok: true, refunded: true });
+  }
+  if (event.type === "checkout.session.async_payment_failed" || event.type === "checkout.session.expired" || event.type === "payment_intent.payment_failed") {
+    if (order.status !== "paid") order.status = "failed";
+    const failure = order.stripeFailureMessage || order.stripeFailureCode || (event.type === "checkout.session.expired" ? "Checkout session expired." : "Stripe payment failed.");
+    order.note = String(failure).slice(0, 200);
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, { ok: true, failed: true });
+  }
+  const amountTotal = Number(session?.amount_total || 0);
+  const currency = String(session?.currency || "").toLowerCase();
   if (amountTotal !== stripeCheckoutAmountCents(order) || currency !== STRIPE_CURRENCY) {
     order.note = "Stripe checkout amount or currency mismatch. Manual review required.";
     order.updatedAt = new Date().toISOString();
     await updateWalletOrderInDb(order);
     return sendJson(res, 400, { ok: false, code: "STRIPE_AMOUNT_MISMATCH" });
   }
-  order.stripeCheckoutSessionId = String(session.id || order.stripeCheckoutSessionId || "");
-  order.stripePaymentIntentId = String(session.payment_intent || order.stripePaymentIntentId || "");
-  order.stripePaymentStatus = String(session.payment_status || "paid");
+  if (event.type === "checkout.session.completed" && String(session?.payment_status || "").toLowerCase() !== "paid") {
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, { ok: true, pending: true });
+  }
   const config = await readAppConfig();
   const settled = await safeSettleWalletOrderPayment(db, order, config, { note: "Paid by Stripe Checkout webhook." });
   await updateWalletOrderInDb(order);
@@ -38440,6 +38585,20 @@ function adminWalletOrderView(order, userMap) {
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
     paypalPayerEmail: order.paypalPayerEmail || "",
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: order.stripePaymentIntentId || "",
+    stripeChargeId: order.stripeChargeId || "",
+    stripeCustomerId: order.stripeCustomerId || "",
+    stripeCustomerEmail: order.stripeCustomerEmail || "",
+    stripeCustomerName: order.stripeCustomerName || "",
+    stripePaymentMethodType: order.stripePaymentMethodType || "",
+    stripeFailureCode: order.stripeFailureCode || "",
+    stripeFailureMessage: order.stripeFailureMessage || "",
+    stripeAmountReceived: order.stripeAmountReceived ?? "",
+    stripeRefundedAmount: order.stripeRefundedAmount ?? 0,
+    stripeRefundStatus: order.stripeRefundStatus || "",
+    stripeCreatedAt: order.stripeCreatedAt || "",
+    stripeDetailsSyncedAt: order.stripeDetailsSyncedAt || "",
     status: order.status || "pending",
     createdAt: order.createdAt,
     paidAt: order.paidAt || "",
@@ -38469,6 +38628,19 @@ function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
     asset: record.asset || "",
     network: record.network || record.chain || "",
     paymentProvider: provider,
+    stripeCheckoutSessionId: record.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: record.stripePaymentIntentId || "",
+    stripeChargeId: record.stripeChargeId || "",
+    stripeCustomerId: record.stripeCustomerId || "",
+    stripeCustomerEmail: record.stripeCustomerEmail || "",
+    stripeCustomerName: record.stripeCustomerName || "",
+    stripePaymentMethodType: record.stripePaymentMethodType || "",
+    stripeFailureCode: record.stripeFailureCode || "",
+    stripeFailureMessage: record.stripeFailureMessage || "",
+    stripeAmountReceived: record.stripeAmountReceived ?? "",
+    stripeRefundedAmount: record.stripeRefundedAmount ?? 0,
+    stripeCreatedAt: record.stripeCreatedAt || "",
+    stripeDetailsSyncedAt: record.stripeDetailsSyncedAt || "",
     transactionHash: record.transactionHash || record.txHash || "",
     paypalOrderId: record.paypalOrderId || "",
     adminUserId: record.adminUserId || "",
@@ -38496,6 +38668,18 @@ function adminRechargeLedgerRecords(db = {}) {
       asset: order.asset || order.currency || "",
       network: order.network || order.chain || "",
       paymentProvider: order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual"),
+      stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
+      stripePaymentIntentId: order.stripePaymentIntentId || "",
+      stripeChargeId: order.stripeChargeId || "",
+      stripeCustomerId: order.stripeCustomerId || "",
+      stripeCustomerEmail: order.stripeCustomerEmail || "",
+      stripeCustomerName: order.stripeCustomerName || "",
+      stripePaymentMethodType: order.stripePaymentMethodType || "",
+      stripeFailureCode: order.stripeFailureCode || "",
+      stripeFailureMessage: order.stripeFailureMessage || "",
+      stripeAmountReceived: order.stripeAmountReceived ?? "",
+      stripeRefundedAmount: order.stripeRefundedAmount ?? 0,
+      stripeCreatedAt: order.stripeCreatedAt || "",
       transactionHash: order.transactionHash || order.txHash || "",
       paypalOrderId: order.paypalOrderId || "",
       note: order.note || "",
@@ -38521,6 +38705,20 @@ function adminRechargeLedgerRecords(db = {}) {
     });
   return [...paidOrders, ...manualEntries]
     .sort((a, b) => String(b.paidAt || b.createdAt || "").localeCompare(String(a.paidAt || a.createdAt || "")));
+}
+
+async function hydrateStripeOrdersForAdmin(orders = [], persist = false) {
+  const candidates = orders.filter((order) =>
+    String(order?.paymentProvider || "").toLowerCase() === "stripe" &&
+    String(order.stripeCheckoutSessionId || "").trim() &&
+    !order.stripeDetailsSyncedAt,
+  ).slice(0, 20);
+  if (!candidates.length) return orders;
+  await Promise.all(candidates.map(async (order) => {
+    await hydrateStripeOrderDetails(order);
+    if (persist) await updateWalletOrderInDb(order).catch(() => {});
+  }));
+  return orders;
 }
 
 function adminRechargeLedgerSummary(records = []) {
@@ -39083,15 +39281,17 @@ async function handleAdminListWalletOrders(req, res, url) {
   if (dbEnabled()) {
     const result = await getAdminWalletOrdersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, status });
     if (result) {
+      await hydrateStripeOrdersForAdmin(result.items, true);
       const userMap = new Map(result.items.map((o) => [o.userId, { username: o.username }]));
       return sendJson(res, 200, { ok: true, orders: result.items.map((o) => adminWalletOrderView(o, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
     }
   }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  await hydrateStripeOrdersForAdmin(auth.db.walletOrders || [], false);
   let list = (auth.db.walletOrders || []).map((o) => adminWalletOrderView(o, userMap));
   if (status) list = list.filter((order) => String(order.status || "").toLowerCase() === status);
   if (query) {
-    list = list.filter((order) => [order.id, order.username, order.userId, order.chain, order.network, order.address, order.transactionHash, order.paypalOrderId]
+    list = list.filter((order) => [order.id, order.username, order.userId, order.chain, order.network, order.address, order.transactionHash, order.paypalOrderId, order.stripeChargeId, order.stripeCustomerEmail, order.stripeCustomerName, order.stripeFailureMessage]
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));

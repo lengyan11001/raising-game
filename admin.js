@@ -3367,7 +3367,7 @@ async function renderWallet(pageArg = null, limitArg = null) {
       <div class="adm-page-head">
         <div>
           <h2>钱包订单</h2>
-          <p class="adm-muted">USDT 充值订单。自动扫描会匹配链、地址、精确金额、交易哈希和确认数。</p>
+          <p class="adm-muted">Stripe 与 USDT 充值订单。Stripe 订单会同步 Charge、客户、支付方式、失败原因和退款信息。</p>
         </div>
         <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>扫描链上订单</button>
       </div>
@@ -3375,13 +3375,14 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-head">
           <div>
             <h3>订单列表</h3>
-            <p class="adm-muted">按用户、订单号、地址、交易哈希或支付渠道筛选。</p>
+            <p class="adm-muted">按用户、订单号、Charge ID、邮箱、地址或支付渠道筛选。</p>
           </div>
           <form class="adm-list-filters" id="walletFilterForm">
             <select id="walletStatusFilter">
               <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
               <option value="pending" ${status === "pending" ? "selected" : ""}>待支付</option>
               <option value="paid" ${status === "paid" ? "selected" : ""}>已支付</option>
+              <option value="failed" ${status === "failed" ? "selected" : ""}>失败</option>
               <option value="cancelled" ${status === "cancelled" ? "selected" : ""}>已取消</option>
             </select>
             <input id="walletSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / 地址 / hash" />
@@ -3392,18 +3393,23 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>订单</th><th>用户</th><th>充值</th><th>应付金额</th><th>链 / 地址</th><th>交易</th><th>状态</th><th>时间</th><th class="adm-text-right">操作</th></tr></thead>
+              <thead><tr><th>ID</th><th>Charge ID</th><th>用户 ID</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th><th class="adm-text-right">操作</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
-                    <td class="adm-mono adm-truncate">${escapeHtml(o.id)}</td>
-                    <td>${escapeHtml(o.username || o.userId)}</td>
-                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} &middot; 积分：${escapeHtml(o.creditAmount || 0)}</span></td>
-                    <td><strong>${escapeHtml(o.payableAmountText || "")}</strong></td>
-                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.network || o.chain || "-")}</strong><br/>${escapeHtml(o.address || o.paypalOrderId || "-")}</td>
-                    <td class="adm-mono adm-truncate">${o.transactionHash ? `${escapeHtml(o.transactionHash)}<br/><span class="adm-muted">${escapeHtml(o.confirmations || 0)} 次确认 &middot; ${escapeHtml(o.scanSource || "")}</span>` : `<span class="adm-muted">未匹配</span>`}</td>
+                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id)}</strong><br/><span class="adm-muted">${escapeHtml(o.username || o.userId || "")}</span></td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(o.stripeChargeId || o.paypalCaptureId || "-")}</td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(o.userId || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(o.stripeCustomerEmail || o.paypalPayerEmail || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(o.stripeCustomerName || "-")}</td>
+                    <td><strong>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeAmountReceived ?? o.baseAmount ?? "")}` : escapeHtml(o.payableAmountText || o.baseAmount || "-")}</strong><br/><span class="adm-muted">积分：${escapeHtml(o.creditAmount || 0)}</span></td>
+                    <td>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeRefundedAmount ?? 0)}` : "-"}</td>
+                    <td><strong>${escapeHtml(o.currency || o.asset || "-")}</strong></td>
                     <td>${statusPill(o.status)}</td>
-                    <td>${fmtDate(o.createdAt)}</td>
+                    <td>${escapeHtml(o.paymentProvider === "stripe" ? (o.stripePaymentMethodType || "-") : (o.paymentProvider || o.network || "manual"))}</td>
+                    <td class="adm-error-text adm-truncate" title="${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "")}">${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "-")}</td>
+                    <td>${fmtDate(o.stripeCreatedAt || o.createdAt)}</td>
+                    <td>${o.paymentProvider === "stripe" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="stripe-details" type="button">查看</button>` : `<span class="adm-muted">-</span>`}</td>
                     <td>
                       <div class="adm-row-actions">
                         ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>标记已支付</button>` : ""}
@@ -3452,6 +3458,31 @@ async function renderWallet(pageArg = null, limitArg = null) {
   });
   els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
     const id = tr.dataset.id;
+    const order = orders.find((entry) => entry.id === id);
+    tr.querySelector('[data-act="stripe-details"]')?.addEventListener("click", () => {
+      if (!order) return;
+      const details = [
+        ["订单 ID", order.id],
+        ["Stripe Charge ID", order.stripeChargeId],
+        ["Payment Intent", order.stripePaymentIntentId],
+        ["Checkout Session", order.stripeCheckoutSessionId],
+        ["用户 ID", order.userId],
+        ["邮箱", order.stripeCustomerEmail],
+        ["客户名", order.stripeCustomerName],
+        ["支付方式", order.stripePaymentMethodType],
+        ["金额", order.stripeAmountReceived ?? order.baseAmount],
+        ["退款金额", order.stripeRefundedAmount ?? 0],
+        ["失败代码", order.stripeFailureCode],
+        ["失败原因", order.stripeFailureMessage],
+        ["Stripe 创建时间", fmtDate(order.stripeCreatedAt)],
+      ];
+      openDialog({
+        title: "Stripe 支付详情",
+        body: `<div class="adm-detail-grid">${details.map(([label, value]) => `<div><span class="adm-muted">${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></div>`).join("")}</div>`,
+        hideConfirm: true,
+        cancelText: "关闭",
+      });
+    });
     tr.querySelector('[data-act="mark-paid"]')?.addEventListener("click", async () => {
       await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "paid" } });
       toast("已标记支付并增加积分。", "success");
