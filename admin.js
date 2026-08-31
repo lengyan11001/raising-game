@@ -3398,13 +3398,13 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>ID</th><th>Charge ID</th><th>用户 ID</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th><th class="adm-text-right">操作</th></tr></thead>
+              <thead><tr><th>ID</th><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th><th class="adm-text-right">操作</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
-                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id)}</strong><br/><span class="adm-muted">${escapeHtml(o.username || o.userId || "")}</span></td>
+                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id)}</strong></td>
                     <td class="adm-mono adm-truncate">${escapeHtml(o.stripeChargeId || o.paypalCaptureId || "-")}</td>
-                    <td class="adm-mono adm-truncate">${escapeHtml(o.userId || "-")}</td>
+                    <td class="adm-truncate"><strong>${escapeHtml(o.username || "-")}</strong></td>
                     <td class="adm-truncate">${escapeHtml(o.stripeCustomerEmail || o.paypalPayerEmail || "-")}</td>
                     <td class="adm-truncate">${escapeHtml(o.stripeCustomerName || "-")}</td>
                     <td><strong>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeAmountReceived ?? o.baseAmount ?? "")}` : escapeHtml(o.payableAmountText || o.baseAmount || "-")}</strong><br/><span class="adm-muted">积分：${escapeHtml(o.creditAmount || 0)}</span></td>
