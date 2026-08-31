@@ -581,6 +581,8 @@ function setLanguage(lang) {
 function setUser(user, { refreshHistory = false, skipReferralRefresh = false } = {}) {
   const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   const previousUserId = state.user?.id || "";
+  const nextUserId = user?.id || "";
+  const userChanged = nextUserId !== previousUserId;
   state.user = user || null;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {
@@ -632,15 +634,15 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   renderAdvanced();
   renderAssets();
   renderAccountMenu();
-  if (state.tab === "topups") loadTopupRecords(1);
-  if (state.tab === "spending") loadSpendingRecords(1);
-  if (state.tab === "assets") loadUserAssets();
-  if (state.tab === "advanced") loadAdvancedAssets();
-  if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "chat") loadChatConversations({ selectFirst: true });
-  if (state.tab === "workflow") loadWorkflowCanvases({ force: true });
+  if (userChanged && state.tab === "topups") loadTopupRecords(1);
+  if (userChanged && state.tab === "spending") loadSpendingRecords(1);
+  if (userChanged && state.tab === "assets") loadUserAssets();
+  if (userChanged && state.tab === "advanced") loadAdvancedAssets();
+  if (userChanged && state.tab === "access") loadApiSubtokens({ force: true });
+  if (userChanged && state.tab === "chat") loadChatConversations({ selectFirst: true });
+  if (userChanged && state.tab === "workflow") loadWorkflowCanvases({ force: true });
   if (state.tab === "referral") {
-    if (state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
+    if (userChanged && state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
     else renderReferral();
   }
   if (state.tab === "characters") {
