@@ -1796,7 +1796,18 @@ function recordResultPosterUrl(record = {}) {
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+}
+
+function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  const index = Number(asset.referenceIndex);
+  if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
+  return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
+}
+
+function recordMediaAssetHref(asset = {}, video = false) {
+  const value = video ? recordMediaAssetVideoUrl(asset) : recordMediaAssetPreviewUrl(asset);
+  return toAbsoluteHttpUrl(value) || value;
 }
 
 function isInternalAssetUrl(url = "") {
@@ -1872,7 +1883,9 @@ function recordMediaAssetVideoUrl(asset = {}) {
   const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  return candidates.find((url) => isPreviewableVideoUrl(url))
+  const adminUrl = String(asset.adminPreviewUrl || "").trim();
+  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
+    || candidates.find((url) => isPreviewableVideoUrl(url))
     || candidates.find((url) => !isInternalAssetUrl(url))
     || "";
 }
@@ -1901,14 +1914,20 @@ function recordImageAssetsHtml(record = {}) {
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
-        <figure>
-          <img src="${escapeHtml(recordMediaAssetPreviewUrl(asset))}" alt="" />
+        <figure data-reference-item>
+          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
+            <img src="${escapeHtml(recordMediaAssetHref(asset))}" alt="" />
+          </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
       `).join("")}
       ${videos.map((asset) => `
-        <figure>
-          <video src="${escapeHtml(recordMediaAssetVideoUrl(asset))}" controls muted playsinline preload="metadata"></video>
+        <figure data-reference-item>
+          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
+            <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
+          </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
       `).join("")}
@@ -2632,6 +2651,61 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
     button.addEventListener("click", () => {
       const key = button.dataset.copyDetail || "";
       copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
+    });
+  });
+  const referenceByIndex = new Map([
+    ...recordImageAssets(record),
+    ...recordReferenceVideoAssets(record),
+  ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
+  const referenceUrl = (index, download = false) => {
+    const asset = referenceByIndex.get(String(index));
+    if (!record.taskId || !asset) return "";
+    return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${encodeURIComponent(index)}/media${download ? "?download=1" : ""}`;
+  };
+  bodyEl.querySelectorAll("[data-reference-preview]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const index = button.dataset.referencePreview || "";
+      const asset = referenceByIndex.get(String(index));
+      const url = referenceUrl(index);
+      if (!asset || !url) return;
+      try {
+        const response = await fetch(url, { headers: state.token ? { authorization: `Bearer ${state.token}` } : {}, cache: "no-store" });
+        if (!response.ok) throw new Error(`预览失败（${response.status}）`);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const lightbox = document.createElement("div");
+        lightbox.className = "adm-record-media-lightbox";
+        const isVideo = String(blob.type || asset.mime || "").startsWith("video/");
+        lightbox.innerHTML = `<button type="button" class="adm-record-media-lightbox-close" aria-label="关闭"><i data-lucide="x"></i></button>${isVideo ? `<video src="${escapeHtml(blobUrl)}" controls autoplay playsinline></video>` : `<img src="${escapeHtml(blobUrl)}" alt="" />`}<span>${escapeHtml(asset.label || "参考素材")}</span>`;
+        const close = () => { lightbox.remove(); URL.revokeObjectURL(blobUrl); };
+        lightbox.addEventListener("click", (event) => { if (event.target === lightbox || event.target.closest(".adm-record-media-lightbox-close")) close(); });
+        bodyEl.appendChild(lightbox);
+        refreshIcons();
+      } catch (error) {
+        toast(error.message || "参考素材预览失败。", "error");
+      }
+    });
+  });
+  bodyEl.querySelectorAll("[data-reference-download]").forEach((link) => {
+    link.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const index = link.dataset.referenceDownload || "";
+      const url = referenceUrl(index, true);
+      if (!url) return;
+      try {
+        const response = await fetch(url, { headers: state.token ? { authorization: `Bearer ${state.token}` } : {}, cache: "no-store" });
+        if (!response.ok) throw new Error(`下载失败（${response.status}）`);
+        const blobUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement("a");
+        anchor.href = blobUrl;
+        anchor.download = referenceByIndex.get(String(index))?.name || `reference-${Number(index) + 1}`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } catch (error) {
+        toast(error.message || "参考素材下载失败。", "error");
+      }
     });
   });
   const previewVideo = bodyEl.querySelector(".adm-record-preview video");

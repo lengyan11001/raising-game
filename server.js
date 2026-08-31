@@ -17312,6 +17312,52 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
   return true;
 }
 
+function adminRecordMediaAssetUrl(asset = {}, userAssetMap = new Map()) {
+  const linked = asset.userAssetId ? userAssetMap.get(String(asset.userAssetId)) : null;
+  const candidates = [
+    linked?.cdnUrl,
+    linked?.publicUrl,
+    linked?.sourcePublicUrl,
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.imageUrl,
+    asset.videoUrl,
+    asset.audioUrl,
+    asset.localUrl,
+    asset.sourceImageUrl,
+    asset.sourceUrl,
+    asset.url,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find((value) => /^https?:\/\//i.test(value) || value.startsWith("/")) || "";
+}
+
+async function enrichAdminGenerationRecordMedia(record = {}, db = null) {
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const ids = [...new Set(assets.map((asset) => String(asset?.userAssetId || "").trim()).filter(Boolean))];
+  if (!ids.length) return { ...record, mediaAssets: assets.map((asset, index) => ({ ...asset, referenceIndex: index })) };
+  const userAssetMap = new Map();
+  for (const id of ids) {
+    const found = (db?.userAssets || []).find((asset) => String(asset?.id || "") === id && !isSoftDeleted(asset))
+      || await getUserAssetFromDb(id);
+    if (found) userAssetMap.set(id, found);
+  }
+  if (!userAssetMap.size) return { ...record, mediaAssets: assets.map((asset, index) => ({ ...asset, referenceIndex: index })) };
+  const enrich = (asset, index) => {
+    const url = adminRecordMediaAssetUrl(asset, userAssetMap);
+    if (!url) return { ...asset, referenceIndex: index };
+    const type = String(asset.type || "").toLowerCase();
+    const next = { ...asset, referenceIndex: index, adminPreviewUrl: url, adminDownloadUrl: url };
+    if (type.includes("video") || String(asset.mime || "").startsWith("video/")) next.videoUrl = url;
+    else if (type.includes("audio") || String(asset.mime || "").startsWith("audio/")) next.audioUrl = url;
+    else {
+      next.imageUrl = url;
+      next.sourceImageUrl = url;
+    }
+    return next;
+  };
+  return { ...record, mediaAssets: assets.map(enrich) };
+}
+
 async function recoverGenerationRecordR2Urls(record = {}) {
   if (!record?.taskId || !objectStorageEnabled() || generationRecordIsApiTask(record)) return record;
   const taskId = storagePathSegment(record.taskId, "generation");
@@ -39493,8 +39539,63 @@ async function handleAdminGetGenerationRecord(req, res, taskId) {
   if (!auth) return;
   const record = await getGenerationRecord(decodeURIComponent(taskId));
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const enrichedRecord = await enrichAdminGenerationRecordMedia(record, auth.db);
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
-  return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(record, userMap) });
+  return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(enrichedRecord, userMap) });
+}
+
+async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, referenceIndex, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const index = Number(referenceIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= assets.length) {
+    return sendJson(res, 404, { ok: false, message: "Reference media not found." });
+  }
+  const asset = assets[index] || {};
+  let linked = null;
+  if (asset.userAssetId) {
+    linked = (auth.db.userAssets || []).find((item) => String(item?.id || "") === String(asset.userAssetId) && !isSoftDeleted(item)) || await getUserAssetFromDb(asset.userAssetId);
+  }
+  const localUrl = String(linked?.localUrl || asset.localUrl || asset.localImageUrl || asset.localVideoUrl || "").trim();
+  let localPath = "";
+  if (localUrl && !/^https?:\/\//i.test(localUrl) && !/^asset:\/\//i.test(localUrl)) {
+    try { localPath = localPathForUserAsset({ localUrl }); } catch { localPath = ""; }
+  }
+  const remoteUrl = adminRecordMediaAssetUrl(asset, new Map(linked ? [[String(linked.id), linked]] : []));
+  const download = url?.searchParams?.get("download") === "1";
+  const fileName = String(linked?.name || asset.fileName || asset.name || `reference-${index + 1}`).replace(/[^a-z0-9._-]/gi, "-") || `reference-${index + 1}`;
+  const fallbackMime = String(linked?.mime || asset.mime || "").split(";")[0].trim() || (isVideoUrl(remoteUrl) ? "video/mp4" : "image/png");
+  const disposition = download ? attachmentDisposition(fileName) : `inline; filename="${fileName}"`;
+  const headers = { "cache-control": "private, no-store", "content-disposition": disposition };
+  if (localPath) {
+    try {
+      const stat = await fs.stat(localPath);
+      headers["content-type"] = fallbackMime;
+      headers["content-length"] = stat.size;
+      res.writeHead(200, headers);
+      if (req.method === "HEAD") return res.end();
+      return pipeFileStream(res, localPath);
+    } catch {
+      // Use the durable public/R2 copy below when the local upload was cleaned up.
+    }
+  }
+  if (!isPublicHttpUrl(remoteUrl)) return sendJson(res, 404, { ok: false, message: "Reference media is unavailable." });
+  let response;
+  try {
+    response = await fetch(remoteUrl, { redirect: "follow", signal: AbortSignal.timeout(120000) });
+  } catch (error) {
+    return sendJson(res, 502, { ok: false, message: `Failed to read reference media: ${error.message || "upstream error"}` });
+  }
+  if (!response.ok || !response.body) return sendJson(res, 502, { ok: false, message: `Failed to read reference media: ${response.status}` });
+  headers["content-type"] = String(response.headers.get("content-type") || fallbackMime).split(";")[0].trim();
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) headers["content-length"] = contentLength;
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") return res.end();
+  return Readable.fromWeb(response.body).pipe(res);
 }
 
 async function handleAdminGenerationRecordMedia(req, res, taskId) {
@@ -41242,6 +41343,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
       return await handleAdminListGenerationRecords(req, res, url);
+    }
+    const adminGenerationRecordReferenceMediaMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/references\/(\d+)\/media$/);
+    if (["GET", "HEAD"].includes(req.method) && adminGenerationRecordReferenceMediaMatch) {
+      return await handleAdminGenerationRecordReferenceMedia(req, res, adminGenerationRecordReferenceMediaMatch[1], adminGenerationRecordReferenceMediaMatch[2], url);
     }
     const adminGenerationRecordMediaMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/media$/);
     if (["GET", "HEAD"].includes(req.method) && adminGenerationRecordMediaMatch) {
