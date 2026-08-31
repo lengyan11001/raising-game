@@ -44,7 +44,7 @@ test("tool public requests avoid loading the full home catalog and anonymous dat
   );
   assert.match(publicConfigHandler, /const isToolOnly = Boolean\(tenantOptions\.toolOnly\)/);
   assert.match(publicConfigHandler, /if \(!isToolOnly\) \{[\s\S]*?ensureSceneEntriesPersisted[\s\S]*?refreshCompletedHomeVideoItems/);
-  assert.match(publicConfigHandler, /const auth = getBearerToken\(req\) \? await getAuth\(req\) : \{ user: null \}/);
+  assert.match(publicConfigHandler, /const auth = getBearerToken\(req\) \? await getAuth\(req(?:, \{ loadDb: false \})?\) : \{ user: null \}/);
   assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) await recordGeoVisitStats\(req, url\)/);
 });
 

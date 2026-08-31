@@ -1769,12 +1769,12 @@ function historyRecordHtml(r, idx) {
 /* ============ GENERATION RECORDS ============ */
 function recordVideoUrl(record) {
   return toAbsoluteHttpUrl(
+    record.cdnVideoUrl ||
     record.remoteVideoUrl ||
     record.providerVideoUrl ||
     record.upstreamVideoUrl ||
-    record.videoUrl ||
-    record.cdnVideoUrl ||
     record.localVideoUrl ||
+    record.videoUrl ||
     "",
   );
 }
@@ -1786,11 +1786,11 @@ function recordRemoteVideoUrl(record) {
 }
 
 function recordImageResultUrl(record) {
-  return record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || "";
+  return record.cdnImageUrl || record.remoteImageUrl || record.providerImageUrl || record.upstreamImageUrl || record.localImageUrl || record.imageResultUrl || "";
 }
 
 function recordResultPosterUrl(record = {}) {
-  return toAbsoluteHttpUrl(record.localPosterUrl || record.posterUrl || record.coverUrl || record.thumbnailUrl || record.cdnCoverUrl || record.localCoverUrl || "")
+  return toAbsoluteHttpUrl(record.cdnPosterUrl || record.cdnCoverUrl || record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || record.localPosterUrl || record.posterUrl || record.coverUrl || record.thumbnailUrl || record.localCoverUrl || "")
     || recordPrimaryImageUrl(record)
     || toAbsoluteHttpUrl(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
 }

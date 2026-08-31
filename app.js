@@ -281,6 +281,9 @@ const state = {
   rechargeMethod: "stripe",
   eventsBound: false,
   stats: { ...companions[0].stats },
+  generationHistoryPage: 1,
+  generationHistoryTotalPages: 1,
+  generationHistoryLimit: 8,
 };
 
 const els = {
@@ -1036,12 +1039,12 @@ function showVideoResult(videoUrl) {
 
 function generationRecordVideoUrl(record) {
   return String(
+    record?.cdnVideoUrl ||
     record?.remoteVideoUrl ||
     record?.providerVideoUrl ||
     record?.upstreamVideoUrl ||
-    record?.videoUrl ||
     record?.localVideoUrl ||
-    record?.cdnVideoUrl ||
+    record?.videoUrl ||
     "",
   ).trim();
 }
@@ -1105,7 +1108,7 @@ function generationRecordParams(record) {
     .join("\n");
 }
 
-function renderGenerationHistory(records = [], { loading = false } = {}) {
+function renderGenerationHistory(records = [], { loading = false, page = state.generationHistoryPage || 1, totalPages = state.generationHistoryTotalPages || 1 } = {}) {
   if (!els.generationHistoryList) return;
   if (loading) {
     els.generationHistoryList.innerHTML = '<div class="history-empty">Loading records...</div>';
@@ -1149,7 +1152,12 @@ function renderGenerationHistory(records = [], { loading = false } = {}) {
         <pre class="history-params" hidden>${escapeHtmlSafe(params || "No parameters recorded.")}</pre>
       </article>
     `;
-  }).join("");
+  }).join("") + (totalPages > 1 ? `
+    <div class="history-pager" role="navigation" aria-label="Generation history pages">
+      <button class="secondary-btn compact-btn" type="button" data-history-page="prev" ${page <= 1 ? "disabled" : ""}><i data-lucide="chevron-left"></i>Previous</button>
+      <span>${page} / ${totalPages}</span>
+      <button class="secondary-btn compact-btn" type="button" data-history-page="next" ${page >= totalPages ? "disabled" : ""}>Next<i data-lucide="chevron-right"></i></button>
+    </div>` : "");
 
   els.generationHistoryList.querySelectorAll("[data-history-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1164,6 +1172,8 @@ function renderGenerationHistory(records = [], { loading = false } = {}) {
       if (params) params.hidden = !params.hidden;
     });
   });
+  els.generationHistoryList.querySelector('[data-history-page="prev"]')?.addEventListener("click", () => loadGenerationHistory(page - 1));
+  els.generationHistoryList.querySelector('[data-history-page="next"]')?.addEventListener("click", () => loadGenerationHistory(page + 1));
   refreshIcons();
 }
 
@@ -1202,11 +1212,14 @@ async function playGenerationHistoryRecord(record, button) {
   }
 }
 
-async function loadGenerationHistory() {
+async function loadGenerationHistory(pageArg = null) {
   renderGenerationHistory([], { loading: true });
   try {
-    const payload = await requestJson("/api/generation-records?limit=80");
-    renderGenerationHistory(Array.isArray(payload.records) ? payload.records : []);
+    const page = Math.max(1, Number(pageArg || state.generationHistoryPage || 1) || 1);
+    const payload = await requestJson(`/api/generation-records?page=${page}&limit=${state.generationHistoryLimit || 8}`);
+    state.generationHistoryPage = Number(payload.page || page);
+    state.generationHistoryTotalPages = Number(payload.totalPages || 1);
+    renderGenerationHistory(Array.isArray(payload.records) ? payload.records : [], { page: state.generationHistoryPage, totalPages: state.generationHistoryTotalPages });
   } catch (error) {
     if (error.status === 401 || error.code === "LOGIN_REQUIRED") {
       closeDialog(els.generationHistoryDialog);

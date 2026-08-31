@@ -113,6 +113,8 @@ const {
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
+  getUserByApiTokenInDb,
+  getUsersByIdsInDb,
   createSessionInDb,
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
@@ -123,6 +125,16 @@ const {
   upsertUserSubscriptionInDb,
   createMembershipActivationCodesInDb,
   listMembershipActivationCodesInDb,
+  getAdminRechargeLedgerPageFromDb,
+  getAdminUsersPageFromDb,
+  getAdminWalletOrdersPageFromDb,
+  getAdminUserAssetsPageFromDb,
+  getUserAssetsPageFromDb,
+  getUserWalletOrdersPageFromDb,
+  getUserSpendingRecordsPageFromDb,
+  getAdminUserCharactersPageFromDb,
+  getUserCharactersPageFromDb,
+  getAdminSupportMessagesPageFromDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,
@@ -168,6 +180,7 @@ const {
   revokeApiSubtokenInDb,
   recordApiSubtokenUsageInDb,
   getGenerationRecordsFromDb,
+  getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
@@ -2825,7 +2838,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
 async function handlePublicCharacters(req, res, url) {
   let config = await readAppConfig();
   config = await refreshCompletedHomeVideoItems(config);
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const paging = pagingFromUrl(url || new URL("http://localhost"), {
     defaultLimit: PUBLIC_CHARACTER_PAGE_SIZE,
@@ -8310,12 +8323,17 @@ function withJsonBody(req, body = {}) {
   });
 }
 
-async function getAuth(req) {
+function lightweightAuthDb() {
+  return { users: [], sessions: [], walletOrders: [], creditLedger: [], userAssets: [], userCharacters: [], userUnlocks: [], supportMessages: [], apiSubtokens: [] };
+}
+
+async function getAuth(req, options = {}) {
+  const loadDb = options.loadDb !== false;
   const token = getBearerToken(req);
   const tenantId = requestTenantId(req);
-  if (!token) return { db: await readDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
+  if (!token) return { db: loadDb ? await readDb() : lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
-    const db = await readDb();
+    const db = loadDb ? await readDb() : lightweightAuthDb();
     const session = await getSessionByTokenInDb(token);
     if (session && recordBelongsToTenant(session, tenantId)) {
       const user = await getUserByIdInDb(session.userId);
@@ -8327,7 +8345,7 @@ async function getAuth(req) {
       if (store) store.auth = auth;
       return auth;
     }
-    const user = db.users.find((item) => item.apiToken === token && recordBelongsToTenant(item, tenantId)) || null;
+    const user = await getUserByApiTokenInDb(token, tenantId);
     if (user) {
       const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
       const store = requestContext.getStore();
@@ -8388,8 +8406,8 @@ async function getAuth(req) {
   return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
 }
 
-async function requireUser(req, res) {
-  const auth = await getAuth(req);
+async function requireUser(req, res, options = {}) {
+  const auth = await getAuth(req, options);
   if (!auth.user) {
     sendJson(res, 401, { ok: false, code: "LOGIN_REQUIRED", message: "Please sign in to continue." });
     return null;
@@ -8411,8 +8429,8 @@ async function requirePrimaryTokenOwner(req, res) {
   return auth;
 }
 
-async function requireAdmin(req, res) {
-  const auth = await requireUser(req, res);
+async function requireAdmin(req, res, options = {}) {
+  const auth = await requireUser(req, res, options);
   if (!auth) return null;
   if (auth.user.role !== "admin") {
     sendJson(res, 403, { ok: false, code: "ADMIN_REQUIRED", message: "需要管理员权限。" });
@@ -16731,23 +16749,27 @@ function generationRecordProviderVideoUrl(record = {}) {
 }
 
 function generationRecordStoredVideoUrl(record = {}) {
-  if (localPublicAssetStorageEnabled()) {
-    return String(record.localVideoUrl || record.videoUrl || record.cdnVideoUrl || record.remoteVideoUrl || "");
-  }
-  return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "");
+  return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || "").trim();
 }
 
 function generationRecordVideoUrl(record = {}, options = {}) {
   const providerUrl = generationRecordProviderVideoUrl(record);
-  const storedUrl = generationRecordStoredVideoUrl(record);
-  return options.preferProviderVideoUrl ? (providerUrl || storedUrl) : (storedUrl || providerUrl);
+  const cdnUrl = String(record.cdnVideoUrl || "").trim();
+  const localUrl = String(record.localVideoUrl || record.videoUrl || "").trim();
+  if (options.preferProviderVideoUrl) return providerUrl || cdnUrl || localUrl;
+  return cdnUrl || providerUrl || localUrl;
 }
 
 function generationRecordImageUrl(record = {}) {
-  if (localPublicAssetStorageEnabled()) {
-    return String(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || "");
-  }
-  return String(record.cdnImageUrl || record.imageResultUrl || record.localImageUrl || record.remoteImageUrl || "");
+  return String(
+    record.cdnImageUrl ||
+    record.remoteImageUrl ||
+    record.providerImageUrl ||
+    record.upstreamImageUrl ||
+    record.localImageUrl ||
+    record.imageResultUrl ||
+    "",
+  ).trim();
 }
 
 function generationRecordProviderImageUrl(record = {}) {
@@ -16785,7 +16807,9 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
   const tokenSource = String(auth?.tokenSource || "").toLowerCase();
   const externalApiCaller = tokenSource === "api_token" || tokenSource === "subtoken" || auth?.isApiToken === true;
   return {
-    preferProviderVideoUrl: true,
+    // Browser previews use the durable R2 copy first. External API callers keep
+    // the upstream URL contract and do not receive stored media URLs.
+    preferProviderVideoUrl: externalApiCaller,
     providerOnlyVideoUrl: externalApiCaller,
     includeStoredVideoUrls: !externalApiCaller,
     providerOnlyImageUrl: externalApiCaller,
@@ -16806,8 +16830,9 @@ function publicGenerationRecord(record = {}, options = {}) {
   const providerOnlyVideoUrl = options.providerOnlyVideoUrl === true;
   const publicVideoUrl = providerOnlyVideoUrl ? providerVideoUrl : generationRecordVideoUrl(record, options);
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
-  const storedPosterUrl = String(localPublicAssetStorageEnabled() ? (record.localPosterUrl || record.posterUrl || record.cdnPosterUrl || "") : (record.posterUrl || ""));
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
+  const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const preferredPosterUrl = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
@@ -16852,7 +16877,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
-    posterUrl: includeStoredVideoUrls ? storedPosterUrl : providerPosterUrl,
+    posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),
@@ -18613,7 +18638,7 @@ async function videoToolPricing(action, { durationSeconds = 0, user = null, auth
 }
 
 async function handleVideoToolEstimate(req, res) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const body = await readJson(req);
   const action = videoToolAction(body.action);
   if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
@@ -26838,7 +26863,7 @@ async function makePlatformEstimate(template, overrides = {}, user = null, optio
 }
 
 async function handlePlatformEstimates(req, res, url) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const body = req.method === "POST" ? await readJson(req) : {};
   const config = await readAppConfig();
   const requestedTemplateId = String(url.searchParams.get("templateId") || body.templateId || "").trim();
@@ -27756,7 +27781,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
 }
 
 async function handleAdvancedEstimate(req, res) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
   const tenantPublic = requestTenantOptions(req).tenantPublic;
@@ -27942,7 +27967,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
 }
 
 async function buildModelDocs(req) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const origin = publicOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
   const tenantPublic = tenantOptions.tenantPublic;
@@ -31039,12 +31064,19 @@ async function handleTelegramSupportWebhook(req, res, secret) {
 }
 
 async function handleAdminListSupportMessages(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
   const source = String((url || new URL("http://localhost")).searchParams.get("source") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminSupportMessagesPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, status, source });
+    if (result) {
+      const userMap = new Map(result.items.map((m) => [m.userId, { username: m.username }]));
+      return sendJson(res, 200, { ok: true, messages: result.items.map((m) => supportMessageView(m, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   let messages = (auth.db.supportMessages || [])
     .filter((record) => !isSoftDeleted(record))
@@ -31432,8 +31464,12 @@ async function handleCreatePaymentOrder(req, res) {
 }
 
 async function handleListPaymentOrders(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
+  if (dbEnabled()) {
+    const result = await getUserWalletOrdersPageFromDb({ userId: auth.user.id, page: 1, limit: 20 });
+    if (result) return sendJson(res, 200, { ok: true, orders: result.items });
+  }
   const orders = auth.db.walletOrders.filter((order) => order.userId === auth.user.id).slice(0, 20);
   return sendJson(res, 200, { ok: true, orders });
 }
@@ -32608,12 +32644,20 @@ function billingQueryFilters(url) {
 }
 
 async function handleListTopupRecords(req, res, url) {
-  const auth = await requireUser(req, res);
+  const exportRequested = String(url?.searchParams?.get("export") || "").toLowerCase() === "csv";
+  const auth = await requireUser(req, res, { loadDb: exportRequested });
   if (!auth) return;
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, status, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  if (dbEnabled() && !exportCsv) {
+    const result = await getUserWalletOrdersPageFromDb({ userId: auth.user.id, page, limit, queryText: q, status, fromDate, toDate });
+    if (result) {
+      const records = result.items.map((order) => publicTopupOrder(order, config.wallet, tenantOptions));
+      return sendJson(res, 200, { ok: true, records, total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, user: userView(auth.user) });
+    }
+  }
   const records = (auth.db.walletOrders || [])
     .filter((order) => order.userId === auth.user.id)
     .map((order) => publicTopupOrder(order, config.wallet, tenantOptions))
@@ -32668,10 +32712,15 @@ async function handleListTopupRecords(req, res, url) {
 }
 
 async function handleListSpendingRecords(req, res, url) {
-  const auth = await requireUser(req, res);
+  const exportRequested = String(url?.searchParams?.get("export") || "").toLowerCase() === "csv";
+  const auth = await requireUser(req, res, { loadDb: exportRequested });
   if (!auth) return;
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, type, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  if (dbEnabled() && !exportCsv) {
+    const result = await getUserSpendingRecordsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type, fromDate, toDate });
+    if (result) return sendJson(res, 200, { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, user: userView(auth.user) });
+  }
   const records = (auth.db.creditLedger || [])
     .filter((entry) => entry.userId === auth.user.id && Number(entry.delta || 0) < 0)
     .map(publicSpendingLedger)
@@ -32764,7 +32813,7 @@ async function handleGameFeed(req, res) {
   let config = await readAppConfig();
   config = await ensureSceneEntriesPersisted(config);
   config = await refreshCompletedHomeVideoItems(config);
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const publicView = await attachBillingViewToPublicConfig(
     publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
     req,
@@ -34706,12 +34755,18 @@ async function handleModifyUserAssetImage(req, res, assetId) {
 }
 
 async function handleListUserAssets(req, res, url = null) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const params = url?.searchParams || new URLSearchParams();
   const q = String(params.get("q") || "").trim().toLowerCase();
   const type = String(params.get("type") || "").trim().toLowerCase();
   const { page, limit, offset } = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 8, maxLimit: 50 });
+  if (dbEnabled()) {
+    const result = await getUserAssetsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type });
+    if (result) {
+      return sendJson(res, 200, { ok: true, assets: result.assets.map(publicUserAsset).filter((asset) => !isAutoPresetReferenceAsset(asset)), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages });
+    }
+  }
   const filtered = auth.db.userAssets
     .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset) && !isAutoPresetReferenceAsset(asset))
     .map(publicUserAsset)
@@ -36084,8 +36139,12 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
 }
 
 async function handleListMyCharacters(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
+  if (dbEnabled()) {
+    const result = await getUserCharactersPageFromDb({ userId: auth.user.id, page: 1, limit: 50 });
+    if (result) return sendJson(res, 200, { ok: true, characters: result.characters.map(publicUserCharacter), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages });
+  }
   const characters = auth.db.userCharacters
     .filter((character) => character.userId === auth.user.id && !isSoftDeleted(character))
     .slice(0, 50)
@@ -38458,11 +38517,17 @@ async function handleAdminDashboard(req, res) {
 }
 
 async function handleAdminListUsers(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const role = String((url || new URL("http://localhost")).searchParams.get("role") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminUsersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, role });
+    if (result) {
+      return sendJson(res, 200, { ok: true, users: result.items.map((user) => ({ ...userView(user), customCharacters: user.customCharacters, walletOrders: user.walletOrders, advancedAccess: user.advancedAccess === true, advancedAccessRequestedAt: user.advancedAccessRequestedAt || "", registrationChannel: user.registrationChannel || user.registrationAttribution?.channel || "", registrationAttribution: user.registrationAttribution && typeof user.registrationAttribution === "object" ? user.registrationAttribution : {} })), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
   const charByUser = new Map();
   userCharacters.forEach((c) => {
@@ -38744,10 +38809,16 @@ async function handleAdminListHomeItems(req, res, url) {
 }
 
 async function handleAdminListMyCharacters(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const q = String(url?.searchParams?.get("q") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminUserCharactersPageFromDb({ page: paging.page, limit: paging.limit, queryText: q });
+    if (result) {
+      return sendJson(res, 200, { ok: true, characters: result.items.map((r) => adminMyCharacterView(r, new Map([[r.userId, { username: r.username }]]))), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
   let list = (auth.db.userCharacters || [])
     .filter((record) => !isSoftDeleted(record))
@@ -38923,11 +38994,18 @@ async function handleAdminUpdateSceneEntry(req, res, sceneId, entryId) {
 }
 
 async function handleAdminListWalletOrders(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminWalletOrdersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, status });
+    if (result) {
+      const userMap = new Map(result.items.map((o) => [o.userId, { username: o.username }]));
+      return sendJson(res, 200, { ok: true, orders: result.items.map((o) => adminWalletOrderView(o, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
   let list = (auth.db.walletOrders || []).map((o) => adminWalletOrderView(o, userMap));
   if (status) list = list.filter((order) => String(order.status || "").toLowerCase() === status);
@@ -38941,13 +39019,37 @@ async function handleAdminListWalletOrders(req, res, url) {
 }
 
 async function handleAdminListRechargeLedger(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 200 });
   const source = String((url || new URL("http://localhost")).searchParams.get("source") || "").trim().toLowerCase();
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const fromDate = dateFromQuery((url || new URL("http://localhost")).searchParams.get("from"), false);
   const toDate = dateFromQuery((url || new URL("http://localhost")).searchParams.get("to"), true);
+  if (dbEnabled()) {
+    const result = await getAdminRechargeLedgerPageFromDb({
+      page: paging.page,
+      limit: paging.limit,
+      source,
+      queryText: query,
+      fromDate,
+      toDate,
+    });
+    if (result) {
+      const userMap = new Map();
+      const totalPages = Math.max(1, Math.ceil(Number(result.total || 0) / paging.limit));
+      const page = Math.min(paging.page, totalPages);
+      return sendJson(res, 200, {
+        ok: true,
+        records: result.items.map((entry) => adminRechargeLedgerRecordView(entry, userMap)),
+        summary: result.summary,
+        page,
+        limit: paging.limit,
+        total: Number(result.total || 0),
+        totalPages,
+      });
+    }
+  }
   let list = adminRechargeLedgerRecords(auth.db);
   if (source) list = list.filter((entry) => String(entry.source || "").toLowerCase() === source);
   if (fromDate || toDate) {
@@ -39010,10 +39112,17 @@ async function handleAdminScanWalletOrders(req, res) {
 }
 
 async function handleAdminListUserAssets(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminUserAssetsPageFromDb({ page: paging.page, limit: paging.limit, queryText: query });
+    if (result) {
+      const userMap = new Map(result.items.map((a) => [a.userId, { username: a.username }]));
+      return sendJson(res, 200, { ok: true, assets: result.items.map((a) => adminUserAssetView(a, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
   let list = (auth.db.userAssets || []).map((a) => adminUserAssetView(a, userMap));
   if (query) {
@@ -39026,14 +39135,13 @@ async function handleAdminListUserAssets(req, res, url) {
 }
 
 async function handleAdminListGenerationRecords(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url, { defaultLimit: 20, maxLimit: 100 });
   const query = String(url.searchParams.get("q") || "").trim();
   const provider = String(url.searchParams.get("provider") || "").trim();
   const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
   const kind = String(url.searchParams.get("kind") || "").trim();
-  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   const refreshRequested = generationListRefreshRequested(url);
   if (dbEnabled()) {
     const loadPage = () => getAdminGenerationRecordsPageFromDb({
@@ -39053,6 +39161,8 @@ async function handleAdminListGenerationRecords(req, res, url) {
         .slice(0, 20);
       queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
     }
+    const users = await getUsersByIdsInDb(result.records.map((record) => record.userId));
+    const userMap = new Map(users.map((user) => [user.id, user]));
     return sendJson(res, 200, {
       ok: true,
       records: result.records.map((record) => adminGenerationRecordListView(record, userMap)),
@@ -39075,6 +39185,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
   queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
+  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   const enriched = records.map((record) => adminGenerationRecordListView(record, userMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
@@ -39136,11 +39247,25 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
 }
 
 async function handleListGenerationRecords(req, res, url) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 8, maxLimit: 50 });
-  const allOwnRecords = await listGenerationRecordsForUser(auth.user.id, Math.max(500, offset + limit));
-  const ownRecords = allOwnRecords.slice(offset, offset + limit);
+  let allOwnRecords = [];
+  let ownRecords = [];
+  let totalPages = 1;
+  let total = 0;
+  if (dbEnabled()) {
+    const result = await getUserGenerationRecordsPageFromDb({ userId: auth.user.id, page, limit });
+    allOwnRecords = result?.records || [];
+    ownRecords = allOwnRecords;
+    total = Number(result?.total || 0);
+    totalPages = Number(result?.totalPages || 1);
+  } else {
+    allOwnRecords = await listGenerationRecordsForUser(auth.user.id, Math.max(500, offset + limit));
+    ownRecords = allOwnRecords.slice(offset, offset + limit);
+    total = allOwnRecords.length;
+    totalPages = Math.max(1, Math.ceil(total / limit));
+  }
 
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
@@ -39166,9 +39291,9 @@ async function handleListGenerationRecords(req, res, url) {
     records: ownRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
     page,
     limit,
-    total: allOwnRecords.length,
-    totalPages: Math.max(1, Math.ceil(allOwnRecords.length / limit)),
-    user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
+    total,
+    totalPages,
+    user: userView(auth.user),
   });
 }
 
@@ -40184,7 +40309,7 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/config/public") {
       const tenantOptions = requestTenantOptions(req);
       const isToolOnly = Boolean(tenantOptions.toolOnly);
-      const auth = getBearerToken(req) ? await getAuth(req) : { user: null };
+      const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
       const cacheKey = `${requestHostname(req)}:${isToolOnly ? "tool" : "main"}`;
       let publicView = !auth.user ? publicConfigCache.get(cacheKey)?.value : null;
       if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {

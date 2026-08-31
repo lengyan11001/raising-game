@@ -814,10 +814,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
     query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
     query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
-    // The admin recharge ledger needs the complete credit history. Limiting
-    // this read to the newest rows makes older, valid entries disappear from
-    // the admin view even though they remain in PostgreSQL.
-    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
     query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
@@ -1183,6 +1180,27 @@ async function createSessionInDb(session = {}) {
   return session;
 }
 
+async function getUserByApiTokenInDb(apiToken = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const token = String(apiToken || "").trim();
+  if (!token) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_users WHERE api_token = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
+    [token, normalizeTenantId(tenantId)],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getUsersByIdsInDb(userIds = []) {
+  if (!dbEnabled()) return [];
+  const ids = [...new Set((Array.isArray(userIds) ? userIds : []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return [];
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_users WHERE id = ANY($1::text[])`, [ids]);
+  return rows.map(userFromRow);
+}
+
 async function getSessionByTokenInDb(token = "") {
   if (!dbEnabled()) return null;
   const cleanToken = String(token || "").trim();
@@ -1378,6 +1396,300 @@ async function listMembershipActivationCodesInDb(tenantId = DEFAULT_TENANT_ID, {
     items: rows.map(membershipActivationCodeFromRow),
     total: Number(rows[0]?.total_count || 0),
   };
+}
+
+async function getAdminRechargeLedgerPageFromDb({ page = 1, limit = 20, source = "", queryText = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(Number(limit || 20) || 20)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  const safeOffset = (safePage - 1) * safeLimit;
+  const cleanSource = String(source || "").trim().toLowerCase();
+  const cleanQuery = String(queryText || "").trim().toLowerCase();
+  const params = [cleanSource, cleanQuery, fromDate ? new Date(fromDate).toISOString() : null, toDate ? new Date(toDate).toISOString() : null, safeLimit, safeOffset];
+  const { rows } = await query(
+    `
+      WITH all_rows AS (
+        SELECT
+          o.id,
+          o.user_id,
+          COALESCE(u.username, o.payload->>'username', '') AS username,
+          'user_topup' AS source,
+          'User top-up' AS source_label,
+          o.payload,
+          o.created_at,
+          COALESCE(
+            NULLIF(o.payload->>'paidAt', '')::timestamptz,
+            NULLIF(o.payload->>'matchedAt', '')::timestamptz,
+            o.updated_at,
+            o.created_at
+          ) AS event_at
+        FROM app_wallet_orders o
+        LEFT JOIN app_users u ON u.id = o.user_id
+        WHERE LOWER(o.status) = 'paid'
+        UNION ALL
+        SELECT
+          l.id,
+          l.user_id,
+          COALESCE(l.payload->>'username', u.username, '') AS username,
+          'manual_admin' AS source,
+          'Admin credit adjustment' AS source_label,
+          l.payload,
+          l.created_at,
+          l.created_at AS event_at
+        FROM app_credit_ledger l
+        LEFT JOIN app_users u ON u.id = l.user_id
+        WHERE l.type IN ('admin_credit_add', 'admin_credit_subtract', 'admin_credit_adjustment', 'manual_credit_add', 'manual_credit_adjustment')
+      ),
+      with_values AS (
+        SELECT
+          all_rows.*,
+          CASE WHEN source = 'manual_admin'
+            THEN COALESCE(NULLIF(payload->>'delta', '')::numeric, 0)
+            ELSE COALESCE(NULLIF(payload->>'creditAmount', '')::numeric, NULLIF(payload->>'packageCredits', '')::numeric, COALESCE(NULLIF(payload->>'baseAmount', '')::numeric, 0) * COALESCE(NULLIF(payload->>'creditsPerUsd', '')::numeric, 120))
+          END AS credits,
+          COALESCE(NULLIF(payload->>'baseAmount', '')::numeric, 0) AS amount_usd
+        FROM all_rows
+      ),
+      filtered AS (
+        SELECT *
+        FROM with_values
+        WHERE ($1 = '' OR source = $1)
+          AND ($3::timestamptz IS NULL OR event_at >= $3::timestamptz)
+          AND ($4::timestamptz IS NULL OR event_at <= $4::timestamptz)
+          AND ($2 = '' OR LOWER(CONCAT_WS(' ', id, username, user_id, source_label, payload->>'paymentProvider', payload->>'network', payload->>'asset', payload->>'transactionHash', payload->>'paypalOrderId', payload->>'adminUsername', payload->>'note')) LIKE '%' || $2 || '%')
+      )
+      SELECT
+        filtered.*,
+        COUNT(*) OVER()::int AS total_count,
+        COUNT(*) FILTER (WHERE source = 'user_topup') OVER()::int AS user_topup_count,
+        COALESCE(SUM(credits) FILTER (WHERE source = 'user_topup') OVER(), 0) AS user_topup_credits,
+        COALESCE(SUM(amount_usd) FILTER (WHERE source = 'user_topup') OVER(), 0) AS user_topup_usd,
+        COUNT(*) FILTER (WHERE source = 'manual_admin') OVER()::int AS manual_count,
+        COALESCE(SUM(credits) FILTER (WHERE source = 'manual_admin' AND credits > 0) OVER(), 0) AS manual_added_credits,
+        COALESCE(SUM(ABS(credits)) FILTER (WHERE source = 'manual_admin' AND credits < 0) OVER(), 0) AS manual_reduced_credits,
+        COALESCE(SUM(credits) OVER(), 0) AS total_credits
+      FROM filtered
+      ORDER BY event_at DESC, id DESC
+      LIMIT $5 OFFSET LEAST($6, GREATEST(0, (SELECT COUNT(*) FROM filtered) - $5))
+    `,
+    params,
+  );
+  const first = rows[0] || {};
+  return {
+    items: rows.map((row) => ({
+      ...(row.payload && typeof row.payload === "object" ? row.payload : {}),
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      source: row.source,
+      sourceLabel: row.source_label,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+      paidAt: row.event_at ? new Date(row.event_at).toISOString() : "",
+      delta: Number(row.credits || 0),
+      credits: Number(row.credits || 0),
+      amountUsd: Number(row.amount_usd || 0),
+    })),
+    total: Number(first.total_count || 0),
+    summary: {
+      totalCount: Number(first.total_count || 0),
+      totalCredits: Number(first.total_credits || 0),
+      userTopupCount: Number(first.user_topup_count || 0),
+      userTopupCredits: Number(first.user_topup_credits || 0),
+      userTopupUsd: Number(first.user_topup_usd || 0),
+      manualCount: Number(first.manual_count || 0),
+      manualAddedCredits: Number(first.manual_added_credits || 0),
+      manualReducedCredits: Number(first.manual_reduced_credits || 0),
+    },
+  };
+}
+
+function adminPageArgs({ page = 1, limit = 20 } = {}, maxLimit = 100) {
+  const safeLimit = Math.max(1, Math.min(maxLimit, Math.trunc(Number(limit || 20) || 20)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  return { safeLimit, safePage, safeOffset: (safePage - 1) * safeLimit };
+}
+
+async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", role = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanRole = String(role || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT u.*, COUNT(*) OVER()::int AS total_count,
+      (SELECT COUNT(*) FROM app_user_characters c WHERE c.user_id = u.id AND c.deleted_at IS NULL)::int AS custom_characters,
+      (SELECT COUNT(*) FROM app_wallet_orders o WHERE o.user_id = u.id)::int AS wallet_orders
+    FROM app_users u
+    WHERE u.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(u.role) = $1)
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', u.username, u.id, u.tenant_id, u.api_token, u.role, u.payload->>'registrationChannel', u.payload->'registrationAttribution'->>'host')) LIKE '%' || $2 || '%')
+    ORDER BY u.created_at DESC
+    LIMIT $3 OFFSET $4
+  `, [cleanRole, q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...userFromRow(row), customCharacters: Number(row.custom_characters || 0), walletOrders: Number(row.wallet_orders || 0) })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getAdminWalletOrdersPageFromDb({ page = 1, limit = 20, queryText = "", status = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT o.*, COALESCE(u.username, o.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_wallet_orders o LEFT JOIN app_users u ON u.id = o.user_id
+    WHERE ($1 = '' OR LOWER(o.status) = $1)
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', o.id, o.user_id, COALESCE(u.username, o.payload->>'username', ''), o.chain, o.payload->>'network', o.payload->>'address', o.transaction_hash, o.paypal_order_id)) LIKE '%' || $2 || '%')
+    ORDER BY o.created_at DESC
+    LIMIT $3 OFFSET $4
+  `, [cleanStatus, q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...walletOrderFromRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getAdminUserAssetsPageFromDb({ page = 1, limit = 20, queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT a.*, COALESCE(u.username, a.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_user_assets a LEFT JOIN app_users u ON u.id = a.user_id
+    WHERE a.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(CONCAT_WS(' ', a.id, a.user_id, COALESCE(u.username, a.payload->>'username', ''), a.mime, a.payload->>'localUrl', a.payload->>'publicUrl', a.payload->>'cdnUrl')) LIKE '%' || $1 || '%')
+    ORDER BY a.created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...recordFromPayloadRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getUserAssetsPageFromDb({ userId = "", page = 1, limit = 8, queryText = "", type = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 8) || 8)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanType = String(type || "").trim().toLowerCase();
+  const offset = (safePage - 1) * safeLimit;
+  const { rows } = await query(`
+    SELECT payload, id, user_id, mime, created_at, updated_at, deleted_at, COUNT(*) OVER()::int AS total_count
+    FROM app_user_assets
+    WHERE user_id = $1 AND deleted_at IS NULL
+      AND COALESCE(payload->>'hidden', 'false') <> 'true'
+      AND COALESCE(payload->'meta'->>'fromPreset', 'false') <> 'true'
+      AND COALESCE(payload->>'name', '') !~* '^(character|action|outfit|scene)-[a-z0-9_-]+\.(jpg|jpeg|png|webp)$'
+      AND ($2 = '' OR ($2 = 'image' AND mime LIKE 'image/%') OR ($2 = 'video' AND mime LIKE 'video/%') OR ($2 = 'audio' AND mime LIKE 'audio/%') OR ($2 = 'document' AND (mime IN ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/plain') OR LOWER(COALESCE(payload->>'name', '')) ~ '\\.(pdf|doc|docx|xls|xlsx|txt)$')))
+      AND ($3 = '' OR LOWER(CONCAT_WS(' ', id, mime, payload->>'name')) LIKE '%' || $3 || '%')
+    ORDER BY created_at DESC
+    LIMIT $4 OFFSET $5
+  `, [cleanUserId, cleanType, q, safeLimit, offset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return { assets: rows.map(recordFromPayloadRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages };
+}
+
+async function getUserWalletOrdersPageFromDb({ userId = "", page = 1, limit = 12, queryText = "", status = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 200);
+  const cleanUserId = String(userId || "").trim();
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const from = fromDate ? new Date(fromDate).toISOString() : null;
+  const to = toDate ? new Date(toDate).toISOString() : null;
+  const { rows } = await query(`
+    SELECT *, COUNT(*) OVER()::int AS total_count
+    FROM app_wallet_orders
+    WHERE user_id = $1
+      AND ($2 = '' OR LOWER(status) = $2)
+      AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+      AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+      AND ($5 = '' OR LOWER(CONCAT_WS(' ', id, chain, payload->>'network', payload->>'address', transaction_hash, paypal_order_id, payload->>'paymentProvider', payload->>'note')) LIKE '%' || $5 || '%')
+    ORDER BY created_at DESC
+    LIMIT $6 OFFSET $7
+  `, [cleanUserId, cleanStatus, from, to, q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return { items: rows.map(walletOrderFromRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages };
+}
+
+async function getUserSpendingRecordsPageFromDb({ userId = "", page = 1, limit = 12, queryText = "", type = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 200);
+  const cleanUserId = String(userId || "").trim();
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanType = String(type || "").trim().toLowerCase();
+  const from = fromDate ? new Date(fromDate).toISOString() : null;
+  const to = toDate ? new Date(toDate).toISOString() : null;
+  const { rows } = await query(`
+    SELECT *, COUNT(*) OVER()::int AS total_count
+    FROM app_credit_ledger
+    WHERE user_id = $1 AND delta < 0
+      AND ($2 = '' OR LOWER(type) = $2)
+      AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+      AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+      AND ($5 = '' OR LOWER(CONCAT_WS(' ', id, type, meta->>'taskId', meta->>'templateId', meta->>'caseId', meta->>'provider', meta->>'resolution', meta->>'label')) LIKE '%' || $5 || '%')
+    ORDER BY created_at DESC
+    LIMIT $6 OFFSET $7
+  `, [cleanUserId, cleanType, from, to, q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const typeRows = await query(`SELECT DISTINCT type FROM app_credit_ledger WHERE user_id = $1 AND delta < 0 AND type <> '' ORDER BY type`, [cleanUserId]);
+  return { items: rows.map(ledgerFromRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages, types: typeRows.rows.map((row) => String(row.type || "")).filter(Boolean) };
+}
+
+async function getAdminUserCharactersPageFromDb({ page = 1, limit = 20, queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT c.*, COALESCE(u.username, c.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_user_characters c LEFT JOIN app_users u ON u.id = c.user_id
+    WHERE c.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(CONCAT_WS(' ', c.id, c.user_id, COALESCE(u.username, c.payload->>'username', ''), c.payload->>'name', c.payload->>'title', c.payload->>'description', c.payload->>'prompt', c.payload->>'status', c.payload->>'taskId', c.payload->>'upstreamTaskId')) LIKE '%' || $1 || '%')
+    ORDER BY c.created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...recordFromPayloadRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getUserCharactersPageFromDb({ userId = "", page = 1, limit = 50 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 100);
+  const { rows } = await query(`
+    SELECT payload, id, user_id, deleted_at, created_at, updated_at, COUNT(*) OVER()::int AS total_count
+    FROM app_user_characters
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [String(userId || "").trim(), safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return { characters: rows.map(recordFromPayloadRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages };
+}
+
+async function getAdminSupportMessagesPageFromDb({ page = 1, limit = 20, queryText = "", status = "", source = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const cleanSource = String(source || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT m.*, COALESCE(u.username, m.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_support_messages m LEFT JOIN app_users u ON u.id = m.user_id
+    WHERE m.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(COALESCE(m.payload->>'status', 'open')) = $1)
+      AND ($2 = '' OR LOWER(COALESCE(m.payload->>'source', '')) = $2)
+      AND ($3 = '' OR LOWER(CONCAT_WS(' ', m.id, m.user_id, COALESCE(u.username, m.payload->>'username', ''), m.payload->>'email', m.payload->>'subject', m.payload->>'message', m.payload->>'reply', m.payload->>'status', m.payload->>'source')) LIKE '%' || $3 || '%')
+    ORDER BY m.created_at DESC
+    LIMIT $4 OFFSET $5
+  `, [cleanStatus, cleanSource, q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...recordFromPayloadRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
 }
 
 async function hasReferralRewardInDb(referrerUserId = "", referredUserId = "") {
@@ -2365,6 +2677,38 @@ async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDel
   return rows.map((row) => row.payload);
 }
 
+async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { records: [], total: 0, page: 1, limit: Math.max(1, Math.min(50, Number(limit || 8))) };
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 8) || 8)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  const offset = (safePage - 1) * safeLimit;
+  const { rows } = await query(`
+    SELECT payload, COUNT(*) OVER()::int AS total_count
+    FROM app_generation_records
+    WHERE payload->>'userId' = $1
+      AND COALESCE(payload->>'deletedAt', '') = ''
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $2 OFFSET $3
+  `, [cleanUserId, safeLimit, offset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const actualPage = Math.min(safePage, totalPages);
+  if (actualPage !== safePage) {
+    const retry = await query(`
+      SELECT payload, COUNT(*) OVER()::int AS total_count
+      FROM app_generation_records
+      WHERE payload->>'userId' = $1 AND COALESCE(payload->>'deletedAt', '') = ''
+      ORDER BY created_at DESC, updated_at DESC
+      LIMIT $2 OFFSET $3
+    `, [cleanUserId, safeLimit, (actualPage - 1) * safeLimit]);
+    return { records: retry.rows.map((row) => row.payload), total: Number(retry.rows[0]?.total_count || total), page: actualPage, limit: safeLimit, totalPages };
+  }
+  return { records: rows.map((row) => row.payload), total, page: actualPage, limit: safeLimit, totalPages };
+}
+
 async function getAdminGenerationRecordsPageFromDb({
   page = 1,
   limit = 20,
@@ -3030,6 +3374,8 @@ module.exports = {
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
+  getUserByApiTokenInDb,
+  getUsersByIdsInDb,
   createSessionInDb,
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
@@ -3040,6 +3386,16 @@ module.exports = {
   upsertUserSubscriptionInDb,
   createMembershipActivationCodesInDb,
   listMembershipActivationCodesInDb,
+  getAdminRechargeLedgerPageFromDb,
+  getAdminUsersPageFromDb,
+  getAdminWalletOrdersPageFromDb,
+  getAdminUserAssetsPageFromDb,
+  getUserAssetsPageFromDb,
+  getUserWalletOrdersPageFromDb,
+  getUserSpendingRecordsPageFromDb,
+  getAdminUserCharactersPageFromDb,
+  getUserCharactersPageFromDb,
+  getAdminSupportMessagesPageFromDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,
@@ -3089,6 +3445,7 @@ module.exports = {
   getKvUpdatedAt,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
+  getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
