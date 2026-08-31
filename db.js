@@ -2821,14 +2821,42 @@ async function upsertGenerationRecordInDb(nextRecord) {
       )
       ON CONFLICT (task_id)
       DO UPDATE SET
-        payload = app_generation_records.payload
-          || EXCLUDED.payload
-          || jsonb_build_object(
-            'taskId', EXCLUDED.task_id,
-            'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
-            'updatedAt', $3::text,
-            'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
-          ),
+        payload = (
+          SELECT jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
+                    'taskId', EXCLUDED.task_id,
+                    'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
+                    'updatedAt', $3::text,
+                    'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
+                  ),
+                  '{cdnVideoUrl}',
+                  CASE WHEN NULLIF(EXCLUDED.payload->>'cdnVideoUrl', '') IS NOT NULL
+                    THEN EXCLUDED.payload->'cdnVideoUrl'
+                    ELSE COALESCE(app_generation_records.payload->'cdnVideoUrl', to_jsonb(''::text)) END,
+                  true
+                ),
+                '{cdnPosterUrl}',
+                CASE WHEN NULLIF(EXCLUDED.payload->>'cdnPosterUrl', '') IS NOT NULL
+                  THEN EXCLUDED.payload->'cdnPosterUrl'
+                  ELSE COALESCE(app_generation_records.payload->'cdnPosterUrl', to_jsonb(''::text)) END,
+                true
+              ),
+              '{cdnImageUrl}',
+              CASE WHEN NULLIF(EXCLUDED.payload->>'cdnImageUrl', '') IS NOT NULL
+                THEN EXCLUDED.payload->'cdnImageUrl'
+                ELSE COALESCE(app_generation_records.payload->'cdnImageUrl', to_jsonb(''::text)) END,
+              true
+            ),
+            '{cdnImageUrls}',
+            CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageUrls') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageUrls') > 0
+              THEN EXCLUDED.payload->'cdnImageUrls'
+              ELSE COALESCE(app_generation_records.payload->'cdnImageUrls', '[]'::jsonb) END,
+            true
+          )
+        ),
         updated_at = $3::timestamptz
       RETURNING payload
     `,

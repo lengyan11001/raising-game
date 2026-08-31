@@ -16636,6 +16636,17 @@ async function upsertGenerationRecord(nextRecord) {
       updatedAt: now,
     };
 
+    for (const key of ["cdnVideoUrl", "cdnPosterUrl", "cdnImageUrl"]) {
+      if (!String(storableRecord[key] || "").trim() && String(records[index]?.[key] || "").trim()) {
+        record[key] = records[index][key];
+      }
+    }
+    for (const key of ["cdnImageUrls"]) {
+      if (Array.isArray(records[index]?.[key]) && records[index][key].length && (!Array.isArray(storableRecord[key]) || !storableRecord[key].length)) {
+        record[key] = records[index][key];
+      }
+    }
+
     if (index >= 0) {
       records[index] = record;
     } else {
@@ -17199,7 +17210,10 @@ function drainGenerationRecordRefreshQueue() {
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
-  if (!record?.taskId || !record.localVideoUrl) return record;
+  if (!record?.taskId) return record;
+  const recovered = await recoverGenerationRecordR2Urls(record);
+  if (!recovered?.localVideoUrl) return recovered;
+  record = recovered;
   const localVideoPath = record.localVideoPath || path.join(ROOT, String(record.localVideoUrl || "").replace(/^\//, ""));
   const currentVideoUrl = generationRecordVideoUrl(record);
   try {
@@ -17297,8 +17311,34 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
   return true;
 }
 
+async function recoverGenerationRecordR2Urls(record = {}) {
+  if (!record?.taskId || !objectStorageEnabled() || generationRecordIsApiTask(record)) return record;
+  const taskId = storagePathSegment(record.taskId, "generation");
+  const updates = {};
+  if (!String(record.cdnVideoUrl || "").trim()) {
+    const found = await findUploadedR2Object(objectStoragePath("generated", "videos", `${taskId}.mp4`));
+    if (found?.publicUrl) updates.cdnVideoUrl = found.publicUrl;
+  }
+  if (!String(record.cdnPosterUrl || "").trim()) {
+    const found = await findUploadedR2Object(objectStoragePath("generated", "posters", `${taskId}.jpg`));
+    if (found?.publicUrl) updates.cdnPosterUrl = found.publicUrl;
+  }
+  if (!Object.keys(updates).length) return record;
+  const next = await upsertGenerationRecord({
+    taskId: record.taskId,
+    ...updates,
+    videoUrl: updates.cdnVideoUrl || record.videoUrl || "",
+    posterUrl: updates.cdnPosterUrl || record.posterUrl || "",
+    cdnError: "",
+    lastUpdateReason: "r2-record-recovery",
+  });
+  console.log("[generation-record-r2-recovered]", record.taskId, Object.keys(updates));
+  return next || { ...record, ...updates };
+}
+
 function generationRecordNeedsMediaMaintenance(record = {}) {
-  if (!record?.taskId || !record.localVideoUrl || generationRecordIsApiTask(record)) return false;
+  if (!record?.taskId || generationRecordIsApiTask(record)) return false;
+  if (!record.localVideoUrl) return !record.cdnVideoUrl;
   return !record.localPosterUrl
     || !record.playbackOptimizedAt
     || (objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
@@ -19518,6 +19558,30 @@ function videoToolRunnerForJob(job = {}) {
       : job.action === "undress" && job.pricing?.outputKind !== "image"
         ? runVideoToolUndressVideoLegacy
         : runVideoToolUndress;
+}
+
+let generationMediaRecoveryRunning = false;
+
+async function scanGenerationRecordMediaRecovery(reason = "timer") {
+  if (generationMediaRecoveryRunning || !objectStorageEnabled()) return;
+  generationMediaRecoveryRunning = true;
+  try {
+    const records = await readGenerationRecords();
+    const candidates = records
+      .filter((record) => isSucceededStatus(record.status) && generationRecordNeedsMediaMaintenance(record))
+      .slice(0, 25);
+    for (const record of candidates) queueGenerationRecordMediaMaintenance(record);
+    if (candidates.length) console.log("[generation-record-r2-recovery-scan]", reason, candidates.length);
+  } catch (error) {
+    console.warn("[generation-record-r2-recovery-scan-failed]", error.message || error);
+  } finally {
+    generationMediaRecoveryRunning = false;
+  }
+}
+
+function startGenerationRecordMediaRecoveryScheduler() {
+  setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
+  setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
 }
 
 function scheduleVideoToolJobDrain() {
@@ -41227,6 +41291,7 @@ async function bootstrap() {
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
   startLocalMediaCleanupScheduler();
+  startGenerationRecordMediaRecoveryScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
