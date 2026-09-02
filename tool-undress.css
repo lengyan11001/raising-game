@@ -472,25 +472,27 @@ body.tenant-tool-undress .undress-inline-back {
 }
 
 @keyframes undress-case-reveal {
-  0%, 32% { opacity: 0; }
-  48%, 82% { opacity: 1; }
+  /* Start the first reveal about one second after the case enters (6s loop). */
+  0%, 14% { opacity: 0; }
+  24%, 82% { opacity: 1; }
   100% { opacity: 0; }
 }
 
 @keyframes undress-case-sweep {
-  0%, 30% {
+  /* The sweep starts at roughly 1s instead of waiting through the old 30%. */
+  0%, 12% {
     opacity: 0;
     transform: translateX(-260%) skewX(-18deg);
   }
-  36% {
+  17% {
     opacity: 1;
     transform: translateX(-120%) skewX(-18deg);
   }
-  48%, 58% {
+  34%, 44% {
     opacity: 1;
     transform: translateX(420%) skewX(-18deg);
   }
-  70%, 100% {
+  60%, 100% {
     opacity: 0;
     transform: translateX(720%) skewX(-18deg);
   }
