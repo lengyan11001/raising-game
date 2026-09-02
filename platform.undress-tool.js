@@ -197,9 +197,9 @@ function undressToolExampleHtml() {
 function undressToolCaseHtml(type) {
   const example = UNDRESS_TOOL_EXAMPLE_MEDIA[type];
   if (!example) return "";
-  if (type === "image") return `<div class="undress-case-media undress-case-image-switch"><img class="undress-case-layer is-original" src="${undressToolEscape(example.input)}" alt="" /><img class="undress-case-layer is-template" src="${undressToolEscape(example.result)}" alt="" /><span class="undress-case-shimmer" aria-hidden="true"></span><span class="undress-case-label">${undressToolEscape(undressToolText("template"))}</span></div>`;
-  if (type === "image_video") return `<div class="undress-case-media undress-case-video"><video src="${undressToolEscape(example.result)}" autoplay muted loop playsinline preload="metadata"></video><img class="undress-case-source-thumb" src="${undressToolEscape(example.input)}" alt="" /><span class="undress-case-label">${undressToolEscape(undressToolText("template"))}</span><button class="undress-case-play" type="button" data-undress-example-play aria-label="Play video"><i data-lucide="play"></i></button></div>`;
-  return `<div class="undress-case-media undress-case-video undress-case-video-switch"><video class="undress-case-layer is-original" src="${undressToolEscape(example.input)}" autoplay muted loop playsinline preload="metadata"></video><video class="undress-case-layer is-template" src="${undressToolEscape(example.result)}" autoplay muted loop playsinline preload="metadata"></video><span class="undress-case-shimmer" aria-hidden="true"></span><span class="undress-case-label">${undressToolEscape(undressToolText("template"))}</span><button class="undress-case-play" type="button" data-undress-example-play aria-label="Play video"><i data-lucide="play"></i></button></div>`;
+  if (type === "image") return `<div class="undress-case-media undress-case-image-switch"><img class="undress-case-layer is-original" src="${undressToolEscape(example.input)}" alt="" /><img class="undress-case-layer is-template" src="${undressToolEscape(example.result)}" alt="" /><span class="undress-case-shimmer" aria-hidden="true"></span></div>`;
+  if (type === "image_video") return `<div class="undress-case-media undress-case-video"><video src="${undressToolEscape(example.result)}" autoplay muted loop playsinline preload="metadata"></video><img class="undress-case-source-thumb" src="${undressToolEscape(example.input)}" alt="" /><button class="undress-case-play" type="button" data-undress-example-play aria-label="Play video"><i data-lucide="play"></i></button></div>`;
+  return `<div class="undress-case-media undress-case-video undress-case-video-switch"><video class="undress-case-layer is-original" src="${undressToolEscape(example.input)}" autoplay muted loop playsinline preload="metadata"></video><video class="undress-case-layer is-template" src="${undressToolEscape(example.result)}" autoplay muted loop playsinline preload="metadata"></video><span class="undress-case-shimmer" aria-hidden="true"></span><button class="undress-case-play" type="button" data-undress-example-play aria-label="Play video"><i data-lucide="play"></i></button></div>`;
 }
 
 function undressToolExampleVideoHtml(src) {
@@ -562,11 +562,6 @@ function renderUndressToolHome() {
           <h2>${undressToolEscape(undressToolText("title"))}</h2>
           <p>${undressToolEscape(undressToolText("subtitle"))}</p>
         </div>
-        <nav class="undress-case-tabs" role="tablist">
-          <button class="undress-case-tab is-active" type="button" role="tab" aria-selected="true" data-undress-case="image">${undressToolEscape(undressToolText("imageOnly"))}</button>
-          <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="image_video">${undressToolEscape(undressToolText("imageVideo"))}</button>
-          <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="video">${undressToolEscape(undressToolText("videoOnly"))}</button>
-        </nav>
         <div class="undress-case-stage" data-undress-case-stage>${undressToolCaseHtml("image")}</div>
         <button class="undress-tool-upload-button" type="button" data-undress-tool-upload><i data-lucide="upload"></i>${undressToolEscape(undressToolText("upload"))}</button>
         <input class="undress-tool-home-input" type="file" accept="${undressToolAccept()}" data-undress-home-input tabindex="-1" aria-hidden="true" />
@@ -574,6 +569,10 @@ function renderUndressToolHome() {
       </div>
     </section>
   `;
+  const mainTabs = document.querySelector(".top-tabs");
+  if (mainTabs && !mainTabs.querySelector(".undress-case-tabs")) {
+    mainTabs.insertAdjacentHTML("beforeend", `<nav class="undress-case-tabs undress-case-tabs-nav" role="tablist"><button class="undress-case-tab is-active" type="button" role="tab" aria-selected="true" data-undress-case="image">${undressToolEscape(undressToolText("imageOnly"))}</button><button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="image_video">${undressToolEscape(undressToolText("imageVideo"))}</button><button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="video">${undressToolEscape(undressToolText("videoOnly"))}</button></nav>`);
+  }
   const homeInput = workspace.querySelector("[data-undress-home-input]");
   const uploadButton = workspace.querySelector("[data-undress-tool-upload]");
   uploadButton?.addEventListener("click", () => {
@@ -582,12 +581,12 @@ function renderUndressToolHome() {
     homeInput?.click();
   });
   homeInput?.addEventListener("change", handleUndressToolFile);
-  workspace.querySelectorAll("[data-undress-case]").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll(".undress-case-tabs [data-undress-case]").forEach((button) => button.addEventListener("click", () => {
     const type = button.dataset.undressCase;
     if (!type || type === undressToolState.generationType) return;
     undressToolState.generationType = type;
     resetUndressToolFile();
-    workspace.querySelectorAll("[data-undress-case]").forEach((item) => { item.classList.toggle("is-active", item === button); item.setAttribute("aria-selected", item === button ? "true" : "false"); });
+    document.querySelectorAll(".undress-case-tabs [data-undress-case]").forEach((item) => { item.classList.toggle("is-active", item.dataset.undressCase === type); item.setAttribute("aria-selected", item.dataset.undressCase === type ? "true" : "false"); });
     if (homeInput) homeInput.accept = undressToolAccept();
     const stage = workspace.querySelector("[data-undress-case-stage]");
     if (stage) { stage.innerHTML = undressToolCaseHtml(type); bindUndressToolExampleVideos(stage); }

@@ -69,6 +69,18 @@ body.tenant-tool-undress .undress-case-tabs {
   background: #17181e;
 }
 
+body.tenant-tool-undress .undress-case-tabs-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--undress-line);
+  border-radius: 8px;
+  background: #15161b;
+}
+
 body.tenant-tool-undress .undress-case-tab {
   min-height: 40px;
   padding: 8px 6px;
@@ -82,6 +94,13 @@ body.tenant-tool-undress .undress-case-tab {
   cursor: pointer;
 }
 
+body.tenant-tool-undress .undress-case-tabs-nav .undress-case-tab {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: .76rem;
+  white-space: nowrap;
+}
+
 body.tenant-tool-undress .undress-case-tab.is-active {
   color: #0b0c0f;
   background: #ff7a00;
@@ -90,13 +109,13 @@ body.tenant-tool-undress .undress-case-tab.is-active {
 body.tenant-tool-undress .undress-case-stage {
   display: grid;
   place-items: center;
-  min-height: 280px;
+  min-height: 420px;
   margin: 0 auto;
 }
 
 body.tenant-tool-undress .undress-case-media {
   position: relative;
-  width: min(270px, 68vw);
+  width: min(390px, 82vw);
   aspect-ratio: 3 / 4;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.18);
@@ -206,6 +225,11 @@ body.tenant-tool-undress .undress-tool-upload-button {
   background: var(--undress-accent);
   font: inherit;
   font-weight: 800;
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 45;
+  transform: translateX(-50%);
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(255, 79, 122, .2);
 }
@@ -218,6 +242,21 @@ body.tenant-tool-undress .undress-tool-home-input {
   height: 1px;
   opacity: 0;
   pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  body.tenant-tool-undress .undress-case-tabs-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+  body.tenant-tool-undress .undress-case-tabs-nav .undress-case-tab {
+    min-width: 0;
+    padding-inline: 5px;
+    font-size: .7rem;
+  }
+  body.tenant-tool-undress .undress-case-stage { min-height: 330px; }
+  body.tenant-tool-undress .undress-case-media { width: min(330px, 82vw); }
 }
 
 body.tenant-tool-undress .undress-tool-inline-body .undress-tool-type-switch {
