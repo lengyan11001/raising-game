@@ -16679,18 +16679,9 @@ async function upsertGenerationRecord(nextRecord) {
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
   const record = await upsertGenerationRecord(nextRecord);
-  // For browser tasks, upstream completion is not customer-visible completion
-  // until the durable R2 video exists. This also prevents billing settlement
-  // from being finalized on a record that still has no playable/downloadable
-  // URL.
-  if (generationRecordR2PublicationPending(record)) {
-    return upsertGenerationRecord({
-      taskId: record.taskId,
-      status: "processing",
-      completedAt: "",
-      lastUpdateReason: "awaiting-r2-publication",
-    });
-  }
+  // Upstream completion is immediately customer-visible. Browser responses
+  // prefer the durable R2 copy when available and otherwise fall back to the
+  // still-valid upstream URL while the background mirror retries.
   return settleSeedanceGenerationRecord(record, reason);
 }
 

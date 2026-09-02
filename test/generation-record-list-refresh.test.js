@@ -72,3 +72,13 @@ test("R2-gated records do not expose local media before publication", () => {
   assert.match(source, /publicRecord\.localVideoUrl = r2PublicationPending \? ""/);
   assert.match(source, /publicRecord\.localPosterUrl = r2PublicationPending \? ""/);
 });
+
+test("R2 upload delays do not downgrade completed upstream tasks to processing", () => {
+  const start = server.indexOf("async function upsertAndSettleGenerationRecord");
+  const end = server.indexOf("async function updateGenerationRecord", start + 1);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const source = server.slice(start, end);
+  assert.doesNotMatch(source, /status:\s*"processing"/);
+  assert.match(source, /return settleSeedanceGenerationRecord\(record, reason\)/);
+});
