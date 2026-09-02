@@ -520,6 +520,14 @@ async function submitUndressTool() {
 
 function showUndressInlineResult(record = {}) {
   // The shared history path remains available for analytics and fallback: showPlayfluxSubmittedHistory.
+  // As soon as the backend creates the task, hand it to Result/History. The
+  // result list can show its queued/running state while the provider computes;
+  // the upload home should never wait for completion or render the final media.
+  if (record.taskId && typeof showPlayfluxSubmittedHistory === "function") {
+    resetUndressToolFile();
+    showPlayfluxSubmittedHistory(record);
+    return;
+  }
   const body = undressToolBody();
   // The upload has completed and the task is now owned by the async generator.
   // Keep the file on the page, but let the home progress state reflect queued/running
