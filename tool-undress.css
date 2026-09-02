@@ -278,7 +278,7 @@ body.tenant-tool-undress .undress-case-layer.is-template {
      bottom-right diagonal as the light, so it does not slide in from the
      right as a separate motion. */
   clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
-  animation: undress-case-reveal 3s cubic-bezier(.22, .7, .2, 1) 1 both;
+  animation: undress-case-reveal 3s linear 1 both;
 }
 
 body.tenant-tool-undress .undress-case-video-switch .undress-case-layer.is-template {
@@ -288,14 +288,17 @@ body.tenant-tool-undress .undress-case-video-switch .undress-case-layer.is-templ
 
 body.tenant-tool-undress .undress-case-shimmer {
   position: absolute;
-  inset: -20% -35%;
+  inset: 0;
   z-index: 2;
-  width: 28%;
-  background: linear-gradient(100deg, transparent, rgba(255,255,255,.88), transparent);
+  width: 100%;
+  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.9) 50%, transparent 65%);
   filter: blur(4px);
-  transform: translateX(-260%) skewX(18deg);
+  /* The beam is clipped to the same diagonal boundary as the reveal below.
+     Keeping both animations in viewport percentages prevents them drifting
+     apart when the card changes size. */
+  clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
   opacity: 0;
-  animation: undress-case-sweep 3s cubic-bezier(.22, .7, .2, 1) 1 both;
+  animation: undress-case-sweep 3s linear 1 both;
   pointer-events: none;
 }
 
@@ -497,22 +500,27 @@ body.tenant-tool-undress .undress-inline-back {
 }
 
 @keyframes undress-case-sweep {
-  /* Match the reveal boundary above; hide the light after it exits. */
+  /* A narrow beam travels on the exact top-left → bottom-right boundary used
+     by undress-case-reveal. It disappears once the result is fully shown. */
   0%, 30% {
     opacity: 0;
-    transform: translateX(-260%) skewX(18deg);
+    clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
   }
   36% {
     opacity: 1;
-    transform: translateX(-120%) skewX(18deg);
+    clip-path: polygon(8% 0, 16% 0, 28% 100%, 20% 100%);
   }
   54% {
     opacity: 1;
-    transform: translateX(120%) skewX(18deg);
+    clip-path: polygon(46% 0, 54% 0, 66% 100%, 58% 100%);
+  }
+  66% {
+    opacity: 1;
+    clip-path: polygon(84% 0, 92% 0, 100% 100%, 96% 100%);
   }
   70%, 100% {
     opacity: 0;
-    transform: translateX(720%) skewX(18deg);
+    clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
   }
 }
 
