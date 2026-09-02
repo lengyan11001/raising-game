@@ -114,10 +114,15 @@ body.tenant-tool-undress .undress-case-tab.is-active {
 
 body.tenant-tool-undress .undress-case-stage {
   display: grid;
-  place-items: center;
+  place-items: start center;
   width: 100%;
   min-height: calc(100dvh - 154px);
   margin: 0 auto;
+}
+
+body.tenant-tool-undress main,
+body.tenant-tool-undress .undress-tool-home {
+  padding-top: 0 !important;
 }
 
 body.tenant-tool-undress .undress-case-media {
