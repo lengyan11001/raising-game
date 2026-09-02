@@ -132,7 +132,7 @@ body.tenant-tool-undress .undress-case-stage {
   place-items: start center;
   align-content: start;
   width: 100%;
-  min-height: calc(100dvh - 154px);
+  min-height: 0;
   margin: 0 auto;
   padding: 0 !important;
 }
@@ -359,16 +359,24 @@ body.tenant-tool-undress .undress-tool-upload-button {
   background: var(--undress-accent);
   font: inherit;
   font-weight: 800;
-  position: fixed;
-  left: 50%;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  z-index: 45;
-  transform: translateX(-50%);
+  position: relative;
+  z-index: 2;
+  margin: 10px auto 0;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(255, 79, 122, .2);
 }
 
 body.tenant-tool-undress .undress-tool-upload-button:hover { filter: brightness(1.08); }
+
+body.tenant-tool-undress .undress-home-guide {
+  max-width: 560px;
+  margin: 8px auto 0;
+  padding: 0 10px;
+  color: var(--undress-muted);
+  font-size: .78rem;
+  line-height: 1.45;
+  text-align: center;
+}
 
 body.tenant-tool-undress .undress-tool-home-input {
   position: absolute;
@@ -394,7 +402,7 @@ body.tenant-tool-undress .undress-tool-home-input {
     padding-inline: 5px;
     font-size: .7rem;
   }
-  body.tenant-tool-undress .undress-case-stage { min-height: calc(100dvh - 170px); }
+  body.tenant-tool-undress .undress-case-stage { min-height: 0; }
   body.tenant-tool-undress .undress-case-media { width: 100%; max-width: 560px; }
 }
 

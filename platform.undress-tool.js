@@ -41,6 +41,9 @@ const UNDRESS_TOOL_COPY = {
     firstFree: "First image generation is free. Unlock the completed result for {credits} credits.",
     imagePrice: "This image generation costs {credits} credits.",
     videoPrice: "{seconds} sec / {segments} segment(s) / {credits} credits",
+    imageGuide: "Image: first generation is free; unlocking the completed result uses credits.",
+    imageVideoGuide: "Image to video: upload an image and generation starts automatically; billed by output duration.",
+    videoGuide: "Video: upload a video and processing starts automatically; billed by source duration.",
     signIn: "Sign in to see your price.",
     readFailed: "Unable to read this video.",
     imageRequired: "Upload an image for this type.",
@@ -69,6 +72,9 @@ const UNDRESS_TOOL_COPY = {
     firstFree: "\u9996\u5f20\u56fe\u7247\u514d\u8d39\u751f\u6210\uff0c\u7ed3\u679c\u9700 {credits} \u79ef\u5206\u89e3\u9501\u3002",
     imagePrice: "\u672c\u6b21\u56fe\u7247\u751f\u6210\u9700 {credits} \u79ef\u5206\u3002",
     videoPrice: "{seconds} \u79d2 \u00b7 {segments} \u6bb5 \u00b7 {credits} \u79ef\u5206",
+    imageGuide: "\u56fe\u7247\uff1a\u9996\u6b21\u751f\u6210\u514d\u8d39\uff0c\u5b8c\u6210\u540e\u89e3\u9501\u4f7f\u7528\u79ef\u5206\u3002",
+    imageVideoGuide: "\u56fe\u7247\u751f\u89c6\u9891\uff1a\u4e0a\u4f20\u56fe\u7247\u540e\u81ea\u52a8\u5f00\u59cb\uff0c\u6309\u8f93\u51fa\u65f6\u957f\u8ba1\u8d39\u3002",
+    videoGuide: "\u89c6\u9891\uff1a\u4e0a\u4f20\u540e\u81ea\u52a8\u5904\u7406\uff0c\u6309\u6e90\u89c6\u9891\u65f6\u957f\u8ba1\u8d39\u3002",
     signIn: "\u767b\u5f55\u540e\u663e\u793a\u4ef7\u683c\u3002",
     readFailed: "\u65e0\u6cd5\u8bfb\u53d6\u8fd9\u4e2a\u89c6\u9891\u3002",
     imageRequired: "\u8fd9\u4e2a\u7c7b\u578b\u9700\u8981\u4e0a\u4f20\u56fe\u7247\u3002",
@@ -180,6 +186,11 @@ function undressToolCanSubmit() {
     && !undressToolState.submitting
     && !undressToolState.estimating,
   );
+}
+
+function undressToolHomeGuide(type = undressToolState.generationType) {
+  const key = type === "image_video" ? "imageVideoGuide" : type === "video" ? "videoGuide" : "imageGuide";
+  return undressToolText(key);
 }
 
 function undressToolExampleHtml() {
@@ -589,6 +600,8 @@ function renderUndressToolHomeState() {
     stage.innerHTML = undressToolCaseHtml(undressToolState.generationType);
     bindUndressToolExampleVideos(stage);
     if (uploadButton) uploadButton.hidden = false;
+    const guide = workspace.querySelector("[data-undress-home-guide]");
+    if (guide) guide.textContent = undressToolHomeGuide();
     if (typeof refreshIcons === "function") refreshIcons();
     return;
   }
@@ -675,6 +688,7 @@ function renderUndressToolHome() {
         </nav>
         <div class="undress-case-stage" data-undress-case-stage>${undressToolCaseHtml("image")}</div>
         <button class="undress-tool-upload-button" type="button" data-undress-tool-upload><i data-lucide="upload"></i>${undressToolEscape(undressToolText("upload"))}</button>
+        <p class="undress-home-guide" data-undress-home-guide>${undressToolEscape(undressToolHomeGuide("image"))}</p>
         <input class="undress-tool-home-input" type="file" accept="${undressToolAccept()}" data-undress-home-input tabindex="-1" aria-hidden="true" />
         <div class="undress-tool-submit-panel" hidden><div class="undress-tool-inline-body"></div></div>
       </div>
@@ -697,6 +711,9 @@ function renderUndressToolHome() {
     if (homeInput) homeInput.accept = undressToolAccept();
     const stage = workspace.querySelector("[data-undress-case-stage]");
     if (stage) { stage.innerHTML = undressToolCaseHtml(type); bindUndressToolExampleVideos(stage); }
+    const guide = workspace.querySelector("[data-undress-home-guide]");
+    if (guide) guide.textContent = undressToolHomeGuide(type);
+    renderUndressToolHomeState();
     renderUndressToolDialog();
   }));
   bindUndressToolExampleVideos(workspace);
