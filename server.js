@@ -16665,6 +16665,18 @@ async function upsertGenerationRecord(nextRecord) {
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
   const record = await upsertGenerationRecord(nextRecord);
+  // For browser tasks, upstream completion is not customer-visible completion
+  // until the durable R2 video exists. This also prevents billing settlement
+  // from being finalized on a record that still has no playable/downloadable
+  // URL.
+  if (generationRecordR2PublicationPending(record)) {
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      status: "processing",
+      completedAt: "",
+      lastUpdateReason: "awaiting-r2-publication",
+    });
+  }
   return settleSeedanceGenerationRecord(record, reason);
 }
 
@@ -16827,6 +16839,7 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
     providerOnlyImageUrl: externalApiCaller,
     includeStoredImageUrls: !externalApiCaller,
     includeUpstreamPayload: !externalApiCaller,
+    requireR2Ready: !externalApiCaller && objectStorageEnabled(),
   };
 }
 
@@ -16835,12 +16848,40 @@ function generationRecordIsApiTask(record = {}) {
   return source === "api_token" || source === "subtoken";
 }
 
+function generationRecordIsVideoOutput(record = {}) {
+  if (isImageGenerationRecord(record)) return false;
+  const provider = String(record.provider || "").toLowerCase();
+  const kind = String(record.kind || "").toLowerCase();
+  return Boolean(
+    record.remoteVideoUrl
+    || record.providerVideoUrl
+    || record.upstreamVideoUrl
+    || record.localVideoUrl
+    || record.cdnVideoUrl
+    || record.videoUrl
+    || kind.includes("video")
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex"].includes(provider),
+  );
+}
+
+function generationRecordR2PublicationPending(record = {}) {
+  return objectStorageEnabled()
+    && !generationRecordIsApiTask(record)
+    && isSucceededStatus(record.status)
+    && generationRecordIsVideoOutput(record)
+    && !String(record.cdnVideoUrl || "").trim();
+}
+
 function publicGenerationRecord(record = {}, options = {}) {
+  const requireR2Ready = options.requireR2Ready === true;
+  const r2PublicationPending = requireR2Ready && generationRecordR2PublicationPending(record);
   const undressToolRecord = String(record.source || "").startsWith("undress-tool-")
     || String(record.kind || "").includes("tool-undress");
   const providerVideoUrl = generationRecordProviderVideoUrl(record);
   const providerOnlyVideoUrl = options.providerOnlyVideoUrl === true;
-  const publicVideoUrl = providerOnlyVideoUrl ? providerVideoUrl : generationRecordVideoUrl(record, options);
+  const publicVideoUrl = r2PublicationPending
+    ? ""
+    : (providerOnlyVideoUrl ? providerVideoUrl : generationRecordVideoUrl(record, options));
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
   const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
@@ -16861,14 +16902,16 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(Boolean))];
   const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
-  const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
+  const publicDownloadUrl = r2PublicationPending
+    ? ""
+    : (publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl);
   const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
     ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
     : record.error || "";
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
-    status: String(record.status || "submitted"),
+    status: r2PublicationPending ? "processing" : String(record.status || "submitted"),
     source: publicModelText(record.source || ""),
     kind: String(record.kind || generationRecordKind(record)),
     templateId: String(record.templateId || ""),
@@ -16889,7 +16932,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
-    posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
+    posterUrl: r2PublicationPending ? "" : (includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl),
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),
@@ -16902,9 +16945,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     quality: String(record.quality || ""),
     videoUrl: publicVideoUrl,
     downloadUrl: publicDownloadUrl,
-    providerVideoUrl,
-    upstreamVideoUrl: providerVideoUrl,
-    remoteVideoUrl: String(record.remoteVideoUrl || ""),
+    providerVideoUrl: r2PublicationPending ? "" : providerVideoUrl,
+    upstreamVideoUrl: r2PublicationPending ? "" : providerVideoUrl,
+    remoteVideoUrl: r2PublicationPending ? "" : String(record.remoteVideoUrl || ""),
     imageResultUrl: publicImageUrl,
     imageResultUrls: publicImageUrls,
     providerImageUrl,
@@ -17068,6 +17111,11 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (record.localVideoUrl && isSucceededStatus(status)) {
+    // A browser-facing task is not ready just because the local download
+    // finished. Keep polling while the durable R2 copy is still missing.
+    if (objectStorageEnabled() && !generationRecordIsApiTask(record) && !String(record.cdnVideoUrl || "").trim()) {
+      return Boolean(record.upstreamTaskId || record.taskId);
+    }
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
     return false;
   }
@@ -17484,7 +17532,7 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+  if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -17537,7 +17585,7 @@ async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-s
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+  if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -17590,7 +17638,7 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+  if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -17763,7 +17811,7 @@ async function refreshGenerationRecordStatus(record = {}) {
           error: "",
         }, "gateway-image-succeeded");
       }
-      const media = isSucceededStatus(task.status) && task.videoUrl && !record.localVideoUrl
+      const media = isSucceededStatus(task.status) && task.videoUrl && (!record.localVideoUrl || !record.cdnVideoUrl)
         ? await maybeDownloadApizVideo(record, task.videoUrl)
         : {};
       return await upsertAndSettleGenerationRecord({
@@ -17851,7 +17899,7 @@ async function refreshGenerationRecordStatus(record = {}) {
     let cdnError = record.cdnError || "";
     let downloadError = "";
     const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-    if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+    if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
       try {
         const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
         localVideoUrl = localVideo.localVideoUrl;
@@ -18208,8 +18256,32 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
         : 0;
       const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
       if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
-        const optimized = existing;
-        if (!generationRecordIsApiTask(existing)) queueGenerationRecordMediaMaintenance(existing);
+        let optimized = existing;
+        // Do not return a completed task before its durable R2 copy exists.
+        // The previous path queued this upload in the background, which made
+        // the UI show a finished record with no preview/download URL.
+        if (!generationRecordIsApiTask(existing) && objectStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
+          const cdn = await uploadGeneratedMediaToObjectStorage({
+            taskId,
+            localVideoPath: existingVideoPath,
+            localPosterPath: existing.localPosterPath || "",
+          });
+          optimized = {
+            ...existing,
+            cdnVideoUrl: cdn.cdnVideoUrl || existing.cdnVideoUrl || "",
+            cdnPosterUrl: cdn.cdnPosterUrl || existing.cdnPosterUrl || "",
+            cdnError: cdn.cdnError || existing.cdnError || "",
+          };
+          if (optimized.cdnVideoUrl || optimized.cdnPosterUrl || optimized.cdnError !== existing.cdnError) {
+            await upsertGenerationRecord({
+              taskId,
+              cdnVideoUrl: optimized.cdnVideoUrl,
+              cdnPosterUrl: optimized.cdnPosterUrl,
+              cdnError: optimized.cdnError,
+            });
+          }
+        }
+        if (!generationRecordIsApiTask(optimized) && generationRecordNeedsMediaMaintenance(optimized)) queueGenerationRecordMediaMaintenance(optimized);
         return {
           localVideoPath: optimized.localVideoPath || existingVideoPath,
           localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
@@ -21226,7 +21298,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
   if (!isSucceededStatus(status) && !isFailedStatus(status)) return record;
   if (record.billingSettledAt) {
     const resultUrl = apizResultUrl(task) || record.remoteVideoUrl || "";
-    if (isSucceededStatus(status) && resultUrl && !record.localVideoUrl && isLikelyVideoUrl(resultUrl)) {
+    if (isSucceededStatus(status) && resultUrl && (!record.localVideoUrl || !record.cdnVideoUrl) && isLikelyVideoUrl(resultUrl)) {
       const media = await maybeDownloadApizVideo(record, resultUrl);
       if (media.localVideoUrl || media.cdnVideoUrl || media.localPosterUrl) {
         return upsertGenerationRecord({
@@ -21254,7 +21326,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
   let mediaUpdates = {};
   if (isSucceededStatus(status)) {
     const resultUrl = apizResultUrl(task) || record.remoteVideoUrl || "";
-    const media = !record.localVideoUrl && isLikelyVideoUrl(resultUrl)
+    const media = (!record.localVideoUrl || !record.cdnVideoUrl) && isLikelyVideoUrl(resultUrl)
       ? await maybeDownloadApizVideo(record, resultUrl)
       : {};
     if (media.localVideoUrl || media.cdnVideoUrl || media.localPosterUrl || media.downloadError) {
@@ -28901,7 +28973,7 @@ async function refreshApizGenerationRecord(record) {
   const task = gatewayTask ? gatewayTask.raw : await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
   const status = gatewayTask ? gatewayTask.status : apizStatus(task);
   const resultUrl = gatewayTask ? absoluteUrlFromBase(gatewayTask.videoUrl, UPSTREAM_BASE_URL) : apizResultUrl(task);
-  const media = isSucceededStatus(status) && !record.localVideoUrl
+  const media = isSucceededStatus(status) && (!record.localVideoUrl || !record.cdnVideoUrl)
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
   const nextRecord = await upsertGenerationRecord({
@@ -28934,7 +29006,7 @@ async function refreshSeedance25GenerationRecord(record, reason = "query") {
   const task = await seedance25Request("/api/v3/tasks/query", { task_id: queryTaskId });
   const status = apizStatus(task);
   const resultUrl = apizResultUrl(task);
-  const media = isSucceededStatus(status) && resultUrl && !record.localVideoUrl
+  const media = isSucceededStatus(status) && resultUrl && (!record.localVideoUrl || !record.cdnVideoUrl)
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
   return upsertAndSettleGenerationRecord({
@@ -39737,18 +39809,45 @@ async function handleGetGenerationRecord(req, res, taskId) {
       const task = normalizeTask(raw);
       let localVideoUrl = record.localVideoUrl || "";
       let localVideoPath = record.localVideoPath || "";
+      let localPosterUrl = record.localPosterUrl || "";
+      let localPosterPath = record.localPosterPath || "";
+      let cdnVideoUrl = record.cdnVideoUrl || "";
+      let cdnPosterUrl = record.cdnPosterUrl || "";
+      let cdnError = record.cdnError || "";
       let downloadError = "";
       const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-      if (isSucceededStatus(task.status) && remoteVideoUrl) {
-        queueGeneratedVideoDownload(taskId, remoteVideoUrl, "generation-detail-background-download");
+      if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
+        try {
+          const localVideo = await downloadGeneratedVideo(taskId, remoteVideoUrl);
+          localVideoUrl = localVideo.localVideoUrl || localVideoUrl;
+          localVideoPath = localVideo.localVideoPath || localVideoPath;
+          localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
+          localPosterPath = localVideo.localPosterPath || localPosterPath;
+          cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+          cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+          cdnError = localVideo.cdnError || cdnError;
+        } catch (error) {
+          downloadError = error.message || "Failed to download generated video.";
+        }
       }
       nextRecord = await upsertAndSettleGenerationRecord({
         taskId,
         upstreamTaskId: task.taskId || queryTaskId,
         status: task.status || record.status || "unknown",
         remoteVideoUrl,
+        videoUrl: localPublicAssetStorageEnabled()
+          ? (localVideoUrl || cdnVideoUrl || record.videoUrl || "")
+          : (cdnVideoUrl || localVideoUrl || record.videoUrl || ""),
         localVideoUrl,
         localVideoPath,
+        localPosterUrl,
+        localPosterPath,
+        posterUrl: localPublicAssetStorageEnabled()
+          ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+          : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
+        cdnVideoUrl,
+        cdnPosterUrl,
+        cdnError,
         error: task.error || downloadError || "",
         queryResponse: raw,
       }, "detail");
