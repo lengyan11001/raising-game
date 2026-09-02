@@ -290,8 +290,7 @@ body.tenant-tool-undress .undress-tool-home-input {
     font-size: .7rem;
   }
   body.tenant-tool-undress .undress-case-stage { min-height: calc(100dvh - 170px); }
-  body.tenant-tool-undress .undress-case-media { width: min(560px, calc(100vw - 20px)); }
-  body.tenant-tool-undress .undress-tool-home { padding: 0 10px 96px; }
+  body.tenant-tool-undress .undress-case-media { width: 100%; max-width: 560px; }
 }
 
 body.tenant-tool-undress .undress-tool-inline-body .undress-tool-type-switch {
@@ -1112,12 +1111,16 @@ body.tenant-tool-undress .inline-modal.is-undress-unlock .inline-actions {
 
 @media (max-width: 720px) {
   body.tenant-tool-undress main {
-    width: calc(100% - 16px);
+    width: 100%;
   }
 
   body.tenant-tool-undress .undress-tool-home {
     min-height: calc(100dvh - 76px);
-    padding: 0 10px 96px;
+    padding: 0 4px 96px;
+  }
+
+  body.tenant-tool-undress .undress-tool-home-inner {
+    width: 100%;
   }
 
   body.tenant-tool-undress .undress-ambient {
