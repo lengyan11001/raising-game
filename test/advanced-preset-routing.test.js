@@ -20,7 +20,7 @@ test("Advanced creation modes use the requested OurDream slot structure and Wan 
   assert.match(config, /id: "video-text"[^\n]+provider: "wan30"[^\n]+videoCapability: "wan30-video"[^\n]+activeSlots: \["character", "action", "outfit", "scene"\]/);
   assert.match(config, /id: "video-image"[^\n]+provider: "wan27"[^\n]+videoCapability: "wan27-video-edit"[^\n]+activeSlots: \["character", "action"\]/);
   assert.match(config, /\["video-image", "video-extend", "video-replace"\]\.includes\(mode\)/);
-  assert.match(config, /将视频中的人物替换成图片中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征/);
+  assert.match(config, /将视频中的人物替换成图片中的人物。/);
 });
 
 test("Advanced preset submission maps images and action videos separately", () => {

@@ -540,7 +540,7 @@ function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConf
 
 function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
   if (mode === "video-image") {
-    return "将视频中的人物替换成图片中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
+    return "将视频中的人物替换成图片中的人物。";
   }
   if (mode === "video-extend") {
     return "Generate a cinematic video using Image 1 as the main adult character and Image 2 as the action reference. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
