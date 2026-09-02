@@ -16893,13 +16893,21 @@ function publicGenerationRecord(record = {}, options = {}) {
     || String(record.kind || "").includes("tool-undress");
   const providerVideoUrl = generationRecordProviderVideoUrl(record);
   const providerOnlyVideoUrl = options.providerOnlyVideoUrl === true;
-  const publicVideoUrl = r2PublicationPending
-    ? ""
-    : (providerOnlyVideoUrl ? providerVideoUrl : generationRecordVideoUrl(record, options));
+  // Prefer the durable R2 copy when it is available. While the background
+  // mirror is still uploading, fall back to the provider URL so the user can
+  // preview/download immediately instead of being stuck on a loading state.
+  // Provider URLs are intentionally treated as usable for their validity
+  // window; the R2 mirror will take over automatically on a later refresh.
+  const publicVideoUrl = providerOnlyVideoUrl
+    ? providerVideoUrl
+    : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl));
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
   const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
-  const preferredPosterUrl = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const preferredPosterBase = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const preferredPosterUrl = r2PublicationPending && !record.cdnPosterUrl && !providerPosterUrl
+    ? ""
+    : preferredPosterBase;
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
@@ -16916,16 +16924,14 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(Boolean))];
   const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
-  const publicDownloadUrl = r2PublicationPending
-    ? ""
-    : (publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl);
+  const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
     ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
     : record.error || "";
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
-    status: r2PublicationPending ? "processing" : String(record.status || "submitted"),
+    status: String(record.status || "submitted"),
     source: publicModelText(record.source || ""),
     kind: String(record.kind || generationRecordKind(record)),
     templateId: String(record.templateId || ""),
@@ -16946,7 +16952,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
-    posterUrl: r2PublicationPending ? "" : (includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl),
+    posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),
@@ -16959,9 +16965,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     quality: String(record.quality || ""),
     videoUrl: publicVideoUrl,
     downloadUrl: publicDownloadUrl,
-    providerVideoUrl: r2PublicationPending ? "" : providerVideoUrl,
-    upstreamVideoUrl: r2PublicationPending ? "" : providerVideoUrl,
-    remoteVideoUrl: r2PublicationPending ? "" : String(record.remoteVideoUrl || ""),
+    providerVideoUrl,
+    upstreamVideoUrl: providerVideoUrl,
+    remoteVideoUrl: String(record.remoteVideoUrl || ""),
     imageResultUrl: publicImageUrl,
     imageResultUrls: publicImageUrls,
     providerImageUrl,
@@ -39791,92 +39797,24 @@ async function handleGetGenerationRecord(req, res, taskId) {
   } else if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
   } else if (record.provider === "apiz" && (APIZ_API_KEY || record.upstreamSource === "gateway") && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshApizGenerationRecord(record);
-    } catch (error) {
-      console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
-    }
+    // Status/media refresh runs in the bounded background queue. Never make a
+    // browser detail request wait for an upstream download or R2 upload.
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.provider === "seedance25" && SEEDANCE25_API_KEY && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshSeedance25GenerationRecord(record, "detail");
-    } catch (error) {
-      console.warn("[seedance25-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshGenerationRecordStatus(record);
-    } catch (error) {
-      console.warn("[gateway-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.upstreamSource === "ignex" && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshIgnexGenerationRecord(record, "ignex-detail");
-    } catch (error) {
-      console.warn("[ignex-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && (record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(record)) {
     // Do not make a browser detail poll wait on the upstream request. The
     // status queue performs the query and schedules media download/R2 upload;
     // the current record is safe to return immediately (R2-gated below).
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.provider === "aliyun-wan27-image" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshWan27ImageGenerationRecord(record, { reason: "detail" });
-    } catch (error) {
-      console.warn("[wan27-image-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
-  } else if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
-    try {
-      const queryTaskId = record.upstreamTaskId || taskId;
-      const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(queryTaskId)}`);
-      const task = normalizeTask(raw);
-      let localVideoUrl = record.localVideoUrl || "";
-      let localVideoPath = record.localVideoPath || "";
-      let localPosterUrl = record.localPosterUrl || "";
-      let localPosterPath = record.localPosterPath || "";
-      let cdnVideoUrl = record.cdnVideoUrl || "";
-      let cdnPosterUrl = record.cdnPosterUrl || "";
-      let cdnError = record.cdnError || "";
-      let downloadError = "";
-      const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-      if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
-        try {
-          const localVideo = await downloadGeneratedVideo(taskId, remoteVideoUrl);
-          localVideoUrl = localVideo.localVideoUrl || localVideoUrl;
-          localVideoPath = localVideo.localVideoPath || localVideoPath;
-          localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
-          localPosterPath = localVideo.localPosterPath || localPosterPath;
-          cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
-          cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
-          cdnError = localVideo.cdnError || cdnError;
-        } catch (error) {
-          downloadError = error.message || "Failed to download generated video.";
-        }
-      }
-      nextRecord = await upsertAndSettleGenerationRecord({
-        taskId,
-        upstreamTaskId: task.taskId || queryTaskId,
-        status: task.status || record.status || "unknown",
-        remoteVideoUrl,
-        videoUrl: localPublicAssetStorageEnabled()
-          ? (localVideoUrl || cdnVideoUrl || record.videoUrl || "")
-          : (cdnVideoUrl || localVideoUrl || record.videoUrl || ""),
-        localVideoUrl,
-        localVideoPath,
-        localPosterUrl,
-        localPosterPath,
-        posterUrl: localPublicAssetStorageEnabled()
-          ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
-          : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
-        cdnVideoUrl,
-        cdnPosterUrl,
-        cdnError,
-        error: task.error || downloadError || "",
-        queryResponse: raw,
-      }, "detail");
-    } catch (error) {
-      console.warn("[generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
+  } else if (ARK_API_KEY && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   }
 
   if (undressToolRequestAllowed(req)) {

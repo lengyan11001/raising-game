@@ -1104,11 +1104,23 @@ function toggleAccountMenu() {
 }
 
 function generationVideoUrl(record) {
-  return record?.cdnVideoUrl || record?.localVideoUrl || record?.videoUrl || record?.remoteVideoUrl || "";
+  return record?.cdnVideoUrl
+    || record?.remoteVideoUrl
+    || record?.providerVideoUrl
+    || record?.upstreamVideoUrl
+    || record?.videoUrl
+    || record?.localVideoUrl
+    || "";
 }
 
 function generationImageResultUrl(record) {
-  return record?.cdnImageUrl || record?.imageResultUrl || record?.localImageUrl || record?.remoteImageUrl || "";
+  return record?.cdnImageUrl
+    || record?.remoteImageUrl
+    || record?.providerImageUrl
+    || record?.upstreamImageUrl
+    || record?.imageResultUrl
+    || record?.localImageUrl
+    || "";
 }
 
 function generationImageResultUrls(record = {}) {
@@ -1189,43 +1201,43 @@ async function downloadGenerationRecord(record = {}) {
   let href = generationRecordDownloadHref(record);
   if (!href) return;
   let fileName = generationRecordDownloadName(record);
-  let directSignedDownload = false;
   const taskId = String(record?.taskId || "").trim();
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
     : "";
+
+  // Open a browser tab immediately. Fetching the whole media file through
+  // fetch()+blob made the click appear unresponsive until the download had
+  // completely finished. The browser can stream the upstream/R2 URL itself.
+  const popup = window.open("about:blank", "_blank");
+  const openHref = (url) => {
+    const target = String(url || "").trim();
+    if (!target) return;
+    if (popup && !popup.closed) {
+      popup.location.href = target;
+      return;
+    }
+    window.open(target, "_blank");
+  };
+
+  // A URL already present in the record is authoritative: R2 first, then the
+  // provider URL. Do not wait for a presign request before giving feedback.
+  if (href && !href.startsWith("/api/")) {
+    openHref(href);
+    return;
+  }
   if (taskId && !taskId.startsWith("pending-")) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {
         href = payload.url;
         fileName = payload.fileName || fileName;
-        directSignedDownload = payload.source === "r2_signed";
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
   }
-  // Keep downloads same-origin so the server can stream the local/R2 public
-  // copy with attachment headers. Do not switch to an R2 S3 presigned URL:
-  // those links bypass the CDN and are slow/short-lived for browser users.
-  if (legacyHref) {
-    try {
-      await saveDownloadFromFetch(href.startsWith("/api/") ? href : legacyHref, fileName);
-      return;
-    } catch {
-      // Fall through to the public URL when the authenticated proxy is unavailable.
-    }
-  }
-  if (directSignedDownload) {
-    triggerBrowserDownload(href, fileName);
-    return;
-  }
-  try {
-    await saveDownloadFromFetch(href, fileName);
-  } catch {
-    // Keep the click on the current page; do not open a preview tab.
-  }
+  openHref(href || legacyHref);
 }
 
 function stripModelParams(value) {
