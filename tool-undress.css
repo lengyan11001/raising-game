@@ -274,7 +274,10 @@ body.tenant-tool-undress .undress-case-layer {
 
 body.tenant-tool-undress .undress-case-layer.is-template {
   opacity: 1;
-  clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
+  /* The result is revealed on the left side of the same top-left →
+     bottom-right diagonal as the light, so it does not slide in from the
+     right as a separate motion. */
+  clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
   animation: undress-case-reveal 3s cubic-bezier(.22, .7, .2, 1) 1 both;
 }
 
@@ -290,7 +293,7 @@ body.tenant-tool-undress .undress-case-shimmer {
   width: 28%;
   background: linear-gradient(100deg, transparent, rgba(255,255,255,.88), transparent);
   filter: blur(4px);
-  transform: translateX(-260%) skewX(-18deg);
+  transform: translateX(-260%) skewX(18deg);
   opacity: 0;
   animation: undress-case-sweep 3s cubic-bezier(.22, .7, .2, 1) 1 both;
   pointer-events: none;
@@ -477,15 +480,15 @@ body.tenant-tool-undress .undress-inline-back {
      completed template remains in place instead of looping back/jumping. */
   0%, 30% {
     opacity: 1;
-    clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
+    clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
   }
   36% {
     opacity: 1;
-    clip-path: polygon(88% 0, 100% 0, 100% 100%, 76% 100%);
+    clip-path: polygon(0 0, 12% 0, 24% 100%, 0 100%);
   }
   54% {
     opacity: 1;
-    clip-path: polygon(50% 0, 100% 0, 100% 100%, 38% 100%);
+    clip-path: polygon(0 0, 50% 0, 62% 100%, 0 100%);
   }
   70%, 100% {
     opacity: 1;
@@ -497,19 +500,19 @@ body.tenant-tool-undress .undress-inline-back {
   /* Match the reveal boundary above; hide the light after it exits. */
   0%, 30% {
     opacity: 0;
-    transform: translateX(-260%) skewX(-18deg);
+    transform: translateX(-260%) skewX(18deg);
   }
   36% {
     opacity: 1;
-    transform: translateX(-120%) skewX(-18deg);
+    transform: translateX(-120%) skewX(18deg);
   }
   54% {
     opacity: 1;
-    transform: translateX(120%) skewX(-18deg);
+    transform: translateX(120%) skewX(18deg);
   }
   70%, 100% {
     opacity: 0;
-    transform: translateX(720%) skewX(-18deg);
+    transform: translateX(720%) skewX(18deg);
   }
 }
 
