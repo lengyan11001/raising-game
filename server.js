@@ -40800,9 +40800,9 @@ async function handleRequest(req, res) {
       if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {
         let config = await readAppConfig({ includeHomeItems: !isToolOnly });
         if (!isToolOnly) {
-          config = await ensureSceneEntriesPersisted(config);
-          // refreshCompletedHomeVideoItems(config) is intentionally deferred
-          // to the background refresh loop; it must not block this endpoint.
+          // ensureSceneEntriesPersisted and refreshCompletedHomeVideoItems(config) are
+          // intentionally deferred to background/admin flows; neither should
+          // block the public bootstrap request.
         }
         publicView = await attachBillingViewToPublicConfig(
           publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
