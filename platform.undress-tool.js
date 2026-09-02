@@ -562,6 +562,11 @@ function renderUndressToolHome() {
           <h2>${undressToolEscape(undressToolText("title"))}</h2>
           <p>${undressToolEscape(undressToolText("subtitle"))}</p>
         </div>
+        <nav class="undress-case-tabs" role="tablist">
+          <button class="undress-case-tab is-active" type="button" role="tab" aria-selected="true" data-undress-case="image">${undressToolEscape(undressToolText("imageOnly"))}</button>
+          <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="image_video">${undressToolEscape(undressToolText("imageVideo"))}</button>
+          <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="video">${undressToolEscape(undressToolText("videoOnly"))}</button>
+        </nav>
         <div class="undress-case-stage" data-undress-case-stage>${undressToolCaseHtml("image")}</div>
         <button class="undress-tool-upload-button" type="button" data-undress-tool-upload><i data-lucide="upload"></i>${undressToolEscape(undressToolText("upload"))}</button>
         <input class="undress-tool-home-input" type="file" accept="${undressToolAccept()}" data-undress-home-input tabindex="-1" aria-hidden="true" />
@@ -569,10 +574,6 @@ function renderUndressToolHome() {
       </div>
     </section>
   `;
-  const mainTabs = document.querySelector(".top-tabs");
-  if (mainTabs && !mainTabs.querySelector(".undress-case-tabs")) {
-    mainTabs.insertAdjacentHTML("beforeend", `<nav class="undress-case-tabs undress-case-tabs-nav" role="tablist"><button class="undress-case-tab is-active" type="button" role="tab" aria-selected="true" data-undress-case="image">${undressToolEscape(undressToolText("imageOnly"))}</button><button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="image_video">${undressToolEscape(undressToolText("imageVideo"))}</button><button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="video">${undressToolEscape(undressToolText("videoOnly"))}</button></nav>`);
-  }
   const homeInput = workspace.querySelector("[data-undress-home-input]");
   const uploadButton = workspace.querySelector("[data-undress-tool-upload]");
   uploadButton?.addEventListener("click", () => {

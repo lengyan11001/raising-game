@@ -35,8 +35,8 @@ body.tenant-tool-undress .workspace[data-panel="gallery"] {
 
 body.tenant-tool-undress .undress-tool-home {
   display: block;
-  min-height: calc(100dvh - 112px);
-  padding: 12px 12px 24px;
+  min-height: calc(100dvh - 76px);
+  padding: 0 12px 78px;
 }
 
 body.tenant-tool-undress .undress-tool-home > .undress-ambient {
@@ -44,9 +44,9 @@ body.tenant-tool-undress .undress-tool-home > .undress-ambient {
 }
 
 body.tenant-tool-undress .undress-tool-home-inner {
-  width: min(620px, 100%);
+  width: min(1320px, 100%);
   margin: 0 auto;
-  gap: 12px;
+  gap: 8px;
 }
 
 body.tenant-tool-undress .undress-tool-copy {
@@ -115,13 +115,14 @@ body.tenant-tool-undress .undress-case-tab.is-active {
 body.tenant-tool-undress .undress-case-stage {
   display: grid;
   place-items: center;
-  min-height: 420px;
+  width: 100%;
+  min-height: calc(100dvh - 154px);
   margin: 0 auto;
 }
 
 body.tenant-tool-undress .undress-case-media {
   position: relative;
-  width: min(390px, 82vw);
+  width: min(560px, 88vw);
   aspect-ratio: 3 / 4;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.18);
@@ -261,8 +262,8 @@ body.tenant-tool-undress .undress-tool-home-input {
     padding-inline: 5px;
     font-size: .7rem;
   }
-  body.tenant-tool-undress .undress-case-stage { min-height: 330px; }
-  body.tenant-tool-undress .undress-case-media { width: min(330px, 82vw); }
+  body.tenant-tool-undress .undress-case-stage { min-height: calc(100dvh - 170px); }
+  body.tenant-tool-undress .undress-case-media { width: min(390px, 88vw); }
 }
 
 body.tenant-tool-undress .undress-tool-inline-body .undress-tool-type-switch {
