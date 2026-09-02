@@ -417,6 +417,10 @@ async function handleUndressToolFile(event) {
   }
   await estimateUndressTool();
   renderUndressToolHomeState();
+  // Selecting a valid file starts the generation flow immediately. The home
+  // page remains in place and switches the case media to the upload/progress
+  // state; there is no second-step Generate button.
+  if (undressToolCanSubmit()) await submitUndressTool();
 }
 
 async function uploadUndressToolFile(file) {
@@ -625,12 +629,10 @@ function renderUndressToolHomeState() {
         ${media}
         ${active || undressToolState.submitting ? `<div class="undress-home-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span><strong>${undressToolEscape(statusText)}</strong></div>` : ""}
       </div>
-      ${!record ? `<button class="undress-home-generate" type="button" data-undress-home-generate ${undressToolCanSubmit() ? "" : "disabled"}><i data-lucide="sparkles"></i>${undressToolEscape(undressToolText("generate"))}</button>` : ""}
       <p class="undress-home-hint">${undressToolEscape(hint)}</p>
       ${failed || undressToolState.homeResultUrl ? `<button class="undress-home-reset" type="button" data-undress-home-reset>${undressToolEscape(undressToolText("backToSubmit"))}</button>` : ""}
     </div>
   `;
-  stage.querySelector("[data-undress-home-generate]")?.addEventListener("click", () => submitUndressTool());
   stage.querySelector("[data-undress-home-reset]")?.addEventListener("click", () => {
     resetUndressToolFile();
     renderUndressToolHomeState();

@@ -191,7 +191,10 @@ body.tenant-tool-undress .undress-home-media-empty svg {
 
 body.tenant-tool-undress .undress-home-progress {
   position: absolute;
-  inset: auto 12px 12px;
+  top: 50%;
+  left: 12px;
+  right: 12px;
+  transform: translateY(-50%);
   z-index: 3;
   display: grid;
   gap: 6px;
