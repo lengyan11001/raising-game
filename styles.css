@@ -2420,10 +2420,10 @@ input[type="text"]:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 9px;
-  border: 1px solid rgba(255,79,163,.35);
-  border-radius: 999px;
-  background: rgba(255,79,163,.1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: rgba(255,255,255,.88);
   white-space: nowrap;
 }
@@ -2431,13 +2431,13 @@ input[type="text"]:focus {
 .stripe-payment-method-item svg { width: 15px; height: 15px; color: #ff8bc4; }
 .stripe-method-brand {
   display: inline-block;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
   object-fit: cover;
   vertical-align: middle;
 }
-.stripe-method-wechat { background: #62d995; }
+.stripe-method-wechat { background: transparent; }
 
 .recharge-amount-label {
   margin: 4px 0 0;
