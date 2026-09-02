@@ -1439,8 +1439,11 @@ function syncAdvancedProviderExposure() {
   const qwenImage3Enabled = publicQwenImage3ModelsEnabled();
   els.advancedProvider.querySelectorAll("option").forEach((option) => {
     const raw = String(option.value || "").trim().toLowerCase();
-    const permanentlyHidden = raw === "wan30-prime" || raw === "happyhorse";
-    option.hidden = permanentlyHidden || (!enabled && hiddenProviders.has(raw) && !(
+    // Keep HappyHorse hidden on the old site, but expose Wan 3.0 Prime along
+    // with Wan 3.0 when that tenant feature is enabled.
+    const permanentlyHidden = raw === "happyhorse";
+    const primeHidden = raw === "wan30-prime" && !wan30Enabled;
+    option.hidden = permanentlyHidden || primeHidden || (!enabled && hiddenProviders.has(raw) && !(
       (wan30Enabled && isPublicWan30ProviderOption(raw))
       || (wan27Enabled && isPublicWan27ProviderOption(raw))
       || (happyhorseEnabled && isPublicHappyhorseProviderOption(raw))
@@ -1449,7 +1452,8 @@ function syncAdvancedProviderExposure() {
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
-  if (current !== modeProvider && (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
+  const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
+  if (current !== modeProvider && (permanentlyHiddenCurrent || (!enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
