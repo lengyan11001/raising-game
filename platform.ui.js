@@ -1292,6 +1292,8 @@ function generationRecordSignature(record = {}) {
     record.updatedAt,
     record.status,
     generationVideoUrl(record),
+    generationPosterUrl(record),
+    record.downloadUrl,
     record.error,
     record.ratio,
     record.resolution,

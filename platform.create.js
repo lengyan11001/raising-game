@@ -395,7 +395,10 @@ function advancedResultPendingTaskIds() {
     const id = String(taskId || "").trim();
     if (!id || id.startsWith("pending-") || taskIds.includes(id)) return;
     const current = record || recordById.get(id);
-    if (current && isTerminalGenerationStatus(current.status)) return;
+    // A terminal provider status does not necessarily mean the browser-ready
+    // preview is complete. Continue polling succeeded video records until the
+    // poster URL arrives (video upload and poster upload can finish separately).
+    if (current && isTerminalGenerationStatus(current.status) && !isPendingGenerationRecord(current)) return;
     taskIds.push(id);
   };
   pushTaskId(state.advancedResultTaskId);
@@ -5007,7 +5010,10 @@ async function deleteHistoryRecord(taskId = "", button = null) {
 }
 
 function isPendingGenerationRecord(record = {}) {
-  if (generationVideoUrl(record)) return false;
+  // Video publication and poster generation are separate asynchronous steps.
+  // Keep polling while a playable URL exists but its preview image has not
+  // arrived yet, otherwise the result card can remain stuck without media.
+  if (generationVideoUrl(record)) return !generationPosterUrl(record);
   if (generationImageResultUrl(record)) return false;
   return !["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
     .includes(String(record.status || "").toLowerCase().trim());
