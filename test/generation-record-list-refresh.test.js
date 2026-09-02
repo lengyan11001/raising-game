@@ -33,9 +33,10 @@ test("background list refreshes are deduplicated, cooled down, and concurrency l
   assert.match(server, /setImmediate\(\(\) => \{/);
 });
 
-test("single-task detail polling still waits for an upstream refresh", () => {
+test("single-task detail polling enqueues refresh without waiting for media", () => {
   const detail = functionSource("handleGetGenerationRecord", "handleGenerationRecordDownloadUrl");
-  assert.match(detail, /nextRecord = await refreshGenerationRecordStatus\(record\)/);
+  assert.match(detail, /queueGenerationRecordStatusRefresh\(record, \{ priority: true, reason: "detail" \}\)/);
+  assert.doesNotMatch(detail, /await refresh(?:GenerationRecordStatus|ApizGenerationRecord|IgnexGenerationRecord)/);
 });
 
 test("Wan detail and background status refreshes never wait for video downloads", () => {
