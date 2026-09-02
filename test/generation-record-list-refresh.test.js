@@ -42,7 +42,7 @@ test("Wan detail and background status refreshes never wait for video downloads"
   const refreshStatus = functionSource("refreshGenerationRecordStatus", "findActiveSeedream5ImageDuplicate");
   const detail = functionSource("handleGetGenerationRecord", "handleGenerationRecordDownloadUrl");
   assert.match(refreshStatus, /refreshWan27GenerationRecord\(record, \{ download: false, reason: "query" \}\)/);
-  assert.match(detail, /refreshWan27GenerationRecord\(record, \{ download: false, reason: "detail" \}\)/);
+  assert.match(detail, /queueGenerationRecordStatusRefresh\(record, \{ priority: true, reason: "detail" \}\)/);
   assert.doesNotMatch(detail, /refreshWan27GenerationRecord\(record, \{ download: true/);
 });
 

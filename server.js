@@ -39809,11 +39809,10 @@ async function handleGetGenerationRecord(req, res, taskId) {
       console.warn("[ignex-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && (record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshWan27GenerationRecord(record, { download: false, reason: "detail" });
-    } catch (error) {
-      console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    // Do not make a browser detail poll wait on the upstream request. The
+    // status queue performs the query and schedules media download/R2 upload;
+    // the current record is safe to return immediately (R2-gated below).
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.provider === "aliyun-wan27-image" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshWan27ImageGenerationRecord(record, { reason: "detail" });
