@@ -1194,7 +1194,7 @@ async function downloadGenerationRecord(record = {}) {
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
     : "";
-  if (taskId && !taskId.startsWith("pending-")) {
+  if (taskId && !taskId.startsWith("pending-") && !/^https:\/\/media\.123vips\.com\//i.test(href)) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {
@@ -1206,17 +1206,20 @@ async function downloadGenerationRecord(record = {}) {
       // Fall through to the public URL or legacy download endpoint.
     }
   }
-  if (directSignedDownload) {
-    triggerBrowserDownload(href, fileName);
-    return;
-  }
-  if (href.startsWith("/api/") || legacyHref) {
+  // Keep downloads same-origin so the server can stream the local/R2 public
+  // copy with attachment headers. Do not switch to an R2 S3 presigned URL:
+  // those links bypass the CDN and are slow/short-lived for browser users.
+  if (legacyHref) {
     try {
       await saveDownloadFromFetch(href.startsWith("/api/") ? href : legacyHref, fileName);
       return;
     } catch {
       // Fall through to the public URL when the authenticated proxy is unavailable.
     }
+  }
+  if (directSignedDownload) {
+    triggerBrowserDownload(href, fileName);
+    return;
   }
   try {
     await saveDownloadFromFetch(href, fileName);
