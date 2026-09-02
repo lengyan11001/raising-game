@@ -563,17 +563,19 @@ async function watchUndressInlineResult(taskId, root) {
       const imageUrl = typeof generationImageResultUrl === "function" ? generationImageResultUrl(record) : "";
       undressToolState.homeRecord = record;
       if (videoUrl || imageUrl) {
-        undressToolState.homeResultUrl = videoUrl || imageUrl;
-        undressToolState.homeResultKind = videoUrl ? "video" : "image";
-        renderUndressToolHomeState();
+        // Completed jobs belong in Result/History. Do not render the finished
+        // media back into the upload surface; hand the record to the shared
+        // history view and stop this inline poller.
+        root.remove();
+        resetUndressToolFile();
+        if (typeof showPlayfluxSubmittedHistory === "function") {
+          showPlayfluxSubmittedHistory(record);
+        } else if (typeof setTab === "function") {
+          setTab("history");
+        }
+        return;
       } else {
         renderUndressToolHomeState();
-      }
-      if (videoUrl || imageUrl) {
-        root.innerHTML = `${videoUrl ? `<video src="${undressToolEscape(videoUrl)}" controls playsinline preload="metadata"></video>` : `<img src="${undressToolEscape(imageUrl)}" alt="" />`}<button type="button" class="undress-inline-back" data-undress-inline-back><i data-lucide="arrow-left"></i>${undressToolEscape(undressToolText("backToSubmit"))}</button>`;
-        root.querySelector("[data-undress-inline-back]")?.addEventListener("click", () => { root.parentElement?.classList.remove("is-result"); root.remove(); renderUndressToolDialog(); });
-        if (typeof refreshIcons === "function") refreshIcons();
-        return;
       }
       if (["failed", "error", "cancelled"].includes(String(record.status || "").toLowerCase())) {
         undressToolState.message = record.error || record.status;
