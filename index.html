@@ -424,7 +424,10 @@
           <button id="legacyUsdtTab" class="legacy-payment-tab" type="button" data-payment-method="usdt">USDT</button>
         </div>
         <div id="legacyStripePanel" class="legacy-payment-panel">
-          <p class="stripe-payment-method-note"><i data-lucide="badge-check"></i><strong>Stripe 支持微信支付和信用卡</strong><span>Supports WeChat Pay and credit cards</span></p>
+          <p class="stripe-payment-method-note" role="note" aria-label="Stripe payment methods">
+            <span class="stripe-payment-method-item"><span class="stripe-method-brand stripe-method-wechat" aria-hidden="true">微</span><span>WeChat Pay</span></span>
+            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
+          </p>
           <p class="recharge-note">Continue to the secure Stripe payment page. Credits are added after Stripe confirms payment.</p>
         </div>
         <div id="legacyUsdtPanel" class="legacy-payment-panel" hidden>

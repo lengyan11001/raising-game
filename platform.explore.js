@@ -4567,7 +4567,10 @@ async function renderStripeCheckout() {
         <i data-lucide="external-link"></i>
         <span>${escapeHtml(t("topup.stripeContinue", {}, "Continue to Stripe"))}</span>
       </button>
-      <p class="stripe-payment-method-note"><i data-lucide="badge-check"></i><strong>${escapeHtml(t("topup.stripeMethods", {}, "支持微信支付和信用卡"))}</strong><span>${escapeHtml(t("topup.stripeMethodsEn", {}, "Supports WeChat Pay and credit cards"))}</span></p>
+      <p class="stripe-payment-method-note" role="note" aria-label="${escapeHtml(t("topup.stripeMethods", {}, "Payment methods"))}">
+        <span class="stripe-payment-method-item"><span class="stripe-method-brand stripe-method-wechat" aria-hidden="true">微</span><span>${escapeHtml(t("topup.wechatPay", {}, "WeChat Pay"))}</span></span>
+        <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>${escapeHtml(t("topup.creditCard", {}, "Credit card"))}</span></span>
+      </p>
       <p class="paypal-redirect-note">${escapeHtml(t("topup.stripeRedirectNote", {}, "You will continue on the secure payment page."))}</p>
     `;
     els.stripeButtons.hidden = false;
@@ -4576,6 +4579,7 @@ async function renderStripeCheckout() {
       button.disabled = false;
       button.onclick = startStripeRedirectCheckout;
     }
+    refreshIcons();
   } catch (error) {
     els.stripeBox.hidden = false;
     els.stripeButtons.hidden = false;

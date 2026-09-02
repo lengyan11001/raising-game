@@ -193,6 +193,8 @@ const I18N = {
   "topup.stripeTitle": "Stripe Checkout",
   "topup.stripeMethods": "WeChat Pay and credit cards supported",
   "topup.stripeMethodsEn": "Supports WeChat Pay and credit cards",
+  "topup.wechatPay": "WeChat Pay",
+  "topup.creditCard": "Credit card",
   "topup.stripeLoading": "Loading Stripe...",
   "topup.stripeUnavailable": "Stripe is not configured yet.",
   "topup.stripeReady": "Pay securely with Stripe.",
@@ -3532,6 +3534,17 @@ Object.assign(I18N.zh, {
   "playflux.videoTab": "视频",
   "playflux.imageTab": "图片",
   "playflux.animeTab": "动漫",
+});
+const STRIPE_METHOD_COPY = {
+  en: { "topup.wechatPay": "WeChat Pay", "topup.creditCard": "Credit card" },
+  zh: { "topup.wechatPay": "微信支付", "topup.creditCard": "信用卡" },
+  vi: { "topup.wechatPay": "WeChat Pay", "topup.creditCard": "Thẻ tín dụng" },
+  ja: { "topup.wechatPay": "WeChat Pay", "topup.creditCard": "クレジットカード" },
+  ko: { "topup.wechatPay": "WeChat Pay", "topup.creditCard": "신용카드" },
+  id: { "topup.wechatPay": "WeChat Pay", "topup.creditCard": "Kartu kredit" },
+};
+Object.entries(STRIPE_METHOD_COPY).forEach(([lang, copy]) => {
+  if (I18N[lang]) Object.assign(I18N[lang], copy);
 });
 const MEMBERSHIP_COPY = {
   en: {
