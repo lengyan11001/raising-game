@@ -617,8 +617,13 @@ function renderUndressToolHomeState() {
   const record = undressToolState.homeRecord;
   const file = undressToolState.file;
   if (!file && !record) {
-    stage.innerHTML = undressToolCaseHtml(undressToolState.generationType);
-    bindUndressToolExampleVideos(stage);
+    // Keep the case DOM stable while the app restores the current tab or
+    // refreshes user/config state. Replacing it here restarts the CSS reveal
+    // midway through the first load, making the light jump back and replay.
+    if (!stage.querySelector(".undress-case-media")) {
+      stage.innerHTML = undressToolCaseHtml(undressToolState.generationType);
+      bindUndressToolExampleVideos(stage);
+    }
     if (uploadButton) uploadButton.hidden = false;
     const guide = workspace.querySelector("[data-undress-home-guide]");
     if (guide) guide.textContent = undressToolHomeGuide();
