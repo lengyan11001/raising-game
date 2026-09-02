@@ -1194,7 +1194,7 @@ async function downloadGenerationRecord(record = {}) {
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
     : "";
-  if (taskId && !taskId.startsWith("pending-") && !/^https:\/\/media\.123vips\.com\//i.test(href)) {
+  if (taskId && !taskId.startsWith("pending-")) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {

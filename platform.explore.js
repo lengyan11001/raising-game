@@ -3669,6 +3669,12 @@ function openHistoryDetail(index) {
   prepareModalOpen();
   const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
+  // The local generated copy is served by the site's optimized static
+  // handler and supports byte ranges. Prefer it for the detail preview when
+  // it is still present, while retaining the R2 URL as a fallback after the
+  // local retention cleanup runs.
+  const localVideoUrl = String(record.localVideoUrl || "").trim();
+  const previewVideoUrl = localVideoUrl || videoUrl;
   const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
   const images = recordImageAssets(record);
@@ -3687,8 +3693,8 @@ function openHistoryDetail(index) {
           </button>
         ` : ""}
       </header>
-      ${videoUrl ? `
-        <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+      ${previewVideoUrl ? `
+        <video data-history-detail-result-video src="${escapeHtml(previewVideoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
       ` : imageResultUrl ? `
         <div class="history-detail-images">
           <figure>
@@ -3727,6 +3733,15 @@ function openHistoryDetail(index) {
   els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
     downloadGenerationRecord(record);
   });
+  const detailVideo = els.historyDetailBody.querySelector("[data-history-detail-result-video]");
+  if (detailVideo && localVideoUrl && videoUrl && localVideoUrl !== videoUrl) {
+    detailVideo.addEventListener("error", () => {
+      if (detailVideo.dataset.fallbackTried === "1") return;
+      detailVideo.dataset.fallbackTried = "1";
+      detailVideo.src = videoUrl;
+      detailVideo.load();
+    }, { once: true });
+  }
   if (!els.historyDetailDialog.open) els.historyDetailDialog.showModal();
   refreshIcons();
 }
