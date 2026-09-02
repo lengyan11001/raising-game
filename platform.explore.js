@@ -442,6 +442,11 @@ function renderTemplates() {
     return;
   }
   if (isPlayfluxGalleryMode()) {
+    if (!state.playfluxTemplatesLoaded && !state.playfluxTemplatesLoading) {
+      els.templateGrid.innerHTML = `<div class="job-note">Loading templates…</div>`;
+      void loadPlayfluxTemplates();
+      return;
+    }
     renderPlayfluxTemplateGallery();
     return;
   }

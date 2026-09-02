@@ -2391,6 +2391,23 @@ async function loadAdvancedPresets() {
   }
 }
 
+async function loadPlayfluxTemplates() {
+  if (state.playfluxTemplatesLoaded || state.playfluxTemplatesLoading) return;
+  state.playfluxTemplatesLoading = true;
+  try {
+    const response = await fetch("/api/platform/playflux-templates?v=1", { cache: "force-cache" });
+    if (!response.ok) throw new Error(`Template request failed: ${response.status}`);
+    const payload = await response.json();
+    state.playfluxTemplates = Array.isArray(payload?.templates) ? payload.templates : [];
+    state.playfluxTemplatesLoaded = true;
+  } catch (error) {
+    console.warn("playflux templates failed", error);
+  } finally {
+    state.playfluxTemplatesLoading = false;
+    if (typeof renderTemplates === "function" && isPlayfluxGalleryMode()) renderTemplates();
+  }
+}
+
 function presetImageUrl(item = {}) {
   return item.imageUrl || item.referenceImageUrl || "";
 }

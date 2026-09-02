@@ -398,6 +398,7 @@ const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_L
 const EMAIL_FROM = String(process.env.EMAIL_FROM || "Vipeak <no-reply@123vips.com>").trim();
 const emailChallenges = new Map();
 const publicConfigCache = new Map();
+const publicPlayfluxTemplatesCache = new Map();
 let publicPresetsCache = { value: null, expiresAt: 0 };
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
@@ -2772,7 +2773,10 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       topupPackages: publicTopupPackages(auth?.user || null),
     },
     video: config.video,
-    playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
+    // The template gallery is large (hundreds of prompt/media records). It
+    // is loaded on demand from /api/platform/playflux-templates so the first
+    // page bootstrap stays small and fast.
+    playfluxTemplates: [],
     homeVideo: {
       provider: homeVideo.provider || "seedance",
       posterUrl: homeVideo.posterUrl || "",
@@ -40797,7 +40801,8 @@ async function handleRequest(req, res) {
         let config = await readAppConfig({ includeHomeItems: !isToolOnly });
         if (!isToolOnly) {
           config = await ensureSceneEntriesPersisted(config);
-          config = await refreshCompletedHomeVideoItems(config);
+          // refreshCompletedHomeVideoItems(config) is intentionally deferred
+          // to the background refresh loop; it must not block this endpoint.
         }
         publicView = await attachBillingViewToPublicConfig(
           publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
@@ -40810,6 +40815,20 @@ async function handleRequest(req, res) {
         ? "private, no-store"
         : "public, max-age=30, s-maxage=30, stale-while-revalidate=120";
       return sendJson(res, 200, { ok: true, config: publicView }, { cacheControl });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/platform/playflux-templates") {
+      const tenantOptions = requestTenantOptions(req);
+      if (tenantOptions.toolOnly) return sendJson(res, 200, { ok: true, templates: [] });
+      const cacheKey = requestHostname(req);
+      const cached = publicPlayfluxTemplatesCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return sendJson(res, 200, { ok: true, templates: cached.value }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
+      }
+      const config = await readAppConfig({ includeHomeItems: false });
+      const templates = Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [];
+      publicPlayfluxTemplatesCache.set(cacheKey, { value: templates, expiresAt: Date.now() + 300_000 });
+      return sendJson(res, 200, { ok: true, templates }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
