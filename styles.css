@@ -2418,6 +2418,7 @@ input[type="text"]:focus {
 }
 .stripe-payment-method-item {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 7px;
@@ -2432,6 +2433,24 @@ input[type="text"]:focus {
   font-size: .72rem;
   font-weight: 700;
   white-space: nowrap;
+}
+.stripe-payment-method-note .stripe-payment-method-item {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.stripe-payment-method-note .stripe-payment-method-item > span {
+  display: inline;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
 }
 .stripe-payment-method-item i,
 .stripe-payment-method-item svg { width: 22px; height: 22px; color: #fff; }
