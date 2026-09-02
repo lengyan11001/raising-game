@@ -2839,16 +2839,14 @@ dialog.tool-download-modal {
 .stripe-payment-method-item i,
 .stripe-payment-method-item svg { width: 15px; height: 15px; color: #ff8bc4; }
 .stripe-method-brand {
-  display: inline-grid;
-  place-items: center;
+  display: inline-block;
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
+  object-fit: cover;
+  vertical-align: middle;
 }
-.stripe-method-wechat { color: #101412; background: #62d995; }
+.stripe-method-wechat { background: #62d995; }
 .topup-wallet-options {
   display: grid;
   gap: 10px;
