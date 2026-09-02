@@ -248,7 +248,10 @@ function renderUndressToolDialog() {
   if (kicker) kicker.textContent = undressToolText("create");
   const file = undressToolState.file;
   const submitPanel = body.closest(".undress-tool-submit-panel");
-  if (submitPanel) submitPanel.hidden = !file && !body.classList.contains("is-result");
+  // The Undress tenant now runs entirely in the home workspace. Keep the
+  // legacy inline panel mounted for polling/analytics compatibility, but never
+  // expose it below the cases; the home state is the only visible surface.
+  if (submitPanel) submitPanel.hidden = true;
   const mediaPreview = file
     ? undressToolState.mediaKind === "video"
       ? `<video class="video-tool-upload-preview" src="${undressToolEscape(undressToolState.objectUrl)}" muted playsinline preload="metadata"></video>`
