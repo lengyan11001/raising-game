@@ -16988,10 +16988,13 @@ function publicGenerationRecord(record = {}, options = {}) {
       : "",
   };
   if (includeStoredVideoUrls) {
-    publicRecord.localVideoUrl = String(record.localVideoUrl || "");
-    publicRecord.cdnVideoUrl = String(record.cdnVideoUrl || "");
-    publicRecord.localPosterUrl = String(record.localPosterUrl || "");
-    publicRecord.cdnPosterUrl = String(record.cdnPosterUrl || "");
+    // Keep all browser media hidden until the durable R2 copy is published.
+    // Otherwise the UI sees localVideoUrl and starts preview/download while
+    // the record is still deliberately gated as processing.
+    publicRecord.localVideoUrl = r2PublicationPending ? "" : String(record.localVideoUrl || "");
+    publicRecord.cdnVideoUrl = r2PublicationPending ? "" : String(record.cdnVideoUrl || "");
+    publicRecord.localPosterUrl = r2PublicationPending ? "" : String(record.localPosterUrl || "");
+    publicRecord.cdnPosterUrl = r2PublicationPending ? "" : String(record.cdnPosterUrl || "");
   }
   if (includeStoredImageUrls) {
     publicRecord.localImageUrl = String(record.localImageUrl || "");

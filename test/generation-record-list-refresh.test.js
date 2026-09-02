@@ -63,3 +63,11 @@ test("generation detail uses lightweight auth and does not reload the full datab
   assert.match(detail, /user: userView\(auth\.user\)/);
   assert.doesNotMatch(detail, /await readDb\(\)/);
 });
+
+test("R2-gated records do not expose local media before publication", () => {
+  const start = server.indexOf("function publicGenerationRecord");
+  const end = server.indexOf("function generationRecordTime", start + 1);
+  const source = server.slice(start, end);
+  assert.match(source, /publicRecord\.localVideoUrl = r2PublicationPending \? ""/);
+  assert.match(source, /publicRecord\.localPosterUrl = r2PublicationPending \? ""/);
+});
