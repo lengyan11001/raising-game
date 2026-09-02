@@ -16892,6 +16892,8 @@ function publicGenerationRecord(record = {}, options = {}) {
   const undressToolRecord = String(record.source || "").startsWith("undress-tool-")
     || String(record.kind || "").includes("tool-undress");
   const providerVideoUrl = generationRecordProviderVideoUrl(record);
+  const cdnUrl = String(record.cdnVideoUrl || "").trim();
+  const localUrl = String(record.localVideoUrl || record.videoUrl || "").trim();
   const providerOnlyVideoUrl = options.providerOnlyVideoUrl === true;
   // Prefer the durable R2 copy when it is available. While the background
   // mirror is still uploading, fall back to the provider URL so the user can
