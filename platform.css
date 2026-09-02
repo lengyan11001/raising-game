@@ -787,6 +787,15 @@ a { color: inherit; text-decoration: none; }
 body.wan30-launch-visible .site-head { top: 44px; }
 .launch-banner + .site-head { margin-top: 44px; }
 body.wan30-launch-dismissed .launch-banner + .site-head { margin-top: 0; }
+/* Tool tenants never expose the main-site Wan3.0 announcement.  Hide it
+   from the first paint as their tenant class is injected into <body> server-
+   side; waiting for the client bootstrap caused a visible flash on refresh. */
+body.tenant-tool-shell .launch-banner {
+  display: none !important;
+}
+body.tenant-tool-shell .launch-banner + .site-head {
+  margin-top: 0 !important;
+}
 .brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
 .brand-mark {
   width: 28px;
