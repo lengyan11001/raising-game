@@ -2405,7 +2405,7 @@ input[type="text"]:focus {
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   margin: 0 0 8px;
   padding: 0;
@@ -2419,20 +2419,26 @@ input[type="text"]:focus {
 .stripe-payment-method-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: rgba(255,255,255,.88);
+  justify-content: center;
+  gap: 7px;
+  width: 112px;
+  height: 36px;
+  padding: 5px 9px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 3px;
+  background: #27272b;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 .stripe-payment-method-item i,
-.stripe-payment-method-item svg { width: 15px; height: 15px; color: #ff8bc4; }
+.stripe-payment-method-item svg { width: 22px; height: 22px; color: #fff; }
 .stripe-method-brand {
   display: inline-block;
-  width: 25px;
-  height: 25px;
+  width: 22px;
+  height: 22px;
   border-radius: 6px;
   object-fit: cover;
   vertical-align: middle;
