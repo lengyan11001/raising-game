@@ -4568,7 +4568,7 @@ async function renderStripeCheckout() {
         <span>${escapeHtml(t("topup.stripeContinue", {}, "Continue to Stripe"))}</span>
       </button>
       <p class="stripe-payment-method-note" role="note" aria-label="${escapeHtml(t("topup.stripeMethods", {}, "Payment methods"))}">
-        <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/payment/wechat-logo.png?v=1" alt="" aria-hidden="true" /><span>${escapeHtml(t("topup.wechatPay", {}, "WeChat Pay"))}</span></span>
+        <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>${escapeHtml(t("topup.wechatPay", {}, "WeChat Pay"))}</span></span>
         <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>${escapeHtml(t("topup.creditCard", {}, "Credit card"))}</span></span>
       </p>
       <p class="paypal-redirect-note">${escapeHtml(t("topup.stripeRedirectNote", {}, "You will continue on the secure payment page."))}</p>
