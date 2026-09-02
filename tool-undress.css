@@ -153,6 +153,108 @@ body.tenant-tool-undress .undress-case-media {
   box-shadow: 0 16px 48px rgba(0,0,0,.32);
 }
 
+/* Single-page upload and generation state */
+body.tenant-tool-undress .undress-home-submit {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(560px, 100%);
+  margin: 0 auto;
+}
+
+body.tenant-tool-undress .undress-home-media-wrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #08090c;
+}
+
+body.tenant-tool-undress .undress-home-media {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: contain;
+  background: #08090c;
+}
+
+body.tenant-tool-undress .undress-home-media-empty {
+  display: grid;
+  place-items: center;
+  color: var(--undress-muted);
+}
+
+body.tenant-tool-undress .undress-home-media-empty svg {
+  width: 34px;
+  height: 34px;
+}
+
+body.tenant-tool-undress .undress-home-progress {
+  position: absolute;
+  inset: auto 12px 12px;
+  z-index: 3;
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 7px;
+  color: #fff;
+  background: rgba(8,9,12,.78);
+  backdrop-filter: blur(8px);
+}
+
+body.tenant-tool-undress .undress-home-progress > span {
+  display: block;
+  width: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--undress-accent);
+  transition: width .25s ease;
+}
+
+body.tenant-tool-undress .undress-home-progress strong {
+  font-size: .78rem;
+  text-align: center;
+}
+
+body.tenant-tool-undress .undress-home-generate,
+body.tenant-tool-undress .undress-home-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 7px;
+  color: #111;
+  background: var(--undress-accent);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+body.tenant-tool-undress .undress-home-generate:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+body.tenant-tool-undress .undress-home-reset {
+  min-height: 36px;
+  color: var(--undress-text);
+  border: 1px solid var(--undress-line);
+  background: transparent;
+}
+
+body.tenant-tool-undress .undress-home-hint {
+  max-width: 560px;
+  margin: 0;
+  color: var(--undress-muted);
+  font-size: .78rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 body.tenant-tool-undress .undress-case-layer,
 body.tenant-tool-undress .undress-case-media > video {
   display: block;
