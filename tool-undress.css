@@ -60,6 +60,7 @@ body.tenant-tool-undress .undress-tool-home > .undress-ambient {
 body.tenant-tool-undress .undress-tool-home-inner {
   width: min(1320px, 100%);
   margin: 0 auto;
+  padding-top: 12px;
   gap: 8px;
   align-content: start;
 }

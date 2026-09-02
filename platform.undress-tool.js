@@ -188,6 +188,16 @@ function undressToolCanSubmit() {
   );
 }
 
+function undressToolGenerationActive() {
+  const status = String(undressToolState.homeRecord?.status || "").toLowerCase();
+  const failed = ["failed", "error", "cancelled"].includes(status);
+  return Boolean(
+    undressToolState.submitting
+    || undressToolState.estimating
+    || (undressToolState.homeRecord && !undressToolState.homeResultUrl && !failed),
+  );
+}
+
 function undressToolHomeGuide(type = undressToolState.generationType) {
   const key = type === "image_video" ? "imageVideoGuide" : type === "video" ? "videoGuide" : "imageGuide";
   return undressToolText(key);
@@ -705,6 +715,9 @@ function renderUndressToolHome() {
   document.querySelectorAll(".undress-case-tabs [data-undress-case]").forEach((button) => button.addEventListener("click", () => {
     const type = button.dataset.undressCase;
     if (!type || type === undressToolState.generationType) return;
+    // Keep the active task visible until polling finishes. Switching types used
+    // to reset the shared state and made an in-flight task appear lost.
+    if (undressToolGenerationActive()) return;
     undressToolState.generationType = type;
     resetUndressToolFile();
     document.querySelectorAll(".undress-case-tabs [data-undress-case]").forEach((item) => { item.classList.toggle("is-active", item.dataset.undressCase === type); item.setAttribute("aria-selected", item.dataset.undressCase === type ? "true" : "false"); });
