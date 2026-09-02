@@ -273,7 +273,8 @@ body.tenant-tool-undress .undress-case-layer {
 }
 
 body.tenant-tool-undress .undress-case-layer.is-template {
-  opacity: 0;
+  opacity: 1;
+  clip-path: inset(0 0 0 100%);
   animation: undress-case-reveal 6s ease-in-out infinite;
 }
 
@@ -472,10 +473,28 @@ body.tenant-tool-undress .undress-inline-back {
 }
 
 @keyframes undress-case-reveal {
-  /* Start the first reveal about one second after the case enters (6s loop). */
-  0%, 14% { opacity: 0; }
-  24%, 82% { opacity: 1; }
-  100% { opacity: 0; }
+  /* The template is revealed from right to left behind the moving light:
+     left of the light stays original, right of it is already the template. */
+  0%, 14% {
+    opacity: 1;
+    clip-path: inset(0 0 0 100%);
+  }
+  17% {
+    opacity: 1;
+    clip-path: inset(0 0 0 88%);
+  }
+  34% {
+    opacity: 1;
+    clip-path: inset(0 0 0 50%);
+  }
+  44%, 82% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 100%);
+  }
 }
 
 @keyframes undress-case-sweep {
@@ -500,7 +519,7 @@ body.tenant-tool-undress .undress-inline-back {
 
 @media (prefers-reduced-motion: reduce) {
   body.tenant-tool-undress .undress-case-layer.is-template,
-  body.tenant-tool-undress .undress-case-shimmer { animation: none; opacity: 1; transform: none; }
+  body.tenant-tool-undress .undress-case-shimmer { animation: none; opacity: 1; transform: none; clip-path: none; }
   body.tenant-tool-undress .undress-case-layer.is-original { opacity: 0; }
 }
 
