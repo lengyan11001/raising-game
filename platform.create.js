@@ -4586,7 +4586,6 @@ function renderHistory(records = []) {
         : isSucceeded
           ? "check-circle-2"
           : "loader-circle";
-    const recordDate = formatDateTime(record.createdAt || record.updatedAt);
     const regenerateAction = taskId && !resultLocked && !isTenantTool("undress") ? `
       <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
         <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
@@ -4665,10 +4664,6 @@ function renderHistory(records = []) {
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="${imageLoading}" fetchpriority="${imageFetchPriority}" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
         </div>
         ${isUndressHistory ? `<div class="undress-history-footer">
-          <div class="undress-history-meta">
-            <span class="undress-history-status is-${escapeHtml(recordStatusClass)}"><i data-lucide="${escapeHtml(recordStatusIcon)}"></i>${escapeHtml(recordStatusLabel)}</span>
-            ${recordDate ? `<time datetime="${escapeHtml(record.createdAt || record.updatedAt || "")}">${escapeHtml(recordDate)}</time>` : ""}
-          </div>
           ${undressResultActions}
         </div>` : ""}
         ${isUndressHistory ? "" : `<div class="history-card-actions">
