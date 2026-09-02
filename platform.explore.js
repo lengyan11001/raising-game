@@ -4567,6 +4567,7 @@ async function renderStripeCheckout() {
         <i data-lucide="external-link"></i>
         <span>${escapeHtml(t("topup.stripeContinue", {}, "Continue to Stripe"))}</span>
       </button>
+      <p class="stripe-payment-method-note"><i data-lucide="badge-check"></i><strong>${escapeHtml(t("topup.stripeMethods", {}, "支持微信支付和信用卡"))}</strong><span>${escapeHtml(t("topup.stripeMethodsEn", {}, "Supports WeChat Pay and credit cards"))}</span></p>
       <p class="paypal-redirect-note">${escapeHtml(t("topup.stripeRedirectNote", {}, "You will continue on the secure payment page."))}</p>
     `;
     els.stripeButtons.hidden = false;

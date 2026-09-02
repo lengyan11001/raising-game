@@ -191,6 +191,8 @@ const I18N = {
   "topup.created": "Order created. Transfer the exact amount including suffix.",
   "topup.paypalTitle": "PayPal Checkout",
   "topup.stripeTitle": "Stripe Checkout",
+  "topup.stripeMethods": "WeChat Pay and credit cards supported",
+  "topup.stripeMethodsEn": "Supports WeChat Pay and credit cards",
   "topup.stripeLoading": "Loading Stripe...",
   "topup.stripeUnavailable": "Stripe is not configured yet.",
   "topup.stripeReady": "Pay securely with Stripe.",

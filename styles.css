@@ -2400,6 +2400,28 @@ input[type="text"]:focus {
   text-align: center;
 }
 
+.stripe-payment-method-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 79, 163, .55);
+  border-radius: 10px;
+  background: rgba(255, 79, 163, .14);
+  color: #fff;
+  font-size: .84rem;
+  line-height: 1.3;
+  text-align: center;
+}
+.stripe-payment-method-note i,
+.stripe-payment-method-note svg { width: 16px; height: 16px; color: #ff8bc4; }
+.stripe-payment-method-note strong { color: #fff; }
+.stripe-payment-method-note span { color: rgba(255,255,255,.72); font-size: .74rem; }
+
 .recharge-amount-label {
   margin: 4px 0 0;
   font-size: 0.78rem;
