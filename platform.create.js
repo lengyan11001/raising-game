@@ -5,7 +5,7 @@ function renderAdvanced() {
   if (!state.user) {
     renderAdvancedCreateControls();
     renderAdvancedAssets([]);
-    setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+    setAdvancedSideTab(state.advancedSideTab, { silent: true });
     setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
@@ -14,14 +14,15 @@ function renderAdvanced() {
   }
   renderAdvancedCreateControls();
   renderAdvancedAssets();
-  setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+  setAdvancedSideTab(state.advancedSideTab, { silent: true });
   setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
 function setAdvancedMobileTab(tab = "create", { silent = false, skipSideTab = false } = {}) {
-  const next = ["assets", "result"].includes(tab) ? tab : "create";
+  const assetsAllowed = state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  const next = tab === "result" || (tab === "assets" && assetsAllowed) ? tab : "create";
   state.advancedMobileTab = next;
   if (els.advancedWorkspace) els.advancedWorkspace.dataset.advancedMobileTab = next;
   els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((button) => {
@@ -35,8 +36,9 @@ function setAdvancedMobileTab(tab = "create", { silent = false, skipSideTab = fa
   refreshIcons();
 }
 
-function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false } = {}) {
-  const next = tab === "result" ? "result" : "assets";
+function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false } = {}) {
+  const assetsAllowed = state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  const next = tab === "assets" && assetsAllowed ? "assets" : "result";
   state.advancedSideTab = next;
   if (els.advancedAssetsView) els.advancedAssetsView.hidden = next !== "assets";
   if (els.advancedResultView) els.advancedResultView.hidden = next !== "result";
@@ -120,7 +122,7 @@ function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
 function advancedAssetTargetItems() {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return [];
   const provider = currentAdvancedProvider();
-  if (provider === "qwen37-flash") return [];
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) return [];
   const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
@@ -161,6 +163,7 @@ function advancedAssetTargetItems() {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
     targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+    if (provider === "wan30") targets.push({ id: "document", label: "Document", type: "document" });
   }
   if (["wan27-t2v", "happyhorse-t2v"].includes(capability) || (capability === "wan-legacy" && String(els.advancedLegacyWanModel?.value || "").includes("t2v"))) return [];
   return targets.length ? targets : [{ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" }];
@@ -172,6 +175,7 @@ function activeAdvancedAssetTarget() {
 }
 
 function preferredAdvancedAssetTargetForAsset(asset = {}) {
+  if (currentAdvancedProvider() === "wan30" && isDocumentAsset(asset)) return "document";
   if (advancedCreateModeNeedsReplacePair()) {
     if (isImageAsset(asset)) return "primary";
   }
@@ -193,8 +197,9 @@ function selectedAdvancedImageAsset() {
     || null;
 }
 
-async function ensureAdvancedImageEditAssets() {
-  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+async function ensureAdvancedImageEditAssets(inputReferences = null) {
+  const references = (Array.isArray(inputReferences) ? inputReferences : selectedAdvancedReferenceImages("wan27-image-edit"))
+    .slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (!references.length) return { assets: [], imageUrls: [] };
   const resolved = [];
   const imageUrls = [];
@@ -440,7 +445,7 @@ function renderAdvancedResultPanel() {
     const media = videoUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
-        ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" /></button>`).join("")}</div>`
+        ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="${index === 0 && imageIndex === 0 ? "eager" : "lazy"}" fetchpriority="${index === 0 && imageIndex === 0 ? "high" : "auto"}" decoding="async" /></button>`).join("")}</div>`
         : textResult
           ? `<div class="advanced-result-text">${escapeHtml(textResult)}</div>`
         : `<div class="advanced-result-media is-placeholder"><i data-lucide="${statusClass(record.status) === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(status)}</span></div>`;
@@ -451,15 +456,17 @@ function renderAdvancedResultPanel() {
           <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
-          ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
-          ${canDownload ? `
-            <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
-              <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+          <div class="advanced-result-actions">
+            ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
+            ${canDownload ? `
+              <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
+                <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+              </button>
+            ` : ""}
+            <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
+              <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
             </button>
-          ` : ""}
-          <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
-            <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
-          </button>
+          </div>
         </div>
       </article>
     `;
@@ -623,7 +630,13 @@ async function uploadAdvancedAssets(files = []) {
         : 0;
       await requestJson("/api/user-assets", {
         method: "POST",
-        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "", durationSeconds },
+        body: {
+          dataUrl,
+          name: file.name || "Upload",
+          fileName: file.name || "",
+          durationSeconds,
+          provider: isWan30DocumentFile(file) ? "wan30" : undefined,
+        },
       });
       uploaded += 1;
     }
@@ -708,7 +721,7 @@ async function uploadAdvancedImageReference(file, { provider = currentAdvancedPr
     return null;
   }
   if (!file) return null;
-  if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+  if (!uploadedFileMime(file).startsWith("image/")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
     return null;
   }
@@ -877,6 +890,9 @@ function advancedPendingReferences(provider = currentAdvancedProvider()) {
 }
 
 function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
+  const previewUrl = typeof Blob !== "undefined" && file instanceof Blob && typeof URL !== "undefined"
+    ? URL.createObjectURL(file)
+    : "";
   const ref = {
     pendingId: `pending-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     provider: normalizeAdvancedProvider(options.provider || currentAdvancedProvider()),
@@ -884,6 +900,7 @@ function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
     isPending: true,
     name: file?.name || options.name || (kind === "audio" ? "Audio reference" : kind === "video" ? "Video reference" : "Image reference"),
     fileName: file?.name || options.fileName || "",
+    previewUrl,
     order: options.order || nextAdvancedReferenceOrder(),
   };
   state.advancedPendingReferences = [...(state.advancedPendingReferences || []), ref];
@@ -894,6 +911,8 @@ function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
 
 function removeAdvancedPendingReference(pendingId = "", { render = true } = {}) {
   if (!pendingId) return;
+  const removed = (state.advancedPendingReferences || []).find((item) => item?.pendingId === pendingId);
+  if (removed?.previewUrl?.startsWith("blob:") && typeof URL !== "undefined") URL.revokeObjectURL(removed.previewUrl);
   state.advancedPendingReferences = (state.advancedPendingReferences || []).filter((item) => item?.pendingId !== pendingId);
   if (render) {
     renderAdvancedReferencePreviews();
@@ -910,7 +929,7 @@ function stampAdvancedReferenceOrder(ref = {}) {
 
 async function readMediaDuration(file) {
   if (!file) return 0;
-  const tag = String(file.type || "").startsWith("audio/") ? "audio" : "video";
+  const tag = uploadedFileMime(file).startsWith("audio/") ? "audio" : "video";
   const media = document.createElement(tag);
   const url = URL.createObjectURL(file);
   return await new Promise((resolve) => {
@@ -1142,12 +1161,14 @@ async function captureAdvancedExtendFrameFromSource(source, fileName = "video-la
 function assetTargetTypeLabel(type = "image") {
   if (type === "video") return t("assets.video");
   if (type === "audio") return t("assets.audio");
+  if (type === "document") return "document";
   return t("assets.image");
 }
 
 function assetMatchesTarget(asset = {}, target = activeAdvancedAssetTarget()) {
   if (target.type === "video") return isVideoAsset(asset);
   if (target.type === "audio") return isAudioAsset(asset);
+  if (target.type === "document") return isDocumentAsset(asset);
   return isImageAsset(asset);
 }
 
@@ -1175,7 +1196,24 @@ async function addAssetToAdvancedTarget(assetId = "") {
   const provider = currentAdvancedProvider();
   const url = assetPreviewUrl(asset);
   state.activeAdvancedCaseId = "";
-  if (target.id === "primary" || target.id === "sourceImage" || target.id === "sourceImages" || target.id === "referenceImages") {
+  if (target.id === "document") {
+    if (provider !== "wan30" || !isDocumentAsset(asset)) return;
+    state.advancedDocumentReference = {
+      assetId: asset.id,
+      fileName: asset.name || asset.fileName || "Document reference",
+      name: asset.name || asset.fileName || "Document reference",
+      kind: "document",
+      order: nextAdvancedReferenceOrder(),
+    };
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    setAdvancedSeedanceVideoReferences([]);
+    setAdvancedSeedanceAudioReferences([]);
+    renderAdvancedReferencePreviews();
+  } else if (target.id === "primary" || target.id === "sourceImage" || target.id === "sourceImages" || target.id === "referenceImages") {
     if (!isImageAsset(asset)) return;
     if (target.id === "sourceImage" || target.id === "sourceImages") state.advancedSourceImageAssetId = asset.id;
     else state.advancedFirstFrameAssetId = asset.id;
@@ -1410,12 +1448,13 @@ function syncAdvancedProviderExposure() {
     ));
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
-  if (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
+  const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
+  if (current !== modeProvider && (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
     || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
-  ))) {
+  )))) {
     els.advancedProvider.value = "seedance25";
   }
 }
@@ -1434,7 +1473,7 @@ function updateAdvancedModelControls() {
   const isImageEdit = provider === "wan27-image-edit";
   const isSeedreamImage = provider === "seedream5-image";
   const isQwenImage = provider === "qwen-image3";
-  const isQwenText = provider === "qwen37-flash";
+  const isQwenText = ["qwen37-flash", "byteplus-language"].includes(provider);
   const isStandaloneImage = isSeedreamImage || isQwenImage;
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
@@ -1933,7 +1972,9 @@ async function submitAdvancedGenerate() {
   const seedanceTier = currentSeedanceTier();
   const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
-  if (provider === "qwen37-flash") {
+  const presetReferenceImages = usingPresetFlow ? advancedPresetReferenceImages() : [];
+  const presetVideoReferences = usingPresetFlow ? advancedPresetVideoReferences() : [];
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     const enableThinking = els.advancedQwen37Thinking?.value === "true";
     const maxTokens = Math.max(1, Math.min(8192, Number(els.advancedQwen37MaxTokens?.value || 1024) || 1024));
     const temperature = Math.max(0, Math.min(2, Number(els.advancedQwen37Temperature?.value || 0.7)));
@@ -1941,9 +1982,9 @@ async function submitAdvancedGenerate() {
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
       status: "submitting",
-      model: "qwen3.7-flash",
+      model: provider === "byteplus-language" ? "ep-20260827122554-8fsgw" : "qwen3.7-flash",
       provider,
-      source: "advanced-qwen37-flash",
+      source: provider === "byteplus-language" ? "advanced-byteplus-language" : "advanced-qwen37-flash",
       kind: "advanced-text",
       prompt,
       params: { enable_thinking: enableThinking, max_tokens: maxTokens, temperature },
@@ -1959,7 +2000,7 @@ async function submitAdvancedGenerate() {
         method: "POST",
         body: {
           provider,
-          model: "qwen3.7-flash",
+          model: provider === "byteplus-language" ? "ep-20260827122554-8fsgw" : "qwen3.7-flash",
           prompt,
           enable_thinking: enableThinking,
           max_tokens: maxTokens,
@@ -2083,7 +2124,11 @@ async function submitAdvancedGenerate() {
     return;
   }
   if (provider === "wan27-image-edit") {
-    const referencesReady = await guardAdvancedSubmitAssets(selectedAdvancedReferenceImages("wan27-image-edit").map((item) => item.assetId));
+    const imageReferences = dedupeAdvancedReferenceImages([
+      ...presetReferenceImages,
+      ...selectedAdvancedReferenceImages("wan27-image-edit"),
+    ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    const referencesReady = await guardAdvancedSubmitAssets(imageReferences.map((item) => item.assetId));
     if (!referencesReady) {
       els.advancedSubmitBtn.disabled = false;
       return;
@@ -2113,7 +2158,7 @@ async function submitAdvancedGenerate() {
     renderAdvancedResultPanel();
     if (els.advancedNote) els.advancedNote.textContent = "";
     try {
-      const { assets, imageUrls } = await ensureAdvancedImageEditAssets();
+      const { assets, imageUrls } = await ensureAdvancedImageEditAssets(imageReferences);
       renderAdvancedResultPanel();
       const payload = await requestJson("/api/wan27/image-edit", {
         method: "POST",
@@ -2180,7 +2225,6 @@ async function submitAdvancedGenerate() {
     : provider === "wan27" && (videoCapability === "wan27-i2v" || videoCapability === "wan-legacy")
       ? resolvedWanSubmitMediaMode(rawWanMediaMode)
       : videoCapability;
-  const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
   const presetReferenceMode = provider === "seedance"
     && usingPresetFlow
     && advancedCreateModeUsesCharacterPresetReference()
@@ -2192,11 +2236,13 @@ async function submitAdvancedGenerate() {
   const seedance25VideoOnlyMode = provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode);
   const referenceImages = seedanceFrameMode || seedance25VideoOnlyMode
     ? []
-    : presetReferenceMode
+    : usingPresetFlow
     ? dedupeAdvancedReferenceImages([
         ...presetReferenceImages,
         ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
-      ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
+      ]).slice(0, provider === "wan30" || provider === "wan27" || provider === "happyhorse"
+        ? advancedAliyunReferenceImageLimit(videoCapability)
+        : ADVANCED_SEEDANCE_REFERENCE_LIMIT)
     : selectedAdvancedReferenceImages();
   const documentReference = provider === "wan30" && state.advancedDocumentReference ? state.advancedDocumentReference : null;
   const isWanI2v = provider === "wan27" && videoCapability === "wan27-i2v";
@@ -2216,7 +2262,9 @@ async function submitAdvancedGenerate() {
   const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
-  const seedanceVideoRefs = sharedReferenceProvider && !seedanceFrameMode ? advancedSeedanceVideoReferences() : [];
+  const seedanceVideoRefs = sharedReferenceProvider && !seedanceFrameMode
+    ? dedupeAdvancedMediaReferences([...presetVideoReferences, ...advancedSeedanceVideoReferences()]).slice(0, advancedVideoReferenceLimit(provider))
+    : [];
   const seedanceAudioRefs = sharedReferenceProvider && !seedanceFrameMode && !seedance25VideoOnlyMode ? advancedSeedanceAudioReferences() : [];
   const seedanceVideoAssetIds = seedanceVideoRefs.map((item) => item.assetId || "").filter(Boolean);
   const seedanceAudioAssetIds = seedanceAudioRefs.map((item) => item.assetId || "").filter(Boolean);
@@ -2343,7 +2391,7 @@ async function submitAdvancedGenerate() {
     const usesWanFrameModes = provider === "wan27" && (videoCapability === "wan27-i2v" || videoCapability === "wan-legacy");
     const hasPrimaryImage = Boolean(wanFirstFrameSource || wanFirstFrameAssetId || referenceImages[0]);
     const hasReferenceImages = referenceImages.length > 0;
-    const hasVideo = Boolean(state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() || state.advancedWanClipAssetId);
+    const hasVideo = Boolean(presetVideoReferences[0]?.url || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() || state.advancedWanClipAssetId);
     const durationMessage = hasVideo
       ? advancedVideoInputDurationMessage(aliyunInputVideoSeconds, provider, videoCapability, { allowUnknown: true })
       : "";
@@ -2458,12 +2506,15 @@ async function submitAdvancedGenerate() {
     const capabilityUsesVideo = [
       "wan27-r2v", "wan27-video-edit", "wan-animate-move", "wan-animate-mix", "happyhorse-video-edit",
     ].includes(videoCapability) || (videoCapability === "wan-legacy" && /r2v|vace/.test(legacyWanModel));
-    const wanClipSource = capabilityUsesVideo ? state.advancedWanClipDataUrl : selectedWanClipData(mediaMode);
+    const presetActionVideo = presetVideoReferences[0] || null;
+    const wanClipSource = capabilityUsesVideo
+      ? (state.advancedWanClipDataUrl || presetActionVideo?.url || presetActionVideo?.videoUrl || "")
+      : selectedWanClipData(mediaMode);
     const wanClipDataUrl = dataUrlValue(wanClipSource);
     const wanClipUrl = capabilityUsesVideo
-      ? (String(els.advancedWanClipUrl?.value || "").trim() || absoluteHttpUrl(wanClipSource))
+      ? (String(els.advancedWanClipUrl?.value || "").trim() || absoluteHttpUrl(wanClipSource) || presetActionVideo?.url || "")
       : (selectedWanClipUrl(mediaMode) || absoluteHttpUrl(wanClipSource));
-    const wanClipFileName = capabilityUsesVideo ? state.advancedWanClipFileName : selectedWanClipFileName(mediaMode);
+    const wanClipFileName = capabilityUsesVideo ? (state.advancedWanClipFileName || presetActionVideo?.fileName || "action.mp4") : selectedWanClipFileName(mediaMode);
     const aliyunPrimaryCapabilities = new Set(["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"]);
     const usesAliyunPrimaryImage = aliyunPrimaryCapabilities.has(videoCapability)
       || (videoCapability === "wan-legacy" && !/t2v|r2v|vace/.test(legacyWanModel));
@@ -3031,7 +3082,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     if (els.advancedQwenPromptExtend) els.advancedQwenPromptExtend.value = advancedBoolFromValue(params.prompt_extend ?? params.promptExtend, true) ? "true" : "false";
     if (els.advancedQwenWatermark) els.advancedQwenWatermark.value = advancedBoolFromValue(params.watermark, false) ? "true" : "false";
   }
-  if (provider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     if (els.advancedQwen37Thinking) els.advancedQwen37Thinking.value = advancedBoolFromValue(params.enable_thinking ?? params.enableThinking, false) ? "true" : "false";
     if (els.advancedQwen37MaxTokens) els.advancedQwen37MaxTokens.value = String(Math.max(1, Math.min(8192, Number(params.max_tokens || params.maxTokens || 1024))));
     if (els.advancedQwen37Temperature) els.advancedQwen37Temperature.value = String(Math.max(0, Math.min(2, Number(params.temperature ?? 0.7))));
@@ -3045,7 +3096,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     ? references.slice(1)
     : provider === "qwen-image3"
     ? references.slice(0, ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT)
-    : provider === "qwen37-flash"
+    : ["qwen37-flash", "byteplus-language"].includes(provider)
     ? []
     : references;
   state.advancedUploadDataUrl = restoredSeedanceFirstFrame ? "" : (references[0]?.dataUrl || "");
@@ -4070,8 +4121,10 @@ function renderAdvancedReferencePreviews() {
         ? `data-remove-advanced-document="${index}"`
       : `data-remove-shared-${kind}="${index}"`;
     const pendingText = t("advanced.uploadingReference", {}, "Uploading...");
-    const media = pending
-      ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
+    const media = pending && url && (kind === "image" || kind === "video")
+      ? `<div class="advanced-reference-pending has-preview">${kind === "video" ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<div class="advanced-reference-upload-status"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div></div>`
+      : pending
+        ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
       ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
       : kind === "audio"
@@ -4513,6 +4566,11 @@ function renderHistory(records = []) {
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    // The newest result is the primary thing users are waiting for. Start it
+    // immediately; keep older, potentially large media lazy to protect the
+    // connection when the history page contains several results.
+    const imageLoading = index === 0 ? "eager" : "lazy";
+    const imageFetchPriority = index === 0 ? "high" : "auto";
     const canDownload = canDownloadGenerationRecord(record);
     const isUndressHistory = isTenantTool("undress");
     const recordStatusClass = statusClass(record.status);
@@ -4600,7 +4658,7 @@ function renderHistory(records = []) {
               <i data-lucide="play"></i>
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
-          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
+          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="${imageLoading}" fetchpriority="${imageFetchPriority}" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
         </div>
         ${isUndressHistory ? `<div class="undress-history-footer">
           <div class="undress-history-meta">
@@ -5246,41 +5304,51 @@ async function startEntitlementCheckout(body = {}, statusElement = null) {
   if (statusElement) statusElement.textContent = "Creating secure checkout...";
   const returnUrl = `${window.location.origin}${window.location.pathname}#${state.tab || "referral"}`;
   try {
-    const payload = await requestJson("/api/pay/paypal/checkout-sessions", {
+    const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
       method: "POST",
       body: { ...body, returnUrl, cancelUrl: returnUrl },
     });
     const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
-    if (!checkoutUrl) throw new Error("PayPal checkout page was not created.");
+    if (!checkoutUrl) throw new Error("Stripe checkout page was not created.");
     window.location.href = checkoutUrl;
   } catch (error) {
     if (statusElement) statusElement.textContent = error.message || String(error);
   }
 }
 
-function openEntitlementPaymentChoice(productId = "", statusElement = null) {
+function openBillingPaymentChoice({ billingPlanId = "", productId = "", statusElement = null } = {}) {
   if (!state.user) return openLogin();
-  const product = (state.billing?.products || []).find((item) => item.id === productId);
-  if (!product) {
+  const plan = billingPlanId
+    ? (typeof billingPlans === "function" ? billingPlans() : []).find((item) => item.id === billingPlanId)
+    : null;
+  const product = productId
+    ? (state.billing?.products || []).find((item) => item.id === productId)
+    : null;
+  if (!plan && !product) {
     if (statusElement) statusElement.textContent = "This product is not available.";
     return;
   }
-  if (product.owned) {
+  if (product?.owned) {
     if (statusElement) statusElement.textContent = "API documentation access is already active.";
     return;
   }
   if (statusElement) statusElement.textContent = "";
-  state.selectedBillingPlanId = "";
-  state.selectedProductId = product.id;
+  state.selectedBillingPlanId = plan?.id || "";
+  if (product) state.selectedProductId = product.id;
+  else state.selectedProductId = "";
   state.selectedTopupPackageId = "";
   prepareModalOpen();
-  setTopupMethod("paypal", { skipSummary: true });
+  setTopupMethod("stripe", { skipSummary: true });
   setTopupStep("payment");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
-  if (payPalCheckoutVisible()) renderPayPalCheckout();
+  if (stripeCheckoutVisible()) renderStripeCheckout();
   syncTopupAutoRefresh();
   refreshIcons();
+}
+
+function openEntitlementPaymentChoice(productId = "", statusElement = null) {
+  return openBillingPaymentChoice({ productId, statusElement });
 }
 
 async function redeemMembershipCode(event) {
@@ -5532,6 +5600,10 @@ function openLogin() {
 function openAccount() {
   prepareModalOpen();
   renderTokenDisplays();
+  if (els.accountEmail) els.accountEmail.value = state.user?.email || "";
+  if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "";
+  const securityBox = els.accountEmail?.closest(".account-security-box");
+  if (securityBox) securityBox.hidden = !Boolean(state.config?.auth?.email?.enabled);
   els.accountDialog?.showModal();
   refreshIcons();
 }
@@ -5572,6 +5644,10 @@ function renderLoginForm() {
     els.googleLoginStatus.hidden = true;
   }
   if (els.loginMessage) els.loginMessage.textContent = "";
+  const emailEnabled = Boolean(state.config?.auth?.email?.enabled);
+  if (els.loginEmail) els.loginEmail.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
+  if (els.loginEmailCode) els.loginEmailCode.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
+  if (els.forgotPasswordBtn) els.forgotPasswordBtn.hidden = !emailEnabled;
 }
 
 async function refreshAfterLogin() {
@@ -5629,6 +5705,34 @@ async function submitLogin() {
   } finally {
     if (els.loginSubmit) els.loginSubmit.disabled = false;
   }
+}
+
+async function requestEmailLoginCode() {
+  const email = els.loginEmail?.value.trim() || "";
+  try { await requestJson("/api/auth/email/request", { method: "POST", body: { email } }); if (els.loginMessage) els.loginMessage.textContent = "Verification code sent."; }
+  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+}
+
+async function verifyEmailLogin() {
+  const email = els.loginEmail?.value.trim() || ""; const code = els.loginEmailCode?.value.trim() || "";
+  try { await completeLogin(await requestJson("/api/auth/email/verify", { method: "POST", body: { email, code } })); }
+  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+}
+
+async function forgotPassword() {
+  const email = window.prompt("Enter your bound login email"); if (!email) return;
+  try { await requestJson("/api/auth/password/reset/request", { method: "POST", body: { email } }); const code = window.prompt("Enter the verification code"); const password = window.prompt("Enter a new password (at least 6 characters)"); if (code && password) { await requestJson("/api/auth/password/reset", { method: "POST", body: { email, code, password } }); if (els.loginMessage) els.loginMessage.textContent = "Password updated. Please sign in."; } }
+  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+}
+
+async function requestAccountEmailCode() {
+  try { await requestJson("/api/account/email/request", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", password: els.accountCurrentPassword?.value || "" } }); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Verification code sent."; }
+  catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
+}
+
+async function verifyAccountEmail() {
+  try { const payload = await requestJson("/api/account/email/verify", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", code: els.accountEmailCode?.value.trim() || "" } }); if (payload.user) setUser(payload.user); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Email bound successfully."; }
+  catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
 }
 
 async function loadMe() {
@@ -5767,7 +5871,7 @@ async function bootstrap() {
   renderTopupSummary();
   renderPricing();
   renderTokenDisplays();
-  setTab(state.tab);
+  setTab(window.location.hash || state.tab);
   refreshIcons();
   if (!isTenantTool("undress")) loadPlatformEstimates();
 }
