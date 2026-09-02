@@ -39770,7 +39770,10 @@ async function handleListGenerationRecords(req, res, url) {
 }
 
 async function handleGetGenerationRecord(req, res, taskId) {
-  const auth = await requireUser(req, res);
+  // Detail polling only needs the session/user row and the requested record.
+  // Loading every application table here makes a single slow refresh block
+  // behind unrelated wallet/assets/history queries and can hit the proxy 524.
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const record = await getGenerationRecord(taskId);
   if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
@@ -39881,7 +39884,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
   return sendJson(res, 200, {
     ok: true,
     record: publicGenerationRecord(nextRecord, generationRecordResponseOptionsForAuth(auth)),
-    user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
+    user: userView(auth.user),
   });
 }
 

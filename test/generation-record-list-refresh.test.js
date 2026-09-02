@@ -56,3 +56,10 @@ test("history detail polling updates the current page without fetching the list 
   assert.match(source, /state\.historyRecords = .*\.map/s);
   assert.doesNotMatch(source, /loadHistory\(/);
 });
+
+test("generation detail uses lightweight auth and does not reload the full database", () => {
+  const detail = functionSource("handleGetGenerationRecord", "handleGenerationRecordDownloadUrl");
+  assert.match(detail, /requireUser\(req, res, \{ loadDb: false \}\)/);
+  assert.match(detail, /user: userView\(auth\.user\)/);
+  assert.doesNotMatch(detail, /await readDb\(\)/);
+});
