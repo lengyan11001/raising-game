@@ -117,7 +117,13 @@ function setTab(tab) {
   syncMainTabState();
   syncGalleryShortcutNav();
   if (typeof renderVideoToolActions === "function") renderVideoToolActions();
-  if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
+  if (nextTab === DEFAULT_PLATFORM_TAB) {
+    renderTemplates();
+    // Undress keeps its home workspace mounted while Result/History is open.
+    // Re-render it on return so a submitted file/result cannot remain visible
+    // until the user changes the tool tab again.
+    if (typeof renderUndressToolHomeState === "function") renderUndressToolHomeState();
+  }
   if (nextTab === "history") loadHistory({ page: isMobileHistoryLayout() ? 1 : state.historyRecordsPage || 1 });
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();

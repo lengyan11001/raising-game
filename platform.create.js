@@ -5252,30 +5252,41 @@ function renderTopupRecords() {
 function renderReferral() {
   const referral = state.referral || null;
   const loggedIn = Boolean(state.user);
+  const loading = loggedIn && Boolean(state.referralLoading);
   const invitedCount = Number(referral?.invitedCount || 0);
   const paidInviteCount = Math.max(0, Number(referral?.paidInviteCount || 0));
   const rewardCount = Math.max(0, Number(referral?.rewardCount || 0));
   const membershipTarget = Math.max(1, Number(referral?.membershipTarget || 100));
   const registrationProgress = Math.max(0, Math.min(100, (invitedCount / membershipTarget) * 100));
   const member = creatorMembershipActive();
-  if (els.referralLink) els.referralLink.textContent = loggedIn ? (referral?.inviteUrl || "") : t("referral.login");
+  if (els.referralLink) els.referralLink.textContent = loggedIn
+    ? loading ? t("ledger.loading") : (referral?.inviteUrl || "")
+    : t("referral.login");
   if (els.referralProgressFill) els.referralProgressFill.style.width = `${paidInviteCount ? Math.min(100, (rewardCount / paidInviteCount) * 100) : 0}%`;
-  if (els.referralInvitedCount) els.referralInvitedCount.textContent = t("referral.invitedCount", { count: invitedCount });
+  if (els.referralInvitedCount) els.referralInvitedCount.textContent = loading
+    ? t("ledger.loading")
+    : t("referral.invitedCount", { count: invitedCount });
   if (els.referralRewardStatus) {
-    els.referralRewardStatus.textContent = member
+    els.referralRewardStatus.textContent = loading
+      ? t("ledger.loading")
+      : member
       ? t("membership.rewardStatusActive", { rewardCount, paidCount: paidInviteCount })
       : t("membership.rewardStatusInactive");
   }
-  if (els.referralMembershipProgressText) els.referralMembershipProgressText.textContent = member
+  if (els.referralMembershipProgressText) els.referralMembershipProgressText.textContent = loading
+    ? t("ledger.loading")
+    : member
     ? t("membership.activeProgress")
     : t("membership.progressCount", { count: invitedCount, target: membershipTarget });
   if (els.referralMembershipProgressFill) els.referralMembershipProgressFill.style.width = `${member ? 100 : registrationProgress}%`;
-  if (els.referralNote) els.referralNote.textContent = loggedIn
+  if (els.referralNote) els.referralNote.textContent = loading
+    ? t("ledger.loading")
+    : loggedIn
     ? member
       ? t("membership.rewardNote")
       : t("membership.unlockNote", { target: membershipTarget })
     : t("referral.login");
-  if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || !referral?.inviteUrl;
+  if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || loading || !referral?.inviteUrl;
   renderMembershipCard();
   refreshIcons();
 }
@@ -5392,6 +5403,9 @@ async function loadReferralSummary({ force = false } = {}) {
     return;
   }
   state.referralLoading = true;
+  // Render a stable loading state before the request starts so the panel does
+  // not briefly expose the previous user's or previous request's values.
+  renderReferral();
   try {
     const payload = await requestJson("/api/referral");
     state.referral = payload.referral || null;
