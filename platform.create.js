@@ -2217,7 +2217,8 @@ async function submitAdvancedGenerate() {
   const rawDurationValue = Number(els.advancedDuration?.value || bounds.fallback);
   let duration = provider === "wan30" && rawDurationValue === -1
     ? -1
-    : Math.min(bounds.max, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDurationValue) ? rawDurationValue : bounds.fallback));
+      : Math.min(bounds.max, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDurationValue) ? rawDurationValue : bounds.fallback));
+  if (provider === "seedance" && ["video-image", "video-replace"].includes(state.advancedCreateMode)) duration = 6;
   const resolution = currentAdvancedResolution();
   const legacyWanModel = videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "").trim() : "";
   const wanAnimateMode = ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)

@@ -303,7 +303,9 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
-const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
+const TOOL_VIDEO_DEFAULT_PROVIDER = "seedance";
+const TOOL_VIDEO_SEEDANCE_MODEL = "ep-20260429142513-zg667";
+const VIDEO_REPLACE_PROMPT = "将视频1中的人物替换成图片1中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
@@ -25870,11 +25872,16 @@ async function handleAdvancedGenerate(req, res) {
   ) || "").trim().toLowerCase() === "video";
   const isVideoTemplateRequest = isToolVideoTemplateRequest || isPlayfluxVideoTemplateRequest;
   const forcePlayfluxWan27VideoEdit = isPlayfluxVideoTemplateRequest;
-  const toolVideoProvider = ["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
-    ? requestTenant.videoProvider
-    : "wan27";
+  const toolVideoProvider = isToolVideoTemplateRequest
+    ? "seedance"
+    : (["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
+      ? requestTenant.videoProvider
+      : "wan27");
+  const requestedCreateMode = String(firstPresent(body.createMode, body.create_mode, bodyParams.createMode, bodyParams.create_mode, caseParams.createMode, "") || "").trim().toLowerCase();
+  const isVideoReplacementRequest = isToolVideoTemplateRequest || ["video-image", "video-replace", "playflux-video"].includes(requestedCreateMode);
   const providerHint = firstPresent(
     isToolVideoTemplateRequest ? toolVideoProvider : "",
+    isVideoReplacementRequest ? "seedance" : "",
     forcePlayfluxWan27VideoEdit ? "wan27" : "",
     body.provider,
     bodyParams.provider,
@@ -25925,6 +25932,7 @@ async function handleAdvancedGenerate(req, res) {
     provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
     "",
   )).trim();
+  if (isVideoReplacementRequest) prompt = VIDEO_REPLACE_PROMPT;
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     return await handleAdvancedQwen37FlashGenerate(req, res, {
@@ -26010,6 +26018,17 @@ async function handleAdvancedGenerate(req, res) {
       ? boolFromRequest(firstPresent(body.prompt_extend, body.promptExtend, bodyParams.prompt_extend, bodyParams.promptExtend, mergedProviderParameters.prompt_extend, mergedProviderParameters.promptExtend, caseParams.prompt_extend, caseParams.promptExtend), true)
       : undefined,
   };
+  if (isVideoReplacementRequest) {
+    requestParams.model = TOOL_VIDEO_SEEDANCE_MODEL;
+    requestParams.seedanceTier = "standard";
+    requestParams.seedanceMode = "reference_video";
+    requestParams.ratio = "9:16";
+    requestParams.resolution = "720p";
+    requestParams.duration = 6;
+    requestParams.generateAudio = true;
+    requestParams.generate_audio = true;
+    requestParams.watermark = false;
+  }
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
   requestParams.resolution = isAliyunVideoProvider(provider) ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = provider === "seedance" && boolFromRequest(firstPresent(
@@ -26046,7 +26065,7 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
     && boolFromRequest(firstPresent(body.followInputDuration, bodyParams.followInputDuration), false);
   requestParams.model = provider === "seedance"
-    ? normalizedSeedanceModel
+    ? (isVideoReplacementRequest ? TOOL_VIDEO_SEEDANCE_MODEL : normalizedSeedanceModel)
     : provider === "wan30"
       ? aliyunVideoModelForCapability(requestParams.videoCapability)
       : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
@@ -26110,7 +26129,9 @@ async function handleAdvancedGenerate(req, res) {
     bodyParams.preservePublicMediaUrls,
   ), false);
   if (provider === "seedance") {
-    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
+    seedanceMode = isVideoReplacementRequest
+      ? "reference_video"
+      : normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
     const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
       includeDataUrlFallback: seedanceModeNeedsFirstFrame(seedanceMode),
@@ -26374,7 +26395,7 @@ async function handleAdvancedGenerate(req, res) {
     (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
     || (provider === "wan27" && requestParams.videoCapability === "wan27-video-edit")
   );
-  if (isPlayfluxVideoReferenceRequest && provider !== "wan27") {
+  if (isPlayfluxVideoReferenceRequest && provider !== "wan27" && !isVideoReplacementRequest) {
     prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
       hasReferenceImage: provider === "wan27"
         ? wan27Media.some((item) => ["first_frame", "reference_image"].includes(item.type))
@@ -28016,12 +28037,14 @@ async function handleAdvancedEstimate(req, res) {
   const tenant = requestTenantDescriptor(req);
   const isToolVideoTemplateEstimate = tenant.toolId === "video";
   const effectiveProvider = isToolVideoTemplateEstimate
-    ? (["seedance", "wan30", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : TOOL_VIDEO_DEFAULT_PROVIDER)
+    ? "seedance"
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
   if (isToolVideoTemplateEstimate) {
-    params.videoCapability = toolVideoDefaultCapability(provider);
+    params.videoCapability = "";
+    params.model = TOOL_VIDEO_SEEDANCE_MODEL;
+    params.seedanceTier = "standard";
   }
   params.inputVideoSeconds = firstPresent(
     body.inputVideoSeconds,

@@ -424,6 +424,7 @@ const ADVANCED_CREATE_KINDS = [
 ];
 const ADVANCED_CUSTOM_KIND = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal" };
 const ADVANCED_CUSTOM_MODE = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal", custom: true, placeholderKey: "advanced.promptPlaceholder" };
+const VIDEO_REPLACE_PROMPT = "将视频1中的人物替换成图片1中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 const ADVANCED_CREATE_MODES = {
   image: [
     { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", activeSlots: ["character", "pose", "outfit", "scene"], placeholderKey: "advanced.promptImageCreate" },
@@ -431,7 +432,7 @@ const ADVANCED_CREATE_MODES = {
   ],
   video: [
     { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "wan30", videoCapability: "wan30-video", seedanceMode: "reference_video", assetTarget: "referenceImages", activeSlots: ["character", "action", "outfit", "scene"], placeholderKey: "advanced.promptVideoText" },
-    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "wan27", videoCapability: "wan27-video-edit", assetTarget: "referenceImages", activeSlots: ["character", "action"], placeholderKey: "advanced.promptVideoImage" },
+    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", activeSlots: ["character", "action"], placeholderKey: "advanced.promptVideoImage" },
     { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoExtend" },
     { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoReplace" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
@@ -540,12 +541,12 @@ function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConf
 
 function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
   if (mode === "video-image") {
-    return "将视频中的人物替换成图片中的人物。";
+    return VIDEO_REPLACE_PROMPT;
   }
   if (mode === "video-extend") {
     return "Generate a cinematic video using Image 1 as the main adult character and Image 2 as the action reference. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
   }
-  if (mode === "video-replace") return "Replace the subject of the selected action reference with Image 1 as the main adult character. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
+  if (mode === "video-replace") return VIDEO_REPLACE_PROMPT;
   return "";
 }
 

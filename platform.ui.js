@@ -2861,7 +2861,7 @@ function promptWithoutPresetParts(prompt = "", params = {}) {
 function advancedEffectivePrompt(basePrompt = "") {
   const prompt = String(basePrompt || "").trim();
   if (state.advancedCreateKind === "custom") return prompt;
-  if (state.advancedCreateMode === "video-image") return advancedCreateModeDefaultPrompt("video-image");
+  if (["video-image", "video-replace"].includes(state.advancedCreateMode)) return advancedCreateModeDefaultPrompt(state.advancedCreateMode);
   return [...advancedPresetPromptParts(), prompt]
     .filter(Boolean)
     .join("\n");

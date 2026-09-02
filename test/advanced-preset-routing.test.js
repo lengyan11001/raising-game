@@ -15,12 +15,12 @@ const videoActions = JSON.parse(fs.readFileSync(path.join(root, "assets", "ourdr
 const mirrorScript = fs.readFileSync(path.join(root, "scripts", "refresh-ourdream-presets.js"), "utf8");
 const { dedupeItems, getOurDreamPresetLibrary, normalizeCharacter, normalizePresetItem, tRpcUrl } = require("../ourdream-presets");
 
-test("Advanced creation modes use the requested OurDream slot structure and Wan routes", () => {
+test("Advanced creation modes use the requested OurDream slot structure and Seedance replacement route", () => {
   assert.match(config, /id: "image-create"[^\n]+activeSlots: \["character", "pose", "outfit", "scene"\]/);
   assert.match(config, /id: "video-text"[^\n]+provider: "wan30"[^\n]+videoCapability: "wan30-video"[^\n]+activeSlots: \["character", "action", "outfit", "scene"\]/);
-  assert.match(config, /id: "video-image"[^\n]+provider: "wan27"[^\n]+videoCapability: "wan27-video-edit"[^\n]+activeSlots: \["character", "action"\]/);
+  assert.match(config, /id: "video-image"[^\n]+provider: "seedance"[^\n]+seedanceMode: "reference_video"[^\n]+activeSlots: \["character", "action"\]/);
+  assert.match(config, /VIDEO_REPLACE_PROMPT/);
   assert.match(config, /\["video-image", "video-extend", "video-replace"\]\.includes\(mode\)/);
-  assert.match(config, /将视频中的人物替换成图片中的人物。/);
 });
 
 test("Advanced preset submission maps images and action videos separately", () => {
@@ -55,10 +55,7 @@ test("OurDream media refresh mirrors action resources into our R2 namespace", ()
 });
 
 test("production preset API reads the static snapshot without live OurDream fetches", async () => {
-  const library = await getOurDreamPresetLibrary({
-    fetchImpl: async () => { throw new Error("live fetch must not run"); },
-    force: true,
-  });
+  const library = await getOurDreamPresetLibrary({ fetchImpl: async () => { throw new Error("live fetch must not run"); }, force: true });
   assert.ok(library.sets.length >= 4);
   assert.match(server, /const presets = await getOurDreamPresetLibrary\(\)/);
   assert.match(mirrorScript, /clean\.source = "OurDream catalog mirrored to this site's R2 bucket"/);
