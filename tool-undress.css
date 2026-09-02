@@ -274,7 +274,7 @@ body.tenant-tool-undress .undress-case-layer {
 
 body.tenant-tool-undress .undress-case-layer.is-template {
   opacity: 1;
-  clip-path: inset(0 0 0 100%);
+  clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
   animation: undress-case-reveal 6s ease-in-out infinite;
 }
 
@@ -473,27 +473,28 @@ body.tenant-tool-undress .undress-inline-back {
 }
 
 @keyframes undress-case-reveal {
-  /* The template is revealed from right to left behind the moving light:
-     left of the light stays original, right of it is already the template. */
+  /* The template follows the same diagonal trajectory as the skewed light.
+     The polygon keeps the original on the light's left and the template
+     behind it, avoiding a flat vertical wipe/slide. */
   0%, 14% {
     opacity: 1;
-    clip-path: inset(0 0 0 100%);
+    clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
   }
   17% {
     opacity: 1;
-    clip-path: inset(0 0 0 88%);
+    clip-path: polygon(88% 0, 100% 0, 100% 100%, 76% 100%);
   }
   34% {
     opacity: 1;
-    clip-path: inset(0 0 0 50%);
+    clip-path: polygon(50% 0, 100% 0, 100% 100%, 38% 100%);
   }
   44%, 82% {
     opacity: 1;
-    clip-path: inset(0 0 0 0);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
   }
   100% {
     opacity: 1;
-    clip-path: inset(0 0 0 100%);
+    clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
   }
 }
 
