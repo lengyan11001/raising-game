@@ -13813,7 +13813,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
       downloadError = error.message || "Failed to download generated video.";
     }
   }
-  return upsertAndSettleGenerationRecord({
+  const nextRecord = await upsertAndSettleGenerationRecord({
     taskId: record.taskId,
     upstreamTaskId: task.taskId || queryTaskId,
     status: task.status || record.status || "unknown",
@@ -13832,6 +13832,16 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
     queryResponse: raw,
     completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
   }, reason);
+  if (
+    !download
+    && !generationRecordIsApiTask(nextRecord)
+    && isSucceededStatus(nextRecord.status)
+    && remoteVideoUrl
+    && !String(nextRecord.cdnVideoUrl || "").trim()
+  ) {
+    queueGeneratedVideoDownload(nextRecord.taskId || record.taskId, remoteVideoUrl, `${reason}-background-download`);
+  }
+  return nextRecord;
 }
 
 async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query" } = {}) {
@@ -17341,7 +17351,11 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
   generatedVideoDownloadQueued.add(cleanTaskId);
   setImmediate(() => Promise.resolve().then(async () => {
     const current = await getGenerationRecord(cleanTaskId);
-    if (!current || current.localVideoUrl) return;
+    if (!current) return;
+    if (current.localVideoUrl) {
+      queueGenerationRecordMediaMaintenance(current);
+      return;
+    }
     const downloaded = await downloadGeneratedVideo(cleanTaskId, remote);
     await upsertAndSettleGenerationRecord({
       taskId: cleanTaskId,
@@ -17864,7 +17878,7 @@ async function refreshGenerationRecordStatus(record = {}) {
     const configured = record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
     if (!configured || !shouldRefreshGenerationRecord(record)) return record;
     try {
-      return await refreshWan27GenerationRecord(record, { download: true, reason: "query" });
+      return await refreshWan27GenerationRecord(record, { download: false, reason: "query" });
     } catch (error) {
       console.warn("[wan27-generation-record-refresh-failed]", record.taskId, error.message || error);
       if (upstreamResourceMissing(error)) {
@@ -39796,7 +39810,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
     }
   } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && (record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(record)) {
     try {
-      nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
+      nextRecord = await refreshWan27GenerationRecord(record, { download: false, reason: "detail" });
     } catch (error) {
       console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }

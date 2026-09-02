@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+const platformCreate = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
 
 function functionSource(name, nextName) {
   const start = server.indexOf(`async function ${name}`);
@@ -35,4 +36,23 @@ test("background list refreshes are deduplicated, cooled down, and concurrency l
 test("single-task detail polling still waits for an upstream refresh", () => {
   const detail = functionSource("handleGetGenerationRecord", "handleGenerationRecordDownloadUrl");
   assert.match(detail, /nextRecord = await refreshGenerationRecordStatus\(record\)/);
+});
+
+test("Wan detail and background status refreshes never wait for video downloads", () => {
+  const refreshStatus = functionSource("refreshGenerationRecordStatus", "findActiveSeedream5ImageDuplicate");
+  const detail = functionSource("handleGetGenerationRecord", "handleGenerationRecordDownloadUrl");
+  assert.match(refreshStatus, /refreshWan27GenerationRecord\(record, \{ download: false, reason: "query" \}\)/);
+  assert.match(detail, /refreshWan27GenerationRecord\(record, \{ download: false, reason: "detail" \}\)/);
+  assert.doesNotMatch(detail, /refreshWan27GenerationRecord\(record, \{ download: true/);
+});
+
+test("history detail polling updates the current page without fetching the list twice", () => {
+  const start = platformCreate.indexOf("async function refreshPendingHistoryRecords");
+  const end = platformCreate.indexOf("async function requestVideoFullscreen", start + 1);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const source = platformCreate.slice(start, end);
+  assert.match(source, /refreshedByTaskId/);
+  assert.match(source, /state\.historyRecords = .*\.map/s);
+  assert.doesNotMatch(source, /loadHistory\(/);
 });

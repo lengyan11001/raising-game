@@ -5059,9 +5059,22 @@ async function refreshPendingHistoryRecords(records = []) {
 
   candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
   if (state.tab !== "history" || !state.user) return;
-  if (settled.some((result) => result.status === "fulfilled")) {
-    window.setTimeout(() => loadHistory({ silent: true, page: 1, preserveMobile: true }), 500);
+  const refreshedByTaskId = new Map(settled
+    .filter((result) => result.status === "fulfilled" && result.value?.record?.taskId)
+    .map((result) => [String(result.value.record.taskId), result.value.record]));
+  if (!refreshedByTaskId.size) return;
+  const previousScrollTop = els.historyList?.scrollTop || 0;
+  state.historyRecords = (state.historyRecords || []).map((record) => (
+    refreshedByTaskId.get(String(record.taskId || "")) || record
+  ));
+  const nextSignature = generationRecordsSignature(state.historyRecords);
+  if (nextSignature !== historyRecordsSignature) {
+    renderHistory(state.historyRecords);
+    historyRecordsSignature = nextSignature;
+    if (els.historyList) els.historyList.scrollTop = previousScrollTop;
   }
+  if (state.historyRecords.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
+  else stopHistoryRefresh();
 }
 
 async function requestVideoFullscreen(video) {
