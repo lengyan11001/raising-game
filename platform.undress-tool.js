@@ -49,6 +49,7 @@ const UNDRESS_TOOL_COPY = {
     submitted: "Generation started",
     generating: "Generating...",
     backToSubmit: "Back to upload",
+    upload: "Upload",
   },
   zh: {
     create: "\u521b\u5efa",
@@ -76,6 +77,7 @@ const UNDRESS_TOOL_COPY = {
     submitted: "\u5df2\u5f00\u59cb\u751f\u6210",
     generating: "\u751f\u6210\u4e2d...",
     backToSubmit: "\u8fd4\u56de\u4e0a\u4f20",
+    upload: "\u4e0a\u4f20",
   },
 };
 
@@ -239,6 +241,8 @@ function renderUndressToolDialog() {
   if (title) title.textContent = undressToolText("title");
   if (kicker) kicker.textContent = undressToolText("create");
   const file = undressToolState.file;
+  const submitPanel = body.closest(".undress-tool-submit-panel");
+  if (submitPanel) submitPanel.hidden = !file && !body.classList.contains("is-result");
   const mediaPreview = file
     ? undressToolState.mediaKind === "video"
       ? `<video class="video-tool-upload-preview" src="${undressToolEscape(undressToolState.objectUrl)}" muted playsinline preload="metadata"></video>`
@@ -267,36 +271,19 @@ function renderUndressToolDialog() {
       });
     }
   }
+  if (!file && !body.classList.contains("is-result")) {
+    body.innerHTML = "";
+    return;
+  }
   body.innerHTML = `
-    <div class="undress-tool-type-switch" role="group">
-      ${typeOptions.map(([value, label, icon]) => `
-        <button class="undress-tool-type-option${undressToolState.generationType === value ? " is-active" : ""}" type="button" data-undress-tool-type="${value}">
-          <i data-lucide="${icon}"></i><span>${undressToolEscape(undressToolText(label))}</span>
-        </button>
-      `).join("")}
-    </div>
-    ${undressToolExampleHtml()}
-    <div class="video-tool-form-grid is-single">
-      <label class="video-tool-upload">
-        <input type="file" accept="${undressToolAccept()}" data-undress-tool-input />
-        ${mediaPreview || `<span class="video-tool-upload-placeholder"><i data-lucide="upload"></i><span>${undressToolEscape(undressToolText(expectedMediaKind === "video" ? "uploadVideo" : "uploadImage"))}</span></span>`}
-        ${file ? `<span class="undress-tool-kind">${undressToolEscape(undressToolText(undressToolState.generationType === "image_video" ? "imageVideo" : undressToolState.generationType === "video" ? "videoOnly" : "imageOnly"))}</span><span class="video-tool-upload-name">${undressToolEscape(file.name || "")}</span>` : ""}
-        ${undressToolState.submitting && undressToolState.uploadProgress < 100 ? `<span class="video-tool-upload-progress">${undressToolEscape(undressToolText("uploading"))} ${undressToolState.uploadProgress}%</span>` : ""}
-      </label>
+    ${mediaPreview ? `<div class="undress-inline-upload-preview">${mediaPreview}</div>` : ""}
+    <div class="undress-inline-status" data-undress-inline-status>
+      <strong>${undressToolEscape(undressToolState.submitting ? undressToolText("uploading") : undressToolState.estimating ? undressToolText("estimating") : undressToolText("submitted"))}</strong>
+      <span>${undressToolState.submitting && undressToolState.uploadProgress < 100 ? `${undressToolState.uploadProgress}%` : undressToolEscape(undressToolState.estimating ? "" : priceText)}</span>
     </div>
     ${file ? `<div class="undress-tool-price-note">${undressToolEscape(undressToolState.estimating ? undressToolText("estimating") : priceText)}</div>` : ""}
-    <div class="video-tool-submit-row">
-      <div class="job-note">${undressToolEscape(undressToolState.message)}</div>
-      <button class="generate-btn" type="button" data-undress-tool-submit ${undressToolCanSubmit() ? "" : "disabled"}>
-        <i data-lucide="${undressToolState.submitting ? "loader-circle" : "sparkles"}"></i>
-        ${undressToolEscape(undressToolState.submitting ? undressToolText("submitting") : undressToolText("generate"))}
-      </button>
-    </div>
+    ${undressToolState.message ? `<div class="job-note">${undressToolEscape(undressToolState.message)}</div>` : ""}
   `;
-  body.querySelectorAll("[data-undress-tool-type]").forEach((button) => button.addEventListener("click", handleUndressToolType));
-  body.querySelector("[data-undress-tool-input]")?.addEventListener("change", handleUndressToolFile);
-  body.querySelector("[data-undress-tool-submit]")?.addEventListener("click", submitUndressTool);
-  bindUndressToolExampleVideos(body);
   if (typeof refreshIcons === "function") refreshIcons();
 }
 
@@ -571,7 +558,7 @@ function renderUndressToolHome() {
         </video>
       </div>
       <div class="undress-tool-home-inner">
-        <div class="undress-tool-copy">
+        <div class="undress-tool-copy" aria-hidden="true">
           <h2>${undressToolEscape(undressToolText("title"))}</h2>
           <p>${undressToolEscape(undressToolText("subtitle"))}</p>
         </div>
@@ -581,18 +568,29 @@ function renderUndressToolHome() {
           <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="video">${undressToolEscape(undressToolText("videoOnly"))}</button>
         </nav>
         <div class="undress-case-stage" data-undress-case-stage>${undressToolCaseHtml("image")}</div>
-        <div class="undress-tool-submit-panel"><div class="undress-tool-inline-body"></div></div>
+        <button class="undress-tool-upload-button" type="button" data-undress-tool-upload><i data-lucide="upload"></i>${undressToolEscape(undressToolText("upload"))}</button>
+        <input class="undress-tool-home-input" type="file" accept="${undressToolAccept()}" data-undress-home-input tabindex="-1" aria-hidden="true" />
+        <div class="undress-tool-submit-panel" hidden><div class="undress-tool-inline-body"></div></div>
       </div>
     </section>
   `;
+  const homeInput = workspace.querySelector("[data-undress-home-input]");
+  const uploadButton = workspace.querySelector("[data-undress-tool-upload]");
+  uploadButton?.addEventListener("click", () => {
+    resetUndressToolFile();
+    renderUndressToolDialog();
+    homeInput?.click();
+  });
+  homeInput?.addEventListener("change", handleUndressToolFile);
   workspace.querySelectorAll("[data-undress-case]").forEach((button) => button.addEventListener("click", () => {
     const type = button.dataset.undressCase;
     if (!type || type === undressToolState.generationType) return;
     undressToolState.generationType = type;
     resetUndressToolFile();
     workspace.querySelectorAll("[data-undress-case]").forEach((item) => { item.classList.toggle("is-active", item === button); item.setAttribute("aria-selected", item === button ? "true" : "false"); });
+    if (homeInput) homeInput.accept = undressToolAccept();
     const stage = workspace.querySelector("[data-undress-case-stage]");
-    if (stage) { stage.innerHTML = undressToolCaseHtml(type); bindUndressToolExampleVideos(stage); if (typeof refreshIcons === "function") refreshIcons(); }
+    if (stage) { stage.innerHTML = undressToolCaseHtml(type); bindUndressToolExampleVideos(stage); }
     renderUndressToolDialog();
   }));
   bindUndressToolExampleVideos(workspace);

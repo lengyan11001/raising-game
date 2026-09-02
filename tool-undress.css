@@ -36,7 +36,7 @@ body.tenant-tool-undress .workspace[data-panel="gallery"] {
 body.tenant-tool-undress .undress-tool-home {
   display: block;
   min-height: calc(100dvh - 112px);
-  padding: 28px 16px 56px;
+  padding: 12px 12px 24px;
 }
 
 body.tenant-tool-undress .undress-tool-home > .undress-ambient {
@@ -46,11 +46,11 @@ body.tenant-tool-undress .undress-tool-home > .undress-ambient {
 body.tenant-tool-undress .undress-tool-home-inner {
   width: min(620px, 100%);
   margin: 0 auto;
-  gap: 18px;
+  gap: 12px;
 }
 
 body.tenant-tool-undress .undress-tool-copy {
-  gap: 6px;
+  display: none;
 }
 
 body.tenant-tool-undress .undress-tool-copy h2 {
@@ -90,13 +90,13 @@ body.tenant-tool-undress .undress-case-tab.is-active {
 body.tenant-tool-undress .undress-case-stage {
   display: grid;
   place-items: center;
-  min-height: 330px;
+  min-height: 280px;
   margin: 0 auto;
 }
 
 body.tenant-tool-undress .undress-case-media {
   position: relative;
-  width: min(330px, 78vw);
+  width: min(270px, 68vw);
   aspect-ratio: 3 / 4;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.18);
@@ -190,6 +190,34 @@ body.tenant-tool-undress .undress-tool-submit-panel {
   border: 1px solid var(--undress-line);
   border-radius: 8px;
   background: rgba(21,22,27,.94);
+}
+
+body.tenant-tool-undress .undress-tool-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 148px;
+  min-height: 44px;
+  padding: 9px 20px;
+  border: 0;
+  border-radius: 7px;
+  color: #111;
+  background: var(--undress-accent);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(255, 79, 122, .2);
+}
+
+body.tenant-tool-undress .undress-tool-upload-button:hover { filter: brightness(1.08); }
+
+body.tenant-tool-undress .undress-tool-home-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 body.tenant-tool-undress .undress-tool-inline-body .undress-tool-type-switch {
