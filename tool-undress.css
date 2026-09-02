@@ -24,6 +24,20 @@ body.tenant-tool-undress main {
   margin: 0 auto;
 }
 
+/* The shared launch banner reserves space even when it is hidden.  Undress has
+   its own compact header, so clear that stale reservation and keep the cases
+   directly below the local tabs. */
+body.tenant-tool-undress .launch-banner + .site-head,
+body.tenant-tool-undress.wan30-launch-visible .launch-banner + .site-head,
+body.tenant-tool-undress.wan30-launch-dismissed .launch-banner + .site-head {
+  margin-top: 0 !important;
+}
+
+body.tenant-tool-undress.wan30-launch-visible,
+body.tenant-tool-undress.wan30-launch-dismissed {
+  padding-top: 76px !important;
+}
+
 body.tenant-tool-undress .workspace,
 body.tenant-tool-undress .gallery-panel {
   min-height: calc(100dvh - 78px);
@@ -47,6 +61,7 @@ body.tenant-tool-undress .undress-tool-home-inner {
   width: min(1320px, 100%);
   margin: 0 auto;
   gap: 8px;
+  align-content: start;
 }
 
 body.tenant-tool-undress .undress-tool-copy {
@@ -115,9 +130,11 @@ body.tenant-tool-undress .undress-case-tab.is-active {
 body.tenant-tool-undress .undress-case-stage {
   display: grid;
   place-items: start center;
+  align-content: start;
   width: 100%;
   min-height: calc(100dvh - 154px);
   margin: 0 auto;
+  padding: 0 !important;
 }
 
 body.tenant-tool-undress main,
@@ -257,6 +274,11 @@ body.tenant-tool-undress .undress-tool-home-input {
 }
 
 @media (max-width: 720px) {
+  body.tenant-tool-undress.wan30-launch-visible,
+  body.tenant-tool-undress.wan30-launch-dismissed {
+    padding-top: 54px !important;
+  }
+
   body.tenant-tool-undress .undress-case-tabs-nav {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -268,7 +290,7 @@ body.tenant-tool-undress .undress-tool-home-input {
     font-size: .7rem;
   }
   body.tenant-tool-undress .undress-case-stage { min-height: calc(100dvh - 170px); }
-  body.tenant-tool-undress .undress-case-media { width: min(390px, 88vw); }
+  body.tenant-tool-undress .undress-case-media { width: min(560px, calc(100vw - 20px)); }
   body.tenant-tool-undress .undress-tool-home { padding: 0 10px 96px; }
 }
 
