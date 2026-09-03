@@ -1225,6 +1225,7 @@ const els = {
   advancedQwenPromptExtend: document.querySelector("#advancedQwenPromptExtend"),
   advancedQwenWatermark: document.querySelector("#advancedQwenWatermark"),
   advancedWanPromptExtend: document.querySelector("#advancedWanPromptExtend"),
+  advancedWanPromptOptimize: document.querySelector("#advancedWanPromptOptimize"),
   advancedQwen37Thinking: document.querySelector("#advancedQwen37Thinking"),
   advancedQwen37MaxTokens: document.querySelector("#advancedQwen37MaxTokens"),
   advancedQwen37Temperature: document.querySelector("#advancedQwen37Temperature"),

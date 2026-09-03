@@ -2867,6 +2867,36 @@ function advancedEffectivePrompt(basePrompt = "") {
     .join("\n");
 }
 
+// Wan 3.0 responds better to explicit material references and observable
+// actions. Keep this local and conservative so the user's story and dialogue
+// remain intact, while avoiding a second upstream prompt rewrite.
+function optimizeWan30Prompt(prompt = "") {
+  let text = String(prompt || "").trim();
+  if (!text) return text;
+  text = text.replace(/(^|[^@\w])(?:图片|图像|照片)\s*([0-9]+)/gi, "$1@图片$2");
+  text = text.replace(/(^|[^@\w])(?:视频)\s*([0-9]+)/gi, "$1@视频$2");
+  text = text.replace(/(^|[^@\w])(?:音频)\s*([0-9]+)/gi, "$1@音频$2");
+  text = text.replace(/(^|[^@\w])Image\s*([0-9]+)/gi, "$1@图片$2");
+  text = text.replace(/(^|[^@\w])Video\s*([0-9]+)/gi, "$1@视频$2");
+  text = text.replace(/(^|[^@\w])Audio\s*([0-9]+)/gi, "$1@音频$2");
+  const positiveRules = [
+    [/不要(?:出现|添加|加入)\s*(?:任何)?(?:文字|字幕|水印|logo|标志)/gi, "画面保持纯净"],
+    [/不要改变/gi, "保持"],
+    [/禁止移动镜头|不要移动镜头|避免移动镜头/gi, "镜头保持稳定"],
+    [/不要说话|禁止说话|避免说话/gi, "保持安静表演"],
+    [/很惊讶|非常惊讶/gi, "眉毛上扬，眼睛睁大，嘴巴微张"],
+    [/很悲伤|非常悲伤/gi, "眼神下垂，呼吸变慢，肩膀下沉"],
+    [/很开心|非常开心/gi, "嘴角上扬，眼神明亮，身体自然放松"],
+  ];
+  positiveRules.forEach(([pattern, replacement]) => { text = text.replace(pattern, replacement); });
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 function nonCustomAdvancedNeedsCharacterImage() {
   if (state.advancedCreateKind === "custom") return false;
   return advancedCreateModeActivePresetSlots().includes("character");

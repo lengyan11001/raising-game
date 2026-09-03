@@ -181,6 +181,19 @@ test("Wan3.0 prompt extension is an opt-in control for both Wan capabilities", (
   assert.match(server, /prompt_extend: provider === "wan30"[\s\S]*?boolFromRequest\(firstPresent\(body\.prompt_extend/);
 });
 
+test("Wan3.0 skill prompt optimization is a separate opt-in control", () => {
+  assert.match(html, /class="field advanced-wan-prompt-optimize-option" hidden/);
+  assert.match(html, /id="advancedWanPromptOptimize" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /id="advancedWanPromptOptimize"[^>]*checked/);
+  assert.match(config, /advancedWanPromptOptimize: document\.querySelector\("#advancedWanPromptOptimize"\)/);
+  assert.match(ui, /function optimizeWan30Prompt\(prompt = ""\)/);
+  assert.match(create, /const wanPromptOptimize = provider === "wan30" && Boolean\(els\.advancedWanPromptOptimize\?\.checked\)/);
+  assert.match(create, /if \(wanPromptOptimize\) prompt = optimizeWan30Prompt\(prompt\)/);
+  assert.match(create, /wan_prompt_optimize: provider === "wan30" \? wanPromptOptimize : undefined/);
+  assert.match(create, /params\.wan_prompt_optimize/);
+  assert.match(main, /els\.advancedWanPromptOptimize\.checked = false/);
+});
+
 test("Advanced image files enter the asset library before generation", () => {
   assert.match(create, /async function uploadAdvancedImageReference/);
   assert.match(create, /requestJson\("\/api\/user-assets", \{[\s\S]*?provider,/);

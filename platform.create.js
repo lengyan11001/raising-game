@@ -1547,6 +1547,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-wan-prompt-extend-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
   });
+  document.querySelectorAll(".advanced-wan-prompt-optimize-option").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
+  });
   document.querySelectorAll(".advanced-qwen37-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenText;
   });
@@ -1833,6 +1836,8 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = params.preprocessReference === true;
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+    && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
@@ -1906,6 +1911,7 @@ function clearAdvancedCreationInputs() {
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = false;
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = false;
   [
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
@@ -1957,7 +1963,7 @@ async function submitAdvancedGenerate() {
     return;
   }
   const basePrompt = autoPrompt ? advancedCreateModeDefaultPrompt() : promptInput;
-  const prompt = advancedEffectivePrompt(basePrompt);
+  let prompt = advancedEffectivePrompt(basePrompt);
   if (!prompt && currentAdvancedProvider() !== "wan30") {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
     return;
@@ -1972,10 +1978,12 @@ async function submitAdvancedGenerate() {
       return;
     }
   }
+  const provider = currentAdvancedProvider();
+  const wanPromptOptimize = provider === "wan30" && Boolean(els.advancedWanPromptOptimize?.checked);
+  if (wanPromptOptimize) prompt = optimizeWan30Prompt(prompt);
   const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
-  const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
   const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
@@ -2491,6 +2499,7 @@ async function submitAdvancedGenerate() {
       model: legacyWanModel || undefined,
       animateMode: wanAnimateMode || undefined,
       ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+      ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
       ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
     },
     ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
@@ -2541,6 +2550,7 @@ async function submitAdvancedGenerate() {
         seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
         prompt_extend: provider === "wan30" ? promptExtend : undefined,
+        wan_prompt_optimize: provider === "wan30" ? wanPromptOptimize : undefined,
         generateAudio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         generate_audio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         dataUrl: usesAliyunPrimaryImage && !wanFirstFrameAssetId ? firstFrameDataUrl : undefined,
@@ -2596,9 +2606,11 @@ async function submitAdvancedGenerate() {
           animateMode: wanAnimateMode || undefined,
           parameters: {
             ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+            ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
             ...(wanAnimateMode ? { mode: wanAnimateMode } : {}),
           },
           ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+          ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
           ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
         },
       },
@@ -2621,6 +2633,7 @@ async function submitAdvancedGenerate() {
         model: legacyWanModel || undefined,
         animateMode: wanAnimateMode || undefined,
         ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+        ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
         ...(sharedReferenceProvider ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
       },
       ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
@@ -3080,6 +3093,8 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || params.parameters?.seed || "";
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+    && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedSeedanceTier) {
     const model = String(record.model || params.model || "").toLowerCase();
     els.advancedSeedanceTier.value = model.includes("fast") || params.seedanceTier === "fast" ? "fast" : "standard";
