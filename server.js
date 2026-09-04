@@ -14553,6 +14553,17 @@ function seedanceReferenceVideoUrlFromItem(item = "") {
   return String(item.url || item.videoUrl || item.video_url || item.assetUri || "").trim();
 }
 
+// Browser clients can restore local media as `/assets/...` paths. Seedance
+// only accepts public URLs (or asset:// ids), so resolve local paths before
+// validation; the generation worker will still convert public URLs to an
+// upstream CreateAsset asset:// URI before submission.
+function normalizeSeedanceReferenceVideoInputUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text || text.startsWith("asset://") || /^data:/i.test(text) || isPublicHttpUrl(text)) return text;
+  if (text.startsWith("/")) return publicUrlForAssetPath(text) || text;
+  return text;
+}
+
 function uniqueSeedanceReferenceVideoItems(items = []) {
   const seen = new Set();
   const unique = [];
@@ -14578,8 +14589,8 @@ function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
     throw error;
   }
   return inputs.map((item, index) => {
-    if (typeof item === "string") return item.trim();
-    return seedanceReferenceVideoUrlFromItem(item);
+    if (typeof item === "string") return normalizeSeedanceReferenceVideoInputUrl(item);
+    return normalizeSeedanceReferenceVideoInputUrl(seedanceReferenceVideoUrlFromItem(item));
   }).filter(Boolean).map((url, index) => assertSeedanceMediaUrl(url, `Seedance reference video ${index + 1}`, { kind: "video" }));
 }
 
@@ -15790,17 +15801,19 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, { label: "Seedance image asset" });
   }
   const cacheField = seedanceAssetCacheField(userAsset);
-  if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) {
+  // Upstream CreateAsset ids are durable. Once a user asset has one, reuse it
+  // instead of uploading the same action/reference media on every generation.
+  // Keep the dimension guard for videos so an invalid legacy asset can still
+  // be rebuilt once, but do not tie reuse to the current R2/public URL.
+  if (userAsset[cacheField]) {
     if (assetType !== "Video") return userAsset;
     const storedDimensions = storedVideoDimensionsForAsset(userAsset);
-    if (!userAsset.localUrl) return userAsset;
-    if (storedDimensions) {
-      try {
-        assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
-        return userAsset;
-      } catch (error) {
-        if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
-      }
+    if (!storedDimensions) return userAsset;
+    try {
+      assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
+      return userAsset;
+    } catch (error) {
+      if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
     }
   }
 
@@ -23143,7 +23156,17 @@ async function runAdvancedGenerationJob(job = {}) {
           unresolvedReferenceVideoUris.push(uri);
           continue;
         }
-        const preparedVideoUri = await ensureSeedanceAssetUriForPublicUrl(uri, "Video", `reference-video-${index + 1}`);
+        // Materialize URL-based references into the user's hidden asset record
+        // first. The record stores the durable upstream asset id, so repeated
+        // generations reuse the same CreateAsset result after restarts.
+        const sourceAsset = jobUser
+          ? await createSeedanceReferenceVideoAssetFromUrl(db, jobUser, uri, index)
+          : null;
+        const preparedVideo = sourceAsset
+          ? await prepareSeedanceVideoAsset(db, sourceAsset)
+          : null;
+        const preparedVideoUri = preparedVideo?.referenceAssetUri
+          || await ensureSeedanceAssetUriForPublicUrl(uri, "Video", `reference-video-${index + 1}`);
         if (preparedVideoUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideoUri)) {
           extraReferenceVideoAssetUris.push(preparedVideoUri);
           extraReferenceVideoUriQueue.push(preparedVideoUri);
