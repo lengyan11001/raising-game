@@ -1660,7 +1660,18 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
   root.querySelectorAll("[data-character-id]").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (isInteractiveTarget(event.target)) return;
-      openGalleryCharacter(card.dataset.characterId);
+      const characterId = card.dataset.characterId || "";
+      // Chat cards are the entry point to a conversation: clicking anywhere
+      // on the card should run the same login/recharge/unlock flow as the
+      // explicit action button. Other tenants keep the existing detail view.
+      if (typeof isTenantTool === "function" && isTenantTool("chat")) {
+        startCharacterChat(characterId).catch((error) => {
+          if (error?.code === "CHAT_UNLOCK_REQUIRED") return;
+          window.alert(error.message || "Unable to open chat.");
+        });
+        return;
+      }
+      openGalleryCharacter(characterId);
     });
   });
 }
