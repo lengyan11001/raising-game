@@ -3258,8 +3258,12 @@ function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
 async function geoSiteSnapshot(req) {
   const origin = pageOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
+  // Chat is a tool tenant, but its landing page intentionally showcases the
+  // existing character catalogue. Keep other tool tenants lightweight while
+  // allowing Chat to load the shared home items.
+  const includeHomeItems = !tenantOptions.toolOnly || tenantOptions.toolId === "chat";
   const [config, configUpdatedAt] = await Promise.all([
-    readAppConfig({ includeHomeItems: !tenantOptions.toolOnly }),
+    readAppConfig({ includeHomeItems }),
     tenantOptions.toolOnly ? Promise.resolve("") : getKvUpdatedAt("app_config"),
   ]);
   const platform = normalizePlatformConfig(config.platform || {});
@@ -3278,7 +3282,7 @@ async function geoSiteSnapshot(req) {
       geoVideos: addCharacterVideoDescriptionsForGeo(item),
     }));
   const toolOnly = Boolean(tenantOptions.toolOnly);
-  const characters = toolOnly ? [] : allCharacters;
+  const characters = toolOnly && tenantOptions.toolId !== "chat" ? [] : allCharacters;
   characters.forEach((item) => {
     item.geoPosterAbsolute = absoluteUrlFromBase(item.geoPoster, origin);
   });
@@ -40854,11 +40858,12 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/config/public") {
       const tenantOptions = requestTenantOptions(req);
       const isToolOnly = Boolean(tenantOptions.toolOnly);
+      const includeHomeItems = !isToolOnly || tenantOptions.toolId === "chat";
       const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
       const cacheKey = `${requestHostname(req)}:${isToolOnly ? "tool" : "main"}`;
       let publicView = !auth.user ? publicConfigCache.get(cacheKey)?.value : null;
       if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {
-        let config = await readAppConfig({ includeHomeItems: !isToolOnly });
+        let config = await readAppConfig({ includeHomeItems });
         if (!isToolOnly) {
           // ensureSceneEntriesPersisted and refreshCompletedHomeVideoItems(config) are
           // intentionally deferred to background/admin flows; neither should
