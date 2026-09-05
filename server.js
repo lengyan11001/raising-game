@@ -375,6 +375,19 @@ const TOOL_TENANT_SPECS = Object.freeze({
     disabledTabs: ["access", "assets", "workflow", "referral"],
     assetLibrary: false,
   },
+  chat: {
+    id: "chat",
+    tenantId: "tool-chat-5vips",
+    brand: "5VIPS Chat",
+    title: "5VIPS Chat",
+    description: "Guided character conversations with your favorite AI roles.",
+    defaultTab: "gallery",
+    defaultGalleryMode: "characters",
+    allowedTabs: ["gallery", "chat", "topups", "spending", "pricing"],
+    allowedGalleryModes: ["characters"],
+    disabledTabs: ["access", "assets", "workflow", "characters", "advanced", "referral"],
+    assetLibrary: false,
+  },
   advanced: {
     id: "advanced",
     tenantId: "tool-advanced",
@@ -384,7 +397,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
     assetLibrary: false,
   },
 });
-const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress";
+const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat";
 const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
@@ -8334,6 +8347,36 @@ function lightweightAuthDb() {
   return { users: [], sessions: [], walletOrders: [], creditLedger: [], userAssets: [], userCharacters: [], userUnlocks: [], supportMessages: [], apiSubtokens: [] };
 }
 
+function findUserChatUnlock(db, userId, itemId) {
+  return (db.userUnlocks || []).find((record) => (
+    !isSoftDeleted(record)
+    && record.userId === userId
+    && record.itemId === itemId
+    && record.unlockType === "chat_character"
+  )) || null;
+}
+
+function chatCharacterUnlockRecord(item = {}, userId = "") {
+  if (!item?.id || !userId) return null;
+  const now = new Date().toISOString();
+  return {
+    id: randomId("chat-unlock"),
+    userId,
+    itemId: item.id,
+    itemName: item.name || item.title || "Character",
+    sceneId: "__chat__",
+    sceneName: "Character chat",
+    sceneEntryId: "chat",
+    sceneEntryName: "Character chat",
+    videoKey: "__chat__",
+    unlockType: "chat_character",
+    cost: 0,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: "",
+  };
+}
+
 async function getAuth(req, options = {}) {
   const loadDb = options.loadDb !== false;
   const token = getBearerToken(req);
@@ -13277,6 +13320,27 @@ async function handleCreateChatConversation(req, res) {
   const responseLanguage = chatResponseLanguage(body.language);
   const character = await chatCharacterById(String(body.characterId || ""));
   if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_CHARACTER_NOT_FOUND", message: "Character not found." });
+  const tenant = requestTenantDescriptor(req);
+  if (tenant.toolId === "chat") {
+    const existingUnlock = findUserChatUnlock(auth.db, auth.user.id, character.id);
+    if (!existingUnlock && Number(auth.user.credits || 0) <= 0) {
+      return sendJson(res, 402, {
+        ok: false,
+        code: "CHAT_UNLOCK_REQUIRED",
+        message: "Recharge credits to unlock this character chat.",
+        characterId: character.id,
+        unlock: { required: true, cost: 0, currency: "credits" },
+      });
+    }
+    if (!existingUnlock) {
+      const unlock = chatCharacterUnlockRecord(character, auth.user.id);
+      if (unlock) {
+        auth.db.userUnlocks = [unlock, ...(auth.db.userUnlocks || [])];
+        if (dbEnabled()) await upsertUserUnlockInDb(unlock);
+        else await writeDb(auth.db);
+      }
+    }
+  }
   const now = new Date().toISOString();
   const characterView = chatCharacterView(character);
   const conversation = {

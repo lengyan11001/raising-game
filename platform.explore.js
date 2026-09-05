@@ -1524,11 +1524,25 @@ function renderGalleryCharacters(root = els.templateGrid) {
     ? filteredCharacters.length
     : Math.max(CHARACTER_PAGE_SIZE, Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE));
   const visibleCharacters = source === "system" ? filteredCharacters : filteredCharacters.slice(0, visibleCount);
-  root.innerHTML = `${filterBar}${
+  const chatIntro = source === "system" && typeof isTenantTool === "function" && isTenantTool("chat") ? `
+    <section class="chat-landing-intro" aria-label="Character chat introduction">
+      <div class="chat-landing-copy">
+        <span class="chat-landing-eyebrow">5VIPS CHAT</span>
+        <h2>${state.lang === "zh" ? "先认识她，再开始聊天" : "Meet a character, then start chatting"}</h2>
+        <p>${state.lang === "zh" ? "浏览角色、选择喜欢的声音和个性。充值后即可解锁专属聊天。" : "Browse the roles, choose a personality, and unlock a private conversation with a top-up."}</p>
+        <div class="chat-landing-steps"><span><b>1</b>${state.lang === "zh" ? "挑选角色" : "Choose a role"}</span><span><b>2</b>${state.lang === "zh" ? "充值解锁" : "Top up to unlock"}</span><span><b>3</b>${state.lang === "zh" ? "进入聊天" : "Enter chat"}</span></div>
+      </div>
+      <button class="primary-button chat-landing-cta" type="button" data-chat-landing-cta><i data-lucide="arrow-down"></i>${state.lang === "zh" ? "浏览角色" : "Browse characters"}</button>
+    </section>
+  ` : "";
+  root.innerHTML = `${chatIntro}${filterBar}${
     visibleCharacters.length
       ? `${visibleCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")}${renderCharacterLoadMore(visibleCharacters.length, serverTotal, source)}`
       : `<div class="job-note character-filter-empty">${escapeHtml(emptyMessage)}</div>`
   }`;
+  root.querySelector("[data-chat-landing-cta]")?.addEventListener("click", () => {
+    root.querySelector(".character-filter-bar, .character-grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   bindCharacterFilterActions(root);
   bindCharacterLoadMore(root, serverTotal, source);
   bindGalleryImageFallbacks(root);
@@ -1608,6 +1622,15 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       useHomeCharacter(button.dataset.characterUse);
+    });
+  });
+  root.querySelectorAll("[data-character-chat]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      startCharacterChat(button.dataset.characterChat || "").catch((error) => {
+        if (error?.code === "CHAT_UNLOCK_REQUIRED") return;
+        window.alert(error.message || "Unable to open chat.");
+      });
     });
   });
   root.querySelectorAll("[data-character-cases]").forEach((button) => {
@@ -2044,7 +2067,10 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
     `${compactNumber(item.likeCount)} likes`,
     `${videoCount} videos`,
   ]).join(" / ");
-  const actionMarkup = mine
+  const chatTenant = typeof isTenantTool === "function" && isTenantTool("chat");
+  const actionMarkup = chatTenant
+    ? `<button class="primary-button" data-character-chat="${escapeHtml(item.id || "")}" type="button"><i data-lucide="message-circle-heart"></i>${escapeHtml(state.lang === "zh" ? "开始聊天" : "Chat with this character")}</button>`
+    : mine
     ? `
           ${generating ? `<button class="ghost-button" data-character-refresh="${escapeHtml(item.id || "")}" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>` : ""}
           ${imageReady ? `<button class="primary-button" data-character-alive="${escapeHtml(item.id || "")}" type="button"><i data-lucide="sparkles"></i>Bring alive</button>` : ""}
@@ -3150,8 +3176,8 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
           </div>
         </div>
         <div class="character-detail-actions">
-          <button class="primary-button compact" data-character-chat="${escapeHtml(item.id || "")}" type="button"><i data-lucide="message-circle-heart"></i>Chat</button>
-          <button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>
+          <button class="primary-button compact" data-character-chat="${escapeHtml(item.id || "")}" type="button"><i data-lucide="message-circle-heart"></i>${escapeHtml((typeof isTenantTool === "function" && isTenantTool("chat")) ? (state.lang === "zh" ? "充值解锁并聊天" : "Unlock & chat") : "Chat")}</button>
+          ${(typeof isTenantTool === "function" && isTenantTool("chat")) ? "" : `<button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>`}
           ${item.custom ? `<button class="ghost-button danger compact" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
         </div>
       </div>
@@ -3168,7 +3194,12 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
     else renderTemplates();
   });
   root.querySelector("[data-character-use]")?.addEventListener("click", () => useHomeCharacter(item.id || ""));
-  root.querySelector("[data-character-chat]")?.addEventListener("click", () => startCharacterChat(item.id || ""));
+  root.querySelector("[data-character-chat]")?.addEventListener("click", () => {
+    startCharacterChat(item.id || "").catch((error) => {
+      if (error?.code === "CHAT_UNLOCK_REQUIRED") return;
+      window.alert(error.message || "Unable to open chat.");
+    });
+  });
   root.querySelector("[data-character-delete]")?.addEventListener("click", (event) => {
     event.stopPropagation();
     deleteCustomCharacter(item.id || "", event.currentTarget);

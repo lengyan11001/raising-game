@@ -231,11 +231,18 @@ async function startCharacterChat(characterId = "") {
     setTab("chat");
     return;
   }
-  const payload = await requestJson("/api/chat/conversations", { method: "POST", body: { characterId } });
-  state.chatConversations.unshift(payload.conversation);
-  state.chatActiveConversationId = payload.conversation.id;
-  state.chatMessages = payload.messages || [];
-  setTab("chat");
+  try {
+    const payload = await requestJson("/api/chat/conversations", { method: "POST", body: { characterId } });
+    state.chatConversations.unshift(payload.conversation);
+    state.chatActiveConversationId = payload.conversation.id;
+    state.chatMessages = payload.messages || [];
+    setTab("chat");
+  } catch (error) {
+    if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) {
+      if (typeof openTopupDialog === "function") openTopupDialog();
+    }
+    throw error;
+  }
 }
 
 function renderChatMode() {
