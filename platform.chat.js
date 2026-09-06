@@ -223,13 +223,13 @@ async function openChatConversation(conversationId = "", { renderList = true } =
 async function startCharacterChat(characterId = "") {
   if (!state.user) {
     openLogin();
-    return;
+    return false;
   }
   const existing = state.chatConversations.find((item) => item.characterId === characterId);
   if (existing) {
     state.chatActiveConversationId = existing.id;
     setTab("chat");
-    return;
+    return true;
   }
   try {
     const payload = await requestJson("/api/chat/conversations", { method: "POST", body: { characterId } });
@@ -237,12 +237,135 @@ async function startCharacterChat(characterId = "") {
     state.chatActiveConversationId = payload.conversation.id;
     state.chatMessages = payload.messages || [];
     setTab("chat");
+    return true;
   } catch (error) {
     if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) {
       if (typeof openTopupDialog === "function") openTopupDialog();
     }
     throw error;
   }
+}
+
+const CHAT_ONBOARDING_KEY = "vipeakChatOnboardingCompleted";
+let chatOnboardingTimer = 0;
+
+function chatOnboardingCompleted() {
+  try { return localStorage.getItem(CHAT_ONBOARDING_KEY) === "1"; } catch (error) { return false; }
+}
+
+function markChatOnboardingCompleted() {
+  try { localStorage.setItem(CHAT_ONBOARDING_KEY, "1"); } catch (error) {}
+}
+
+function chatOnboardingCharacters() {
+  return (state.homeCharacters || []).filter((item) => item && !item.deletedAt).slice(0, 3);
+}
+
+function chatOnboardingRoleCard(item = {}) {
+  const image = typeof characterAppearanceImageUrl === "function"
+    ? characterAppearanceImageUrl(item)
+    : item.posterUrl || item.imageUrl || "";
+  return `
+    <button class="chat-onboarding-role" type="button" data-chat-onboarding-character="${escapeHtml(item.id || "")}">
+      <img src="${escapeHtml(image || "/assets/brand/logo-mark.svg")}" alt="${escapeHtml(item.name || "Character")}" loading="lazy" />
+      <span class="chat-onboarding-role-copy"><strong>${escapeHtml(item.name || "Character")}</strong><small>${escapeHtml(item.title || item.description || "Ready for a private conversation.")}</small></span>
+      <span class="chat-onboarding-role-cta"><i data-lucide="lock-keyhole"></i>${state.lang === "zh" ? "充值解锁" : "Unlock chat"}</span>
+    </button>
+  `;
+}
+
+function closeChatOnboarding({ completed = true } = {}) {
+  const overlay = document.querySelector("[data-chat-onboarding]");
+  if (!overlay) return;
+  if (completed) markChatOnboardingCompleted();
+  window.clearTimeout(chatOnboardingTimer);
+  overlay.classList.add("is-closing");
+  window.setTimeout(() => overlay.remove(), 180);
+}
+
+function renderChatOnboardingStep(overlay, step = 0) {
+  if (!overlay) return;
+  const body = overlay.querySelector("[data-chat-onboarding-body]");
+  const progress = overlay.querySelector("[data-chat-onboarding-progress]");
+  const title = overlay.querySelector("[data-chat-onboarding-title]");
+  const copy = overlay.querySelector("[data-chat-onboarding-copy]");
+  const steps = [
+    {
+      title: state.lang === "zh" ? "先告诉我们，你想遇见怎样的她" : "Tell us who you want to meet",
+      copy: state.lang === "zh" ? "用几个选择，帮你找到更合拍的角色。" : "A few quick choices help us shape your lineup.",
+      options: [["flirty", "暧昧撩人", "Flirty"], ["romantic", "浪漫陪伴", "Romantic"], ["roleplay", "沉浸扮演", "Roleplay"]],
+    },
+    {
+      title: state.lang === "zh" ? "你喜欢怎样的节奏？" : "What pace feels right?",
+      copy: state.lang === "zh" ? "聊天会根据你的选择保持合适的氛围。" : "Your choice sets the mood for the conversation.",
+      options: [["slow", "慢慢升温", "Slow burn"], ["direct", "直接一点", "Direct"], ["surprise", "交给她决定", "Surprise me"]],
+    },
+    {
+      title: state.lang === "zh" ? "最后，选一种性格" : "Choose a personality",
+      copy: state.lang === "zh" ? "放心，之后仍然可以随时更换角色。" : "You can switch characters whenever you like.",
+      options: [["confident", "自信主动", "Confident"], ["playful", "俏皮有趣", "Playful"], ["caring", "温柔体贴", "Caring"]],
+    },
+  ];
+  if (step < steps.length) {
+    const current = steps[step];
+    title.textContent = current.title;
+    copy.textContent = current.copy;
+    progress.textContent = `${step + 1} / ${steps.length}`;
+    body.innerHTML = `<div class="chat-onboarding-options">${current.options.map(([id, zh, en]) => `
+      <button class="chat-onboarding-option" type="button" data-chat-onboarding-option="${id}">
+        <span class="chat-onboarding-option-dot"></span><strong>${state.lang === "zh" ? zh : en}</strong><i data-lucide="arrow-right"></i>
+      </button>`).join("")}</div>`;
+    body.querySelectorAll("[data-chat-onboarding-option]").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.classList.add("is-selected");
+        window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 180);
+      });
+    });
+  } else {
+    title.textContent = state.lang === "zh" ? "为你准备好了" : "Your lineup is ready";
+    copy.textContent = state.lang === "zh" ? "选择一个角色，充值后即可开始专属聊天。" : "Choose a character, top up, and start a private chat.";
+    progress.textContent = "READY";
+    const roles = chatOnboardingCharacters();
+    body.innerHTML = `
+      <div class="chat-onboarding-results">${roles.length ? roles.map(chatOnboardingRoleCard).join("") : `<p class="chat-onboarding-empty">${state.lang === "zh" ? "角色正在准备中，请稍后再试。" : "Characters are loading. Please try again shortly."}</p>`}</div>
+      <button class="primary-button chat-onboarding-enter" type="button" data-chat-onboarding-enter><i data-lucide="message-circle-heart"></i>${state.lang === "zh" ? "进入角色大厅" : "Enter character hall"}</button>
+    `;
+    body.querySelectorAll("[data-chat-onboarding-character]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.chatOnboardingCharacter || "";
+        startCharacterChat(id).then((started) => { if (started) closeChatOnboarding(); }).catch((error) => {
+          if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) return;
+          if (typeof window.alert === "function") window.alert(error.message || "Unable to open chat.");
+        });
+      });
+    });
+    body.querySelector("[data-chat-onboarding-enter]")?.addEventListener("click", () => closeChatOnboarding());
+  }
+  refreshIcons();
+}
+
+function initChatOnboarding() {
+  if (typeof isTenantTool !== "function" || !isTenantTool("chat") || chatOnboardingCompleted()) return;
+  if (document.querySelector("[data-chat-onboarding]")) return;
+  const overlay = document.createElement("section");
+  overlay.className = "chat-onboarding";
+  overlay.dataset.chatOnboarding = "";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.innerHTML = `
+    <div class="chat-onboarding-backdrop" data-chat-onboarding-skip></div>
+    <div class="chat-onboarding-panel">
+      <div class="chat-onboarding-topline"><span>5VIPS CHAT</span><span data-chat-onboarding-progress>1 / 3</span></div>
+      <div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div>
+      <h2 data-chat-onboarding-title></h2>
+      <p data-chat-onboarding-copy></p>
+      <div data-chat-onboarding-body></div>
+      <button class="chat-onboarding-skip" type="button" data-chat-onboarding-skip>${state.lang === "zh" ? "先看看角色" : "Skip to characters"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll("[data-chat-onboarding-skip]").forEach((button) => button.addEventListener("click", () => closeChatOnboarding()));
+  renderChatOnboardingStep(overlay, 0);
 }
 
 function renderChatMode() {
