@@ -291,19 +291,34 @@ function renderChatOnboardingStep(overlay, step = 0) {
   const copy = overlay.querySelector("[data-chat-onboarding-copy]");
   const steps = [
     {
-      title: state.lang === "zh" ? "先告诉我们，你想遇见怎样的她" : "Tell us who you want to meet",
-      copy: state.lang === "zh" ? "用几个选择，帮你找到更合拍的角色。" : "A few quick choices help us shape your lineup.",
+      title: state.lang === "zh" ? "你想遇见怎样的她？" : "Who do you want to meet?",
+      copy: state.lang === "zh" ? "先选一个方向，我们会为你准备合适的角色。" : "Start with a direction and we'll prepare the right lineup.",
       options: [["flirty", "暧昧撩人", "Flirty"], ["romantic", "浪漫陪伴", "Romantic"], ["roleplay", "沉浸扮演", "Roleplay"]],
     },
     {
-      title: state.lang === "zh" ? "你喜欢怎样的节奏？" : "What pace feels right?",
-      copy: state.lang === "zh" ? "聊天会根据你的选择保持合适的氛围。" : "Your choice sets the mood for the conversation.",
+      title: state.lang === "zh" ? "你喜欢怎样的相处方式？" : "What kind of connection feels right?",
+      copy: state.lang === "zh" ? "你的选择会影响推荐的氛围和性格。" : "This shapes the mood and personality we recommend.",
       options: [["slow", "慢慢升温", "Slow burn"], ["direct", "直接一点", "Direct"], ["surprise", "交给她决定", "Surprise me"]],
     },
     {
-      title: state.lang === "zh" ? "最后，选一种性格" : "Choose a personality",
+      title: state.lang === "zh" ? "选择她的性格" : "Choose her personality",
       copy: state.lang === "zh" ? "放心，之后仍然可以随时更换角色。" : "You can switch characters whenever you like.",
       options: [["confident", "自信主动", "Confident"], ["playful", "俏皮有趣", "Playful"], ["caring", "温柔体贴", "Caring"]],
+    },
+    {
+      title: state.lang === "zh" ? "你更喜欢哪种生活感？" : "What kind of everyday energy do you like?",
+      copy: state.lang === "zh" ? "从校园、职场到夜晚冒险，选一个你想进入的世界。" : "From campus and work to late-night adventures, pick a world to enter.",
+      options: [["casual", "轻松日常", "Casual everyday"], ["mature", "成熟魅力", "Mature energy"], ["adventure", "冒险刺激", "Adventure"]],
+    },
+    {
+      title: state.lang === "zh" ? "你喜欢什么样的外形？" : "What look catches your eye?",
+      copy: state.lang === "zh" ? "这是为了匹配角色风格，不会限制你之后的选择。" : "This matches a visual style without limiting your choices later.",
+      options: [["petite", "纤细轻盈", "Petite"], ["curvy", "曲线丰满", "Curvy"], ["athletic", "健康活力", "Athletic"]],
+    },
+    {
+      title: state.lang === "zh" ? "准备好开始了吗？" : "Ready to start?",
+      copy: state.lang === "zh" ? "最后选择聊天节奏，我们就为你展示角色。" : "Choose a final pace and we'll reveal your characters.",
+      options: [["gentle", "温柔聊天", "Gentle"], ["playful", "轻松调情", "Playful"], ["intense", "沉浸深入", "Immersive"]],
     },
   ];
   if (step < steps.length) {
@@ -321,6 +336,15 @@ function renderChatOnboardingStep(overlay, step = 0) {
         window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 180);
       });
     });
+  } else if (step === steps.length) {
+    title.textContent = state.lang === "zh" ? "正在为你匹配角色" : "Finding your matches";
+    copy.textContent = state.lang === "zh" ? "请稍等一下，马上就好。" : "Give us a moment — your lineup is almost ready.";
+    progress.textContent = "…";
+    body.innerHTML = `<div class="chat-onboarding-loading"><span class="chat-onboarding-loader"></span><div class="chat-onboarding-progress-track"><i></i></div></div>`;
+    refreshIcons();
+    window.clearTimeout(chatOnboardingTimer);
+    chatOnboardingTimer = window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 850);
+    return;
   } else {
     title.textContent = state.lang === "zh" ? "为你准备好了" : "Your lineup is ready";
     copy.textContent = state.lang === "zh" ? "选择一个角色，充值后即可开始专属聊天。" : "Choose a character, top up, and start a private chat.";
@@ -355,12 +379,12 @@ function initChatOnboarding() {
   overlay.innerHTML = `
     <div class="chat-onboarding-backdrop" data-chat-onboarding-skip></div>
     <div class="chat-onboarding-panel">
-      <div class="chat-onboarding-topline"><span>5VIPS CHAT</span><span data-chat-onboarding-progress>1 / 3</span></div>
+      <div class="chat-onboarding-topline"><span>5VIPS CHAT</span><span data-chat-onboarding-progress>1 / 6</span></div>
       <div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div>
       <h2 data-chat-onboarding-title></h2>
       <p data-chat-onboarding-copy></p>
       <div data-chat-onboarding-body></div>
-      <button class="chat-onboarding-skip" type="button" data-chat-onboarding-skip>${state.lang === "zh" ? "先看看角色" : "Skip to characters"}</button>
+      <button class="chat-onboarding-skip" type="button" data-chat-onboarding-skip>${state.lang === "zh" ? "跳过引导，先看看角色" : "Skip guide and browse characters"}</button>
     </div>
   `;
   document.body.appendChild(overlay);

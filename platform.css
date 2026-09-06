@@ -2500,6 +2500,12 @@ body.creator-picker-open {
 .chat-onboarding-enter { width: 100%; justify-content: center; margin-top: 18px; }
 .chat-onboarding-skip { margin-top: 22px; border: 0; color: #9f8c9e; background: transparent; font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .chat-onboarding-empty { padding: 18px; color: #bcaabd; text-align: center; }
+.chat-onboarding-loading { display: grid; justify-items: center; gap: 22px; padding: 38px 20px 26px; }
+.chat-onboarding-loader { width: 42px; height: 42px; border: 3px solid rgba(255, 123, 196, .22); border-top-color: #ff7bc4; border-radius: 50%; animation: chat-onboarding-spin .8s linear infinite; }
+.chat-onboarding-progress-track { width: min(360px, 100%); height: 5px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, .1); }
+.chat-onboarding-progress-track i { display: block; width: 42%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ff7bc4, #ffc2e4); animation: chat-onboarding-progress 1.1s ease-in-out infinite; }
+@keyframes chat-onboarding-spin { to { transform: rotate(360deg); } }
+@keyframes chat-onboarding-progress { 0% { transform: translateX(-120%); } 100% { transform: translateX(300%); } }
 @media (max-width: 600px) {
   .chat-onboarding { padding: 12px; }
   .chat-onboarding-panel { max-height: calc(100vh - 24px); padding: 24px 18px; border-radius: 14px; }
