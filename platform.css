@@ -3907,6 +3907,12 @@ dialog.tool-download-modal {
 .referral-card .copy-kicker {
   color: #ff4ab3;
 }
+.referral-offer-cards { grid-column: 1 / -1; display: grid; gap: 14px; }
+.referral-offer-card { display: grid; gap: 14px; padding: 16px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.04); }
+.referral-offer-heading { display: grid; gap: 5px; }
+.referral-offer-heading span { color: #ff69bd; font-size: .76rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.referral-offer-heading h3 { margin: 0; color: #fff; font-size: 1.08rem; }
+.referral-offer-heading p { margin: 0; color: rgba(255,255,255,.68); font-size: .86rem; line-height: 1.45; }
 .referral-copy-btn {
   align-self: start;
   border-color: transparent;

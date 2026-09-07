@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=referral-commission-tiers" />
+    <link rel="stylesheet" href="./platform.css?v=referral-two-cards" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -622,30 +622,37 @@
           </div>
           <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
           <div class="referral-link" id="referralLink">Login to get your invite link.</div>
-          <div class="referral-progress" aria-hidden="true"><span id="referralProgressFill"></span></div>
-          <div class="referral-stats">
-            <strong id="referralInvitedCount">0 invited</strong>
-            <strong id="referralRewardStatus">Membership required for rewards</strong>
-          </div>
-          <div class="referral-commission-earnings">
-            <div class="referral-commission-earning"><span data-i18n="referral.membershipCommissionLabel">$99 membership</span><strong data-i18n="referral.membershipCommissionValue">Earn $19.80 (20%)</strong></div>
-            <div class="referral-commission-earning"><span data-i18n="referral.apiDocsCommissionLabel">$1000 API docs</span><strong data-i18n="referral.apiDocsCommissionValue">Earn $200.00 (20%)</strong></div>
-          </div>
-          <div class="referral-finance" id="referralFinance">
-            <div class="referral-finance-stats">
-              <div><span data-i18n="referral.invitedUsers">Invited users</span><strong id="referralInvitedUsers">0</strong></div>
-              <div><span data-i18n="referral.withdrawable">Withdrawable</span><strong id="referralWithdrawable">$0.00</strong></div>
-              <div><span data-i18n="referral.totalEarned">Total earned</span><strong id="referralTotalEarned">$0.00</strong></div>
-            </div>
-            <form class="referral-withdraw-form" id="referralWithdrawForm">
-              <label><span data-i18n="referral.walletAddress">USDT wallet address</span><input id="referralWalletAddress" type="text" inputmode="text" autocomplete="off" placeholder="Enter TRC20/ERC20 address" data-i18n-placeholder="referral.walletPlaceholder" /></label>
-              <div class="referral-withdraw-actions"><button class="ghost-button" id="saveReferralWalletBtn" type="button" data-i18n="referral.saveWallet">Save address</button><button class="copy-btn" id="requestReferralWithdrawBtn" type="submit" data-i18n="referral.requestWithdraw">Request withdrawal</button></div>
-            </form>
-            <div class="referral-withdrawals" id="referralWithdrawals"></div>
-          </div>
-          <div class="referral-membership-progress">
-            <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
-            <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
+          <div class="referral-offer-cards">
+            <section class="referral-offer-card referral-commission-card">
+              <div class="referral-offer-heading"><span data-i18n="referral.commissionCardEyebrow">Cash commission</span><h3 data-i18n="referral.commissionCardTitle">Earn withdrawable commission</h3><p data-i18n="referral.commissionCardSubtitle">Earn 20% when an invited user buys membership or API documentation access.</p></div>
+              <div class="referral-commission-earnings">
+                <div class="referral-commission-earning"><span data-i18n="referral.membershipCommissionLabel">$99 membership</span><strong data-i18n="referral.membershipCommissionValue">Earn $19.80 (20%)</strong></div>
+                <div class="referral-commission-earning"><span data-i18n="referral.apiDocsCommissionLabel">$1000 API docs</span><strong data-i18n="referral.apiDocsCommissionValue">Earn $200.00 (20%)</strong></div>
+              </div>
+              <div class="referral-finance" id="referralFinance">
+                <div class="referral-finance-stats">
+                  <div><span data-i18n="referral.invitedUsers">Invited users</span><strong id="referralInvitedUsers">0</strong></div>
+                  <div><span data-i18n="referral.withdrawable">Withdrawable</span><strong id="referralWithdrawable">$0.00</strong></div>
+                  <div><span data-i18n="referral.totalEarned">Total earned</span><strong id="referralTotalEarned">$0.00</strong></div>
+                </div>
+                <form class="referral-withdraw-form" id="referralWithdrawForm">
+                  <label><span data-i18n="referral.walletAddress">USDT wallet address</span><input id="referralWalletAddress" type="text" inputmode="text" autocomplete="off" placeholder="Enter TRC20/ERC20 address" data-i18n-placeholder="referral.walletPlaceholder" /></label>
+                  <div class="referral-withdraw-actions"><button class="ghost-button" id="saveReferralWalletBtn" type="button" data-i18n="referral.saveWallet">Save address</button><button class="copy-btn" id="requestReferralWithdrawBtn" type="submit" data-i18n="referral.requestWithdraw">Request withdrawal</button></div>
+                </form>
+                <div class="referral-withdrawals" id="referralWithdrawals"></div>
+              </div>
+            </section>
+            <section class="referral-offer-card referral-reward-card">
+              <div class="referral-offer-heading"><span data-i18n="referral.rewardCardEyebrow">Credit rewards</span><h3 data-i18n="referral.rewardCardTitle">Earn credits from regular top-ups</h3><p data-i18n="referral.rewardCardSubtitle">Invite users to register and complete a regular top-up to earn credit rewards.</p></div>
+              <div class="referral-stats">
+                <strong id="referralInvitedCount">0 invited</strong>
+                <strong id="referralRewardStatus">Membership required for rewards</strong>
+              </div>
+              <div class="referral-membership-progress">
+                <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
+                <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
+              </div>
+            </section>
           </div>
           <p class="job-note" id="referralNote"></p>
         </div>
@@ -1123,6 +1130,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=referral-commission-tiers"></script>
+    <script src="./platform.js?v=referral-two-cards"></script>
   </body>
 </html>
