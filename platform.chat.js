@@ -525,7 +525,7 @@ function initChatOnboarding() {
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
   const backdropImage = chatOnboardingRoleImages2(0, 1)[0]?.image || "";
-  overlay.innerHTML = `<div class="chat-onboarding-backdrop" ${backdropImage ? `style="background-image:url('${escapeHtml(backdropImage)}')"` : ""}></div><div class="chat-onboarding-panel"><aside class="chat-onboarding-rail" data-chat-onboarding-rail></aside><div class="chat-onboarding-main"><div class="chat-onboarding-topline"><span>5VIPS CHAT</span><strong data-chat-onboarding-clock>05 : 00</strong></div><div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div><h2 data-chat-onboarding-title></h2><p data-chat-onboarding-copy></p><div data-chat-onboarding-body></div></div></div>`;
+  overlay.innerHTML = `<div class="chat-onboarding-backdrop" ${backdropImage ? `style="background-image:url('${escapeHtml(backdropImage)}')"` : ""}></div><div class="chat-onboarding-panel"><aside class="chat-onboarding-rail" data-chat-onboarding-rail></aside><div class="chat-onboarding-main"><div class="chat-onboarding-topline"><span data-chat-onboarding-progress>1 / 8</span><strong data-chat-onboarding-clock>05 : 00</strong></div><div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div><h2 data-chat-onboarding-title></h2><p data-chat-onboarding-copy></p><div data-chat-onboarding-body></div></div></div>`;
   document.body.appendChild(overlay);
   chatOnboardingAnswers2 = {};
   startChatOnboardingClock2(overlay);
