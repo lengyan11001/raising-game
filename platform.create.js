@@ -5294,6 +5294,9 @@ function renderReferral() {
   const membershipTarget = Math.max(1, Number(referral?.membershipTarget || 100));
   const registrationProgress = Math.max(0, Math.min(100, (invitedCount / membershipTarget) * 100));
   const member = creatorMembershipActive();
+  const invitedUsers = Math.max(invitedCount, Number(referral?.invitedUsers || 0));
+  const withdrawableUsd = Number(referral?.withdrawableUsd ?? referral?.availableWithdrawableUsd ?? referral?.withdrawableAmount ?? referral?.availableCommissionUsd ?? 0);
+  const totalEarnedUsd = Number(referral?.totalEarnedUsd ?? referral?.totalCommissionUsd ?? referral?.earnedUsd ?? 0);
   if (els.referralLink) els.referralLink.textContent = loggedIn
     ? loading ? t("ledger.loading") : (referral?.inviteUrl || "")
     : t("referral.login");
@@ -5314,6 +5317,13 @@ function renderReferral() {
     ? t("membership.activeProgress")
     : t("membership.progressCount", { count: invitedCount, target: membershipTarget });
   if (els.referralMembershipProgressFill) els.referralMembershipProgressFill.style.width = `${member ? 100 : registrationProgress}%`;
+  if (els.referralInvitedUsers) els.referralInvitedUsers.textContent = loading ? t("ledger.loading") : String(invitedUsers);
+  if (els.referralWithdrawable) els.referralWithdrawable.textContent = loading ? t("ledger.loading") : formatReferralUsd(withdrawableUsd);
+  if (els.referralTotalEarned) els.referralTotalEarned.textContent = loading ? t("ledger.loading") : formatReferralUsd(totalEarnedUsd);
+  if (els.referralWalletAddress && !loading && document.activeElement !== els.referralWalletAddress) {
+    els.referralWalletAddress.value = String(referral?.walletAddress || "");
+  }
+  renderReferralWithdrawals(referral?.withdrawals || referral?.withdrawalRecords || []);
   if (els.referralNote) els.referralNote.textContent = loading
     ? t("ledger.loading")
     : loggedIn
@@ -5443,7 +5453,12 @@ async function loadReferralSummary({ force = false } = {}) {
   renderReferral();
   try {
     const payload = await requestJson("/api/referral");
-    state.referral = payload.referral || null;
+    let withdrawals = [];
+    try {
+      const withdrawalPayload = await requestJson("/api/referral/withdrawals?limit=20");
+      withdrawals = withdrawalPayload.records || withdrawalPayload.withdrawals || [];
+    } catch { /* summary remains usable if history endpoint is unavailable */ }
+    state.referral = payload.referral ? { ...payload.referral, withdrawals } : null;
     state.referralLoadedUserId = userId;
     state.referralLoadedAt = Date.now();
     if (payload.user) setUser(payload.user, { skipReferralRefresh: true });
@@ -5696,6 +5711,32 @@ function renderLoginForm() {
   if (els.loginEmail) els.loginEmail.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
   if (els.loginEmailCode) els.loginEmailCode.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
   if (els.forgotPasswordBtn) els.forgotPasswordBtn.hidden = !emailEnabled;
+}
+
+function formatReferralUsd(value) {
+  const amount = Number(value || 0);
+  return `$${(Number.isFinite(amount) ? amount : 0).toFixed(2)}`;
+}
+
+function referralWithdrawStatusLabel(status = "pending") {
+  const labels = { pending: "Processing", processing: "Processing", paid: "Paid", completed: "Paid", rejected: "Rejected", cancelled: "Rejected" };
+  return labels[String(status || "pending").toLowerCase()] || String(status || "Processing");
+}
+
+function renderReferralWithdrawals(records = []) {
+  if (!els.referralWithdrawals) return;
+  const list = Array.isArray(records) ? records : [];
+  if (!list.length) {
+    els.referralWithdrawals.innerHTML = `<div class="referral-withdrawals-empty">${escapeHtml(t("referral.noWithdrawals"))}</div>`;
+    return;
+  }
+  els.referralWithdrawals.innerHTML = `<div class="referral-withdrawals-title">${escapeHtml(t("referral.withdrawalHistory"))}</div>${list.slice(0, 20).map((item) => `
+    <div class="referral-withdrawal-row">
+      <div><strong>${escapeHtml(formatReferralUsd(item.amountUsd ?? item.amount ?? 0))}</strong><small>${escapeHtml(formatDateTime(item.requestedAt || item.createdAt || ""))}</small></div>
+      <span class="referral-withdrawal-status is-${escapeHtml(String(item.status || "pending").toLowerCase())}">${escapeHtml(referralWithdrawStatusLabel(item.status))}</span>
+      ${item.txHash ? `<code title="${escapeHtml(item.txHash)}">${escapeHtml(String(item.txHash).slice(0, 12))}...</code>` : ""}
+      ${item.rejectionReason ? `<small class="referral-withdrawal-error">${escapeHtml(item.rejectionReason)}</small>` : ""}
+    </div>`).join("")}`;
 }
 
 async function refreshAfterLogin() {

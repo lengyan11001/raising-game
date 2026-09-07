@@ -3950,6 +3950,49 @@ dialog.tool-download-modal {
   margin: 0;
   color: rgba(255,255,255,.64);
 }
+.referral-finance {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+.referral-finance-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.referral-finance-stats > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 7px;
+  background: rgba(255,255,255,.05);
+}
+.referral-finance-stats span { color: rgba(255,255,255,.64); font-size: .78rem; }
+.referral-finance-stats strong { color: #fff; font-size: 1.16rem; }
+.referral-withdraw-form { display: grid; gap: 10px; }
+.referral-withdraw-form label { display: grid; gap: 6px; color: rgba(255,255,255,.72); font-size: .82rem; }
+.referral-withdraw-form input { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; background: rgba(0,0,0,.22); color: #fff; }
+.referral-withdraw-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.referral-withdraw-actions button { min-height: 38px; }
+.referral-withdrawals { display: grid; gap: 7px; }
+.referral-withdrawals-title { color: rgba(255,255,255,.78); font-size: .86rem; font-weight: 700; }
+.referral-withdrawals-empty { color: rgba(255,255,255,.5); font-size: .82rem; }
+.referral-withdrawal-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; background: rgba(255,255,255,.035); }
+.referral-withdrawal-row > div { display: grid; gap: 3px; }
+.referral-withdrawal-row small { color: rgba(255,255,255,.52); font-size: .72rem; }
+.referral-withdrawal-row code { color: rgba(255,255,255,.58); font-size: .7rem; }
+.referral-withdrawal-status { padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.1); color: rgba(255,255,255,.8); font-size: .72rem; }
+.referral-withdrawal-status.is-paid, .referral-withdrawal-status.is-completed { background: rgba(64,205,134,.18); color: #7af0b1; }
+.referral-withdrawal-status.is-rejected, .referral-withdrawal-status.is-cancelled { background: rgba(255,91,112,.18); color: #ff9ca9; }
+.referral-withdrawal-error { grid-column: 1 / -1; color: #ff9ca9 !important; }
+@media (max-width: 620px) {
+  .referral-finance-stats { grid-template-columns: 1fr; }
+  .referral-withdrawal-row { grid-template-columns: 1fr auto; }
+  .referral-withdrawal-row code { grid-column: 1 / -1; }
+}
 .pricing-panel {
   display: grid;
   gap: 18px;

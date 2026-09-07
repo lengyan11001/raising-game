@@ -32,6 +32,7 @@ function pricingMultiplierText(value) {
 }
 
 const ROUTES = [
+  { id: "withdrawals", title: "提现审核", render: renderWithdrawals },
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
@@ -3425,6 +3426,34 @@ async function renderRecharges(pageArg = null, limitArg = null) {
   els.adminContent.querySelector("#rechargeSearchInput")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") runFilter();
   });
+}
+
+/* ============ REFERRAL WITHDRAWALS ============ */
+async function renderWithdrawals(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admWithdrawalsPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 30);
+  const status = sessionStorage.getItem("admWithdrawalsStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/referral-withdrawals?${params.toString()}`);
+  if (!isActiveRoute("withdrawals")) return;
+  const records = payload.withdrawals || payload.records || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page"><div class="adm-page-head"><div><h2>提现审核</h2><p class="adm-muted">审核邀请佣金提现申请。人工打款后将状态改为已打款并填写交易哈希。</p></div></div>
+      <div class="adm-card"><div class="adm-card-head"><form class="adm-list-filters" id="withdrawalsFilterForm"><select id="withdrawalsStatusFilter"><option value="">全部状态</option><option value="processing" ${status === "processing" ? "selected" : ""}>处理中</option><option value="paid" ${status === "paid" ? "selected" : ""}>已打款</option><option value="rejected" ${status === "rejected" ? "selected" : ""}>已拒绝</option></select><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div>
+        <div class="adm-card-body adm-table-wrap">${records.length ? `<table class="adm-table"><thead><tr><th>申请时间</th><th>用户</th><th>金额</th><th>收款地址</th><th>状态</th><th>交易哈希</th><th>操作</th></tr></thead><tbody>${records.map((r) => `<tr data-withdrawal-id="${escapeHtml(r.id || "")}"><td>${fmtDate(r.requestedAt || r.createdAt)}</td><td><strong>${escapeHtml(r.username || r.userId || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td><td><strong>$${escapeHtml(Number(r.amountUsd ?? r.amount ?? 0).toFixed(2))}</strong></td><td class="adm-mono adm-truncate" title="${escapeHtml(r.walletAddress || "")}">${escapeHtml(r.walletAddress || "-")}</td><td>${statusPill(r.status || "pending")}</td><td class="adm-mono adm-truncate">${escapeHtml(r.txHash || "-")}</td><td><div class="adm-row-actions">${String(r.status || "pending").toLowerCase() === "pending" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-withdraw-action="paid" type="button">已打款</button><button class="adm-btn adm-btn-sm adm-btn-danger" data-withdraw-action="rejected" type="button">拒绝</button>` : `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-withdraw-action="edit" type="button">修改</button>`}</div></td></tr>`).join("")}</tbody></table>` : `<div class="adm-empty"><i data-lucide="hand-coins"></i><p>暂无提现申请</p></div>`}</div>${adminPagerHtml(payload)}</div>
+    </section>`;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderWithdrawals(nextPage, nextLimit).catch((err) => renderRouteError("withdrawals", err)));
+  els.adminContent.querySelector("#withdrawalsFilterForm")?.addEventListener("submit", (event) => { event.preventDefault(); sessionStorage.setItem("admWithdrawalsStatus", els.adminContent.querySelector("#withdrawalsStatusFilter")?.value || ""); renderWithdrawals(1, limit).catch((err) => renderRouteError("withdrawals", err)); });
+  els.adminContent.querySelectorAll("[data-withdraw-action]").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest("tr[data-withdrawal-id]"); const id = row?.dataset.withdrawalId; if (!id) return;
+    const action = button.dataset.withdrawAction; let txHash = ""; let note = "";
+    if (action === "rejected") { note = window.prompt("拒绝原因（可选）", "") || ""; } else { txHash = window.prompt("人工打款交易哈希（可选）", "") || ""; }
+    button.disabled = true;
+    try { await api(`/api/admin/referral-withdrawals/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: action === "rejected" ? "rejected" : "paid", txHash, note } }); toast("提现记录已更新"); renderWithdrawals(page, limit); } catch (error) { toast(error.message || String(error), "error"); button.disabled = false; }
+  }));
 }
 
 /* ============ WALLET ============ */

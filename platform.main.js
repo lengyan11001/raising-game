@@ -773,6 +773,52 @@ els.copyReferralBtn?.addEventListener("click", async () => {
   const copied = await copyReferralText(inviteUrl);
   if (els.referralNote) els.referralNote.textContent = copied ? t("referral.linkCopied") : t("referral.copyFailed");
 });
+els.saveReferralWalletBtn?.addEventListener("click", async () => {
+  if (!state.user) return openLogin();
+  const walletAddress = String(els.referralWalletAddress?.value || "").trim();
+  if (!walletAddress) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.walletRequired");
+    return;
+  }
+  els.saveReferralWalletBtn.disabled = true;
+  try {
+    const payload = await requestJson("/api/referral/wallet", { method: "PUT", body: { walletAddress } });
+    state.referral = { ...(state.referral || {}), ...(payload.referral || {}), walletAddress: payload.walletAddress || walletAddress };
+    if (els.referralNote) els.referralNote.textContent = t("referral.walletSaved");
+    renderReferral();
+  } catch (error) {
+    if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  } finally {
+    els.saveReferralWalletBtn.disabled = false;
+  }
+});
+els.referralWithdrawForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.user) return openLogin();
+  const walletAddress = String(els.referralWalletAddress?.value || "").trim();
+  if (!walletAddress) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.walletRequired");
+    return;
+  }
+  const amount = Number(state.referral?.withdrawableUsd ?? state.referral?.availableWithdrawableUsd ?? state.referral?.withdrawableAmount ?? state.referral?.availableCommissionUsd ?? 0);
+  if (!(amount > 0)) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.noWithdrawable");
+    return;
+  }
+  els.requestReferralWithdrawBtn.disabled = true;
+  try {
+    const payload = await requestJson("/api/referral/withdrawals", { method: "POST", body: { walletAddress, amountUsd: amount } });
+    const nextRecord = payload.record || payload.withdrawal || null;
+    const nextHistory = nextRecord ? [nextRecord, ...(state.referral?.withdrawals || [])] : (payload.withdrawals || payload.referral?.withdrawals || state.referral?.withdrawals || []);
+    state.referral = { ...(state.referral || {}), ...(payload.referral || {}), withdrawals: nextHistory, withdrawableUsd: payload.withdrawableUsd ?? payload.referral?.availableWithdrawableUsd ?? 0 };
+    if (els.referralNote) els.referralNote.textContent = t("referral.withdrawalRequested");
+    renderReferral();
+  } catch (error) {
+    if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  } finally {
+    els.requestReferralWithdrawBtn.disabled = false;
+  }
+});
 document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });

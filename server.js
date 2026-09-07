@@ -6527,6 +6527,11 @@ function publicReferralSummary(req, db = {}, user = {}) {
   const withdrawnCommissionUsd = Number(referral.withdrawnCommissionUsd || 0);
   const lockedCommissionUsd = Number(referral.lockedCommissionUsd || 0);
   const availableWithdrawableUsd = Math.max(0, totalCommissionUsd - withdrawnCommissionUsd - lockedCommissionUsd);
+  const withdrawalRecords = (db.referralWithdrawals || [])
+    .filter((record) => String(record.userId || "") === String(user.id || ""))
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+    .slice(0, 20)
+    .map((record) => referralWithdrawalView(record, user));
   const availableRewards = membershipActive ? Math.max(0, paidUserIds.size - rewardCount) : 0;
   const origin = pageOriginFromRequest(req);
   return {
@@ -6534,6 +6539,7 @@ function publicReferralSummary(req, db = {}, user = {}) {
     inviteUrl: `${origin}/?ref=${encodeURIComponent(code)}`,
     rewardCredits: REFERRAL_REWARD_CREDITS,
     invitedCount: invitedUserIds.size,
+    invitedUsers: invitedUserIds.size,
     paidInviteCount: paidUserIds.size,
     rewardCount,
     remainingRewards: availableRewards,
@@ -6550,6 +6556,9 @@ function publicReferralSummary(req, db = {}, user = {}) {
     withdrawnCommissionUsd: Number(withdrawnCommissionUsd.toFixed(6)),
     lockedCommissionUsd: Number(lockedCommissionUsd.toFixed(6)),
     availableWithdrawableUsd: Number(availableWithdrawableUsd.toFixed(6)),
+    withdrawableUsd: Number(availableWithdrawableUsd.toFixed(6)),
+    totalEarnedUsd: Number(totalCommissionUsd.toFixed(6)),
+    withdrawals: withdrawalRecords,
   };
 }
 
@@ -31956,12 +31965,15 @@ function referralWithdrawalView(record = {}, user = {}) {
     username: String(record.username || user?.username || ""),
     amountUsd: Number(Number(record.amountUsd || 0).toFixed(2)),
     walletAddress: String(record.walletAddress || ""),
-    status: String(record.status || "processing"),
+    // Keep the established UI pending state compatible while persisting the clearer processing state.
+    status: String(record.status || "processing").toLowerCase() === "processing" ? "pending" : String(record.status || "processing"),
     note: String(record.note || ""),
     txHash: String(record.txHash || ""),
     createdAt: String(record.createdAt || ""),
+    requestedAt: String(record.requestedAt || record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
     processedAt: String(record.processedAt || ""),
+    rejectionReason: String(record.rejectionReason || record.note || ""),
   };
 }
 
@@ -41276,7 +41288,7 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
     }
-    if (req.method === "PUT" && url.pathname === "/api/referral/wallet") return await handleUpdateReferralWallet(req, res);
+    if (["PUT", "PATCH"].includes(req.method) && url.pathname === "/api/referral/wallet") return await handleUpdateReferralWallet(req, res);
     if (req.method === "GET" && url.pathname === "/api/referral/withdrawals") return await handleListReferralWithdrawals(req, res, url);
     if (req.method === "POST" && url.pathname === "/api/referral/withdrawals") return await handleCreateReferralWithdrawal(req, res);
     if (req.method === "POST" && url.pathname === "/api/membership/redeem") {

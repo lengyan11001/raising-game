@@ -981,6 +981,16 @@ async function replaceAppDbTables(db = {}, options = {}) {
         ],
       );
     }
+    for (const withdrawal of Array.isArray(db.referralWithdrawals) ? db.referralWithdrawals : []) {
+      await client.query(
+        `INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, status = EXCLUDED.status,
+           amount_usd = EXCLUDED.amount_usd, wallet_address = EXCLUDED.wallet_address,
+           payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+        [String(withdrawal.id || ""), String(withdrawal.userId || ""), String(withdrawal.status || "processing"), Number(withdrawal.amountUsd || 0), String(withdrawal.walletAddress || ""), JSON.stringify(withdrawal), payloadCreatedAt(withdrawal), payloadUpdatedAt(withdrawal)],
+      );
+    }
     for (const entry of Array.isArray(db.creditLedger) ? db.creditLedger : []) {
       await client.query(
         `
@@ -1444,14 +1454,6 @@ async function createMembershipActivationCodesInDb(codes = []) {
         ],
       );
       if (rows[0]) created.push(membershipActivationCodeFromRow(rows[0]));
-    }
-    for (const withdrawal of Array.isArray(db.referralWithdrawals) ? db.referralWithdrawals : []) {
-      await client.query(
-        `INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
-         VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
-         ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, wallet_address = EXCLUDED.wallet_address, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
-        [String(withdrawal.id || ""), String(withdrawal.userId || ""), String(withdrawal.status || "processing"), Number(withdrawal.amountUsd || 0), String(withdrawal.walletAddress || ""), JSON.stringify(withdrawal), payloadCreatedAt(withdrawal), payloadUpdatedAt(withdrawal)],
-      );
     }
     await client.query("COMMIT");
     return created;

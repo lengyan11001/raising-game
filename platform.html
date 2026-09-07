@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-20260902-stripe-method-row" />
+    <link rel="stylesheet" href="./platform.css?v=referral-withdrawals" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -627,6 +627,18 @@
             <strong id="referralInvitedCount">0 invited</strong>
             <strong id="referralRewardStatus">Membership required for rewards</strong>
           </div>
+          <div class="referral-finance" id="referralFinance">
+            <div class="referral-finance-stats">
+              <div><span data-i18n="referral.invitedUsers">Invited users</span><strong id="referralInvitedUsers">0</strong></div>
+              <div><span data-i18n="referral.withdrawable">Withdrawable</span><strong id="referralWithdrawable">$0.00</strong></div>
+              <div><span data-i18n="referral.totalEarned">Total earned</span><strong id="referralTotalEarned">$0.00</strong></div>
+            </div>
+            <form class="referral-withdraw-form" id="referralWithdrawForm">
+              <label><span data-i18n="referral.walletAddress">USDT wallet address</span><input id="referralWalletAddress" type="text" inputmode="text" autocomplete="off" placeholder="Enter TRC20/ERC20 address" data-i18n-placeholder="referral.walletPlaceholder" /></label>
+              <div class="referral-withdraw-actions"><button class="ghost-button" id="saveReferralWalletBtn" type="button" data-i18n="referral.saveWallet">Save address</button><button class="copy-btn" id="requestReferralWithdrawBtn" type="submit" data-i18n="referral.requestWithdraw">Request withdrawal</button></div>
+            </form>
+            <div class="referral-withdrawals" id="referralWithdrawals"></div>
+          </div>
           <div class="referral-membership-progress">
             <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
             <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
@@ -1107,6 +1119,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-20260902-no-tool-launch-flash"></script>
+    <script src="./platform.js?v=referral-withdrawals"></script>
   </body>
 </html>
