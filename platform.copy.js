@@ -176,6 +176,7 @@ const I18N = {
     "install.download": "Download",
     "install.title": "Install app",
     "topup.dialogTitle": "Top up credits",
+    "topup.creditsNeverExpire": "Credits never expire.",
     "topup.membershipGuide": "$99 lifetime membership",
     "topup.createOrder": "Create USDT order",
     "topup.usdtTitle": "USDT backup",
