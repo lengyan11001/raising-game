@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VIPS Chat</title>
+  <link rel="icon" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/chat.css?v=chat-20260907" />
+</head>
+<body>
+  <header class="chat-header">
+    <a class="chat-logo" href="#models" aria-label="VIPS Chat">VIPS<span>CHAT</span></a>
+    <div class="chat-header-actions">
+      <button class="text-link" type="button" data-action="models">Models</button>
+      <button class="text-link" type="button" data-action="categories">Categories</button>
+      <button class="theme-button" type="button" data-action="theme" aria-label="Toggle theme">☼</button>
+      <button class="account-button" type="button" data-action="account"><span>♙</span><b data-account-label>My Account</b></button>
+    </div>
+  </header>
+
+  <main id="app" class="chat-app" aria-live="polite"></main>
+
+  <dialog id="loginDialog" class="chat-dialog">
+    <form method="dialog" class="dialog-card" data-login-form>
+      <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+      <span class="dialog-kicker">VIPS CHAT</span>
+      <h2>Log in to continue</h2>
+      <p>Sign in once to unlock private conversations with your selected character.</p>
+      <label>Username<input name="username" autocomplete="username" required /></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" minlength="6" required /></label>
+      <div class="dialog-message" data-login-message></div>
+      <button class="solid-button" type="submit">Log in / Sign up</button>
+      <button class="dialog-email-link" type="button" data-action="email-login">Use email verification instead</button>
+    </form>
+  </dialog>
+
+  <dialog id="unlockDialog" class="chat-dialog">
+    <form method="dialog" class="dialog-card unlock-card">
+      <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+      <span class="dialog-kicker">PRIVATE ACCESS</span>
+      <h2>Unlock private chat</h2>
+      <p>Choose a credit package to start chatting with this character.</p>
+      <div class="unlock-options" data-unlock-options></div>
+      <div class="dialog-message" data-unlock-message></div>
+    </form>
+  </dialog>
+
+  <dialog id="emailDialog" class="chat-dialog">
+    <form method="dialog" class="dialog-card" data-email-form>
+      <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+      <span class="dialog-kicker">EMAIL LOGIN</span>
+      <h2>Sign in with email</h2>
+      <p>We will send a one-time verification code.</p>
+      <label>Email<input name="email" type="email" autocomplete="email" required /></label>
+      <label>Verification code<input name="code" inputmode="numeric" /></label>
+      <div class="dialog-message" data-email-message></div>
+      <div class="dialog-actions"><button class="outline-button" type="button" data-action="request-email">Send code</button><button class="solid-button" type="submit">Continue</button></div>
+    </form>
+  </dialog>
+
+  <script src="/chat.js?v=chat-20260907" defer></script>
+</body>
+</html>

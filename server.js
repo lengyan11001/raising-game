@@ -40643,7 +40643,10 @@ function privateStaticPath(pathname = "") {
 }
 
 async function serveStatic(req, res, url) {
-  let pathname = decodeURIComponent(url.pathname === "/" ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
+  const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
+  let pathname = decodeURIComponent(url.pathname === "/"
+    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : "/platform.html")
+    : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
   if (isPaymentHostRequest(req)) {
@@ -40654,6 +40657,16 @@ async function serveStatic(req, res, url) {
       || pathname === "/favicon.ico"
       || pathname === "/favicon.svg";
     if (!allowedPaymentPath) return sendText(res, 404, "Not Found");
+  }
+  if (chatTenantRequest) {
+    const allowedChatPath = pathname === "/chat.html"
+      || pathname === "/chat.css"
+      || pathname === "/chat.js"
+      || pathname === "/favicon.ico"
+      || pathname === "/favicon.svg"
+      || pathname.startsWith("/assets/brand/")
+      || pathname.startsWith("/assets/ourdream/");
+    if (!allowedChatPath) return sendText(res, 404, "Not Found");
   }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
   if (lockedUndressImageMatch) {

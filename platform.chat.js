@@ -424,9 +424,11 @@ function chatOnboardingRoleImages2(offset = 0, count = 4) {
 function renderChatOnboardingRail2(overlay, step, definitions) {
   const rail = overlay.querySelector("[data-chat-onboarding-rail]");
   if (!rail) return;
-  rail.innerHTML = definitions.map((item, index) => {
+  const railItems = [...definitions, { label: state.lang === "zh" ? "下载" : "Enter", icon: "download" }];
+  const activeIndex = Math.min(step, definitions.length);
+  rail.innerHTML = railItems.map((item, index) => {
     const answer = chatOnboardingAnswers2[index];
-    return `<button class="chat-onboarding-rail-item ${index === step ? "is-active" : ""} ${answer ? "is-complete" : ""}" type="button" data-chat-onboarding-rail-step="${index}">
+    return `<button class="chat-onboarding-rail-item ${index === activeIndex ? "is-active" : ""} ${answer ? "is-complete" : ""}" type="button" data-chat-onboarding-rail-step="${index}">
       <span class="chat-onboarding-rail-label">${escapeHtml(item.label)}</span>
       ${answer?.image ? `<img src="${escapeHtml(answer.image)}" alt="" />` : `<i data-lucide="${escapeHtml(item.icon)}"></i>`}
       ${answer?.text ? `<small>${escapeHtml(answer.text)}</small>` : ""}
