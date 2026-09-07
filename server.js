@@ -575,6 +575,9 @@ const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
 let paypalTokenCache = { accessToken: "", expiresAt: 0 };
 const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || "").trim();
 const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+const STRIPE_PAY5_SECRET_KEY = String(process.env.STRIPE_PAY5_SECRET_KEY || "").trim();
+const STRIPE_PAY5_WEBHOOK_SECRET = String(process.env.STRIPE_PAY5_WEBHOOK_SECRET || "").trim();
+const STRIPE_PAY5_ACCOUNT_ID = String(process.env.STRIPE_PAY5_ACCOUNT_ID || "").trim();
 const STRIPE_CURRENCY = String(process.env.STRIPE_CURRENCY || "usd").trim().toLowerCase() || "usd";
 const STRIPE_CHECKOUT_SESSION_TTL_SECONDS = Math.max(300, Math.min(86400, Number(process.env.STRIPE_CHECKOUT_SESSION_TTL_SECONDS || 1800) || 1800));
 const STRIPE_CHECKOUT_BASE_URL = String(
@@ -32075,16 +32078,36 @@ async function handleAdminUpdateReferralWithdrawal(req, res, withdrawalId) {
   return sendJson(res, 200, { ok: true, record: referralWithdrawalView(record, user) });
 }
 
-function stripeEnabled() {
-  return Boolean(STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET);
+function stripeConfigForHost(host = "") {
+  const normalizedHost = normalizeHostname(host);
+  if (normalizedHost === "pay.5vips.com" && STRIPE_PAY5_SECRET_KEY) {
+    return {
+      secretKey: STRIPE_PAY5_SECRET_KEY,
+      webhookSecret: STRIPE_PAY5_WEBHOOK_SECRET,
+      accountId: STRIPE_PAY5_ACCOUNT_ID,
+    };
+  }
+  return {
+    secretKey: STRIPE_SECRET_KEY,
+    webhookSecret: STRIPE_WEBHOOK_SECRET,
+    accountId: "",
+  };
 }
 
-function stripePublicConfig() {
-  return { enabled: stripeEnabled(), currency: STRIPE_CURRENCY };
+function stripeConfigForRequest(req = null) {
+  return stripeConfigForHost(req?.headers?.host || req?.headers?.["x-forwarded-host"] || "");
 }
 
-async function stripeRequest(pathname, params, method = "POST") {
-  if (!STRIPE_SECRET_KEY) {
+function stripeEnabled(config = stripeConfigForHost("")) {
+  return Boolean(config.secretKey && config.webhookSecret);
+}
+
+function stripePublicConfig(req = null) {
+  return { enabled: stripeEnabled(stripeConfigForRequest(req)), currency: STRIPE_CURRENCY };
+}
+
+async function stripeRequest(pathname, params, method = "POST", config = stripeConfigForHost("")) {
+  if (!config.secretKey) {
     const error = new Error("Stripe is not configured.");
     error.statusCode = 503;
     error.code = "STRIPE_NOT_CONFIGURED";
@@ -32096,7 +32119,7 @@ async function stripeRequest(pathname, params, method = "POST") {
   const response = await fetch(url, {
     method: requestMethod,
     headers: {
-      authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      authorization: `Bearer ${config.secretKey}`,
       "content-type": "application/x-www-form-urlencoded",
     },
     ...(requestMethod === "GET" || requestMethod === "HEAD" ? {} : { body: params instanceof URLSearchParams ? params : new URLSearchParams(params || {}) }),
@@ -32145,7 +32168,7 @@ async function findStripeCheckoutOrder(orderId = "") {
   )) || null;
 }
 
-async function startStripeCheckoutForOrder(order, config, { requestOrigin = "" } = {}) {
+async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", stripeConfig = stripeConfigForHost("") } = {}) {
   const params = new URLSearchParams();
   const origin = String(order.sourceOrigin || requestOrigin || "https://123vips.com").replace(/\/+$/, "");
   params.set("mode", "payment");
@@ -32164,7 +32187,7 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "" }
   params.set("payment_intent_data[metadata][order_id]", order.id || "");
   params.set("payment_intent_data[metadata][user_id]", order.userId || "");
   params.set("payment_intent_data[metadata][tenant_id]", order.tenantId || "");
-  const session = await stripeRequest("/v1/checkout/sessions", params);
+  const session = await stripeRequest("/v1/checkout/sessions", params, "POST", stripeConfig);
   order.stripeCheckoutSessionId = String(session.id || "");
   order.stripePaymentStatus = String(session.payment_status || "");
   order.stripePaymentIntentId = String(session.payment_intent || "");
@@ -32177,7 +32200,8 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "" }
 async function createStripeCheckoutSession(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!stripeEnabled()) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const stripeConfig = stripeConfigForRequest(req);
+  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
@@ -32230,6 +32254,7 @@ async function createStripeCheckoutSession(req, res) {
     chain: "stripe",
     status: "pending",
     sourceOrigin: origin,
+    stripeAccountId: stripeConfig.accountId || "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -32250,7 +32275,8 @@ async function handleStripeCheckoutSessionDetails(req, res, orderId) {
 }
 
 async function handleStartStripeCheckoutSession(req, res, orderId) {
-  if (!stripeEnabled()) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const stripeConfig = stripeConfigForRequest(req);
+  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const order = await findStripeCheckoutOrder(orderId);
   if (!order) return sendJson(res, 404, { ok: false, code: "STRIPE_CHECKOUT_NOT_FOUND", message: "Stripe checkout session not found." });
   const config = await readAppConfig();
@@ -32258,7 +32284,7 @@ async function handleStartStripeCheckoutSession(req, res, orderId) {
   if (stripeCheckoutSessionExpired(order)) return sendJson(res, 410, { ok: false, code: "STRIPE_CHECKOUT_EXPIRED", message: "This payment session has expired. Please create a new top-up order." });
   if (order.stripeCheckoutUrl) return sendJson(res, 200, { ok: true, checkoutUrl: order.stripeCheckoutUrl, session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
   try {
-    const stripeSession = await startStripeCheckoutForOrder(order, config, { requestOrigin: pageOriginFromRequest(req) });
+    const stripeSession = await startStripeCheckoutForOrder(order, config, { requestOrigin: pageOriginFromRequest(req), stripeConfig });
     return sendJson(res, 200, { ok: true, checkoutUrl: String(stripeSession.url || order.stripeCheckoutUrl || ""), session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
   } catch (error) {
     order.status = "failed";
@@ -32269,8 +32295,8 @@ async function handleStartStripeCheckoutSession(req, res, orderId) {
   }
 }
 
-function verifyStripeSignature(rawBody, signatureHeader) {
-  if (!STRIPE_WEBHOOK_SECRET || !rawBody || !signatureHeader) return false;
+function verifyStripeSignature(rawBody, signatureHeader, webhookSecret = STRIPE_WEBHOOK_SECRET) {
+  if (!webhookSecret || !rawBody || !signatureHeader) return false;
   const values = {};
   for (const part of String(signatureHeader).split(",")) {
     const [key, value] = part.split("=", 2);
@@ -32279,7 +32305,7 @@ function verifyStripeSignature(rawBody, signatureHeader) {
   const timestamp = Number(values.t || 0);
   const signature = String(values.v1 || "");
   if (!timestamp || !signature || Math.abs(Date.now() / 1000 - timestamp) > 300) return false;
-  const expected = crypto.createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(`${timestamp}.${rawBody}`, "utf8").digest("hex");
+  const expected = crypto.createHmac("sha256", webhookSecret).update(`${timestamp}.${rawBody}`, "utf8").digest("hex");
   try {
     return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signature, "hex"));
   } catch {
@@ -32312,7 +32338,7 @@ function stripeFailureDetails(...objects) {
   return { code: "", message: "" };
 }
 
-async function hydrateStripeOrderDetails(order, sessionHint = null, paymentIntentHint = null, chargeHint = null) {
+async function hydrateStripeOrderDetails(order, sessionHint = null, paymentIntentHint = null, chargeHint = null, stripeConfig = stripeConfigForHost("")) {
   if (!order || String(order.paymentProvider || "").toLowerCase() !== "stripe") return order;
   let session = sessionHint && typeof sessionHint === "object" ? sessionHint : null;
   let paymentIntent = paymentIntentHint && typeof paymentIntentHint === "object" ? paymentIntentHint : null;
@@ -32325,7 +32351,7 @@ async function hydrateStripeOrderDetails(order, sessionHint = null, paymentInten
       params.append("expand[]", "payment_intent.latest_charge");
       params.append("expand[]", "payment_intent.payment_method");
       params.append("expand[]", "customer");
-      session = await stripeRequest(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, params, "GET");
+      session = await stripeRequest(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, params, "GET", stripeConfig);
     }
   } catch (error) {
     console.warn("[stripe-session-details-failed]", error.message || error);
@@ -32337,7 +32363,7 @@ async function hydrateStripeOrderDetails(order, sessionHint = null, paymentInten
       const params = new URLSearchParams();
       params.append("expand[]", "latest_charge");
       params.append("expand[]", "payment_method");
-      paymentIntent = await stripeRequest(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`, params, "GET");
+      paymentIntent = await stripeRequest(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`, params, "GET", stripeConfig);
     } catch (error) {
       console.warn("[stripe-payment-intent-details-failed]", error.message || error);
     }
@@ -32346,7 +32372,7 @@ async function hydrateStripeOrderDetails(order, sessionHint = null, paymentInten
   const chargeId = stripeObjectId(charge) || stripeObjectId(paymentIntent?.latest_charge);
   if (chargeId && (!charge || !charge.payment_method_details)) {
     try {
-      charge = await stripeRequest(`/v1/charges/${encodeURIComponent(chargeId)}`, null, "GET");
+      charge = await stripeRequest(`/v1/charges/${encodeURIComponent(chargeId)}`, null, "GET", stripeConfig);
     } catch (error) {
       console.warn("[stripe-charge-details-failed]", error.message || error);
     }
@@ -32354,7 +32380,7 @@ async function hydrateStripeOrderDetails(order, sessionHint = null, paymentInten
   customer = session?.customer && typeof session.customer === "object" ? session.customer : null;
   const customerId = stripeObjectId(customer) || stripeObjectId(session?.customer) || String(order.stripeCustomerId || "");
   if (customerId && !customer) {
-    try { customer = await stripeRequest(`/v1/customers/${encodeURIComponent(customerId)}`, null, "GET"); } catch (error) {
+    try { customer = await stripeRequest(`/v1/customers/${encodeURIComponent(customerId)}`, null, "GET", stripeConfig); } catch (error) {
       console.warn("[stripe-customer-details-failed]", error.message || error);
     }
   }
@@ -32391,8 +32417,9 @@ async function hydrateStripeOrderDetails(order, sessionHint = null, paymentInten
 
 async function handleStripeWebhook(req, res) {
   const rawBody = await readRawBody(req, 2 * 1024 * 1024);
-  if (!STRIPE_WEBHOOK_SECRET) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED" });
-  if (!verifyStripeSignature(rawBody, req.headers["stripe-signature"])) return sendJson(res, 400, { ok: false, code: "STRIPE_SIGNATURE_INVALID", message: "Invalid Stripe webhook signature." });
+  const stripeConfig = stripeConfigForRequest(req);
+  if (!stripeConfig.webhookSecret) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED" });
+  if (!verifyStripeSignature(rawBody, req.headers["stripe-signature"], stripeConfig.webhookSecret)) return sendJson(res, 400, { ok: false, code: "STRIPE_SIGNATURE_INVALID", message: "Invalid Stripe webhook signature." });
   let event;
   try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid Stripe webhook body." }); }
   const supportedEvents = new Set([
@@ -32424,7 +32451,7 @@ async function handleStripeWebhook(req, res) {
   if (!orderId) return sendJson(res, 200, { ok: true, ignored: true, reason: "missing_order_id" });
   const order = await getWalletOrderByIdInDb(orderId) || (db.walletOrders || []).find((entry) => entry.id === orderId);
   if (!order || order.paymentProvider !== "stripe") return sendJson(res, 200, { ok: true, ignored: true, reason: "order_not_found" });
-  await hydrateStripeOrderDetails(order, session, paymentIntent, charge);
+  await hydrateStripeOrderDetails(order, session, paymentIntent, charge, stripeConfig);
   if (event.type === "charge.refunded") {
     order.stripeRefundedAmount = stripeAmountMajor(object.amount_refunded ?? object.amount);
     order.stripeRefundStatus = object.refunded ? "refunded" : "partial_refund";
@@ -41329,7 +41356,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/pay/stripe/config") {
-      return sendJson(res, 200, { ok: true, stripe: stripePublicConfig() });
+      return sendJson(res, 200, { ok: true, stripe: stripePublicConfig(req) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/stripe/checkout-sessions") {
