@@ -3945,6 +3945,10 @@ dialog.tool-download-modal {
   gap: 14px;
   color: #fff;
 }
+.referral-commission-earnings { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.referral-commission-earning { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.045); }
+.referral-commission-earning span { color: rgba(255,255,255,.62); font-size: .76rem; }
+.referral-commission-earning strong { color: #fff; font-size: .92rem; }
 .referral-card .job-note {
   grid-column: 1 / -1;
   margin: 0;
@@ -3990,6 +3994,7 @@ dialog.tool-download-modal {
 .referral-withdrawal-error { grid-column: 1 / -1; color: #ff9ca9 !important; }
 @media (max-width: 620px) {
   .referral-finance-stats { grid-template-columns: 1fr; }
+  .referral-commission-earnings { grid-template-columns: 1fr; }
   .referral-withdrawal-row { grid-template-columns: 1fr auto; }
   .referral-withdrawal-row code { grid-column: 1 / -1; }
 }
