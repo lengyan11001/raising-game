@@ -2473,6 +2473,7 @@ body.creator-picker-open {
 }
 .topup-strip strong { display: block; margin-top: 4px; color: var(--mint); font-size: 1.12rem; }
 .topup-strip small { display: block; margin-top: 4px; color: var(--muted); }
+.topup-strip .topup-expiry-note { color: var(--mint); font-weight: 700; }
 .topup-amount-field {
   display: grid;
   gap: 6px;
