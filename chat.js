@@ -1,6 +1,6 @@
 (() => {
   const TOKEN_KEY = "raisingGameToken";
-  const state = { config:null, characters:[], query:"", filter:"", selected:null, user:null, theme:"light" };
+  const state = { config:null, characters:[], query:"", filter:"", selected:null, user:null, theme:"light", onboardingStep:0, onboardingAnswers:[] };
   const app = document.querySelector("#app");
   const loginDialog = document.querySelector("#loginDialog");
   const unlockDialog = document.querySelector("#unlockDialog");
@@ -24,6 +24,32 @@
     app.querySelector("[data-filter]")?.addEventListener("change", (event) => { state.filter = event.target.value; renderModels(); });
     app.querySelectorAll("[data-model-id]").forEach((card) => card.addEventListener("click", () => openDetail(card.dataset.modelId)));
   }
+  function onboardingSteps() {
+    const images = state.characters.slice(0, 12).map((item) => ({ image:imageFor(item), name:item.name || "Creator" }));
+    return [
+      { label:"Welcome", title:"Let’s find your perfect match", copy:"A few quick choices help us curate your private chat experience.", kind:"binary", options:["I’m 18 or older", "I’m under 18"] },
+      { label:"Intent", title:"What are you looking for?", copy:"Choose the kind of connection you want to explore.", kind:"binary", options:["A private conversation", "Just browsing"] },
+      { label:"Vibe", title:"Pick a vibe", copy:"Tell us what feels right today.", kind:"binary", options:["Playful and flirty", "Warm and romantic"] },
+      { label:"Style", title:"Choose a style", copy:"Select a creator that catches your eye.", kind:"images", options:images.slice(0,4) },
+      { label:"Energy", title:"What energy do you like?", copy:"You can change this later.", kind:"images", options:images.slice(4,8) },
+      { label:"Mood", title:"Set the mood", copy:"One last preference before we show your matches.", kind:"images", options:images.slice(8,12) },
+      { label:"Ready", title:"Your private space is ready", copy:"We’ve curated a selection of verified creators for you.", kind:"loading" }
+    ];
+  }
+  function showOnboarding() {
+    if (localStorage.getItem("vipsChatOnboardingDone") === "1") return false;
+    const overlay = document.createElement("div"); overlay.className = "standalone-onboarding"; overlay.innerHTML = `<div class="onboarding-panel"><aside class="onboarding-rail"><div class="onboarding-brand">VIPS<span>CHAT</span></div><div data-onboarding-rail></div></aside><section class="onboarding-main"><div class="onboarding-head"><span>PRIVATE MATCHING</span><b data-onboarding-count></b></div><div class="onboarding-content"><div class="onboarding-icon">✦</div><h1 data-onboarding-title></h1><p data-onboarding-copy></p><div data-onboarding-body></div></div><button class="onboarding-skip" data-onboarding-skip type="button">Skip and browse models</button></section></div>`; document.body.appendChild(overlay);
+    const steps = onboardingSteps();
+    const rail = overlay.querySelector("[data-onboarding-rail]"), count = overlay.querySelector("[data-onboarding-count]"), title = overlay.querySelector("[data-onboarding-title]"), copy = overlay.querySelector("[data-onboarding-copy]"), body = overlay.querySelector("[data-onboarding-body]");
+    const finish = () => { localStorage.setItem("vipsChatOnboardingDone", "1"); overlay.remove(); location.hash = "models"; route(); };
+    const render = (step) => { state.onboardingStep = step; const current = steps[step]; count.textContent = `${Math.min(step + 1, steps.length)} / ${steps.length}`; rail.innerHTML = steps.map((item, index) => `<div class="onboarding-rail-item ${index === step ? "is-active" : ""} ${state.onboardingAnswers[index] ? "is-done" : ""}"><i>${index + 1}</i><span>${esc(item.label)}</span></div>`).join(""); title.textContent = current.title; copy.textContent = current.copy;
+      if (current.kind === "loading") { body.innerHTML = `<div class="onboarding-loading"><span></span><div class="onboarding-progress"><i></i></div><small>Curating your matches...</small></div>`; setTimeout(() => render(step + 1), 1500); return; }
+      if (current.kind === "images") body.innerHTML = `<div class="onboarding-images">${current.options.map((item, index) => `<button type="button" data-onboarding-option="${index}"><img src="${esc(item.image)}" alt="" /><span>${esc(item.name)}</span></button>`).join("")}</div>`;
+      else body.innerHTML = `<div class="onboarding-choices">${current.options.map((item, index) => `<button type="button" class="${index ? "is-secondary" : ""}" data-onboarding-option="${index}">${esc(item)}<b>→</b></button>`).join("")}</div>`;
+      body.querySelectorAll("[data-onboarding-option]").forEach((button) => button.addEventListener("click", () => { state.onboardingAnswers[step] = button.dataset.onboardingOption; if (step === 0 && button.dataset.onboardingOption === "1") { copy.textContent = "You must be 18 or older to continue."; return; } render(step + 1); }));
+    };
+    overlay.querySelector("[data-onboarding-skip]").addEventListener("click", finish); render(0); return true;
+  }
   function modelCard(item) { return `<article class="model-card" data-model-id="${esc(item.id)}"><span class="country-badge">🌐</span><span class="free-badge">Free Chat</span><img src="${esc(imageFor(item))}" alt="${esc(item.name || "Model")}" loading="lazy" /><div class="model-card-body"><h3>${esc(item.name || "Model")}</h3><p>${esc((item.tags || []).slice(0,2).join(" · ") || item.style || "Verified creator")}</p></div></article>`; }
   function openDetail(id) { const item = state.characters.find((entry) => String(entry.id) === String(id)); if (!item) return; state.selected = item; location.hash = `model/${encodeURIComponent(item.id)}`; renderDetail(item); }
   function renderDetail(item) {
@@ -35,7 +61,7 @@
   function openUnlock() { if (!getToken()) { loginDialog.showModal(); return; } unlockDialog.showModal(); renderUnlockOptions(); }
   function renderUnlockOptions() { const root = unlockDialog.querySelector("[data-unlock-options]"); root.innerHTML = [10,20,50].map((amount, index) => `<button class="plan ${index === 0 ? "is-selected" : ""}" type="button" data-unlock-package="tool-usd-${amount}"><small>${index === 0 ? "Starter" : index === 1 ? "Creator" : "Studio"}</small><strong>$${amount}</strong><span>${amount * 100} credits</span></button>`).join(""); root.querySelectorAll("[data-unlock-package]").forEach((button) => button.addEventListener("click", () => beginStripe(button.dataset.unlockPackage))); }
   async function beginStripe(packageId) { const message = unlockDialog.querySelector("[data-unlock-message]"); message.textContent = "Opening secure checkout..."; try { const result = await api("/api/pay/stripe/checkout-sessions", { method:"POST", body:JSON.stringify({ packageId, returnUrl:`${location.origin}${location.pathname}#model/${encodeURIComponent(state.selected?.id || "")}`, cancelUrl:location.href }) }); if (result.checkoutUrl) location.href = result.checkoutUrl; else message.textContent = "Checkout page is unavailable."; } catch (error) { message.textContent = error.message; } }
-  async function load() { try { const result = await api("/api/config/public"); state.config = result.config; state.characters = result.config?.homeVideo?.items || []; const token = getToken(); if (token) { try { const me = await api("/api/auth/me"); state.user = me.user; document.querySelector("[data-account-label]").textContent = me.user?.username || me.user?.email || "My Account"; } catch {} } route(); } catch (error) { app.innerHTML = `<div class="empty-state">Unable to load models: ${esc(error.message)}</div>`; } }
+  async function load() { try { const result = await api("/api/config/public"); state.config = result.config; state.characters = result.config?.homeVideo?.items || []; const token = getToken(); if (token) { try { const me = await api("/api/auth/me"); state.user = me.user; document.querySelector("[data-account-label]").textContent = me.user?.username || me.user?.email || "My Account"; } catch {} } if (!showOnboarding()) route(); } catch (error) { app.innerHTML = `<div class="empty-state">Unable to load models: ${esc(error.message)}</div>`; } }
   function route() { const match = location.hash.match(/^#model\/(.+)$/); if (match) { const id = decodeURIComponent(match[1]); const item = state.characters.find((entry) => String(entry.id) === id); if (item) return renderDetail(item); } renderModels(); }
   document.addEventListener("click", (event) => { const action = event.target.closest("[data-action]")?.dataset.action; if (action === "models") { location.hash = "models"; route(); } if (action === "categories") { document.querySelector("[data-search]")?.focus(); } if (action === "account") { if (getToken()) { localStorage.removeItem(TOKEN_KEY); location.reload(); } else loginDialog.showModal(); } if (action === "theme") { document.body.classList.toggle("dark"); } if (action === "email-login") { loginDialog.close(); emailDialog.showModal(); } if (action === "request-email") requestEmailCode(); });
   document.querySelector("[data-login-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const message = form.querySelector("[data-login-message]"); try { const result = await api("/api/auth/login-or-register", { method:"POST", body:JSON.stringify({ username:form.username.value.trim(), password:form.password.value }) }); localStorage.setItem(TOKEN_KEY, result.token); loginDialog.close(); location.reload(); } catch (error) { message.textContent = error.message; } });
