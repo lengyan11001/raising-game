@@ -392,6 +392,146 @@ function initChatOnboarding() {
   renderChatOnboardingStep(overlay, 0);
 }
 
+// Chat onboarding presentation follows the reference community flow: a
+// full-screen translucent panel, vertical step rail, timed progress, binary
+// questions, image choices, matching state, then locked character results.
+var chatOnboardingClockTimer2 = 0;
+var chatOnboardingAnswers2 = {};
+
+function chatOnboardingStepDefinitions2() {
+  const imagesA = chatOnboardingRoleImages2(0, 4);
+  const imagesB = chatOnboardingRoleImages2(4, 4);
+  const imagesC = chatOnboardingRoleImages2(8, 4);
+  return [
+    { label: state.lang === "zh" ? "成年" : "Age", icon: "badge-check", title: state.lang === "zh" ? "您是否已满18岁？" : "Are you 18 or older?", kind: "binary", options: [["yes", "已满", "I am"], ["no", "不满", "Not yet"]] },
+    { label: state.lang === "zh" ? "需求" : "Intent", icon: "heart-handshake", title: state.lang === "zh" ? "您是否有约炮需求？" : "Are you looking for an intimate connection?", kind: "binary", options: [["yes", "是", "Yes"], ["no", "否", "No"]] },
+    { label: state.lang === "zh" ? "生活" : "Lifestyle", icon: "coffee", title: state.lang === "zh" ? "能否接受只进入身体，不介入生活？" : "Can it stay physical and separate from everyday life?", kind: "binary", options: [["yes", "可以", "Yes"], ["no", "不能", "No"]] },
+    { label: state.lang === "zh" ? "胸部" : "Style", icon: "users-round", title: state.lang === "zh" ? "什么样的风格使你兴奋？" : "What kind of look catches your eye?", kind: "images", options: imagesA },
+    { label: state.lang === "zh" ? "年龄" : "Age", icon: "calendar-heart", title: state.lang === "zh" ? "什么样的年龄最适合你？" : "What age range feels right?", kind: "images", options: imagesB },
+    { label: state.lang === "zh" ? "臀部" : "Figure", icon: "accessibility", title: state.lang === "zh" ? "喜欢什么样的身材？" : "What kind of figure do you like?", kind: "images", options: imagesC },
+    { label: state.lang === "zh" ? "姿势" : "Mood", icon: "person-standing", title: state.lang === "zh" ? "什么样的互动最吸引你？" : "What kind of interaction feels exciting?", kind: "images", options: chatOnboardingRoleImages2(12, 2) },
+  ];
+}
+
+function chatOnboardingRoleImages2(offset = 0, count = 4) {
+  return (state.homeCharacters || []).filter((item) => item && !item.deletedAt).slice(offset, offset + count).map((item) => ({
+    id: item.id || "",
+    name: item.name || "Character",
+    image: typeof characterAppearanceImageUrl === "function" ? characterAppearanceImageUrl(item) : item.posterUrl || item.imageUrl || "",
+  }));
+}
+
+function renderChatOnboardingRail2(overlay, step, definitions) {
+  const rail = overlay.querySelector("[data-chat-onboarding-rail]");
+  if (!rail) return;
+  rail.innerHTML = definitions.map((item, index) => {
+    const answer = chatOnboardingAnswers2[index];
+    return `<button class="chat-onboarding-rail-item ${index === step ? "is-active" : ""} ${answer ? "is-complete" : ""}" type="button" data-chat-onboarding-rail-step="${index}">
+      <span class="chat-onboarding-rail-label">${escapeHtml(item.label)}</span>
+      ${answer?.image ? `<img src="${escapeHtml(answer.image)}" alt="" />` : `<i data-lucide="${escapeHtml(item.icon)}"></i>`}
+      ${answer?.text ? `<small>${escapeHtml(answer.text)}</small>` : ""}
+    </button>`;
+  }).join("");
+  rail.querySelectorAll("[data-chat-onboarding-rail-step]").forEach((button) => button.addEventListener("click", () => {
+    const target = Number(button.dataset.chatOnboardingRailStep);
+    if (target <= step || chatOnboardingAnswers2[target]) renderChatOnboardingStep(overlay, target);
+  }));
+}
+
+function startChatOnboardingClock2(overlay) {
+  let remaining = 5 * 60;
+  const clock = overlay.querySelector("[data-chat-onboarding-clock]");
+  const tick = () => {
+    if (!clock) return;
+    clock.textContent = `${String(Math.floor(remaining / 60)).padStart(2, "0")} : ${String(remaining % 60).padStart(2, "0")}`;
+    if (remaining > 0) remaining -= 1;
+  };
+  tick();
+  window.clearInterval(chatOnboardingClockTimer2);
+  chatOnboardingClockTimer2 = window.setInterval(tick, 1000);
+}
+
+function closeChatOnboarding({ completed = true } = {}) {
+  const overlay = document.querySelector("[data-chat-onboarding]");
+  if (!overlay) return;
+  if (completed) markChatOnboardingCompleted();
+  window.clearTimeout(chatOnboardingTimer);
+  window.clearInterval(chatOnboardingClockTimer2);
+  overlay.classList.add("is-closing");
+  window.setTimeout(() => overlay.remove(), 180);
+}
+
+function renderChatOnboardingStep(overlay, step = 0) {
+  if (!overlay) return;
+  const body = overlay.querySelector("[data-chat-onboarding-body]");
+  const title = overlay.querySelector("[data-chat-onboarding-title]");
+  const copy = overlay.querySelector("[data-chat-onboarding-copy]");
+  const progress = overlay.querySelector("[data-chat-onboarding-progress]");
+  const definitions = chatOnboardingStepDefinitions2();
+  renderChatOnboardingRail2(overlay, step, definitions);
+  if (step < definitions.length) {
+    const current = definitions[step];
+    title.textContent = current.title;
+    copy.textContent = state.lang === "zh" ? "选择一个选项继续，之后也可以随时更换。" : "Choose an option to continue. You can change your mind later.";
+    progress.textContent = `${step + 1} / 8`;
+    if (current.kind === "binary") {
+      body.innerHTML = `<div class="chat-onboarding-binary">${current.options.map(([id, zh, en], index) => `<button class="chat-onboarding-binary-option ${index ? "is-negative" : ""}" type="button" data-chat-onboarding-option="${id}">${state.lang === "zh" ? zh : en}</button>`).join("")}</div>`;
+    } else {
+      body.innerHTML = `<div class="chat-onboarding-image-options">${current.options.map((item, index) => `<button class="chat-onboarding-image-option" type="button" data-chat-onboarding-option="${index}"><img src="${escapeHtml(item.image || "/assets/brand/logo-mark.svg")}" alt="${escapeHtml(item.name || "Option")}" loading="lazy" /><span>${escapeHtml(item.name || (state.lang === "zh" ? `选项 ${index + 1}` : `Option ${index + 1}`))}</span></button>`).join("")}</div>`;
+    }
+    body.querySelectorAll("[data-chat-onboarding-option]").forEach((button) => button.addEventListener("click", () => {
+      const optionIndex = Number(button.dataset.chatOnboardingOption);
+      const option = current.kind === "images" ? current.options[optionIndex] : null;
+      const textIndex = state.lang === "zh" ? 1 : 2;
+      const textOption = current.options.find((entry) => entry[0] === button.dataset.chatOnboardingOption);
+      chatOnboardingAnswers2[step] = current.kind === "images" ? { image: option?.image || "", text: option?.name || "" } : { text: textOption?.[textIndex] || "" };
+      if (step === 0 && button.dataset.chatOnboardingOption === "no") {
+        showAgeForbidden();
+        closeChatOnboarding({ completed: false });
+        return;
+      }
+      renderChatOnboardingStep(overlay, step + 1);
+    }));
+  } else if (step === definitions.length) {
+    title.textContent = state.lang === "zh" ? "正在为你匹配角色" : "Finding your matches";
+    copy.textContent = state.lang === "zh" ? "请稍等一下，马上就好。" : "Give us a moment — your lineup is almost ready.";
+    progress.textContent = "8 / 8";
+    body.innerHTML = `<div class="chat-onboarding-loading"><span class="chat-onboarding-loader"></span><div class="chat-onboarding-progress-track"><i></i></div></div>`;
+    window.clearTimeout(chatOnboardingTimer);
+    chatOnboardingTimer = window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 1100);
+  } else {
+    title.textContent = state.lang === "zh" ? "为你准备好了" : "Your lineup is ready";
+    copy.textContent = state.lang === "zh" ? "选择一个角色，充值后即可开始专属聊天。" : "Choose a character, top up, and start a private chat.";
+    progress.textContent = "READY";
+    const roles = chatOnboardingCharacters();
+    body.innerHTML = `<div class="chat-onboarding-results">${roles.length ? roles.map(chatOnboardingRoleCard).join("") : `<p class="chat-onboarding-empty">${state.lang === "zh" ? "角色正在准备中，请稍后再试。" : "Characters are loading. Please try again shortly."}</p>`}</div><button class="primary-button chat-onboarding-enter" type="button" data-chat-onboarding-enter><i data-lucide="message-circle-heart"></i>${state.lang === "zh" ? "进入角色大厅" : "Enter character hall"}</button>`;
+    body.querySelectorAll("[data-chat-onboarding-character]").forEach((button) => button.addEventListener("click", () => {
+      startCharacterChat(button.dataset.characterChat || button.dataset.chatOnboardingCharacter || "").then((started) => { if (started) closeChatOnboarding(); }).catch((error) => {
+        if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) return;
+        window.alert(error.message || "Unable to open chat.");
+      });
+    }));
+    body.querySelector("[data-chat-onboarding-enter]")?.addEventListener("click", () => closeChatOnboarding());
+  }
+  refreshIcons();
+}
+
+function initChatOnboarding() {
+  if (typeof isTenantTool !== "function" || !isTenantTool("chat") || chatOnboardingCompleted()) return;
+  if (document.querySelector("[data-chat-onboarding]")) return;
+  const overlay = document.createElement("section");
+  overlay.className = "chat-onboarding";
+  overlay.dataset.chatOnboarding = "";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  const backdropImage = chatOnboardingRoleImages2(0, 1)[0]?.image || "";
+  overlay.innerHTML = `<div class="chat-onboarding-backdrop" ${backdropImage ? `style="background-image:url('${escapeHtml(backdropImage)}')"` : ""}></div><div class="chat-onboarding-panel"><aside class="chat-onboarding-rail" data-chat-onboarding-rail></aside><div class="chat-onboarding-main"><div class="chat-onboarding-topline"><span>5VIPS CHAT</span><strong data-chat-onboarding-clock>05 : 00</strong></div><div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div><h2 data-chat-onboarding-title></h2><p data-chat-onboarding-copy></p><div data-chat-onboarding-body></div></div></div>`;
+  document.body.appendChild(overlay);
+  chatOnboardingAnswers2 = {};
+  startChatOnboardingClock2(overlay);
+  renderChatOnboardingStep(overlay, 0);
+}
+
 function renderChatMode() {
   const imageMode = state.chatMode === "image";
   if (els.chatInput) els.chatInput.placeholder = imageMode ? "Describe an image..." : "Send a message";
