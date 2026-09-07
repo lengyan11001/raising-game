@@ -119,6 +119,10 @@ const {
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
   getWalletOrderByPaypalIdInDb,
+  createReferralWithdrawalInDb,
+  updateReferralWithdrawalInDb,
+  getReferralWithdrawalByIdInDb,
+  getReferralWithdrawalsPageFromDb,
   listBillingPlansInDb,
   getBillingPlanInDb,
   getUserSubscriptionInDb,
@@ -1078,6 +1082,7 @@ const DEFAULT_DB = {
   users: [],
   sessions: [],
   walletOrders: [],
+  referralWithdrawals: [],
   creditLedger: [],
   userAssets: [],
   userCharacters: [],
@@ -1919,6 +1924,7 @@ async function readDb() {
     users,
     sessions,
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
+    referralWithdrawals: Array.isArray(db.referralWithdrawals) ? db.referralWithdrawals : [],
     creditLedger: Array.isArray(db.creditLedger) ? db.creditLedger : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
@@ -6516,6 +6522,11 @@ function publicReferralSummary(req, db = {}, user = {}) {
     referral.rewardedAt ? 1 : 0,
   );
   const membershipActive = userHasCreatorMembership(user);
+  const referralWallet = referral.walletAddress || "";
+  const totalCommissionUsd = Number(referral.totalCommissionUsd || 0);
+  const withdrawnCommissionUsd = Number(referral.withdrawnCommissionUsd || 0);
+  const lockedCommissionUsd = Number(referral.lockedCommissionUsd || 0);
+  const availableWithdrawableUsd = Math.max(0, totalCommissionUsd - withdrawnCommissionUsd - lockedCommissionUsd);
   const availableRewards = membershipActive ? Math.max(0, paidUserIds.size - rewardCount) : 0;
   const origin = pageOriginFromRequest(req);
   return {
@@ -6534,6 +6545,11 @@ function publicReferralSummary(req, db = {}, user = {}) {
     rewardedAt: referral.rewardedAt || "",
     referredByUserId: referral.referredByUserId || "",
     referredByUsername: referral.referredByUsername || "",
+    walletAddress: referralWallet,
+    totalCommissionUsd: Number(totalCommissionUsd.toFixed(6)),
+    withdrawnCommissionUsd: Number(withdrawnCommissionUsd.toFixed(6)),
+    lockedCommissionUsd: Number(lockedCommissionUsd.toFixed(6)),
+    availableWithdrawableUsd: Number(availableWithdrawableUsd.toFixed(6)),
   };
 }
 
@@ -8351,6 +8367,32 @@ function lightweightAuthDb() {
   return { users: [], sessions: [], walletOrders: [], creditLedger: [], userAssets: [], userCharacters: [], userUnlocks: [], supportMessages: [], apiSubtokens: [] };
 }
 
+// Qualifying purchases earn the inviter a 20% USD commission. The order id is
+// recorded on the inviter to make the grant idempotent across webhook retries.
+async function maybeGrantReferralCommission(db, referredUserId = "", order = {}) {
+  const amount = Number(order?.baseAmount || 0);
+  const qualifies = (order?.orderKind === "subscription" && String(order?.billingPlanId || "") === CREATOR_MEMBERSHIP_PLAN_ID)
+    || (order?.orderKind === "product" && String(order?.productId || "") === API_DOCS_PRODUCT_ID);
+  if (!qualifies || !Number.isFinite(amount) || amount <= 0) return null;
+  const referredUser = (db.users || []).find((entry) => entry.id === referredUserId);
+  const referrerId = String(referralPayload(referredUser).referredByUserId || "").trim();
+  const referrer = (db.users || []).find((entry) => entry.id === referrerId);
+  if (!referredUser || !referrer || referrer.id === referredUser.id || !order.id) return null;
+  const current = referralPayload(referrer);
+  const orderIds = Array.isArray(current.commissionOrderIds) ? current.commissionOrderIds.map(String) : [];
+  if (orderIds.includes(String(order.id))) return referrer;
+  const commission = Math.round(amount * 0.2 * 100) / 100;
+  referrer.referral = {
+    ...current,
+    totalCommissionUsd: Math.round((Number(current.totalCommissionUsd || 0) + commission) * 100) / 100,
+    commissionOrderIds: [...orderIds, String(order.id)].slice(-500),
+    lastCommissionAt: new Date().toISOString(),
+  };
+  referrer.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(referrer);
+  return referrer;
+}
+
 function findUserChatUnlock(db, userId, itemId) {
   return (db.userUnlocks || []).find((record) => (
     !isSoftDeleted(record)
@@ -9650,6 +9692,7 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   order.updatedAt = now;
   if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
   await maybeGrantReferralReward(db, order.userId, order);
+  await maybeGrantReferralCommission(db, order.userId, order);
   return { settled: true, user };
 }
 
@@ -20132,6 +20175,7 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/billing/")
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
+    || pathValue.startsWith("/api/referral/")
     || pathValue === "/api/telegram/webapp-auth"
     || pathValue === "/api/telegram/login/options"
     || pathValue === "/api/telegram/login"
@@ -31905,6 +31949,120 @@ async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
+function referralWithdrawalView(record = {}, user = {}) {
+  return {
+    id: String(record.id || ""),
+    userId: String(record.userId || ""),
+    username: String(record.username || user?.username || ""),
+    amountUsd: Number(Number(record.amountUsd || 0).toFixed(2)),
+    walletAddress: String(record.walletAddress || ""),
+    status: String(record.status || "processing"),
+    note: String(record.note || ""),
+    txHash: String(record.txHash || ""),
+    createdAt: String(record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+    processedAt: String(record.processedAt || ""),
+  };
+}
+
+async function handleUpdateReferralWallet(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const address = String(body.walletAddress || body.address || "").trim();
+  if (address.length < 20 || address.length > 200) return sendJson(res, 400, { ok: false, code: "INVALID_WALLET_ADDRESS", message: "Please enter a valid wallet address." });
+  const referral = referralPayload(auth.user);
+  auth.user.referral = { ...referral, walletAddress: address, updatedAt: new Date().toISOString() };
+  auth.user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(auth.user); else await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, referral: publicReferralSummary(req, auth.db, auth.user), user: userView(auth.user) });
+}
+
+async function handleListReferralWithdrawals(req, res, url) {
+  const auth = await requireUser(req, res, { loadDb: false });
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  if (dbEnabled()) {
+    const page = await getReferralWithdrawalsPageFromDb({ userId: auth.user.id, page: paging.page, limit: paging.limit });
+    if (page) return sendJson(res, 200, { ok: true, records: page.items.map((item) => referralWithdrawalView(item, auth.user)), page: page.page, limit: page.limit, total: page.total, totalPages: page.totalPages });
+  }
+  const records = (auth.db.referralWithdrawals || []).filter((item) => item.userId === auth.user.id).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const paged = pagedResponse(records, paging);
+  return sendJson(res, 200, { ok: true, records: paged.items.map((item) => referralWithdrawalView(item, auth.user)), page: paged.page, limit: paged.limit, total: paged.total, totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)) });
+}
+
+async function handleCreateReferralWithdrawal(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const amount = Math.round(Number(body.amountUsd || body.amount || 0) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < 1) return sendJson(res, 400, { ok: false, code: "INVALID_WITHDRAWAL_AMOUNT", message: "Minimum withdrawal is $1." });
+  const referral = referralPayload(auth.user);
+  const total = Number(referral.totalCommissionUsd || 0);
+  const withdrawn = Number(referral.withdrawnCommissionUsd || 0);
+  const locked = Number(referral.lockedCommissionUsd || 0);
+  const available = Math.max(0, total - withdrawn - locked);
+  if (amount > available + 1e-9) return sendJson(res, 400, { ok: false, code: "INSUFFICIENT_COMMISSION", message: "Insufficient withdrawable commission.", availableUsd: Number(available.toFixed(2)) });
+  const address = String(body.walletAddress || body.address || referral.walletAddress || "").trim();
+  if (address.length < 20 || address.length > 200) return sendJson(res, 400, { ok: false, code: "WALLET_ADDRESS_REQUIRED", message: "Set your wallet address before requesting withdrawal." });
+  const now = new Date().toISOString();
+  const record = { id: randomId("withdraw"), userId: auth.user.id, username: auth.user.username || "", amountUsd: amount, walletAddress: address, status: "processing", note: "", txHash: "", createdAt: now, updatedAt: now };
+  auth.user.referral = { ...referral, walletAddress: address, lockedCommissionUsd: Number((locked + amount).toFixed(2)), updatedAt: now };
+  auth.user.updatedAt = now;
+  auth.db.referralWithdrawals = Array.isArray(auth.db.referralWithdrawals) ? auth.db.referralWithdrawals : [];
+  auth.db.referralWithdrawals.unshift(record);
+  if (dbEnabled()) { await updateUserInDb(auth.user); await createReferralWithdrawalInDb(record); } else await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, record: referralWithdrawalView(record, auth.user), referral: publicReferralSummary(req, auth.db, auth.user) });
+}
+
+async function handleAdminListReferralWithdrawals(req, res, url) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
+  let page;
+  if (dbEnabled()) page = await getReferralWithdrawalsPageFromDb({ page: paging.page, limit: paging.limit, status });
+  if (page) {
+    const users = await getUsersByIdsInDb(page.items.map((item) => item.userId));
+    const map = new Map(users.map((user) => [user.id, user]));
+    return sendJson(res, 200, { ok: true, records: page.items.map((item) => referralWithdrawalView(item, map.get(item.userId))), page: page.page, limit: page.limit, total: page.total, totalPages: page.totalPages });
+  }
+  const users = new Map((auth.db.users || []).map((user) => [user.id, user]));
+  let records = (auth.db.referralWithdrawals || []).filter((item) => !status || String(item.status || "").toLowerCase() === status).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const paged = pagedResponse(records, paging);
+  return sendJson(res, 200, { ok: true, records: paged.items.map((item) => referralWithdrawalView(item, users.get(item.userId))), page: paged.page, limit: paged.limit, total: paged.total, totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)) });
+}
+
+async function handleAdminUpdateReferralWithdrawal(req, res, withdrawalId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const id = decodeURIComponent(String(withdrawalId || ""));
+  const record = (await getReferralWithdrawalByIdInDb(id)) || (auth.db.referralWithdrawals || []).find((item) => item.id === id);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Withdrawal request not found." });
+  const body = await readJson(req);
+  const nextStatus = String(body.status || "").trim().toLowerCase();
+  if (!["processing", "rejected", "paid"].includes(nextStatus)) return sendJson(res, 400, { ok: false, code: "INVALID_WITHDRAWAL_STATUS", message: "Status must be processing, rejected, or paid." });
+  const user = (auth.db.users || []).find((item) => item.id === record.userId) || (await getUserByIdInDb(record.userId));
+  if (!user) return sendJson(res, 404, { ok: false, message: "User not found." });
+  const previous = String(record.status || "processing");
+  if (previous === "paid" && nextStatus !== "paid") return sendJson(res, 409, { ok: false, code: "WITHDRAWAL_ALREADY_PAID", message: "Paid withdrawal records cannot be reopened." });
+  const referral = referralPayload(user);
+  let locked = Number(referral.lockedCommissionUsd || 0);
+  let withdrawn = Number(referral.withdrawnCommissionUsd || 0);
+  if (previous === "processing" && nextStatus !== "processing") locked = Math.max(0, locked - Number(record.amountUsd || 0));
+  if (previous !== "processing" && nextStatus === "processing") locked += Number(record.amountUsd || 0);
+  if (previous !== "paid" && nextStatus === "paid") withdrawn += Number(record.amountUsd || 0);
+  record.status = nextStatus;
+  record.note = typeof body.note === "string" ? body.note.slice(0, 500) : record.note || "";
+  record.txHash = typeof body.txHash === "string" ? body.txHash.trim().slice(0, 200) : record.txHash || "";
+  record.processedAt = nextStatus === "processing" ? "" : (record.processedAt || new Date().toISOString());
+  record.updatedAt = new Date().toISOString();
+  user.referral = { ...referral, lockedCommissionUsd: Number(locked.toFixed(2)), withdrawnCommissionUsd: Number(withdrawn.toFixed(2)), walletAddress: referral.walletAddress || record.walletAddress, updatedAt: record.updatedAt };
+  user.updatedAt = record.updatedAt;
+  if (dbEnabled()) { await updateReferralWithdrawalInDb(record); await updateUserInDb(user); } else { const idx = auth.db.referralWithdrawals.findIndex((item) => item.id === id); if (idx >= 0) auth.db.referralWithdrawals[idx] = record; await writeDb(auth.db); }
+  return sendJson(res, 200, { ok: true, record: referralWithdrawalView(record, user) });
+}
+
 function stripeEnabled() {
   return Boolean(STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET);
 }
@@ -41118,6 +41276,9 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
     }
+    if (req.method === "PUT" && url.pathname === "/api/referral/wallet") return await handleUpdateReferralWallet(req, res);
+    if (req.method === "GET" && url.pathname === "/api/referral/withdrawals") return await handleListReferralWithdrawals(req, res, url);
+    if (req.method === "POST" && url.pathname === "/api/referral/withdrawals") return await handleCreateReferralWithdrawal(req, res);
     if (req.method === "POST" && url.pathname === "/api/membership/redeem") {
       return await handleRedeemMembershipActivationCode(req, res);
     }
@@ -41510,6 +41671,10 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/admin/wallet-orders") {
       return await handleAdminListWalletOrders(req, res, url);
     }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/referral-withdrawals") return await handleAdminListReferralWithdrawals(req, res, url);
+    const adminReferralWithdrawalMatch = url.pathname.match(/^\/api\/admin\/referral-withdrawals\/([^/]+)$/);
+    if (req.method === "PATCH" && adminReferralWithdrawalMatch) return await handleAdminUpdateReferralWithdrawal(req, res, adminReferralWithdrawalMatch[1]);
 
     if (req.method === "GET" && url.pathname === "/api/admin/recharge-ledger") {
       return await handleAdminListRechargeLedger(req, res, url);

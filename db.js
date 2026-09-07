@@ -188,6 +188,28 @@ async function ensureSchemaInner() {
       WHERE paypal_order_id <> '';
   `);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_referral_withdrawals (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'processing',
+      amount_usd NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      wallet_address TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_referral_withdrawals
+    ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
+    ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS wallet_address TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_billing_plans (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -787,6 +809,7 @@ async function tableCounts() {
     SELECT 'users' AS name, COUNT(*)::int AS count FROM app_users
     UNION ALL SELECT 'sessions', COUNT(*)::int FROM app_sessions
     UNION ALL SELECT 'wallet_orders', COUNT(*)::int FROM app_wallet_orders
+    UNION ALL SELECT 'referral_withdrawals', COUNT(*)::int FROM app_referral_withdrawals
     UNION ALL SELECT 'credit_ledger', COUNT(*)::int FROM app_credit_ledger
     UNION ALL SELECT 'user_assets', COUNT(*)::int FROM app_user_assets
     UNION ALL SELECT 'user_characters', COUNT(*)::int FROM app_user_characters
@@ -804,6 +827,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     users,
     sessions,
     walletOrders,
+    referralWithdrawals,
     creditLedger,
     userAssets,
     userCharacters,
@@ -814,6 +838,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
     query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
     query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`),
     query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
     query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
@@ -825,6 +850,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     users: users.rows.map(userFromRow),
     sessions: sessions.rows.map(sessionFromRow),
     walletOrders: walletOrders.rows.map(walletOrderFromRow),
+    referralWithdrawals: referralWithdrawals.rows.map(referralWithdrawalFromRow),
     creditLedger: creditLedger.rows.map(ledgerFromRow),
     userAssets: userAssets.rows.map(recordFromPayloadRow),
     userCharacters: userCharacters.rows.map(recordFromPayloadRow),
@@ -850,6 +876,7 @@ async function replaceAppDbTables(db = {}, options = {}) {
       await client.query("DELETE FROM app_user_assets");
       await client.query("DELETE FROM app_credit_ledger");
       await client.query("DELETE FROM app_wallet_orders");
+      await client.query("DELETE FROM app_referral_withdrawals");
       await client.query("DELETE FROM app_sessions");
       await client.query("DELETE FROM app_users");
     }
@@ -1228,6 +1255,62 @@ async function getWalletOrderByPaypalIdInDb(paypalOrderId = "") {
   return rows[0] ? walletOrderFromRow(rows[0]) : null;
 }
 
+function referralWithdrawalFromRow(row = {}) {
+  const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    status: String(row.status || payload.status || "processing"),
+    amountUsd: Number(row.amount_usd ?? payload.amountUsd ?? 0),
+    walletAddress: String(row.wallet_address || payload.walletAddress || ""),
+    createdAt: toIsoString(row.created_at || payload.createdAt || ""),
+    updatedAt: toIsoString(row.updated_at || payload.updatedAt || ""),
+  };
+}
+
+async function createReferralWithdrawalInDb(record = {}) {
+  if (!dbEnabled()) return record;
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO NOTHING
+  `, [String(record.id || ""), String(record.userId || ""), String(record.status || "processing"), Number(record.amountUsd || 0), String(record.walletAddress || ""), JSON.stringify(record), record.createdAt || new Date().toISOString(), record.updatedAt || record.createdAt || new Date().toISOString()]);
+  return record;
+}
+
+async function updateReferralWithdrawalInDb(record = {}) {
+  if (!dbEnabled()) return record;
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, status = EXCLUDED.status,
+      amount_usd = EXCLUDED.amount_usd, wallet_address = EXCLUDED.wallet_address,
+      payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+  `, [String(record.id || ""), String(record.userId || ""), String(record.status || "processing"), Number(record.amountUsd || 0), String(record.walletAddress || ""), JSON.stringify(record), record.createdAt || new Date().toISOString(), record.updatedAt || new Date().toISOString()]);
+  return record;
+}
+
+async function getReferralWithdrawalByIdInDb(id = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_referral_withdrawals WHERE id = $1`, [String(id || "")]);
+  return rows[0] ? referralWithdrawalFromRow(rows[0]) : null;
+}
+
+async function getReferralWithdrawalsPageFromDb({ userId = "", page = 1, limit = 20, status = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 100);
+  const cleanUserId = String(userId || "").trim();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const { rows } = await query(`SELECT *, COUNT(*) OVER()::int AS total_count FROM app_referral_withdrawals WHERE ($1 = '' OR user_id = $1) AND ($2 = '' OR LOWER(status) = $2) ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [cleanUserId, cleanStatus, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  return { items: rows.map(referralWithdrawalFromRow), total, page: safePage, limit: safeLimit, totalPages: Math.max(1, Math.ceil(total / safeLimit)) };
+}
+
 async function listBillingPlansInDb(tenantId = DEFAULT_TENANT_ID, { includeInactive = false } = {}) {
   if (!dbEnabled()) return [];
   const cleanTenantId = normalizeTenantId(tenantId);
@@ -1361,6 +1444,14 @@ async function createMembershipActivationCodesInDb(codes = []) {
         ],
       );
       if (rows[0]) created.push(membershipActivationCodeFromRow(rows[0]));
+    }
+    for (const withdrawal of Array.isArray(db.referralWithdrawals) ? db.referralWithdrawals : []) {
+      await client.query(
+        `INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, wallet_address = EXCLUDED.wallet_address, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+        [String(withdrawal.id || ""), String(withdrawal.userId || ""), String(withdrawal.status || "processing"), Number(withdrawal.amountUsd || 0), String(withdrawal.walletAddress || ""), JSON.stringify(withdrawal), payloadCreatedAt(withdrawal), payloadUpdatedAt(withdrawal)],
+      );
     }
     await client.query("COMMIT");
     return created;
@@ -3428,6 +3519,10 @@ module.exports = {
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
   getWalletOrderByPaypalIdInDb,
+  createReferralWithdrawalInDb,
+  updateReferralWithdrawalInDb,
+  getReferralWithdrawalByIdInDb,
+  getReferralWithdrawalsPageFromDb,
   listBillingPlansInDb,
   getBillingPlanInDb,
   getUserSubscriptionInDb,
