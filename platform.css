@@ -10799,4 +10799,42 @@ select:focus,
   .advanced-result-regenerate { width: 100%; justify-content: center; }
   .asset-grid { grid-template-columns: 1fr; }
 }
-:root {
+:root {}
+
+/* Final cascade for the reference-style Chat onboarding. */
+.chat-onboarding-panel { display: grid !important; grid-template-columns: 150px minmax(0,1fr) !important; width: min(1100px, calc(100vw - 48px)) !important; height: min(730px, calc(100vh - 48px)) !important; max-height: none !important; padding: 0 !important; overflow: hidden !important; border: 0 !important; border-radius: 12px !important; background: rgba(247,247,248,.92) !important; color: #0e0e11 !important; }
+.chat-onboarding-backdrop { background-color: #24242a !important; background-position: center !important; background-size: cover !important; filter: blur(5px) !important; transform: scale(1.04) !important; opacity: .46 !important; }
+.chat-onboarding-rail { display: flex !important; flex-direction: column !important; gap: 10px !important; padding: 0 !important; background: rgba(229,229,231,.92) !important; }
+.chat-onboarding-rail-item { position: relative !important; display: grid !important; grid-template-columns: 1fr 28px !important; align-items: center !important; min-height: 70px !important; padding: 0 17px 0 24px !important; border: 0 !important; border-radius: 0 38px 38px 0 !important; color: #111 !important; background: rgba(255,255,255,.95) !important; font-weight: 800 !important; }
+.chat-onboarding-rail-item.is-active { margin-right: -6px !important; box-shadow: 7px 0 0 #ff6d82 !important; }
+.chat-onboarding-rail-item i, .chat-onboarding-rail-item img { justify-self: end !important; }
+.chat-onboarding-rail-item img { width: 28px !important; height: 28px !important; border-radius: 50% !important; object-fit: cover !important; }
+.chat-onboarding-main { display: flex !important; flex-direction: column !important; align-items: center !important; min-width: 0 !important; padding: 14px 30px 34px !important; overflow: auto !important; }
+.chat-onboarding-topline { width: 100% !important; justify-content: center !important; color: #111 !important; letter-spacing: 0 !important; }
+.chat-onboarding-topline > span { display: none !important; }
+.chat-onboarding-topline strong { color: #111 !important; font-size: 17px !important; }
+.chat-onboarding-mark { display: none !important; }
+.chat-onboarding-main h2 { margin: auto 0 22px !important; color: #08080a !important; font-size: clamp(25px,3vw,34px) !important; text-align: center !important; }
+.chat-onboarding-main > p { display: none !important; }
+.chat-onboarding-main [data-chat-onboarding-body] { width: 100% !important; margin: 0 auto auto !important; }
+.chat-onboarding-binary { display: flex !important; justify-content: center !important; gap: 20px !important; }
+.chat-onboarding-binary-option { min-width: 90px !important; padding: 13px 22px !important; border: 0 !important; border-radius: 999px !important; color: #fff !important; background: #4caf57 !important; font-size: 19px !important; font-weight: 800 !important; }
+.chat-onboarding-binary-option.is-negative { background: #fa443d !important; }
+.chat-onboarding-image-options { display: grid !important; grid-template-columns: repeat(4,minmax(0,1fr)) !important; gap: 14px !important; width: min(800px,100%) !important; margin: 0 auto !important; }
+.chat-onboarding-image-option { min-width: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 18px !important; color: #0e0e11 !important; background: transparent !important; font-weight: 800 !important; }
+.chat-onboarding-image-option img { display: block !important; width: 100% !important; aspect-ratio: 1/1.18 !important; border: 4px solid transparent !important; border-radius: 18px !important; object-fit: cover !important; }
+.chat-onboarding-image-option:hover img { border-color: #f20b27 !important; }
+.chat-onboarding-image-option span { display: block !important; padding-top: 8px !important; color: #111 !important; font-size: 16px !important; }
+.chat-onboarding-results { display: grid !important; grid-template-columns: repeat(3,minmax(0,1fr)) !important; gap: 14px !important; width: min(800px,100%) !important; margin: 0 auto !important; }
+.chat-onboarding-role { grid-template-columns: 1fr !important; gap: 7px !important; padding: 0 0 12px !important; overflow: hidden !important; border: 1px solid #ddd !important; border-radius: 12px !important; color: #111 !important; background: #fff !important; }
+.chat-onboarding-role img { width: 100% !important; height: 180px !important; border-radius: 0 !important; }
+.chat-onboarding-role-copy { padding: 0 12px !important; }
+.chat-onboarding-role-copy small { display: none !important; }
+.chat-onboarding-role-cta { padding: 0 12px !important; }
+@media (max-width: 700px) {
+  .chat-onboarding-panel { grid-template-columns: 82px minmax(0,1fr) !important; width: calc(100vw - 20px) !important; height: calc(100vh - 20px) !important; }
+  .chat-onboarding-rail-item { min-height: 64px !important; padding: 0 9px !important; grid-template-columns: 1fr !important; justify-items: center !important; }
+  .chat-onboarding-rail-item i, .chat-onboarding-rail-item img { justify-self: center !important; }
+  .chat-onboarding-image-options { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+  .chat-onboarding-results { grid-template-columns: 1fr !important; max-width: 280px !important; }
+}
