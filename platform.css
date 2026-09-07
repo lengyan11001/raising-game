@@ -10802,7 +10802,7 @@ select:focus,
 :root {}
 
 /* Final cascade for the reference-style Chat onboarding. */
-.chat-onboarding-panel { display: grid !important; grid-template-columns: 150px minmax(0,1fr) !important; width: min(1100px, calc(100vw - 48px)) !important; height: min(730px, calc(100vh - 48px)) !important; max-height: none !important; padding: 0 !important; overflow: hidden !important; border: 0 !important; border-radius: 12px !important; background: rgba(247,247,248,.92) !important; color: #0e0e11 !important; }
+.chat-onboarding-panel { display: grid !important; grid-template-columns: 150px minmax(0,1fr) !important; width: min(1100px, calc(100vw - 48px)) !important; height: min(730px, calc(100vh - 48px)) !important; max-height: none !important; padding: 0 !important; overflow: hidden !important; border: 0 !important; border-radius: 12px !important; background: rgba(247,247,248,.97) !important; color: #0e0e11 !important; }
 .chat-onboarding-backdrop { background-color: #24242a !important; background-position: center !important; background-size: cover !important; filter: blur(5px) !important; transform: scale(1.04) !important; opacity: .46 !important; }
 .chat-onboarding-rail { display: flex !important; flex-direction: column !important; gap: 10px !important; padding: 0 !important; background: rgba(229,229,231,.92) !important; }
 .chat-onboarding-rail-item { position: relative !important; display: grid !important; grid-template-columns: 1fr 28px !important; align-items: center !important; min-height: 70px !important; padding: 0 17px 0 24px !important; border: 0 !important; border-radius: 0 38px 38px 0 !important; color: #111 !important; background: rgba(255,255,255,.95) !important; font-weight: 800 !important; }
