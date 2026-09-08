@@ -1100,6 +1100,7 @@ const els = {
   exportTopupsBtn: document.querySelector("#exportTopupsBtn"),
   referralCard: document.querySelector("#referralCard"),
   referralLink: document.querySelector("#referralLink"),
+  copyReferralLinkBtn: document.querySelector("#copyReferralLinkBtn"),
   referralProgressFill: document.querySelector("#referralProgressFill"),
   referralInvitedCount: document.querySelector("#referralInvitedCount"),
   referralRewardStatus: document.querySelector("#referralRewardStatus"),

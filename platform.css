@@ -3927,7 +3927,7 @@ dialog.tool-download-modal {
 .referral-offer-cards { grid-column: 1 / -1; display: grid; gap: 14px; }
 .referral-offer-card { display: grid; gap: 14px; padding: 16px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.04); }
 .referral-offer-heading { display: grid; gap: 5px; }
-.referral-offer-heading span { color: #ff69bd; font-size: 1.12rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; line-height: 1.2; }
+.referral-offer-heading span { color: #ff69bd; font-size: 2.24rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; line-height: 1.05; text-shadow: 0 4px 20px rgba(255,79,163,.28); }
 .referral-offer-heading h3 { margin: 0; color: #fff; font-size: 1.08rem; }
 .referral-offer-heading p { margin: 0; color: rgba(255,255,255,.68); font-size: .86rem; line-height: 1.45; }
 .referral-copy-btn {
@@ -3936,8 +3936,8 @@ dialog.tool-download-modal {
   background: #fff;
   color: #111;
 }
+.referral-link-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
 .referral-link {
-  grid-column: 1 / -1;
   min-width: 0;
   padding: 12px 14px;
   border: 1px solid rgba(255,255,255,.12);
@@ -4139,7 +4139,13 @@ dialog.tool-download-modal {
   font-size: .72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
+  color: rgba(255,255,255,.86);
+  text-align: left;
+  cursor: pointer;
 }
+.referral-link:hover { border-color: rgba(255,79,163,.55); background: rgba(255,255,255,.1); }
+.referral-link-copy-btn { align-self: stretch; white-space: nowrap; }
+@media (max-width: 620px) { .referral-link-row { grid-template-columns: 1fr; } .referral-link-copy-btn { justify-content: center; } }
 .pricing-shot-table tr:last-child td {
   border-bottom: 0;
 }

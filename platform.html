@@ -622,7 +622,10 @@
             <p data-i18n="membership.referralSubtitle">Members earn 100 credits for each invited user who registers and completes a payment.</p>
           </div>
           <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
-          <div class="referral-link" id="referralLink">Login to get your invite link.</div>
+          <div class="referral-link-row">
+            <button class="referral-link" id="referralLink" type="button">Login to get your invite link.</button>
+            <button class="ghost-button referral-link-copy-btn" id="copyReferralLinkBtn" type="button" aria-label="Copy referral message"><i data-lucide="copy"></i><span data-i18n="referral.copyLink">Copy link</span></button>
+          </div>
           <div class="referral-offer-cards">
             <section class="referral-offer-card referral-commission-card">
               <div class="referral-offer-heading"><span data-i18n="referral.commissionCardEyebrow">Cash commission</span><h3 data-i18n="referral.commissionCardTitle">Earn withdrawable commission</h3><p data-i18n="referral.commissionCardSubtitle">Earn 20% when an invited user buys membership or API documentation access.</p></div>

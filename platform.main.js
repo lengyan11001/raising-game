@@ -762,17 +762,33 @@ async function copyReferralText(value = "") {
   return copied;
 }
 
-els.copyReferralBtn?.addEventListener("click", async () => {
-  if (!state.user) return openLogin();
+function referralShareMessage(inviteUrl = "") {
+  const url = String(inviteUrl || "").trim();
+  if (!url) return "";
+  if (state.lang === "zh") return `定位123：AI 成人创意内容生成平台，快速帮助你创作富有吸引力的成人向作品。\n立即体验：${url}`;
+  return `Discover 123 — an AI platform for creating engaging adult content.\nTry it here: ${url}`;
+}
+
+async function copyReferralInvite() {
+  if (!state.user) {
+    openLogin();
+    return;
+  }
   if (!state.referral?.inviteUrl) await loadReferralSummary({ force: true });
   const inviteUrl = state.referral?.inviteUrl || "";
   if (!inviteUrl) {
     if (els.referralNote) els.referralNote.textContent = t("referral.copyFailed");
     return;
   }
-  const copied = await copyReferralText(inviteUrl);
+  const copied = await copyReferralText(referralShareMessage(inviteUrl));
   if (els.referralNote) els.referralNote.textContent = copied ? t("referral.linkCopied") : t("referral.copyFailed");
+}
+
+els.copyReferralBtn?.addEventListener("click", async () => {
+  await copyReferralInvite();
 });
+els.copyReferralLinkBtn?.addEventListener("click", copyReferralInvite);
+els.referralLink?.addEventListener("click", copyReferralInvite);
 els.saveReferralWalletBtn?.addEventListener("click", async () => {
   if (!state.user) return openLogin();
   const walletAddress = String(els.referralWalletAddress?.value || "").trim();
