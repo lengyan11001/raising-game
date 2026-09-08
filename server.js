@@ -921,6 +921,13 @@ const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || ALIYUN_DASHS
 const ALIYUN_WAN30_API_KEY = process.env.ALIYUN_WAN30_API_KEY || ALIYUN_DASHSCOPE_API_KEY;
 const ALIYUN_WAN30_MODEL = process.env.ALIYUN_WAN30_MODEL || "wan3.0-video";
 const ALIYUN_WAN30_PRIME_MODEL = process.env.ALIYUN_WAN30_PRIME_MODEL || "wan3.0-video-prime";
+// Agentic Mobile exposes Wan 3.0 Prime through a separate node-scoped API key.
+// Keep it isolated from the existing DashScope Wan 3.0 account.
+const ALIYUN_WAN30_PRIME_BASE_URL = (process.env.ALIYUN_WAN30_PRIME_BASE_URL
+  || (process.env.ALIYUN_WAN30_PRIME_API_KEY
+    ? "https://model-intl.aimobile.wuying.aliyuncs.com/us-east-1"
+    : ALIYUN_WAN30_BASE_URL)).replace(/\/+$/, "");
+const ALIYUN_WAN30_PRIME_API_KEY = String(process.env.ALIYUN_WAN30_PRIME_API_KEY || "").trim();
 const ALIYUN_WAN30_PRIME_PRICE_FACTOR = pricingNumber(process.env.ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1.5, 1, 6);
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
@@ -13037,17 +13044,39 @@ async function aliyunDashscopeRequest(pathname, {
   body = null,
   asyncTask = false,
   provider = "wan27",
+  prime = false,
   timeoutMs = 0,
 } = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const wan30 = normalizedProvider === "wan30" || String(provider || "").toLowerCase() === "aliyun-wan30";
   const qwenImage3 = normalizedProvider === "qwen-image3";
-  const baseUrl = qwenImage3 ? QWEN_IMAGE3_SINGAPORE_BASE_URL : wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
-  const apiKey = qwenImage3 ? ALIYUN_QWEN_IMAGE3_API_KEY : wan30 ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+  // A node-scoped Agentic Mobile key opts Prime into the new endpoint. When
+  // it is absent, keep using the existing Wan endpoint and credentials.
+  const useWan30PrimeNode = wan30 && prime && Boolean(ALIYUN_WAN30_PRIME_API_KEY);
+  const baseUrl = qwenImage3
+    ? QWEN_IMAGE3_SINGAPORE_BASE_URL
+    : useWan30PrimeNode
+      ? ALIYUN_WAN30_PRIME_BASE_URL
+      : wan30
+        ? ALIYUN_WAN30_BASE_URL
+        : ALIYUN_DASHSCOPE_BASE_URL;
+  const apiKey = qwenImage3
+    ? ALIYUN_QWEN_IMAGE3_API_KEY
+    : useWan30PrimeNode
+      ? (ALIYUN_WAN30_PRIME_API_KEY || ALIYUN_WAN30_API_KEY)
+      : wan30
+        ? ALIYUN_WAN30_API_KEY
+        : ALIYUN_DASHSCOPE_API_KEY;
   if (!apiKey) {
-    const error = new Error(`${qwenImage3 ? "Qwen Image 3.0" : wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
+    const error = new Error(`${qwenImage3 ? "Qwen Image 3.0" : useWan30PrimeNode ? "Wan3.0 Prime Agentic Mobile" : wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
     error.statusCode = 503;
-    error.code = qwenImage3 ? "MISSING_ALIYUN_QWEN_IMAGE3_API_KEY" : wan30 ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
+    error.code = qwenImage3
+      ? "MISSING_ALIYUN_QWEN_IMAGE3_API_KEY"
+      : useWan30PrimeNode
+        ? "MISSING_ALIYUN_WAN30_PRIME_API_KEY"
+        : wan30
+          ? "MISSING_ALIYUN_WAN30_API_KEY"
+          : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
     throw error;
   }
   const normalizedMethod = String(method || "POST").toUpperCase();
@@ -13066,8 +13095,8 @@ async function aliyunDashscopeRequest(pathname, {
           authorization: `Bearer ${apiKey}`,
           accept: "application/json",
           ...(body ? { "content-type": "application/json" } : {}),
-          ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
-          ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
+          ...(!useWan30PrimeNode && body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
+          ...(!useWan30PrimeNode && asyncTask ? { "X-DashScope-Async": "enable" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(requestTimeoutMs),
@@ -13726,12 +13755,30 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     promptLength: prompt.length,
     parameters: payload.parameters,
   }, null, 2));
-  const raw = await aliyunDashscopeRequest(request.endpoint, {
-    method: "POST",
-    body: payload,
-    asyncTask: true,
-    provider,
-  });
+  const prime = resolvedCapability === "wan30-video-prime";
+  let raw;
+  try {
+    raw = await aliyunDashscopeRequest(request.endpoint, {
+      method: "POST",
+      body: payload,
+      asyncTask: true,
+      provider,
+      prime,
+    });
+  } catch (error) {
+    // Keep production resilient while the dedicated node is being enabled.
+    // A failed Agentic Mobile submission is retried once through the legacy
+    // Prime endpoint; non-Prime capabilities are unaffected.
+    if (!prime || !ALIYUN_WAN30_PRIME_API_KEY) throw error;
+    console.warn("[aliyun-video-prime-fallback] Agentic Mobile request failed; retrying legacy Wan endpoint", error?.message || error);
+    raw = await aliyunDashscopeRequest(request.endpoint, {
+      method: "POST",
+      body: payload,
+      asyncTask: true,
+      provider,
+      prime: false,
+    });
+  }
   return { task: normalizeWan27Task(raw), payload, raw, capability: resolvedCapability };
 }
 
@@ -13901,10 +13948,25 @@ async function submitWan27ImageTextGenerate({
 async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
-  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
-    method: "GET",
-    provider: record.provider === "aliyun-wan30" ? "wan30" : "wan27",
-  });
+  const provider = record.provider === "aliyun-wan30" ? "wan30" : "wan27";
+  const prime = provider === "wan30"
+    && String(record.videoCapability || record.params?.videoCapability || "").toLowerCase() === "wan30-video-prime";
+  let raw;
+  try {
+    raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
+      method: "GET",
+      provider,
+      prime,
+    });
+  } catch (error) {
+    if (!prime || !ALIYUN_WAN30_PRIME_API_KEY) throw error;
+    console.warn("[aliyun-video-prime-fallback] Agentic Mobile query failed; retrying legacy Wan endpoint", error?.message || error);
+    raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
+      method: "GET",
+      provider,
+      prime: false,
+    });
+  }
   const task = normalizeWan27Task(raw);
   const taskAgeMs = Date.now() - Date.parse(record.createdAt || "");
   if (
