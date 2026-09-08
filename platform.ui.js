@@ -584,6 +584,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   const nextUserId = user?.id || "";
   const userChanged = nextUserId !== previousUserId;
   state.user = user || null;
+  if (userChanged) state.generationCompletionPrimed = false;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {
     if (state.billing) state.billing = { ...state.billing, subscription: null };
@@ -660,6 +661,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     renderPricing();
   }
   syncTopupAutoRefresh();
+  syncGenerationCompletionRefresh();
 }
 
 function maskToken(token = "") {
@@ -1362,6 +1364,66 @@ function statusClass(status) {
 
 function isSucceededGenerationStatus(status) {
   return statusClass(status) === "succeeded";
+}
+
+function isCompletedGenerationRecord(record = {}) {
+  if (isSucceededGenerationStatus(record.status)) return true;
+  return Boolean((generationVideoUrl(record) || generationImageResultUrl(record) || String(record.textResult || record.responseText || "").trim())
+    && !isPendingGenerationRecord(record));
+}
+
+function generationCompletionLabel(record = {}) {
+  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || "生成记录").trim();
+}
+
+function showGenerationCompletionNotice(record = {}) {
+  const root = els.generationCompletionNotices;
+  if (!root) return;
+  const item = document.createElement("div");
+  item.className = "generation-completion-notice";
+  item.setAttribute("role", "status");
+  item.innerHTML = `
+    <span class="generation-completion-notice-icon"><i data-lucide="check"></i></span>
+    <div class="generation-completion-notice-copy">
+      <strong>${escapeHtml(state.lang === "zh" ? "🎉 生成完成" : "🎉 Generation complete")}</strong>
+      <span>${escapeHtml(generationCompletionLabel(record))} ${escapeHtml(state.lang === "zh" ? "记录生成成功" : "generated successfully")}</span>
+    </div>
+    <button class="generation-completion-notice-close" type="button" aria-label="${escapeHtml(state.lang === "zh" ? "关闭通知" : "Close notification")}"><i data-lucide="x"></i></button>
+  `;
+  item.querySelector(".generation-completion-notice-close")?.addEventListener("click", () => item.remove());
+  root.prepend(item);
+  refreshIcons();
+  window.setTimeout(() => item.remove(), 6000);
+}
+
+function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = []) {
+  const previousByTask = new Map((Array.isArray(previousRecords) ? previousRecords : [])
+    .filter((record) => record?.taskId)
+    .map((record) => [String(record.taskId), record]));
+  if (!state.generationCompletionPrimed) {
+    state.generationCompletionPrimed = true;
+    return;
+  }
+  const completed = (Array.isArray(nextRecords) ? nextRecords : [])
+    .filter((record) => record?.taskId && isCompletedGenerationRecord(record))
+    .filter((record) => {
+      const previous = previousByTask.get(String(record.taskId));
+      return previous && !isCompletedGenerationRecord(previous);
+    });
+  completed.slice(0, 3).forEach(showGenerationCompletionNotice);
+  if (completed.length > 3) showGenerationCompletionNotice({ taskId: `${completed.length} records`, modelLabel: state.lang === "zh" ? `还有 ${completed.length - 3} 条` : `${completed.length - 3} more` });
+}
+
+function syncGenerationCompletionRefresh() {
+  const active = Boolean(state.user && typeof loadHistory === "function");
+  if (active && !state.generationCompletionRefreshTimer) {
+    state.generationCompletionRefreshTimer = window.setInterval(() => {
+      if (state.user && !historyLoading && !historyRefreshInFlight) loadHistory({ silent: true, refresh: true, page: 1, preserveMobile: true }).catch(() => {});
+    }, 15000);
+  } else if (!active && state.generationCompletionRefreshTimer) {
+    window.clearInterval(state.generationCompletionRefreshTimer);
+    state.generationCompletionRefreshTimer = 0;
+  }
 }
 
 function isTerminalGenerationStatus(status) {

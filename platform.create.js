@@ -5079,10 +5079,12 @@ async function refreshPendingHistoryRecords(records = []) {
     .filter((result) => result.status === "fulfilled" && result.value?.record?.taskId)
     .map((result) => [String(result.value.record.taskId), result.value.record]));
   if (!refreshedByTaskId.size) return;
+  const previousRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
   const previousScrollTop = els.historyList?.scrollTop || 0;
   state.historyRecords = (state.historyRecords || []).map((record) => (
     refreshedByTaskId.get(String(record.taskId || "")) || record
   ));
+  notifyGenerationCompletionChanges(previousRecords, state.historyRecords);
   const nextSignature = generationRecordsSignature(state.historyRecords);
   if (nextSignature !== historyRecordsSignature) {
     renderHistory(state.historyRecords);
@@ -5159,6 +5161,7 @@ async function loadHistory({
       : shouldPreserve
         ? mergeHistoryRecordPages(incomingRecords, previousRecords)
         : incomingRecords;
+    notifyGenerationCompletionChanges(previousRecords, records);
     state.historyRecordsPage = shouldAppend || shouldPreserve
       ? Math.max(previousPage, Number(payload.page || requestedPage))
       : payload.page || requestedPage;
