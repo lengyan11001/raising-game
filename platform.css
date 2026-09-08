@@ -3945,7 +3945,12 @@ dialog.tool-download-modal {
   background: rgba(255,255,255,.07);
   color: rgba(255,255,255,.86);
   overflow-wrap: anywhere;
+  text-align: left;
+  cursor: pointer;
 }
+.referral-link:hover { border-color: rgba(255,79,163,.55); background: rgba(255,255,255,.1); }
+.referral-link-copy-btn { align-self: stretch; white-space: nowrap; }
+.referral-copy-feedback { grid-column: 1 / -1; min-height: 20px; color: #72e69b; font-size: .84rem; font-weight: 800; }
 .referral-progress {
   grid-column: 1 / -1;
   height: 7px;
@@ -4139,12 +4144,7 @@ dialog.tool-download-modal {
   font-size: .72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
-  color: rgba(255,255,255,.86);
-  text-align: left;
-  cursor: pointer;
 }
-.referral-link:hover { border-color: rgba(255,79,163,.55); background: rgba(255,255,255,.1); }
-.referral-link-copy-btn { align-self: stretch; white-space: nowrap; }
 @media (max-width: 620px) { .referral-link-row { grid-template-columns: 1fr; } .referral-link-copy-btn { justify-content: center; } }
 .pricing-shot-table tr:last-child td {
   border-bottom: 0;

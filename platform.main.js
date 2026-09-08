@@ -781,7 +781,21 @@ async function copyReferralInvite() {
     return;
   }
   const copied = await copyReferralText(referralShareMessage(inviteUrl));
-  if (els.referralNote) els.referralNote.textContent = copied ? t("referral.linkCopied") : t("referral.copyFailed");
+  const feedback = copied ? t("referral.linkCopied") : t("referral.copyFailed");
+  if (els.referralNote) els.referralNote.textContent = feedback;
+  if (els.referralCopyFeedback) {
+    els.referralCopyFeedback.textContent = feedback;
+    window.clearTimeout(els.referralCopyFeedback._clearTimer);
+    els.referralCopyFeedback._clearTimer = window.setTimeout(() => { els.referralCopyFeedback.textContent = ""; }, 4000);
+  }
+  if (copied && els.copyReferralLinkBtn) {
+    const label = els.copyReferralLinkBtn.querySelector("span");
+    if (label) {
+      const previous = label.textContent;
+      label.textContent = state.lang === "zh" ? "已复制" : "Copied";
+      window.setTimeout(() => { if (label.isConnected) label.textContent = previous; }, 2200);
+    }
+  }
 }
 
 els.copyReferralBtn?.addEventListener("click", async () => {

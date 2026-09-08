@@ -1101,6 +1101,7 @@ const els = {
   referralCard: document.querySelector("#referralCard"),
   referralLink: document.querySelector("#referralLink"),
   copyReferralLinkBtn: document.querySelector("#copyReferralLinkBtn"),
+  referralCopyFeedback: document.querySelector("#referralCopyFeedback"),
   referralProgressFill: document.querySelector("#referralProgressFill"),
   referralInvitedCount: document.querySelector("#referralInvitedCount"),
   referralRewardStatus: document.querySelector("#referralRewardStatus"),
