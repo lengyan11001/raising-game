@@ -32102,7 +32102,8 @@ function stripeConfigForOrder(order = {}, req = null) {
   if (String(order?.stripeAccountId || "") === STRIPE_PAY5_ACCOUNT_ID && STRIPE_PAY5_SECRET_KEY) {
     return stripeConfigForHost("pay.5vips.com");
   }
-  return stripeConfigForRequest(req);
+  // Admin hydration runs outside an HTTP request; use the primary Stripe account in that case.
+  return req ? stripeConfigForRequest(req) : stripeConfigForHost("");
 }
 
 function stripeEnabled(config = stripeConfigForHost("")) {
@@ -39171,7 +39172,7 @@ async function hydrateStripeOrdersForAdmin(orders = [], persist = false) {
   ).slice(0, 20);
   if (!candidates.length) return orders;
   await Promise.all(candidates.map(async (order) => {
-    await hydrateStripeOrderDetails(order, null, null, null, stripeConfigForOrder(order, req));
+    await hydrateStripeOrderDetails(order, null, null, null, stripeConfigForOrder(order));
     if (persist) await updateWalletOrderInDb(order).catch(() => {});
   }));
   return orders;
