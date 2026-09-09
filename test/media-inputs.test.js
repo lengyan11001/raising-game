@@ -224,6 +224,15 @@ test("Seedance 2.5 and Seedream use the gateway without copying new2 media into 
   assert.doesNotMatch(server, /gatewayBody\.dataUrl = await dataUrlForUserAsset/);
 });
 
+test("Seedance 2.5 regeneration preserves all saved multimodal references", () => {
+  assert.match(server, /\} else if \(\["seedance25", SEEDANCE25_DIRECT_PROVIDER\]\.includes\(provider\)\) \{[\s\S]*?const savedImageIds = [\s\S]*?const referenceImages = fallbackItems\(savedImageIds, "reference_image"/);
+  assert.match(server, /const referenceVideos = fallbackItems\(params\.referenceVideoAssetIds, "reference_video"/);
+  assert.match(server, /const referenceAudios = fallbackItems\(params\.referenceAudioAssetIds, "reference_audio"/);
+  assert.match(server, /if \(referenceImages\.length\) body\.referenceImages = referenceImages/);
+  assert.match(server, /if \(referenceVideos\.length\) body\.referenceVideos = referenceVideos/);
+  assert.match(server, /if \(referenceAudios\.length\) body\.referenceAudios = referenceAudios/);
+});
+
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
   assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
   assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);

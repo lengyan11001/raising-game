@@ -27048,6 +27048,64 @@ function advancedRegenerateBody(record = {}) {
       if (referenceAudioUrls.length) body.referenceAudioUrls = referenceAudioUrls;
       body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
     }
+  } else if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
+    // Seedance 2.5 accepts up to 30 images (and 10 videos / 10 audios). Keep
+    // the original ordered media list when rebuilding a task instead of
+    // applying the legacy Seedance nine-image limit.
+    const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+    const mediaItems = (type, urlKeys = []) => mediaAssets
+      .filter((asset) => asset?.type === type)
+      .map((asset) => {
+        const assetId = String(asset.userAssetId || "").trim();
+        if (assetId) return { assetId };
+        const url = String(urlKeys.map((key) => asset?.[key]).find(Boolean) || "").trim();
+        return url ? { url } : null;
+      })
+      .filter(Boolean);
+    const fallbackItems = (ids, type, urlKeys) => {
+      const items = mediaItems(type, urlKeys);
+      if (items.length) return items;
+      return (Array.isArray(ids) ? ids : [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+        .map((assetId) => ({ assetId }));
+    };
+    const savedImageIds = Array.isArray(params.referenceImageAssetIds) && params.referenceImageAssetIds.length
+      ? params.referenceImageAssetIds
+      : [record.userAssetId || ""];
+    const referenceImages = fallbackItems(savedImageIds, "reference_image", ["imageUrl", "url", "localUrl"]);
+    const referenceVideos = fallbackItems(params.referenceVideoAssetIds, "reference_video", ["videoUrl", "url", "localUrl"]);
+    const referenceAudios = fallbackItems(params.referenceAudioAssetIds, "reference_audio", ["audioUrl", "url", "localUrl"]);
+    const mediaMode = String(firstPresent(record.mediaMode, params.functionMode, params.seedanceMode, params.mediaMode, "omini") || "omini").trim();
+    body.functionMode = mediaMode;
+    body.mediaMode = mediaMode;
+    if (referenceImages.length) body.referenceImages = referenceImages;
+    if (referenceVideos.length) body.referenceVideos = referenceVideos;
+    if (referenceAudios.length) body.referenceAudios = referenceAudios;
+    if (params.generateAudio !== undefined || params.generate_audio !== undefined) {
+      body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
+    }
+    if (params.preprocessReference !== undefined) body.preprocessReference = boolFromRequest(params.preprocessReference, false);
+    if (params.seed !== undefined && params.seed !== null && params.seed !== "") body.seed = params.seed;
+
+    if (mediaMode === "first_last_frame") {
+      const firstFrameId = String(firstPresent(
+        params.firstFrameAssetId,
+        mediaAssetIdsByTypes(record, ["first_frame", "image_url"])[0],
+        "",
+      ) || "").trim();
+      const lastFrameId = String(firstPresent(
+        params.lastFrameAssetId,
+        mediaAssetIdsByTypes(record, ["last_frame", "end_image_url"])[0],
+        "",
+      ) || "").trim();
+      const firstFrameUrl = mediaAssetUrlByType(record, "first_frame") || mediaAssetUrlByType(record, "image_url");
+      const lastFrameUrl = mediaAssetUrlByType(record, "last_frame") || mediaAssetUrlByType(record, "end_image_url");
+      if (firstFrameId) body.firstFrameAssetId = firstFrameId;
+      else if (firstFrameUrl) body.firstFrameUrl = firstFrameUrl;
+      if (lastFrameId) body.lastFrameAssetId = lastFrameId;
+      else if (lastFrameUrl) body.lastFrameUrl = lastFrameUrl;
+    }
   } else {
     const referenceIds = [
       ...mediaAssetIdsByType(record, "reference_image"),
