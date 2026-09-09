@@ -17101,7 +17101,7 @@ function publicGenerationRecord(record = {}, options = {}) {
   // preview/download immediately instead of being stuck on a loading state.
   // Provider URLs are intentionally treated as usable for their validity
   // window; the R2 mirror will take over automatically on a later refresh.
-  const publicVideoUrl = providerOnlyOutputs || providerOnlyVideoUrl
+  const publicVideoUrl = (providerOnlyOutputs || providerOnlyVideoUrl) && providerVideoUrl
     ? providerVideoUrl
     : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl));
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
@@ -17113,7 +17113,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     : preferredPosterBase;
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
-  const publicImageUrl = providerOnlyOutputs || providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
+  const publicImageUrl = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrl
+    ? providerImageUrl
+    : generationRecordImageUrl(record);
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
   const providerImageUrls = [...new Set([
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
@@ -17126,7 +17128,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(Boolean))];
-  const publicImageUrls = providerOnlyOutputs || providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
+  const publicImageUrls = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrls.length
+    ? providerImageUrls
+    : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
     ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
@@ -18481,20 +18485,6 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
 }
 
 async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
-  if (DISABLE_GENERATED_R2_STORAGE) {
-    // Do not download or persist generated output on this server. Callers
-    // retain the upstream URL in remoteVideoUrl/videoUrl for the client.
-    return {
-      localVideoPath: "",
-      localVideoUrl: "",
-      localPosterPath: "",
-      localPosterUrl: "",
-      cdnVideoUrl: "",
-      cdnPosterUrl: "",
-      cdnError: "",
-      playbackOptimizedAt: "",
-    };
-  }
   const existing = await getGenerationRecord(taskId);
   const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
   if (existing?.localVideoUrl) {
