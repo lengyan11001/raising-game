@@ -972,6 +972,10 @@ const R2_UPLOAD_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_UPLO
 const R2_UPLOAD_RETRY_BASE_DELAY_MS = Math.max(250, Math.min(10000, Number(process.env.R2_UPLOAD_RETRY_BASE_DELAY_MS || 1000) || 1000));
 const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_PUBLIC_READY_RETRY_COUNT || 4) || 4));
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
+// Generated outputs are intentionally served from the provider URL. User
+// uploads still use the configured object storage so upstream APIs can read
+// public reference media.
+const DISABLE_GENERATED_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_GENERATED_R2_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
   "raising-game",
@@ -11101,6 +11105,10 @@ function objectStorageEnabled() {
   return r2Enabled();
 }
 
+function generatedOutputStorageEnabled() {
+  return objectStorageEnabled() && !DISABLE_GENERATED_R2_STORAGE;
+}
+
 function localPublicAssetStorageEnabled() {
   return !objectStorageEnabled();
 }
@@ -13986,7 +13994,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (download && !generationRecordIsApiTask(record) && isSucceededStatus(task.status) && remoteVideoUrl) {
+  if (download && generatedOutputStorageEnabled() && !generationRecordIsApiTask(record) && isSucceededStatus(task.status) && remoteVideoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -14024,6 +14032,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
     && !generationRecordIsApiTask(nextRecord)
     && isSucceededStatus(nextRecord.status)
     && remoteVideoUrl
+    && generatedOutputStorageEnabled()
     && !String(nextRecord.cdnVideoUrl || "").trim()
   ) {
     queueGeneratedVideoDownload(nextRecord.taskId || record.taskId, remoteVideoUrl, `${reason}-background-download`);
@@ -17070,7 +17079,7 @@ function generationRecordIsVideoOutput(record = {}) {
 }
 
 function generationRecordR2PublicationPending(record = {}) {
-  return objectStorageEnabled()
+  return generatedOutputStorageEnabled()
     && !generationRecordIsApiTask(record)
     && isSucceededStatus(record.status)
     && generationRecordIsVideoOutput(record)
@@ -17078,6 +17087,7 @@ function generationRecordR2PublicationPending(record = {}) {
 }
 
 function publicGenerationRecord(record = {}, options = {}) {
+  const providerOnlyOutputs = DISABLE_GENERATED_R2_STORAGE;
   const requireR2Ready = options.requireR2Ready === true;
   const r2PublicationPending = requireR2Ready && generationRecordR2PublicationPending(record);
   const undressToolRecord = String(record.source || "").startsWith("undress-tool-")
@@ -17091,7 +17101,7 @@ function publicGenerationRecord(record = {}, options = {}) {
   // preview/download immediately instead of being stuck on a loading state.
   // Provider URLs are intentionally treated as usable for their validity
   // window; the R2 mirror will take over automatically on a later refresh.
-  const publicVideoUrl = providerOnlyVideoUrl
+  const publicVideoUrl = providerOnlyOutputs || providerOnlyVideoUrl
     ? providerVideoUrl
     : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl));
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
@@ -17103,7 +17113,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     : preferredPosterBase;
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
-  const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
+  const publicImageUrl = providerOnlyOutputs || providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
   const providerImageUrls = [...new Set([
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
@@ -17116,7 +17126,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(Boolean))];
-  const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
+  const publicImageUrls = providerOnlyOutputs || providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
     ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
@@ -17190,16 +17200,16 @@ function publicGenerationRecord(record = {}, options = {}) {
     // Keep all browser media hidden until the durable R2 copy is published.
     // Otherwise the UI sees localVideoUrl and starts preview/download while
     // the record is still deliberately gated as processing.
-    publicRecord.localVideoUrl = r2PublicationPending ? "" : String(record.localVideoUrl || "");
-    publicRecord.cdnVideoUrl = r2PublicationPending ? "" : String(record.cdnVideoUrl || "");
-    publicRecord.localPosterUrl = r2PublicationPending ? "" : String(record.localPosterUrl || "");
-    publicRecord.cdnPosterUrl = r2PublicationPending ? "" : String(record.cdnPosterUrl || "");
+    publicRecord.localVideoUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.localVideoUrl || "");
+    publicRecord.cdnVideoUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.cdnVideoUrl || "");
+    publicRecord.localPosterUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.localPosterUrl || "");
+    publicRecord.cdnPosterUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.cdnPosterUrl || "");
   }
   if (includeStoredImageUrls) {
-    publicRecord.localImageUrl = String(record.localImageUrl || "");
-    publicRecord.cdnImageUrl = String(record.cdnImageUrl || "");
-    publicRecord.localImageUrls = Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : [];
-    publicRecord.cdnImageUrls = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.map(String) : [];
+    publicRecord.localImageUrl = providerOnlyOutputs ? "" : String(record.localImageUrl || "");
+    publicRecord.cdnImageUrl = providerOnlyOutputs ? "" : String(record.cdnImageUrl || "");
+    publicRecord.localImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : []);
+    publicRecord.cdnImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.map(String) : []);
   }
   if (options.includeUpstreamPayload === true && (record.resultLocked !== true || options.includeLockedMedia === true)) {
     publicRecord.upstreamPayload = listGenerationRecordValue(record.upstreamPayload || null);
@@ -17475,6 +17485,7 @@ function drainGenerationRecordRefreshQueue() {
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
+  if (DISABLE_GENERATED_R2_STORAGE) return record;
   if (!record?.taskId) return record;
   const recovered = await recoverGenerationRecordR2Urls(record);
   if (!recovered?.localVideoUrl) return recovered;
@@ -17627,7 +17638,7 @@ async function enrichAdminGenerationRecordMedia(record = {}, db = null) {
 }
 
 async function recoverGenerationRecordR2Urls(record = {}) {
-  if (!record?.taskId || !objectStorageEnabled() || generationRecordIsApiTask(record)) return record;
+  if (!record?.taskId || !generatedOutputStorageEnabled() || generationRecordIsApiTask(record)) return record;
   const taskId = storagePathSegment(record.taskId, "generation");
   const updates = {};
   if (!String(record.cdnVideoUrl || "").trim()) {
@@ -17666,11 +17677,12 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 }
 
 function generationRecordNeedsMediaMaintenance(record = {}) {
+  if (DISABLE_GENERATED_R2_STORAGE) return false;
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
   if (!record.localVideoUrl) return !record.cdnVideoUrl;
   return !record.localPosterUrl
     || !record.playbackOptimizedAt
-    || (objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
+    || (generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
 }
 
 function generationRecordCanRetryR2(record = {}) {
@@ -17683,7 +17695,7 @@ function generationRecordCanRetryR2(record = {}) {
 
 function queueGenerationRecordMediaMaintenance(record = {}) {
   if (!generationRecordNeedsMediaMaintenance(record)) return false;
-  const needsR2 = objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
+  const needsR2 = generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
   const allowObjectStorageUpload = needsR2 && generationRecordCanRetryR2(record);
   if (!allowObjectStorageUpload && needsR2 && record.localPosterUrl && record.playbackOptimizedAt) return false;
   const taskId = String(record.taskId || "");
@@ -18077,7 +18089,11 @@ async function refreshGenerationRecordStatus(record = {}) {
     }
   }
   if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider)) {
-    const configured = record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+    const isPrimeRecord = record.provider === "aliyun-wan30"
+      && String(record.videoCapability || record.params?.videoCapability || "").toLowerCase() === "wan30-video-prime";
+    const configured = record.provider === "aliyun-wan30"
+      ? (isPrimeRecord ? (ALIYUN_WAN30_PRIME_API_KEY || ALIYUN_WAN30_API_KEY) : ALIYUN_WAN30_API_KEY)
+      : ALIYUN_DASHSCOPE_API_KEY;
     if (!configured || !shouldRefreshGenerationRecord(record)) return record;
     try {
       return await refreshWan27GenerationRecord(record, { download: false, reason: "query" });
@@ -18398,7 +18414,7 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-  if (!objectStorageEnabled()) return result;
+  if (!generatedOutputStorageEnabled()) return result;
   const errors = [];
   if (localVideoPath) {
     try {
@@ -18465,6 +18481,20 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
 }
 
 async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
+  if (DISABLE_GENERATED_R2_STORAGE) {
+    // Do not download or persist generated output on this server. Callers
+    // retain the upstream URL in remoteVideoUrl/videoUrl for the client.
+    return {
+      localVideoPath: "",
+      localVideoUrl: "",
+      localPosterPath: "",
+      localPosterUrl: "",
+      cdnVideoUrl: "",
+      cdnPosterUrl: "",
+      cdnError: "",
+      playbackOptimizedAt: "",
+    };
+  }
   const existing = await getGenerationRecord(taskId);
   const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
   if (existing?.localVideoUrl) {
@@ -18480,7 +18510,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
         // Do not return a completed task before its durable R2 copy exists.
         // The previous path queued this upload in the background, which made
         // the UI show a finished record with no preview/download URL.
-        if (!generationRecordIsApiTask(existing) && objectStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
+        if (!generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
           const cdn = await uploadGeneratedMediaToObjectStorage({
             taskId,
             localVideoPath: existingVideoPath,
@@ -18579,11 +18609,13 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   }
   if (!fastStartReady && lastDownloadError) throw lastDownloadError;
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = await uploadGeneratedMediaToObjectStorage({
-    taskId,
-    localVideoPath,
-    localPosterPath: poster.localPosterPath,
-  });
+  const cdn = generatedOutputStorageEnabled()
+    ? await uploadGeneratedMediaToObjectStorage({
+      taskId,
+      localVideoPath,
+      localPosterPath: poster.localPosterPath,
+    })
+    : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
 
   return {
     localVideoPath,
@@ -18611,7 +18643,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
     cdnImageUrl: "",
     cdnError: "",
   };
-  if (publish && objectStorageEnabled()) {
+  if (publish && generatedOutputStorageEnabled()) {
     const upload = await uploadStaticAssetToObjectStorage({
       key: objectStoragePath("generated", "images", fileName),
       bytes,
@@ -19278,11 +19310,13 @@ async function composeVideoToolSegments(taskId, inputPaths = []) {
     await fs.rm(listPath, { force: true }).catch(() => {});
   }
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = await uploadGeneratedMediaToObjectStorage({
-    taskId,
-    localVideoPath,
-    localPosterPath: poster.localPosterPath,
-  });
+  const cdn = generatedOutputStorageEnabled()
+    ? await uploadGeneratedMediaToObjectStorage({
+      taskId,
+      localVideoPath,
+      localPosterPath: poster.localPosterPath,
+    })
+    : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
   return { localVideoPath, localVideoUrl, playbackOptimizedAt: new Date().toISOString(), ...poster, ...cdn };
 }
 
