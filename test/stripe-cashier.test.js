@@ -22,6 +22,15 @@ test("Stripe checkout uses the dedicated storycut cashier host", () => {
   assert.match(server, /metadata\[order_id\]/);
 });
 
+test("Chat Stripe orders use pay.5vips.com while legacy orders keep the primary cashier", () => {
+  assert.match(server, /STRIPE_CHAT_CHECKOUT_BASE_URL/);
+  assert.match(server, /https:\/\/pay\.5vips\.com/);
+  assert.match(server, /stripeCheckoutBaseUrlForRequest\(req\)/);
+  assert.match(server, /cashierHost: normalizeHostname\(cashierBaseUrl\)/);
+  assert.match(server, /stripeCashierHostForOrder\(order\)/);
+  assert.match(server, /const stripeConfig = stripeConfigForHost\(stripeCashierHostForOrder\(order\)\)/);
+});
+
 test("Payment page supports Stripe and PayPal sessions", () => {
   assert.match(pay, /stripe_sid/);
   assert.match(pay, /providerPath = isStripe \? "stripe" : "paypal"/);

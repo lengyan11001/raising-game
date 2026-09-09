@@ -3501,7 +3501,7 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
+              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>收银台</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
@@ -3515,6 +3515,7 @@ async function renderWallet(pageArg = null, limitArg = null) {
                     <td><strong>${escapeHtml(o.currency || o.asset || "-")}</strong></td>
                     <td>${statusPill(o.status)}</td>
                     <td>${escapeHtml(o.paymentProvider === "stripe" ? (o.stripePaymentMethodType || "-") : (o.paymentProvider || o.network || "manual"))}</td>
+                    <td class="adm-truncate" title="${escapeHtml(o.cashierHost || "")}">${escapeHtml(o.cashierHost || "-")}</td>
                     <td class="adm-error-text adm-truncate" title="${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "")}">${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "-")}</td>
                     <td>${fmtDate(o.stripeCreatedAt || o.createdAt)}</td>
                     <td>${o.paymentProvider === "stripe" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="stripe-details" type="button">查看</button>` : `<span class="adm-muted">-</span>`}</td>

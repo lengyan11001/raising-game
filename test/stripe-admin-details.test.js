@@ -17,6 +17,8 @@ test("Stripe orders persist provider details and support historical GET hydratio
   assert.match(server, /"payment_intent.payment_failed"/);
   assert.match(server, /"charge.refunded"/);
   assert.match(admin, /<th>Charge ID<\/th>/);
+  assert.match(admin, /<th>收银台<\/th>/);
+  assert.match(admin, /o\.cashierHost/);
   assert.match(admin, /<th>订单 ID<\/th><th>Charge ID<\/th>/);
   assert.match(admin, /data-act="stripe-details"/);
   assert.doesNotMatch(admin, /data-act="mark-paid"/);

@@ -765,8 +765,8 @@ async function copyReferralText(value = "") {
 function referralShareMessage(inviteUrl = "") {
   const url = String(inviteUrl || "").trim();
   if (!url) return "";
-  if (state.lang === "zh") return `定位123：AI 成人创意内容生成平台，快速帮助你创作富有吸引力的成人向作品。\n立即体验：${url}`;
-  return `Discover 123 — an AI platform for creating engaging adult content.\nTry it here: ${url}`;
+  if (state.lang === "zh") return `AI 成人创意内容生成平台，快速帮助你创作富有吸引力的成人向作品。\n立即体验：${url}`;
+  return `Discover 123 - an AI platform for creating engaging adult content.\nTry it here: ${url}`;
 }
 
 async function copyReferralInvite() {

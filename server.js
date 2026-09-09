@@ -584,6 +584,10 @@ const STRIPE_CHECKOUT_BASE_URL = String(
   process.env.STRIPE_CHECKOUT_BASE_URL ||
   "https://pay.storycut.club",
 ).trim().replace(/\/+$/, "");
+const STRIPE_CHAT_CHECKOUT_BASE_URL = String(
+  process.env.STRIPE_CHAT_CHECKOUT_BASE_URL ||
+  "https://pay.5vips.com",
+).trim().replace(/\/+$/, "");
 const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
@@ -1716,9 +1720,27 @@ function stripeCheckoutHostname() {
   return normalizeHostname(STRIPE_CHECKOUT_BASE_URL);
 }
 
+function stripeChatCheckoutHostname() {
+  return normalizeHostname(STRIPE_CHAT_CHECKOUT_BASE_URL);
+}
+
+function stripeCheckoutBaseUrlForRequest(req = null) {
+  return req && requestTenantDescriptor(req).toolId === "chat"
+    ? STRIPE_CHAT_CHECKOUT_BASE_URL
+    : STRIPE_CHECKOUT_BASE_URL;
+}
+
+function stripeCashierHostForOrder(order = {}) {
+  const explicit = normalizeHostname(order.cashierHost || order.cashierUrl || "");
+  if (explicit) return explicit;
+  if (String(order.stripeAccountId || "") === STRIPE_PAY5_ACCOUNT_ID && STRIPE_PAY5_ACCOUNT_ID) return normalizeHostname(STRIPE_CHAT_CHECKOUT_BASE_URL);
+  if (String(order.paymentProvider || "").toLowerCase() === "stripe") return normalizeHostname(STRIPE_CHECKOUT_BASE_URL);
+  try { return normalizeHostname(new URL(order.sourceOrigin || "").hostname); } catch { return ""; }
+}
+
 function isPaymentHostRequest(req) {
   const host = requestHostname(req);
-  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname() || host === stripeCheckoutHostname()));
+  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname() || host === stripeCheckoutHostname() || host === stripeChatCheckoutHostname()));
 }
 
 function sendPayPalCheckoutHostRequired(res) {
@@ -32273,7 +32295,7 @@ function stripeEnabled(config = stripeConfigForHost("")) {
 }
 
 function stripePublicConfig(req = null) {
-  return { enabled: stripeEnabled(stripeConfigForRequest(req)), currency: STRIPE_CURRENCY };
+  return { enabled: stripeEnabled(stripeConfigForHost(stripeCheckoutBaseUrlForRequest(req))), currency: STRIPE_CURRENCY };
 }
 
 async function stripeRequest(pathname, params, method = "POST", config = stripeConfigForHost("")) {
@@ -32321,8 +32343,8 @@ function stripeCheckoutSessionExpired(order = {}) {
   return Date.now() - createdMs > STRIPE_CHECKOUT_SESSION_TTL_SECONDS * 1000;
 }
 
-function stripeCheckoutUrl(orderId = "") {
-  const url = new URL("/", `${STRIPE_CHECKOUT_BASE_URL}/`);
+function stripeCheckoutUrl(orderId = "", checkoutBaseUrl = STRIPE_CHECKOUT_BASE_URL) {
+  const url = new URL("/", `${String(checkoutBaseUrl || STRIPE_CHECKOUT_BASE_URL).replace(/\/+$/, "")}/`);
   url.searchParams.set("stripe_sid", String(orderId || ""));
   return url.toString();
 }
@@ -32370,7 +32392,8 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", 
 async function createStripeCheckoutSession(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const stripeConfig = stripeConfigForRequest(req);
+  const cashierBaseUrl = stripeCheckoutBaseUrlForRequest(req);
+  const stripeConfig = stripeConfigForHost(cashierBaseUrl);
   if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const body = await readJson(req);
   const config = await readAppConfig();
@@ -32424,6 +32447,7 @@ async function createStripeCheckoutSession(req, res) {
     chain: "stripe",
     status: "pending",
     sourceOrigin: origin,
+    cashierHost: normalizeHostname(cashierBaseUrl),
     stripeAccountId: stripeConfig.accountId || "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -32431,8 +32455,8 @@ async function createStripeCheckoutSession(req, res) {
   await createWalletOrderInDb(order);
   return sendJson(res, 200, {
     ok: true,
-    checkoutUrl: stripeCheckoutUrl(order.id),
-    cashierUrl: stripeCheckoutUrl(order.id),
+    checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl),
+    cashierUrl: stripeCheckoutUrl(order.id, cashierBaseUrl),
     order: publicTopupOrder(order, config.wallet, tenantOptions),
   });
 }
@@ -32445,10 +32469,10 @@ async function handleStripeCheckoutSessionDetails(req, res, orderId) {
 }
 
 async function handleStartStripeCheckoutSession(req, res, orderId) {
-  const stripeConfig = stripeConfigForRequest(req);
-  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const order = await findStripeCheckoutOrder(orderId);
   if (!order) return sendJson(res, 404, { ok: false, code: "STRIPE_CHECKOUT_NOT_FOUND", message: "Stripe checkout session not found." });
+  const stripeConfig = stripeConfigForHost(stripeCashierHostForOrder(order));
+  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const config = await readAppConfig();
   if (order.status === "paid") return sendJson(res, 200, { ok: true, checkoutUrl: "", session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
   if (stripeCheckoutSessionExpired(order)) return sendJson(res, 410, { ok: false, code: "STRIPE_CHECKOUT_EXPIRED", message: "This payment session has expired. Please create a new top-up order." });
@@ -33452,6 +33476,7 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
     stripePaymentIntentId: order.stripePaymentIntentId || "",
     stripePaymentStatus: order.stripePaymentStatus || "",
+    cashierHost: String(order.paymentProvider || "").toLowerCase() === "stripe" ? stripeCashierHostForOrder(order) : "",
     createdAt: order.createdAt || "",
     paidAt: order.paidAt || "",
     note: order.note || "",
@@ -39170,11 +39195,13 @@ function adminWalletOrderView(order, userMap) {
   if (!order) return null;
   const user = userMap?.get(order.userId);
   const paymentProvider = order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual");
+  const cashierHost = paymentProvider === "stripe" ? stripeCashierHostForOrder(order) : "";
   return {
     id: order.id,
     userId: order.userId,
     username: user?.username || "",
     paymentProvider,
+    cashierHost,
     baseAmount: order.baseAmount,
     creditAmount: order.creditAmount ?? (
       order.packageCredits !== undefined
