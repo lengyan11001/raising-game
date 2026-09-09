@@ -19664,9 +19664,11 @@ async function runVideoToolFaceSwap(job) {
       status: "succeeded",
       awaitingUpstreamTask: false,
       upstreamTaskId: upstreamTaskIds[upstreamTaskIds.length - 1] || "",
-      videoUrl: localPublicAssetStorageEnabled()
-        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || "")
-        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || ""),
+      videoUrl: DISABLE_GENERATED_R2_STORAGE
+        ? (record?.remoteVideoUrl || finalMedia.localVideoUrl || "")
+        : localPublicAssetStorageEnabled()
+          ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || "")
+          : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || ""),
       localVideoUrl: finalMedia.localVideoUrl,
       localVideoPath: finalMedia.localVideoPath,
       localPosterUrl: finalMedia.localPosterUrl || "",
@@ -19763,9 +19765,11 @@ async function runVideoToolUndressImageVideo(job) {
     awaitingUpstreamTask: false,
     upstreamTaskId,
     remoteVideoUrl: videoUrl,
-    videoUrl: localPublicAssetStorageEnabled()
-      ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || videoUrl)
-      : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || videoUrl),
+    videoUrl: DISABLE_GENERATED_R2_STORAGE
+      ? videoUrl
+      : localPublicAssetStorageEnabled()
+        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || videoUrl)
+        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || videoUrl),
     localVideoUrl: finalMedia.localVideoUrl || "",
     localVideoPath: finalMedia.localVideoPath || "",
     localPosterUrl: finalMedia.localPosterUrl || "",
@@ -19900,9 +19904,11 @@ async function runVideoToolUndressVideoLegacy(job) {
     awaitingUpstreamTask: false,
     upstreamTaskId,
     remoteVideoUrl: completed.task.videoUrl,
-    videoUrl: localPublicAssetStorageEnabled()
-      ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || completed.task.videoUrl)
-      : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || completed.task.videoUrl),
+    videoUrl: DISABLE_GENERATED_R2_STORAGE
+      ? completed.task.videoUrl
+      : localPublicAssetStorageEnabled()
+        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || completed.task.videoUrl)
+        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || completed.task.videoUrl),
     localVideoUrl: finalMedia.localVideoUrl || "",
     localVideoPath: finalMedia.localVideoPath || "",
     localPosterUrl: finalMedia.localPosterUrl || "",
