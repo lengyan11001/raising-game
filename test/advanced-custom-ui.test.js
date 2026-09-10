@@ -37,6 +37,8 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
 });
 
 test("Wan3.0 launch banner opens Custom with Wan3.0 selected and can be dismissed", () => {
+  assert.match(html, /id="wan30LaunchBanner"[^>]*hidden[^>]*display:none!important/);
+  assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw"/);
   assert.match(html, /id="wan30LaunchBanner"/);
   assert.match(html, /id="wan30LaunchBtn"/);
   assert.match(html, /Wan3\.0 上新，欢迎体验/);
@@ -72,13 +74,14 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
   assert.match(engine, /value="wan30">Wan 3\.0 Video/);
   assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
-  assert.match(engine, /value="wan27" selected>Wan 2\.7/);
+  assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="seedance-nsfw" selected>/);
+  assert.match(engine, /value="wan27">Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.doesNotMatch(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
   assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
-  assert.match(engine, /value="seedance-nsfw">Seedance2\.5 \(NSFW\)/);
+  assert.match(engine, /value="seedance-nsfw" selected>Seedance2\.5 \(NSFW\)/);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
 
