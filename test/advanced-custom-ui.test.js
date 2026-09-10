@@ -38,6 +38,8 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
 
 test("Wan3.0 launch banner opens Custom with Wan3.0 selected and can be dismissed", () => {
   assert.match(html, /id="wan30LaunchBanner"[^>]*hidden[^>]*display:none!important/);
+  assert.match(main, /if \(els\.wan30LaunchBanner\?\.hidden\) \{[\s\S]*?syncWan30LaunchVisibility\(false\)/);
+  assert.match(css, /\.launch-banner\[hidden\] \+ \.site-head \{ margin-top: 0 !important; \}/);
   assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw"/);
   assert.match(html, /id="wan30LaunchBanner"/);
   assert.match(html, /id="wan30LaunchBtn"/);

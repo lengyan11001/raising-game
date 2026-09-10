@@ -44,13 +44,15 @@ els.wan30LaunchClose?.addEventListener("click", () => {
   syncWan30LaunchVisibility(false);
 });
 try {
-  if (localStorage.getItem(WAN30_LAUNCH_DISMISSED_KEY) === "1" && els.wan30LaunchBanner) {
+  if (els.wan30LaunchBanner?.hidden) {
+    syncWan30LaunchVisibility(false);
+  } else if (localStorage.getItem(WAN30_LAUNCH_DISMISSED_KEY) === "1" && els.wan30LaunchBanner) {
     els.wan30LaunchBanner.hidden = true;
     syncWan30LaunchVisibility(false);
   } else {
     syncWan30LaunchVisibility(true);
   }
-} catch (error) { syncWan30LaunchVisibility(true); }
+} catch (error) { syncWan30LaunchVisibility(false); }
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
 els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
 window.addEventListener("hashchange", () => setTab(window.location.hash));
