@@ -36446,7 +36446,14 @@ async function ensureCharacterReferenceForRecord(record) {
   }
 
   if (!record.syntheticReferenceLocalUrl) {
-    const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
+    // The original upload may already have been removed by the 24h local media
+    // retention job. Resolve it through the shared helper so a purged local file
+    // is restored from the asset's R2/CDN mirror instead of throwing a raw ENOENT.
+    const sourcePath = await ensureLocalAssetUrlFile(sourceUrl, {
+      label: "Character source image",
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+    });
+    if (!sourcePath) throw missingUserAssetFileError(record, "Character source image");
     const sourceBytes = await fs.readFile(sourcePath);
     const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
     let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
