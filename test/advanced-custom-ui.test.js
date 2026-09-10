@@ -82,6 +82,14 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
 
+test("regular Seedance 2.5 is hidden everywhere while NSFW remains visible", () => {
+  const workflowModels = config.match(/const WORKFLOW_VIDEO_MODEL_LIBRARY = Object\.freeze\(\[([\s\S]*?)\]\);/)?.[1] || "";
+  assert.doesNotMatch(workflowModels, /id: "seedance25"/);
+  assert.match(workflowModels, /id: "seedance-nsfw"/);
+  assert.match(ui, /normalizeAdvancedProvider\(row\.provider\) !== "seedance25"/);
+  assert.match(create, /els\.advancedProvider\.value = "seedance-nsfw"/);
+});
+
 test("Playflux image templates resolve prompts on the server", () => {
   assert.match(server, /function findImageEditTemplate\(config = \{}, templateId = ""\)/);
   assert.match(server, /function imageEditPromptFromTemplate\(template = \{\}, \{ sourceImageCount = 0/);

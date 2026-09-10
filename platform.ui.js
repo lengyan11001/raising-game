@@ -3268,7 +3268,9 @@ function pricingTable(title, description, columns = [], rows = []) {
 }
 
 function renderConfiguredPricingRows(pricing = {}, packages = []) {
-  const configuredRows = Array.isArray(pricing.rows) ? pricing.rows.filter(Boolean) : [];
+  const configuredRows = Array.isArray(pricing.rows)
+    ? pricing.rows.filter((row) => row && normalizeAdvancedProvider(row.provider) !== "seedance25")
+    : [];
   if (!configuredRows.length) return false;
   const creditsPerUsd = Number(pricing.creditsPerUsd || 100) || 100;
   const publicCredits = (value) => `${formatCredits(creditsAmount(value))} credits`;

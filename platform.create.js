@@ -1462,7 +1462,7 @@ function syncAdvancedProviderExposure() {
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
     || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
   )))) {
-    els.advancedProvider.value = "seedance25";
+    els.advancedProvider.value = "seedance-nsfw";
   }
 }
 
