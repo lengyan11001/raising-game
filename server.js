@@ -41186,6 +41186,26 @@ async function serveStatic(req, res, url) {
   }
 }
 
+function playfluxTemplateTabForGalleryMode(mode = "") {
+  const normalized = String(mode || "").trim().toLowerCase();
+  if (normalized === "playflux-video") return "video";
+  if (normalized === "playflux-image") return "image";
+  if (normalized === "playflux-anime") return "anime";
+  return "";
+}
+
+// Tool-only sites (for example the 123Tops video tool) render the same playflux
+// template gallery, so they need the templates for the gallery modes they expose.
+// Returning an empty list here leaves their home gallery blank.
+function playfluxTemplatesForTenant(templates = [], tenantOptions = {}) {
+  if (!tenantOptions?.toolOnly) return templates;
+  const modes = Array.isArray(tenantOptions.allowedGalleryModes) ? tenantOptions.allowedGalleryModes : [];
+  if (!modes.length) return templates;
+  const tabs = new Set(modes.map(playfluxTemplateTabForGalleryMode).filter(Boolean));
+  if (!tabs.size) return [];
+  return templates.filter((item) => tabs.has(String(item?.tab || "").trim().toLowerCase()));
+}
+
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -41303,14 +41323,16 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/platform/playflux-templates") {
       const tenantOptions = requestTenantOptions(req);
-      if (tenantOptions.toolOnly) return sendJson(res, 200, { ok: true, templates: [] });
       const cacheKey = requestHostname(req);
       const cached = publicPlayfluxTemplatesCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         return sendJson(res, 200, { ok: true, templates: cached.value }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
       }
       const config = await readAppConfig({ includeHomeItems: false });
-      const templates = Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [];
+      const templates = playfluxTemplatesForTenant(
+        Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
+        tenantOptions,
+      );
       publicPlayfluxTemplatesCache.set(cacheKey, { value: templates, expiresAt: Date.now() + 300_000 });
       return sendJson(res, 200, { ok: true, templates }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
     }
