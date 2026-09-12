@@ -4456,8 +4456,8 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     }
     if (tenant.navHome) {
       withTenantShell = withTenantShell.replace(
-        /(<button\s+class="top-tab"\s+data-tab="home"\s+)hidden\s+(type="button")/i,
-        "$1$2",
+        /<button\b[^>]*data-tab="home"[^>]*>/i,
+        (tag) => tag.replace(/\s+hidden(?=[\s>])/i, ""),
       );
     }
     // Only the profile's landing panel is visible on first paint.

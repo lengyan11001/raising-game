@@ -117,7 +117,10 @@ test("the workspace can return to the welcome page", () => {
   assert.match(html, /<button class="top-tab" data-tab="home" type="button" hidden>/);
   assert.match(server, /navHome: true/);
   assert.match(server, /if \(tenant\.navHome\) \{/);
-  assert.ok(server.includes('(<button\\s+class="top-tab"\\s+data-tab="home"\\s+)hidden\\s+(type="button")'), "nav home button should be revealed for the profile");
+  assert.ok(
+    server.includes("withTenantShell.replace(\n        /<button\\b[^>]*data-tab=\"home\"[^>]*>/i"),
+    "nav home button should be revealed for the profile",
+  );
   assert.match(ui, /element\.hidden = !tenantFeature\("navHome", false\) \|\| !isTabAllowed\("home"\)/);
   assert.match(copy, /"nav\.home": "Home"/);
   assert.match(copy, /"nav\.home": "返回主页"/);
