@@ -160,6 +160,7 @@ function setTab(tab) {
 
 function syncMainTabState() {
   const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  document.body.classList.toggle("home-active", state.tab === "home");
   document.querySelectorAll("[data-tab]").forEach((button) => {
     const buttonTab = button.dataset.tab || "";
     const active = buttonTab === "custom"

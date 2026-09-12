@@ -6,6 +6,18 @@ async function startPlatform() {
 }
 
 document.addEventListener("click", (event) => {
+  const homeAction = event.target.closest("[data-home-action]");
+  if (homeAction) {
+    state.routeCharacterId = "";
+    state.routeCharacterSource = "";
+    state.activeGalleryCharacterId = "";
+    if ((homeAction.dataset.homeAction || "") === "create") {
+      setTab("custom");
+      return;
+    }
+    if (typeof openLogin === "function") openLogin();
+    return;
+  }
   const galleryShortcut = event.target.closest("[data-gallery-shortcut]");
   if (galleryShortcut) {
     state.routeCharacterId = "";

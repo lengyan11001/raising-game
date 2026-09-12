@@ -246,6 +246,11 @@ const TOOL_UNDRESS_STYLE_VERSION = crypto
   .update(fsSync.readFileSync(path.join(ROOT, "tool-undress.css")))
   .digest("hex")
   .slice(0, 12);
+const SITE_PROFILE_STYLE_VERSION = crypto
+  .createHash("sha256")
+  .update(fsSync.readFileSync(path.join(ROOT, "site-123vipfans.css")))
+  .digest("hex")
+  .slice(0, 12);
 const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
 
 function loadLocalEnv(filePath) {
@@ -411,14 +416,20 @@ const DEFAULT_PLATFORM_SITE_HOSTS = "123vip.fans";
 const PLATFORM_SITE_HOSTS = new Set(parseCsvList(process.env.PLATFORM_SITE_HOSTS || DEFAULT_PLATFORM_SITE_HOSTS));
 const PLATFORM_SITE_PROFILE = Object.freeze({
   id: "custom-workflow",
-  defaultTab: String(process.env.PLATFORM_SITE_DEFAULT_TAB || "advanced").trim() || "advanced",
+  // The profile lands on its own welcome page and enters the 自定义 workspace
+  // from there, so defaultRoute stays empty (no forced in-app route).
+  defaultTab: String(process.env.PLATFORM_SITE_DEFAULT_TAB || "home").trim() || "home",
   // In-app route the profile lands on (setTab accepts the raw "custom" route,
   // which opens the 自定义 workspace in custom mode).
-  defaultRoute: String(process.env.PLATFORM_SITE_DEFAULT_ROUTE || "custom").trim(),
+  defaultRoute: String(process.env.PLATFORM_SITE_DEFAULT_ROUTE || "").trim(),
   // Nav entries to hide without disabling the underlying tab/panel.
   hiddenNavTabs: parseCsvList(process.env.PLATFORM_SITE_HIDDEN_NAV_TABS || "advanced"),
-  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "advanced,workflow,assets,history,topups,spending,pricing,referral"),
-  disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat,access"),
+  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"),
+  disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat"),
+  bodyClass: "site-custom-workflow",
+  stylesheet: "site-123vipfans.css",
+  logo: "/assets/brand/123vipfans-logo.png",
+  favicon: "/assets/brand/123vipfans-favicon.png",
 });
 
 function platformSiteProfileForHostname(hostname = "") {
@@ -4425,6 +4436,34 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
         "$1hidden $2",
       );
     });
+    // The profile ships its own brand + styling instead of inheriting the main
+    // site look: body class, stylesheet, favicon, logo, and the brand link that
+    // returns to the welcome page.
+    if (PLATFORM_SITE_PROFILE.bodyClass) {
+      withTenantShell = withTenantShell.replace(/<body\s+class="([^"]*)"/i, (match, classText) => {
+        const classes = String(classText || "").split(/\s+/).filter(Boolean);
+        const nextClasses = Array.from(new Set([...classes, PLATFORM_SITE_PROFILE.bodyClass]));
+        return match.replace(`class="${classText}"`, `class="${nextClasses.join(" ")}"`);
+      });
+    }
+    if (PLATFORM_SITE_PROFILE.stylesheet) {
+      withTenantShell = withTenantShell.replace(
+        /<\/head>/i,
+        `    <link rel="stylesheet" href="./${PLATFORM_SITE_PROFILE.stylesheet}?v=${SITE_PROFILE_STYLE_VERSION}" />\n  </head>`,
+      );
+    }
+    if (PLATFORM_SITE_PROFILE.favicon) {
+      withTenantShell = withTenantShell
+        .replace(/<link rel="icon"[^>]*>/i, `<link rel="icon" type="image/png" href="${PLATFORM_SITE_PROFILE.favicon}" />`)
+        .replace(/<link rel="shortcut icon"[^>]*>/i, `<link rel="shortcut icon" href="${PLATFORM_SITE_PROFILE.favicon}" />`);
+    }
+    if (PLATFORM_SITE_PROFILE.logo) {
+      withTenantShell = withTenantShell.replace(
+        /(<span class="brand-mark"><img src=")[^"]*(")/i,
+        `$1${PLATFORM_SITE_PROFILE.logo}$2`,
+      );
+    }
+    withTenantShell = withTenantShell.replace(/(<a class="brand" href=")[^"]*(")/i, "$1#home$2");
   }
   const discoveryLinks = renderDiscoveryLinks(snapshot);
   if (discoveryLinks) {

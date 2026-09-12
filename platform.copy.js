@@ -3784,5 +3784,26 @@ const MEMBERSHIP_COPY = {
 Object.entries(MEMBERSHIP_COPY).forEach(([lang, copy]) => {
   if (I18N[lang]) Object.assign(I18N[lang], copy);
 });
+
+// Copy used by the site profiles (see PLATFORM_SITE_HOSTS in server.js).
+const SITE_PROFILE_COPY = {
+  en: {
+    "home.subtitle": "Directors, we are your professional AI animation crew.",
+    "home.login": "Log in",
+    "home.signup": "Sign up",
+    "home.create": "Create",
+    "nav.create": "Create",
+  },
+  zh: {
+    "home.subtitle": "导演，我们是您的专业 AI 动画代理团队",
+    "home.login": "登录",
+    "home.signup": "注册",
+    "home.create": "创建",
+    "nav.create": "创建",
+  },
+};
+Object.entries(SITE_PROFILE_COPY).forEach(([lang, copy]) => {
+  if (I18N[lang]) Object.assign(I18N[lang], copy);
+});
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";

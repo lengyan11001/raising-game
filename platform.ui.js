@@ -484,6 +484,7 @@ function applyStaticTranslations() {
 }
 
 function applyTenantFeatures() {
+  applySiteProfileChrome();
   const assetEnabled = tenantFeature("assetLibrary", true);
   const workflowEnabled = canUseWorkflow();
   const animeEnabled = canUseAnimeTemplates();
@@ -540,6 +541,26 @@ function applyTenantFeatures() {
   });
   const accountTokenBox = els.accountToken?.closest(".token-box");
   if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled;
+  renderHomePanel();
+}
+
+// Site-profile chrome: the 123vip.fans welcome page and its own naming.
+function applySiteProfileChrome() {
+  if (!isSiteProfile("custom-workflow")) return;
+  const brand = document.querySelector("a.brand");
+  if (brand) brand.setAttribute("href", "#home");
+  document.querySelectorAll('[data-tab="custom"] [data-i18n]').forEach((element) => {
+    element.dataset.i18n = "nav.create";
+    setLocalizedContent(element, t("nav.create", {}, element.textContent));
+  });
+}
+
+function renderHomePanel() {
+  if (!isSiteProfile("custom-workflow")) return;
+  const loggedIn = Boolean(state.user);
+  document.querySelectorAll("[data-home-action]").forEach((button) => {
+    button.hidden = (button.dataset.homeAction || "") === "create" ? !loggedIn : loggedIn;
+  });
 }
 
 function applyLanguage() {
@@ -592,6 +613,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   const nextUserId = user?.id || "";
   const userChanged = nextUserId !== previousUserId;
   state.user = user || null;
+  renderHomePanel();
   if (userChanged) state.generationCompletionPrimed = false;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {

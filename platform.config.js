@@ -6,7 +6,7 @@ const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["gallery", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
+const ALL_TABS = new Set(["home", "gallery", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -1010,6 +1010,14 @@ function normalizeTenantRouteAfterConfig() {
 
 function isTenantTool(toolId = "") {
   return tenantFeature("toolOnly", false) && tenantStringFeature("toolId", "") === String(toolId || "").trim();
+}
+
+function siteProfileId() {
+  return tenantStringFeature("siteProfile", "");
+}
+
+function isSiteProfile(id = "") {
+  return siteProfileId() === String(id || "").trim();
 }
 
 function isTabAllowed(tab) {
