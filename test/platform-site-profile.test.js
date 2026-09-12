@@ -167,14 +167,12 @@ test("the profile keeps pink buttons but ships its own palette, layout and motio
   assert.match(server, /site-123vipfans\.js\?v=\$\{SITE_PROFILE_SCRIPT_VERSION\}/);
 
   // full-bleed hero loop (own render) with poster + reduced-motion handling
-  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero-loop.mp4")), "hero loop video should exist");
-  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero-poster.jpg")), "hero loop poster should exist");
+  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero-loop-v2.mp4")), "hero loop video should exist");
+  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero-poster-v2.jpg")), "hero loop poster should exist");
   assert.match(html, /<video class="w-hero-video"/);
-  assert.match(html, /123vipfans-hero-loop\.mp4/);
-  assert.match(html, /poster="\.\/assets\/brand\/123vipfans-hero-poster\.jpg"/);
+  assert.match(html, /123vipfans-hero-loop-v2\.mp4/);
+  assert.match(html, /poster="\.\/assets\/brand\/123vipfans-hero-poster-v2\.jpg"/);
   assert.match(html, /autoplay muted loop playsinline/);
-  assert.match(server, /SITE_PROFILE_MEDIA_VERSION/);
-  assert.match(server, /assets\\\/brand\\\/123vipfans-hero-loop\\\.mp4\)"/g);
   assert.match(css, /\.w-hero-video \{[^}]*object-fit: cover/);
   assert.match(css, /\.w-hero-scrim \{/);
   assert.match(js, /video\.pause\(\)/);

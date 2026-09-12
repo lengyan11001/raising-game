@@ -257,11 +257,6 @@ const SITE_PROFILE_SCRIPT_VERSION = crypto
   .update(fsSync.readFileSync(path.join(ROOT, "site-123vipfans.js")))
   .digest("hex")
   .slice(0, 12);
-const SITE_PROFILE_MEDIA_VERSION = crypto
-  .createHash("sha256")
-  .update(fsSync.readFileSync(path.join(ROOT, "assets", "brand", "123vipfans-hero-loop.mp4")))
-  .digest("hex")
-  .slice(0, 12);
 const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
 
 function loadLocalEnv(filePath) {
@@ -4489,17 +4484,6 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
       /<\/body>/i,
       `    <script src="./site-123vipfans.js?v=${SITE_PROFILE_SCRIPT_VERSION}" defer></script>\n  </body>`,
     );
-    // Version the hero loop + poster so a regenerated file gets a fresh cache
-    // key instead of an immutable cached copy.
-    withTenantShell = withTenantShell
-      .replace(
-        /(assets\/brand\/123vipfans-hero-loop\.mp4)"/g,
-        `$1?v=${SITE_PROFILE_MEDIA_VERSION}"`,
-      )
-      .replace(
-        /(assets\/brand\/123vipfans-hero-poster\.jpg)"/g,
-        `$1?v=${SITE_PROFILE_MEDIA_VERSION}"`,
-      );
     if (PLATFORM_SITE_PROFILE.favicon) {
       withTenantShell = withTenantShell
         .replace(/<link rel="icon"[^>]*>/i, `<link rel="icon" type="image/png" href="${PLATFORM_SITE_PROFILE.favicon}" />`)
