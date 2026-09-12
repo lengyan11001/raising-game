@@ -233,33 +233,161 @@
 
     <main>
       <section class="home-panel" data-panel="home" hidden>
-        <div class="home-hero">
-          <div class="home-aurora" aria-hidden="true">
-            <span class="home-aurora-a"></span>
-            <span class="home-aurora-b"></span>
-            <span class="home-aurora-c"></span>
+        <div class="w-bg" aria-hidden="true">
+          <span class="w-aurora w-aurora-1"></span>
+          <span class="w-aurora w-aurora-2"></span>
+          <span class="w-aurora w-aurora-3"></span>
+          <span class="w-stars"></span>
+        </div>
+
+        <header class="w-nav" id="welcomeNav">
+          <div class="w-nav-brand">
+            <img src="./assets/brand/123vipfans-logo.png" alt="" />
+            <strong>123vip.fans</strong>
           </div>
-          <div class="home-inner">
-            <div class="home-copy">
-              <span class="home-eyebrow" data-i18n="home.eyebrow">AI Animation Studio</span>
-              <h2 class="home-headline">Make Animation<br />Great Again</h2>
-              <p class="home-subtitle" data-i18n="home.subtitle">导演，我们是您的专业 AI 动画代理团队</p>
-              <div class="home-actions">
-                <button class="home-btn" type="button" data-home-action="login" data-i18n="home.login">登录</button>
-                <button class="home-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
-                <button class="home-btn primary" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+          <nav class="w-nav-links" aria-label="Landing sections">
+            <a href="#wFeatures" data-w-anchor="wFeatures" data-i18n="welcome.navFeatures">功能</a>
+            <a href="#wShowcase" data-w-anchor="wShowcase" data-i18n="welcome.navShowcase">示例</a>
+            <a href="#wWorkflow" data-w-anchor="wWorkflow" data-i18n="welcome.navWorkflow">工作流</a>
+            <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
+          </nav>
+          <div class="w-nav-actions">
+            <button class="w-btn ghost sm" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+            <button class="w-btn primary sm" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+            <button class="w-btn primary sm" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+          </div>
+        </header>
+
+        <section class="w-hero" id="wHero">
+          <div class="w-hero-glow" aria-hidden="true"></div>
+          <div class="w-hero-copy">
+            <span class="w-eyebrow" data-i18n="home.eyebrow">AI Animation Studio</span>
+            <h2 class="w-title">
+              <span data-i18n="welcome.title1">Make Animation</span>
+              <em data-i18n="welcome.title2">Great Again</em>
+            </h2>
+            <p class="w-sub" data-i18n="home.subtitle">导演，我们是您的专业 AI 动画代理团队</p>
+            <div class="w-actions">
+              <button class="w-btn primary" type="button" data-home-action="create" data-i18n="welcome.startCreate" hidden>进入创作台</button>
+              <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+              <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+              <button class="w-btn ghost" type="button" data-w-scroll="wShowcase" data-i18n="welcome.seeShowcase">看示例</button>
+            </div>
+            <ul class="w-stats">
+              <li><strong>&lt;3<span>min</span></strong><span data-i18n="welcome.stat1">从参考图到成片</span></li>
+              <li><strong>12<span>+</span></strong><span data-i18n="welcome.stat2">模型与管线可切换</span></li>
+              <li><strong>1<span>click</span></strong><span data-i18n="welcome.stat3">工作流复用与共享</span></li>
+            </ul>
+          </div>
+          <div class="w-hero-stage">
+            <div class="w-frame">
+              <div class="w-frame-bar">
+                <span class="w-dot"></span><span class="w-dot"></span><span class="w-dot"></span>
+                <em>storyboard.wf</em>
+                <i class="w-typing" data-i18n="welcome.frameHint">prompt · reference · motion</i>
               </div>
-              <ul class="home-points">
-                <li data-i18n="home.point1">分镜到成片，一条管线跑完</li>
-                <li data-i18n="home.point2">角色一致性 · 参考图驱动</li>
-                <li data-i18n="home.point3">工作流画布，可复用可协作</li>
-              </ul>
+              <div class="w-frame-body">
+                <img class="w-art" src="./assets/brand/123vipfans-hero.svg" alt="" />
+                <span class="w-scan" aria-hidden="true"></span>
+              </div>
+              <div class="w-frame-foot">
+                <span class="w-chip" data-i18n="welcome.chip1">首尾帧</span>
+                <span class="w-chip" data-i18n="welcome.chip2">角色一致</span>
+                <span class="w-chip" data-i18n="welcome.chip3">4K</span>
+                <span class="w-progress"><i></i></span>
+              </div>
             </div>
-            <div class="home-visual">
-              <img class="home-art" src="./assets/brand/123vipfans-hero.svg" alt="" />
-            </div>
+            <div class="w-float w-float-a"><span data-i18n="welcome.floatA">队列 3/5</span></div>
+            <div class="w-float w-float-b"><span data-i18n="welcome.floatB">生成完成</span></div>
+          </div>
+        </section>
+
+        <div class="w-marquee" aria-hidden="true">
+          <div class="w-marquee-track">
+            <span>STORYBOARD</span><span>·</span><span>REFERENCE</span><span>·</span><span>FIRST / LAST FRAME</span><span>·</span>
+            <span>MOTION</span><span>·</span><span>4K</span><span>·</span><span>AUDIO</span><span>·</span><span>QUEUE</span><span>·</span>
+            <span>WORKFLOW</span><span>·</span><span>API</span><span>·</span>
+            <span>STORYBOARD</span><span>·</span><span>REFERENCE</span><span>·</span><span>FIRST / LAST FRAME</span><span>·</span>
+            <span>MOTION</span><span>·</span><span>4K</span><span>·</span><span>AUDIO</span><span>·</span><span>QUEUE</span><span>·</span>
+            <span>WORKFLOW</span><span>·</span><span>API</span><span>·</span>
           </div>
         </div>
+
+        <section class="w-section" id="wFeatures">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.featTitle">一条管线，从想法跑到成片</h3>
+            <p data-i18n="welcome.featSub">参考图、运镜、角色一致性和队列都在同一个工作台里完成。</p>
+          </header>
+          <div class="w-grid">
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">01</span><h4 data-i18n="welcome.f1t">分镜与提示词</h4></div>
+              <p data-i18n="welcome.f1d">把想法拆成镜头，提示词自动补全到可执行的参数。</p>
+              <div class="w-mock w-mock-prompt"><span data-i18n="welcome.mock1">深夜天台，霓虹反光，镜头缓慢推进</span><i></i></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">02</span><h4 data-i18n="welcome.f2t">角色一致性</h4></div>
+              <p data-i18n="welcome.f2d">上传一张参考图，跨镜头锁定同一个人物与服装。</p>
+              <div class="w-mock w-mock-ref"><span></span><span></span><span></span></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">03</span><h4 data-i18n="welcome.f3t">运镜与节奏</h4></div>
+              <p data-i18n="welcome.f3d">首尾帧、参考视频与运镜描述叠加，命中你想要的节奏。</p>
+              <div class="w-mock w-mock-timeline"><span class="w-playhead"></span><i></i><i></i><i></i></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">04</span><h4 data-i18n="welcome.f4t">工作流与 API</h4></div>
+              <p data-i18n="welcome.f4d">把调好的流程存成画布，复用、分享，或直接走接口调。</p>
+              <div class="w-mock w-mock-nodes"><span></span><span></span><span></span><span></span></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="w-section" id="wShowcase">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.showTitle">挑一个风格，直接开跑</h3>
+            <p data-i18n="welcome.showSub">这些是站点里现成的模板方向，点开就是可编辑的工程。</p>
+          </header>
+          <div class="w-carousel" id="wCarousel">
+            <button class="w-car-arrow" type="button" data-w-car="prev" aria-label="Previous"><i data-lucide="chevron-left"></i></button>
+            <div class="w-car-stage">
+              <article class="w-slide is-active"><span class="w-slide-tag" data-i18n="welcome.s1t">都市逆袭</span><div class="w-slide-art w-art-a"></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s2t">校园甜宠</span><div class="w-slide-art w-art-b"></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s3t">悬疑推理</span><div class="w-slide-art w-art-c"></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s4t">科幻赛博</span><div class="w-slide-art w-art-d"></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s5t">古风武侠</span><div class="w-slide-art w-art-e"></div></article>
+            </div>
+            <button class="w-car-arrow" type="button" data-w-car="next" aria-label="Next"><i data-lucide="chevron-right"></i></button>
+            <div class="w-car-dots" role="tablist" aria-label="Slides"></div>
+          </div>
+        </section>
+
+        <section class="w-section" id="wWorkflow">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.stepTitle">三步进入创作台</h3>
+          </header>
+          <ol class="w-steps">
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st1">登录或注册</strong><p data-i18n="welcome.st1d">和 123vips 共用同一套账号与余额。</p></li>
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st2">进创建台</strong><p data-i18n="welcome.st2d">自定义面板里选模型、传参考、调参数。</p></li>
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st3">跑工作流</strong><p data-i18n="welcome.st3d">把流程存成画布，下次一键复用。</p></li>
+          </ol>
+        </section>
+
+        <section class="w-cta w-reveal">
+          <h3 data-i18n="welcome.ctaTitle">现在就把第一支片子跑出来</h3>
+          <p data-i18n="welcome.ctaSub">登录后按钮会变成「创建」，直接进创作台。</p>
+          <div class="w-actions center">
+            <button class="w-btn primary" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+            <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+            <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+          </div>
+        </section>
+
+        <footer class="w-foot">
+          <span>123vip.fans</span>
+          <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
+          <span class="w-foot-sep">·</span>
+          <span>© <span id="welcomeYear">2026</span></span>
+        </footer>
       </section>
 
       <section class="workspace" data-panel="gallery">

@@ -234,6 +234,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.video-tools.js",
   "platform.undress-tool.js",
   "platform.main.js",
+  "site-123vipfans.js",
 ]);
 let platformAssetVersionPromise = null;
 const TOOL_VIDEO_STYLE_VERSION = crypto
@@ -249,6 +250,11 @@ const TOOL_UNDRESS_STYLE_VERSION = crypto
 const SITE_PROFILE_STYLE_VERSION = crypto
   .createHash("sha256")
   .update(fsSync.readFileSync(path.join(ROOT, "site-123vipfans.css")))
+  .digest("hex")
+  .slice(0, 12);
+const SITE_PROFILE_SCRIPT_VERSION = crypto
+  .createHash("sha256")
+  .update(fsSync.readFileSync(path.join(ROOT, "site-123vipfans.js")))
   .digest("hex")
   .slice(0, 12);
 const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
@@ -4474,6 +4480,10 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
         `    <link rel="stylesheet" href="./${PLATFORM_SITE_PROFILE.stylesheet}?v=${SITE_PROFILE_STYLE_VERSION}" />\n  </head>`,
       );
     }
+    withTenantShell = withTenantShell.replace(
+      /<\/body>/i,
+      `    <script src="./site-123vipfans.js?v=${SITE_PROFILE_SCRIPT_VERSION}" defer></script>\n  </body>`,
+    );
     if (PLATFORM_SITE_PROFILE.favicon) {
       withTenantShell = withTenantShell
         .replace(/<link rel="icon"[^>]*>/i, `<link rel="icon" type="image/png" href="${PLATFORM_SITE_PROFILE.favicon}" />`)

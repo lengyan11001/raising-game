@@ -74,7 +74,8 @@ test("the profile lands on its own route and can hide a nav entry without disabl
 test("the profile ships its own welcome page, brand and stylesheet", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
   assert.match(html, /<section class="home-panel" data-panel="home" hidden>/);
-  assert.match(html, /class="home-headline"/);
+  assert.match(html, /class="w-title"/);
+  assert.match(html, /class="w-hero" id="wHero"/);
   assert.match(html, /data-home-action="login"/);
   assert.match(html, /data-home-action="signup"/);
   assert.match(html, /data-home-action="create"/);
@@ -130,18 +131,43 @@ test("the workspace can return to the welcome page", () => {
 test("the profile keeps pink buttons but ships its own palette, layout and motion", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "..", "site-123vipfans.css"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+  const js = fs.readFileSync(path.resolve(__dirname, "..", "site-123vipfans.js"), "utf8");
+
   // buttons stay pink
   assert.match(css, /--cyan: #f038a8;/);
-  assert.match(css, /\.home-btn\.primary \{[^}]*linear-gradient\(120deg, #f038a8, #ff6a9d\)/);
-  // but the rest of the palette is the profile's own
-  assert.match(css, /--bg: #0b0713;/);
-  assert.match(css, /--text: #f4f0ff;/);
-  // split layout + own motion instead of the reference's centered hero
-  assert.match(css, /grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1\.05fr\)/);
-  assert.match(css, /@keyframes homeDrift/);
-  assert.match(html, /class="home-inner"/);
-  assert.match(html, /class="home-aurora"/);
-  assert.match(html, /class="home-eyebrow"/);
-  assert.match(html, /class="home-points"/);
-  assert.match(copy, /"home\.point1"/);
+  assert.match(css, /--w-pink: #f038a8;/);
+  assert.match(css, /\.w-btn\.primary \{[^}]*linear-gradient\(120deg, var\(--w-pink\), #ff6a9d\)/);
+
+  // but the rest of the palette, surfaces and motion are the profile's own
+  assert.match(css, /--w-bg: #08060f;/);
+  assert.match(css, /--w-ink: #f6f2ff;/);
+  assert.match(css, /backdrop-filter: blur\(18px\) saturate\(140%\)/);
+  for (const kf of ["wDrift", "wTwinkle", "wShine", "wScan", "wFill", "wMarquee", "wPlayhead", "wNode"]) {
+    assert.ok(css.includes("@keyframes " + kf), "missing motion: " + kf);
+  }
+
+  // landing structure (nav, hero, marquee, features, carousel, steps, cta)
+  assert.match(html, /class="w-nav" id="welcomeNav"/);
+  assert.match(html, /class="w-hero" id="wHero"/);
+  assert.match(html, /class="w-art" src="\.\/assets\/brand\/123vipfans-hero\.svg"/);
+  assert.match(html, /class="w-marquee"/);
+  assert.equal((html.match(/class="w-card w-reveal"/g) || []).length, 4);
+  assert.equal((html.match(/class="w-slide[" ]/g) || []).length, 5);
+  assert.match(html, /class="w-carousel" id="wCarousel"/);
+  assert.match(html, /class="w-steps"/);
+  assert.match(html, /class="w-cta w-reveal"/);
+
+  // interactions live in their own profile script, injected only for this host
+  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "site-123vipfans.js")), "profile script should exist");
+  assert.match(js, /new IntersectionObserver/);
+  assert.match(js, /classList\.toggle\("is-scrolled"/);
+  assert.match(js, /setProperty\("--w-mx"/);
+  assert.match(js, /AUTOPLAY_MS = 5500/);
+  assert.match(server, /"site-123vipfans\.js",/);
+  assert.match(server, /site-123vipfans\.js\?v=\$\{SITE_PROFILE_SCRIPT_VERSION\}/);
+
+  // copy ships in both languages
+  for (const key of ["welcome.navFeatures", "welcome.title2", "welcome.featTitle", "welcome.showTitle", "welcome.ctaTitle"]) {
+    assert.ok(copy.includes(`"${key}"`), "missing copy key: " + key);
+  }
 });
