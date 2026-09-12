@@ -173,6 +173,8 @@ test("the profile keeps pink buttons but ships its own palette, layout and motio
   assert.match(html, /123vipfans-hero-loop\.mp4/);
   assert.match(html, /poster="\.\/assets\/brand\/123vipfans-hero-poster\.jpg"/);
   assert.match(html, /autoplay muted loop playsinline/);
+  assert.match(server, /SITE_PROFILE_MEDIA_VERSION/);
+  assert.match(server, /assets\\\/brand\\\/123vipfans-hero-loop\\\.mp4\)"/g);
   assert.match(css, /\.w-hero-video \{[^}]*object-fit: cover/);
   assert.match(css, /\.w-hero-scrim \{/);
   assert.match(js, /video\.pause\(\)/);
