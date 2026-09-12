@@ -403,6 +403,23 @@ const TOOL_TENANT_SPECS = Object.freeze({
 });
 const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat";
 const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
+
+// Platform (non-tool) hosts that ship their own site profile. They keep the main
+// platform user pool and billing (tenantId stays DEFAULT_TENANT_ID, toolOnly is
+// false) but land on a different default tab and expose a reduced tab set.
+const DEFAULT_PLATFORM_SITE_HOSTS = "123vip.fans";
+const PLATFORM_SITE_HOSTS = new Set(parseCsvList(process.env.PLATFORM_SITE_HOSTS || DEFAULT_PLATFORM_SITE_HOSTS));
+const PLATFORM_SITE_PROFILE = Object.freeze({
+  id: "custom-workflow",
+  defaultTab: String(process.env.PLATFORM_SITE_DEFAULT_TAB || "advanced").trim() || "advanced",
+  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "advanced,workflow,assets,history,topups,spending,pricing,referral"),
+  disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat,access"),
+});
+
+function platformSiteProfileForHostname(hostname = "") {
+  const host = normalizeHostname(hostname);
+  return host && PLATFORM_SITE_HOSTS.has(host) ? PLATFORM_SITE_PROFILE : null;
+}
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
@@ -1888,6 +1905,7 @@ function tenantDescriptorFromHostname(hostname = "") {
   const host = normalizeHostname(hostname);
   const toolId = toolTenantIdForHostname(host);
   const tool = TOOL_TENANT_SPECS[toolId] || null;
+  const siteProfile = tool ? null : platformSiteProfileForHostname(host);
   const tenantPublic = Boolean(tool || isPublicTenantHostname(host));
   const apiAccess = !tool;
   return {
@@ -1900,17 +1918,21 @@ function tenantDescriptorFromHostname(hostname = "") {
     brand: tool?.brand || "",
     title: tool?.title || "",
     description: tool?.description || "",
-    defaultTab: tool?.defaultTab || "gallery",
+    defaultTab: tool?.defaultTab || siteProfile?.defaultTab || "gallery",
     defaultGalleryMode: tool?.defaultGalleryMode || "characters",
-    allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : [],
+    allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : (siteProfile?.allowedTabs || []),
     allowedGalleryModes: Array.isArray(tool?.allowedGalleryModes) ? tool.allowedGalleryModes : [],
-    disabledTabs: Array.from(new Set([...(tool?.disabledTabs || []), ...(apiAccess ? [] : ["access"])])),
+    disabledTabs: Array.from(new Set([
+      ...(tool?.disabledTabs || siteProfile?.disabledTabs || []),
+      ...(apiAccess ? [] : ["access"]),
+    ])),
     apiAccess,
     assetLibrary: tool?.assetLibrary ?? true,
     accountMenu: true,
     subscriptions: Boolean(tool),
     membershipProgram: !tool,
     videoProvider: tool?.videoProvider || "",
+    siteProfile: siteProfile?.id || "",
   };
 }
 
@@ -2580,6 +2602,7 @@ function publicTenantFeatures(tenant = {}) {
     subscriptions: Boolean(tenant.subscriptions),
     membershipProgram: Boolean(tenant.membershipProgram),
     videoProvider: tenant.videoProvider || "",
+    siteProfile: tenant.siteProfile || "",
   };
 }
 
@@ -4359,11 +4382,38 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
       );
     });
   }
+  if (tenant.siteProfile && !toolId) {
+    const profileTab = String(tenant.defaultTab || "").trim();
+    // First paint should already match the profile: land on its default tab and
+    // hide the tabs it does not expose (the client re-applies the same rules).
+    withTenantShell = withTenantShell.replace(
+      /class="top-tab\s+is-active"\s+data-tab="gallery"/i,
+      `class="top-tab" data-tab="gallery"`,
+    );
+    if (profileTab) {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`class="top-tab"\\s+data-tab="${profileTab}"`, "i"),
+        `class="top-tab is-active" data-tab="${profileTab}"`,
+      );
+    }
+    (tenant.disabledTabs || []).forEach((tab) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-tab="${tab}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+    ["playflux-video", "playflux-anime", "playflux-image"].forEach((shortcut) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-gallery-shortcut="${shortcut}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+  }
   const discoveryLinks = renderDiscoveryLinks(snapshot);
   if (discoveryLinks) {
     withTenantShell = withTenantShell.replace(/<footer\s+class="site-foot"/i, `${discoveryLinks}\n\n    <footer class="site-foot"`);
   }
-  const bootstrapScript = tenant.toolOnly && toolId
+  const bootstrapScript = (tenant.toolOnly && toolId) || tenant.siteProfile
     ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
     : "";
   let withToolStyles = bootstrapScript && !withTenantShell.includes("window.__TENANT_FEATURES__")

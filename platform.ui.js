@@ -522,7 +522,9 @@ function applyTenantFeatures() {
   });
   document.querySelectorAll("[data-gallery-shortcut]").forEach((element) => {
     const shortcut = element.dataset.galleryShortcut || "";
-    element.hidden = !isGalleryModeAllowed(shortcut) || (shortcut === "playflux-anime" && !animeEnabled);
+    element.hidden = !isTabAllowed(DEFAULT_PLATFORM_TAB)
+      || !isGalleryModeAllowed(shortcut)
+      || (shortcut === "playflux-anime" && !animeEnabled);
   });
   document.querySelectorAll("[data-panel='access'], #accessTokenCard").forEach((element) => {
     element.hidden = !apiAccessEnabled || element.hidden;

@@ -688,6 +688,10 @@ function initialPlatformTab() {
   const searchTab = searchParams.get("tab") || searchParams.get("view") || "";
   if (searchTab) return normalizePlatformTab(searchTab);
   if (bootstrapTenantFeature("toolOnly", false)) return initialTenantDefaultTab();
+  const siteDefaultTab = bootstrapTenantFeatures().defaultTab;
+  if (typeof siteDefaultTab === "string" && siteDefaultTab.trim()) {
+    return normalizePlatformTab(siteDefaultTab);
+  }
   return normalizePlatformTab(localStorage.getItem(TAB_KEY) || "");
 }
 
