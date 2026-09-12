@@ -3867,9 +3867,12 @@ function advancedCaseInputVideoPoster(item = {}) {
 }
 
 function syncGalleryShortcutNav() {
+  // Site profiles can hide the gallery tab entirely; its shortcut entries must
+  // follow the tab, otherwise they reappear right after the first render.
+  const galleryAllowed = isTabAllowed(DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-gallery-shortcut]").forEach((button) => {
     const mode = normalizeGalleryMode(button.dataset.galleryShortcut || "");
-    const disabled = !isGalleryModeAllowed(button.dataset.galleryShortcut || "");
+    const disabled = !galleryAllowed || !isGalleryModeAllowed(button.dataset.galleryShortcut || "");
     button.hidden = disabled;
     const active = state.tab === DEFAULT_PLATFORM_TAB && mode === normalizeGalleryMode(state.galleryMode);
     button.classList.toggle("is-active", active);

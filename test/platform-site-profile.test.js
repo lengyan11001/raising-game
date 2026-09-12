@@ -9,6 +9,7 @@ const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8
 const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
 const ui = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
+const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
 
 test("123vip.fans is a platform site profile, not a tool tenant", () => {
   assert.match(server, /const DEFAULT_PLATFORM_SITE_HOSTS = "123vip\.fans"/);
@@ -54,6 +55,9 @@ test("a non-tool host honours its explicit default tab before local storage", ()
 
 test("gallery shortcut tabs disappear when the profile hides the gallery", () => {
   assert.match(ui, /element\.hidden = !isTabAllowed\(DEFAULT_PLATFORM_TAB\)\s*\n\s*\|\| !isGalleryModeAllowed\(shortcut\)/);
+  // The render-time sync must not un-hide them again.
+  assert.match(explore, /const galleryAllowed = isTabAllowed\(DEFAULT_PLATFORM_TAB\)/);
+  assert.match(explore, /const disabled = !galleryAllowed \|\| !isGalleryModeAllowed\(button\.dataset\.galleryShortcut \|\| ""\)/);
 });
 
 test("the profile lands on its own route and can hide a nav entry without disabling the panel", () => {
