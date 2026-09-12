@@ -63,6 +63,7 @@
         const rect = hero.getBoundingClientRect();
         px = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 100;
         py = ((event.clientY - rect.top) / Math.max(rect.height, 1)) * 100;
+        hero.classList.add("is-pointing");
         if (frame) return;
         frame = window.requestAnimationFrame(() => {
           frame = 0;
@@ -70,6 +71,7 @@
           hero.style.setProperty("--w-my", py.toFixed(2) + "%");
         });
       });
+      hero.addEventListener("pointerleave", () => hero.classList.remove("is-pointing"));
     }
 
     // ----- scroll reveal -----

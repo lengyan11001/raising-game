@@ -170,7 +170,8 @@ body.site-custom-workflow.home-active .support-fab {
   transition: opacity 0.4s ease;
   pointer-events: none;
 }
-.w-hero:hover .w-hero-glow { opacity: 1; }
+.w-hero:hover .w-hero-glow,
+.w-hero.is-pointing .w-hero-glow { opacity: 1; }
 
 .w-hero-copy { display: flex; flex-direction: column; align-items: flex-start; gap: clamp(14px, 2vh, 22px); }
 
