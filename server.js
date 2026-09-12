@@ -412,6 +412,11 @@ const PLATFORM_SITE_HOSTS = new Set(parseCsvList(process.env.PLATFORM_SITE_HOSTS
 const PLATFORM_SITE_PROFILE = Object.freeze({
   id: "custom-workflow",
   defaultTab: String(process.env.PLATFORM_SITE_DEFAULT_TAB || "advanced").trim() || "advanced",
+  // In-app route the profile lands on (setTab accepts the raw "custom" route,
+  // which opens the 自定义 workspace in custom mode).
+  defaultRoute: String(process.env.PLATFORM_SITE_DEFAULT_ROUTE || "custom").trim(),
+  // Nav entries to hide without disabling the underlying tab/panel.
+  hiddenNavTabs: parseCsvList(process.env.PLATFORM_SITE_HIDDEN_NAV_TABS || "advanced"),
   allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "advanced,workflow,assets,history,topups,spending,pricing,referral"),
   disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat,access"),
 });
@@ -1922,6 +1927,8 @@ function tenantDescriptorFromHostname(hostname = "") {
     defaultGalleryMode: tool?.defaultGalleryMode || "characters",
     allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : (siteProfile?.allowedTabs || []),
     allowedGalleryModes: Array.isArray(tool?.allowedGalleryModes) ? tool.allowedGalleryModes : [],
+    hiddenNavTabs: Array.isArray(siteProfile?.hiddenNavTabs) ? siteProfile.hiddenNavTabs : [],
+    defaultRoute: siteProfile?.defaultRoute || "",
     disabledTabs: Array.from(new Set([
       ...(tool?.disabledTabs || siteProfile?.disabledTabs || []),
       ...(apiAccess ? [] : ["access"]),
@@ -2590,6 +2597,8 @@ function publicTenantFeatures(tenant = {}) {
     defaultGalleryMode: tenant.defaultGalleryMode || "characters",
     allowedTabs: Array.isArray(tenant.allowedTabs) ? tenant.allowedTabs : [],
     allowedGalleryModes: Array.isArray(tenant.allowedGalleryModes) ? tenant.allowedGalleryModes : [],
+    hiddenNavTabs: Array.isArray(tenant.hiddenNavTabs) ? tenant.hiddenNavTabs : [],
+    defaultRoute: tenant.defaultRoute || "",
     disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
     apiAccess: tenant.apiAccess !== false,
     aliyunModels: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED,
@@ -4384,19 +4393,27 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
   }
   if (tenant.siteProfile && !toolId) {
     const profileTab = String(tenant.defaultTab || "").trim();
-    // First paint should already match the profile: land on its default tab and
-    // hide the tabs it does not expose (the client re-applies the same rules).
+    const activeNavTab = tenant.defaultRoute === "custom" ? "custom" : profileTab;
+    // First paint should already match the profile: highlight the entry the
+    // profile lands on and hide the tabs it does not expose (the client
+    // re-applies the same rules after the feature bootstrap loads).
     withTenantShell = withTenantShell.replace(
       /class="top-tab\s+is-active"\s+data-tab="gallery"/i,
       `class="top-tab" data-tab="gallery"`,
     );
-    if (profileTab) {
+    if (activeNavTab) {
       withTenantShell = withTenantShell.replace(
-        new RegExp(`class="top-tab"\\s+data-tab="${profileTab}"`, "i"),
-        `class="top-tab is-active" data-tab="${profileTab}"`,
+        new RegExp(`class="top-tab"\\s+data-tab="${activeNavTab}"`, "i"),
+        `class="top-tab is-active" data-tab="${activeNavTab}"`,
       );
     }
     (tenant.disabledTabs || []).forEach((tab) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-tab="${tab}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+    (tenant.hiddenNavTabs || []).forEach((tab) => {
       withTenantShell = withTenantShell.replace(
         new RegExp(`(<button\\s+class="top-tab"\\s+data-tab="${tab}"\\s+)(type="button")`, "i"),
         "$1hidden $2",

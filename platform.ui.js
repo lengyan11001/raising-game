@@ -520,6 +520,12 @@ function applyTenantFeatures() {
       && tenantDefaultGalleryMode() !== DEFAULT_GALLERY_MODE;
     element.hidden = hiddenByToolGallery || !isTabAllowed(tab);
   });
+  const hiddenNavTabs = tenantListFeature("hiddenNavTabs");
+  if (hiddenNavTabs.length) {
+    document.querySelectorAll("[data-tab]").forEach((element) => {
+      if (hiddenNavTabs.includes(element.dataset.tab || "")) element.hidden = true;
+    });
+  }
   document.querySelectorAll("[data-gallery-shortcut]").forEach((element) => {
     const shortcut = element.dataset.galleryShortcut || "";
     element.hidden = !isTabAllowed(DEFAULT_PLATFORM_TAB)

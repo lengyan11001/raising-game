@@ -5963,7 +5963,7 @@ async function bootstrap() {
   renderTopupSummary();
   renderPricing();
   renderTokenDisplays();
-  setTab(window.location.hash || state.tab);
+  setTab(window.location.hash || tenantStringFeature("defaultRoute", "") || state.tab);
   refreshIcons();
   if (!isTenantTool("undress")) loadPlatformEstimates();
 }
