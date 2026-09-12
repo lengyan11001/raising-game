@@ -3788,6 +3788,7 @@ Object.entries(MEMBERSHIP_COPY).forEach(([lang, copy]) => {
 // Copy used by the site profiles (see PLATFORM_SITE_HOSTS in server.js).
 const SITE_PROFILE_COPY = {
   en: {
+    "nav.home": "Home",
     "home.subtitle": "Directors, we are your professional AI animation crew.",
     "home.login": "Log in",
     "home.signup": "Sign up",
@@ -3795,6 +3796,7 @@ const SITE_PROFILE_COPY = {
     "nav.create": "Create",
   },
   zh: {
+    "nav.home": "返回主页",
     "home.subtitle": "导演，我们是您的专业 AI 动画代理团队",
     "home.login": "登录",
     "home.signup": "注册",

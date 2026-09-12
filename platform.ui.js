@@ -527,6 +527,10 @@ function applyTenantFeatures() {
       if (hiddenNavTabs.includes(element.dataset.tab || "")) element.hidden = true;
     });
   }
+  // The welcome-page entry only exists for site profiles that enable it.
+  document.querySelectorAll('[data-tab="home"]').forEach((element) => {
+    element.hidden = !tenantFeature("navHome", false) || !isTabAllowed("home");
+  });
   document.querySelectorAll("[data-gallery-shortcut]").forEach((element) => {
     const shortcut = element.dataset.galleryShortcut || "";
     element.hidden = !isTabAllowed(DEFAULT_PLATFORM_TAB)

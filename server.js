@@ -426,6 +426,9 @@ const PLATFORM_SITE_PROFILE = Object.freeze({
   hiddenNavTabs: parseCsvList(process.env.PLATFORM_SITE_HIDDEN_NAV_TABS || "advanced"),
   allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"),
   disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat"),
+  // Show a "home" entry in the side rail so the workspace can return to the
+  // profile's welcome page.
+  navHome: true,
   bodyClass: "site-custom-workflow",
   stylesheet: "site-123vipfans.css",
   logo: "/assets/brand/123vipfans-logo.png",
@@ -1940,6 +1943,7 @@ function tenantDescriptorFromHostname(hostname = "") {
     allowedGalleryModes: Array.isArray(tool?.allowedGalleryModes) ? tool.allowedGalleryModes : [],
     hiddenNavTabs: Array.isArray(siteProfile?.hiddenNavTabs) ? siteProfile.hiddenNavTabs : [],
     defaultRoute: siteProfile?.defaultRoute || "",
+    navHome: Boolean(siteProfile?.navHome),
     disabledTabs: Array.from(new Set([
       ...(tool?.disabledTabs || siteProfile?.disabledTabs || []),
       ...(apiAccess ? [] : ["access"]),
@@ -2610,6 +2614,7 @@ function publicTenantFeatures(tenant = {}) {
     allowedGalleryModes: Array.isArray(tenant.allowedGalleryModes) ? tenant.allowedGalleryModes : [],
     hiddenNavTabs: Array.isArray(tenant.hiddenNavTabs) ? tenant.hiddenNavTabs : [],
     defaultRoute: tenant.defaultRoute || "",
+    navHome: Boolean(tenant.navHome),
     disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
     apiAccess: tenant.apiAccess !== false,
     aliyunModels: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED,
@@ -4442,8 +4447,25 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     if (PLATFORM_SITE_PROFILE.bodyClass) {
       withTenantShell = withTenantShell.replace(/<body\s+class="([^"]*)"/i, (match, classText) => {
         const classes = String(classText || "").split(/\s+/).filter(Boolean);
-        const nextClasses = Array.from(new Set([...classes, PLATFORM_SITE_PROFILE.bodyClass]));
+        // home-active hides the shell chrome so the very first paint is the
+        // profile's welcome page instead of the workspace navigation.
+        const extra = [PLATFORM_SITE_PROFILE.bodyClass, profileTab === "home" ? "home-active" : ""];
+        const nextClasses = Array.from(new Set([...classes, ...extra.filter(Boolean)]));
         return match.replace(`class="${classText}"`, `class="${nextClasses.join(" ")}"`);
+      });
+    }
+    if (tenant.navHome) {
+      withTenantShell = withTenantShell.replace(
+        /(<button\s+class="top-tab"\s+data-tab="home"\s+)hidden\s+(type="button")/i,
+        "$1$2",
+      );
+    }
+    // Only the profile's landing panel is visible on first paint.
+    if (profileTab) {
+      withTenantShell = withTenantShell.replace(/<section\b[^>]*data-panel="[^"]+"[^>]*>/gi, (tag) => {
+        const panel = (tag.match(/data-panel="([^"]+)"/i) || [])[1] || "";
+        const withoutHidden = tag.replace(/\s+hidden(?=[\s>])/i, "");
+        return panel === profileTab ? withoutHidden : withoutHidden.replace(/>$/, " hidden>");
       });
     }
     if (PLATFORM_SITE_PROFILE.stylesheet) {

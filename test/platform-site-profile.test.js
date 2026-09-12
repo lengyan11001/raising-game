@@ -102,3 +102,23 @@ test("the welcome page swaps its call to action after login and its custom tab i
   assert.match(explore, /document\.body\.classList\.toggle\("home-active", state\.tab === "home"\)/);
   assert.match(copy, /"nav\.create": "Create"/);
 });
+
+test("the profile paints the welcome page first instead of the workspace navigation", () => {
+  assert.match(server, /const extra = \[PLATFORM_SITE_PROFILE\.bodyClass, profileTab === "home" \? "home-active" : ""\]/);
+  assert.ok(
+    server.includes('withTenantShell.replace(/<section\\b[^>]*data-panel="[^"]+"[^>]*>/gi'),
+    "the shell should rewrite panel visibility for the first paint",
+  );
+  assert.match(server, /return panel === profileTab \? withoutHidden : withoutHidden\.replace\(\/>\$\/, " hidden>"\)/);
+});
+
+test("the workspace can return to the welcome page", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+  assert.match(html, /<button class="top-tab" data-tab="home" type="button" hidden>/);
+  assert.match(server, /navHome: true/);
+  assert.match(server, /if \(tenant\.navHome\) \{/);
+  assert.ok(server.includes('(<button\\s+class="top-tab"\\s+data-tab="home"\\s+)hidden\\s+(type="button")'), "nav home button should be revealed for the profile");
+  assert.match(ui, /element\.hidden = !tenantFeature\("navHome", false\) \|\| !isTabAllowed\("home"\)/);
+  assert.match(copy, /"nav\.home": "Home"/);
+  assert.match(copy, /"nav\.home": "返回主页"/);
+});
