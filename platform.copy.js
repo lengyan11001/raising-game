@@ -3789,18 +3789,26 @@ Object.entries(MEMBERSHIP_COPY).forEach(([lang, copy]) => {
 const SITE_PROFILE_COPY = {
   en: {
     "nav.home": "Home",
+    "home.eyebrow": "AI Animation Studio",
     "home.subtitle": "Directors, we are your professional AI animation crew.",
     "home.login": "Log in",
     "home.signup": "Sign up",
     "home.create": "Create",
+    "home.point1": "Storyboard to final cut in one pipeline",
+    "home.point2": "Character consistency, reference-driven",
+    "home.point3": "Reusable, shareable workflow canvases",
     "nav.create": "Create",
   },
   zh: {
     "nav.home": "返回主页",
+    "home.eyebrow": "AI 动画工作室",
     "home.subtitle": "导演，我们是您的专业 AI 动画代理团队",
     "home.login": "登录",
     "home.signup": "注册",
     "home.create": "创建",
+    "home.point1": "分镜到成片，一条管线跑完",
+    "home.point2": "角色一致性 · 参考图驱动",
+    "home.point3": "工作流画布，可复用可协作",
     "nav.create": "创建",
   },
 };

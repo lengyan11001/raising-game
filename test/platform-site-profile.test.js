@@ -78,10 +78,11 @@ test("the profile ships its own welcome page, brand and stylesheet", () => {
   assert.match(html, /data-home-action="login"/);
   assert.match(html, /data-home-action="signup"/);
   assert.match(html, /data-home-action="create"/);
-  assert.match(html, /assets\/brand\/123vipfans-hero\.png/);
+  assert.match(html, /assets\/brand\/123vipfans-hero\.svg/);
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-logo.png")), "logo asset should exist");
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-favicon.png")), "favicon asset should exist");
-  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero.png")), "hero asset should exist");
+  assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero.svg")), "own hero illustration should exist");
+  assert.ok(!fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero.png")), "the copied reference hero must not ship");
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "site-123vipfans.css")), "profile stylesheet should exist");
   assert.match(server, /stylesheet: "site-123vipfans\.css"/);
   assert.match(server, /logo: "\/assets\/brand\/123vipfans-logo\.png"/);
@@ -124,4 +125,23 @@ test("the workspace can return to the welcome page", () => {
   assert.match(ui, /element\.hidden = !tenantFeature\("navHome", false\) \|\| !isTabAllowed\("home"\)/);
   assert.match(copy, /"nav\.home": "Home"/);
   assert.match(copy, /"nav\.home": "返回主页"/);
+});
+
+test("the profile keeps pink buttons but ships its own palette, layout and motion", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "..", "site-123vipfans.css"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+  // buttons stay pink
+  assert.match(css, /--cyan: #f038a8;/);
+  assert.match(css, /\.home-btn\.primary \{[^}]*linear-gradient\(120deg, #f038a8, #ff6a9d\)/);
+  // but the rest of the palette is the profile's own
+  assert.match(css, /--bg: #0b0713;/);
+  assert.match(css, /--text: #f4f0ff;/);
+  // split layout + own motion instead of the reference's centered hero
+  assert.match(css, /grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1\.05fr\)/);
+  assert.match(css, /@keyframes homeDrift/);
+  assert.match(html, /class="home-inner"/);
+  assert.match(html, /class="home-aurora"/);
+  assert.match(html, /class="home-eyebrow"/);
+  assert.match(html, /class="home-points"/);
+  assert.match(copy, /"home\.point1"/);
 });
