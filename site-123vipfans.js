@@ -157,6 +157,22 @@
 
     const year = document.getElementById("welcomeYear");
     if (year) year.textContent = String(new Date().getFullYear());
+
+    // The hero loop is decorative: keep it still when motion is unwelcome and
+    // make sure it is only decoded while the welcome page is actually shown.
+    const video = document.querySelector(".w-hero-video");
+    if (video) {
+      if (reducedMotion()) {
+        video.removeAttribute("autoplay");
+        try { video.pause(); } catch (error) {}
+      } else {
+        const play = () => { const p = video.play(); if (p && p.catch) p.catch(() => {}); };
+        play();
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) { try { video.pause(); } catch (error) {} } else play();
+        });
+      }
+    }
   }
 
   if (document.readyState === "loading") {
