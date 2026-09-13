@@ -15475,21 +15475,39 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
   return assets;
 }
 
+function urlPathForExtension(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return new URL(text).pathname;
+  } catch (error) {
+    return text.split("#")[0].split("?")[0];
+  }
+}
+
 function validateWan27MediaKind(assetOrUrl = {}, expectedKind = "image", label = "Media") {
+  const reject = (message) => {
+    const error = new Error(message);
+    error.statusCode = 400;
+    error.code = "MEDIA_KIND_INVALID";
+    throw error;
+  };
   const mime = String(assetOrUrl.mime || "").toLowerCase();
   if (mime) {
-    if (expectedKind === "image" && !mime.startsWith("image/")) throw new Error(`${label} must be an image.`);
-    if (expectedKind === "audio" && !mime.startsWith("audio/")) throw new Error(`${label} must be audio.`);
-    if (expectedKind === "video" && !mime.startsWith("video/")) throw new Error(`${label} must be a video.`);
-    if (expectedKind === "document" && !WAN30_DOCUMENT_MIMES.has(mime)) throw new Error(`${label} must be a supported document.`);
+    if (expectedKind === "image" && !mime.startsWith("image/")) reject(`${label} must be an image.`);
+    if (expectedKind === "audio" && !mime.startsWith("audio/")) reject(`${label} must be audio.`);
+    if (expectedKind === "video" && !mime.startsWith("video/")) reject(`${label} must be a video.`);
+    if (expectedKind === "document" && !WAN30_DOCUMENT_MIMES.has(mime)) reject(`${label} must be a supported document.`);
   }
   const url = String(assetOrUrl.url || assetOrUrl.publicUrl || assetOrUrl.localUrl || "");
-  const ext = path.extname(url.split("?")[0]).toLowerCase();
+  // Read the extension from the url path: a host name is not a file type, so
+  // "https://cdn.example.com/" must not look like a ".com" upload.
+  const ext = path.extname(urlPathForExtension(url)).toLowerCase();
   if (!mime && ext) {
-    if (expectedKind === "image" && ![".jpg", ".jpeg", ".png", ".bmp", ".webp"].includes(ext)) throw new Error(`${label} must be an image URL.`);
-    if (expectedKind === "audio" && ![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) throw new Error(`${label} must be an audio URL.`);
-    if (expectedKind === "video" && ![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) throw new Error(`${label} must be a video URL.`);
-    if (expectedKind === "document" && !WAN30_DOCUMENT_EXTENSIONS.has(ext)) throw new Error(`${label} must be a supported document URL.`);
+    if (expectedKind === "image" && ![".jpg", ".jpeg", ".png", ".bmp", ".webp"].includes(ext)) reject(`${label} must be an image URL.`);
+    if (expectedKind === "audio" && ![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) reject(`${label} must be an audio URL.`);
+    if (expectedKind === "video" && ![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) reject(`${label} must be a video URL.`);
+    if (expectedKind === "document" && !WAN30_DOCUMENT_EXTENSIONS.has(ext)) reject(`${label} must be a supported document URL.`);
   }
 }
 

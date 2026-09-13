@@ -126,3 +126,15 @@ test("the Wan 3.0 format complaint still exists for genuinely wrong files", () =
     /throw advancedValidationError\("WAN30_IMAGE_FORMAT_INVALID", `\$\{label\} must be JPG, JPEG, PNG, BMP, or WebP\.`\)/,
   );
 });
+
+test("a host name is never mistaken for a file extension", () => {
+  assert.match(server, /const ext = path\.extname\(urlPathForExtension\(url\)\)\.toLowerCase\(\);/);
+  const helper = new Function(
+    `${extractFunction(server, "urlPathForExtension")}\nreturn urlPathForExtension;`,
+  )();
+  assert.equal(helper("https://cdn.example.com/"), "/");
+  assert.equal(helper("https://cdn.example.com/photo.PNG"), "/photo.PNG");
+  assert.equal(helper("https://cdn.example.com/a/b.gif?x=1"), "/a/b.gif");
+  assert.equal(helper("/assets/user-uploads/user-1/photo.png"), "/assets/user-uploads/user-1/photo.png");
+  assert.equal(helper(""), "");
+});
