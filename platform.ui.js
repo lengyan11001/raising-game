@@ -1625,7 +1625,21 @@ const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
   ]),
 });
 
+// An engine that the picker no longer offers (the removed NSFW Seedance 2.5
+// entry, for example) must not be restored into the select, or the field comes
+// back blank when an older record is reopened.
+function advancedEngineOptionExists(value = "") {
+  const target = String(value || "").trim().toLowerCase();
+  if (!target || !els.advancedProvider) return true;
+  return Array.from(els.advancedProvider.options).some((option) => option.value === target);
+}
+
 function advancedEngineValue(provider = els.advancedProvider?.value || "", capability = "") {
+  const resolved = advancedEngineValueResolved(provider, capability);
+  return advancedEngineOptionExists(resolved) ? resolved : DEFAULT_ADVANCED_PROVIDER;
+}
+
+function advancedEngineValueResolved(provider = els.advancedProvider?.value || "", capability = "") {
   const normalizedCapability = String(capability || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (normalizedCapability === "wan30-video-prime") return "wan30-prime";
   if (normalizedCapability === "wan30-video") return "wan30";

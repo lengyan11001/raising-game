@@ -40,7 +40,7 @@ test("Wan3.0 launch banner opens Custom with Wan3.0 selected and can be dismisse
   assert.match(html, /id="wan30LaunchBanner"[^>]*hidden[^>]*display:none!important/);
   assert.match(main, /if \(els\.wan30LaunchBanner\?\.hidden\) \{[\s\S]*?syncWan30LaunchVisibility\(false\)/);
   assert.match(css, /\.launch-banner\[hidden\] \+ \.site-head \{ margin-top: 0 !important; \}/);
-  assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw"/);
+  assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "wan30"/);
   assert.match(html, /id="wan30LaunchBanner"/);
   assert.match(html, /id="wan30LaunchBtn"/);
   assert.match(html, /Wan3\.0 上新，欢迎体验/);
@@ -74,25 +74,32 @@ test("Advanced results use a compact multi-column card grid", () => {
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
-  assert.match(engine, /value="wan30">Wan 3\.0 Video/);
+  assert.match(engine, /value="wan30"(?: selected)?>Wan 3\.0 Video/);
   assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
-  assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="seedance-nsfw" selected>/);
+  assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="wan30" selected>/);
   assert.match(engine, /value="wan27">Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.doesNotMatch(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
   assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
-  assert.match(engine, /value="seedance-nsfw" selected>Seedance2\.5 \(NSFW\)/);
+  assert.doesNotMatch(engine, /seedance-nsfw/);
+  assert.doesNotMatch(engine, /NSFW/i);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
 
-test("regular Seedance 2.5 is hidden everywhere while NSFW remains visible", () => {
+test("the NSFW Seedance engine is gone from every model picker", () => {
   const workflowModels = config.match(/const WORKFLOW_VIDEO_MODEL_LIBRARY = Object\.freeze\(\[([\s\S]*?)\]\);/)?.[1] || "";
+  assert.doesNotMatch(workflowModels, /seedance-nsfw/);
+  assert.doesNotMatch(workflowModels, /NSFW/);
   assert.doesNotMatch(workflowModels, /id: "seedance25"/);
-  assert.match(workflowModels, /id: "seedance-nsfw"/);
+  assert.doesNotMatch(html, /Seedance2\.5 \(NSFW\)/);
   assert.match(ui, /normalizeAdvancedProvider\(row\.provider\) !== "seedance25"/);
-  assert.match(create, /els\.advancedProvider\.value = "seedance-nsfw"/);
+  assert.doesNotMatch(create, /els\.advancedProvider\.value = "seedance-nsfw"/);
+  assert.match(create, /els\.advancedProvider\.value = DEFAULT_ADVANCED_PROVIDER/);
+  // A removed engine must not be restored into the select from an older record.
+  assert.match(ui, /function advancedEngineOptionExists\(value = ""\)/);
+  assert.match(ui, /return advancedEngineOptionExists\(resolved\) \? resolved : DEFAULT_ADVANCED_PROVIDER;/);
 });
 
 test("Playflux image templates resolve prompts on the server", () => {
