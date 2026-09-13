@@ -347,7 +347,7 @@ body.site-custom-workflow.home-active .support-fab {
 .w-frame-video.is-active { opacity: 1; }
 .w-frame-controls {
   position: absolute;
-  left: 14px; right: 14px; bottom: 14px;
+  left: 14px; bottom: 14px;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -372,7 +372,17 @@ body.site-custom-workflow.home-active .support-fab {
 .w-reel-ico:nth-child(2) { display: none; }
 .w-reel-play.is-paused .w-reel-ico:nth-child(1) { display: none; }
 .w-reel-play.is-paused .w-reel-ico:nth-child(2) { display: grid; }
-.w-reel-segs { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.w-reel-segs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(10, 7, 20, 0.5);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
 .w-reel-segs button {
   width: 24px; height: 4px;
   padding: 0;
