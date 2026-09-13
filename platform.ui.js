@@ -777,14 +777,14 @@ async function tokenAccessPackageMarkdown() {
     `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
     `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
     `- Qwen Image 3.0 generate: ${seedreamImageUrl}`,
-    `- Wan 3.0 / Seedance 2.5 / Seedance2.5 (NSFW) / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
+    `- Wan 3.0 / Seedance 2.5 / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
     `- Wan2.7 image generate/edit: ${apiUrl("/api/wan27/image-edit")}`,
     `- Advanced asset upload: ${apiUrl("/api/user-assets")}`,
     `- Advanced task detail: ${apiUrl("/api/generation-records/<taskId>")}`,
     `- V3 task detail: ${taskUrl}`,
     `- BytePlus-compatible asset upload: ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}`,
     "",
-    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate use the Advanced route. The detailed model document below is the source of truth for fields and limits.",
+    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the Advanced route. The detailed model document below is the source of truth for fields and limits.",
     "",
     "## Quick Start",
     "",
@@ -1625,9 +1625,8 @@ const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
   ]),
 });
 
-// An engine that the picker no longer offers (the removed NSFW Seedance 2.5
-// entry, for example) must not be restored into the select, or the field comes
-// back blank when an older record is reopened.
+// An engine the picker does not offer must not be restored into the select, or
+// the field comes back blank when an older record is reopened.
 function advancedEngineOptionExists(value = "") {
   const target = String(value || "").trim().toLowerCase();
   if (!target || !els.advancedProvider) return true;

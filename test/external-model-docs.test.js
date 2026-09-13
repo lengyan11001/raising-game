@@ -15,7 +15,7 @@ test("external model docs list every currently supported model family", () => {
     "Seedance 2.0 Fast",
     "Wan 3.0 Video",
     "Seedance 2.5",
-    "Seedance2.5 (NSFW)",
+    "Seedance 2.5 Video (seedance-nsfw)",
     "Wan2.7 Video",
     "HappyHorse Video",
     "Wan Animate",
@@ -69,7 +69,11 @@ test("selective model exposure still produces complete and valid Markdown", () =
 
 test("Copy token plus docs advertises all model routes and loads the live markdown source", () => {
   assert.match(copySource, /const ADVANCED_VIDEO_ACCESS_COPY/);
-  assert.match(copySource, /Wan 3\.0, Seedance 2\.5, Seedance2\.5 \(NSFW\), Wan2\.7, HappyHorse, and Wan Animate/);
+  assert.match(copySource, /Wan 3\.0, Seedance 2\.5, Wan2\.7, HappyHorse, and Wan Animate/);
+  // The public docs name the model, never the old NSFW wording.
+  assert.doesNotMatch(copySource, /\(NSFW\)/);
+  assert.doesNotMatch(serverSource, /\(NSFW\)/);
+  assert.doesNotMatch(uiSource, /\(NSFW\)/);
   assert.match(copySource, /\/api\/wan27\/image-edit/);
   assert.doesNotMatch(copySource, /\/api\/vipeak1\/image-edit/);
   assert.match(uiSource, /fetchLatestModelDocsMarkdown/);

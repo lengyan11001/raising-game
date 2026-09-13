@@ -2042,7 +2042,7 @@ Authorization: Bearer <user-token>
 
 When status is succeeded, read content.image_url, content.image_urls, or data[].url.`;
 
-const ADVANCED_VIDEO_ACCESS_COPY = `Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced endpoint.
+const ADVANCED_VIDEO_ACCESS_COPY = `Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced endpoint.
 
 Optional reusable asset upload:
 POST ${apiUrl("/api/user-assets")}
@@ -2060,10 +2060,10 @@ Content-Type: application/json
 
 {"provider":"wan30","videoCapability":"wan30-video","mediaMode":"multimodal","prompt":"Use Image 1 as the character and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
 
-Seedance 2.5 reference example:
+Seedance 2.5 reference example (provider seedance25):
 {"provider":"seedance25","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
 
-Seedance2.5 (NSFW) reference example:
+Seedance 2.5 reference example (provider seedance-nsfw):
 {"provider":"seedance-nsfw","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
 
 Wan2.7 reference example:
@@ -2110,7 +2110,7 @@ When status is succeeded, read content.image_url.
 3) Create and poll a Qwen Image 3.0 task:
 ${QWEN_IMAGE3_ACCESS_COPY}
 
-4) Create and poll Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, or Wan Animate video tasks:
+4) Create and poll Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate video tasks:
 ${ADVANCED_VIDEO_ACCESS_COPY}
 
 5) Create or edit a Wan2.7 image:

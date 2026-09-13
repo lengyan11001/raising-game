@@ -28281,7 +28281,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -28982,8 +28982,8 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
 
   const advancedSections = [
     { title: "Wan 3.0 Video", example: external.wan30Example, fields: wan30VideoParameterFields },
-    { title: "Seedance 2.5 Video", example: external.seedance25Example, fields: seedance25VideoParameterFields },
-    { title: "Seedance2.5 (NSFW) Video", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
+    { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
+    { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
     { title: "Wan2.7 Video", example: external.wan27Example, fields: wan27VideoParameterFields },
     { title: "HappyHorse Video", example: external.happyhorseExample, fields: happyhorseVideoParameterFields },
     { title: "Wan Animate", example: external.wanAnimateExample, fields: wanAnimateVideoParameterFields },
@@ -29153,7 +29153,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "- Audios: MP3/WAV, smaller than 15MB, each 1-15 seconds, total audio references at most 15 seconds.",
     "- With video references and a fixed output duration, input-video seconds plus output duration must not exceed 30 seconds.",
     "",
-    "Seedance 2.5 video:",
+    "Seedance 2.5 video (provider `seedance25`):",
     "",
     `- Endpoint: \`${seedance25.route || "/api/advanced/generate"}\` with \`provider: "seedance25"\`.`,
     "- Modes: `reference`, `first_last_frame`. `omini` is accepted as the reference-mode alias.",
@@ -29162,7 +29162,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Reference mode: at least one reference; max ${seedance25.referenceLimits?.images ?? 30} images, ${seedance25.referenceLimits?.videos ?? 10} videos, ${seedance25.referenceLimits?.audios ?? 10} audios, and ${seedance25.referenceLimits?.total ?? 50} assets total. Audio-only is not supported.`,
     "- First/last frame mode requires both frame images and cannot be mixed with reference media. `generateAudio`/`generate_audio` defaults to `true` and does not change the upstream price.",
     "",
-    "Seedance2.5 (NSFW) video:",
+    "Seedance 2.5 video (provider `seedance-nsfw`):",
     "",
     `- Endpoint: \`${seedanceNsfw.route || "/api/advanced/generate"}\` with \`provider: "${seedanceNsfw.provider || SEEDANCE25_DIRECT_PROVIDER}"\`.`,
     "- Modes: `reference`, `first_last_frame`, `edit`, `extend`. `omini` is accepted as the reference-mode alias.",
@@ -29347,11 +29347,11 @@ function externalAdvancedApiMarkdown(doc = {}) {
       JSON.stringify(doc.seedance25Example?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Seedance 2.5 fields**",
+    "**Seedance 2.5 fields (provider `seedance25`)**",
     "",
     docsParameterMarkdown(seedance25VideoParameterFields()),
     "",
-    "**Seedance2.5 (NSFW) video**",
+    "**Seedance 2.5 video (provider `seedance-nsfw`)**",
     "",
     markdownCodeBlock("http", [
       `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
@@ -29361,7 +29361,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
       JSON.stringify(doc.seedanceNsfwExample?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Seedance2.5 (NSFW) fields**",
+    "**Seedance 2.5 fields (provider `seedance-nsfw`)**",
     "",
     docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
     "",
@@ -29409,7 +29409,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "**Advanced task polling**",
     "",
-    "Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
+    "Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -29479,7 +29479,7 @@ function buildModelDocsMarkdown(docs) {
     "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
+    "5. Create Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
     "6. Create or edit Wan2.7 images with `/api/wan27/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
