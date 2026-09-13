@@ -318,11 +318,76 @@ body.site-custom-workflow.home-active .support-fab {
 }
 @keyframes wBlink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
-.w-frame-body { position: relative; overflow: hidden; }
+.w-frame-body {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1200 / 820;
+  background: #0b0816;
+}
+.w-frame-body::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 44%;
+  z-index: 1;
+  background: linear-gradient(180deg, transparent, rgba(6, 4, 14, 0.74));
+  pointer-events: none;
+}
+.w-frame-reel { position: absolute; inset: 0; }
+.w-frame-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.55s ease;
+  pointer-events: none;
+}
+.w-frame-video.is-active { opacity: 1; }
+.w-frame-controls {
+  position: absolute;
+  left: 14px; right: 14px; bottom: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.w-reel-play {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: rgba(10, 7, 20, 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.3s ease, background 0.3s ease;
+}
+.w-reel-play:hover { transform: scale(1.06); background: rgba(240, 56, 168, 0.38); }
+.w-reel-ico { display: grid; place-items: center; line-height: 0; }
+.w-reel-ico:nth-child(2) { display: none; }
+.w-reel-play.is-paused .w-reel-ico:nth-child(1) { display: none; }
+.w-reel-play.is-paused .w-reel-ico:nth-child(2) { display: grid; }
+.w-reel-segs { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.w-reel-segs button {
+  width: 24px; height: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  cursor: pointer;
+  transition: background 0.3s ease, width 0.3s ease;
+}
+.w-reel-segs button.is-active { width: 40px; background: var(--w-pink); }
 .w-art { display: block; width: 100%; height: auto; }
 .w-scan {
   position: absolute;
   left: 0; right: 0; height: 34%;
+  z-index: 1;
   background: linear-gradient(180deg, transparent, rgba(240, 56, 168, 0.16), transparent);
   animation: wScan 5.5s ease-in-out infinite;
   pointer-events: none;

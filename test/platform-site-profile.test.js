@@ -79,7 +79,7 @@ test("the profile ships its own welcome page, brand and stylesheet", () => {
   assert.match(html, /data-home-action="login"/);
   assert.match(html, /data-home-action="signup"/);
   assert.match(html, /data-home-action="create"/);
-  assert.match(html, /assets\/brand\/123vipfans-hero\.svg/);
+  assert.match(html, /assets\/brand\/hero-clips\/urban-rise\.mp4/);
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-logo.png")), "logo asset should exist");
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-favicon.png")), "favicon asset should exist");
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero.svg")), "own hero illustration should exist");
@@ -149,7 +149,7 @@ test("the profile keeps pink buttons but ships its own palette, layout and motio
   // landing structure (nav, hero, marquee, features, carousel, steps, cta)
   assert.match(html, /class="w-nav" id="welcomeNav"/);
   assert.match(html, /class="w-hero" id="wHero"/);
-  assert.match(html, /class="w-art" src="\.\/assets\/brand\/123vipfans-hero\.svg"/);
+  assert.match(html, /id="wFrameBody"/);
   assert.match(html, /class="w-marquee"/);
   assert.equal((html.match(/class="w-card w-reveal"/g) || []).length, 4);
   assert.equal((html.match(/class="w-slide[" ]/g) || []).length, 5);
@@ -176,6 +176,19 @@ test("the profile keeps pink buttons but ships its own palette, layout and motio
   assert.match(css, /\.w-hero-video \{[^}]*object-fit: cover/);
   assert.match(css, /\.w-hero-scrim \{/);
   assert.match(js, /video\.pause\(\)/);
+
+  // the hero frame plays a rotation of generated clips instead of a still mock
+  assert.equal((html.match(/class="w-frame-video/g) || []).length, 4, "hero reel should ship four clips");
+  for (const clip of ["urban-rise", "cyber-scifi", "campus-sweet", "wuxia"]) {
+    assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "hero-clips", clip + ".mp4")), "missing hero clip: " + clip);
+    assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "hero-clips", clip + ".jpg")), "missing hero clip poster: " + clip);
+    assert.match(html, new RegExp("hero-clips/" + clip + "\\.mp4"));
+    assert.match(html, new RegExp("hero-clips/" + clip + "\\.jpg"));
+  }
+  assert.match(html, /role="tablist" aria-label="Shots"/);
+  assert.match(js, /querySelectorAll\("\.w-frame-video"\)/);
+  assert.match(js, /addEventListener\("ended"/);
+  assert.match(css, /\.w-frame-video \{[^}]*object-fit: cover/);
 
   // the showcase carousel shows real generated key art instead of flat gradients
   const showcaseSlides = {

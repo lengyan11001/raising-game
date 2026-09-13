@@ -293,9 +293,18 @@
                 <em>storyboard.wf</em>
                 <i class="w-typing" data-i18n="welcome.frameHint">prompt · reference · motion</i>
               </div>
-              <div class="w-frame-body">
-                <img class="w-art" src="./assets/brand/123vipfans-hero.svg" alt="" />
+              <div class="w-frame-body" id="wFrameBody">
+                <div class="w-frame-reel">
+                  <video class="w-frame-video is-active" src="./assets/brand/hero-clips/urban-rise.mp4" poster="./assets/brand/hero-clips/urban-rise.jpg" width="1200" height="820" muted playsinline preload="auto" autoplay></video>
+                  <video class="w-frame-video" src="./assets/brand/hero-clips/cyber-scifi.mp4" poster="./assets/brand/hero-clips/cyber-scifi.jpg" width="1200" height="820" muted playsinline preload="metadata" ></video>
+                  <video class="w-frame-video" src="./assets/brand/hero-clips/campus-sweet.mp4" poster="./assets/brand/hero-clips/campus-sweet.jpg" width="1200" height="820" muted playsinline preload="metadata" ></video>
+                  <video class="w-frame-video" src="./assets/brand/hero-clips/wuxia.mp4" poster="./assets/brand/hero-clips/wuxia.jpg" width="1200" height="820" muted playsinline preload="metadata" ></video>
+                </div>
                 <span class="w-scan" aria-hidden="true"></span>
+                <div class="w-frame-controls">
+                  <button class="w-reel-play" type="button" data-w-reel="toggle" aria-label="Play / pause" aria-pressed="false"><span class="w-reel-ico"><i data-lucide="pause"></i></span><span class="w-reel-ico"><i data-lucide="play"></i></span></button>
+                  <div class="w-reel-segs" role="tablist" aria-label="Shots"></div>
+                </div>
               </div>
               <div class="w-frame-foot">
                 <span class="w-chip" data-i18n="welcome.chip1">首尾帧</span>

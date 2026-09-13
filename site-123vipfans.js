@@ -155,6 +155,77 @@
       restart();
     }
 
+    // ----- hero clip reel -----
+    // The hero frame plays a rotation of short clips instead of a still mock.
+    // Only the current clip decodes, and the whole reel stays on its poster
+    // when motion is unwelcome until the visitor asks for it.
+    const reel = document.getElementById("wFrameBody");
+    if (reel) {
+      const clips = Array.from(reel.querySelectorAll(".w-frame-video"));
+      const segHolder = reel.querySelector(".w-reel-segs");
+      const toggle = reel.querySelector('[data-w-reel="toggle"]');
+      let clipIndex = Math.max(0, clips.findIndex((clip) => clip.classList.contains("is-active")));
+      let stopped = reducedMotion();
+
+      const segs = clips.map((_, i) => {
+        const seg = document.createElement("button");
+        seg.type = "button";
+        seg.setAttribute("role", "tab");
+        seg.setAttribute("aria-label", "Shot " + (i + 1));
+        seg.addEventListener("click", () => showClip(i, true));
+        if (segHolder) segHolder.appendChild(seg);
+        return seg;
+      });
+
+      function paintClip() {
+        clips.forEach((clip, i) => {
+          const current = i === clipIndex;
+          clip.classList.toggle("is-active", current);
+          if (current && !stopped) {
+            clip.preload = "auto";
+            const played = clip.play();
+            if (played && played.catch) played.catch(() => {});
+          } else {
+            try { clip.pause(); } catch (error) {}
+          }
+        });
+        segs.forEach((seg, i) => seg.classList.toggle("is-active", i === clipIndex));
+        if (toggle) {
+          toggle.classList.toggle("is-paused", stopped);
+          toggle.setAttribute("aria-pressed", stopped ? "true" : "false");
+        }
+      }
+
+      function showClip(next, wake) {
+        clipIndex = (next + clips.length) % clips.length;
+        if (wake) stopped = false;
+        paintClip();
+      }
+
+      clips.forEach((clip) => {
+        clip.addEventListener("ended", () => {
+          if (!stopped) showClip(clipIndex + 1, false);
+        });
+      });
+
+      if (toggle) {
+        toggle.addEventListener("click", () => {
+          stopped = !stopped;
+          paintClip();
+        });
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          clips.forEach((clip) => { try { clip.pause(); } catch (error) {} });
+        } else {
+          paintClip();
+        }
+      });
+
+      paintClip();
+    }
+
     const year = document.getElementById("welcomeYear");
     if (year) year.textContent = String(new Date().getFullYear());
 
