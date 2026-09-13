@@ -5008,7 +5008,9 @@ async function deleteHistoryRecord(taskId = "", button = null) {
     state.historyRecords = (state.historyRecords || []).filter((record) => String(record.taskId || "") !== String(taskId));
     state.historyRecordsTotal = Math.max(0, Number(state.historyRecordsTotal || 0) - 1);
     historyRecordsSignature = "";
-    await loadHistory({ silent: true, page: 1, preserveMobile: true });
+    // Stay on the page the visitor was on; loadHistory steps back if that page
+    // no longer exists after the delete.
+    await loadHistory({ silent: true, page: currentHistoryPage(), preserveMobile: true });
   } catch (error) {
     if (button) {
       button.disabled = false;
@@ -5118,14 +5120,27 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   if (state.tab !== "history" || !state.user) return;
   historyRefreshTimer = window.setTimeout(() => {
     historyRefreshTimer = null;
-    if (state.tab === "history") loadHistory({ silent: true, refresh: true, page: 1, preserveMobile: true });
+    if (state.tab !== "history") return;
+    // A background refresh must never yank the visitor back to page 1. The mobile
+    // list merges new results into the top, every other layout reloads the page
+    // that is already on screen.
+    loadHistory({
+      silent: true,
+      refresh: true,
+      page: isMobileHistoryLayout() ? 1 : currentHistoryPage(),
+      preserveMobile: true,
+    });
   }, delayMs);
+}
+
+function currentHistoryPage() {
+  return Math.max(1, Number(state.historyRecordsPage || 1) || 1);
 }
 
 async function loadHistory({
   silent = false,
   refresh = false,
-  page = state.historyRecordsPage || 1,
+  page = currentHistoryPage(),
   append = false,
   preserveMobile = false,
 } = {}) {
@@ -5161,6 +5176,16 @@ async function loadHistory({
       : shouldPreserve
         ? mergeHistoryRecordPages(incomingRecords, previousRecords)
         : incomingRecords;
+    // A page can disappear while the visitor is reading it (records deleted in
+    // another tab). Step back to the last page that still exists instead of
+    // showing an empty list.
+    const lastPage = Math.max(1, Number(payload.totalPages || 1) || 1);
+    if (!append && !shouldPreserve && requestedPage > lastPage) {
+      historyLoading = false;
+      historyRefreshInFlight = false;
+      stopHistoryRefresh();
+      return loadHistory({ silent, refresh, page: lastPage, preserveMobile });
+    }
     notifyGenerationCompletionChanges(previousRecords, records);
     state.historyRecordsPage = shouldAppend || shouldPreserve
       ? Math.max(previousPage, Number(payload.page || requestedPage))

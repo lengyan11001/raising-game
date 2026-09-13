@@ -1452,7 +1452,13 @@ function syncGenerationCompletionRefresh() {
   const active = Boolean(state.user && typeof loadHistory === "function");
   if (active && !state.generationCompletionRefreshTimer) {
     state.generationCompletionRefreshTimer = window.setInterval(() => {
-      if (state.user && !historyLoading && !historyRefreshInFlight) loadHistory({ silent: true, refresh: true, page: 1, preserveMobile: true }).catch(() => {});
+      if (!state.user || historyLoading || historyRefreshInFlight) return;
+      // This runs on every tab, so it must never move a reader who is paging
+      // through their history: refresh the page on screen, and only the mobile
+      // append list refetches its first page and merges the new rows in.
+      const desktopPage = typeof currentHistoryPage === "function" ? currentHistoryPage() : 1;
+      const mobile = typeof isMobileHistoryLayout === "function" && isMobileHistoryLayout();
+      loadHistory({ silent: true, refresh: true, page: mobile ? 1 : desktopPage, preserveMobile: true }).catch(() => {});
     }, 15000);
   } else if (!active && state.generationCompletionRefreshTimer) {
     window.clearInterval(state.generationCompletionRefreshTimer);
