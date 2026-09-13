@@ -34,7 +34,16 @@ test("the completion poller never drags a reader back to page 1", () => {
 test("a page that disappeared steps back instead of rendering empty", () => {
   assert.match(create, /const lastPage = Math\.max\(1, Number\(payload\.totalPages \|\| 1\) \|\| 1\);/);
   assert.match(create, /if \(!append && !shouldPreserve && requestedPage > lastPage\) \{/);
-  assert.match(create, /return loadHistory\(\{ silent, refresh, page: lastPage, preserveMobile \}\);/);
+  // The step-back waits for the in-flight guard to be released first.
+  assert.match(create, /window\.setTimeout\(\(\) => \{\s*loadHistory\(\{ silent, refresh, page: lastPage, preserveMobile \}\)\.catch\(\(\) => \{\}\);\s*\}, 0\);/);
+});
+
+test("seeding the result panel cannot loop through history", () => {
+  const sideTab = create.match(/if \(next === "result"\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.ok(sideTab, "setAdvancedSideTab result branch should exist");
+  assert.match(sideTab, /&& !historyLoading/);
+  assert.match(sideTab, /&& !historyRefreshInFlight/);
+  assert.match(sideTab, /loadHistory\(\{ silent: true, refresh: true, page: currentHistoryPage\(\) \}\);/);
 });
 
 test("switching to History still opens the page the visitor left", () => {

@@ -47,8 +47,17 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
   });
   if (next === "result") {
     renderAdvancedResultPanel();
-    if (state.user && !state.advancedResultRecords?.length && !advancedResultHistoryFallbackRecords().length) {
-      loadHistory({ silent: true, refresh: true, page: 1 });
+    // Only seed the result panel when no history load is already on its way:
+    // loadHistory calls setUser, which re-renders this panel, so loading from
+    // here without that guard reloads history in a loop.
+    if (
+      state.user
+      && !historyLoading
+      && !historyRefreshInFlight
+      && !state.advancedResultRecords?.length
+      && !advancedResultHistoryFallbackRecords().length
+    ) {
+      loadHistory({ silent: true, refresh: true, page: currentHistoryPage() });
     }
     const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
     if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
@@ -5181,10 +5190,13 @@ async function loadHistory({
     // showing an empty list.
     const lastPage = Math.max(1, Number(payload.totalPages || 1) || 1);
     if (!append && !shouldPreserve && requestedPage > lastPage) {
-      historyLoading = false;
-      historyRefreshInFlight = false;
       stopHistoryRefresh();
-      return loadHistory({ silent, refresh, page: lastPage, preserveMobile });
+      // Wait for this call to release its in-flight guard before reloading, so a
+      // step-back can never overlap the request that discovered the dead page.
+      window.setTimeout(() => {
+        loadHistory({ silent, refresh, page: lastPage, preserveMobile }).catch(() => {});
+      }, 0);
+      return null;
     }
     notifyGenerationCompletionChanges(previousRecords, records);
     state.historyRecordsPage = shouldAppend || shouldPreserve
