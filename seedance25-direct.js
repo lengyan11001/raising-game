@@ -1,7 +1,7 @@
 "use strict";
 
 const SEEDANCE25_DIRECT_PROVIDER = "seedance-nsfw";
-const SEEDANCE25_DIRECT_LABEL = "Seedance2.5 (NSFW)";
+const SEEDANCE25_DIRECT_LABEL = "Seedance 2.5";
 const SEEDANCE25_DIRECT_MODEL = "dreamina-seedance-2-5-260628";
 const SEEDANCE25_DIRECT_ENDPOINT_ID = "ep-20260810163546-xzn5m";
 const SEEDANCE25_DIRECT_RESOLUTIONS = Object.freeze(["480p", "720p"]);

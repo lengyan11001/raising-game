@@ -35,9 +35,9 @@ const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
 const ADVANCED_QWEN_IMAGE3_PRO_2K_USD_PER_IMAGE = 0.068761;
 const ADVANCED_QWEN_IMAGE3_STANDARD_USD_PER_IMAGE = 0.024754;
 const ADVANCED_QWEN_IMAGE3_USD_PER_REFERENCE_IMAGE = 0.00275;
-// The NSFW-labelled Seedance 2.5 entry is gone from the engine picker, so the
-// default engine is the one the launch flow already selects.
-const DEFAULT_ADVANCED_PROVIDER = "wan30";
+// The Seedance 2.5 engine keeps its provider id; only its public name lost the
+// NSFW wording.
+const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = 3;
@@ -123,6 +123,7 @@ const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
 ]);
 const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
+  Object.freeze({ id: "seedance-nsfw", label: "Seedance 2.5", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
   Object.freeze({ id: "wan30", label: "Wan 3.0 Video", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan30-prime", label: "Wan 3.0 Video Prime", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan27", label: "Wan 2.7", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["720p", "1080p"], ratios: ["9:16", "16:9", "1:1"], durations: [2, 5, 8, 10, 15], modes: [{ value: "auto", label: "Auto from inputs" }, { value: "wan27-t2v", label: "Text to Video" }, { value: "wan27-i2v", label: "Image to Video" }, { value: "wan27-r2v", label: "Reference to Video" }, { value: "wan27-video-edit", label: "Video Edit" }], mode: "auto" }),

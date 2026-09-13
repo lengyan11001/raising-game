@@ -1565,7 +1565,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   if (normalized === "wan30") return capability === "wan30-video-prime" ? "Wan 3.0 Prime" : "Wan 3.0";
-  if (normalized === "seedance-nsfw") return "Seedance2.5 (NSFW)";
+  if (normalized === "seedance-nsfw") return "Seedance 2.5";
   if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",

@@ -1592,7 +1592,7 @@ function updateAdvancedModelControls() {
   if (els.advancedSeedanceMediaPanel) {
     els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode);
   }
-  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance2.5 (NSFW)" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
+  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });
