@@ -15807,7 +15807,17 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
     const bytes = await localBytesForResolvedMedia(item);
     if (!sizeBytes && bytes) sizeBytes = bytes.byteLength;
     if (["reference_image", "first_frame", "last_frame"].includes(item.type)) {
-      if (!imageTypes.has(mime)) throw advancedValidationError("WAN30_IMAGE_FORMAT_INVALID", `${label} must be JPG, JPEG, PNG, BMP, or WebP.`);
+      if (!imageTypes.has(mime)) {
+        // Keep the rejected locator in the log: a bare url that never reached a
+        // readable file is the only way this branch can see an empty format.
+        console.warn("[wan30-image-format-rejected]", JSON.stringify({
+          label,
+          url: String(item.url || "").slice(0, 300),
+          mime: item.mime || "",
+          userAssetId: item.userAssetId || "",
+        }));
+        throw advancedValidationError("WAN30_IMAGE_FORMAT_INVALID", `${label} must be JPG, JPEG, PNG, BMP, or WebP.`);
+      }
       if (sizeBytes > IMAGE_UPLOAD_MAX_BYTES) throw advancedValidationError("WAN30_IMAGE_TOO_LARGE", `${label} must be 20MB or smaller.`);
       const dimensions = item.width && item.height ? { width: item.width, height: item.height } : imageDimensionsFromBuffer(bytes || []);
       const width = Number(dimensions?.width || 0);
