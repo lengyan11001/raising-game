@@ -9989,6 +9989,15 @@ function imageDimensionsFromBuffer(bytes) {
   return null;
 }
 
+function imageMimeFromBuffer(bytes) {
+  const type = String(imageDimensionsFromBuffer(bytes || [])?.type || "").toLowerCase();
+  if (type === "png") return "image/png";
+  if (type === "jpeg") return "image/jpeg";
+  if (type === "webp") return "image/webp";
+  if (type === "bmp") return "image/bmp";
+  return "";
+}
+
 function assertSeedanceImageAspectRatio(dimensions, label = "Seedance image") {
   if (!dimensions?.width || !dimensions?.height) {
     const error = new Error(`${label} dimensions could not be read.`);
@@ -15653,11 +15662,56 @@ function aliyunPrimaryVideoInput(body = {}) {
   }, { mediaKind: "video", type: "video" });
 }
 
+// A reference can also arrive as a bare public URL - preset art, a link the studio
+// already owns, or a URL the client sends instead of an asset id. Such an input has
+// no stored MIME and no pixel size, so Wan 3.0 used to reject a perfectly good PNG
+// or JPEG with "must be JPG, JPEG, PNG, BMP, or WebP". Read the real format from the
+// bytes, and fall back to the URL extension when the file cannot be reached.
+async function publicImageFactsForUrl(url, { label = "Reference image" } = {}) {
+  const pathname = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch (error) {
+      return String(url || "").split("?")[0];
+    }
+  })();
+  const extensionMime = imageMimeFromKnownPath(pathname);
+  let downloaded = null;
+  try {
+    downloaded = await downloadRemoteFileToBuffer(url, {
+      label,
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+      timeoutMs: 30000,
+      retryCount: 1,
+      retryDelayMs: 500,
+    });
+  } catch (error) {
+    downloaded = null;
+  }
+  const bytes = downloaded?.bytes || null;
+  const headerMime = String(downloaded?.mime || "").replace("image/jpg", "image/jpeg").toLowerCase();
+  const detectedMime = imageMimeFromBuffer(bytes);
+  const dimensions = bytes ? imageDimensionsFromBuffer(bytes) : null;
+  const mime = detectedMime || extensionMime || (headerMime.startsWith("image/") ? headerMime : "");
+  if (!mime && !dimensions) return null;
+  return {
+    mime,
+    width: Number(dimensions?.width || 0),
+    height: Number(dimensions?.height || 0),
+    sizeBytes: Number(bytes?.byteLength || 0),
+  };
+}
+
 async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" } = {}) {
   if (!input) return null;
   let asset = null;
   let url = String(input.url || "").trim();
   if (url.startsWith("/")) url = publicUrlForAssetPath(url);
+  // A reference sent as a bare URL may still be one of this studio's own assets, and
+  // that record carries the MIME and pixel size the validators need.
+  if (!input.dataUrl && !input.assetId && user && isPublicHttpUrl(url)) {
+    asset = findUserAssetBySourceUrl(db, user, url);
+  }
   if (input.dataUrl) {
     asset = await createUserWanMediaAssetFromDataUrl(db, user, {
       dataUrl: input.dataUrl,
@@ -15693,6 +15747,20 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     throw error;
   }
   validateWan27MediaKind({ url }, input.mediaKind, label);
+  let mime = String(asset?.mime || "").toLowerCase();
+  if (!mime && input.mediaKind === "video") mime = videoMimeFromKnownPath(url);
+  let sizeBytes = Number(asset?.sizeBytes || 0);
+  let width = Number(asset?.width || asset?.videoWidth || 0);
+  let height = Number(asset?.height || asset?.videoHeight || 0);
+  if (!asset && input.mediaKind === "image" && (!mime || !width || !height)) {
+    const facts = await publicImageFactsForUrl(url, { label });
+    if (facts) {
+      if (!mime) mime = facts.mime;
+      if (!width) width = facts.width;
+      if (!height) height = facts.height;
+      if (!sizeBytes) sizeBytes = facts.sizeBytes;
+    }
+  }
   const resolved = {
     type: input.type,
     url,
@@ -15700,12 +15768,12 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     mediaKind: input.mediaKind,
     userAssetId: asset?.id || "",
     localUrl: asset?.localUrl || "",
-    // Public template URLs do not have an asset record, so preserve their
-    // supported media type from the URL when no stored MIME is available.
-    mime: asset?.mime || (input.mediaKind === "video" ? videoMimeFromKnownPath(url) : ""),
-    sizeBytes: Number(asset?.sizeBytes || 0),
-    width: Number(asset?.width || asset?.videoWidth || 0),
-    height: Number(asset?.height || asset?.videoHeight || 0),
+    // Public template URLs and other bare links have no asset record, so the
+    // supported media type and pixel size come from the file itself.
+    mime,
+    sizeBytes,
+    width,
+    height,
     durationSeconds: durationSecondsFromValue(asset?.durationSeconds),
   };
   if (input.referenceVoice) resolved.referenceVoice = input.referenceVoice;
