@@ -177,6 +177,28 @@ test("the profile keeps pink buttons but ships its own palette, layout and motio
   assert.match(css, /\.w-hero-scrim \{/);
   assert.match(js, /video\.pause\(\)/);
 
+  // the showcase carousel shows real generated key art instead of flat gradients
+  const showcaseSlides = {
+    "w-art-a": "urban-rise",
+    "w-art-b": "campus-sweet",
+    "w-art-c": "mystery",
+    "w-art-d": "cyber-scifi",
+    "w-art-e": "wuxia",
+  };
+  for (const [slideClass, file] of Object.entries(showcaseSlides)) {
+    for (const ext of ["webp", "jpg"]) {
+      const asset = path.resolve(__dirname, "..", "assets", "brand", "showcase", `${file}.${ext}`);
+      assert.ok(fs.existsSync(asset), "missing showcase asset: " + file + "." + ext);
+      assert.ok(fs.statSync(asset).size > 20000, "showcase asset looks empty: " + file + "." + ext);
+    }
+    assert.match(html, new RegExp(`class="w-slide-art ${slideClass}"[^>]*><picture>`));
+    assert.match(html, new RegExp(`showcase/${file}\\.webp`));
+    assert.match(html, new RegExp(`showcase/${file}\\.jpg`));
+  }
+  assert.equal((html.match(/<picture>/g) || []).length, 5, "each slide art should ship a picture element");
+  assert.match(css, /\.w-slide-art img \{[^}]*object-fit: cover/);
+  assert.match(css, /\.w-slide-art > picture \{[^}]*display: block/);
+
   // copy ships in both languages
   for (const key of ["welcome.navFeatures", "welcome.title2", "welcome.featTitle", "welcome.showTitle", "welcome.ctaTitle"]) {
     assert.ok(copy.includes(`"${key}"`), "missing copy key: " + key);
