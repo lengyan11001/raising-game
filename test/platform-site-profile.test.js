@@ -13,6 +13,44 @@ const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.
 const main = fs.readFileSync(path.resolve(__dirname, "..", "platform.main.js"), "utf8");
 const copy = fs.readFileSync(path.resolve(__dirname, "..", "platform.copy.js"), "utf8");
 
+// server.js is a single module, so a pure helper is lifted out of the real
+// source text and exercised directly.
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`missing function ${name}`);
+  let depth = 0;
+  for (let index = source.indexOf("{", start); index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+test("the www host serves the same site profile as the apex", () => {
+  const factory = new Function(
+    "PLATFORM_SITE_HOSTS",
+    "PLATFORM_SITE_PROFILE",
+    [
+      extractFunction(server, "normalizeHostname"),
+      extractFunction(server, "platformSiteProfileForHostname"),
+      "return platformSiteProfileForHostname;",
+    ].join("\n"),
+  );
+  const profile = { id: "custom-workflow" };
+  const lookup = factory(new Set(["123vip.fans"]), profile);
+  assert.equal(lookup("123vip.fans"), profile);
+  assert.equal(lookup("www.123vip.fans"), profile);
+  assert.equal(lookup("123vip.fans:443"), profile);
+  assert.equal(lookup("https://WWW.123vip.fans/landing"), profile);
+  assert.equal(lookup("123vips.com"), null);
+  assert.equal(lookup(""), null);
+  assert.match(server, /const bareHost = host\.replace\(\/\^www\\\.\/, ""\);/);
+});
+
 test("123vip.fans is a platform site profile, not a tool tenant", () => {
   assert.match(server, /const DEFAULT_PLATFORM_SITE_HOSTS = "123vip\.fans"/);
   assert.match(server, /id: "custom-workflow"/);

@@ -443,7 +443,11 @@ const PLATFORM_SITE_PROFILE = Object.freeze({
 
 function platformSiteProfileForHostname(hostname = "") {
   const host = normalizeHostname(hostname);
-  return host && PLATFORM_SITE_HOSTS.has(host) ? PLATFORM_SITE_PROFILE : null;
+  if (!host) return null;
+  // The www host is the same site as the apex, so it must land on the same
+  // profile instead of falling back to the plain platform app.
+  const bareHost = host.replace(/^www\./, "");
+  return PLATFORM_SITE_HOSTS.has(host) || PLATFORM_SITE_HOSTS.has(bareHost) ? PLATFORM_SITE_PROFILE : null;
 }
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
