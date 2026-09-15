@@ -11,6 +11,7 @@ const platformExploreSource = fs.readFileSync(path.join(root, "platform.explore.
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "platform.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const config = fs.readFileSync(path.join(root, "platform.config.js"), "utf8");
 
 function elementMarkup(id) {
   const match = html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)<\\/select>`));
@@ -18,19 +19,89 @@ function elementMarkup(id) {
   return match[1];
 }
 
+test("Custom is a main navigation entry backed by the Advanced workspace", () => {
+  assert.match(html, /class="top-tab" data-tab="custom"[\s\S]*?data-i18n="advanced\.modeCustom"/);
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(root, "platform.config.js"), "utf8").match(/const ADVANCED_CREATE_KINDS = \[([\s\S]*?)\];/)?.[1] || "",
+    /id: "custom"/,
+  );
+  assert.match(ui, /if \(kind === ADVANCED_CUSTOM_KIND\.id\) return ADVANCED_CUSTOM_KIND/);
+  assert.match(platformExploreSource, /const customAdvancedRoute = isAdvancedCustomRoute\(tab\)/);
+  assert.match(platformExploreSource, /nextTab === "advanced" && state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id[\s\S]*?"#custom"/);
+  assert.match(css, /\.advanced-workspace \{[\s\S]*?grid-template-columns: minmax\(320px, 420px\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-workspace\.is-create-custom \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-create-kind-tabs \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.advanced-workspace\.is-create-custom \.advanced-create-switch \{[\s\S]*?display: none !important/);
+  assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.copy-card, \.advanced-workspace, \.topup-strip \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.advanced-workspace\.is-create-custom \{ grid-template-columns: 1fr; \}/);
+});
+
+test("Wan3.0 launch banner opens Custom with Wan3.0 selected and can be dismissed", () => {
+  assert.match(html, /id="wan30LaunchBanner"[^>]*hidden[^>]*display:none!important/);
+  assert.match(main, /if \(els\.wan30LaunchBanner\?\.hidden\) \{[\s\S]*?syncWan30LaunchVisibility\(false\)/);
+  assert.match(css, /\.launch-banner\[hidden\] \+ \.site-head \{ margin-top: 0 !important; \}/);
+  assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw"/);
+  assert.match(html, /id="wan30LaunchBanner"/);
+  assert.match(html, /id="wan30LaunchBtn"/);
+  assert.match(html, /Wan3\.0 上新，欢迎体验/);
+  assert.match(html, /id="wan30LaunchClose"/);
+  assert.match(main, /setTab\("#custom"\)/);
+  assert.match(main, /els\.advancedProvider\.value = "wan30"/);
+  assert.match(main, /WAN30_LAUNCH_DISMISSED_KEY/);
+  assert.match(css, /\.launch-banner \{/);
+  assert.match(css, /body\.wan30-launch-visible \.site-head/);
+});
+
+test("Advanced hides the asset panel without removing it from Custom", () => {
+  assert.match(html, /data-advanced-mobile-tab="assets"/);
+  assert.match(html, /data-advanced-side-tab="assets"/);
+  assert.match(html, /id="advancedAssetsView"/);
+  assert.match(html, /id="advancedResultView" data-advanced-side-view="result"/);
+  assert.match(config, /advancedSideTab: isAdvancedCustomRoute\(window\.location\.hash\) \? "assets" : "result"/);
+  assert.match(create, /const assetsAllowed = state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id/);
+  assert.match(css, /\.advanced-workspace:not\(\.is-create-custom\) \.advanced-side-tabs/);
+  assert.match(css, /\.advanced-workspace:not\(\.is-create-custom\) \[data-advanced-mobile-tab="assets"\]/);
+  assert.match(platformExploreSource, /state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id\) loadAdvancedAssets\(\)/);
+});
+
+test("Advanced results use a compact multi-column card grid", () => {
+  assert.match(css, /\.advanced-result-list \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@media \(min-width: 1440px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(create, /class="advanced-result-actions"/);
+  assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
+});
+
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
-  assert.match(engine, /value="wan30">Wan 3\.0 Video/);
+  assert.match(engine, /value="wan30"(?: selected)?>Wan 3\.0 Video/);
   assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
-  assert.match(engine, /value="wan27" selected>Wan 2\.7/);
+  assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="seedance-nsfw" selected>Seedance 2\.5<\/option>/);
+  assert.match(engine, /value="wan27">Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
-  assert.match(engine, /value="wan-animate">Wan Animate/);
+  assert.doesNotMatch(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
   assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
-  assert.match(engine, /value="seedance-nsfw">Seedance2\.5 \(NSFW\)/);
+  assert.match(engine, /value="seedance-nsfw" selected>Seedance 2\.5<\/option>/);
+  assert.doesNotMatch(engine, /\(NSFW\)/i);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
+});
+
+test("Seedance 2.5 keeps its engine everywhere but loses the NSFW wording", () => {
+  const workflowModels = config.match(/const WORKFLOW_VIDEO_MODEL_LIBRARY = Object\.freeze\(\[([\s\S]*?)\]\);/)?.[1] || "";
+  assert.match(workflowModels, /id: "seedance-nsfw", label: "Seedance 2\.5"/);
+  assert.doesNotMatch(workflowModels, /NSFW/);
+  assert.doesNotMatch(workflowModels, /id: "seedance25"/);
+  assert.doesNotMatch(html, /NSFW/);
+  assert.match(ui, /if \(normalized === "seedance-nsfw"\) return "Seedance 2\.5";/);
+  assert.match(create, /provider === "seedance-nsfw" \? "Seedance 2\.5"/);
+  assert.match(ui, /normalizeAdvancedProvider\(row\.provider\) !== "seedance25"/);
+  assert.doesNotMatch(create, /els\.advancedProvider\.value = "seedance-nsfw"/);
+  assert.match(create, /els\.advancedProvider\.value = DEFAULT_ADVANCED_PROVIDER/);
+  // An engine the picker does not offer must not be restored into the select.
+  assert.match(ui, /function advancedEngineOptionExists\(value = ""\)/);
+  assert.match(ui, /return advancedEngineOptionExists\(resolved\) \? resolved : DEFAULT_ADVANCED_PROVIDER;/);
 });
 
 test("Playflux image templates resolve prompts on the server", () => {
@@ -109,6 +180,14 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
+  assert.match(main, /\["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\)/);
+  assert.match(main, /uploadAdvancedDocumentReference\(file\)/);
+  assert.match(main, /Wan 3\.0 documents cannot be combined with other media inputs/);
+  assert.match(config, /const ADVANCED_WAN30_DOCUMENT_MAX_BYTES = 100 \* 1024 \* 1024/);
+  assert.match(create, /Wan 3\.0 documents must be 100MB or smaller/);
+  assert.match(create, /id: "document", label: "Document", type: "document"/);
+  assert.match(create, /currentAdvancedProvider\(\) === "wan30" && isDocumentAsset\(asset\)/);
+  assert.match(create, /target\.id === "document"/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
@@ -122,6 +201,19 @@ test("Wan3.0 prompt extension is an opt-in control for both Wan capabilities", (
   assert.match(create, /\(provider === "wan30" \? \{ prompt_extend: promptExtend \} : \{\}\)/);
   assert.match(create, /els\.advancedWanPromptExtend\.checked = false/);
   assert.match(server, /prompt_extend: provider === "wan30"[\s\S]*?boolFromRequest\(firstPresent\(body\.prompt_extend/);
+});
+
+test("Wan3.0 skill prompt optimization is a separate opt-in control", () => {
+  assert.match(html, /class="field advanced-wan-prompt-optimize-option" hidden/);
+  assert.match(html, /id="advancedWanPromptOptimize" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /id="advancedWanPromptOptimize"[^>]*checked/);
+  assert.match(config, /advancedWanPromptOptimize: document\.querySelector\("#advancedWanPromptOptimize"\)/);
+  assert.match(ui, /function optimizeWan30Prompt\(prompt = ""\)/);
+  assert.match(create, /const wanPromptOptimize = provider === "wan30" && Boolean\(els\.advancedWanPromptOptimize\?\.checked\)/);
+  assert.match(create, /if \(wanPromptOptimize\) prompt = optimizeWan30Prompt\(prompt\)/);
+  assert.match(create, /wan_prompt_optimize: provider === "wan30" \? wanPromptOptimize : undefined/);
+  assert.match(create, /params\.wan_prompt_optimize/);
+  assert.match(main, /els\.advancedWanPromptOptimize\.checked = false/);
 });
 
 test("Advanced image files enter the asset library before generation", () => {

@@ -2,9 +2,22 @@ async function startPlatform() {
   const allowed = await ensureAgeGate();
   if (!allowed) return;
   await bootstrap();
+  initChatOnboarding();
 }
 
 document.addEventListener("click", (event) => {
+  const homeAction = event.target.closest("[data-home-action]");
+  if (homeAction) {
+    state.routeCharacterId = "";
+    state.routeCharacterSource = "";
+    state.activeGalleryCharacterId = "";
+    if ((homeAction.dataset.homeAction || "") === "create") {
+      setTab("custom");
+      return;
+    }
+    if (typeof openLogin === "function") openLogin();
+    return;
+  }
   const galleryShortcut = event.target.closest("[data-gallery-shortcut]");
   if (galleryShortcut) {
     state.routeCharacterId = "";
@@ -22,6 +35,36 @@ document.addEventListener("click", (event) => {
   if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });
+const WAN30_LAUNCH_DISMISSED_KEY = "vipeakWan30LaunchDismissed";
+function syncWan30LaunchVisibility(visible) {
+  document.body.classList.toggle("wan30-launch-visible", visible);
+  document.body.classList.toggle("wan30-launch-dismissed", !visible);
+}
+function openWan30Launch() {
+  if (typeof setTab !== "function") return;
+  setTab("#custom");
+  requestAnimationFrame(() => {
+    if (!els.advancedProvider) return;
+    els.advancedProvider.value = "wan30";
+    els.advancedProvider.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+els.wan30LaunchBtn?.addEventListener("click", openWan30Launch);
+els.wan30LaunchClose?.addEventListener("click", () => {
+  try { localStorage.setItem(WAN30_LAUNCH_DISMISSED_KEY, "1"); } catch (error) {}
+  if (els.wan30LaunchBanner) els.wan30LaunchBanner.hidden = true;
+  syncWan30LaunchVisibility(false);
+});
+try {
+  if (els.wan30LaunchBanner?.hidden) {
+    syncWan30LaunchVisibility(false);
+  } else if (localStorage.getItem(WAN30_LAUNCH_DISMISSED_KEY) === "1" && els.wan30LaunchBanner) {
+    els.wan30LaunchBanner.hidden = true;
+    syncWan30LaunchVisibility(false);
+  } else {
+    syncWan30LaunchVisibility(true);
+  }
+} catch (error) { syncWan30LaunchVisibility(false); }
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
 els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
 window.addEventListener("hashchange", () => setTab(window.location.hash));
@@ -36,6 +79,35 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  const localPresetUpload = state.advancedLocalUploadSlot === "character"
+    && state.advancedCreateKind !== "custom"
+    && advancedCreateModeActivePresetSlots().includes("character");
+  if (localPresetUpload) {
+    try {
+      const file = files[0];
+      if (!uploadedFileMime(file).startsWith("image/")) {
+        if (els.advancedNote) els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advancedPreset.character"), type: "image" });
+        return;
+      }
+      const ref = await uploadAdvancedImageReference(file, { provider });
+      if (!ref) return;
+      state.advancedReferenceImages = [ref];
+      state.advancedUploadDataUrl = ref.dataUrl || ref.url || "";
+      state.advancedFirstFrameAssetId = "";
+      state.advancedSourceImageAssetId = "";
+      setAdvancedLocalCharacterPreset(ref);
+      state.activeAdvancedCaseId = "";
+      renderAdvancedPresetBuilder();
+      updateAdvancedModelControls();
+      updateAdvancedButtonCost();
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    } finally {
+      state.advancedLocalUploadSlot = "";
+      els.advancedImage.value = "";
+    }
+    return;
+  }
   if (["seedream5-image", "qwen-image3"].includes(provider)) {
     try {
       const imageLimit = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
@@ -43,7 +115,7 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedTooLarge = false;
       let skippedTooMany = false;
       for (const file of files) {
-        const mime = String(file.type || "").toLowerCase();
+        const mime = uploadedFileMime(file);
         if (!mime.startsWith("image/")) {
           skippedWrongType = true;
           continue;
@@ -97,9 +169,27 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedWrongType = false;
       let skippedTooLarge = false;
       let skippedTooMany = false;
+      let documentConflict = false;
       for (const file of files) {
-        const mime = String(file.type || "").toLowerCase();
-        if (mime.startsWith("image/")) {
+        const mime = uploadedFileMime(file);
+        const hasExistingWan30Media = Boolean(
+          state.advancedDocumentReference ||
+          state.advancedReferenceImages?.length ||
+          advancedSeedanceVideoReferences().length ||
+          advancedSeedanceAudioReferences().length ||
+          state.advancedSeedanceFirstFrameAssetId ||
+          state.advancedSeedanceLastFrameAssetId,
+        );
+        if (provider === "wan30" && isWan30DocumentFile(file)) {
+          if (hasExistingWan30Media || files.length !== 1) {
+            documentConflict = true;
+            continue;
+          }
+          const document = await uploadAdvancedDocumentReference(file);
+          if (document) state.activeAdvancedCaseId = "";
+        } else if (provider === "wan30" && state.advancedDocumentReference) {
+          documentConflict = true;
+        } else if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
             continue;
@@ -148,8 +238,10 @@ els.advancedImage?.addEventListener("change", async () => {
           skippedWrongType = true;
         }
       }
-      if (skippedWrongType && els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
+      if (documentConflict && els.advancedNote) {
+        els.advancedNote.textContent = "Wan 3.0 documents cannot be combined with other media inputs.";
+      } else if (skippedWrongType && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: provider === "wan30" ? "image / video / audio / document" : "image / video / audio" });
       }
       if (skippedTooLarge && els.advancedNote) {
         els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -182,17 +274,7 @@ els.advancedImage?.addEventListener("change", async () => {
       let skippedTooMany = false;
       let skippedDurationMessage = "";
       for (const file of files) {
-        const mime = String(file.type || "").toLowerCase();
-        if (provider === "wan30" && isWan30DocumentFile(file)) {
-          if (state.advancedDocumentReference) {
-            skippedTooMany = true;
-            continue;
-          }
-          const document = await uploadAdvancedDocumentReference(file);
-          if (!document) continue;
-          state.activeAdvancedCaseId = "";
-          continue;
-        }
+        const mime = uploadedFileMime(file);
         if (mime.startsWith("image/")) {
           if (!allowedTypes.has("image")) {
             skippedWrongType = true;
@@ -258,8 +340,8 @@ els.advancedImage?.addEventListener("change", async () => {
     return;
   }
   const firstFile = files[0];
-  const firstFileIsVideo = String(firstFile.type || "").startsWith("video/");
-  const firstFileIsImage = String(firstFile.type || "").startsWith("image/");
+  const firstFileIsVideo = uploadedFileMime(firstFile).startsWith("video/");
+  const firstFileIsImage = uploadedFileMime(firstFile).startsWith("image/");
   const uploadIsVideo = advancedCreateUploadIsVideo();
   if (uploadIsVideo && firstFileIsVideo) {
     try {
@@ -375,19 +457,31 @@ els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedSeedanceFirstFramePreview) {
+    els.advancedSeedanceFirstFramePreview.src = localPreviewUrl;
+    els.advancedSeedanceFirstFramePreview.classList.add("is-visible");
+    els.advancedSeedanceFirstFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   try {
     const ref = await uploadAdvancedImageReference(file);
-    if (!ref) return;
+    if (!ref) {
+      if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+      return;
+    }
     state.advancedSeedanceFirstFrameDataUrl = ref.dataUrl;
     state.advancedSeedanceFirstFrameAssetId = ref.assetId;
     state.advancedFirstFrameAssetId = ref.assetId;
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     els.advancedSeedanceFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     updateAdvancedModelControls();
     return;
   }
   state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl;
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+  if (els.advancedSeedanceFirstFramePreview) els.advancedSeedanceFirstFramePreview.src = state.advancedSeedanceFirstFrameDataUrl;
   els.advancedSeedanceFirstFrame.value = "";
   updateAdvancedModelControls();
 });
@@ -400,17 +494,28 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedSeedanceLastFramePreview) {
+    els.advancedSeedanceLastFramePreview.src = localPreviewUrl;
+    els.advancedSeedanceLastFramePreview.classList.add("is-visible");
+    els.advancedSeedanceLastFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   try {
     const ref = await uploadAdvancedImageReference(file);
-    if (!ref) return;
+    if (!ref) {
+      if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+      return;
+    }
     state.advancedSeedanceLastFrameDataUrl = ref.dataUrl;
     state.advancedSeedanceLastFrameAssetId = ref.assetId;
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     els.advancedSeedanceLastFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     updateAdvancedModelControls();
     return;
   }
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
@@ -423,16 +528,27 @@ els.advancedWanFirstFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedWanFirstFramePreview) {
+    els.advancedWanFirstFramePreview.src = localPreviewUrl;
+    els.advancedWanFirstFramePreview.classList.add("is-visible");
+    els.advancedWanFirstFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   let ref = null;
   try {
     ref = await uploadAdvancedImageReference(file);
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     els.advancedWanFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     updateAdvancedModelControls();
     return;
   }
-  if (!ref) return;
+  if (!ref) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+    return;
+  }
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
   state.advancedReferenceImages = [ref];
   state.advancedUploadDataUrl = ref.dataUrl;
   state.advancedFirstFrameAssetId = ref.assetId;
@@ -466,12 +582,22 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     if (els.advancedNote) els.advancedNote.textContent = "Last frame image must be 20MB or smaller.";
     return;
   }
+  const localPreviewUrl = typeof URL !== "undefined" ? URL.createObjectURL(file) : "";
+  if (localPreviewUrl && els.advancedWanLastFramePreview) {
+    els.advancedWanLastFramePreview.src = localPreviewUrl;
+    els.advancedWanLastFramePreview.classList.add("is-visible");
+    els.advancedWanLastFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
   try {
     const ref = await uploadAdvancedImageReference(file);
-    if (!ref) return;
+    if (!ref) {
+      if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
+      return;
+    }
     state.advancedWanLastFrameDataUrl = ref.dataUrl;
     state.advancedWanLastFrameAssetId = ref.assetId;
   } catch (error) {
+    if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
     state.advancedWanLastFrameDataUrl = "";
     state.advancedWanLastFrameAssetId = "";
     els.advancedWanLastFrame.value = "";
@@ -479,6 +605,7 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
+  if (localPreviewUrl && typeof URL !== "undefined") URL.revokeObjectURL(localPreviewUrl);
   if (els.advancedWanLastFramePreview) {
     els.advancedWanLastFramePreview.src = state.advancedWanLastFrameDataUrl;
     els.advancedWanLastFramePreview.classList.add("is-visible");
@@ -649,22 +776,98 @@ async function copyReferralText(value = "") {
   return copied;
 }
 
-els.copyReferralBtn?.addEventListener("click", async () => {
-  if (!state.user) return openLogin();
+function referralShareMessage(inviteUrl = "") {
+  const url = String(inviteUrl || "").trim();
+  if (!url) return "";
+  if (state.lang === "zh") return `AI 成人创意内容生成平台，快速帮助你创作富有吸引力的成人向作品。\n立即体验：${url}`;
+  return `Discover 123 - an AI platform for creating engaging adult content.\nTry it here: ${url}`;
+}
+
+async function copyReferralInvite() {
+  if (!state.user) {
+    openLogin();
+    return;
+  }
   if (!state.referral?.inviteUrl) await loadReferralSummary({ force: true });
   const inviteUrl = state.referral?.inviteUrl || "";
   if (!inviteUrl) {
     if (els.referralNote) els.referralNote.textContent = t("referral.copyFailed");
     return;
   }
-  const copied = await copyReferralText(inviteUrl);
-  if (els.referralNote) els.referralNote.textContent = copied ? t("referral.linkCopied") : t("referral.copyFailed");
+  const copied = await copyReferralText(referralShareMessage(inviteUrl));
+  const feedback = copied ? t("referral.linkCopied") : t("referral.copyFailed");
+  if (els.referralNote) els.referralNote.textContent = feedback;
+  if (els.referralCopyFeedback) {
+    els.referralCopyFeedback.textContent = feedback;
+    window.clearTimeout(els.referralCopyFeedback._clearTimer);
+    els.referralCopyFeedback._clearTimer = window.setTimeout(() => { els.referralCopyFeedback.textContent = ""; }, 4000);
+  }
+  if (copied && els.copyReferralLinkBtn) {
+    const label = els.copyReferralLinkBtn.querySelector("span");
+    if (label) {
+      const previous = label.textContent;
+      label.textContent = state.lang === "zh" ? "已复制" : "Copied";
+      window.setTimeout(() => { if (label.isConnected) label.textContent = previous; }, 2200);
+    }
+  }
+}
+
+els.copyReferralBtn?.addEventListener("click", async () => {
+  await copyReferralInvite();
+});
+els.copyReferralLinkBtn?.addEventListener("click", copyReferralInvite);
+els.referralLink?.addEventListener("click", copyReferralInvite);
+els.saveReferralWalletBtn?.addEventListener("click", async () => {
+  if (!state.user) return openLogin();
+  const walletAddress = String(els.referralWalletAddress?.value || "").trim();
+  if (!walletAddress) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.walletRequired");
+    return;
+  }
+  els.saveReferralWalletBtn.disabled = true;
+  try {
+    const payload = await requestJson("/api/referral/wallet", { method: "PUT", body: { walletAddress } });
+    state.referral = { ...(state.referral || {}), ...(payload.referral || {}), walletAddress: payload.walletAddress || walletAddress };
+    if (els.referralNote) els.referralNote.textContent = t("referral.walletSaved");
+    renderReferral();
+  } catch (error) {
+    if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  } finally {
+    els.saveReferralWalletBtn.disabled = false;
+  }
+});
+els.referralWithdrawForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.user) return openLogin();
+  const walletAddress = String(els.referralWalletAddress?.value || "").trim();
+  if (!walletAddress) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.walletRequired");
+    return;
+  }
+  const amount = Number(state.referral?.withdrawableUsd ?? state.referral?.availableWithdrawableUsd ?? state.referral?.withdrawableAmount ?? state.referral?.availableCommissionUsd ?? 0);
+  if (!(amount > 0)) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.noWithdrawable");
+    return;
+  }
+  els.requestReferralWithdrawBtn.disabled = true;
+  try {
+    const payload = await requestJson("/api/referral/withdrawals", { method: "POST", body: { walletAddress, amountUsd: amount } });
+    const nextRecord = payload.record || payload.withdrawal || null;
+    const nextHistory = nextRecord ? [nextRecord, ...(state.referral?.withdrawals || [])] : (payload.withdrawals || payload.referral?.withdrawals || state.referral?.withdrawals || []);
+    state.referral = { ...(state.referral || {}), ...(payload.referral || {}), withdrawals: nextHistory, withdrawableUsd: payload.withdrawableUsd ?? payload.referral?.availableWithdrawableUsd ?? 0 };
+    if (els.referralNote) els.referralNote.textContent = t("referral.withdrawalRequested");
+    renderReferral();
+  } catch (error) {
+    if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  } finally {
+    els.requestReferralWithdrawBtn.disabled = false;
+  }
 });
 document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
 els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
-  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "paypal"));
+  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "stripe"));
 });
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
@@ -678,10 +881,13 @@ els.topupMembershipLink?.addEventListener("click", () => {
 });
 function openTopupDialog() {
   prepareModalOpen();
+  if (els.topupMembershipLink) {
+    els.topupMembershipLink.hidden = !membershipProgramEnabled() || creatorMembershipActive();
+  }
   state.selectedBillingPlanId = "";
   state.selectedProductId = "";
   setTopupStep("packages");
-  setTopupMethod("paypal");
+  setTopupMethod("stripe");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();
@@ -773,6 +979,7 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedDuration) els.advancedDuration.value = "5";
     if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
     if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
+    if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = false;
   }
   if (currentAdvancedProvider() === "qwen-image3") {
     if (els.advancedRatio) els.advancedRatio.value = "1:1";
@@ -795,7 +1002,7 @@ els.advancedSeedanceTier?.addEventListener("change", () => {
 els.advancedSeedreamTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
-[els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark, els.advancedWanPromptExtend].forEach((control) => {
+[els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark, els.advancedWanPromptExtend, els.advancedWanPromptOptimize].forEach((control) => {
   control?.addEventListener("change", () => {
     state.advancedEstimateKey = "";
     updateAdvancedButtonCost();
@@ -927,6 +1134,11 @@ els.loginForm?.addEventListener("submit", (event) => {
 });
 els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
 els.googleLoginBtn?.addEventListener("click", authorizeGoogleLogin);
+els.requestEmailLoginCodeBtn?.addEventListener("click", requestEmailLoginCode);
+els.verifyEmailLoginBtn?.addEventListener("click", verifyEmailLogin);
+els.forgotPasswordBtn?.addEventListener("click", forgotPassword);
+els.requestAccountEmailCodeBtn?.addEventListener("click", requestAccountEmailCode);
+els.verifyAccountEmailBtn?.addEventListener("click", verifyAccountEmail);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
@@ -956,7 +1168,10 @@ els.buyApiDocsBtn?.addEventListener("click", () => {
   openEntitlementPaymentChoice("api-docs-access", els.apiDocsPurchaseStatus);
 });
 els.buyMembershipBtn?.addEventListener("click", () => {
-  startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, els.membershipNote);
+  openBillingPaymentChoice({
+    billingPlanId: "plan-main-creator",
+    statusElement: els.membershipNote,
+  });
 });
 els.membershipCodeForm?.addEventListener("submit", redeemMembershipCode);
 els.previewDialog?.addEventListener("close", () => {

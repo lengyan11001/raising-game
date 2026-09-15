@@ -47,8 +47,17 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
   });
   if (next === "result") {
     renderAdvancedResultPanel();
-    if (state.user && !state.advancedResultRecords?.length && !advancedResultHistoryFallbackRecords().length) {
-      loadHistory({ silent: true, refresh: true, page: 1 });
+    // Only seed the result panel when no history load is already on its way:
+    // loadHistory calls setUser, which re-renders this panel, so loading from
+    // here without that guard reloads history in a loop.
+    if (
+      state.user
+      && !historyLoading
+      && !historyRefreshInFlight
+      && !state.advancedResultRecords?.length
+      && !advancedResultHistoryFallbackRecords().length
+    ) {
+      loadHistory({ silent: true, refresh: true, page: currentHistoryPage() });
     }
     const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
     if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
@@ -395,7 +404,10 @@ function advancedResultPendingTaskIds() {
     const id = String(taskId || "").trim();
     if (!id || id.startsWith("pending-") || taskIds.includes(id)) return;
     const current = record || recordById.get(id);
-    if (current && isTerminalGenerationStatus(current.status)) return;
+    // A terminal provider status does not necessarily mean the browser-ready
+    // preview is complete. Continue polling succeeded video records until the
+    // poster URL arrives (video upload and poster upload can finish separately).
+    if (current && isTerminalGenerationStatus(current.status) && !isPendingGenerationRecord(current)) return;
     taskIds.push(id);
   };
   pushTaskId(state.advancedResultTaskId);
@@ -1439,8 +1451,11 @@ function syncAdvancedProviderExposure() {
   const qwenImage3Enabled = publicQwenImage3ModelsEnabled();
   els.advancedProvider.querySelectorAll("option").forEach((option) => {
     const raw = String(option.value || "").trim().toLowerCase();
-    const permanentlyHidden = raw === "wan30-prime" || raw === "happyhorse";
-    option.hidden = permanentlyHidden || (!enabled && hiddenProviders.has(raw) && !(
+    // Keep HappyHorse hidden on the old site, but expose Wan 3.0 Prime along
+    // with Wan 3.0 when that tenant feature is enabled.
+    const permanentlyHidden = raw === "happyhorse";
+    const primeHidden = raw === "wan30-prime" && !wan30Enabled;
+    option.hidden = permanentlyHidden || primeHidden || (!enabled && hiddenProviders.has(raw) && !(
       (wan30Enabled && isPublicWan30ProviderOption(raw))
       || (wan27Enabled && isPublicWan27ProviderOption(raw))
       || (happyhorseEnabled && isPublicHappyhorseProviderOption(raw))
@@ -1449,13 +1464,14 @@ function syncAdvancedProviderExposure() {
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
-  if (current !== modeProvider && (["wan30-prime", "happyhorse"].includes(current) || (!enabled && hiddenProviders.has(current) && !(
+  const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
+  if (current !== modeProvider && (permanentlyHiddenCurrent || (!enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
     || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
   )))) {
-    els.advancedProvider.value = "seedance25";
+    els.advancedProvider.value = DEFAULT_ADVANCED_PROVIDER;
   }
 }
 
@@ -1540,6 +1556,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-wan-prompt-extend-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
   });
+  document.querySelectorAll(".advanced-wan-prompt-optimize-option").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
+  });
   document.querySelectorAll(".advanced-qwen37-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenText;
   });
@@ -1582,7 +1601,7 @@ function updateAdvancedModelControls() {
   if (els.advancedSeedanceMediaPanel) {
     els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode);
   }
-  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance2.5 (NSFW)" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
+  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });
@@ -1826,6 +1845,8 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = params.preprocessReference === true;
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+    && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
@@ -1899,6 +1920,7 @@ function clearAdvancedCreationInputs() {
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = false;
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = false;
   [
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
@@ -1950,7 +1972,7 @@ async function submitAdvancedGenerate() {
     return;
   }
   const basePrompt = autoPrompt ? advancedCreateModeDefaultPrompt() : promptInput;
-  const prompt = advancedEffectivePrompt(basePrompt);
+  let prompt = advancedEffectivePrompt(basePrompt);
   if (!prompt && currentAdvancedProvider() !== "wan30") {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
     return;
@@ -1965,10 +1987,12 @@ async function submitAdvancedGenerate() {
       return;
     }
   }
+  const provider = currentAdvancedProvider();
+  const wanPromptOptimize = provider === "wan30" && Boolean(els.advancedWanPromptOptimize?.checked);
+  if (wanPromptOptimize) prompt = optimizeWan30Prompt(prompt);
   const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
-  const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
   const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
@@ -2210,7 +2234,8 @@ async function submitAdvancedGenerate() {
   const rawDurationValue = Number(els.advancedDuration?.value || bounds.fallback);
   let duration = provider === "wan30" && rawDurationValue === -1
     ? -1
-    : Math.min(bounds.max, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDurationValue) ? rawDurationValue : bounds.fallback));
+      : Math.min(bounds.max, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDurationValue) ? rawDurationValue : bounds.fallback));
+  if (provider === "seedance" && ["video-image", "video-replace"].includes(state.advancedCreateMode)) duration = 6;
   const resolution = currentAdvancedResolution();
   const legacyWanModel = videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "").trim() : "";
   const wanAnimateMode = ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)
@@ -2483,6 +2508,7 @@ async function submitAdvancedGenerate() {
       model: legacyWanModel || undefined,
       animateMode: wanAnimateMode || undefined,
       ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+      ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
       ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
     },
     ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
@@ -2533,6 +2559,7 @@ async function submitAdvancedGenerate() {
         seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
         prompt_extend: provider === "wan30" ? promptExtend : undefined,
+        wan_prompt_optimize: provider === "wan30" ? wanPromptOptimize : undefined,
         generateAudio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         generate_audio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         dataUrl: usesAliyunPrimaryImage && !wanFirstFrameAssetId ? firstFrameDataUrl : undefined,
@@ -2588,9 +2615,11 @@ async function submitAdvancedGenerate() {
           animateMode: wanAnimateMode || undefined,
           parameters: {
             ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+            ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
             ...(wanAnimateMode ? { mode: wanAnimateMode } : {}),
           },
           ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+          ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
           ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
         },
       },
@@ -2613,6 +2642,7 @@ async function submitAdvancedGenerate() {
         model: legacyWanModel || undefined,
         animateMode: wanAnimateMode || undefined,
         ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
+        ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
         ...(sharedReferenceProvider ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
       },
       ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
@@ -3072,6 +3102,8 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || params.parameters?.seed || "";
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+    && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedSeedanceTier) {
     const model = String(record.model || params.model || "").toLowerCase();
     els.advancedSeedanceTier.value = model.includes("fast") || params.seedanceTier === "fast" ? "fast" : "standard";
@@ -4582,7 +4614,6 @@ function renderHistory(records = []) {
         : isSucceeded
           ? "check-circle-2"
           : "loader-circle";
-    const recordDate = formatDateTime(record.createdAt || record.updatedAt);
     const regenerateAction = taskId && !resultLocked && !isTenantTool("undress") ? `
       <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
         <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
@@ -4661,10 +4692,6 @@ function renderHistory(records = []) {
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="${imageLoading}" fetchpriority="${imageFetchPriority}" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
         </div>
         ${isUndressHistory ? `<div class="undress-history-footer">
-          <div class="undress-history-meta">
-            <span class="undress-history-status is-${escapeHtml(recordStatusClass)}"><i data-lucide="${escapeHtml(recordStatusIcon)}"></i>${escapeHtml(recordStatusLabel)}</span>
-            ${recordDate ? `<time datetime="${escapeHtml(record.createdAt || record.updatedAt || "")}">${escapeHtml(recordDate)}</time>` : ""}
-          </div>
           ${undressResultActions}
         </div>` : ""}
         ${isUndressHistory ? "" : `<div class="history-card-actions">
@@ -4990,7 +5017,9 @@ async function deleteHistoryRecord(taskId = "", button = null) {
     state.historyRecords = (state.historyRecords || []).filter((record) => String(record.taskId || "") !== String(taskId));
     state.historyRecordsTotal = Math.max(0, Number(state.historyRecordsTotal || 0) - 1);
     historyRecordsSignature = "";
-    await loadHistory({ silent: true, page: 1, preserveMobile: true });
+    // Stay on the page the visitor was on; loadHistory steps back if that page
+    // no longer exists after the delete.
+    await loadHistory({ silent: true, page: currentHistoryPage(), preserveMobile: true });
   } catch (error) {
     if (button) {
       button.disabled = false;
@@ -5008,7 +5037,10 @@ async function deleteHistoryRecord(taskId = "", button = null) {
 }
 
 function isPendingGenerationRecord(record = {}) {
-  if (generationVideoUrl(record)) return false;
+  // Video publication and poster generation are separate asynchronous steps.
+  // Keep polling while a playable URL exists but its preview image has not
+  // arrived yet, otherwise the result card can remain stuck without media.
+  if (generationVideoUrl(record)) return !generationPosterUrl(record);
   if (generationImageResultUrl(record)) return false;
   return !["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
     .includes(String(record.status || "").toLowerCase().trim());
@@ -5054,9 +5086,24 @@ async function refreshPendingHistoryRecords(records = []) {
 
   candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
   if (state.tab !== "history" || !state.user) return;
-  if (settled.some((result) => result.status === "fulfilled")) {
-    window.setTimeout(() => loadHistory({ silent: true, page: 1, preserveMobile: true }), 500);
+  const refreshedByTaskId = new Map(settled
+    .filter((result) => result.status === "fulfilled" && result.value?.record?.taskId)
+    .map((result) => [String(result.value.record.taskId), result.value.record]));
+  if (!refreshedByTaskId.size) return;
+  const previousRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
+  const previousScrollTop = els.historyList?.scrollTop || 0;
+  state.historyRecords = (state.historyRecords || []).map((record) => (
+    refreshedByTaskId.get(String(record.taskId || "")) || record
+  ));
+  notifyGenerationCompletionChanges(previousRecords, state.historyRecords);
+  const nextSignature = generationRecordsSignature(state.historyRecords);
+  if (nextSignature !== historyRecordsSignature) {
+    renderHistory(state.historyRecords);
+    historyRecordsSignature = nextSignature;
+    if (els.historyList) els.historyList.scrollTop = previousScrollTop;
   }
+  if (state.historyRecords.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
+  else stopHistoryRefresh();
 }
 
 async function requestVideoFullscreen(video) {
@@ -5082,14 +5129,27 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   if (state.tab !== "history" || !state.user) return;
   historyRefreshTimer = window.setTimeout(() => {
     historyRefreshTimer = null;
-    if (state.tab === "history") loadHistory({ silent: true, refresh: true, page: 1, preserveMobile: true });
+    if (state.tab !== "history") return;
+    // A background refresh must never yank the visitor back to page 1. The mobile
+    // list merges new results into the top, every other layout reloads the page
+    // that is already on screen.
+    loadHistory({
+      silent: true,
+      refresh: true,
+      page: isMobileHistoryLayout() ? 1 : currentHistoryPage(),
+      preserveMobile: true,
+    });
   }, delayMs);
+}
+
+function currentHistoryPage() {
+  return Math.max(1, Number(state.historyRecordsPage || 1) || 1);
 }
 
 async function loadHistory({
   silent = false,
   refresh = false,
-  page = state.historyRecordsPage || 1,
+  page = currentHistoryPage(),
   append = false,
   preserveMobile = false,
 } = {}) {
@@ -5125,6 +5185,20 @@ async function loadHistory({
       : shouldPreserve
         ? mergeHistoryRecordPages(incomingRecords, previousRecords)
         : incomingRecords;
+    // A page can disappear while the visitor is reading it (records deleted in
+    // another tab). Step back to the last page that still exists instead of
+    // showing an empty list.
+    const lastPage = Math.max(1, Number(payload.totalPages || 1) || 1);
+    if (!append && !shouldPreserve && requestedPage > lastPage) {
+      stopHistoryRefresh();
+      // Wait for this call to release its in-flight guard before reloading, so a
+      // step-back can never overlap the request that discovered the dead page.
+      window.setTimeout(() => {
+        loadHistory({ silent, refresh, page: lastPage, preserveMobile }).catch(() => {});
+      }, 0);
+      return null;
+    }
+    notifyGenerationCompletionChanges(previousRecords, records);
     state.historyRecordsPage = shouldAppend || shouldPreserve
       ? Math.max(previousPage, Number(payload.page || requestedPage))
       : payload.page || requestedPage;
@@ -5253,30 +5327,51 @@ function renderTopupRecords() {
 function renderReferral() {
   const referral = state.referral || null;
   const loggedIn = Boolean(state.user);
+  const loading = loggedIn && Boolean(state.referralLoading);
   const invitedCount = Number(referral?.invitedCount || 0);
   const paidInviteCount = Math.max(0, Number(referral?.paidInviteCount || 0));
   const rewardCount = Math.max(0, Number(referral?.rewardCount || 0));
   const membershipTarget = Math.max(1, Number(referral?.membershipTarget || 100));
   const registrationProgress = Math.max(0, Math.min(100, (invitedCount / membershipTarget) * 100));
   const member = creatorMembershipActive();
-  if (els.referralLink) els.referralLink.textContent = loggedIn ? (referral?.inviteUrl || "") : t("referral.login");
+  const invitedUsers = Math.max(invitedCount, Number(referral?.invitedUsers || 0));
+  const withdrawableUsd = Number(referral?.withdrawableUsd ?? referral?.availableWithdrawableUsd ?? referral?.withdrawableAmount ?? referral?.availableCommissionUsd ?? 0);
+  const totalEarnedUsd = Number(referral?.totalEarnedUsd ?? referral?.totalCommissionUsd ?? referral?.earnedUsd ?? 0);
+  if (els.referralLink) els.referralLink.textContent = loggedIn
+    ? loading ? t("ledger.loading") : (referral?.inviteUrl || "")
+    : t("referral.login");
   if (els.referralProgressFill) els.referralProgressFill.style.width = `${paidInviteCount ? Math.min(100, (rewardCount / paidInviteCount) * 100) : 0}%`;
-  if (els.referralInvitedCount) els.referralInvitedCount.textContent = t("referral.invitedCount", { count: invitedCount });
+  if (els.referralInvitedCount) els.referralInvitedCount.textContent = loading
+    ? t("ledger.loading")
+    : t("referral.invitedCount", { count: invitedCount });
   if (els.referralRewardStatus) {
-    els.referralRewardStatus.textContent = member
+    els.referralRewardStatus.textContent = loading
+      ? t("ledger.loading")
+      : member
       ? t("membership.rewardStatusActive", { rewardCount, paidCount: paidInviteCount })
       : t("membership.rewardStatusInactive");
   }
-  if (els.referralMembershipProgressText) els.referralMembershipProgressText.textContent = member
+  if (els.referralMembershipProgressText) els.referralMembershipProgressText.textContent = loading
+    ? t("ledger.loading")
+    : member
     ? t("membership.activeProgress")
     : t("membership.progressCount", { count: invitedCount, target: membershipTarget });
   if (els.referralMembershipProgressFill) els.referralMembershipProgressFill.style.width = `${member ? 100 : registrationProgress}%`;
-  if (els.referralNote) els.referralNote.textContent = loggedIn
+  if (els.referralInvitedUsers) els.referralInvitedUsers.textContent = loading ? t("ledger.loading") : String(invitedUsers);
+  if (els.referralWithdrawable) els.referralWithdrawable.textContent = loading ? t("ledger.loading") : formatReferralUsd(withdrawableUsd);
+  if (els.referralTotalEarned) els.referralTotalEarned.textContent = loading ? t("ledger.loading") : formatReferralUsd(totalEarnedUsd);
+  if (els.referralWalletAddress && !loading && document.activeElement !== els.referralWalletAddress) {
+    els.referralWalletAddress.value = String(referral?.walletAddress || "");
+  }
+  renderReferralWithdrawals(referral?.withdrawals || referral?.withdrawalRecords || []);
+  if (els.referralNote) els.referralNote.textContent = loading
+    ? t("ledger.loading")
+    : loggedIn
     ? member
       ? t("membership.rewardNote")
       : t("membership.unlockNote", { target: membershipTarget })
     : t("referral.login");
-  if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || !referral?.inviteUrl;
+  if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || loading || !referral?.inviteUrl;
   renderMembershipCard();
   refreshIcons();
 }
@@ -5393,9 +5488,17 @@ async function loadReferralSummary({ force = false } = {}) {
     return;
   }
   state.referralLoading = true;
+  // Render a stable loading state before the request starts so the panel does
+  // not briefly expose the previous user's or previous request's values.
+  renderReferral();
   try {
     const payload = await requestJson("/api/referral");
-    state.referral = payload.referral || null;
+    let withdrawals = [];
+    try {
+      const withdrawalPayload = await requestJson("/api/referral/withdrawals?limit=20");
+      withdrawals = withdrawalPayload.records || withdrawalPayload.withdrawals || [];
+    } catch { /* summary remains usable if history endpoint is unavailable */ }
+    state.referral = payload.referral ? { ...payload.referral, withdrawals } : null;
     state.referralLoadedUserId = userId;
     state.referralLoadedAt = Date.now();
     if (payload.user) setUser(payload.user, { skipReferralRefresh: true });
@@ -5650,6 +5753,32 @@ function renderLoginForm() {
   if (els.forgotPasswordBtn) els.forgotPasswordBtn.hidden = !emailEnabled;
 }
 
+function formatReferralUsd(value) {
+  const amount = Number(value || 0);
+  return `$${(Number.isFinite(amount) ? amount : 0).toFixed(2)}`;
+}
+
+function referralWithdrawStatusLabel(status = "pending") {
+  const labels = { pending: "Processing", processing: "Processing", paid: "Paid", completed: "Paid", rejected: "Rejected", cancelled: "Rejected" };
+  return labels[String(status || "pending").toLowerCase()] || String(status || "Processing");
+}
+
+function renderReferralWithdrawals(records = []) {
+  if (!els.referralWithdrawals) return;
+  const list = Array.isArray(records) ? records : [];
+  if (!list.length) {
+    els.referralWithdrawals.innerHTML = `<div class="referral-withdrawals-empty">${escapeHtml(t("referral.noWithdrawals"))}</div>`;
+    return;
+  }
+  els.referralWithdrawals.innerHTML = `<div class="referral-withdrawals-title">${escapeHtml(t("referral.withdrawalHistory"))}</div>${list.slice(0, 20).map((item) => `
+    <div class="referral-withdrawal-row">
+      <div><strong>${escapeHtml(formatReferralUsd(item.amountUsd ?? item.amount ?? 0))}</strong><small>${escapeHtml(formatDateTime(item.requestedAt || item.createdAt || ""))}</small></div>
+      <span class="referral-withdrawal-status is-${escapeHtml(String(item.status || "pending").toLowerCase())}">${escapeHtml(referralWithdrawStatusLabel(item.status))}</span>
+      ${item.txHash ? `<code title="${escapeHtml(item.txHash)}">${escapeHtml(String(item.txHash).slice(0, 12))}...</code>` : ""}
+      ${item.rejectionReason ? `<small class="referral-withdrawal-error">${escapeHtml(item.rejectionReason)}</small>` : ""}
+    </div>`).join("")}`;
+}
+
 async function refreshAfterLogin() {
   if (state.tab === "access") renderAccessGuides();
   const refreshes = [];
@@ -5871,7 +6000,7 @@ async function bootstrap() {
   renderTopupSummary();
   renderPricing();
   renderTokenDisplays();
-  setTab(window.location.hash || state.tab);
+  setTab(window.location.hash || tenantStringFeature("defaultRoute", "") || state.tab);
   refreshIcons();
   if (!isTenantTool("undress")) loadPlatformEstimates();
 }

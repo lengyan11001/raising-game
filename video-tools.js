@@ -2,14 +2,7 @@
 
 const VIDEO_EDIT_SEGMENT_MAX_SECONDS = 10;
 
-const VIDEO_TOOL_FACE_SWAP_PROMPT = [
-  "Use the source video as the exact timeline, motion, action, pose, camera, framing, scene, lighting, cuts, and audio reference.",
-  "Replace only the main adult subject's facial identity with the identity from the reference image.",
-  "Preserve the source video's duration and every major action beat at the same relative timestamp.",
-  "Keep the result temporally stable and photorealistic, with consistent facial identity in every frame.",
-  "Do not change the body, clothing, background, camera motion, pacing, or audio unless required to blend the new face naturally.",
-  "No text, subtitles, logos, watermarks, split screens, or extra people.",
-].join(" ");
+const VIDEO_TOOL_FACE_SWAP_PROMPT = "将视频中的人物替换成图片中的人物。";
 
 const IMAGE_TOOL_FACE_SWAP_PROMPT = [
   "Image 1 is the target photo. Preserve its composition, body, pose, clothing, hairstyle, background, lighting, camera angle, and image style.",

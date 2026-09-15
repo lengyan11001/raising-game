@@ -263,6 +263,9 @@ const state = {
   pendingSceneEntry: null,
   pendingScene: scenes[0],
   uploadedDataUrl: "",
+  pendingUploadFile: null,
+  pendingUploadObjectUrl: "",
+  uploadPreparing: false,
   pendingPayment: null,
   characterTimer: null,
   characterRequestId: 0,
@@ -275,8 +278,12 @@ const state = {
   dragStartFrame: 0,
   dragging: false,
   paymentRunning: false,
+  rechargeMethod: "stripe",
   eventsBound: false,
   stats: { ...companions[0].stats },
+  generationHistoryPage: 1,
+  generationHistoryTotalPages: 1,
+  generationHistoryLimit: 8,
 };
 
 const els = {
@@ -375,6 +382,10 @@ const els = {
   rechargeAmount: document.querySelector("#rechargeAmount"),
   createOrderBtn: document.querySelector("#createOrderBtn"),
   orderResult: document.querySelector("#orderResult"),
+  legacyStripeTab: document.querySelector("#legacyStripeTab"),
+  legacyUsdtTab: document.querySelector("#legacyUsdtTab"),
+  legacyStripePanel: document.querySelector("#legacyStripePanel"),
+  legacyUsdtPanel: document.querySelector("#legacyUsdtPanel"),
   staticWalletAddr: document.querySelector("#staticWalletAddr"),
   copyWalletBtn: document.querySelector("#copyWalletBtn"),
   userAssetList: document.querySelector("#userAssetList"),
@@ -597,6 +608,9 @@ function openRechargeDialog() {
     return;
   }
   els.orderResult.textContent = "";
+  const rechargeTitle = els.rechargeDialog?.querySelector("h3");
+  if (rechargeTitle) rechargeTitle.textContent = "Recharge credits";
+  setRechargeMethod("stripe");
   els.rechargeDialog.showModal();
   refreshIcons();
 }
@@ -1024,7 +1038,15 @@ function showVideoResult(videoUrl) {
 }
 
 function generationRecordVideoUrl(record) {
-  return String(record?.localVideoUrl || record?.videoUrl || record?.remoteVideoUrl || "").trim();
+  return String(
+    record?.cdnVideoUrl ||
+    record?.remoteVideoUrl ||
+    record?.providerVideoUrl ||
+    record?.upstreamVideoUrl ||
+    record?.localVideoUrl ||
+    record?.videoUrl ||
+    "",
+  ).trim();
 }
 
 function generationRecordKindLabel(record) {
@@ -1086,7 +1108,7 @@ function generationRecordParams(record) {
     .join("\n");
 }
 
-function renderGenerationHistory(records = [], { loading = false } = {}) {
+function renderGenerationHistory(records = [], { loading = false, page = state.generationHistoryPage || 1, totalPages = state.generationHistoryTotalPages || 1 } = {}) {
   if (!els.generationHistoryList) return;
   if (loading) {
     els.generationHistoryList.innerHTML = '<div class="history-empty">Loading records...</div>';
@@ -1130,7 +1152,12 @@ function renderGenerationHistory(records = [], { loading = false } = {}) {
         <pre class="history-params" hidden>${escapeHtmlSafe(params || "No parameters recorded.")}</pre>
       </article>
     `;
-  }).join("");
+  }).join("") + (totalPages > 1 ? `
+    <div class="history-pager" role="navigation" aria-label="Generation history pages">
+      <button class="secondary-btn compact-btn" type="button" data-history-page="prev" ${page <= 1 ? "disabled" : ""}><i data-lucide="chevron-left"></i>Previous</button>
+      <span>${page} / ${totalPages}</span>
+      <button class="secondary-btn compact-btn" type="button" data-history-page="next" ${page >= totalPages ? "disabled" : ""}>Next<i data-lucide="chevron-right"></i></button>
+    </div>` : "");
 
   els.generationHistoryList.querySelectorAll("[data-history-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1145,6 +1172,8 @@ function renderGenerationHistory(records = [], { loading = false } = {}) {
       if (params) params.hidden = !params.hidden;
     });
   });
+  els.generationHistoryList.querySelector('[data-history-page="prev"]')?.addEventListener("click", () => loadGenerationHistory(page - 1));
+  els.generationHistoryList.querySelector('[data-history-page="next"]')?.addEventListener("click", () => loadGenerationHistory(page + 1));
   refreshIcons();
 }
 
@@ -1155,6 +1184,7 @@ async function playGenerationHistoryRecord(record, button) {
     if (existingUrl) showVideoResult(existingUrl);
     return;
   }
+  if (existingUrl) showVideoResult(existingUrl);
   const previousHtml = button?.innerHTML || "";
   if (button) {
     button.disabled = true;
@@ -1165,11 +1195,9 @@ async function playGenerationHistoryRecord(record, button) {
     const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
     const nextRecord = payload.record || {};
     const videoUrl = generationRecordVideoUrl(nextRecord);
-    if (videoUrl) {
+    if (videoUrl && videoUrl !== existingUrl) {
       showVideoResult(videoUrl);
-    } else if (existingUrl) {
-      showVideoResult(existingUrl);
-    } else {
+    } else if (!videoUrl && !existingUrl) {
       updateJob("Video not ready", "Refresh the record later. The generation task is still in progress.", 0);
     }
     loadGenerationHistory();
@@ -1184,11 +1212,14 @@ async function playGenerationHistoryRecord(record, button) {
   }
 }
 
-async function loadGenerationHistory() {
+async function loadGenerationHistory(pageArg = null) {
   renderGenerationHistory([], { loading: true });
   try {
-    const payload = await requestJson("/api/generation-records?limit=80");
-    renderGenerationHistory(Array.isArray(payload.records) ? payload.records : []);
+    const page = Math.max(1, Number(pageArg || state.generationHistoryPage || 1) || 1);
+    const payload = await requestJson(`/api/generation-records?page=${page}&limit=${state.generationHistoryLimit || 8}`);
+    state.generationHistoryPage = Number(payload.page || page);
+    state.generationHistoryTotalPages = Number(payload.totalPages || 1);
+    renderGenerationHistory(Array.isArray(payload.records) ? payload.records : [], { page: state.generationHistoryPage, totalPages: state.generationHistoryTotalPages });
   } catch (error) {
     if (error.status === 401 || error.code === "LOGIN_REQUIRED") {
       closeDialog(els.generationHistoryDialog);
@@ -2428,6 +2459,25 @@ async function submitLogin() {
 
 async function createRechargeOrder() {
   const amount = Number(els.rechargeAmount.value || 0);
+  if (state.rechargeMethod === "stripe") {
+    els.createOrderBtn.disabled = true;
+    els.orderResult.textContent = "Creating secure Stripe checkout...";
+    try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}`;
+      const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
+        method: "POST",
+        body: JSON.stringify({ amount, returnUrl, cancelUrl: returnUrl }),
+      });
+      const checkoutUrl = String(payload.checkoutUrl || payload.cashierUrl || "").trim();
+      if (!checkoutUrl) throw new Error("Stripe checkout page was not created.");
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      els.orderResult.textContent = error.message || String(error);
+    } finally {
+      els.createOrderBtn.disabled = false;
+    }
+    return;
+  }
   try {
     const payload = await requestJson("/api/pay/orders", {
       method: "POST",
@@ -2961,7 +3011,7 @@ function pollUserCharacterSceneTask(taskId, scene, characterId, requestId, entry
 
       if (["succeeded", "success", "done", "completed"].includes(status)) {
         window.clearInterval(state.sceneTimer);
-        const playbackUrl = result.sceneVideo?.videoUrl || task.localVideoUrl || task.videoUrl || "";
+        const playbackUrl = result.sceneVideo?.remoteVideoUrl || result.sceneVideo?.videoUrl || task.remoteVideoUrl || task.videoUrl || task.localVideoUrl || "";
         bumpStats({ bond: 4, mood: 6, energy: -5 });
         bumpIntimacy(characterId, 1);
         if (playbackUrl) showVideoResult(playbackUrl);
@@ -3015,7 +3065,7 @@ function pollSceneVideoTask(taskId, scene, prompt, requestId, entry = null) {
 
       if (["succeeded", "success", "done", "completed"].includes(status)) {
         window.clearInterval(state.sceneTimer);
-        const playbackUrl = task.localVideoUrl || task.videoUrl || "";
+        const playbackUrl = task.remoteVideoUrl || task.videoUrl || task.localVideoUrl || "";
         bumpStats({ bond: 4, mood: 6, energy: -5 });
         const activeItem = getActiveHomeVideoItem();
         if (activeItem?.id) bumpIntimacy(activeItem.id, 1);
@@ -3063,6 +3113,19 @@ function handleUpload(event) {
   const [file] = event.target.files;
   if (!file) return;
 
+  if (file) {
+    if (state.pendingUploadObjectUrl) URL.revokeObjectURL(state.pendingUploadObjectUrl);
+    state.pendingUploadFile = file;
+    state.pendingUploadObjectUrl = URL.createObjectURL(file);
+    state.uploadedDataUrl = "";
+    state.selectedUserAssetId = "";
+    els.uploadPreview.src = state.pendingUploadObjectUrl;
+    els.uploadPreview.classList.add("ready");
+    updateJob("Photo ready", "Preview is shown locally. It will upload when you submit generation.", 0);
+    els.uploadGenerateBtn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return;
+  }
+
   const reader = new FileReader();
   reader.addEventListener("load", async () => {
     state.uploadedDataUrl = String(reader.result);
@@ -3087,6 +3150,56 @@ function handleUpload(event) {
     }
   });
   reader.readAsDataURL(file);
+}
+
+function setRechargeMethod(method = "stripe") {
+  const next = String(method || "").toLowerCase() === "usdt" ? "usdt" : "stripe";
+  state.rechargeMethod = next;
+  [els.legacyStripeTab, els.legacyUsdtTab].forEach((button) => {
+    if (!button) return;
+    const active = button.dataset.paymentMethod === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (els.legacyStripePanel) els.legacyStripePanel.hidden = next !== "stripe";
+  if (els.legacyUsdtPanel) els.legacyUsdtPanel.hidden = next !== "usdt";
+  if (els.createOrderBtn) els.createOrderBtn.innerHTML = next === "stripe"
+    ? '<i data-lucide="credit-card"></i>Continue to Stripe'
+    : '<i data-lucide="receipt"></i>Create USDT order';
+  refreshIcons();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("Failed to read the selected photo.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function ensurePendingUserAssetUploaded() {
+  if (state.selectedUserAssetId) return state.selectedUserAssetId;
+  const file = state.pendingUploadFile;
+  if (!file || state.uploadPreparing) return "";
+  state.uploadPreparing = true;
+  try {
+    updateJob("Uploading photo", "Preparing the selected photo for generation...", 8);
+    state.uploadedDataUrl = await readFileAsDataUrl(file);
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: JSON.stringify({ name: file.name, dataUrl: state.uploadedDataUrl }),
+    });
+    if (payload.asset) {
+      state.userAssets.unshift(payload.asset);
+      state.selectedUserAssetId = payload.asset.id;
+      state.pendingUploadFile = null;
+      renderAssetLibrary();
+    }
+    return state.selectedUserAssetId;
+  } finally {
+    state.uploadPreparing = false;
+  }
 }
 
 function handleChat() {
@@ -3214,10 +3327,20 @@ function bindEvents() {
 
   els.uploadInput.addEventListener("change", handleUpload);
 
-  els.uploadGenerateBtn.addEventListener("click", () => {
-    if (!state.selectedUserAssetId) {
+  els.uploadGenerateBtn.addEventListener("click", async () => {
+    if (!state.selectedUserAssetId && !state.pendingUploadFile) {
       updateJob("Upload a reference first", "Upload a photo, then you can start a paid generation.", 0);
       return;
+    }
+
+    if (!state.selectedUserAssetId && state.pendingUploadFile) {
+      try {
+        const assetId = await ensurePendingUserAssetUploaded();
+        if (!assetId) throw new Error("Photo upload did not return an asset id.");
+      } catch (error) {
+        updateJob("Asset upload failed", error.message || String(error), 0);
+        return;
+      }
     }
 
     openPayment({
@@ -3261,6 +3384,8 @@ function bindEvents() {
   });
 
   els.loginSubmitBtn?.addEventListener("click", submitLogin);
+  els.legacyStripeTab?.addEventListener("click", () => setRechargeMethod("stripe"));
+  els.legacyUsdtTab?.addEventListener("click", () => setRechargeMethod("usdt"));
   els.createOrderBtn?.addEventListener("click", createRechargeOrder);
   els.confirmPayBtn?.addEventListener("click", (event) => {
     event.preventDefault();

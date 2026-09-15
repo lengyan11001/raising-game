@@ -32,9 +32,8 @@ function pricingMultiplierText(value) {
 }
 
 const ROUTES = [
+  { id: "withdrawals", title: "提现审核", render: renderWithdrawals },
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
-  { id: "platform", title: "首页广场", render: renderPlatform },
-  { id: "advanced-cases", title: "高级案例", render: renderAdvancedCases },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "users", title: "用户管理", render: renderUsers },
@@ -52,6 +51,7 @@ ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0
   render: renderGeo,
 });
 const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "undress-config", "config"]);
+const REMOVED_ADMIN_ROUTES = new Set(["platform", "advanced-cases"]);
 
 function isTenantAdminHost() {
   return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(window.location.hostname || "");
@@ -406,7 +406,7 @@ function routeFromHash() {
   const hash = window.location.hash.replace(/^#\//, "").trim();
   const routes = visibleAdminRoutes();
   const route = routes.find((r) => r.id === hash) || routes[0] || ROUTES[0];
-  if (hash && route.id !== hash && isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(hash)) {
+  if (hash && route.id !== hash && (REMOVED_ADMIN_ROUTES.has(hash) || (isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(hash)))) {
     window.history.replaceState(null, "", `#/${route.id}`);
   }
   const routeId = route.id;
@@ -461,7 +461,7 @@ function hasPollableGenerationRecords(records = []) {
 }
 
 function recordPreviewUrl(record = {}) {
-  return recordVideoUrl(record) || recordRemoteVideoUrl(record) || recordImageResultUrl(record) || "";
+  return recordRemoteVideoUrl(record) || recordVideoUrl(record) || recordImageResultUrl(record) || "";
 }
 
 function generationRecordSignature(record = {}) {
@@ -1771,9 +1771,11 @@ function historyRecordHtml(r, idx) {
 function recordVideoUrl(record) {
   return toAbsoluteHttpUrl(
     record.cdnVideoUrl ||
+    record.remoteVideoUrl ||
+    record.providerVideoUrl ||
+    record.upstreamVideoUrl ||
     record.localVideoUrl ||
     record.videoUrl ||
-    record.remoteVideoUrl ||
     "",
   );
 }
@@ -1785,17 +1787,28 @@ function recordRemoteVideoUrl(record) {
 }
 
 function recordImageResultUrl(record) {
-  return record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || "";
+  return record.cdnImageUrl || record.remoteImageUrl || record.providerImageUrl || record.upstreamImageUrl || record.localImageUrl || record.imageResultUrl || "";
 }
 
 function recordResultPosterUrl(record = {}) {
-  return toAbsoluteHttpUrl(record.localPosterUrl || record.posterUrl || record.coverUrl || record.thumbnailUrl || record.cdnCoverUrl || record.localCoverUrl || "")
+  return toAbsoluteHttpUrl(record.cdnPosterUrl || record.cdnCoverUrl || record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || record.localPosterUrl || record.posterUrl || record.coverUrl || record.thumbnailUrl || record.localCoverUrl || "")
     || recordPrimaryImageUrl(record)
     || toAbsoluteHttpUrl(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+}
+
+function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  const index = Number(asset.referenceIndex);
+  if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
+  return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
+}
+
+function recordMediaAssetHref(asset = {}, video = false) {
+  const value = video ? recordMediaAssetVideoUrl(asset) : recordMediaAssetPreviewUrl(asset);
+  return toAbsoluteHttpUrl(value) || value;
 }
 
 function isInternalAssetUrl(url = "") {
@@ -1871,7 +1884,9 @@ function recordMediaAssetVideoUrl(asset = {}) {
   const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  return candidates.find((url) => isPreviewableVideoUrl(url))
+  const adminUrl = String(asset.adminPreviewUrl || "").trim();
+  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
+    || candidates.find((url) => isPreviewableVideoUrl(url))
     || candidates.find((url) => !isInternalAssetUrl(url))
     || "";
 }
@@ -1900,14 +1915,20 @@ function recordImageAssetsHtml(record = {}) {
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
-        <figure>
-          <img src="${escapeHtml(recordMediaAssetPreviewUrl(asset))}" alt="" />
+        <figure data-reference-item>
+          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
+            <img src="${escapeHtml(recordMediaAssetHref(asset))}" alt="" />
+          </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
       `).join("")}
       ${videos.map((asset) => `
-        <figure>
-          <video src="${escapeHtml(recordMediaAssetVideoUrl(asset))}" controls muted playsinline preload="metadata"></video>
+        <figure data-reference-item>
+          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
+            <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
+          </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
       `).join("")}
@@ -2134,26 +2155,6 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
       if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt 已复制。");
     });
   });
-  pane.querySelectorAll("[data-act='promote-advanced']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        const record = records[Number(button.dataset.index || 0)];
-        if (record) promoteRecordToAdvancedCaseWithCategory(await fetchAdminGenerationRecordDetail(record), button);
-      } catch (error) {
-        toast(error.message || "加载详情失败。", "error");
-      }
-    });
-  });
-  pane.querySelectorAll("[data-act='promote-platform']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        const record = records[Number(button.dataset.index || 0)];
-        if (record) promoteRecordToPlatformGallery(await fetchAdminGenerationRecordDetail(record), button);
-      } catch (error) {
-        toast(error.message || "加载详情失败。", "error");
-      }
-    });
-  });
   pane.querySelectorAll("[data-act='attach-character-video']").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
@@ -2205,8 +2206,6 @@ function generationRecordRowHtml(record, index) {
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>详情</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
         ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="attach-character-video" data-index="${index}"><i data-lucide="list-video"></i>角色视频</button>` : ""}
-        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="promote-platform" data-index="${index}"><i data-lucide="layout-template"></i>广场</button>` : ""}
-        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>高级案例</button>` : ""}
       </td>
     </tr>
   `;
@@ -2653,6 +2652,61 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
     button.addEventListener("click", () => {
       const key = button.dataset.copyDetail || "";
       copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
+    });
+  });
+  const referenceByIndex = new Map([
+    ...recordImageAssets(record),
+    ...recordReferenceVideoAssets(record),
+  ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
+  const referenceUrl = (index, download = false) => {
+    const asset = referenceByIndex.get(String(index));
+    if (!record.taskId || !asset) return "";
+    return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${encodeURIComponent(index)}/media${download ? "?download=1" : ""}`;
+  };
+  bodyEl.querySelectorAll("[data-reference-preview]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const index = button.dataset.referencePreview || "";
+      const asset = referenceByIndex.get(String(index));
+      const url = referenceUrl(index);
+      if (!asset || !url) return;
+      try {
+        const response = await fetch(url, { headers: state.token ? { authorization: `Bearer ${state.token}` } : {}, cache: "no-store" });
+        if (!response.ok) throw new Error(`预览失败（${response.status}）`);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const lightbox = document.createElement("div");
+        lightbox.className = "adm-record-media-lightbox";
+        const isVideo = String(blob.type || asset.mime || "").startsWith("video/");
+        lightbox.innerHTML = `<button type="button" class="adm-record-media-lightbox-close" aria-label="关闭"><i data-lucide="x"></i></button>${isVideo ? `<video src="${escapeHtml(blobUrl)}" controls autoplay playsinline></video>` : `<img src="${escapeHtml(blobUrl)}" alt="" />`}<span>${escapeHtml(asset.label || "参考素材")}</span>`;
+        const close = () => { lightbox.remove(); URL.revokeObjectURL(blobUrl); };
+        lightbox.addEventListener("click", (event) => { if (event.target === lightbox || event.target.closest(".adm-record-media-lightbox-close")) close(); });
+        bodyEl.appendChild(lightbox);
+        refreshIcons();
+      } catch (error) {
+        toast(error.message || "参考素材预览失败。", "error");
+      }
+    });
+  });
+  bodyEl.querySelectorAll("[data-reference-download]").forEach((link) => {
+    link.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const index = link.dataset.referenceDownload || "";
+      const url = referenceUrl(index, true);
+      if (!url) return;
+      try {
+        const response = await fetch(url, { headers: state.token ? { authorization: `Bearer ${state.token}` } : {}, cache: "no-store" });
+        if (!response.ok) throw new Error(`下载失败（${response.status}）`);
+        const blobUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement("a");
+        anchor.href = blobUrl;
+        anchor.download = referenceByIndex.get(String(index))?.name || `reference-${Number(index) + 1}`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } catch (error) {
+        toast(error.message || "参考素材下载失败。", "error");
+      }
     });
   });
   const previewVideo = bodyEl.querySelector(".adm-record-preview video");
@@ -3181,7 +3235,7 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>会员 / API 文档权益</span><input value="${escapeHtml(user.membership?.active ? "Creator Membership 已激活" : "会员未激活")} / ${escapeHtml(user.apiDocs?.active ? "API 文档已解锁" : "API 文档未解锁")}" disabled /></div>
+    <div class="adm-form-row"><span>API 文档接口权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} style="width:18px;height:18px;" /><span>${user.apiDocs?.active ? "已解锁，可调用外部 API" : "未解锁，外部 API 不可用"}</span></label><small class="adm-muted">只影响 Bearer API Token / 子 Token，不影响网站前端登录后的生成。</small></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
@@ -3192,6 +3246,7 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
+      const apiDocsAccess = Boolean(tpl.querySelector("#editApiDocsAccess")?.checked);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -3202,7 +3257,7 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
-      const body = { role };
+      const body = { role, apiDocsAccess };
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
@@ -3329,7 +3384,7 @@ async function renderRecharges(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${records.length ? `
             <table class="adm-table adm-recharge-table">
-              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
+              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>Charge ID</th><th>邮箱</th><th>客户名</th><th>支付方式</th><th>失败原因</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
               <tbody>
                 ${records.map((r) => `
                   <tr>
@@ -3337,6 +3392,11 @@ async function renderRecharges(pageArg = null, limitArg = null) {
                     <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
                     <td><strong ${Number(r.credits || 0) < 0 ? 'style="color:var(--adm-danger)"' : ""}>${Number(r.credits || 0) > 0 ? "+" : ""}${escapeHtml(r.credits ?? 0)}</strong></td>
                     <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(r.stripeChargeId || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(r.stripeCustomerEmail || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(r.stripeCustomerName || "-")}</td>
+                    <td>${escapeHtml(r.stripePaymentMethodType || r.paymentProvider || "-")}</td>
+                    <td class="adm-error-text adm-truncate" title="${escapeHtml(r.stripeFailureMessage || r.stripeFailureCode || "")}">${escapeHtml(r.stripeFailureMessage || r.stripeFailureCode || "-")}</td>
                     <td class="adm-truncate">
                       ${r.source === "manual_admin"
                         ? `<strong>${escapeHtml(r.adminUsername || r.adminUserId || "admin")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.adminUserId || "")}</span>`
@@ -3368,6 +3428,34 @@ async function renderRecharges(pageArg = null, limitArg = null) {
   });
 }
 
+/* ============ REFERRAL WITHDRAWALS ============ */
+async function renderWithdrawals(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admWithdrawalsPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 30);
+  const status = sessionStorage.getItem("admWithdrawalsStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/referral-withdrawals?${params.toString()}`);
+  if (!isActiveRoute("withdrawals")) return;
+  const records = payload.withdrawals || payload.records || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page"><div class="adm-page-head"><div><h2>提现审核</h2><p class="adm-muted">审核邀请佣金提现申请。人工打款后将状态改为已打款并填写交易哈希。</p></div></div>
+      <div class="adm-card"><div class="adm-card-head"><form class="adm-list-filters" id="withdrawalsFilterForm"><select id="withdrawalsStatusFilter"><option value="">全部状态</option><option value="processing" ${status === "processing" ? "selected" : ""}>处理中</option><option value="paid" ${status === "paid" ? "selected" : ""}>已打款</option><option value="rejected" ${status === "rejected" ? "selected" : ""}>已拒绝</option></select><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div>
+        <div class="adm-card-body adm-table-wrap">${records.length ? `<table class="adm-table"><thead><tr><th>申请时间</th><th>用户</th><th>金额</th><th>收款地址</th><th>状态</th><th>交易哈希</th><th>操作</th></tr></thead><tbody>${records.map((r) => `<tr data-withdrawal-id="${escapeHtml(r.id || "")}"><td>${fmtDate(r.requestedAt || r.createdAt)}</td><td><strong>${escapeHtml(r.username || r.userId || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td><td><strong>$${escapeHtml(Number(r.amountUsd ?? r.amount ?? 0).toFixed(2))}</strong></td><td class="adm-mono adm-truncate" title="${escapeHtml(r.walletAddress || "")}">${escapeHtml(r.walletAddress || "-")}</td><td>${statusPill(r.status || "pending")}</td><td class="adm-mono adm-truncate">${escapeHtml(r.txHash || "-")}</td><td><div class="adm-row-actions">${String(r.status || "pending").toLowerCase() === "pending" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-withdraw-action="paid" type="button">已打款</button><button class="adm-btn adm-btn-sm adm-btn-danger" data-withdraw-action="rejected" type="button">拒绝</button>` : `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-withdraw-action="edit" type="button">修改</button>`}</div></td></tr>`).join("")}</tbody></table>` : `<div class="adm-empty"><i data-lucide="hand-coins"></i><p>暂无提现申请</p></div>`}</div>${adminPagerHtml(payload)}</div>
+    </section>`;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderWithdrawals(nextPage, nextLimit).catch((err) => renderRouteError("withdrawals", err)));
+  els.adminContent.querySelector("#withdrawalsFilterForm")?.addEventListener("submit", (event) => { event.preventDefault(); sessionStorage.setItem("admWithdrawalsStatus", els.adminContent.querySelector("#withdrawalsStatusFilter")?.value || ""); renderWithdrawals(1, limit).catch((err) => renderRouteError("withdrawals", err)); });
+  els.adminContent.querySelectorAll("[data-withdraw-action]").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest("tr[data-withdrawal-id]"); const id = row?.dataset.withdrawalId; if (!id) return;
+    const action = button.dataset.withdrawAction; let txHash = ""; let note = "";
+    if (action === "rejected") { note = window.prompt("拒绝原因（可选）", "") || ""; } else { txHash = window.prompt("人工打款交易哈希（可选）", "") || ""; }
+    button.disabled = true;
+    try { await api(`/api/admin/referral-withdrawals/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: action === "rejected" ? "rejected" : "paid", txHash, note } }); toast("提现记录已更新"); renderWithdrawals(page, limit); } catch (error) { toast(error.message || String(error), "error"); button.disabled = false; }
+  }));
+}
+
 /* ============ WALLET ============ */
 async function renderWallet(pageArg = null, limitArg = null) {
   const savedPager = JSON.parse(sessionStorage.getItem("admWalletPager") || "{}");
@@ -3387,7 +3475,7 @@ async function renderWallet(pageArg = null, limitArg = null) {
       <div class="adm-page-head">
         <div>
           <h2>钱包订单</h2>
-          <p class="adm-muted">USDT 充值订单。自动扫描会匹配链、地址、精确金额、交易哈希和确认数。</p>
+          <p class="adm-muted">Stripe 与 USDT 充值订单。Stripe 订单会同步 Charge、客户、支付方式、失败原因和退款信息。</p>
         </div>
         <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>扫描链上订单</button>
       </div>
@@ -3395,13 +3483,14 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-head">
           <div>
             <h3>订单列表</h3>
-            <p class="adm-muted">按用户、订单号、地址、交易哈希或支付渠道筛选。</p>
+            <p class="adm-muted">按用户、订单号、Charge ID、邮箱、地址或支付渠道筛选。</p>
           </div>
           <form class="adm-list-filters" id="walletFilterForm">
             <select id="walletStatusFilter">
               <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
               <option value="pending" ${status === "pending" ? "selected" : ""}>待支付</option>
               <option value="paid" ${status === "paid" ? "selected" : ""}>已支付</option>
+              <option value="failed" ${status === "failed" ? "selected" : ""}>失败</option>
               <option value="cancelled" ${status === "cancelled" ? "selected" : ""}>已取消</option>
             </select>
             <input id="walletSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / 地址 / hash" />
@@ -3412,24 +3501,24 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>订单</th><th>用户</th><th>充值</th><th>应付金额</th><th>链 / 地址</th><th>交易</th><th>状态</th><th>时间</th><th class="adm-text-right">操作</th></tr></thead>
+              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>收银台</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
-                    <td class="adm-mono adm-truncate">${escapeHtml(o.id)}</td>
-                    <td>${escapeHtml(o.username || o.userId)}</td>
-                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} &middot; 积分：${escapeHtml(o.creditAmount || 0)}</span></td>
-                    <td><strong>${escapeHtml(o.payableAmountText || "")}</strong></td>
-                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.network || o.chain || "-")}</strong><br/>${escapeHtml(o.address || o.paypalOrderId || "-")}</td>
-                    <td class="adm-mono adm-truncate">${o.transactionHash ? `${escapeHtml(o.transactionHash)}<br/><span class="adm-muted">${escapeHtml(o.confirmations || 0)} 次确认 &middot; ${escapeHtml(o.scanSource || "")}</span>` : `<span class="adm-muted">未匹配</span>`}</td>
+                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id || "-")}</strong></td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(o.stripeChargeId || o.paypalCaptureId || "-")}</td>
+                    <td class="adm-truncate"><strong>${escapeHtml(o.username || "-")}</strong></td>
+                    <td class="adm-truncate">${escapeHtml(o.stripeCustomerEmail || o.paypalPayerEmail || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(o.stripeCustomerName || "-")}</td>
+                    <td><strong>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeAmountReceived ?? o.baseAmount ?? "")}` : escapeHtml(o.payableAmountText || o.baseAmount || "-")}</strong><br/><span class="adm-muted">积分：${escapeHtml(o.creditAmount || 0)}</span></td>
+                    <td>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeRefundedAmount ?? 0)}` : "-"}</td>
+                    <td><strong>${escapeHtml(o.currency || o.asset || "-")}</strong></td>
                     <td>${statusPill(o.status)}</td>
-                    <td>${fmtDate(o.createdAt)}</td>
-                    <td>
-                      <div class="adm-row-actions">
-                        ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>标记已支付</button>` : ""}
-                        ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>取消订单</button>` : ""}
-                      </div>
-                    </td>
+                    <td>${escapeHtml(o.paymentProvider === "stripe" ? (o.stripePaymentMethodType || "-") : (o.paymentProvider || o.network || "manual"))}</td>
+                    <td class="adm-truncate" title="${escapeHtml(o.cashierHost || "")}">${escapeHtml(o.cashierHost || "-")}</td>
+                    <td class="adm-error-text adm-truncate" title="${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "")}">${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "-")}</td>
+                    <td>${fmtDate(o.stripeCreatedAt || o.createdAt)}</td>
+                    <td>${o.paymentProvider === "stripe" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="stripe-details" type="button">查看</button>` : `<span class="adm-muted">-</span>`}</td>
                   </tr>`).join("")}
               </tbody>
             </table>
@@ -3472,15 +3561,29 @@ async function renderWallet(pageArg = null, limitArg = null) {
   });
   els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
     const id = tr.dataset.id;
-    tr.querySelector('[data-act="mark-paid"]')?.addEventListener("click", async () => {
-      await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "paid" } });
-      toast("已标记支付并增加积分。", "success");
-      renderWallet();
-    });
-    tr.querySelector('[data-act="cancel-order"]')?.addEventListener("click", async () => {
-      await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "cancelled" } });
-      toast("订单已取消。", "success");
-      renderWallet();
+    const order = orders.find((entry) => entry.id === id);
+    tr.querySelector('[data-act="stripe-details"]')?.addEventListener("click", () => {
+      if (!order) return;
+      const details = [
+        ["Stripe Charge ID", order.stripeChargeId],
+        ["Payment Intent", order.stripePaymentIntentId],
+        ["Checkout Session", order.stripeCheckoutSessionId],
+        ["用户 ID", order.userId],
+        ["邮箱", order.stripeCustomerEmail],
+        ["客户名", order.stripeCustomerName],
+        ["支付方式", order.stripePaymentMethodType],
+        ["金额", order.stripeAmountReceived ?? order.baseAmount],
+        ["退款金额", order.stripeRefundedAmount ?? 0],
+        ["失败代码", order.stripeFailureCode],
+        ["失败原因", order.stripeFailureMessage],
+        ["Stripe 创建时间", fmtDate(order.stripeCreatedAt)],
+      ];
+      openDialog({
+        title: "Stripe 支付详情",
+        body: `<div class="adm-detail-grid adm-stripe-detail-grid">${details.map(([label, value]) => `<div class="adm-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></div>`).join("")}</div>`,
+        hideConfirm: true,
+        cancelText: "关闭",
+      });
     });
   });
 }

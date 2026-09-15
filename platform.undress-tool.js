@@ -41,10 +41,18 @@ const UNDRESS_TOOL_COPY = {
     firstFree: "First image generation is free. Unlock the completed result for {credits} credits.",
     imagePrice: "This image generation costs {credits} credits.",
     videoPrice: "{seconds} sec / {segments} segment(s) / {credits} credits",
+    imageGuide: "Image: first generation is free; unlocking the completed result uses credits.",
+    imageVideoGuide: "Image to video: upload an image and generation starts automatically; billed by output duration.",
+    videoGuide: "Video: upload a video and processing starts automatically; billed by source duration.",
     signIn: "Sign in to see your price.",
     readFailed: "Unable to read this video.",
     imageRequired: "Upload an image for this type.",
     videoRequired: "Upload a video for this type.",
+    template: "Template",
+    submitted: "Generation started",
+    generating: "Generating...",
+    backToSubmit: "Back to upload",
+    upload: "Upload",
   },
   zh: {
     create: "\u521b\u5efa",
@@ -64,10 +72,18 @@ const UNDRESS_TOOL_COPY = {
     firstFree: "\u9996\u5f20\u56fe\u7247\u514d\u8d39\u751f\u6210\uff0c\u7ed3\u679c\u9700 {credits} \u79ef\u5206\u89e3\u9501\u3002",
     imagePrice: "\u672c\u6b21\u56fe\u7247\u751f\u6210\u9700 {credits} \u79ef\u5206\u3002",
     videoPrice: "{seconds} \u79d2 \u00b7 {segments} \u6bb5 \u00b7 {credits} \u79ef\u5206",
+    imageGuide: "\u56fe\u7247\uff1a\u9996\u6b21\u751f\u6210\u514d\u8d39\uff0c\u5b8c\u6210\u540e\u89e3\u9501\u4f7f\u7528\u79ef\u5206\u3002",
+    imageVideoGuide: "\u56fe\u7247\u751f\u89c6\u9891\uff1a\u4e0a\u4f20\u56fe\u7247\u540e\u81ea\u52a8\u5f00\u59cb\uff0c\u6309\u8f93\u51fa\u65f6\u957f\u8ba1\u8d39\u3002",
+    videoGuide: "\u89c6\u9891\uff1a\u4e0a\u4f20\u540e\u81ea\u52a8\u5904\u7406\uff0c\u6309\u6e90\u89c6\u9891\u65f6\u957f\u8ba1\u8d39\u3002",
     signIn: "\u767b\u5f55\u540e\u663e\u793a\u4ef7\u683c\u3002",
     readFailed: "\u65e0\u6cd5\u8bfb\u53d6\u8fd9\u4e2a\u89c6\u9891\u3002",
     imageRequired: "\u8fd9\u4e2a\u7c7b\u578b\u9700\u8981\u4e0a\u4f20\u56fe\u7247\u3002",
     videoRequired: "\u8fd9\u4e2a\u7c7b\u578b\u9700\u8981\u4e0a\u4f20\u89c6\u9891\u3002",
+    template: "\u6a21\u677f",
+    submitted: "\u5df2\u5f00\u59cb\u751f\u6210",
+    generating: "\u751f\u6210\u4e2d...",
+    backToSubmit: "\u8fd4\u56de\u4e0a\u4f20",
+    upload: "\u4e0a\u4f20",
   },
 };
 
@@ -81,6 +97,9 @@ const undressToolState = {
   estimating: false,
   submitting: false,
   uploadProgress: 0,
+  homeRecord: null,
+  homeResultUrl: "",
+  homeResultKind: "",
   message: "",
   initialized: false,
   autoOpened: false,
@@ -111,6 +130,10 @@ function undressToolEscape(value = "") {
 
 function undressToolDialog() {
   return document.querySelector("#videoToolDialog");
+}
+
+function undressToolBody() {
+  return document.querySelector(".undress-tool-inline-body") || document.querySelector("#videoToolDialogBody");
 }
 
 function undressToolFileKind(file) {
@@ -150,6 +173,9 @@ function resetUndressToolFile() {
   undressToolState.submitting = false;
   undressToolState.message = "";
   undressToolState.uploadProgress = 0;
+  undressToolState.homeRecord = null;
+  undressToolState.homeResultUrl = "";
+  undressToolState.homeResultKind = "";
 }
 
 function undressToolCanSubmit() {
@@ -160,6 +186,21 @@ function undressToolCanSubmit() {
     && !undressToolState.submitting
     && !undressToolState.estimating,
   );
+}
+
+function undressToolGenerationActive() {
+  const status = String(undressToolState.homeRecord?.status || "").toLowerCase();
+  const failed = ["failed", "error", "cancelled"].includes(status);
+  return Boolean(
+    undressToolState.submitting
+    || undressToolState.estimating
+    || (undressToolState.homeRecord && !undressToolState.homeResultUrl && !failed),
+  );
+}
+
+function undressToolHomeGuide(type = undressToolState.generationType) {
+  const key = type === "image_video" ? "imageVideoGuide" : type === "video" ? "videoGuide" : "imageGuide";
+  return undressToolText(key);
 }
 
 function undressToolExampleHtml() {
@@ -178,6 +219,14 @@ function undressToolExampleHtml() {
       <div class="undress-tool-example-media">${resultMedia}</div>
     </div>
   `;
+}
+
+function undressToolCaseHtml(type) {
+  const example = UNDRESS_TOOL_EXAMPLE_MEDIA[type];
+  if (!example) return "";
+  if (type === "image") return `<div class="undress-case-media undress-case-image-switch"><img class="undress-case-layer is-original" src="${undressToolEscape(example.input)}" alt="" /><img class="undress-case-layer is-template" src="${undressToolEscape(example.result)}" alt="" /><span class="undress-case-shimmer" aria-hidden="true"></span></div>`;
+  if (type === "image_video") return `<div class="undress-case-media undress-case-video"><video src="${undressToolEscape(example.result)}" autoplay muted loop playsinline preload="metadata"></video><img class="undress-case-source-thumb" src="${undressToolEscape(example.input)}" alt="" /><button class="undress-case-play" type="button" data-undress-example-play aria-label="Play video"><i data-lucide="play"></i></button></div>`;
+  return `<div class="undress-case-media undress-case-video undress-case-video-switch"><video class="undress-case-layer is-original" src="${undressToolEscape(example.input)}" autoplay muted loop playsinline preload="metadata"></video><video class="undress-case-layer is-template" src="${undressToolEscape(example.result)}" autoplay muted loop playsinline preload="metadata"></video><span class="undress-case-shimmer" aria-hidden="true"></span><button class="undress-case-play" type="button" data-undress-example-play aria-label="Play video"><i data-lucide="play"></i></button></div>`;
 }
 
 function undressToolExampleVideoHtml(src) {
@@ -212,13 +261,18 @@ function bindUndressToolExampleVideos(body) {
 
 function renderUndressToolDialog() {
   if (!undressToolEnabled()) return;
-  const body = document.querySelector("#videoToolDialogBody");
+  const body = undressToolBody();
   const title = document.querySelector("#videoToolDialogTitle");
   const kicker = document.querySelector("#videoToolDialogKicker");
   if (!body) return;
   if (title) title.textContent = undressToolText("title");
   if (kicker) kicker.textContent = undressToolText("create");
   const file = undressToolState.file;
+  const submitPanel = body.closest(".undress-tool-submit-panel");
+  // The Undress tenant now runs entirely in the home workspace. Keep the
+  // legacy inline panel mounted for polling/analytics compatibility, but never
+  // expose it below the cases; the home state is the only visible surface.
+  if (submitPanel) submitPanel.hidden = true;
   const mediaPreview = file
     ? undressToolState.mediaKind === "video"
       ? `<video class="video-tool-upload-preview" src="${undressToolEscape(undressToolState.objectUrl)}" muted playsinline preload="metadata"></video>`
@@ -247,36 +301,19 @@ function renderUndressToolDialog() {
       });
     }
   }
+  if (!file && !body.classList.contains("is-result")) {
+    body.innerHTML = "";
+    return;
+  }
   body.innerHTML = `
-    <div class="undress-tool-type-switch" role="group">
-      ${typeOptions.map(([value, label, icon]) => `
-        <button class="undress-tool-type-option${undressToolState.generationType === value ? " is-active" : ""}" type="button" data-undress-tool-type="${value}">
-          <i data-lucide="${icon}"></i><span>${undressToolEscape(undressToolText(label))}</span>
-        </button>
-      `).join("")}
-    </div>
-    ${undressToolExampleHtml()}
-    <div class="video-tool-form-grid is-single">
-      <label class="video-tool-upload">
-        <input type="file" accept="${undressToolAccept()}" data-undress-tool-input />
-        ${mediaPreview || `<span class="video-tool-upload-placeholder"><i data-lucide="upload"></i><span>${undressToolEscape(undressToolText(expectedMediaKind === "video" ? "uploadVideo" : "uploadImage"))}</span></span>`}
-        ${file ? `<span class="undress-tool-kind">${undressToolEscape(undressToolText(undressToolState.generationType === "image_video" ? "imageVideo" : undressToolState.generationType === "video" ? "videoOnly" : "imageOnly"))}</span><span class="video-tool-upload-name">${undressToolEscape(file.name || "")}</span>` : ""}
-        ${undressToolState.submitting && undressToolState.uploadProgress < 100 ? `<span class="video-tool-upload-progress">${undressToolEscape(undressToolText("uploading"))} ${undressToolState.uploadProgress}%</span>` : ""}
-      </label>
+    ${mediaPreview ? `<div class="undress-inline-upload-preview">${mediaPreview}</div>` : ""}
+    <div class="undress-inline-status" data-undress-inline-status>
+      <strong>${undressToolEscape(undressToolState.submitting ? undressToolText("uploading") : undressToolState.estimating ? undressToolText("estimating") : undressToolText("submitted"))}</strong>
+      <span>${undressToolState.submitting && undressToolState.uploadProgress < 100 ? `${undressToolState.uploadProgress}%` : undressToolEscape(undressToolState.estimating ? "" : priceText)}</span>
     </div>
     ${file ? `<div class="undress-tool-price-note">${undressToolEscape(undressToolState.estimating ? undressToolText("estimating") : priceText)}</div>` : ""}
-    <div class="video-tool-submit-row">
-      <div class="job-note">${undressToolEscape(undressToolState.message)}</div>
-      <button class="generate-btn" type="button" data-undress-tool-submit ${undressToolCanSubmit() ? "" : "disabled"}>
-        <i data-lucide="${undressToolState.submitting ? "loader-circle" : "sparkles"}"></i>
-        ${undressToolEscape(undressToolState.submitting ? undressToolText("submitting") : undressToolText("generate"))}
-      </button>
-    </div>
+    ${undressToolState.message ? `<div class="job-note">${undressToolEscape(undressToolState.message)}</div>` : ""}
   `;
-  body.querySelectorAll("[data-undress-tool-type]").forEach((button) => button.addEventListener("click", handleUndressToolType));
-  body.querySelector("[data-undress-tool-input]")?.addEventListener("change", handleUndressToolFile);
-  body.querySelector("[data-undress-tool-submit]")?.addEventListener("click", submitUndressTool);
-  bindUndressToolExampleVideos(body);
   if (typeof refreshIcons === "function") refreshIcons();
 }
 
@@ -400,6 +437,11 @@ async function handleUndressToolFile(event) {
     }
   }
   await estimateUndressTool();
+  renderUndressToolHomeState();
+  // Selecting a valid file starts the generation flow immediately. The home
+  // page remains in place and switches the case media to the upload/progress
+  // state; there is no second-step Generate button.
+  if (undressToolCanSubmit()) await submitUndressTool();
 }
 
 async function uploadUndressToolFile(file) {
@@ -432,6 +474,7 @@ async function uploadUndressToolFile(file) {
     asset = payload.asset || asset;
     undressToolState.uploadProgress = Math.round(((chunkIndex + 1) / chunkCount) * 100);
     renderUndressToolDialog();
+    renderUndressToolHomeState();
   }
   if (!asset?.id) throw new Error("Upload failed.");
   return asset;
@@ -449,6 +492,7 @@ async function submitUndressTool() {
   undressToolState.uploadProgress = 0;
   undressToolState.message = "";
   renderUndressToolDialog();
+  renderUndressToolHomeState();
   try {
     const asset = await uploadUndressToolFile(undressToolState.file);
     const payload = await requestJson("/api/undress-tool/generate", {
@@ -456,15 +500,14 @@ async function submitUndressTool() {
       body: { assetId: asset.id, generationType: undressToolState.generationType },
     });
     if (payload.user) setUser(payload.user);
-    undressToolDialog()?.close("submitted");
-    showPlayfluxSubmittedHistory(payload.record || {
+    const record = payload.record || {
       taskId: payload.taskId,
       status: "queued",
       source: undressToolState.generationType === "video" ? "undress-tool-video" : undressToolState.generationType === "image_video" ? "undress-tool-image-video" : "undress-tool-image",
       kind: undressToolState.generationType === "video" ? "video-tool-undress-video" : undressToolState.generationType === "image_video" ? "video-tool-undress-image-video" : "image-tool-undress",
       createdAt: new Date().toISOString(),
-    });
-    resetUndressToolFile();
+    };
+    showUndressInlineResult(record);
   } catch (error) {
     undressToolState.message = error.message || String(error);
     undressToolState.submitting = false;
@@ -473,6 +516,166 @@ async function submitUndressTool() {
       await showUndressInsufficientCreditsDialog(error);
     }
   }
+}
+
+function showUndressInlineResult(record = {}) {
+  // The shared history path remains available for analytics and fallback: showPlayfluxSubmittedHistory.
+  // As soon as the backend creates the task, hand it to Result/History. The
+  // result list can show its queued/running state while the provider computes;
+  // the upload home should never wait for completion or render the final media.
+  if (record.taskId && typeof showPlayfluxSubmittedHistory === "function") {
+    resetUndressToolFile();
+    showPlayfluxSubmittedHistory(record);
+    return;
+  }
+  const body = undressToolBody();
+  // The upload has completed and the task is now owned by the async generator.
+  // Keep the file on the page, but let the home progress state reflect queued/running
+  // generation instead of remaining stuck on the upload phase.
+  undressToolState.submitting = false;
+  undressToolState.uploadProgress = 100;
+  undressToolState.homeRecord = record;
+  undressToolState.homeResultUrl = "";
+  undressToolState.homeResultKind = "";
+  renderUndressToolHomeState();
+  if (!body) return;
+  const status = body.querySelector("[data-undress-inline-status]");
+  if (status) {
+    status.hidden = false;
+    status.innerHTML = `<strong>${undressToolEscape(undressToolText("submitted"))}</strong><span>${undressToolEscape(record.taskId || "")}</span>`;
+  }
+  body.classList.add("is-result");
+  const result = document.createElement("div");
+  result.className = "undress-inline-result";
+  result.innerHTML = `<div class="undress-result-placeholder"><i data-lucide="loader-circle"></i><span>${undressToolEscape(undressToolText("generating"))}</span></div><button type="button" class="undress-inline-back" data-undress-inline-back><i data-lucide="arrow-left"></i>${undressToolEscape(undressToolText("backToSubmit"))}</button>`;
+  body.appendChild(result);
+  result.querySelector("[data-undress-inline-back]")?.addEventListener("click", () => {
+    body.classList.remove("is-result");
+    result.remove();
+    renderUndressToolDialog();
+  });
+  if (typeof refreshIcons === "function") refreshIcons();
+  if (record.taskId && typeof scheduleHistoryRefresh === "function") scheduleHistoryRefresh({ delayMs: 1200, force: true });
+  watchUndressInlineResult(record.taskId, result);
+}
+
+async function watchUndressInlineResult(taskId, root) {
+  if (!taskId || !root || typeof requestJson !== "function") return;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, attempt ? 2500 : 900));
+    if (!root.isConnected) return;
+    try {
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
+      const record = payload.record || payload;
+      const videoUrl = typeof generationVideoUrl === "function" ? generationVideoUrl(record) : "";
+      const imageUrl = typeof generationImageResultUrl === "function" ? generationImageResultUrl(record) : "";
+      undressToolState.homeRecord = record;
+      if (videoUrl || imageUrl) {
+        // Completed jobs belong in Result/History. Do not render the finished
+        // media back into the upload surface; hand the record to the shared
+        // history view and stop this inline poller.
+        root.remove();
+        resetUndressToolFile();
+        if (typeof showPlayfluxSubmittedHistory === "function") {
+          showPlayfluxSubmittedHistory(record);
+        } else if (typeof setTab === "function") {
+          setTab("history");
+        }
+        return;
+      } else {
+        renderUndressToolHomeState();
+      }
+      if (["failed", "error", "cancelled"].includes(String(record.status || "").toLowerCase())) {
+        undressToolState.message = record.error || record.status;
+        renderUndressToolHomeState();
+        root.querySelector(".undress-result-placeholder span")?.replaceChildren(document.createTextNode(record.error || record.status));
+        root.querySelector(".undress-result-placeholder svg")?.remove();
+        return;
+      }
+    } catch (error) {
+      // History refresh remains the fallback if a detail request is temporarily unavailable.
+    }
+  }
+}
+
+function undressToolHomeProgress(record = {}) {
+  if (undressToolState.submitting) return Math.max(2, Math.min(100, Number(undressToolState.uploadProgress || 0)));
+  const explicit = Number(record.progress ?? record.progressPercent ?? record.percent);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.max(2, Math.min(99, Math.round(explicit)));
+  const status = String(record.status || "").toLowerCase();
+  if (["succeeded", "success", "completed", "done"].includes(status)) return 100;
+  if (["running", "processing", "generating"].includes(status)) return 62;
+  if (["submitted", "queued", "pending"].includes(status)) return 18;
+  return 8;
+}
+
+function renderUndressToolHomeState() {
+  const workspace = document.querySelector('[data-panel="gallery"]');
+  const stage = workspace?.querySelector("[data-undress-case-stage]");
+  const uploadButton = workspace?.querySelector("[data-undress-tool-upload]");
+  if (!workspace || !stage) return;
+  const record = undressToolState.homeRecord;
+  const file = undressToolState.file;
+  if (!file && !record) {
+    // Keep the case DOM stable while the app restores the current tab or
+    // refreshes user/config state. Replacing it here restarts the CSS reveal
+    // midway through the first load, making the light jump back and replay.
+    if (!stage.querySelector(".undress-case-media")) {
+      stage.innerHTML = undressToolCaseHtml(undressToolState.generationType);
+      bindUndressToolExampleVideos(stage);
+    }
+    if (uploadButton) uploadButton.hidden = false;
+    const guide = workspace.querySelector("[data-undress-home-guide]");
+    if (guide) guide.textContent = undressToolHomeGuide();
+    if (typeof refreshIcons === "function") refreshIcons();
+    return;
+  }
+  if (uploadButton) uploadButton.hidden = true;
+  const mediaUrl = undressToolState.homeResultUrl || undressToolState.objectUrl;
+  const mediaKind = undressToolState.homeResultKind || undressToolState.mediaKind;
+  const progress = undressToolHomeProgress(record || {});
+  const failed = ["failed", "error", "cancelled"].includes(String(record?.status || "").toLowerCase());
+  const active = Boolean(record && !undressToolState.homeResultUrl && !failed);
+  const media = mediaUrl
+    ? mediaKind === "video"
+      ? `<video class="undress-home-media" src="${undressToolEscape(mediaUrl)}" ${active ? "muted autoplay loop" : "controls"} playsinline preload="metadata"></video>`
+      : `<img class="undress-home-media" src="${undressToolEscape(mediaUrl)}" alt="" />`
+    : `<div class="undress-home-media undress-home-media-empty"><i data-lucide="image"></i></div>`;
+  const statusText = undressToolState.homeResultUrl
+    ? undressToolText("submitted")
+    : failed
+      ? (undressToolState.message || undressToolText("generating"))
+      : undressToolState.submitting
+        ? undressToolText("uploading")
+        : record
+          ? undressToolText("generating")
+          : undressToolText("generate");
+  const hint = undressToolState.estimate
+    ? undressToolState.generationType === "image"
+      ? (undressToolState.estimate.freeImageAvailable
+        ? undressToolText("firstFree", { credits: undressToolCredits(undressToolState.estimate.unlockCredits) })
+        : undressToolText("imagePrice", { credits: undressToolCredits(undressToolState.estimate.chargeCredits) }))
+      : undressToolText("videoPrice", {
+        seconds: Number(undressToolState.estimate.pricing?.durationSeconds || undressToolState.durationSeconds || 0).toFixed(2).replace(/\.00$/, ""),
+        segments: undressToolState.estimate.pricing?.segmentCount || 1,
+        credits: undressToolCredits(undressToolState.estimate.chargeCredits),
+      })
+    : undressToolText("signIn");
+  stage.innerHTML = `
+    <div class="undress-home-submit" data-undress-home-submit>
+      <div class="undress-home-media-wrap">
+        ${media}
+        ${active || undressToolState.submitting ? `<div class="undress-home-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span><strong>${undressToolEscape(statusText)}</strong></div>` : ""}
+      </div>
+      <p class="undress-home-hint">${undressToolEscape(hint)}</p>
+      ${failed || undressToolState.homeResultUrl ? `<button class="undress-home-reset" type="button" data-undress-home-reset>${undressToolEscape(undressToolText("backToSubmit"))}</button>` : ""}
+    </div>
+  `;
+  stage.querySelector("[data-undress-home-reset]")?.addEventListener("click", () => {
+    resetUndressToolFile();
+    renderUndressToolHomeState();
+  });
+  if (typeof refreshIcons === "function") refreshIcons();
 }
 
 function openUndressToolDialog({ reset = false } = {}) {
@@ -499,21 +702,50 @@ function renderUndressToolHome() {
         </video>
       </div>
       <div class="undress-tool-home-inner">
-        <span class="undress-tool-mark"><i data-lucide="sparkles"></i></span>
-        <div class="undress-tool-copy">
+        <div class="undress-tool-copy" aria-hidden="true">
           <h2>${undressToolEscape(undressToolText("title"))}</h2>
           <p>${undressToolEscape(undressToolText("subtitle"))}</p>
         </div>
-        <button class="undress-tool-create" type="button" data-undress-tool-open><i data-lucide="upload"></i>${undressToolEscape(undressToolText("create"))}</button>
+        <nav class="undress-case-tabs" role="tablist">
+          <button class="undress-case-tab is-active" type="button" role="tab" aria-selected="true" data-undress-case="image">${undressToolEscape(undressToolText("imageOnly"))}</button>
+          <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="image_video">${undressToolEscape(undressToolText("imageVideo"))}</button>
+          <button class="undress-case-tab" type="button" role="tab" aria-selected="false" data-undress-case="video">${undressToolEscape(undressToolText("videoOnly"))}</button>
+        </nav>
+        <div class="undress-case-stage" data-undress-case-stage>${undressToolCaseHtml("image")}</div>
+        <button class="undress-tool-upload-button" type="button" data-undress-tool-upload><i data-lucide="upload"></i>${undressToolEscape(undressToolText("upload"))}</button>
+        <p class="undress-home-guide" data-undress-home-guide>${undressToolEscape(undressToolHomeGuide("image"))}</p>
+        <input class="undress-tool-home-input" type="file" accept="${undressToolAccept()}" data-undress-home-input tabindex="-1" aria-hidden="true" />
+        <div class="undress-tool-submit-panel" hidden><div class="undress-tool-inline-body"></div></div>
       </div>
     </section>
   `;
-  workspace.querySelector("[data-undress-tool-open]")?.addEventListener("click", () => openUndressToolDialog({ reset: true }));
-  const ambient = workspace.querySelector("#undressAmbient");
-  const ambientVideo = workspace.querySelector("#undressAmbientVideo");
-  ambientVideo?.addEventListener("playing", () => ambient?.classList.add("is-playing"));
-  ambientVideo?.addEventListener("pause", () => ambient?.classList.remove("is-playing"));
-  syncUndressAmbientVideo(state.tab === DEFAULT_PLATFORM_TAB);
+  const homeInput = workspace.querySelector("[data-undress-home-input]");
+  const uploadButton = workspace.querySelector("[data-undress-tool-upload]");
+  uploadButton?.addEventListener("click", () => {
+    resetUndressToolFile();
+    renderUndressToolDialog();
+    homeInput?.click();
+  });
+  homeInput?.addEventListener("change", handleUndressToolFile);
+  document.querySelectorAll(".undress-case-tabs [data-undress-case]").forEach((button) => button.addEventListener("click", () => {
+    const type = button.dataset.undressCase;
+    if (!type || type === undressToolState.generationType) return;
+    // Keep the active task visible until polling finishes. Switching types used
+    // to reset the shared state and made an in-flight task appear lost.
+    if (undressToolGenerationActive()) return;
+    undressToolState.generationType = type;
+    resetUndressToolFile();
+    document.querySelectorAll(".undress-case-tabs [data-undress-case]").forEach((item) => { item.classList.toggle("is-active", item.dataset.undressCase === type); item.setAttribute("aria-selected", item.dataset.undressCase === type ? "true" : "false"); });
+    if (homeInput) homeInput.accept = undressToolAccept();
+    const stage = workspace.querySelector("[data-undress-case-stage]");
+    if (stage) { stage.innerHTML = undressToolCaseHtml(type); bindUndressToolExampleVideos(stage); }
+    const guide = workspace.querySelector("[data-undress-home-guide]");
+    if (guide) guide.textContent = undressToolHomeGuide(type);
+    renderUndressToolHomeState();
+    renderUndressToolDialog();
+  }));
+  bindUndressToolExampleVideos(workspace);
+  renderUndressToolDialog();
   const galleryTab = document.querySelector('[data-tab="gallery"]');
   const galleryLabel = galleryTab?.querySelector("span");
   if (galleryLabel) {
@@ -536,13 +768,14 @@ function initializeUndressTool() {
       undressToolState.lastUserId = nextUserId;
       if (nextUserId && undressToolState.reopenAfterLogin) {
         undressToolState.reopenAfterLogin = false;
-        openUndressToolDialog();
-        estimateUndressTool();
+        renderUndressToolDialog();
+        estimateUndressTool().then(() => {
+          if (undressToolCanSubmit()) submitUndressTool();
+        });
       }
     }
     if (!undressToolState.autoOpened && state.config && document.body.classList.contains("age-gate-accepted")) {
       undressToolState.autoOpened = true;
-      openUndressToolDialog();
     }
   }, 300);
 }

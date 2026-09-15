@@ -82,6 +82,7 @@ const {
   publicWorkflowCanvasSummary,
   publicWorkflowCanvasView,
 } = require("./workflow-canvases");
+const { getOurDreamPresetLibrary } = require("./ourdream-presets");
 const {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
@@ -112,16 +113,32 @@ const {
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
+  getUserByApiTokenInDb,
+  getUsersByIdsInDb,
   createSessionInDb,
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
   getWalletOrderByPaypalIdInDb,
+  createReferralWithdrawalInDb,
+  updateReferralWithdrawalInDb,
+  getReferralWithdrawalByIdInDb,
+  getReferralWithdrawalsPageFromDb,
   listBillingPlansInDb,
   getBillingPlanInDb,
   getUserSubscriptionInDb,
   upsertUserSubscriptionInDb,
   createMembershipActivationCodesInDb,
   listMembershipActivationCodesInDb,
+  getAdminRechargeLedgerPageFromDb,
+  getAdminUsersPageFromDb,
+  getAdminWalletOrdersPageFromDb,
+  getAdminUserAssetsPageFromDb,
+  getUserAssetsPageFromDb,
+  getUserWalletOrdersPageFromDb,
+  getUserSpendingRecordsPageFromDb,
+  getAdminUserCharactersPageFromDb,
+  getUserCharactersPageFromDb,
+  getAdminSupportMessagesPageFromDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,
@@ -130,6 +147,14 @@ const {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   upsertUserCharacterInDb,
+  listChatConversationsInDb,
+  getChatConversationInDb,
+  upsertChatConversationInDb,
+  listChatMessagesInDb,
+  insertChatMessageInDb,
+  updateChatMessageInDb,
+  deleteChatMessageInDb,
+  deleteChatMessagesAfterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
@@ -159,6 +184,8 @@ const {
   revokeApiSubtokenInDb,
   recordApiSubtokenUsageInDb,
   getGenerationRecordsFromDb,
+  getGenerationRecordsNeedingR2RecoveryFromDb,
+  getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
@@ -202,10 +229,12 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.telegram.js",
   "platform.workflow-canvases.js",
   "platform.explore.js",
+  "platform.chat.js",
   "platform.create.js",
   "platform.video-tools.js",
   "platform.undress-tool.js",
   "platform.main.js",
+  "site-123vipfans.js",
 ]);
 let platformAssetVersionPromise = null;
 const TOOL_VIDEO_STYLE_VERSION = crypto
@@ -216,6 +245,16 @@ const TOOL_VIDEO_STYLE_VERSION = crypto
 const TOOL_UNDRESS_STYLE_VERSION = crypto
   .createHash("sha256")
   .update(fsSync.readFileSync(path.join(ROOT, "tool-undress.css")))
+  .digest("hex")
+  .slice(0, 12);
+const SITE_PROFILE_STYLE_VERSION = crypto
+  .createHash("sha256")
+  .update(fsSync.readFileSync(path.join(ROOT, "site-123vipfans.css")))
+  .digest("hex")
+  .slice(0, 12);
+const SITE_PROFILE_SCRIPT_VERSION = crypto
+  .createHash("sha256")
+  .update(fsSync.readFileSync(path.join(ROOT, "site-123vipfans.js")))
   .digest("hex")
   .slice(0, 12);
 const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
@@ -279,16 +318,19 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
-const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
+const TOOL_VIDEO_DEFAULT_PROVIDER = "seedance";
+const TOOL_VIDEO_SEEDANCE_MODEL = "ep-20260429142513-zg667";
+const VIDEO_REPLACE_PROMPT = "将视频1中的人物替换成图片1中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
-  if (normalizedProvider === "wan27") return "wan27-r2v";
+  if (normalizedProvider === "wan30") return "wan30-video";
+  if (normalizedProvider === "wan27") return "wan27-video-edit";
   if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
 
-const TOOL_VIDEO_PROVIDER = ["wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
+const TOOL_VIDEO_PROVIDER = ["wan30", "wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
   ? String(process.env.TOOL_VIDEO_PROVIDER).trim().toLowerCase()
   : TOOL_VIDEO_DEFAULT_PROVIDER;
 const TOOL_TENANT_SPECS = Object.freeze({
@@ -348,6 +390,19 @@ const TOOL_TENANT_SPECS = Object.freeze({
     disabledTabs: ["access", "assets", "workflow", "referral"],
     assetLibrary: false,
   },
+  chat: {
+    id: "chat",
+    tenantId: "tool-chat-5vips",
+    brand: "5VIPS Chat",
+    title: "5VIPS Chat",
+    description: "Guided character conversations with your favorite AI roles.",
+    defaultTab: "gallery",
+    defaultGalleryMode: "characters",
+    allowedTabs: ["gallery", "chat", "topups", "spending", "pricing"],
+    allowedGalleryModes: ["characters"],
+    disabledTabs: ["access", "assets", "workflow", "characters", "advanced", "referral"],
+    assetLibrary: false,
+  },
   advanced: {
     id: "advanced",
     tenantId: "tool-advanced",
@@ -357,8 +412,43 @@ const TOOL_TENANT_SPECS = Object.freeze({
     assetLibrary: false,
   },
 });
-const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress";
+const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat";
 const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
+
+// Platform (non-tool) hosts that ship their own site profile. They keep the main
+// platform user pool and billing (tenantId stays DEFAULT_TENANT_ID, toolOnly is
+// false) but land on a different default tab and expose a reduced tab set.
+const DEFAULT_PLATFORM_SITE_HOSTS = "123vip.fans";
+const PLATFORM_SITE_HOSTS = new Set(parseCsvList(process.env.PLATFORM_SITE_HOSTS || DEFAULT_PLATFORM_SITE_HOSTS));
+const PLATFORM_SITE_PROFILE = Object.freeze({
+  id: "custom-workflow",
+  // The profile lands on its own welcome page and enters the 自定义 workspace
+  // from there, so defaultRoute stays empty (no forced in-app route).
+  defaultTab: String(process.env.PLATFORM_SITE_DEFAULT_TAB || "home").trim() || "home",
+  // In-app route the profile lands on (setTab accepts the raw "custom" route,
+  // which opens the 自定义 workspace in custom mode).
+  defaultRoute: String(process.env.PLATFORM_SITE_DEFAULT_ROUTE || "").trim(),
+  // Nav entries to hide without disabling the underlying tab/panel.
+  hiddenNavTabs: parseCsvList(process.env.PLATFORM_SITE_HIDDEN_NAV_TABS || "advanced"),
+  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"),
+  disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat"),
+  // Show a "home" entry in the side rail so the workspace can return to the
+  // profile's welcome page.
+  navHome: true,
+  bodyClass: "site-custom-workflow",
+  stylesheet: "site-123vipfans.css",
+  logo: "/assets/brand/123vipfans-logo.png",
+  favicon: "/assets/brand/123vipfans-favicon.png",
+});
+
+function platformSiteProfileForHostname(hostname = "") {
+  const host = normalizeHostname(hostname);
+  if (!host) return null;
+  // The www host is the same site as the apex, so it must land on the same
+  // profile instead of falling back to the plain platform app.
+  const bareHost = host.replace(/^www\./, "");
+  return PLATFORM_SITE_HOSTS.has(host) || PLATFORM_SITE_HOSTS.has(bareHost) ? PLATFORM_SITE_PROFILE : null;
+}
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
@@ -368,6 +458,13 @@ const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || 
 const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
 const GOOGLE_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GOOGLE_LOGIN_ENABLED || "0").trim());
 const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
+const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || Boolean(RESEND_API_KEY);
+const EMAIL_FROM = String(process.env.EMAIL_FROM || "Vipeak <no-reply@123vips.com>").trim();
+const emailChallenges = new Map();
+const publicConfigCache = new Map();
+const publicPlayfluxTemplatesCache = new Map();
+let publicPresetsCache = { value: null, expiresAt: 0 };
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -490,6 +587,7 @@ const INTERNAL_CNY_PER_USD = clampNumber(process.env.INTERNAL_CNY_PER_USD || pro
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, INTERNAL_CNY_PER_USD * 100, 1, 100000);
 const UPSTREAM_USD_CNY_RATE = clampNumber(process.env.UPSTREAM_USD_CNY_RATE || process.env.SEEDANCE_USD_CNY_RATE || process.env.USD_CNY_RATE, INTERNAL_CNY_PER_USD, 0.0001, 100000);
 const PAYPAL_ENV = /sandbox/i.test(process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || "") ? "sandbox" : "live";
+const PAYPAL_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PAYPAL_ENABLED || ""));
 const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
 const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim();
 const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
@@ -521,6 +619,21 @@ const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.USD_CNY_CENTS ||
   "";
 let paypalTokenCache = { accessToken: "", expiresAt: 0 };
+const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || "").trim();
+const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+const STRIPE_PAY5_SECRET_KEY = String(process.env.STRIPE_PAY5_SECRET_KEY || "").trim();
+const STRIPE_PAY5_WEBHOOK_SECRET = String(process.env.STRIPE_PAY5_WEBHOOK_SECRET || "").trim();
+const STRIPE_PAY5_ACCOUNT_ID = String(process.env.STRIPE_PAY5_ACCOUNT_ID || "").trim();
+const STRIPE_CURRENCY = String(process.env.STRIPE_CURRENCY || "usd").trim().toLowerCase() || "usd";
+const STRIPE_CHECKOUT_SESSION_TTL_SECONDS = Math.max(300, Math.min(86400, Number(process.env.STRIPE_CHECKOUT_SESSION_TTL_SECONDS || 1800) || 1800));
+const STRIPE_CHECKOUT_BASE_URL = String(
+  process.env.STRIPE_CHECKOUT_BASE_URL ||
+  "https://pay.storycut.club",
+).trim().replace(/\/+$/, "");
+const STRIPE_CHAT_CHECKOUT_BASE_URL = String(
+  process.env.STRIPE_CHAT_CHECKOUT_BASE_URL ||
+  "https://pay.5vips.com",
+).trim().replace(/\/+$/, "");
 const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
@@ -661,6 +774,8 @@ function defaultAliyunLegacySaleCreditsByModel() {
 }
 
 const QWEN37_FLASH_MODEL = String(process.env.ALIYUN_QWEN37_MODEL || "qwen3.7-flash").trim() || "qwen3.7-flash";
+const BYTEPLUS_LANGUAGE_MODEL = String(process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw").trim() || "ep-20260827122554-8fsgw";
+const CHAT_MESSAGE_CREDITS = creditsAmount(process.env.CHAT_MESSAGE_CREDITS || 1);
 const QWEN37_FLASH_MAX_OUTPUT_TOKENS = Math.floor(clampNumber(process.env.QWEN37_FLASH_MAX_OUTPUT_TOKENS, 8192, 1, 32768));
 const QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS = Object.freeze([
   Object.freeze({ maxInputTokens: 32768, input: 0.225, output: 0.974 }),
@@ -856,6 +971,13 @@ const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || ALIYUN_DASHS
 const ALIYUN_WAN30_API_KEY = process.env.ALIYUN_WAN30_API_KEY || ALIYUN_DASHSCOPE_API_KEY;
 const ALIYUN_WAN30_MODEL = process.env.ALIYUN_WAN30_MODEL || "wan3.0-video";
 const ALIYUN_WAN30_PRIME_MODEL = process.env.ALIYUN_WAN30_PRIME_MODEL || "wan3.0-video-prime";
+// Agentic Mobile exposes Wan 3.0 Prime through a separate node-scoped API key.
+// Keep it isolated from the existing DashScope Wan 3.0 account.
+const ALIYUN_WAN30_PRIME_BASE_URL = (process.env.ALIYUN_WAN30_PRIME_BASE_URL
+  || (process.env.ALIYUN_WAN30_PRIME_API_KEY
+    ? "https://model-intl.aimobile.wuying.aliyuncs.com/us-east-1"
+    : ALIYUN_WAN30_BASE_URL)).replace(/\/+$/, "");
+const ALIYUN_WAN30_PRIME_API_KEY = String(process.env.ALIYUN_WAN30_PRIME_API_KEY || "").trim();
 const ALIYUN_WAN30_PRIME_PRICE_FACTOR = pricingNumber(process.env.ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1.5, 1, 6);
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
@@ -900,6 +1022,10 @@ const R2_UPLOAD_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_UPLO
 const R2_UPLOAD_RETRY_BASE_DELAY_MS = Math.max(250, Math.min(10000, Number(process.env.R2_UPLOAD_RETRY_BASE_DELAY_MS || 1000) || 1000));
 const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_PUBLIC_READY_RETRY_COUNT || 4) || 4));
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
+// Generated outputs are intentionally served from the provider URL. User
+// uploads still use the configured object storage so upstream APIs can read
+// public reference media.
+const DISABLE_GENERATED_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_GENERATED_R2_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
   "raising-game",
@@ -1020,6 +1146,7 @@ const DEFAULT_DB = {
   users: [],
   sessions: [],
   walletOrders: [],
+  referralWithdrawals: [],
   creditLedger: [],
   userAssets: [],
   userCharacters: [],
@@ -1282,12 +1409,18 @@ const DEFAULT_CONFIG = {
   ],
 };
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) {
   const body = JSON.stringify(payload);
-  res.writeHead(statusCode, {
+  const headers = {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-  });
+    "cache-control": cacheControl,
+    "vary": "Accept-Encoding",
+  };
+  if (cacheControl.startsWith("public")) {
+    headers["cdn-cache-control"] = cacheControl;
+    headers["cloudflare-cdn-cache-control"] = cacheControl;
+  }
+  res.writeHead(statusCode, headers);
   res.end(body);
 }
 
@@ -1629,9 +1762,40 @@ function paymentCheckoutHostname() {
   return normalizeHostname(PAYPAL_CHECKOUT_BASE_URL);
 }
 
+function stripeCheckoutHostname() {
+  return normalizeHostname(STRIPE_CHECKOUT_BASE_URL);
+}
+
+function stripeChatCheckoutHostname() {
+  return normalizeHostname(STRIPE_CHAT_CHECKOUT_BASE_URL);
+}
+
+function stripeCheckoutBaseUrlForRequest(req = null) {
+  return req && requestTenantDescriptor(req).toolId === "chat"
+    ? STRIPE_CHAT_CHECKOUT_BASE_URL
+    : STRIPE_CHECKOUT_BASE_URL;
+}
+
+function stripeCashierHostForOrder(order = {}) {
+  const explicit = normalizeHostname(order.cashierHost || order.cashierUrl || "");
+  if (explicit) return explicit;
+  if (String(order.stripeAccountId || "") === STRIPE_PAY5_ACCOUNT_ID && STRIPE_PAY5_ACCOUNT_ID) return normalizeHostname(STRIPE_CHAT_CHECKOUT_BASE_URL);
+  if (String(order.paymentProvider || "").toLowerCase() === "stripe") return normalizeHostname(STRIPE_CHECKOUT_BASE_URL);
+  try { return normalizeHostname(new URL(order.sourceOrigin || "").hostname); } catch { return ""; }
+}
+
 function isPaymentHostRequest(req) {
   const host = requestHostname(req);
-  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname()));
+  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname() || host === stripeCheckoutHostname() || host === stripeChatCheckoutHostname()));
+}
+
+function sendPayPalCheckoutHostRequired(res) {
+  return sendJson(res, 409, {
+    ok: false,
+    code: "PAYPAL_CHECKOUT_REQUIRED",
+    message: "PayPal payments must be started from the secure checkout page.",
+    checkoutBaseUrl: PAYPAL_CHECKOUT_BASE_URL,
+  });
 }
 
 function configuredPublicBaseUrl() {
@@ -1770,6 +1934,7 @@ function tenantDescriptorFromHostname(hostname = "") {
   const host = normalizeHostname(hostname);
   const toolId = toolTenantIdForHostname(host);
   const tool = TOOL_TENANT_SPECS[toolId] || null;
+  const siteProfile = tool ? null : platformSiteProfileForHostname(host);
   const tenantPublic = Boolean(tool || isPublicTenantHostname(host));
   const apiAccess = !tool;
   return {
@@ -1782,17 +1947,24 @@ function tenantDescriptorFromHostname(hostname = "") {
     brand: tool?.brand || "",
     title: tool?.title || "",
     description: tool?.description || "",
-    defaultTab: tool?.defaultTab || "gallery",
+    defaultTab: tool?.defaultTab || siteProfile?.defaultTab || "gallery",
     defaultGalleryMode: tool?.defaultGalleryMode || "characters",
-    allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : [],
+    allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : (siteProfile?.allowedTabs || []),
     allowedGalleryModes: Array.isArray(tool?.allowedGalleryModes) ? tool.allowedGalleryModes : [],
-    disabledTabs: Array.from(new Set([...(tool?.disabledTabs || []), ...(apiAccess ? [] : ["access"])])),
+    hiddenNavTabs: Array.isArray(siteProfile?.hiddenNavTabs) ? siteProfile.hiddenNavTabs : [],
+    defaultRoute: siteProfile?.defaultRoute || "",
+    navHome: Boolean(siteProfile?.navHome),
+    disabledTabs: Array.from(new Set([
+      ...(tool?.disabledTabs || siteProfile?.disabledTabs || []),
+      ...(apiAccess ? [] : ["access"]),
+    ])),
     apiAccess,
     assetLibrary: tool?.assetLibrary ?? true,
     accountMenu: true,
     subscriptions: Boolean(tool),
     membershipProgram: !tool,
     videoProvider: tool?.videoProvider || "",
+    siteProfile: siteProfile?.id || "",
   };
 }
 
@@ -1842,6 +2014,7 @@ async function readDb() {
     users,
     sessions,
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
+    referralWithdrawals: Array.isArray(db.referralWithdrawals) ? db.referralWithdrawals : [],
     creditLedger: Array.isArray(db.creditLedger) ? db.creditLedger : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
@@ -2449,6 +2622,9 @@ function publicTenantFeatures(tenant = {}) {
     defaultGalleryMode: tenant.defaultGalleryMode || "characters",
     allowedTabs: Array.isArray(tenant.allowedTabs) ? tenant.allowedTabs : [],
     allowedGalleryModes: Array.isArray(tenant.allowedGalleryModes) ? tenant.allowedGalleryModes : [],
+    hiddenNavTabs: Array.isArray(tenant.hiddenNavTabs) ? tenant.hiddenNavTabs : [],
+    defaultRoute: tenant.defaultRoute || "",
+    navHome: Boolean(tenant.navHome),
     disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
     apiAccess: tenant.apiAccess !== false,
     aliyunModels: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED,
@@ -2461,6 +2637,7 @@ function publicTenantFeatures(tenant = {}) {
     subscriptions: Boolean(tenant.subscriptions),
     membershipProgram: Boolean(tenant.membershipProgram),
     videoProvider: tenant.videoProvider || "",
+    siteProfile: tenant.siteProfile || "",
   };
 }
 
@@ -2681,6 +2858,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
   const view = {
     auth: {
+      email: { enabled: EMAIL_LOGIN_ENABLED },
       google: {
         enabled: GOOGLE_LOGIN_ENABLED && Boolean(GOOGLE_LOGIN_CLIENT_ID),
         clientId: GOOGLE_LOGIN_ENABLED ? GOOGLE_LOGIN_CLIENT_ID : "",
@@ -2710,7 +2888,10 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       topupPackages: publicTopupPackages(auth?.user || null),
     },
     video: config.video,
-    playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
+    // The template gallery is large (hundreds of prompt/media records). It
+    // is loaded on demand from /api/platform/playflux-templates so the first
+    // page bootstrap stays small and fast.
+    playfluxTemplates: [],
     homeVideo: {
       provider: homeVideo.provider || "seedance",
       posterUrl: homeVideo.posterUrl || "",
@@ -2777,7 +2958,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
 async function handlePublicCharacters(req, res, url) {
   let config = await readAppConfig();
   config = await refreshCompletedHomeVideoItems(config);
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const paging = pagingFromUrl(url || new URL("http://localhost"), {
     defaultLimit: PUBLIC_CHARACTER_PAGE_SIZE,
@@ -3177,8 +3358,12 @@ function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
 async function geoSiteSnapshot(req) {
   const origin = pageOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
+  // Chat is a tool tenant, but its landing page intentionally showcases the
+  // existing character catalogue. Keep other tool tenants lightweight while
+  // allowing Chat to load the shared home items.
+  const includeHomeItems = !tenantOptions.toolOnly || tenantOptions.toolId === "chat";
   const [config, configUpdatedAt] = await Promise.all([
-    readAppConfig({ includeHomeItems: !tenantOptions.toolOnly }),
+    readAppConfig({ includeHomeItems }),
     tenantOptions.toolOnly ? Promise.resolve("") : getKvUpdatedAt("app_config"),
   ]);
   const platform = normalizePlatformConfig(config.platform || {});
@@ -3197,7 +3382,7 @@ async function geoSiteSnapshot(req) {
       geoVideos: addCharacterVideoDescriptionsForGeo(item),
     }));
   const toolOnly = Boolean(tenantOptions.toolOnly);
-  const characters = toolOnly ? [] : allCharacters;
+  const characters = toolOnly && tenantOptions.toolId !== "chat" ? [] : allCharacters;
   characters.forEach((item) => {
     item.geoPosterAbsolute = absoluteUrlFromBase(item.geoPoster, origin);
   });
@@ -4131,6 +4316,10 @@ function geoMetaTags({ title, description, url, image, type = "website", jsonLd 
     : "";
   const imageTag = image ? `
     <meta property="og:image" content="${htmlEscape(image)}" />
+    <meta property="og:image:secure_url" content="${htmlEscape(image)}" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
     <meta name="twitter:image" content="${htmlEscape(image)}" />` : "";
   const ld = (Array.isArray(jsonLd) ? jsonLd : [jsonLd]).filter(Boolean).map(jsonLdScript).join("\n    ");
   return `
@@ -4149,12 +4338,12 @@ function geoMetaTags({ title, description, url, image, type = "website", jsonLd 
 }
 
 function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
-  const { origin, brand, platform, characters } = snapshot;
+  const { origin, brand, platform } = snapshot;
   const canonical = scopedApiUrl(origin, "/");
   const tenant = tenantOptions?.tenant || tenantOptions || {};
   const displayBrand = tenant.brand || brand;
   const description = tenant.description || homeDescriptionForGeo(platform);
-  const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
+  const image = absoluteUrlFromBase("/assets/brand/vipeak-google-logo.png?v=share-20260827-2", origin);
   const title = tenant.title || `${displayBrand} | AI Character Video Generator`;
   const sameAs = [VIPEAK_X_URL, VIPEAK_TELEGRAM_CHANNEL_URL];
   const jsonLd = [
@@ -4228,11 +4417,95 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
       );
     });
   }
+  if (tenant.siteProfile && !toolId) {
+    const profileTab = String(tenant.defaultTab || "").trim();
+    const activeNavTab = tenant.defaultRoute === "custom" ? "custom" : profileTab;
+    // First paint should already match the profile: highlight the entry the
+    // profile lands on and hide the tabs it does not expose (the client
+    // re-applies the same rules after the feature bootstrap loads).
+    withTenantShell = withTenantShell.replace(
+      /class="top-tab\s+is-active"\s+data-tab="gallery"/i,
+      `class="top-tab" data-tab="gallery"`,
+    );
+    if (activeNavTab) {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`class="top-tab"\\s+data-tab="${activeNavTab}"`, "i"),
+        `class="top-tab is-active" data-tab="${activeNavTab}"`,
+      );
+    }
+    (tenant.disabledTabs || []).forEach((tab) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-tab="${tab}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+    (tenant.hiddenNavTabs || []).forEach((tab) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-tab="${tab}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+    ["playflux-video", "playflux-anime", "playflux-image"].forEach((shortcut) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-gallery-shortcut="${shortcut}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+    // The profile ships its own brand + styling instead of inheriting the main
+    // site look: body class, stylesheet, favicon, logo, and the brand link that
+    // returns to the welcome page.
+    if (PLATFORM_SITE_PROFILE.bodyClass) {
+      withTenantShell = withTenantShell.replace(/<body\s+class="([^"]*)"/i, (match, classText) => {
+        const classes = String(classText || "").split(/\s+/).filter(Boolean);
+        // home-active hides the shell chrome so the very first paint is the
+        // profile's welcome page instead of the workspace navigation.
+        const extra = [PLATFORM_SITE_PROFILE.bodyClass, profileTab === "home" ? "home-active" : ""];
+        const nextClasses = Array.from(new Set([...classes, ...extra.filter(Boolean)]));
+        return match.replace(`class="${classText}"`, `class="${nextClasses.join(" ")}"`);
+      });
+    }
+    if (tenant.navHome) {
+      withTenantShell = withTenantShell.replace(
+        /<button\b[^>]*data-tab="home"[^>]*>/i,
+        (tag) => tag.replace(/\s+hidden(?=[\s>])/i, ""),
+      );
+    }
+    // Only the profile's landing panel is visible on first paint.
+    if (profileTab) {
+      withTenantShell = withTenantShell.replace(/<section\b[^>]*data-panel="[^"]+"[^>]*>/gi, (tag) => {
+        const panel = (tag.match(/data-panel="([^"]+)"/i) || [])[1] || "";
+        const withoutHidden = tag.replace(/\s+hidden(?=[\s>])/i, "");
+        return panel === profileTab ? withoutHidden : withoutHidden.replace(/>$/, " hidden>");
+      });
+    }
+    if (PLATFORM_SITE_PROFILE.stylesheet) {
+      withTenantShell = withTenantShell.replace(
+        /<\/head>/i,
+        `    <link rel="stylesheet" href="./${PLATFORM_SITE_PROFILE.stylesheet}?v=${SITE_PROFILE_STYLE_VERSION}" />\n  </head>`,
+      );
+    }
+    withTenantShell = withTenantShell.replace(
+      /<\/body>/i,
+      `    <script src="./site-123vipfans.js?v=${SITE_PROFILE_SCRIPT_VERSION}" defer></script>\n  </body>`,
+    );
+    if (PLATFORM_SITE_PROFILE.favicon) {
+      withTenantShell = withTenantShell
+        .replace(/<link rel="icon"[^>]*>/i, `<link rel="icon" type="image/png" href="${PLATFORM_SITE_PROFILE.favicon}" />`)
+        .replace(/<link rel="shortcut icon"[^>]*>/i, `<link rel="shortcut icon" href="${PLATFORM_SITE_PROFILE.favicon}" />`);
+    }
+    if (PLATFORM_SITE_PROFILE.logo) {
+      withTenantShell = withTenantShell.replace(
+        /(<span class="brand-mark"><img src=")[^"]*(")/i,
+        `$1${PLATFORM_SITE_PROFILE.logo}$2`,
+      );
+    }
+    withTenantShell = withTenantShell.replace(/(<a class="brand" href=")[^"]*(")/i, "$1#home$2");
+  }
   const discoveryLinks = renderDiscoveryLinks(snapshot);
   if (discoveryLinks) {
     withTenantShell = withTenantShell.replace(/<footer\s+class="site-foot"/i, `${discoveryLinks}\n\n    <footer class="site-foot"`);
   }
-  const bootstrapScript = tenant.toolOnly && toolId
+  const bootstrapScript = (tenant.toolOnly && toolId) || tenant.siteProfile
     ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
     : "";
   let withToolStyles = bootstrapScript && !withTenantShell.includes("window.__TENANT_FEATURES__")
@@ -4818,7 +5091,7 @@ async function servePlatformHtmlWithGeo(req, res) {
   const versionedHtml = applyPlatformAssetVersion(html, await currentPlatformAssetVersion());
   const snapshot = await geoSiteSnapshot(req);
   return sendHtml(res, 200, injectPlatformGeoHead(versionedHtml, snapshot, requestTenantOptions(req)), {
-    cacheControl: "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+    cacheControl: "no-cache, no-store, must-revalidate",
     head: req.method === "HEAD",
   });
 }
@@ -5824,7 +6097,9 @@ function publicCharacterSceneVideo(entry = {}, { playable = false, locked = true
     localPosterUrl: String(video.localPosterUrl || entry.localPosterUrl || posterUrl || "").trim(),
     coverUrl: String(video.coverUrl || entry.coverUrl || posterUrl || "").trim(),
     thumbnailUrl: String(video.thumbnailUrl || entry.thumbnailUrl || posterUrl || "").trim(),
-    videoUrl: playable ? String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
+    videoUrl: playable ? String(DISABLE_GENERATED_R2_STORAGE
+      ? (entry.remoteVideoUrl || entry.videoUrl || entry.cdnVideoUrl || entry.localVideoUrl || "")
+      : (entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "")).trim() : "",
     locked: Boolean(locked),
     price,
   };
@@ -6427,6 +6702,16 @@ function publicReferralSummary(req, db = {}, user = {}) {
     referral.rewardedAt ? 1 : 0,
   );
   const membershipActive = userHasCreatorMembership(user);
+  const referralWallet = referral.walletAddress || "";
+  const totalCommissionUsd = Number(referral.totalCommissionUsd || 0);
+  const withdrawnCommissionUsd = Number(referral.withdrawnCommissionUsd || 0);
+  const lockedCommissionUsd = Number(referral.lockedCommissionUsd || 0);
+  const availableWithdrawableUsd = Math.max(0, totalCommissionUsd - withdrawnCommissionUsd - lockedCommissionUsd);
+  const withdrawalRecords = (db.referralWithdrawals || [])
+    .filter((record) => String(record.userId || "") === String(user.id || ""))
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+    .slice(0, 20)
+    .map((record) => referralWithdrawalView(record, user));
   const availableRewards = membershipActive ? Math.max(0, paidUserIds.size - rewardCount) : 0;
   const origin = pageOriginFromRequest(req);
   return {
@@ -6434,6 +6719,7 @@ function publicReferralSummary(req, db = {}, user = {}) {
     inviteUrl: `${origin}/?ref=${encodeURIComponent(code)}`,
     rewardCredits: REFERRAL_REWARD_CREDITS,
     invitedCount: invitedUserIds.size,
+    invitedUsers: invitedUserIds.size,
     paidInviteCount: paidUserIds.size,
     rewardCount,
     remainingRewards: availableRewards,
@@ -6445,6 +6731,14 @@ function publicReferralSummary(req, db = {}, user = {}) {
     rewardedAt: referral.rewardedAt || "",
     referredByUserId: referral.referredByUserId || "",
     referredByUsername: referral.referredByUsername || "",
+    walletAddress: referralWallet,
+    totalCommissionUsd: Number(totalCommissionUsd.toFixed(6)),
+    withdrawnCommissionUsd: Number(withdrawnCommissionUsd.toFixed(6)),
+    lockedCommissionUsd: Number(lockedCommissionUsd.toFixed(6)),
+    availableWithdrawableUsd: Number(availableWithdrawableUsd.toFixed(6)),
+    withdrawableUsd: Number(availableWithdrawableUsd.toFixed(6)),
+    totalEarnedUsd: Number(totalCommissionUsd.toFixed(6)),
+    withdrawals: withdrawalRecords,
   };
 }
 
@@ -6614,9 +6908,15 @@ function isQwen37FlashProvider(value = "") {
     || normalized.includes("qwen3.7flash");
 }
 
+function isByteplusLanguageProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["bytepluslanguage", "arklanguage", BYTEPLUS_LANGUAGE_MODEL.toLowerCase()].includes(normalized);
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isByteplusLanguageProvider(value)) return "byteplus-language";
   if (isQwen37FlashProvider(value)) return "qwen37-flash";
   if (isQwenImage3Provider(value)) return "qwen-image3";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
@@ -6638,6 +6938,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isByteplusLanguageProvider(raw)) return "byteplus-language";
   if (isQwen37FlashProvider(raw)) return "qwen37-flash";
   if (isQwenImage3Provider(raw)) return "qwen-image3";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
@@ -6653,6 +6954,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (id === "byteplus-language") return "BytePlus Language";
   if (id === "qwen37-flash") return "Qwen3.7 Flash";
   if (id === "qwen-image3") return "Qwen Image 3.0";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
@@ -6896,6 +7198,7 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isByteplusLanguageProvider(value)) return true;
   if (isQwen37FlashProvider(value)) return true;
   if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
@@ -6911,7 +7214,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, or qwen37-flash.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, qwen37-flash, or byteplus-language.", { provider: value });
   }
 }
 
@@ -7325,7 +7628,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedream5-image", "qwen-image3", "qwen37-flash"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
+  if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -7372,8 +7675,11 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
-  if (normalizedProvider === "qwen37-flash") {
-    return qwen37FlashPricingEstimate(advancedPricing, options);
+  if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
+    const estimate = qwen37FlashPricingEstimate(advancedPricing, options);
+    return normalizedProvider === "byteplus-language"
+      ? { ...estimate, provider: normalizedProvider, providerLabel: "BytePlus Language", model: BYTEPLUS_LANGUAGE_MODEL, source: "byteplus_token_pricing_fallback" }
+      : estimate;
   }
   if (normalizedProvider === "wan30") {
     const requestedDuration = Number(options.duration ?? options.durationSeconds ?? 5);
@@ -8246,12 +8552,73 @@ function withJsonBody(req, body = {}) {
   });
 }
 
-async function getAuth(req) {
+function lightweightAuthDb() {
+  return { users: [], sessions: [], walletOrders: [], creditLedger: [], userAssets: [], userCharacters: [], userUnlocks: [], supportMessages: [], apiSubtokens: [] };
+}
+
+// Qualifying purchases earn the inviter a 20% USD commission. The order id is
+// recorded on the inviter to make the grant idempotent across webhook retries.
+async function maybeGrantReferralCommission(db, referredUserId = "", order = {}) {
+  const amount = Number(order?.baseAmount || 0);
+  const qualifies = (order?.orderKind === "subscription" && String(order?.billingPlanId || "") === CREATOR_MEMBERSHIP_PLAN_ID)
+    || (order?.orderKind === "product" && String(order?.productId || "") === API_DOCS_PRODUCT_ID);
+  if (!qualifies || !Number.isFinite(amount) || amount <= 0) return null;
+  const referredUser = (db.users || []).find((entry) => entry.id === referredUserId);
+  const referrerId = String(referralPayload(referredUser).referredByUserId || "").trim();
+  const referrer = (db.users || []).find((entry) => entry.id === referrerId);
+  if (!referredUser || !referrer || referrer.id === referredUser.id || !order.id) return null;
+  const current = referralPayload(referrer);
+  const orderIds = Array.isArray(current.commissionOrderIds) ? current.commissionOrderIds.map(String) : [];
+  if (orderIds.includes(String(order.id))) return referrer;
+  const commission = Math.round(amount * 0.2 * 100) / 100;
+  referrer.referral = {
+    ...current,
+    totalCommissionUsd: Math.round((Number(current.totalCommissionUsd || 0) + commission) * 100) / 100,
+    commissionOrderIds: [...orderIds, String(order.id)].slice(-500),
+    lastCommissionAt: new Date().toISOString(),
+  };
+  referrer.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(referrer);
+  return referrer;
+}
+
+function findUserChatUnlock(db, userId, itemId) {
+  return (db.userUnlocks || []).find((record) => (
+    !isSoftDeleted(record)
+    && record.userId === userId
+    && record.itemId === itemId
+    && record.unlockType === "chat_character"
+  )) || null;
+}
+
+function chatCharacterUnlockRecord(item = {}, userId = "") {
+  if (!item?.id || !userId) return null;
+  const now = new Date().toISOString();
+  return {
+    id: randomId("chat-unlock"),
+    userId,
+    itemId: item.id,
+    itemName: item.name || item.title || "Character",
+    sceneId: "__chat__",
+    sceneName: "Character chat",
+    sceneEntryId: "chat",
+    sceneEntryName: "Character chat",
+    videoKey: "__chat__",
+    unlockType: "chat_character",
+    cost: 0,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: "",
+  };
+}
+
+async function getAuth(req, options = {}) {
+  const loadDb = options.loadDb !== false;
   const token = getBearerToken(req);
   const tenantId = requestTenantId(req);
-  if (!token) return { db: await readDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
+  if (!token) return { db: loadDb ? await readDb() : lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
-    const db = await readDb();
+    const db = loadDb ? await readDb() : lightweightAuthDb();
     const session = await getSessionByTokenInDb(token);
     if (session && recordBelongsToTenant(session, tenantId)) {
       const user = await getUserByIdInDb(session.userId);
@@ -8263,7 +8630,7 @@ async function getAuth(req) {
       if (store) store.auth = auth;
       return auth;
     }
-    const user = db.users.find((item) => item.apiToken === token && recordBelongsToTenant(item, tenantId)) || null;
+    const user = await getUserByApiTokenInDb(token, tenantId);
     if (user) {
       const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
       const store = requestContext.getStore();
@@ -8324,8 +8691,8 @@ async function getAuth(req) {
   return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
 }
 
-async function requireUser(req, res) {
-  const auth = await getAuth(req);
+async function requireUser(req, res, options = {}) {
+  const auth = await getAuth(req, options);
   if (!auth.user) {
     sendJson(res, 401, { ok: false, code: "LOGIN_REQUIRED", message: "Please sign in to continue." });
     return null;
@@ -8347,8 +8714,8 @@ async function requirePrimaryTokenOwner(req, res) {
   return auth;
 }
 
-async function requireAdmin(req, res) {
-  const auth = await requireUser(req, res);
+async function requireAdmin(req, res, options = {}) {
+  const auth = await requireUser(req, res, options);
   if (!auth) return null;
   if (auth.user.role !== "admin") {
     sendJson(res, 403, { ok: false, code: "ADMIN_REQUIRED", message: "需要管理员权限。" });
@@ -9136,7 +9503,7 @@ function startWalletScanScheduler() {
 }
 
 function paypalEnabled() {
-  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+  return Boolean(PAYPAL_ENABLED && PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
 }
 
 function randomSecretToken(prefix = "token") {
@@ -9259,10 +9626,35 @@ async function paypalRequest(pathname, { method = "GET", body, headers = {} } = 
   if (!response.ok) {
     const error = new Error(payload.message || payload.error_description || payload.name || "PayPal request failed.");
     error.statusCode = response.status || 502;
+    error.code = paypalErrorSummary(payload, response.status).issue || payload.name || "PAYPAL_REQUEST_FAILED";
     error.details = payload;
     throw error;
   }
   return payload;
+}
+
+function paypalErrorSummary(payload = {}, statusCode = 0) {
+  const details = Array.isArray(payload?.details) ? payload.details : [];
+  const first = details.find((item) => item && typeof item === "object") || {};
+  return {
+    name: String(payload?.name || payload?.error || "").slice(0, 80),
+    issue: String(first.issue || payload?.issue || "").slice(0, 120),
+    description: String(first.description || payload?.error_description || payload?.message || "").slice(0, 500),
+    field: String(first.field || "").slice(0, 160),
+    debugId: String(payload?.debug_id || payload?.debugId || "").slice(0, 120),
+    httpStatus: Number(statusCode || payload?.status || 0) || 0,
+  };
+}
+
+function paypalPublicFailureMessage(summary = {}) {
+  const issue = String(summary.issue || summary.name || "").toUpperCase();
+  if (/PAYEE_ACCOUNT_(?:RESTRICTED|LOCKED_OR_CLOSED)|PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING/.test(issue)) {
+    return "PayPal is temporarily unavailable for this merchant. Please use USDT or contact support.";
+  }
+  if (/DUPLICATE_INVOICE_ID/.test(issue)) {
+    return "PayPal could not reuse this payment reference. Please try again.";
+  }
+  return "PayPal could not create this payment. Please try again or use USDT.";
 }
 
 function findPayPalApprovalLink(orderPayload = {}) {
@@ -9489,6 +9881,7 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   order.updatedAt = now;
   if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
   await maybeGrantReferralReward(db, order.userId, order);
+  await maybeGrantReferralCommission(db, order.userId, order);
   return { settled: true, user };
 }
 
@@ -9598,6 +9991,15 @@ function imageDimensionsFromBuffer(bytes) {
     }
   }
   return null;
+}
+
+function imageMimeFromBuffer(bytes) {
+  const type = String(imageDimensionsFromBuffer(bytes || [])?.type || "").toLowerCase();
+  if (type === "png") return "image/png";
+  if (type === "jpeg") return "image/jpeg";
+  if (type === "webp") return "image/webp";
+  if (type === "bmp") return "image/bmp";
+  return "";
 }
 
 function assertSeedanceImageAspectRatio(dimensions, label = "Seedance image") {
@@ -10702,10 +11104,14 @@ function findSceneConfig(config, sceneId) {
 
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
-  const videoUrl = entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
+  const videoUrl = DISABLE_GENERATED_R2_STORAGE
+    ? (entry.remoteVideoUrl || entry.videoUrl || entry.cdnVideoUrl || entry.localVideoUrl || "")
+    : (entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "");
   const savedPrompt = String(entry.userPrompt || "").trim();
   if (!videoUrl && !entry.taskId && !savedPrompt) return null;
-  const posterUrl = String(entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
+  const posterUrl = String(DISABLE_GENERATED_R2_STORAGE
+    ? (entry.remotePosterUrl || entry.posterUrl || entry.cdnPosterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "")
+    : (entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "")).trim();
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
@@ -10876,6 +11282,10 @@ function r2Enabled() {
 
 function objectStorageEnabled() {
   return r2Enabled();
+}
+
+function generatedOutputStorageEnabled() {
+  return objectStorageEnabled() && !DISABLE_GENERATED_R2_STORAGE;
 }
 
 function localPublicAssetStorageEnabled() {
@@ -12821,17 +13231,39 @@ async function aliyunDashscopeRequest(pathname, {
   body = null,
   asyncTask = false,
   provider = "wan27",
+  prime = false,
   timeoutMs = 0,
 } = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const wan30 = normalizedProvider === "wan30" || String(provider || "").toLowerCase() === "aliyun-wan30";
   const qwenImage3 = normalizedProvider === "qwen-image3";
-  const baseUrl = qwenImage3 ? QWEN_IMAGE3_SINGAPORE_BASE_URL : wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
-  const apiKey = qwenImage3 ? ALIYUN_QWEN_IMAGE3_API_KEY : wan30 ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+  // A node-scoped Agentic Mobile key opts Prime into the new endpoint. When
+  // it is absent, keep using the existing Wan endpoint and credentials.
+  const useWan30PrimeNode = wan30 && prime && Boolean(ALIYUN_WAN30_PRIME_API_KEY);
+  const baseUrl = qwenImage3
+    ? QWEN_IMAGE3_SINGAPORE_BASE_URL
+    : useWan30PrimeNode
+      ? ALIYUN_WAN30_PRIME_BASE_URL
+      : wan30
+        ? ALIYUN_WAN30_BASE_URL
+        : ALIYUN_DASHSCOPE_BASE_URL;
+  const apiKey = qwenImage3
+    ? ALIYUN_QWEN_IMAGE3_API_KEY
+    : useWan30PrimeNode
+      ? (ALIYUN_WAN30_PRIME_API_KEY || ALIYUN_WAN30_API_KEY)
+      : wan30
+        ? ALIYUN_WAN30_API_KEY
+        : ALIYUN_DASHSCOPE_API_KEY;
   if (!apiKey) {
-    const error = new Error(`${qwenImage3 ? "Qwen Image 3.0" : wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
+    const error = new Error(`${qwenImage3 ? "Qwen Image 3.0" : useWan30PrimeNode ? "Wan3.0 Prime Agentic Mobile" : wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
     error.statusCode = 503;
-    error.code = qwenImage3 ? "MISSING_ALIYUN_QWEN_IMAGE3_API_KEY" : wan30 ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
+    error.code = qwenImage3
+      ? "MISSING_ALIYUN_QWEN_IMAGE3_API_KEY"
+      : useWan30PrimeNode
+        ? "MISSING_ALIYUN_WAN30_PRIME_API_KEY"
+        : wan30
+          ? "MISSING_ALIYUN_WAN30_API_KEY"
+          : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
     throw error;
   }
   const normalizedMethod = String(method || "POST").toUpperCase();
@@ -12850,8 +13282,8 @@ async function aliyunDashscopeRequest(pathname, {
           authorization: `Bearer ${apiKey}`,
           accept: "application/json",
           ...(body ? { "content-type": "application/json" } : {}),
-          ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
-          ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
+          ...(!useWan30PrimeNode && body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
+          ...(!useWan30PrimeNode && asyncTask ? { "X-DashScope-Async": "enable" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(requestTimeoutMs),
@@ -12980,6 +13412,400 @@ async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) 
     }
   }
   throw lastError || Object.assign(new Error("Qwen3.7 Flash request failed."), { statusCode: 502 });
+}
+
+async function byteplusLanguageRequest(body = {}, { timeoutMs = 180000 } = {}) {
+  if (!ARK_API_KEY) {
+    const error = new Error("BytePlus Language is not configured.");
+    error.statusCode = 503;
+    error.code = "MISSING_ARK_API_KEY";
+    throw error;
+  }
+  const response = await fetch(`${ARK_BASE_URL.replace(/\/+$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${ARK_API_KEY}`,
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(Math.max(5000, Number(timeoutMs || 180000) || 180000)),
+  });
+  const responseText = await response.text();
+  let payload = {};
+  try { payload = responseText ? JSON.parse(responseText) : {}; } catch { payload = { text: responseText }; }
+  if (!response.ok || payload.error) {
+    const error = new Error(payload.error?.message || payload.message || `BytePlus Language request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload.error?.code || payload.code || "BYTEPLUS_LANGUAGE_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function chatCharacterView(item = {}) {
+  return publicAssetUrlsForClient({
+    id: String(item.id || ""),
+    name: String(item.name || item.title || "Character"),
+    description: String(item.description || item.summary || item.title || ""),
+    posterUrl: characterPosterForGeo(item),
+    tags: characterTagsForGeo(item, 8),
+    creatorUsername: String(item.creatorUsername || ""),
+  });
+}
+
+async function chatCharacterById(characterId = "") {
+  const config = await readAppConfig();
+  const items = normalizeHomeVideo(config.homeVideo || {}).items || [];
+  return items.find((item) => String(item.id || "") === String(characterId || "")) || null;
+}
+
+function publicChatConversation(conversation = {}) {
+  return publicAssetUrlsForClient({
+    id: conversation.id,
+    characterId: conversation.characterId,
+    character: conversation.character || {},
+    title: conversation.title || conversation.character?.name || "Chat",
+    style: conversation.style || "balanced",
+    memory: conversation.memory || "",
+    instructions: conversation.instructions || "",
+    tracker: plainObject(conversation.tracker),
+    trackerUpdatedAt: conversation.trackerUpdatedAt || "",
+    backgroundEnabled: conversation.backgroundEnabled !== false,
+    lastMessage: conversation.lastMessage || "",
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+  });
+}
+
+function publicChatMessage(message = {}) {
+  return publicAssetUrlsForClient({
+    id: message.id,
+    conversationId: message.conversationId,
+    role: message.role === "user" ? "user" : "assistant",
+    content: String(message.content || ""),
+    kind: String(message.kind || "text"),
+    imageUrl: String(message.imageUrl || ""),
+    videoUrl: String(message.videoUrl || ""),
+    taskId: String(message.taskId || ""),
+    status: String(message.status || ""),
+    error: String(message.error || ""),
+    createdAt: message.createdAt,
+  });
+}
+
+function parseChatTrackerJson(value = "") {
+  const source = String(value || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    const parsed = JSON.parse(source);
+    return {
+      dateTime: String(parsed.dateTime || parsed.date_time || "").trim().slice(0, 160),
+      location: String(parsed.location || "").trim().slice(0, 240),
+      outfit: String(parsed.outfit || "").trim().slice(0, 400),
+      relationship: String(parsed.relationship || "").trim().slice(0, 240),
+      mood: String(parsed.mood || "").trim().slice(0, 160),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function refreshChatTrackerInBackground(conversation = {}, messages = []) {
+  setImmediate(async () => {
+    try {
+      const transcript = messages.slice(-12).map((message) => `${message.role === "user" ? "User" : conversation.character?.name || "Character"}: ${String(message.content || "").slice(0, 1200)}`).join("\n");
+      const raw = await byteplusLanguageRequest({
+        model: BYTEPLUS_LANGUAGE_MODEL,
+        messages: [
+          { role: "system", content: "Extract the current roleplay scene state. Return only valid JSON with keys dateTime, location, outfit, relationship, mood. Use an empty string when unknown." },
+          { role: "user", content: `Character: ${conversation.character?.name || conversation.title}\nBackground: ${conversation.character?.description || ""}\nConversation:\n${transcript}` },
+        ],
+        temperature: 0.1,
+        max_tokens: 220,
+      }, { timeoutMs: 60000 });
+      const tracker = parseChatTrackerJson(qwen37FlashResponseText(raw));
+      if (!tracker) return;
+      const latest = await getChatConversationInDb(conversation.id, conversation.userId);
+      if (!latest) return;
+      await upsertChatConversationInDb({ ...latest, tracker, trackerUpdatedAt: new Date().toISOString() });
+    } catch (error) {
+      console.warn("[character-chat-tracker-failed]", conversation.id || "", error.message || error);
+    }
+  });
+}
+
+function chatImagePrompt(conversation = {}, messages = [], userPrompt = "", mode = "image") {
+  const character = conversation.character || {};
+  const recent = messages.slice(-10).map((message) => `${message.role === "user" ? "User" : character.name || "Character"}: ${String(message.content || "").slice(0, 900)}`).join("\n");
+  const request = String(userPrompt || "").trim();
+  return [
+    `Create a polished cinematic roleplay image featuring ${character.name || "the character"}.`,
+    `Character description: ${character.description || "Keep the established appearance."}`,
+    character.tags?.length ? `Visual traits: ${character.tags.join(", ")}.` : "",
+    mode === "scene" ? `Depict the current scene from this recent conversation:\n${recent}` : `User image request: ${request}`,
+    "Keep the character identity consistent. One coherent scene, realistic composition, no text, no watermark.",
+  ].filter(Boolean).join("\n");
+}
+
+function chatResponseLanguage(value = "") {
+  const code = String(value || "").trim().toLowerCase();
+  if (code === "simplified chinese") return "Simplified Chinese";
+  if (code === "traditional chinese") return "Traditional Chinese";
+  const normalized = code.slice(0, 16);
+  return ({
+    en: "English", zh: "Simplified Chinese", "zh-cn": "Simplified Chinese", "zh-tw": "Traditional Chinese",
+    ja: "Japanese", ko: "Korean", es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
+    ru: "Russian", it: "Italian", tr: "Turkish", vi: "Vietnamese", th: "Thai",
+  })[normalized] || "English";
+}
+
+function chatSystemPrompt(conversation = {}, language = "") {
+  const character = conversation.character || {};
+  const styleGuide = {
+    balanced: "Keep replies conversational, vivid, and concise.",
+    immersive: "Write immersive roleplay with sensory detail and distinct character voice.",
+    concise: "Keep replies short and direct while staying in character.",
+    cinematic: "Write cinematic scenes with action, atmosphere, and clear dialogue.",
+  }[conversation.style] || "Keep replies conversational, vivid, and concise.";
+  return [
+    `You are roleplaying as ${character.name || "the character"}.`,
+    `Character background: ${character.description || "Stay consistent with the established character."}`,
+    character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
+    styleGuide,
+    `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every dialogue line, narration sentence, and action beat in that language. Do not use English unless that is the requested language.`,
+    "Stay in character. Advance the scene naturally. Use first-person dialogue and italicized action beats when useful.",
+    "Never claim to be an AI, never write the user's actions or decisions for them, and do not repeat the same passage.",
+    conversation.memory ? `Pinned memory: ${conversation.memory}` : "",
+    conversation.instructions ? `User instructions: ${conversation.instructions}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function handleListChatConversations(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversations = await listChatConversationsInDb(auth.user.id, 100);
+  return sendJson(res, 200, { ok: true, conversations: conversations.map(publicChatConversation) });
+}
+
+async function handleCreateChatConversation(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const responseLanguage = chatResponseLanguage(body.language);
+  const character = await chatCharacterById(String(body.characterId || ""));
+  if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_CHARACTER_NOT_FOUND", message: "Character not found." });
+  const tenant = requestTenantDescriptor(req);
+  if (tenant.toolId === "chat") {
+    const existingUnlock = findUserChatUnlock(auth.db, auth.user.id, character.id);
+    if (!existingUnlock && Number(auth.user.credits || 0) <= 0) {
+      return sendJson(res, 402, {
+        ok: false,
+        code: "CHAT_UNLOCK_REQUIRED",
+        message: "Recharge credits to unlock this character chat.",
+        characterId: character.id,
+        unlock: { required: true, cost: 0, currency: "credits" },
+      });
+    }
+    if (!existingUnlock) {
+      const unlock = chatCharacterUnlockRecord(character, auth.user.id);
+      if (unlock) {
+        auth.db.userUnlocks = [unlock, ...(auth.db.userUnlocks || [])];
+        if (dbEnabled()) await upsertUserUnlockInDb(unlock);
+        else await writeDb(auth.db);
+      }
+    }
+  }
+  const now = new Date().toISOString();
+  const characterView = chatCharacterView(character);
+  const conversation = {
+    id: randomId("chat"), userId: auth.user.id, characterId: characterView.id, character: characterView,
+    title: characterView.name, style: "balanced", memory: "", instructions: "", backgroundEnabled: true,
+    lastMessage: characterView.description || `Start chatting with ${characterView.name}.`, createdAt: now, updatedAt: now,
+  };
+  await upsertChatConversationInDb(conversation);
+  const greeting = {
+    id: randomId("msg"), conversationId: conversation.id, userId: auth.user.id, role: "assistant",
+    content: characterView.description || `Hi, I'm ${characterView.name}. What would you like to talk about?`, createdAt: now, updatedAt: now,
+  };
+  await insertChatMessageInDb(greeting);
+  return sendJson(res, 201, { ok: true, conversation: publicChatConversation(conversation), messages: [publicChatMessage(greeting)] });
+}
+
+async function handleGetChatConversation(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const messages = await listChatMessagesInDb(conversation.id, auth.user.id, 300);
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(conversation), messages: messages.map(publicChatMessage) });
+}
+
+async function handleUpdateChatConversation(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const next = {
+    ...conversation,
+    style: ["balanced", "immersive", "concise", "cinematic"].includes(body.style) ? body.style : conversation.style,
+    memory: body.memory === undefined ? conversation.memory : String(body.memory || "").trim().slice(0, 4000),
+    instructions: body.instructions === undefined ? conversation.instructions : String(body.instructions || "").trim().slice(0, 4000),
+    backgroundEnabled: body.backgroundEnabled === undefined ? conversation.backgroundEnabled : body.backgroundEnabled !== false,
+    updatedAt: new Date().toISOString(),
+  };
+  await upsertChatConversationInDb(next);
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(next) });
+}
+
+async function handleCreateChatImage(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const mode = body.mode === "scene" ? "scene" : "image";
+  const userPrompt = String(body.prompt || "").trim().slice(0, 4000);
+  if (mode === "image" && !userPrompt) return sendJson(res, 400, { ok: false, message: "Describe the image you want." });
+  const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
+  const prompt = chatImagePrompt(conversation, history, userPrompt, mode);
+  const imageBody = {
+    provider: "seedream5-image",
+    model: SEEDREAM5_PRO_ENDPOINT_ID,
+    seedreamTier: "pro",
+    resolution: "1K",
+    ratio: "3:4",
+    prompt,
+    watermark: false,
+  };
+  const posterUrl = String(conversation.character?.posterUrl || "").trim();
+  if (posterUrl) imageBody.image = [posterUrl];
+  const captured = captureJsonResponse();
+  await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, imageBody), captured, { auth, body: imageBody });
+  const payload = capturedJsonPayload(captured);
+  if (captured.statusCode >= 400 || !payload?.taskId) return sendJson(res, captured.statusCode || 502, payload || { ok: false, message: "Image generation failed." });
+  const now = new Date().toISOString();
+  const message = {
+    id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", kind: "image",
+    content: userPrompt || `Current scene with ${conversation.character?.name || conversation.title}`,
+    imageUrl: String(payload.imageUrl || payload.record?.imageResultUrl || ""), taskId: payload.taskId,
+    status: payload.imageUrl || payload.record?.imageResultUrl ? "succeeded" : "generating", error: "", createdAt: now, updatedAt: now,
+  };
+  await insertChatMessageInDb(message);
+  const nextConversation = { ...conversation, lastMessage: mode === "scene" ? "Generated a scene image" : `Image: ${userPrompt}`.slice(0, 220), updatedAt: now };
+  await upsertChatConversationInDb(nextConversation);
+  return sendJson(res, 202, { ok: true, taskId: payload.taskId, message: publicChatMessage(message), conversation: publicChatConversation(nextConversation), record: payload.record || null });
+}
+
+async function handleRefreshChatImage(req, res, conversationId, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const captured = captureJsonResponse();
+  await handleGetGenerationRecord(req, captured, taskId);
+  const payload = capturedJsonPayload(captured);
+  if (captured.statusCode >= 400 || !payload?.record) return sendJson(res, captured.statusCode || 404, payload || { ok: false, message: "Image task not found." });
+  const messages = await listChatMessagesInDb(conversationId, auth.user.id, 500);
+  const message = messages.find((item) => String(item.taskId || "") === String(taskId || ""));
+  if (!message) return sendJson(res, 404, { ok: false, message: "Chat image message not found." });
+  const record = payload.record;
+  const status = isSucceededStatus(record.status) ? "succeeded" : isFailedStatus(record.status) ? "failed" : "generating";
+  const imageUrl = String(record.imageResultUrl || record.imageUrl || record.downloadUrl || message.imageUrl || "");
+  const updated = await updateChatMessageInDb({ ...message, status, imageUrl, error: status === "failed" ? String(record.error || "Image generation failed.") : "", updatedAt: new Date().toISOString() });
+  return sendJson(res, 200, { ok: true, done: status !== "generating", message: publicChatMessage(updated || message), record });
+}
+
+async function handleDeleteChatMessage(req, res, conversationId, messageId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const deleted = await deleteChatMessageInDb(conversationId, auth.user.id, messageId);
+  if (!deleted) return sendJson(res, 404, { ok: false, message: "Message not found." });
+  const messages = await listChatMessagesInDb(conversationId, auth.user.id, 500);
+  const last = messages[messages.length - 1];
+  const next = { ...conversation, lastMessage: String(last?.content || "Start chatting").slice(0, 220), updatedAt: new Date().toISOString() };
+  await upsertChatConversationInDb(next);
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(next), messages: messages.map(publicChatMessage) });
+}
+
+async function handleBranchChatConversation(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const messageId = String(body.messageId || "");
+  const messages = await listChatMessagesInDb(conversationId, auth.user.id, 500);
+  const branchIndex = messages.findIndex((item) => item.id === messageId);
+  if (branchIndex < 0) return sendJson(res, 404, { ok: false, message: "Message not found." });
+  const now = new Date().toISOString();
+  const branch = { ...conversation, id: randomId("chat"), title: `${conversation.title} - Branch`, lastMessage: String(messages[branchIndex].content || "Branch").slice(0, 220), createdAt: now, updatedAt: now };
+  await upsertChatConversationInDb(branch);
+  const copied = [];
+  for (const source of messages.slice(0, branchIndex + 1)) {
+    const copy = { ...source, id: randomId("msg"), conversationId: branch.id, userId: auth.user.id, createdAt: new Date(Date.now() + copied.length).toISOString(), updatedAt: now };
+    await insertChatMessageInDb(copy);
+    copied.push(copy);
+  }
+  return sendJson(res, 201, { ok: true, conversation: publicChatConversation(branch), messages: copied.map(publicChatMessage) });
+}
+
+async function handleSendChatMessage(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!ARK_API_KEY) return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Chat is not configured." });
+  let conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const body = await readJson(req);
+  const responseLanguage = chatResponseLanguage(body.language);
+  const action = String(body.action || "send");
+  if (!["send", "continue", "regenerate", "edit"].includes(action)) return sendJson(res, 400, { ok: false, message: "Invalid chat action." });
+  const targetMessageId = String(body.targetMessageId || "");
+  let content = String(body.content || "").trim().slice(0, 12000);
+  if (action === "continue") content = "Continue the scene naturally from where you stopped.";
+  if (auth.user.credits < CHAT_MESSAGE_CREDITS) return sendJson(res, 402, insufficientCreditsPayload(CHAT_MESSAGE_CREDITS, auth.user.credits));
+  if (action === "regenerate" || action === "edit") {
+    if (!targetMessageId) return sendJson(res, 400, { ok: false, message: "targetMessageId is required." });
+    await deleteChatMessagesAfterInDb(conversation.id, auth.user.id, targetMessageId);
+  }
+  if (!["regenerate", "continue"].includes(action)) {
+    if (!content) return sendJson(res, 400, { ok: false, message: "Message is required." });
+    const now = new Date().toISOString();
+    await insertChatMessageInDb({ id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content, createdAt: now, updatedAt: now });
+  }
+  const billingId = randomId("chat-bill");
+  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { conversationId, model: BYTEPLUS_LANGUAGE_MODEL } });
+  if (!dbEnabled()) await writeDb(auth.db);
+  try {
+    const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
+    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: String(message.content || "") }));
+    if (action === "continue") messages.push({ role: "user", content });
+    const raw = await byteplusLanguageRequest({
+      model: BYTEPLUS_LANGUAGE_MODEL,
+      messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage) }, ...messages],
+      temperature: 0.9,
+      max_tokens: 1200,
+    });
+    const reply = qwen37FlashResponseText(raw);
+    if (!reply) throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });
+    const now = new Date().toISOString();
+    const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
+    await insertChatMessageInDb(assistantMessage);
+    conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now };
+    await upsertChatConversationInDb(conversation);
+    refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
+    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: auth.user.credits - CHAT_MESSAGE_CREDITS });
+  } catch (error) {
+    console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
+    const db = await readDb();
+    await changeUserCredits(db, auth.user.id, CHAT_MESSAGE_CREDITS, "character_chat_refund", { conversationId, billingId, error: error.message || "Chat failed." });
+    if (!dbEnabled()) await writeDb(db);
+    const info = normalizeErrorPayload(error);
+    return sendJson(res, error.statusCode || 502, { ok: false, code: info.code || "CHAT_FAILED", message: info.message || "Chat failed." });
+  }
 }
 
 function normalizeWan27MediaItem(item = {}) {
@@ -13116,12 +13942,30 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     promptLength: prompt.length,
     parameters: payload.parameters,
   }, null, 2));
-  const raw = await aliyunDashscopeRequest(request.endpoint, {
-    method: "POST",
-    body: payload,
-    asyncTask: true,
-    provider,
-  });
+  const prime = resolvedCapability === "wan30-video-prime";
+  let raw;
+  try {
+    raw = await aliyunDashscopeRequest(request.endpoint, {
+      method: "POST",
+      body: payload,
+      asyncTask: true,
+      provider,
+      prime,
+    });
+  } catch (error) {
+    // Keep production resilient while the dedicated node is being enabled.
+    // A failed Agentic Mobile submission is retried once through the legacy
+    // Prime endpoint; non-Prime capabilities are unaffected.
+    if (!prime || !ALIYUN_WAN30_PRIME_API_KEY) throw error;
+    console.warn("[aliyun-video-prime-fallback] Agentic Mobile request failed; retrying legacy Wan endpoint", error?.message || error);
+    raw = await aliyunDashscopeRequest(request.endpoint, {
+      method: "POST",
+      body: payload,
+      asyncTask: true,
+      provider,
+      prime: false,
+    });
+  }
   return { task: normalizeWan27Task(raw), payload, raw, capability: resolvedCapability };
 }
 
@@ -13291,10 +14135,25 @@ async function submitWan27ImageTextGenerate({
 async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
-  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
-    method: "GET",
-    provider: record.provider === "aliyun-wan30" ? "wan30" : "wan27",
-  });
+  const provider = record.provider === "aliyun-wan30" ? "wan30" : "wan27";
+  const prime = provider === "wan30"
+    && String(record.videoCapability || record.params?.videoCapability || "").toLowerCase() === "wan30-video-prime";
+  let raw;
+  try {
+    raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
+      method: "GET",
+      provider,
+      prime,
+    });
+  } catch (error) {
+    if (!prime || !ALIYUN_WAN30_PRIME_API_KEY) throw error;
+    console.warn("[aliyun-video-prime-fallback] Agentic Mobile query failed; retrying legacy Wan endpoint", error?.message || error);
+    raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
+      method: "GET",
+      provider,
+      prime: false,
+    });
+  }
   const task = normalizeWan27Task(raw);
   const taskAgeMs = Date.now() - Date.parse(record.createdAt || "");
   if (
@@ -13314,7 +14173,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (download && !generationRecordIsApiTask(record) && isSucceededStatus(task.status) && remoteVideoUrl) {
+  if (download && generatedOutputStorageEnabled() && !generationRecordIsApiTask(record) && isSucceededStatus(task.status) && remoteVideoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -13328,7 +14187,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
       downloadError = error.message || "Failed to download generated video.";
     }
   }
-  return upsertAndSettleGenerationRecord({
+  const nextRecord = await upsertAndSettleGenerationRecord({
     taskId: record.taskId,
     upstreamTaskId: task.taskId || queryTaskId,
     status: task.status || record.status || "unknown",
@@ -13347,6 +14206,17 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
     queryResponse: raw,
     completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
   }, reason);
+  if (
+    !download
+    && !generationRecordIsApiTask(nextRecord)
+    && isSucceededStatus(nextRecord.status)
+    && remoteVideoUrl
+    && generatedOutputStorageEnabled()
+    && !String(nextRecord.cdnVideoUrl || "").trim()
+  ) {
+    queueGeneratedVideoDownload(nextRecord.taskId || record.taskId, remoteVideoUrl, `${reason}-background-download`);
+  }
+  return nextRecord;
 }
 
 async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query" } = {}) {
@@ -14056,6 +14926,17 @@ function seedanceReferenceVideoUrlFromItem(item = "") {
   return String(item.url || item.videoUrl || item.video_url || item.assetUri || "").trim();
 }
 
+// Browser clients can restore local media as `/assets/...` paths. Seedance
+// only accepts public URLs (or asset:// ids), so resolve local paths before
+// validation; the generation worker will still convert public URLs to an
+// upstream CreateAsset asset:// URI before submission.
+function normalizeSeedanceReferenceVideoInputUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text || text.startsWith("asset://") || /^data:/i.test(text) || isPublicHttpUrl(text)) return text;
+  if (text.startsWith("/")) return publicUrlForAssetPath(text) || text;
+  return text;
+}
+
 function uniqueSeedanceReferenceVideoItems(items = []) {
   const seen = new Set();
   const unique = [];
@@ -14081,8 +14962,8 @@ function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
     throw error;
   }
   return inputs.map((item, index) => {
-    if (typeof item === "string") return item.trim();
-    return seedanceReferenceVideoUrlFromItem(item);
+    if (typeof item === "string") return normalizeSeedanceReferenceVideoInputUrl(item);
+    return normalizeSeedanceReferenceVideoInputUrl(seedanceReferenceVideoUrlFromItem(item));
   }).filter(Boolean).map((url, index) => assertSeedanceMediaUrl(url, `Seedance reference video ${index + 1}`, { kind: "video" }));
 }
 
@@ -14598,21 +15479,39 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
   return assets;
 }
 
+function urlPathForExtension(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return new URL(text).pathname;
+  } catch (error) {
+    return text.split("#")[0].split("?")[0];
+  }
+}
+
 function validateWan27MediaKind(assetOrUrl = {}, expectedKind = "image", label = "Media") {
+  const reject = (message) => {
+    const error = new Error(message);
+    error.statusCode = 400;
+    error.code = "MEDIA_KIND_INVALID";
+    throw error;
+  };
   const mime = String(assetOrUrl.mime || "").toLowerCase();
   if (mime) {
-    if (expectedKind === "image" && !mime.startsWith("image/")) throw new Error(`${label} must be an image.`);
-    if (expectedKind === "audio" && !mime.startsWith("audio/")) throw new Error(`${label} must be audio.`);
-    if (expectedKind === "video" && !mime.startsWith("video/")) throw new Error(`${label} must be a video.`);
-    if (expectedKind === "document" && !WAN30_DOCUMENT_MIMES.has(mime)) throw new Error(`${label} must be a supported document.`);
+    if (expectedKind === "image" && !mime.startsWith("image/")) reject(`${label} must be an image.`);
+    if (expectedKind === "audio" && !mime.startsWith("audio/")) reject(`${label} must be audio.`);
+    if (expectedKind === "video" && !mime.startsWith("video/")) reject(`${label} must be a video.`);
+    if (expectedKind === "document" && !WAN30_DOCUMENT_MIMES.has(mime)) reject(`${label} must be a supported document.`);
   }
   const url = String(assetOrUrl.url || assetOrUrl.publicUrl || assetOrUrl.localUrl || "");
-  const ext = path.extname(url.split("?")[0]).toLowerCase();
+  // Read the extension from the url path: a host name is not a file type, so
+  // "https://cdn.example.com/" must not look like a ".com" upload.
+  const ext = path.extname(urlPathForExtension(url)).toLowerCase();
   if (!mime && ext) {
-    if (expectedKind === "image" && ![".jpg", ".jpeg", ".png", ".bmp", ".webp"].includes(ext)) throw new Error(`${label} must be an image URL.`);
-    if (expectedKind === "audio" && ![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) throw new Error(`${label} must be an audio URL.`);
-    if (expectedKind === "video" && ![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) throw new Error(`${label} must be a video URL.`);
-    if (expectedKind === "document" && !WAN30_DOCUMENT_EXTENSIONS.has(ext)) throw new Error(`${label} must be a supported document URL.`);
+    if (expectedKind === "image" && ![".jpg", ".jpeg", ".png", ".bmp", ".webp"].includes(ext)) reject(`${label} must be an image URL.`);
+    if (expectedKind === "audio" && ![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) reject(`${label} must be an audio URL.`);
+    if (expectedKind === "video" && ![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) reject(`${label} must be a video URL.`);
+    if (expectedKind === "document" && !WAN30_DOCUMENT_EXTENSIONS.has(ext)) reject(`${label} must be a supported document URL.`);
   }
 }
 
@@ -14785,11 +15684,56 @@ function aliyunPrimaryVideoInput(body = {}) {
   }, { mediaKind: "video", type: "video" });
 }
 
+// A reference can also arrive as a bare public URL - preset art, a link the studio
+// already owns, or a URL the client sends instead of an asset id. Such an input has
+// no stored MIME and no pixel size, so Wan 3.0 used to reject a perfectly good PNG
+// or JPEG with "must be JPG, JPEG, PNG, BMP, or WebP". Read the real format from the
+// bytes, and fall back to the URL extension when the file cannot be reached.
+async function publicImageFactsForUrl(url, { label = "Reference image" } = {}) {
+  const pathname = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch (error) {
+      return String(url || "").split("?")[0];
+    }
+  })();
+  const extensionMime = imageMimeFromKnownPath(pathname);
+  let downloaded = null;
+  try {
+    downloaded = await downloadRemoteFileToBuffer(url, {
+      label,
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+      timeoutMs: 30000,
+      retryCount: 1,
+      retryDelayMs: 500,
+    });
+  } catch (error) {
+    downloaded = null;
+  }
+  const bytes = downloaded?.bytes || null;
+  const headerMime = String(downloaded?.mime || "").replace("image/jpg", "image/jpeg").toLowerCase();
+  const detectedMime = imageMimeFromBuffer(bytes);
+  const dimensions = bytes ? imageDimensionsFromBuffer(bytes) : null;
+  const mime = detectedMime || extensionMime || (headerMime.startsWith("image/") ? headerMime : "");
+  if (!mime && !dimensions) return null;
+  return {
+    mime,
+    width: Number(dimensions?.width || 0),
+    height: Number(dimensions?.height || 0),
+    sizeBytes: Number(bytes?.byteLength || 0),
+  };
+}
+
 async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" } = {}) {
   if (!input) return null;
   let asset = null;
   let url = String(input.url || "").trim();
   if (url.startsWith("/")) url = publicUrlForAssetPath(url);
+  // A reference sent as a bare URL may still be one of this studio's own assets, and
+  // that record carries the MIME and pixel size the validators need.
+  if (!input.dataUrl && !input.assetId && user && isPublicHttpUrl(url)) {
+    asset = findUserAssetBySourceUrl(db, user, url);
+  }
   if (input.dataUrl) {
     asset = await createUserWanMediaAssetFromDataUrl(db, user, {
       dataUrl: input.dataUrl,
@@ -14825,6 +15769,20 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     throw error;
   }
   validateWan27MediaKind({ url }, input.mediaKind, label);
+  let mime = String(asset?.mime || "").toLowerCase();
+  if (!mime && input.mediaKind === "video") mime = videoMimeFromKnownPath(url);
+  let sizeBytes = Number(asset?.sizeBytes || 0);
+  let width = Number(asset?.width || asset?.videoWidth || 0);
+  let height = Number(asset?.height || asset?.videoHeight || 0);
+  if (!asset && input.mediaKind === "image" && (!mime || !width || !height)) {
+    const facts = await publicImageFactsForUrl(url, { label });
+    if (facts) {
+      if (!mime) mime = facts.mime;
+      if (!width) width = facts.width;
+      if (!height) height = facts.height;
+      if (!sizeBytes) sizeBytes = facts.sizeBytes;
+    }
+  }
   const resolved = {
     type: input.type,
     url,
@@ -14832,10 +15790,12 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     mediaKind: input.mediaKind,
     userAssetId: asset?.id || "",
     localUrl: asset?.localUrl || "",
-    mime: asset?.mime || "",
-    sizeBytes: Number(asset?.sizeBytes || 0),
-    width: Number(asset?.width || asset?.videoWidth || 0),
-    height: Number(asset?.height || asset?.videoHeight || 0),
+    // Public template URLs and other bare links have no asset record, so the
+    // supported media type and pixel size come from the file itself.
+    mime,
+    sizeBytes,
+    width,
+    height,
     durationSeconds: durationSecondsFromValue(asset?.durationSeconds),
   };
   if (input.referenceVoice) resolved.referenceVoice = input.referenceVoice;
@@ -14869,7 +15829,17 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
     const bytes = await localBytesForResolvedMedia(item);
     if (!sizeBytes && bytes) sizeBytes = bytes.byteLength;
     if (["reference_image", "first_frame", "last_frame"].includes(item.type)) {
-      if (!imageTypes.has(mime)) throw advancedValidationError("WAN30_IMAGE_FORMAT_INVALID", `${label} must be JPG, JPEG, PNG, BMP, or WebP.`);
+      if (!imageTypes.has(mime)) {
+        // Keep the rejected locator in the log: a bare url that never reached a
+        // readable file is the only way this branch can see an empty format.
+        console.warn("[wan30-image-format-rejected]", JSON.stringify({
+          label,
+          url: String(item.url || "").slice(0, 300),
+          mime: item.mime || "",
+          userAssetId: item.userAssetId || "",
+        }));
+        throw advancedValidationError("WAN30_IMAGE_FORMAT_INVALID", `${label} must be JPG, JPEG, PNG, BMP, or WebP.`);
+      }
       if (sizeBytes > IMAGE_UPLOAD_MAX_BYTES) throw advancedValidationError("WAN30_IMAGE_TOO_LARGE", `${label} must be 20MB or smaller.`);
       const dimensions = item.width && item.height ? { width: item.width, height: item.height } : imageDimensionsFromBuffer(bytes || []);
       const width = Number(dimensions?.width || 0);
@@ -15291,17 +16261,19 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, { label: "Seedance image asset" });
   }
   const cacheField = seedanceAssetCacheField(userAsset);
-  if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) {
+  // Upstream CreateAsset ids are durable. Once a user asset has one, reuse it
+  // instead of uploading the same action/reference media on every generation.
+  // Keep the dimension guard for videos so an invalid legacy asset can still
+  // be rebuilt once, but do not tie reuse to the current R2/public URL.
+  if (userAsset[cacheField]) {
     if (assetType !== "Video") return userAsset;
     const storedDimensions = storedVideoDimensionsForAsset(userAsset);
-    if (!userAsset.localUrl) return userAsset;
-    if (storedDimensions) {
-      try {
-        assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
-        return userAsset;
-      } catch (error) {
-        if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
-      }
+    if (!storedDimensions) return userAsset;
+    try {
+      assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
+      return userAsset;
+    } catch (error) {
+      if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
     }
   }
 
@@ -15448,7 +16420,10 @@ async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = false) 
     asset: prepared,
     referenceAssetUri: preprocess ? (prepared.syntheticReferenceAssetUri || prepared.assetUri || "") : (prepared.assetUri || ""),
     imageUrl: preprocess
-      ? (prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.publicUrl || prepared.localUrl || "")
+      // The local character-reference path is redirected to R2 by serveStatic.
+      // Persist the CDN URL when available so task history does not point at
+      // an object key that was never uploaded under assets/user-characters.
+      ? (publicImageUrl || prepared.syntheticReferencePublicUrl || prepared.publicUrl || prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.localUrl || "")
       : (prepared.publicUrl || prepared.localUrl || ""),
     publicImageUrl,
     sourceImageUrl: prepared.sourceImageUrl || prepared.localUrl || "",
@@ -16151,6 +17126,17 @@ async function upsertGenerationRecord(nextRecord) {
       updatedAt: now,
     };
 
+    for (const key of ["cdnVideoUrl", "cdnPosterUrl", "cdnImageUrl"]) {
+      if (!String(storableRecord[key] || "").trim() && String(records[index]?.[key] || "").trim()) {
+        record[key] = records[index][key];
+      }
+    }
+    for (const key of ["cdnImageUrls"]) {
+      if (Array.isArray(records[index]?.[key]) && records[index][key].length && (!Array.isArray(storableRecord[key]) || !storableRecord[key].length)) {
+        record[key] = records[index][key];
+      }
+    }
+
     if (index >= 0) {
       records[index] = record;
     } else {
@@ -16168,6 +17154,9 @@ async function upsertGenerationRecord(nextRecord) {
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
   const record = await upsertGenerationRecord(nextRecord);
+  // Upstream completion is immediately customer-visible. Browser responses
+  // prefer the durable R2 copy when available and otherwise fall back to the
+  // still-valid upstream URL while the background mirror retries.
   return settleSeedanceGenerationRecord(record, reason);
 }
 
@@ -16264,23 +17253,27 @@ function generationRecordProviderVideoUrl(record = {}) {
 }
 
 function generationRecordStoredVideoUrl(record = {}) {
-  if (localPublicAssetStorageEnabled()) {
-    return String(record.localVideoUrl || record.videoUrl || record.cdnVideoUrl || record.remoteVideoUrl || "");
-  }
-  return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "");
+  return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || "").trim();
 }
 
 function generationRecordVideoUrl(record = {}, options = {}) {
   const providerUrl = generationRecordProviderVideoUrl(record);
-  const storedUrl = generationRecordStoredVideoUrl(record);
-  return options.preferProviderVideoUrl ? (providerUrl || storedUrl) : (storedUrl || providerUrl);
+  const cdnUrl = String(record.cdnVideoUrl || "").trim();
+  const localUrl = String(record.localVideoUrl || record.videoUrl || "").trim();
+  if (options.preferProviderVideoUrl) return providerUrl || cdnUrl || localUrl;
+  return cdnUrl || providerUrl || localUrl;
 }
 
 function generationRecordImageUrl(record = {}) {
-  if (localPublicAssetStorageEnabled()) {
-    return String(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || "");
-  }
-  return String(record.cdnImageUrl || record.imageResultUrl || record.localImageUrl || record.remoteImageUrl || "");
+  return String(
+    record.cdnImageUrl ||
+    record.remoteImageUrl ||
+    record.providerImageUrl ||
+    record.upstreamImageUrl ||
+    record.localImageUrl ||
+    record.imageResultUrl ||
+    "",
+  ).trim();
 }
 
 function generationRecordProviderImageUrl(record = {}) {
@@ -16318,12 +17311,15 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
   const tokenSource = String(auth?.tokenSource || "").toLowerCase();
   const externalApiCaller = tokenSource === "api_token" || tokenSource === "subtoken" || auth?.isApiToken === true;
   return {
-    preferProviderVideoUrl: true,
+    // Browser previews use the durable R2 copy first. External API callers keep
+    // the upstream URL contract and do not receive stored media URLs.
+    preferProviderVideoUrl: externalApiCaller,
     providerOnlyVideoUrl: externalApiCaller,
     includeStoredVideoUrls: !externalApiCaller,
     providerOnlyImageUrl: externalApiCaller,
     includeStoredImageUrls: !externalApiCaller,
     includeUpstreamPayload: !externalApiCaller,
+    requireR2Ready: !externalApiCaller && objectStorageEnabled(),
   };
 }
 
@@ -16332,18 +17328,60 @@ function generationRecordIsApiTask(record = {}) {
   return source === "api_token" || source === "subtoken";
 }
 
+function generationRecordIsVideoOutput(record = {}) {
+  if (isImageGenerationRecord(record)) return false;
+  const provider = String(record.provider || "").toLowerCase();
+  const kind = String(record.kind || "").toLowerCase();
+  return Boolean(
+    record.remoteVideoUrl
+    || record.providerVideoUrl
+    || record.upstreamVideoUrl
+    || record.localVideoUrl
+    || record.cdnVideoUrl
+    || record.videoUrl
+    || kind.includes("video")
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex"].includes(provider),
+  );
+}
+
+function generationRecordR2PublicationPending(record = {}) {
+  return generatedOutputStorageEnabled()
+    && !generationRecordIsApiTask(record)
+    && isSucceededStatus(record.status)
+    && generationRecordIsVideoOutput(record)
+    && !String(record.cdnVideoUrl || "").trim();
+}
+
 function publicGenerationRecord(record = {}, options = {}) {
+  const providerOnlyOutputs = DISABLE_GENERATED_R2_STORAGE;
+  const requireR2Ready = options.requireR2Ready === true;
+  const r2PublicationPending = requireR2Ready && generationRecordR2PublicationPending(record);
   const undressToolRecord = String(record.source || "").startsWith("undress-tool-")
     || String(record.kind || "").includes("tool-undress");
   const providerVideoUrl = generationRecordProviderVideoUrl(record);
+  const cdnUrl = String(record.cdnVideoUrl || "").trim();
+  const localUrl = String(record.localVideoUrl || record.videoUrl || "").trim();
   const providerOnlyVideoUrl = options.providerOnlyVideoUrl === true;
-  const publicVideoUrl = providerOnlyVideoUrl ? providerVideoUrl : generationRecordVideoUrl(record, options);
+  // Prefer the durable R2 copy when it is available. While the background
+  // mirror is still uploading, fall back to the provider URL so the user can
+  // preview/download immediately instead of being stuck on a loading state.
+  // Provider URLs are intentionally treated as usable for their validity
+  // window; the R2 mirror will take over automatically on a later refresh.
+  const publicVideoUrl = (providerOnlyOutputs || providerOnlyVideoUrl) && providerVideoUrl
+    ? providerVideoUrl
+    : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl));
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
-  const storedPosterUrl = String(localPublicAssetStorageEnabled() ? (record.localPosterUrl || record.posterUrl || record.cdnPosterUrl || "") : (record.posterUrl || ""));
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
+  const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const preferredPosterBase = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const preferredPosterUrl = r2PublicationPending && !record.cdnPosterUrl && !providerPosterUrl
+    ? ""
+    : preferredPosterBase;
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
-  const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
+  const publicImageUrl = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrl
+    ? providerImageUrl
+    : generationRecordImageUrl(record);
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
   const providerImageUrls = [...new Set([
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
@@ -16356,7 +17394,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(Boolean))];
-  const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
+  const publicImageUrls = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrls.length
+    ? providerImageUrls
+    : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
     ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
@@ -16385,7 +17425,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
-    posterUrl: includeStoredVideoUrls ? storedPosterUrl : providerPosterUrl,
+    posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),
@@ -16427,16 +17467,19 @@ function publicGenerationRecord(record = {}, options = {}) {
       : "",
   };
   if (includeStoredVideoUrls) {
-    publicRecord.localVideoUrl = String(record.localVideoUrl || "");
-    publicRecord.cdnVideoUrl = String(record.cdnVideoUrl || "");
-    publicRecord.localPosterUrl = String(record.localPosterUrl || "");
-    publicRecord.cdnPosterUrl = String(record.cdnPosterUrl || "");
+    // Keep all browser media hidden until the durable R2 copy is published.
+    // Otherwise the UI sees localVideoUrl and starts preview/download while
+    // the record is still deliberately gated as processing.
+    publicRecord.localVideoUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.localVideoUrl || "");
+    publicRecord.cdnVideoUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.cdnVideoUrl || "");
+    publicRecord.localPosterUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.localPosterUrl || "");
+    publicRecord.cdnPosterUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.cdnPosterUrl || "");
   }
   if (includeStoredImageUrls) {
-    publicRecord.localImageUrl = String(record.localImageUrl || "");
-    publicRecord.cdnImageUrl = String(record.cdnImageUrl || "");
-    publicRecord.localImageUrls = Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : [];
-    publicRecord.cdnImageUrls = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.map(String) : [];
+    publicRecord.localImageUrl = providerOnlyOutputs ? "" : String(record.localImageUrl || "");
+    publicRecord.cdnImageUrl = providerOnlyOutputs ? "" : String(record.cdnImageUrl || "");
+    publicRecord.localImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : []);
+    publicRecord.cdnImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.map(String) : []);
   }
   if (options.includeUpstreamPayload === true && (record.resultLocked !== true || options.includeLockedMedia === true)) {
     publicRecord.upstreamPayload = listGenerationRecordValue(record.upstreamPayload || null);
@@ -16564,6 +17607,11 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (record.localVideoUrl && isSucceededStatus(status)) {
+    // A browser-facing task is not ready just because the local download
+    // finished. Keep polling while the durable R2 copy is still missing.
+    if (objectStorageEnabled() && !generationRecordIsApiTask(record) && !String(record.cdnVideoUrl || "").trim()) {
+      return Boolean(record.upstreamTaskId || record.taskId);
+    }
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
     return false;
   }
@@ -16707,7 +17755,11 @@ function drainGenerationRecordRefreshQueue() {
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
-  if (!record?.taskId || !record.localVideoUrl) return record;
+  if (DISABLE_GENERATED_R2_STORAGE) return record;
+  if (!record?.taskId) return record;
+  const recovered = await recoverGenerationRecordR2Urls(record);
+  if (!recovered?.localVideoUrl) return recovered;
+  record = recovered;
   const localVideoPath = record.localVideoPath || path.join(ROOT, String(record.localVideoUrl || "").replace(/^\//, ""));
   const currentVideoUrl = generationRecordVideoUrl(record);
   try {
@@ -16773,12 +17825,134 @@ const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
 const generatedMediaMaintenanceQueue = [];
 const generatedMediaMaintenanceQueued = new Set();
 let generatedMediaMaintenanceRunning = false;
+const generatedVideoDownloadQueued = new Set();
+
+function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download") {
+  const cleanTaskId = String(taskId || "").trim();
+  const remote = String(remoteVideoUrl || "").trim();
+  if (!cleanTaskId || !remote || generatedVideoDownloadQueued.has(cleanTaskId)) return false;
+  generatedVideoDownloadQueued.add(cleanTaskId);
+  setImmediate(() => Promise.resolve().then(async () => {
+    const current = await getGenerationRecord(cleanTaskId);
+    if (!current) return;
+    if (current.localVideoUrl) {
+      queueGenerationRecordMediaMaintenance(current);
+      return;
+    }
+    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote);
+    await upsertAndSettleGenerationRecord({
+      taskId: cleanTaskId,
+      status: current.status,
+      remoteVideoUrl: remote,
+      localVideoUrl: downloaded.localVideoUrl || "",
+      localVideoPath: downloaded.localVideoPath || "",
+      localPosterUrl: downloaded.localPosterUrl || "",
+      localPosterPath: downloaded.localPosterPath || "",
+      cdnVideoUrl: downloaded.cdnVideoUrl || "",
+      cdnPosterUrl: downloaded.cdnPosterUrl || "",
+      cdnError: downloaded.cdnError || "",
+      error: current.error || "",
+    }, reason);
+  }).catch((error) => {
+    console.warn("[generated-video-background-download-failed]", cleanTaskId, error.message || error);
+  }).finally(() => {
+    generatedVideoDownloadQueued.delete(cleanTaskId);
+  }));
+  return true;
+}
+
+function adminRecordMediaAssetUrl(asset = {}, userAssetMap = new Map()) {
+  const linked = asset.userAssetId ? userAssetMap.get(String(asset.userAssetId)) : null;
+  const candidates = [
+    linked?.cdnUrl,
+    linked?.publicUrl,
+    linked?.sourcePublicUrl,
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.imageUrl,
+    asset.videoUrl,
+    asset.audioUrl,
+    asset.localUrl,
+    asset.sourceImageUrl,
+    asset.sourceUrl,
+    asset.url,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find((value) => /^https?:\/\//i.test(value) || value.startsWith("/")) || "";
+}
+
+async function enrichAdminGenerationRecordMedia(record = {}, db = null) {
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const ids = [...new Set(assets.map((asset) => String(asset?.userAssetId || "").trim()).filter(Boolean))];
+  if (!ids.length) return { ...record, mediaAssets: assets.map((asset, index) => ({ ...asset, referenceIndex: index })) };
+  const userAssetMap = new Map();
+  for (const id of ids) {
+    const found = (db?.userAssets || []).find((asset) => String(asset?.id || "") === id && !isSoftDeleted(asset))
+      || await getUserAssetFromDb(id);
+    if (found) userAssetMap.set(id, found);
+  }
+  if (!userAssetMap.size) return { ...record, mediaAssets: assets.map((asset, index) => ({ ...asset, referenceIndex: index })) };
+  const enrich = (asset, index) => {
+    const url = adminRecordMediaAssetUrl(asset, userAssetMap);
+    if (!url) return { ...asset, referenceIndex: index };
+    const type = String(asset.type || "").toLowerCase();
+    const next = { ...asset, referenceIndex: index, adminPreviewUrl: url, adminDownloadUrl: url };
+    if (type.includes("video") || String(asset.mime || "").startsWith("video/")) next.videoUrl = url;
+    else if (type.includes("audio") || String(asset.mime || "").startsWith("audio/")) next.audioUrl = url;
+    else {
+      next.imageUrl = url;
+      next.sourceImageUrl = url;
+    }
+    return next;
+  };
+  return { ...record, mediaAssets: assets.map(enrich) };
+}
+
+async function recoverGenerationRecordR2Urls(record = {}) {
+  if (!record?.taskId || !generatedOutputStorageEnabled() || generationRecordIsApiTask(record)) return record;
+  const taskId = storagePathSegment(record.taskId, "generation");
+  const updates = {};
+  if (!String(record.cdnVideoUrl || "").trim()) {
+    const found = await findUploadedR2Object(objectStoragePath("generated", "videos", `${taskId}.mp4`));
+    if (found?.publicUrl) updates.cdnVideoUrl = found.publicUrl;
+  }
+  if (!String(record.cdnPosterUrl || "").trim()) {
+    const found = await findUploadedR2Object(objectStoragePath("generated", "posters", `${taskId}.jpg`));
+    if (found?.publicUrl) updates.cdnPosterUrl = found.publicUrl;
+  }
+  if (!String(record.cdnImageUrl || "").trim()) {
+    const imageCandidates = [];
+    const localImage = String(record.localImageUrl || record.imageResultUrl || "").split("?")[0];
+    const localName = localImage.match(/\/([^/]+\.(?:png|jpe?g|webp))$/i)?.[1];
+    if (localName) imageCandidates.push(localName);
+    imageCandidates.push(`${taskId}.png`, `${taskId}.jpg`, `${taskId}.jpeg`, `${taskId}.webp`);
+    for (const name of [...new Set(imageCandidates)]) {
+      const found = await findUploadedR2Object(objectStoragePath("generated", "images", name));
+      if (found?.publicUrl) {
+        updates.cdnImageUrl = found.publicUrl;
+        break;
+      }
+    }
+  }
+  if (!Object.keys(updates).length) return record;
+  const next = await upsertGenerationRecord({
+    taskId: record.taskId,
+    ...updates,
+    videoUrl: updates.cdnVideoUrl || record.videoUrl || "",
+    posterUrl: updates.cdnPosterUrl || record.posterUrl || "",
+    cdnError: "",
+    lastUpdateReason: "r2-record-recovery",
+  });
+  console.log("[generation-record-r2-recovered]", record.taskId, Object.keys(updates));
+  return next || { ...record, ...updates };
+}
 
 function generationRecordNeedsMediaMaintenance(record = {}) {
-  if (!record?.taskId || !record.localVideoUrl || generationRecordIsApiTask(record)) return false;
+  if (DISABLE_GENERATED_R2_STORAGE) return false;
+  if (!record?.taskId || generationRecordIsApiTask(record)) return false;
+  if (!record.localVideoUrl) return !record.cdnVideoUrl;
   return !record.localPosterUrl
     || !record.playbackOptimizedAt
-    || (objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
+    || (generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
 }
 
 function generationRecordCanRetryR2(record = {}) {
@@ -16791,7 +17965,7 @@ function generationRecordCanRetryR2(record = {}) {
 
 function queueGenerationRecordMediaMaintenance(record = {}) {
   if (!generationRecordNeedsMediaMaintenance(record)) return false;
-  const needsR2 = objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
+  const needsR2 = generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
   const allowObjectStorageUpload = needsR2 && generationRecordCanRetryR2(record);
   if (!allowObjectStorageUpload && needsR2 && record.localPosterUrl && record.playbackOptimizedAt) return false;
   const taskId = String(record.taskId || "");
@@ -16860,7 +18034,7 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+  if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -16913,7 +18087,7 @@ async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-s
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+  if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -16966,7 +18140,7 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+  if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -17139,7 +18313,7 @@ async function refreshGenerationRecordStatus(record = {}) {
           error: "",
         }, "gateway-image-succeeded");
       }
-      const media = isSucceededStatus(task.status) && task.videoUrl && !record.localVideoUrl
+      const media = isSucceededStatus(task.status) && task.videoUrl && (!record.localVideoUrl || !record.cdnVideoUrl)
         ? await maybeDownloadApizVideo(record, task.videoUrl)
         : {};
       return await upsertAndSettleGenerationRecord({
@@ -17185,10 +18359,14 @@ async function refreshGenerationRecordStatus(record = {}) {
     }
   }
   if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider)) {
-    const configured = record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+    const isPrimeRecord = record.provider === "aliyun-wan30"
+      && String(record.videoCapability || record.params?.videoCapability || "").toLowerCase() === "wan30-video-prime";
+    const configured = record.provider === "aliyun-wan30"
+      ? (isPrimeRecord ? (ALIYUN_WAN30_PRIME_API_KEY || ALIYUN_WAN30_API_KEY) : ALIYUN_WAN30_API_KEY)
+      : ALIYUN_DASHSCOPE_API_KEY;
     if (!configured || !shouldRefreshGenerationRecord(record)) return record;
     try {
-      return await refreshWan27GenerationRecord(record, { download: true, reason: "query" });
+      return await refreshWan27GenerationRecord(record, { download: false, reason: "query" });
     } catch (error) {
       console.warn("[wan27-generation-record-refresh-failed]", record.taskId, error.message || error);
       if (upstreamResourceMissing(error)) {
@@ -17227,7 +18405,7 @@ async function refreshGenerationRecordStatus(record = {}) {
     let cdnError = record.cdnError || "";
     let downloadError = "";
     const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-    if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+    if (isSucceededStatus(task.status) && remoteVideoUrl && (!localVideoUrl || !cdnVideoUrl)) {
       try {
         const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
         localVideoUrl = localVideo.localVideoUrl;
@@ -17506,7 +18684,7 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-  if (!objectStorageEnabled()) return result;
+  if (!generatedOutputStorageEnabled()) return result;
   const errors = [];
   if (localVideoPath) {
     try {
@@ -17584,8 +18762,32 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
         : 0;
       const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
       if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
-        const optimized = existing;
-        if (!generationRecordIsApiTask(existing)) queueGenerationRecordMediaMaintenance(existing);
+        let optimized = existing;
+        // Do not return a completed task before its durable R2 copy exists.
+        // The previous path queued this upload in the background, which made
+        // the UI show a finished record with no preview/download URL.
+        if (!generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
+          const cdn = await uploadGeneratedMediaToObjectStorage({
+            taskId,
+            localVideoPath: existingVideoPath,
+            localPosterPath: existing.localPosterPath || "",
+          });
+          optimized = {
+            ...existing,
+            cdnVideoUrl: cdn.cdnVideoUrl || existing.cdnVideoUrl || "",
+            cdnPosterUrl: cdn.cdnPosterUrl || existing.cdnPosterUrl || "",
+            cdnError: cdn.cdnError || existing.cdnError || "",
+          };
+          if (optimized.cdnVideoUrl || optimized.cdnPosterUrl || optimized.cdnError !== existing.cdnError) {
+            await upsertGenerationRecord({
+              taskId,
+              cdnVideoUrl: optimized.cdnVideoUrl,
+              cdnPosterUrl: optimized.cdnPosterUrl,
+              cdnError: optimized.cdnError,
+            });
+          }
+        }
+        if (!generationRecordIsApiTask(optimized) && generationRecordNeedsMediaMaintenance(optimized)) queueGenerationRecordMediaMaintenance(optimized);
         return {
           localVideoPath: optimized.localVideoPath || existingVideoPath,
           localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
@@ -17663,11 +18865,13 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   }
   if (!fastStartReady && lastDownloadError) throw lastDownloadError;
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = await uploadGeneratedMediaToObjectStorage({
-    taskId,
-    localVideoPath,
-    localPosterPath: poster.localPosterPath,
-  });
+  const cdn = generatedOutputStorageEnabled()
+    ? await uploadGeneratedMediaToObjectStorage({
+      taskId,
+      localVideoPath,
+      localPosterPath: poster.localPosterPath,
+    })
+    : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
 
   return {
     localVideoPath,
@@ -17695,7 +18899,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
     cdnImageUrl: "",
     cdnError: "",
   };
-  if (publish && objectStorageEnabled()) {
+  if (publish && generatedOutputStorageEnabled()) {
     const upload = await uploadStaticAssetToObjectStorage({
       key: objectStoragePath("generated", "images", fileName),
       bytes,
@@ -18115,7 +19319,7 @@ async function videoToolPricing(action, { durationSeconds = 0, user = null, auth
 }
 
 async function handleVideoToolEstimate(req, res) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const body = await readJson(req);
   const action = videoToolAction(body.action);
   if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
@@ -18362,11 +19566,13 @@ async function composeVideoToolSegments(taskId, inputPaths = []) {
     await fs.rm(listPath, { force: true }).catch(() => {});
   }
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = await uploadGeneratedMediaToObjectStorage({
-    taskId,
-    localVideoPath,
-    localPosterPath: poster.localPosterPath,
-  });
+  const cdn = generatedOutputStorageEnabled()
+    ? await uploadGeneratedMediaToObjectStorage({
+      taskId,
+      localVideoPath,
+      localPosterPath: poster.localPosterPath,
+    })
+    : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
   return { localVideoPath, localVideoUrl, playbackOptimizedAt: new Date().toISOString(), ...poster, ...cdn };
 }
 
@@ -18718,9 +19924,11 @@ async function runVideoToolFaceSwap(job) {
       status: "succeeded",
       awaitingUpstreamTask: false,
       upstreamTaskId: upstreamTaskIds[upstreamTaskIds.length - 1] || "",
-      videoUrl: localPublicAssetStorageEnabled()
-        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || "")
-        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || ""),
+      videoUrl: DISABLE_GENERATED_R2_STORAGE
+        ? (record?.remoteVideoUrl || finalMedia.localVideoUrl || "")
+        : localPublicAssetStorageEnabled()
+          ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || "")
+          : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || ""),
       localVideoUrl: finalMedia.localVideoUrl,
       localVideoPath: finalMedia.localVideoPath,
       localPosterUrl: finalMedia.localPosterUrl || "",
@@ -18817,9 +20025,11 @@ async function runVideoToolUndressImageVideo(job) {
     awaitingUpstreamTask: false,
     upstreamTaskId,
     remoteVideoUrl: videoUrl,
-    videoUrl: localPublicAssetStorageEnabled()
-      ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || videoUrl)
-      : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || videoUrl),
+    videoUrl: DISABLE_GENERATED_R2_STORAGE
+      ? videoUrl
+      : localPublicAssetStorageEnabled()
+        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || videoUrl)
+        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || videoUrl),
     localVideoUrl: finalMedia.localVideoUrl || "",
     localVideoPath: finalMedia.localVideoPath || "",
     localPosterUrl: finalMedia.localPosterUrl || "",
@@ -18954,9 +20164,11 @@ async function runVideoToolUndressVideoLegacy(job) {
     awaitingUpstreamTask: false,
     upstreamTaskId,
     remoteVideoUrl: completed.task.videoUrl,
-    videoUrl: localPublicAssetStorageEnabled()
-      ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || completed.task.videoUrl)
-      : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || completed.task.videoUrl),
+    videoUrl: DISABLE_GENERATED_R2_STORAGE
+      ? completed.task.videoUrl
+      : localPublicAssetStorageEnabled()
+        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || completed.task.videoUrl)
+        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || completed.task.videoUrl),
     localVideoUrl: finalMedia.localVideoUrl || "",
     localVideoPath: finalMedia.localVideoPath || "",
     localPosterUrl: finalMedia.localPosterUrl || "",
@@ -18980,29 +20192,82 @@ async function runVideoToolUndressVideoLegacy(job) {
 }
 
 const activeVideoToolJobIds = new Set();
+const videoToolJobQueue = [];
+const VIDEO_TOOL_JOB_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.VIDEO_TOOL_JOB_CONCURRENCY || 2) || 2));
+let videoToolJobActive = 0;
+let videoToolJobDrainScheduled = false;
 
-function startVideoToolJob(job) {
-  if (!job?.taskId || activeVideoToolJobIds.has(job.taskId)) return false;
-  activeVideoToolJobIds.add(job.taskId);
+function videoToolRunnerForJob(job = {}) {
+  return job.action === "image-face-swap"
+    ? runVideoToolImageFaceSwap
+    : job.action === "undress-image-video"
+      ? runVideoToolUndressImageVideo
+    : ["face-swap", "undress-video"].includes(job.action)
+      ? runVideoToolFaceSwap
+      : job.action === "undress" && job.pricing?.outputKind !== "image"
+        ? runVideoToolUndressVideoLegacy
+        : runVideoToolUndress;
+}
+
+let generationMediaRecoveryRunning = false;
+
+async function scanGenerationRecordMediaRecovery(reason = "timer") {
+  if (generationMediaRecoveryRunning || !objectStorageEnabled()) return;
+  generationMediaRecoveryRunning = true;
+  try {
+    const records = dbEnabled()
+      ? await getGenerationRecordsNeedingR2RecoveryFromDb({ limit: 100 })
+      : await readGenerationRecords();
+    const candidates = records
+      .filter((record) => isSucceededStatus(record.status) && generationRecordNeedsMediaMaintenance(record))
+      .slice(0, 25);
+    for (const record of candidates) queueGenerationRecordMediaMaintenance(record);
+    if (candidates.length) console.log("[generation-record-r2-recovery-scan]", reason, candidates.length);
+  } catch (error) {
+    console.warn("[generation-record-r2-recovery-scan-failed]", error.message || error);
+  } finally {
+    generationMediaRecoveryRunning = false;
+  }
+}
+
+function startGenerationRecordMediaRecoveryScheduler() {
+  setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
+  setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
+}
+
+function scheduleVideoToolJobDrain() {
+  if (videoToolJobDrainScheduled) return;
+  videoToolJobDrainScheduled = true;
   setImmediate(() => {
-    const runner = job.action === "image-face-swap"
-      ? runVideoToolImageFaceSwap
-      : job.action === "undress-image-video"
-        ? runVideoToolUndressImageVideo
-      : ["face-swap", "undress-video"].includes(job.action)
-        ? runVideoToolFaceSwap
-        : job.action === "undress" && job.pricing?.outputKind !== "image"
-          ? runVideoToolUndressVideoLegacy
-          : runVideoToolUndress;
-    runner(job).catch(async (error) => {
+    videoToolJobDrainScheduled = false;
+    drainVideoToolJobQueue();
+  });
+}
+
+function drainVideoToolJobQueue() {
+  while (videoToolJobActive < VIDEO_TOOL_JOB_CONCURRENCY && videoToolJobQueue.length) {
+    const job = videoToolJobQueue.shift();
+    videoToolJobActive += 1;
+    Promise.resolve().then(() => videoToolRunnerForJob(job)(job)).catch(async (error) => {
       console.error("[video-tool-job-failed]", job.taskId, error.message || error);
       try {
         await refundVideoToolTask(job.taskId, error.message || "Video generation failed.", error.payload || null);
       } catch (refundError) {
         console.error("[video-tool-refund-failed]", job.taskId, refundError.message || refundError);
       }
-    }).finally(() => activeVideoToolJobIds.delete(job.taskId));
-  });
+    }).finally(() => {
+      videoToolJobActive -= 1;
+      activeVideoToolJobIds.delete(job.taskId);
+      scheduleVideoToolJobDrain();
+    });
+  }
+}
+
+function startVideoToolJob(job) {
+  if (!job?.taskId || activeVideoToolJobIds.has(job.taskId)) return false;
+  activeVideoToolJobIds.add(job.taskId);
+  videoToolJobQueue.push(job);
+  scheduleVideoToolJobDrain();
   return true;
 }
 
@@ -19280,6 +20545,7 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/billing/")
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
+    || pathValue.startsWith("/api/referral/")
     || pathValue === "/api/telegram/webapp-auth"
     || pathValue === "/api/telegram/login/options"
     || pathValue === "/api/telegram/login"
@@ -19790,7 +21056,7 @@ async function handleUnlockUndressToolResult(req, res, taskId) {
     });
     let publishedImageUrl = String(record.cdnImageUrl || "").trim();
     let publishError = "";
-    if (!publishedImageUrl && record.localImagePath && objectStorageEnabled()) {
+    if (!publishedImageUrl && record.localImagePath && generatedOutputStorageEnabled()) {
       try {
         const bytes = await fs.readFile(record.localImagePath);
         const fileName = path.basename(record.localImagePath);
@@ -20549,7 +21815,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
   if (!isSucceededStatus(status) && !isFailedStatus(status)) return record;
   if (record.billingSettledAt) {
     const resultUrl = apizResultUrl(task) || record.remoteVideoUrl || "";
-    if (isSucceededStatus(status) && resultUrl && !record.localVideoUrl && isLikelyVideoUrl(resultUrl)) {
+    if (isSucceededStatus(status) && resultUrl && (!record.localVideoUrl || !record.cdnVideoUrl) && isLikelyVideoUrl(resultUrl)) {
       const media = await maybeDownloadApizVideo(record, resultUrl);
       if (media.localVideoUrl || media.cdnVideoUrl || media.localPosterUrl) {
         return upsertGenerationRecord({
@@ -20577,7 +21843,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
   let mediaUpdates = {};
   if (isSucceededStatus(status)) {
     const resultUrl = apizResultUrl(task) || record.remoteVideoUrl || "";
-    const media = !record.localVideoUrl && isLikelyVideoUrl(resultUrl)
+    const media = (!record.localVideoUrl || !record.cdnVideoUrl) && isLikelyVideoUrl(resultUrl)
       ? await maybeDownloadApizVideo(record, resultUrl)
       : {};
     if (media.localVideoUrl || media.cdnVideoUrl || media.localPosterUrl || media.downloadError) {
@@ -22372,7 +23638,17 @@ async function runAdvancedGenerationJob(job = {}) {
           unresolvedReferenceVideoUris.push(uri);
           continue;
         }
-        const preparedVideoUri = await ensureSeedanceAssetUriForPublicUrl(uri, "Video", `reference-video-${index + 1}`);
+        // Materialize URL-based references into the user's hidden asset record
+        // first. The record stores the durable upstream asset id, so repeated
+        // generations reuse the same CreateAsset result after restarts.
+        const sourceAsset = jobUser
+          ? await createSeedanceReferenceVideoAssetFromUrl(db, jobUser, uri, index)
+          : null;
+        const preparedVideo = sourceAsset
+          ? await prepareSeedanceVideoAsset(db, sourceAsset)
+          : null;
+        const preparedVideoUri = preparedVideo?.referenceAssetUri
+          || await ensureSeedanceAssetUriForPublicUrl(uri, "Video", `reference-video-${index + 1}`);
         if (preparedVideoUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideoUri)) {
           extraReferenceVideoAssetUris.push(preparedVideoUri);
           extraReferenceVideoUriQueue.push(preparedVideoUri);
@@ -24567,8 +25843,9 @@ function qwen37FlashUsage(raw = {}) {
   };
 }
 
-async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {} } = {}) {
-  const rawFinalPricing = qwen37FlashPricingEstimate(advancedPricing, {
+async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {}, provider = "qwen37-flash" } = {}) {
+  const rawFinalPricing = advancedModelPricing(provider, {
+    advancedPricing,
     inputTokens: Math.max(1, usage.promptTokens || pricing.inputTokens || 1),
     outputTokens: Math.max(0, usage.completionTokens || 0),
   });
@@ -24608,23 +25885,33 @@ async function runQwen37FlashGenerationJob(job = {}) {
     pricing = {},
     advancedPricing = {},
     cost = 0,
+    provider = "qwen37-flash",
+    model = QWEN37_FLASH_MODEL,
   } = job;
   if (!taskId || !userId) return;
   let upstreamPayload = null;
   try {
     await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
     upstreamPayload = {
-      model: QWEN37_FLASH_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      enable_thinking: enableThinking === true,
+      model,
+      messages: provider === "byteplus-language"
+        ? [
+            { role: "system", content: "You are an artificial intelligence assistant." },
+            { role: "user", content: prompt },
+          ]
+        : [{ role: "user", content: prompt }],
+      ...(provider === "byteplus-language" ? {} : { enable_thinking: enableThinking === true }),
       max_tokens: maxTokens,
       temperature,
     };
     await upsertGenerationRecord({ taskId, upstreamPayload });
-    const raw = await aliyunQwen37FlashRequest(upstreamPayload);
+    const raw = provider === "byteplus-language"
+      ? await byteplusLanguageRequest(upstreamPayload)
+      : await aliyunQwen37FlashRequest(upstreamPayload);
+    const providerLabel = publicProviderLabel(provider);
     const textResult = qwen37FlashResponseText(raw);
     if (!textResult) {
-      const error = new Error("Qwen3.7 Flash returned no text.");
+      const error = new Error(`${providerLabel} returned no text.`);
       error.statusCode = 502;
       error.payload = raw;
       throw error;
@@ -24637,6 +25924,7 @@ async function runQwen37FlashGenerationJob(job = {}) {
       pricing,
       advancedPricing,
       usage,
+      provider,
     });
     await upsertGenerationRecord({
       taskId,
@@ -24656,17 +25944,17 @@ async function runQwen37FlashGenerationJob(job = {}) {
     });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
-    console.warn("[qwen37-flash-error]", taskId, errorInfo.message || error.message || error);
+    console.warn("[language-model-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
     if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
       try {
         const db = await readDb();
-        await changeUserCredits(db, userId, cost, "advanced_qwen37_flash_refund", { taskId, error: error.message || "Qwen3.7 Flash failed." });
+        await changeUserCredits(db, userId, cost, "advanced_qwen37_flash_refund", { taskId, error: error.message || `${providerLabel} failed.` });
         await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
           taskId,
           type: "advanced_qwen37_flash_refund",
           amount: -cost,
-          meta: { error: error.message || "Qwen3.7 Flash failed." },
+          meta: { error: error.message || `${providerLabel} failed.` },
         });
         if (!dbEnabled()) await writeDb(db);
       } catch (refundError) {
@@ -24677,7 +25965,7 @@ async function runQwen37FlashGenerationJob(job = {}) {
       taskId,
       status: "failed",
       awaitingUpstreamTask: false,
-      error: errorInfo.message || "Qwen3.7 Flash failed.",
+      error: errorInfo.message || `${providerLabel} failed.`,
       code: errorInfo.code || "",
       errorPayload: errorInfo.payload || null,
       createResponse: errorInfo.payload || null,
@@ -24700,8 +25988,14 @@ function startQwen37FlashGenerationJob(job = {}) {
 async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_QWEN37_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_QWEN37_API_KEY", message: "Qwen3.7 Flash is not configured." });
+  const provider = context.provider === "byteplus-language" ? "byteplus-language" : "qwen37-flash";
+  const model = provider === "byteplus-language" ? BYTEPLUS_LANGUAGE_MODEL : QWEN37_FLASH_MODEL;
+  if (provider === "byteplus-language" ? !ARK_API_KEY : !ALIYUN_QWEN37_API_KEY) {
+    return sendJson(res, 503, {
+      ok: false,
+      code: provider === "byteplus-language" ? "MISSING_ARK_API_KEY" : "MISSING_ALIYUN_QWEN37_API_KEY",
+      message: `${publicProviderLabel(provider)} is not configured.`,
+    });
   }
   const body = context.body || await readJson(req);
   const bodyParams = context.bodyParams || requestParamsFromBody(body);
@@ -24741,8 +26035,8 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
   const taskId = localGenerationTaskId("txt");
   const requestTrace = requestTraceForGeneration(req);
   const params = {
-    provider: "qwen37-flash",
-    model: QWEN37_FLASH_MODEL,
+    provider,
+    model,
     enable_thinking: enableThinking,
     max_tokens: maxTokens,
     temperature,
@@ -24750,11 +26044,11 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
   const initialRecord = {
     taskId,
     status: "submitting",
-    model: QWEN37_FLASH_MODEL,
-    source: "advanced-qwen37-flash",
+    model,
+    source: provider === "byteplus-language" ? "advanced-byteplus-language" : "advanced-qwen37-flash",
     kind: "advanced-text",
-    provider: "qwen37-flash",
-    upstreamSource: "aliyun-openai-compatible",
+    provider,
+    upstreamSource: provider === "byteplus-language" ? "byteplus-ark-openai-compatible" : "aliyun-openai-compatible",
     userId: auth.user.id,
     prompt,
     finalPrompt: prompt,
@@ -24781,7 +26075,7 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
       cost,
       type: "advanced_qwen37_flash",
       taskId,
-      meta: { taskId, provider: "qwen37-flash", model: QWEN37_FLASH_MODEL, maxTokens, enableThinking, pricingSource: pricing.source },
+      meta: { taskId, provider, model, maxTokens, enableThinking, pricingSource: pricing.source },
     });
     if (!dbEnabled()) await writeDb(auth.db);
   }
@@ -24795,6 +26089,8 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
     pricing,
     advancedPricing: config.platform?.advancedPricing,
     cost,
+    provider,
+    model,
   });
   const latestDb = await readDb();
   const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
@@ -25080,11 +26376,18 @@ async function handleAdvancedGenerate(req, res) {
     "",
   ) || "").trim().toLowerCase() === "video";
   const isVideoTemplateRequest = isToolVideoTemplateRequest || isPlayfluxVideoTemplateRequest;
-  const toolVideoProvider = ["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
-    ? requestTenant.videoProvider
-    : "wan27";
+  const forcePlayfluxWan27VideoEdit = isPlayfluxVideoTemplateRequest;
+  const toolVideoProvider = isToolVideoTemplateRequest
+    ? "seedance"
+    : (["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
+      ? requestTenant.videoProvider
+      : "wan27");
+  const requestedCreateMode = String(firstPresent(body.createMode, body.create_mode, bodyParams.createMode, bodyParams.create_mode, caseParams.createMode, "") || "").trim().toLowerCase();
+  const isVideoReplacementRequest = isToolVideoTemplateRequest || ["video-image", "video-replace", "playflux-video"].includes(requestedCreateMode);
   const providerHint = firstPresent(
     isToolVideoTemplateRequest ? toolVideoProvider : "",
+    isVideoReplacementRequest ? "seedance" : "",
+    forcePlayfluxWan27VideoEdit ? "wan27" : "",
     body.provider,
     bodyParams.provider,
     selectedCase?.provider,
@@ -25134,8 +26437,9 @@ async function handleAdvancedGenerate(req, res) {
     provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
     "",
   )).trim();
+  if (isVideoReplacementRequest) prompt = VIDEO_REPLACE_PROMPT;
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
-  if (provider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     return await handleAdvancedQwen37FlashGenerate(req, res, {
       auth,
       body,
@@ -25144,6 +26448,7 @@ async function handleAdvancedGenerate(req, res) {
       selectedCase,
       config,
       prompt,
+      provider,
     });
   }
   if (provider === "qwen-image3") {
@@ -25218,6 +26523,17 @@ async function handleAdvancedGenerate(req, res) {
       ? boolFromRequest(firstPresent(body.prompt_extend, body.promptExtend, bodyParams.prompt_extend, bodyParams.promptExtend, mergedProviderParameters.prompt_extend, mergedProviderParameters.promptExtend, caseParams.prompt_extend, caseParams.promptExtend), true)
       : undefined,
   };
+  if (isVideoReplacementRequest) {
+    requestParams.model = TOOL_VIDEO_SEEDANCE_MODEL;
+    requestParams.seedanceTier = "standard";
+    requestParams.seedanceMode = "reference_video";
+    requestParams.ratio = "9:16";
+    requestParams.resolution = "720p";
+    requestParams.duration = 6;
+    requestParams.generateAudio = true;
+    requestParams.generate_audio = true;
+    requestParams.watermark = false;
+  }
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
   requestParams.resolution = isAliyunVideoProvider(provider) ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = provider === "seedance" && boolFromRequest(firstPresent(
@@ -25232,6 +26548,7 @@ async function handleAdvancedGenerate(req, res) {
   const forwardModelToGateway = provider !== "seedance" && requestedModel !== undefined;
   const requestedVideoCapability = firstPresent(
     isToolVideoTemplateRequest ? toolVideoDefaultCapability(toolVideoProvider) : "",
+    forcePlayfluxWan27VideoEdit ? "wan27-video-edit" : "",
     body.videoCapability,
     body.aliyunVideoCapability,
     body.wanCapability,
@@ -25253,7 +26570,7 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
     && boolFromRequest(firstPresent(body.followInputDuration, bodyParams.followInputDuration), false);
   requestParams.model = provider === "seedance"
-    ? normalizedSeedanceModel
+    ? (isVideoReplacementRequest ? TOOL_VIDEO_SEEDANCE_MODEL : normalizedSeedanceModel)
     : provider === "wan30"
       ? aliyunVideoModelForCapability(requestParams.videoCapability)
       : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
@@ -25317,7 +26634,9 @@ async function handleAdvancedGenerate(req, res) {
     bodyParams.preservePublicMediaUrls,
   ), false);
   if (provider === "seedance") {
-    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
+    seedanceMode = isVideoReplacementRequest
+      ? "reference_video"
+      : normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
     const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
       includeDataUrlFallback: seedanceModeNeedsFirstFrame(seedanceMode),
@@ -25579,15 +26898,15 @@ async function handleAdvancedGenerate(req, res) {
   }
   const isPlayfluxVideoReferenceRequest = isPlayfluxVideoTemplateRequest && (
     (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
-    || (provider === "wan27" && requestParams.videoCapability === "wan27-r2v")
+    || (provider === "wan27" && requestParams.videoCapability === "wan27-video-edit")
   );
-  if (isPlayfluxVideoReferenceRequest) {
+  if (isPlayfluxVideoReferenceRequest && provider !== "wan27" && !isVideoReplacementRequest) {
     prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
       hasReferenceImage: provider === "wan27"
         ? wan27Media.some((item) => ["first_frame", "reference_image"].includes(item.type))
         : Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
       hasReferenceVideo: provider === "wan27"
-        ? wan27Media.some((item) => item.type === "reference_video")
+        ? wan27Media.some((item) => ["video", "reference_video"].includes(item.type))
         : Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
   }
@@ -25989,6 +27308,64 @@ function advancedRegenerateBody(record = {}) {
       if (referenceAudioUrls.length) body.referenceAudioUrls = referenceAudioUrls;
       body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
     }
+  } else if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
+    // Seedance 2.5 accepts up to 30 images (and 10 videos / 10 audios). Keep
+    // the original ordered media list when rebuilding a task instead of
+    // applying the legacy Seedance nine-image limit.
+    const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+    const mediaItems = (type, urlKeys = []) => mediaAssets
+      .filter((asset) => asset?.type === type)
+      .map((asset) => {
+        const assetId = String(asset.userAssetId || "").trim();
+        if (assetId) return { assetId };
+        const url = String(urlKeys.map((key) => asset?.[key]).find(Boolean) || "").trim();
+        return url ? { url } : null;
+      })
+      .filter(Boolean);
+    const fallbackItems = (ids, type, urlKeys) => {
+      const items = mediaItems(type, urlKeys);
+      if (items.length) return items;
+      return (Array.isArray(ids) ? ids : [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+        .map((assetId) => ({ assetId }));
+    };
+    const savedImageIds = Array.isArray(params.referenceImageAssetIds) && params.referenceImageAssetIds.length
+      ? params.referenceImageAssetIds
+      : [record.userAssetId || ""];
+    const referenceImages = fallbackItems(savedImageIds, "reference_image", ["imageUrl", "url", "localUrl"]);
+    const referenceVideos = fallbackItems(params.referenceVideoAssetIds, "reference_video", ["videoUrl", "url", "localUrl"]);
+    const referenceAudios = fallbackItems(params.referenceAudioAssetIds, "reference_audio", ["audioUrl", "url", "localUrl"]);
+    const mediaMode = String(firstPresent(record.mediaMode, params.functionMode, params.seedanceMode, params.mediaMode, "omini") || "omini").trim();
+    body.functionMode = mediaMode;
+    body.mediaMode = mediaMode;
+    if (referenceImages.length) body.referenceImages = referenceImages;
+    if (referenceVideos.length) body.referenceVideos = referenceVideos;
+    if (referenceAudios.length) body.referenceAudios = referenceAudios;
+    if (params.generateAudio !== undefined || params.generate_audio !== undefined) {
+      body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
+    }
+    if (params.preprocessReference !== undefined) body.preprocessReference = boolFromRequest(params.preprocessReference, false);
+    if (params.seed !== undefined && params.seed !== null && params.seed !== "") body.seed = params.seed;
+
+    if (mediaMode === "first_last_frame") {
+      const firstFrameId = String(firstPresent(
+        params.firstFrameAssetId,
+        mediaAssetIdsByTypes(record, ["first_frame", "image_url"])[0],
+        "",
+      ) || "").trim();
+      const lastFrameId = String(firstPresent(
+        params.lastFrameAssetId,
+        mediaAssetIdsByTypes(record, ["last_frame", "end_image_url"])[0],
+        "",
+      ) || "").trim();
+      const firstFrameUrl = mediaAssetUrlByType(record, "first_frame") || mediaAssetUrlByType(record, "image_url");
+      const lastFrameUrl = mediaAssetUrlByType(record, "last_frame") || mediaAssetUrlByType(record, "end_image_url");
+      if (firstFrameId) body.firstFrameAssetId = firstFrameId;
+      else if (firstFrameUrl) body.firstFrameUrl = firstFrameUrl;
+      if (lastFrameId) body.lastFrameAssetId = lastFrameId;
+      else if (lastFrameUrl) body.lastFrameUrl = lastFrameUrl;
+    }
   } else {
     const referenceIds = [
       ...mediaAssetIdsByType(record, "reference_image"),
@@ -26289,7 +27666,7 @@ async function makePlatformEstimate(template, overrides = {}, user = null, optio
 }
 
 async function handlePlatformEstimates(req, res, url) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const body = req.method === "POST" ? await readJson(req) : {};
   const config = await readAppConfig();
   const requestedTemplateId = String(url.searchParams.get("templateId") || body.templateId || "").trim();
@@ -26908,7 +28285,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -27207,7 +28584,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
 }
 
 async function handleAdvancedEstimate(req, res) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
   const tenantPublic = requestTenantOptions(req).tenantPublic;
@@ -27223,12 +28600,14 @@ async function handleAdvancedEstimate(req, res) {
   const tenant = requestTenantDescriptor(req);
   const isToolVideoTemplateEstimate = tenant.toolId === "video";
   const effectiveProvider = isToolVideoTemplateEstimate
-    ? (["seedance", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan27")
+    ? "seedance"
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
   if (isToolVideoTemplateEstimate) {
-    params.videoCapability = toolVideoDefaultCapability(provider);
+    params.videoCapability = "";
+    params.model = TOOL_VIDEO_SEEDANCE_MODEL;
+    params.seedanceTier = "standard";
   }
   params.inputVideoSeconds = firstPresent(
     body.inputVideoSeconds,
@@ -27238,7 +28617,7 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
-  if (provider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
     params.inputTokens = firstPresent(
       body.inputTokens,
       body.promptTokens,
@@ -27393,7 +28772,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
 }
 
 async function buildModelDocs(req) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const origin = publicOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
   const tenantPublic = tenantOptions.tenantPublic;
@@ -27607,8 +28986,8 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
 
   const advancedSections = [
     { title: "Wan 3.0 Video", example: external.wan30Example, fields: wan30VideoParameterFields },
-    { title: "Seedance 2.5 Video", example: external.seedance25Example, fields: seedance25VideoParameterFields },
-    { title: "Seedance2.5 (NSFW) Video", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
+    { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
+    { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
     { title: "Wan2.7 Video", example: external.wan27Example, fields: wan27VideoParameterFields },
     { title: "HappyHorse Video", example: external.happyhorseExample, fields: happyhorseVideoParameterFields },
     { title: "Wan Animate", example: external.wanAnimateExample, fields: wanAnimateVideoParameterFields },
@@ -27778,7 +29157,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "- Audios: MP3/WAV, smaller than 15MB, each 1-15 seconds, total audio references at most 15 seconds.",
     "- With video references and a fixed output duration, input-video seconds plus output duration must not exceed 30 seconds.",
     "",
-    "Seedance 2.5 video:",
+    "Seedance 2.5 video (provider `seedance25`):",
     "",
     `- Endpoint: \`${seedance25.route || "/api/advanced/generate"}\` with \`provider: "seedance25"\`.`,
     "- Modes: `reference`, `first_last_frame`. `omini` is accepted as the reference-mode alias.",
@@ -27787,7 +29166,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Reference mode: at least one reference; max ${seedance25.referenceLimits?.images ?? 30} images, ${seedance25.referenceLimits?.videos ?? 10} videos, ${seedance25.referenceLimits?.audios ?? 10} audios, and ${seedance25.referenceLimits?.total ?? 50} assets total. Audio-only is not supported.`,
     "- First/last frame mode requires both frame images and cannot be mixed with reference media. `generateAudio`/`generate_audio` defaults to `true` and does not change the upstream price.",
     "",
-    "Seedance2.5 (NSFW) video:",
+    "Seedance 2.5 video (provider `seedance-nsfw`):",
     "",
     `- Endpoint: \`${seedanceNsfw.route || "/api/advanced/generate"}\` with \`provider: "${seedanceNsfw.provider || SEEDANCE25_DIRECT_PROVIDER}"\`.`,
     "- Modes: `reference`, `first_last_frame`, `edit`, `extend`. `omini` is accepted as the reference-mode alias.",
@@ -27972,11 +29351,11 @@ function externalAdvancedApiMarkdown(doc = {}) {
       JSON.stringify(doc.seedance25Example?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Seedance 2.5 fields**",
+    "**Seedance 2.5 fields (provider `seedance25`)**",
     "",
     docsParameterMarkdown(seedance25VideoParameterFields()),
     "",
-    "**Seedance2.5 (NSFW) video**",
+    "**Seedance 2.5 video (provider `seedance-nsfw`)**",
     "",
     markdownCodeBlock("http", [
       `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
@@ -27986,7 +29365,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
       JSON.stringify(doc.seedanceNsfwExample?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Seedance2.5 (NSFW) fields**",
+    "**Seedance 2.5 fields (provider `seedance-nsfw`)**",
     "",
     docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
     "",
@@ -28034,7 +29413,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "**Advanced task polling**",
     "",
-    "Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
+    "Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -28104,7 +29483,7 @@ function buildModelDocsMarkdown(docs) {
     "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
+    "5. Create Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
     "6. Create or edit Wan2.7 images with `/api/wan27/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
@@ -28200,7 +29579,7 @@ async function refreshApizGenerationRecord(record) {
   const task = gatewayTask ? gatewayTask.raw : await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
   const status = gatewayTask ? gatewayTask.status : apizStatus(task);
   const resultUrl = gatewayTask ? absoluteUrlFromBase(gatewayTask.videoUrl, UPSTREAM_BASE_URL) : apizResultUrl(task);
-  const media = isSucceededStatus(status) && !record.localVideoUrl
+  const media = isSucceededStatus(status) && (!record.localVideoUrl || !record.cdnVideoUrl)
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
   const nextRecord = await upsertGenerationRecord({
@@ -28233,7 +29612,7 @@ async function refreshSeedance25GenerationRecord(record, reason = "query") {
   const task = await seedance25Request("/api/v3/tasks/query", { task_id: queryTaskId });
   const status = apizStatus(task);
   const resultUrl = apizResultUrl(task);
-  const media = isSucceededStatus(status) && resultUrl && !record.localVideoUrl
+  const media = isSucceededStatus(status) && resultUrl && (!record.localVideoUrl || !record.cdnVideoUrl)
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
   return upsertAndSettleGenerationRecord({
@@ -28275,8 +29654,10 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
   const localUrl = `/assets/generated/characters/apiz/${taskId}/${fileName}`;
   try {
     await fs.access(localPath);
-    const existingBytes = objectStorageEnabled() ? await fs.readFile(localPath) : null;
-    const mirror = existingBytes ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) }) : {};
+    const existingBytes = generatedOutputStorageEnabled() ? await fs.readFile(localPath) : null;
+    const mirror = existingBytes && generatedOutputStorageEnabled()
+      ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) })
+      : {};
     return {
       localPath,
       localUrl,
@@ -28296,7 +29677,9 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
   }
   const bytes = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(localPath, bytes);
-  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime: imageMimeFromPath(localPath) });
+  const mirror = generatedOutputStorageEnabled()
+    ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime: imageMimeFromPath(localPath) })
+    : {};
   return {
     localPath,
     localUrl,
@@ -28315,8 +29698,10 @@ async function findGeneratedCharacterSheet(taskId) {
     const localUrl = `/assets/generated/characters/apiz/${safeTaskId}/${fileName}`;
     try {
       await fs.access(localPath);
-      const existingBytes = objectStorageEnabled() ? await fs.readFile(localPath) : null;
-      const mirror = existingBytes ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) }) : {};
+      const existingBytes = generatedOutputStorageEnabled() ? await fs.readFile(localPath) : null;
+      const mirror = existingBytes && generatedOutputStorageEnabled()
+        ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) })
+        : {};
       return {
         localPath,
         localUrl,
@@ -28925,6 +30310,154 @@ async function loginWithBody(req, res, body = {}, { registerIfMissing = false } 
 
 async function handleLogin(req, res) {
   return loginWithBody(req, res, await readJson(req));
+}
+
+function normalizeEmail(value = "") {
+  const email = String(value || "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 254 ? email : "";
+}
+
+async function sendEmailMessage({ to, subject, html }) {
+  if (!EMAIL_LOGIN_ENABLED || !RESEND_API_KEY) {
+    const error = new Error("Email service is not configured.");
+    error.statusCode = 503;
+    error.code = "EMAIL_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const error = new Error("Unable to send email right now.");
+    error.statusCode = 502;
+    error.code = "EMAIL_SEND_FAILED";
+    error.payload = detail.slice(0, 500);
+    throw error;
+  }
+}
+
+function emailChallengeKey(kind, email, tenantId) {
+  return `${kind}:${tenantId}:${email}`;
+}
+
+async function issueEmailCode(req, res, { kind = "login", email = "" } = {}) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  const tenantId = requestTenantId(req);
+  const key = emailChallengeKey(kind, normalized, tenantId);
+  const previous = emailChallenges.get(key);
+  if (previous && previous.sentAt > Date.now() - 60_000) {
+    return sendJson(res, 429, { ok: false, message: "Please wait before requesting another code." });
+  }
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  emailChallenges.set(key, { hash: crypto.createHash("sha256").update(code).digest("hex"), expiresAt: Date.now() + 10 * 60_000, sentAt: Date.now(), attempts: 0 });
+  try {
+    await sendEmailMessage({
+      to: normalized,
+      subject: "Your Vipeak verification code",
+      html: `<p>Your verification code is <strong style="font-size:24px;letter-spacing:4px">${code}</strong>.</p><p>It expires in 10 minutes. If you did not request this, ignore this email.</p>`,
+    });
+  } catch (error) {
+    emailChallenges.delete(key);
+    return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "EMAIL_SEND_FAILED", message: error.message });
+  }
+  return sendJson(res, 200, { ok: true, expiresIn: 600 });
+}
+
+function consumeEmailCode(kind, email, tenantId, code) {
+  const key = emailChallengeKey(kind, email, tenantId);
+  const challenge = emailChallenges.get(key);
+  if (!challenge || challenge.expiresAt < Date.now() || challenge.attempts >= 5) return false;
+  challenge.attempts += 1;
+  const actual = crypto.createHash("sha256").update(String(code || "").trim()).digest("hex");
+  if (actual.length !== challenge.hash.length || !crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(challenge.hash))) return false;
+  emailChallenges.delete(key);
+  return true;
+}
+
+function emailUsernameCandidate(db, email, tenantId) {
+  const base = `e_${email.split("@")[0].replace(/[^a-z0-9_]+/g, "_").slice(0, 20) || "user"}`.slice(0, 24);
+  let candidate = base;
+  let suffix = 1;
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, tenantId))) {
+    const suffixText = `_${suffix++}`;
+    candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
+  }
+  return candidate;
+}
+
+async function createEmailSession(req, res, email) {
+  const tenantId = requestTenantId(req);
+  const db = await readDb();
+  let user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, tenantId));
+  const now = new Date().toISOString();
+  if (!user) {
+    user = { id: randomId("user"), tenantId, username: emailUsernameCandidate(db, email, tenantId), passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")), role: "user", credits: 0, pricingMultiplier: 1, apiPricingMultiplier: 1, apiToken: makeUniqueApiToken(db), email, emailVerifiedAt: now, registrationChannel: "email", createdAt: now, updatedAt: now };
+    db.users.push(user);
+  } else {
+    user.email = email;
+    user.emailVerifiedAt = now;
+    user.updatedAt = now;
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  const session = { token, userId: user.id, tenantId, createdAt: now };
+  db.sessions.push(session);
+  if (dbEnabled()) { await updateUserInDb(user); await createSessionInDb(session); } else await writeDb(db);
+  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+}
+
+async function handleEmailLoginRequest(req, res) {
+  const body = await readJson(req);
+  return issueEmailCode(req, res, { kind: "login", email: body.email });
+}
+
+async function handleEmailLoginVerify(req, res) {
+  const body = await readJson(req); const email = normalizeEmail(body.email);
+  if (!email || !consumeEmailCode("login", email, requestTenantId(req), body.code)) return sendJson(res, 401, { ok: false, message: "Invalid or expired verification code." });
+  return createEmailSession(req, res, email);
+}
+
+async function handlePasswordResetRequest(req, res) {
+  const body = await readJson(req); const email = normalizeEmail(body.email);
+  if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  const db = await readDb();
+  const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  if (user) await issueEmailCode(req, res, { kind: "reset", email });
+  else sendJson(res, 200, { ok: true, expiresIn: 600 });
+}
+
+async function handlePasswordReset(req, res) {
+  const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  if (!email || password.length < 6 || !consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
+  const db = await readDb(); const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  if (!user) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
+  user.passwordHash = hashPassword(password); user.updatedAt = new Date().toISOString();
+  db.sessions = (db.sessions || []).filter((session) => session.userId !== user.id);
+  if (dbEnabled()) { await updateUserInDb(user); await deleteUserSessionsInDb(user.id); } else await writeDb(db);
+  return sendJson(res, 200, { ok: true });
+}
+
+async function handleAccountEmailRequest(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  if (auth.user.passwordHash && !verifyPassword(password, auth.user.passwordHash)) return sendJson(res, 401, { ok: false, message: "Current password is incorrect." });
+  return issueEmailCode(req, res, { kind: "bind", email });
+}
+
+async function handleAccountEmailVerify(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  const body = await readJson(req); const email = normalizeEmail(body.email);
+  if (!email || !consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
+  const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  if (duplicate) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
+  auth.user.email = email; auth.user.emailVerifiedAt = new Date().toISOString(); auth.user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(auth.user); else { const index = db.users.findIndex((item) => item.id === auth.user.id); if (index >= 0) db.users[index] = auth.user; await writeDb(db); }
+  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
 async function handleLoginOrRegister(req, res) {
@@ -29558,13 +31091,40 @@ async function requireApiDocsAccess(req, res) {
   return auth;
 }
 
-async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "paypal") {
-  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "paypal";
+// External API calls require the purchased API documentation entitlement;
+// session-authenticated site requests continue to use the frontend normally.
+async function requireExternalApiDocsAccess(req, res) {
+  if (!apiAccessEnabledForRequest(req)) {
+    sendApiAccessDisabled(res);
+    return null;
+  }
+  const auth = await requireUser(req, res);
+  if (!auth) return null;
+  const tokenSource = String(auth.tokenSource || "").toLowerCase();
+  if ((tokenSource === "api_token" || tokenSource === "subtoken") && !userHasApiDocsAccess(auth.user)) {
+    sendJson(res, 402, {
+      ok: false,
+      code: "API_DOCS_ACCESS_REQUIRED",
+      message: "API documentation access is required for external API calls.",
+      product: {
+        id: API_DOCS_PRODUCT_ID,
+        amount: API_DOCS_PRICE_USD,
+        currency: "USD",
+        includedCredits: API_DOCS_TEST_CREDITS,
+      },
+    });
+    return null;
+  }
+  return auth;
+}
+
+async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "stripe") {
+  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "stripe";
   const plan = await getBillingPlanInDb(UNDRESS_TOOL_TENANT_ID);
   const packages = toolTopupPackagesForPlan(plan);
   return telegramBotClient.sendMessage(
     chatId,
-    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nPayment: ${method === "paypal" ? "PayPal" : "USDT"}\nChoose a package:`,
+    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nPayment: ${method === "stripe" ? "Stripe" : "USDT"}\nChoose a package:`,
     { reply_markup: telegramBotClient.rechargeMarkup(packages, method) },
   );
 }
@@ -29721,11 +31281,39 @@ async function telegramNativeCreateUsdtOrder(user, chatId, packageId) {
   if (qrUrl) await telegramBotClient.sendPhoto(chatId, qrUrl, `Scan to pay ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`).catch(() => {});
 }
 
-async function telegramNativeCreateOrder(user, chatId, packageId, paymentMethod = "paypal") {
+async function telegramNativeCreateStripeOrder(user, chatId, packageId) {
+  const returnUrl = telegramBotClient.miniAppUrl("topups");
+  const result = await invokeTelegramJsonHandler(createStripeCheckoutSession, user, {
+    method: "POST",
+    pathname: "/api/pay/stripe/checkout-sessions",
+    body: { packageId, returnUrl, cancelUrl: returnUrl },
+  });
+  if (result.statusCode >= 400 || !result.payload?.checkoutUrl) {
+    throw new Error(result.payload?.message || "Unable to create a Stripe recharge order.");
+  }
+  const order = result.payload.order || {};
+  const lines = [
+    "Stripe recharge",
+    `Pay: ${order.payableAmountText || order.payableAmount || order.amount} ${order.currency || "USD"}`,
+    `Credits after payment: ${Number(order.creditAmount || 0).toFixed(2)}`,
+    `Order: ${order.id || ""}`,
+    "Tap the button below to continue on the secure payment page.",
+  ];
+  return telegramBotClient.sendMessage(chatId, lines.join("\n"), {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Continue to Stripe", url: result.payload.checkoutUrl }],
+        [{ text: "Use USDT instead", callback_data: `tg:topup:usdt:${String(packageId).slice(0, 48)}` }],
+      ],
+    },
+  });
+}
+
+async function telegramNativeCreateOrder(user, chatId, packageId, paymentMethod = "stripe") {
   if (String(paymentMethod || "").trim().toLowerCase() === "usdt") {
     return telegramNativeCreateUsdtOrder(user, chatId, packageId);
   }
-  return telegramNativeCreatePayPalOrder(user, chatId, packageId);
+  return telegramNativeCreateStripeOrder(user, chatId, packageId);
 }
 
 async function handleTelegramNativeText(message, user) {
@@ -29795,17 +31383,17 @@ async function handleTelegramNativeCallback(callbackQuery) {
     await sendTelegramNativeRechargeMenu(chatId, user);
     return;
   }
-  const paymentMethod = data.match(/^tg:payment:(paypal|usdt)$/i)?.[1]?.toLowerCase() || "";
+  const paymentMethod = data.match(/^tg:payment:(stripe|usdt)$/i)?.[1]?.toLowerCase() || "";
   if (paymentMethod) {
     await sendTelegramNativeRechargeMenu(chatId, user, paymentMethod);
     return;
   }
-  const packageMatch = data.match(/^tg:topup:(paypal|usdt):([a-z0-9_-]+)$/i);
+  const packageMatch = data.match(/^tg:topup:(stripe|usdt):([a-z0-9_-]+)$/i);
   const legacyPackageId = data.match(/^tg:topup:([a-z0-9_-]+)$/i)?.[1] || "";
   const packageId = packageMatch?.[2] || legacyPackageId;
   if (packageId) {
     try {
-      await telegramNativeCreateOrder(user, chatId, packageId, packageMatch?.[1] || "usdt");
+      await telegramNativeCreateOrder(user, chatId, packageId, packageMatch?.[1] || "stripe");
     } catch (error) {
       await telegramBotClient.sendMessage(chatId, String(error.message || "Unable to create a recharge order.").slice(0, 500));
     }
@@ -30287,12 +31875,19 @@ async function handleTelegramSupportWebhook(req, res, secret) {
 }
 
 async function handleAdminListSupportMessages(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
   const source = String((url || new URL("http://localhost")).searchParams.get("source") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminSupportMessagesPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, status, source });
+    if (result) {
+      const userMap = new Map(result.items.map((m) => [m.userId, { username: m.username }]));
+      return sendJson(res, 200, { ok: true, messages: result.items.map((m) => supportMessageView(m, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   let messages = (auth.db.supportMessages || [])
     .filter((record) => !isSoftDeleted(record))
@@ -30680,8 +32275,12 @@ async function handleCreatePaymentOrder(req, res) {
 }
 
 async function handleListPaymentOrders(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
+  if (dbEnabled()) {
+    const result = await getUserWalletOrdersPageFromDb({ userId: auth.user.id, page: 1, limit: 20 });
+    if (result) return sendJson(res, 200, { ok: true, orders: result.items });
+  }
   const orders = auth.db.walletOrders.filter((order) => order.userId === auth.user.id).slice(0, 20);
   return sendJson(res, 200, { ok: true, orders });
 }
@@ -30784,6 +32383,539 @@ async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
+function referralWithdrawalView(record = {}, user = {}) {
+  return {
+    id: String(record.id || ""),
+    userId: String(record.userId || ""),
+    username: String(record.username || user?.username || ""),
+    amountUsd: Number(Number(record.amountUsd || 0).toFixed(2)),
+    walletAddress: String(record.walletAddress || ""),
+    // Keep the established UI pending state compatible while persisting the clearer processing state.
+    status: String(record.status || "processing").toLowerCase() === "processing" ? "pending" : String(record.status || "processing"),
+    note: String(record.note || ""),
+    txHash: String(record.txHash || ""),
+    createdAt: String(record.createdAt || ""),
+    requestedAt: String(record.requestedAt || record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+    processedAt: String(record.processedAt || ""),
+    rejectionReason: String(record.rejectionReason || record.note || ""),
+  };
+}
+
+async function handleUpdateReferralWallet(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const address = String(body.walletAddress || body.address || "").trim();
+  if (address.length < 20 || address.length > 200) return sendJson(res, 400, { ok: false, code: "INVALID_WALLET_ADDRESS", message: "Please enter a valid wallet address." });
+  const referral = referralPayload(auth.user);
+  auth.user.referral = { ...referral, walletAddress: address, updatedAt: new Date().toISOString() };
+  auth.user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(auth.user); else await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, referral: publicReferralSummary(req, auth.db, auth.user), user: userView(auth.user) });
+}
+
+async function handleListReferralWithdrawals(req, res, url) {
+  const auth = await requireUser(req, res, { loadDb: false });
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  if (dbEnabled()) {
+    const page = await getReferralWithdrawalsPageFromDb({ userId: auth.user.id, page: paging.page, limit: paging.limit });
+    if (page) return sendJson(res, 200, { ok: true, records: page.items.map((item) => referralWithdrawalView(item, auth.user)), page: page.page, limit: page.limit, total: page.total, totalPages: page.totalPages });
+  }
+  const records = (auth.db.referralWithdrawals || []).filter((item) => item.userId === auth.user.id).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const paged = pagedResponse(records, paging);
+  return sendJson(res, 200, { ok: true, records: paged.items.map((item) => referralWithdrawalView(item, auth.user)), page: paged.page, limit: paged.limit, total: paged.total, totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)) });
+}
+
+async function handleCreateReferralWithdrawal(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const amount = Math.round(Number(body.amountUsd || body.amount || 0) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < 1) return sendJson(res, 400, { ok: false, code: "INVALID_WITHDRAWAL_AMOUNT", message: "Minimum withdrawal is $1." });
+  const referral = referralPayload(auth.user);
+  const total = Number(referral.totalCommissionUsd || 0);
+  const withdrawn = Number(referral.withdrawnCommissionUsd || 0);
+  const locked = Number(referral.lockedCommissionUsd || 0);
+  const available = Math.max(0, total - withdrawn - locked);
+  if (amount > available + 1e-9) return sendJson(res, 400, { ok: false, code: "INSUFFICIENT_COMMISSION", message: "Insufficient withdrawable commission.", availableUsd: Number(available.toFixed(2)) });
+  const address = String(body.walletAddress || body.address || referral.walletAddress || "").trim();
+  if (address.length < 20 || address.length > 200) return sendJson(res, 400, { ok: false, code: "WALLET_ADDRESS_REQUIRED", message: "Set your wallet address before requesting withdrawal." });
+  const now = new Date().toISOString();
+  const record = { id: randomId("withdraw"), userId: auth.user.id, username: auth.user.username || "", amountUsd: amount, walletAddress: address, status: "processing", note: "", txHash: "", createdAt: now, updatedAt: now };
+  auth.user.referral = { ...referral, walletAddress: address, lockedCommissionUsd: Number((locked + amount).toFixed(2)), updatedAt: now };
+  auth.user.updatedAt = now;
+  auth.db.referralWithdrawals = Array.isArray(auth.db.referralWithdrawals) ? auth.db.referralWithdrawals : [];
+  auth.db.referralWithdrawals.unshift(record);
+  if (dbEnabled()) { await updateUserInDb(auth.user); await createReferralWithdrawalInDb(record); } else await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, record: referralWithdrawalView(record, auth.user), referral: publicReferralSummary(req, auth.db, auth.user) });
+}
+
+async function handleAdminListReferralWithdrawals(req, res, url) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
+  let page;
+  if (dbEnabled()) page = await getReferralWithdrawalsPageFromDb({ page: paging.page, limit: paging.limit, status });
+  if (page) {
+    const users = await getUsersByIdsInDb(page.items.map((item) => item.userId));
+    const map = new Map(users.map((user) => [user.id, user]));
+    return sendJson(res, 200, { ok: true, records: page.items.map((item) => referralWithdrawalView(item, map.get(item.userId))), page: page.page, limit: page.limit, total: page.total, totalPages: page.totalPages });
+  }
+  const users = new Map((auth.db.users || []).map((user) => [user.id, user]));
+  let records = (auth.db.referralWithdrawals || []).filter((item) => !status || String(item.status || "").toLowerCase() === status).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const paged = pagedResponse(records, paging);
+  return sendJson(res, 200, { ok: true, records: paged.items.map((item) => referralWithdrawalView(item, users.get(item.userId))), page: paged.page, limit: paged.limit, total: paged.total, totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)) });
+}
+
+async function handleAdminUpdateReferralWithdrawal(req, res, withdrawalId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const id = decodeURIComponent(String(withdrawalId || ""));
+  const record = (await getReferralWithdrawalByIdInDb(id)) || (auth.db.referralWithdrawals || []).find((item) => item.id === id);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Withdrawal request not found." });
+  const body = await readJson(req);
+  const nextStatus = String(body.status || "").trim().toLowerCase();
+  if (!["processing", "rejected", "paid"].includes(nextStatus)) return sendJson(res, 400, { ok: false, code: "INVALID_WITHDRAWAL_STATUS", message: "Status must be processing, rejected, or paid." });
+  const user = (auth.db.users || []).find((item) => item.id === record.userId) || (await getUserByIdInDb(record.userId));
+  if (!user) return sendJson(res, 404, { ok: false, message: "User not found." });
+  const previous = String(record.status || "processing");
+  if (previous === "paid" && nextStatus !== "paid") return sendJson(res, 409, { ok: false, code: "WITHDRAWAL_ALREADY_PAID", message: "Paid withdrawal records cannot be reopened." });
+  const referral = referralPayload(user);
+  let locked = Number(referral.lockedCommissionUsd || 0);
+  let withdrawn = Number(referral.withdrawnCommissionUsd || 0);
+  if (previous === "processing" && nextStatus !== "processing") locked = Math.max(0, locked - Number(record.amountUsd || 0));
+  if (previous !== "processing" && nextStatus === "processing") locked += Number(record.amountUsd || 0);
+  if (previous !== "paid" && nextStatus === "paid") withdrawn += Number(record.amountUsd || 0);
+  record.status = nextStatus;
+  record.note = typeof body.note === "string" ? body.note.slice(0, 500) : record.note || "";
+  record.txHash = typeof body.txHash === "string" ? body.txHash.trim().slice(0, 200) : record.txHash || "";
+  record.processedAt = nextStatus === "processing" ? "" : (record.processedAt || new Date().toISOString());
+  record.updatedAt = new Date().toISOString();
+  user.referral = { ...referral, lockedCommissionUsd: Number(locked.toFixed(2)), withdrawnCommissionUsd: Number(withdrawn.toFixed(2)), walletAddress: referral.walletAddress || record.walletAddress, updatedAt: record.updatedAt };
+  user.updatedAt = record.updatedAt;
+  if (dbEnabled()) { await updateReferralWithdrawalInDb(record); await updateUserInDb(user); } else { const idx = auth.db.referralWithdrawals.findIndex((item) => item.id === id); if (idx >= 0) auth.db.referralWithdrawals[idx] = record; await writeDb(auth.db); }
+  return sendJson(res, 200, { ok: true, record: referralWithdrawalView(record, user) });
+}
+
+function stripeConfigForHost(host = "") {
+  const normalizedHost = normalizeHostname(host);
+  if (normalizedHost === "pay.5vips.com" && STRIPE_PAY5_SECRET_KEY) {
+    return {
+      secretKey: STRIPE_PAY5_SECRET_KEY,
+      webhookSecret: STRIPE_PAY5_WEBHOOK_SECRET,
+      accountId: STRIPE_PAY5_ACCOUNT_ID,
+    };
+  }
+  return {
+    secretKey: STRIPE_SECRET_KEY,
+    webhookSecret: STRIPE_WEBHOOK_SECRET,
+    accountId: "",
+  };
+}
+
+function stripeConfigForRequest(req = null) {
+  return stripeConfigForHost(req?.headers?.host || req?.headers?.["x-forwarded-host"] || "");
+}
+
+function stripeConfigForOrder(order = {}, req = null) {
+  if (String(order?.stripeAccountId || "") === STRIPE_PAY5_ACCOUNT_ID && STRIPE_PAY5_SECRET_KEY) {
+    return stripeConfigForHost("pay.5vips.com");
+  }
+  // Admin hydration runs outside an HTTP request; use the primary Stripe account in that case.
+  return req ? stripeConfigForRequest(req) : stripeConfigForHost("");
+}
+
+function stripeEnabled(config = stripeConfigForHost("")) {
+  return Boolean(config.secretKey && config.webhookSecret);
+}
+
+function stripePublicConfig(req = null) {
+  return { enabled: stripeEnabled(stripeConfigForHost(stripeCheckoutBaseUrlForRequest(req))), currency: STRIPE_CURRENCY };
+}
+
+async function stripeRequest(pathname, params, method = "POST", config = stripeConfigForHost("")) {
+  if (!config.secretKey) {
+    const error = new Error("Stripe is not configured.");
+    error.statusCode = 503;
+    error.code = "STRIPE_NOT_CONFIGURED";
+    throw error;
+  }
+  const requestMethod = String(method || "POST").toUpperCase();
+  const query = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params || {}).toString();
+  const url = requestMethod === "GET" && query ? `https://api.stripe.com${pathname}?${query}` : `https://api.stripe.com${pathname}`;
+  const response = await fetch(url, {
+    method: requestMethod,
+    headers: {
+      authorization: `Bearer ${config.secretKey}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    ...(requestMethod === "GET" || requestMethod === "HEAD" ? {} : { body: params instanceof URLSearchParams ? params : new URLSearchParams(params || {}) }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || "Stripe request failed.");
+    error.statusCode = response.status || 502;
+    error.code = payload?.error?.code || "STRIPE_REQUEST_FAILED";
+    error.details = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function stripeCheckoutProductName(order = {}) {
+  if (order.orderKind === "subscription") return order.billingPlanName || "Membership subscription";
+  if (order.orderKind === "product") return order.productName || "API documentation access";
+  return "Vipeak AI credits";
+}
+
+function stripeCheckoutAmountCents(order = {}) {
+  return Math.round(Number(order.baseAmount || 0) * 100);
+}
+
+function stripeCheckoutSessionExpired(order = {}) {
+  const createdMs = Date.parse(order.createdAt || order.updatedAt || "");
+  if (!Number.isFinite(createdMs)) return false;
+  return Date.now() - createdMs > STRIPE_CHECKOUT_SESSION_TTL_SECONDS * 1000;
+}
+
+function stripeCheckoutUrl(orderId = "", checkoutBaseUrl = STRIPE_CHECKOUT_BASE_URL) {
+  const url = new URL("/", `${String(checkoutBaseUrl || STRIPE_CHECKOUT_BASE_URL).replace(/\/+$/, "")}/`);
+  url.searchParams.set("stripe_sid", String(orderId || ""));
+  return url.toString();
+}
+
+async function findStripeCheckoutOrder(orderId = "") {
+  const id = String(orderId || "").trim();
+  if (!id) return null;
+  const db = await readDb();
+  const stored = await getWalletOrderByIdInDb(id);
+  if (stored && String(stored.paymentProvider || "").toLowerCase() === "stripe") return stored;
+  return (db.walletOrders || []).find((order) => (
+    String(order.id || "") === id && String(order.paymentProvider || "").toLowerCase() === "stripe"
+  )) || null;
+}
+
+async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", stripeConfig = stripeConfigForHost("") } = {}) {
+  const params = new URLSearchParams();
+  const origin = String(order.sourceOrigin || requestOrigin || "https://123vips.com").replace(/\/+$/, "");
+  params.set("mode", "payment");
+  params.set("success_url", `${origin}/?stripe_session_id={CHECKOUT_SESSION_ID}#topups`);
+  params.set("cancel_url", `${origin}/#topups`);
+  params.set("client_reference_id", order.id);
+  params.set("expires_at", String(Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_SESSION_TTL_SECONDS));
+  params.set("line_items[0][price_data][currency]", STRIPE_CURRENCY);
+  params.set("line_items[0][price_data][unit_amount]", String(stripeCheckoutAmountCents(order)));
+  params.set("line_items[0][price_data][product_data][name]", stripeCheckoutProductName(order));
+  params.set("line_items[0][quantity]", "1");
+  params.set("metadata[order_id]", order.id);
+  params.set("metadata[user_id]", order.userId || "");
+  params.set("metadata[tenant_id]", order.tenantId || "");
+  params.set("metadata[order_kind]", order.orderKind || "topup");
+  params.set("payment_intent_data[metadata][order_id]", order.id || "");
+  params.set("payment_intent_data[metadata][user_id]", order.userId || "");
+  params.set("payment_intent_data[metadata][tenant_id]", order.tenantId || "");
+  const session = await stripeRequest("/v1/checkout/sessions", params, "POST", stripeConfig);
+  order.stripeCheckoutSessionId = String(session.id || "");
+  order.stripePaymentStatus = String(session.payment_status || "");
+  order.stripePaymentIntentId = String(session.payment_intent || "");
+  order.stripeCheckoutUrl = String(session.url || "");
+  order.updatedAt = new Date().toISOString();
+  await updateWalletOrderInDb(order);
+  return session;
+}
+
+async function createStripeCheckoutSession(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const cashierBaseUrl = stripeCheckoutBaseUrlForRequest(req);
+  const stripeConfig = stripeConfigForHost(cashierBaseUrl);
+  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const selection = await paypalCheckoutSelectionForRequest(req, body, auth.user);
+  if (!selection) {
+    const requestedPlan = Boolean(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id);
+    return sendJson(res, 400, {
+      ok: false,
+      code: requestedPlan ? "BILLING_PLAN_NOT_FOUND" : "INVALID_TOPUP_PACKAGE",
+      message: requestedPlan ? "Subscription plan not found." : "Please select one of the available top-up packages.",
+      packages: await paypalTopupPackagesForRequest(req, auth.user),
+    });
+  }
+  if (selection.alreadyOwned) {
+    return sendJson(res, 409, {
+      ok: false,
+      code: selection.kind === "subscription" ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED",
+      message: selection.kind === "subscription" ? "Creator Membership is already active." : "API documentation access is already active.",
+    });
+  }
+  const amount = Number(selection.amount || 0);
+  const amountCents = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amountCents < 100 || amountCents > 100000000) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_STRIPE_AMOUNT", message: "Stripe amount must be between 1 and 1,000,000 USD." });
+  }
+  const origin = pageOriginFromRequest(req);
+  const order = {
+    id: randomId("stripe"),
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
+    userId: auth.user.id,
+    paymentProvider: "stripe",
+    orderKind: selection.kind,
+    baseAmount: amount,
+    creditAmount: creditsAmount(selection.credits),
+    packageId: selection.kind === "topup" ? selection.id : "",
+    packageCredits: selection.credits,
+    productId: selection.product?.id || "",
+    productName: selection.product?.name || "",
+    billingPlanId: selection.plan?.id || "",
+    billingPlanName: selection.plan?.name || "",
+    billingIntervalUnit: selection.plan?.intervalUnit || "",
+    billingIntervalCount: selection.plan?.intervalCount || 0,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    cnyCentsPerUnit: paypalCnyCentsPerUnit(config.wallet),
+    currency: STRIPE_CURRENCY.toUpperCase(),
+    payableAmount: amount,
+    payableAmountText: amount.toFixed(2),
+    asset: STRIPE_CURRENCY.toUpperCase(),
+    network: "Stripe",
+    chain: "stripe",
+    status: "pending",
+    sourceOrigin: origin,
+    cashierHost: normalizeHostname(cashierBaseUrl),
+    stripeAccountId: stripeConfig.accountId || "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await createWalletOrderInDb(order);
+  return sendJson(res, 200, {
+    ok: true,
+    checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl),
+    cashierUrl: stripeCheckoutUrl(order.id, cashierBaseUrl),
+    order: publicTopupOrder(order, config.wallet, tenantOptions),
+  });
+}
+
+async function handleStripeCheckoutSessionDetails(req, res, orderId) {
+  const order = await findStripeCheckoutOrder(orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "STRIPE_CHECKOUT_NOT_FOUND", message: "Stripe checkout session not found." });
+  const config = await readAppConfig();
+  return sendJson(res, 200, { ok: true, session: { id: order.id, status: order.status || "pending", stripeStatus: order.stripePaymentStatus || "", checkoutUrl: order.stripeCheckoutUrl || "", returnUrl: `${String(order.sourceOrigin || "https://123vips.com").replace(/\/+$/, "")}/#topups`, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
+}
+
+async function handleStartStripeCheckoutSession(req, res, orderId) {
+  const order = await findStripeCheckoutOrder(orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "STRIPE_CHECKOUT_NOT_FOUND", message: "Stripe checkout session not found." });
+  const stripeConfig = stripeConfigForHost(stripeCashierHostForOrder(order));
+  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const config = await readAppConfig();
+  if (order.status === "paid") return sendJson(res, 200, { ok: true, checkoutUrl: "", session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
+  if (stripeCheckoutSessionExpired(order)) return sendJson(res, 410, { ok: false, code: "STRIPE_CHECKOUT_EXPIRED", message: "This payment session has expired. Please create a new top-up order." });
+  if (order.stripeCheckoutUrl) return sendJson(res, 200, { ok: true, checkoutUrl: order.stripeCheckoutUrl, session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
+  try {
+    const stripeSession = await startStripeCheckoutForOrder(order, config, { requestOrigin: pageOriginFromRequest(req), stripeConfig });
+    return sendJson(res, 200, { ok: true, checkoutUrl: String(stripeSession.url || order.stripeCheckoutUrl || ""), session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
+  } catch (error) {
+    order.status = "failed";
+    order.note = error.message || "Stripe checkout creation failed.";
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order).catch(() => {});
+    return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "STRIPE_CHECKOUT_FAILED", message: "Stripe checkout could not be created." });
+  }
+}
+
+function verifyStripeSignature(rawBody, signatureHeader, webhookSecret = STRIPE_WEBHOOK_SECRET) {
+  if (!webhookSecret || !rawBody || !signatureHeader) return false;
+  const values = {};
+  for (const part of String(signatureHeader).split(",")) {
+    const [key, value] = part.split("=", 2);
+    if (key && value) values[key] = value;
+  }
+  const timestamp = Number(values.t || 0);
+  const signature = String(values.v1 || "");
+  if (!timestamp || !signature || Math.abs(Date.now() / 1000 - timestamp) > 300) return false;
+  const expected = crypto.createHmac("sha256", webhookSecret).update(`${timestamp}.${rawBody}`, "utf8").digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signature, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+function stripeObjectId(value = "") {
+  if (value && typeof value === "object") return String(value.id || "");
+  return String(value || "");
+}
+
+function stripeIsoFromTimestamp(value) {
+  const seconds = Number(value || 0);
+  return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : "";
+}
+
+function stripeAmountMajor(value) {
+  const cents = Number(value);
+  return Number.isFinite(cents) ? Math.round((cents / 100) * 100) / 100 : 0;
+}
+
+function stripeFailureDetails(...objects) {
+  for (const object of objects) {
+    const error = object?.last_payment_error || object?.failure_details || object || {};
+    const code = String(error.code || object?.failure_code || "").trim();
+    const message = String(error.message || object?.failure_message || object?.outcome?.seller_message || "").trim();
+    if (code || message) return { code, message };
+  }
+  return { code: "", message: "" };
+}
+
+async function hydrateStripeOrderDetails(order, sessionHint = null, paymentIntentHint = null, chargeHint = null, stripeConfig = stripeConfigForHost("")) {
+  if (!order || String(order.paymentProvider || "").toLowerCase() !== "stripe") return order;
+  let session = sessionHint && typeof sessionHint === "object" ? sessionHint : null;
+  let paymentIntent = paymentIntentHint && typeof paymentIntentHint === "object" ? paymentIntentHint : null;
+  let charge = chargeHint && typeof chargeHint === "object" ? chargeHint : null;
+  let customer = null;
+  try {
+    const sessionId = stripeObjectId(session) || String(order.stripeCheckoutSessionId || "");
+    if (sessionId && (!session || !session.customer_details)) {
+      const params = new URLSearchParams();
+      params.append("expand[]", "payment_intent.latest_charge");
+      params.append("expand[]", "payment_intent.payment_method");
+      params.append("expand[]", "customer");
+      session = await stripeRequest(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, params, "GET", stripeConfig);
+    }
+  } catch (error) {
+    console.warn("[stripe-session-details-failed]", error.message || error);
+  }
+  if (!paymentIntent) paymentIntent = session?.payment_intent && typeof session.payment_intent === "object" ? session.payment_intent : null;
+  const paymentIntentId = stripeObjectId(paymentIntent) || stripeObjectId(session?.payment_intent) || String(order.stripePaymentIntentId || "");
+  if (paymentIntentId && (!paymentIntent || !paymentIntent.last_payment_error || !paymentIntent.payment_method)) {
+    try {
+      const params = new URLSearchParams();
+      params.append("expand[]", "latest_charge");
+      params.append("expand[]", "payment_method");
+      paymentIntent = await stripeRequest(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`, params, "GET", stripeConfig);
+    } catch (error) {
+      console.warn("[stripe-payment-intent-details-failed]", error.message || error);
+    }
+  }
+  if (!charge) charge = paymentIntent?.latest_charge && typeof paymentIntent.latest_charge === "object" ? paymentIntent.latest_charge : null;
+  const chargeId = stripeObjectId(charge) || stripeObjectId(paymentIntent?.latest_charge);
+  if (chargeId && (!charge || !charge.payment_method_details)) {
+    try {
+      charge = await stripeRequest(`/v1/charges/${encodeURIComponent(chargeId)}`, null, "GET", stripeConfig);
+    } catch (error) {
+      console.warn("[stripe-charge-details-failed]", error.message || error);
+    }
+  }
+  customer = session?.customer && typeof session.customer === "object" ? session.customer : null;
+  const customerId = stripeObjectId(customer) || stripeObjectId(session?.customer) || String(order.stripeCustomerId || "");
+  if (customerId && !customer) {
+    try { customer = await stripeRequest(`/v1/customers/${encodeURIComponent(customerId)}`, null, "GET", stripeConfig); } catch (error) {
+      console.warn("[stripe-customer-details-failed]", error.message || error);
+    }
+  }
+  const failure = stripeFailureDetails(paymentIntent, charge, session);
+  const methodType = String(
+    paymentIntent?.payment_method?.type ||
+    charge?.payment_method_details?.type ||
+    session?.payment_method_types?.[0] ||
+    order.stripePaymentMethodType ||
+    "",
+  );
+  const amountReceived = paymentIntent?.amount_received ?? charge?.amount ?? session?.amount_total;
+  const refundedAmount = charge?.amount_refunded ?? paymentIntent?.amount_refunded;
+  const detailsAvailable = Boolean(session || paymentIntent || charge || customer);
+  Object.assign(order, {
+    stripeCheckoutSessionId: stripeObjectId(session) || order.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: paymentIntentId || order.stripePaymentIntentId || "",
+    stripeChargeId: chargeId || order.stripeChargeId || "",
+    stripeCustomerId: customerId || order.stripeCustomerId || "",
+    stripeCustomerEmail: String(session?.customer_details?.email || customer?.email || order.stripeCustomerEmail || ""),
+    stripeCustomerName: String(session?.customer_details?.name || customer?.name || order.stripeCustomerName || ""),
+    stripePaymentMethodType: methodType,
+    stripePaymentStatus: String(session?.payment_status || paymentIntent?.status || order.stripePaymentStatus || ""),
+    stripeFailureCode: failure.code || order.stripeFailureCode || "",
+    stripeFailureMessage: failure.message || order.stripeFailureMessage || "",
+    stripeAmountReceived: amountReceived !== undefined ? stripeAmountMajor(amountReceived) : (order.stripeAmountReceived || 0),
+    stripeRefundedAmount: refundedAmount !== undefined ? stripeAmountMajor(refundedAmount) : (order.stripeRefundedAmount || 0),
+    stripeCreatedAt: stripeIsoFromTimestamp(charge?.created || paymentIntent?.created || session?.created) || order.stripeCreatedAt || "",
+    stripeDetailsSyncedAt: detailsAvailable ? new Date().toISOString() : (order.stripeDetailsSyncedAt || ""),
+  });
+  order.updatedAt = new Date().toISOString();
+  return order;
+}
+
+async function handleStripeWebhook(req, res) {
+  const rawBody = await readRawBody(req, 2 * 1024 * 1024);
+  const stripeConfig = stripeConfigForRequest(req);
+  if (!stripeConfig.webhookSecret) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED" });
+  if (!verifyStripeSignature(rawBody, req.headers["stripe-signature"], stripeConfig.webhookSecret)) return sendJson(res, 400, { ok: false, code: "STRIPE_SIGNATURE_INVALID", message: "Invalid Stripe webhook signature." });
+  let event;
+  try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid Stripe webhook body." }); }
+  const supportedEvents = new Set([
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+    "checkout.session.expired",
+    "payment_intent.payment_failed",
+    "charge.refunded",
+  ]);
+  if (!supportedEvents.has(event.type)) return sendJson(res, 200, { ok: true, ignored: true });
+  const object = event.data?.object || {};
+  const session = event.type.startsWith("checkout.session.") ? object : null;
+  const paymentIntent = event.type.startsWith("payment_intent.") ? object : null;
+  const charge = event.type.startsWith("charge.") ? object : null;
+  let orderId = String(
+    session?.metadata?.order_id || session?.client_reference_id ||
+    paymentIntent?.metadata?.order_id || charge?.metadata?.order_id || "",
+  ).trim();
+  const db = await readDb();
+  if (!orderId) {
+    const paymentIntentId = stripeObjectId(paymentIntent) || stripeObjectId(charge?.payment_intent);
+    const matched = (db.walletOrders || []).find((entry) =>
+      String(entry.paymentProvider || "").toLowerCase() === "stripe" &&
+      paymentIntentId && String(entry.stripePaymentIntentId || "") === paymentIntentId,
+    );
+    orderId = String(matched?.id || "");
+  }
+  if (!orderId) return sendJson(res, 200, { ok: true, ignored: true, reason: "missing_order_id" });
+  const order = await getWalletOrderByIdInDb(orderId) || (db.walletOrders || []).find((entry) => entry.id === orderId);
+  if (!order || order.paymentProvider !== "stripe") return sendJson(res, 200, { ok: true, ignored: true, reason: "order_not_found" });
+  await hydrateStripeOrderDetails(order, session, paymentIntent, charge, stripeConfig);
+  if (event.type === "charge.refunded") {
+    order.stripeRefundedAmount = stripeAmountMajor(object.amount_refunded ?? object.amount);
+    order.stripeRefundStatus = object.refunded ? "refunded" : "partial_refund";
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, { ok: true, refunded: true });
+  }
+  if (event.type === "checkout.session.async_payment_failed" || event.type === "checkout.session.expired" || event.type === "payment_intent.payment_failed") {
+    if (order.status !== "paid") order.status = "failed";
+    const failure = order.stripeFailureMessage || order.stripeFailureCode || (event.type === "checkout.session.expired" ? "Checkout session expired." : "Stripe payment failed.");
+    order.note = String(failure).slice(0, 200);
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, { ok: true, failed: true });
+  }
+  const amountTotal = Number(session?.amount_total || 0);
+  const currency = String(session?.currency || "").toLowerCase();
+  if (amountTotal !== stripeCheckoutAmountCents(order) || currency !== STRIPE_CURRENCY) {
+    order.note = "Stripe checkout amount or currency mismatch. Manual review required.";
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 400, { ok: false, code: "STRIPE_AMOUNT_MISMATCH" });
+  }
+  if (event.type === "checkout.session.completed" && String(session?.payment_status || "").toLowerCase() !== "paid") {
+    await updateWalletOrderInDb(order);
+    return sendJson(res, 200, { ok: true, pending: true });
+  }
+  const config = await readAppConfig();
+  const settled = await safeSettleWalletOrderPayment(db, order, config, { note: "Paid by Stripe Checkout webhook." });
+  await updateWalletOrderInDb(order);
+  if (!settled.settled && settled.error) return sendJson(res, 500, { ok: false, message: "Stripe payment received but settlement failed." });
+  return sendJson(res, 200, { ok: true, settled: true });
+}
+
 async function paypalTopupPackagesForRequest(req, user = null) {
   const tenant = requestTenantDescriptor(req);
   if (tenant.subscriptions) {
@@ -30844,6 +32976,7 @@ async function paypalCheckoutSelectionForRequest(req, body = {}, user = null) {
 function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
   const publicOrder = publicTopupOrder(order, config.wallet, options);
   const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
+  const failureSummary = { issue: order.paypalErrorCode || "", name: order.paypalErrorCode || "" };
   return {
     id: String(order.id || ""),
     sessionId: String(order.paypalCheckoutSessionId || ""),
@@ -30857,6 +32990,10 @@ function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
     order: publicOrder,
     createdAt: String(order.paypalCheckoutSessionCreatedAt || order.createdAt || ""),
     startedAt: String(order.paypalCheckoutStartedAt || ""),
+    errorCode: String(order.paypalErrorCode || ""),
+    errorMessage: order.paypalErrorCode ? paypalPublicFailureMessage(failureSummary) : "",
+    debugId: String(order.paypalDebugId || ""),
+    errorAt: String(order.paypalErrorAt || ""),
   };
 }
 
@@ -31243,19 +33380,56 @@ async function handleStartPayPalCheckoutSession(req, res, sessionId) {
   }
   const checkoutAttempt = Number(order.paypalCheckoutAttempt || 0) || 0;
   order.paypalInvoiceId = `${order.id}-${checkoutAttempt}`;
-  const paypalOrder = order.paypalOrderId
-    ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
-    : await paypalRequest("/v2/checkout/orders", {
-        method: "POST",
-        headers: {
-          "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
-        },
-        body: paypalOrderBodyForCheckout(order),
-      });
+  let paypalOrder;
+  try {
+    paypalOrder = order.paypalOrderId
+      ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
+      : await paypalRequest("/v2/checkout/orders", {
+          method: "POST",
+          headers: {
+            "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
+          },
+          body: paypalOrderBodyForCheckout(order),
+        });
+  } catch (error) {
+    const summary = paypalErrorSummary(error.details, error.statusCode);
+    const now = new Date().toISOString();
+    order.paypalCheckoutAttempt = checkoutAttempt + 1;
+    order.paypalCheckoutSessionStatus = "failed";
+    order.paypalErrorCode = summary.issue || summary.name || error.code || "PAYPAL_REQUEST_FAILED";
+    order.paypalErrorDescription = summary.description || error.message || "PayPal request failed.";
+    order.paypalErrorField = summary.field;
+    order.paypalDebugId = summary.debugId;
+    order.paypalErrorHttpStatus = summary.httpStatus || error.statusCode || 502;
+    order.paypalErrorAt = now;
+    order.note = `PayPal checkout failed: ${order.paypalErrorCode}`.slice(0, 200);
+    order.updatedAt = now;
+    await updateWalletOrderInDb(order);
+    if (!dbEnabled()) await writeDb(db);
+    console.error("[paypal-checkout-create-failed]", {
+      orderId: order.id,
+      sessionId: order.paypalCheckoutSessionId,
+      attempt: checkoutAttempt,
+      ...summary,
+    });
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: order.paypalErrorCode,
+      message: paypalPublicFailureMessage(summary),
+      debugId: summary.debugId,
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
   order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
   order.approvalUrl = findPayPalApprovalLink(paypalOrder);
   order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
   order.paypalCheckoutSessionStatus = "started";
+  order.paypalErrorCode = "";
+  order.paypalErrorDescription = "";
+  order.paypalErrorField = "";
+  order.paypalDebugId = "";
+  order.paypalErrorHttpStatus = 0;
+  order.paypalErrorAt = "";
   order.paypalCheckoutStartedAt = new Date().toISOString();
   order.updatedAt = new Date().toISOString();
   await updateWalletOrderInDb(order);
@@ -31537,6 +33711,10 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: order.stripePaymentIntentId || "",
+    stripePaymentStatus: order.stripePaymentStatus || "",
+    cashierHost: String(order.paymentProvider || "").toLowerCase() === "stripe" ? stripeCashierHostForOrder(order) : "",
     createdAt: order.createdAt || "",
     paidAt: order.paidAt || "",
     note: order.note || "",
@@ -31574,12 +33752,20 @@ function billingQueryFilters(url) {
 }
 
 async function handleListTopupRecords(req, res, url) {
-  const auth = await requireUser(req, res);
+  const exportRequested = String(url?.searchParams?.get("export") || "").toLowerCase() === "csv";
+  const auth = await requireUser(req, res, { loadDb: exportRequested });
   if (!auth) return;
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, status, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  if (dbEnabled() && !exportCsv) {
+    const result = await getUserWalletOrdersPageFromDb({ userId: auth.user.id, page, limit, queryText: q, status, fromDate, toDate });
+    if (result) {
+      const records = result.items.map((order) => publicTopupOrder(order, config.wallet, tenantOptions));
+      return sendJson(res, 200, { ok: true, records, total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, user: userView(auth.user) });
+    }
+  }
   const records = (auth.db.walletOrders || [])
     .filter((order) => order.userId === auth.user.id)
     .map((order) => publicTopupOrder(order, config.wallet, tenantOptions))
@@ -31634,10 +33820,15 @@ async function handleListTopupRecords(req, res, url) {
 }
 
 async function handleListSpendingRecords(req, res, url) {
-  const auth = await requireUser(req, res);
+  const exportRequested = String(url?.searchParams?.get("export") || "").toLowerCase() === "csv";
+  const auth = await requireUser(req, res, { loadDb: exportRequested });
   if (!auth) return;
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, type, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  if (dbEnabled() && !exportCsv) {
+    const result = await getUserSpendingRecordsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type, fromDate, toDate });
+    if (result) return sendJson(res, 200, { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, user: userView(auth.user) });
+  }
   const records = (auth.db.creditLedger || [])
     .filter((entry) => entry.userId === auth.user.id && Number(entry.delta || 0) < 0)
     .map(publicSpendingLedger)
@@ -31730,7 +33921,7 @@ async function handleGameFeed(req, res) {
   let config = await readAppConfig();
   config = await ensureSceneEntriesPersisted(config);
   config = await refreshCompletedHomeVideoItems(config);
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { loadDb: false });
   const publicView = await attachBillingViewToPublicConfig(
     publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
     req,
@@ -33672,12 +35863,18 @@ async function handleModifyUserAssetImage(req, res, assetId) {
 }
 
 async function handleListUserAssets(req, res, url = null) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const params = url?.searchParams || new URLSearchParams();
   const q = String(params.get("q") || "").trim().toLowerCase();
   const type = String(params.get("type") || "").trim().toLowerCase();
   const { page, limit, offset } = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 8, maxLimit: 50 });
+  if (dbEnabled()) {
+    const result = await getUserAssetsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type });
+    if (result) {
+      return sendJson(res, 200, { ok: true, assets: result.assets.map(publicUserAsset).filter((asset) => !isAutoPresetReferenceAsset(asset)), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages });
+    }
+  }
   const filtered = auth.db.userAssets
     .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset) && !isAutoPresetReferenceAsset(asset))
     .map(publicUserAsset)
@@ -33736,7 +35933,9 @@ function publicUserCharacter(character) {
   if (!character) return null;
   const posterUrl = character.publicImageUrl || character.cdnImageUrl || character.posterUrl || character.localImageUrl || "";
   const sourceImageUrl = character.publicImageUrl || character.cdnImageUrl || character.sourceImageUrl || character.localImageUrl || character.posterUrl || "";
-  const videoUrl = character.cdnVideoUrl || character.videoUrl || character.localVideoUrl || "";
+  const videoUrl = DISABLE_GENERATED_R2_STORAGE
+    ? (character.remoteVideoUrl || character.videoUrl || character.cdnVideoUrl || character.localVideoUrl || "")
+    : (character.cdnVideoUrl || character.videoUrl || character.localVideoUrl || character.remoteVideoUrl || "");
   return {
     id: character.id,
     name: character.name || "My character",
@@ -33749,6 +35948,7 @@ function publicUserCharacter(character) {
     imageTaskId: character.imageTaskId || "",
     imageRemoteUrl: character.imageRemoteUrl || "",
     videoUrl,
+    remoteVideoUrl: character.remoteVideoUrl || "",
     cdnVideoUrl: character.cdnVideoUrl || "",
     taskId: character.taskId || "",
     status: character.status || "",
@@ -34484,7 +36684,14 @@ async function ensureCharacterReferenceForRecord(record) {
   }
 
   if (!record.syntheticReferenceLocalUrl) {
-    const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
+    // The original upload may already have been removed by the 24h local media
+    // retention job. Resolve it through the shared helper so a purged local file
+    // is restored from the asset's R2/CDN mirror instead of throwing a raw ENOENT.
+    const sourcePath = await ensureLocalAssetUrlFile(sourceUrl, {
+      label: "Character source image",
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+    });
+    if (!sourcePath) throw missingUserAssetFileError(record, "Character source image");
     const sourceBytes = await fs.readFile(sourcePath);
     const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
     let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
@@ -35050,8 +37257,12 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
 }
 
 async function handleListMyCharacters(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
+  if (dbEnabled()) {
+    const result = await getUserCharactersPageFromDb({ userId: auth.user.id, page: 1, limit: 50 });
+    if (result) return sendJson(res, 200, { ok: true, characters: result.characters.map(publicUserCharacter), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages });
+  }
   const characters = auth.db.userCharacters
     .filter((character) => character.userId === auth.user.id && !isSoftDeleted(character))
     .slice(0, 50)
@@ -35141,9 +37352,11 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   }
 
   record.status = task.status;
-  record.videoUrl = localPublicAssetStorageEnabled()
-    ? (localVideoUrl || cdnVideoUrl || task.videoUrl || record.videoUrl || "")
-    : (cdnVideoUrl || localVideoUrl || task.videoUrl || record.videoUrl || "");
+  record.videoUrl = DISABLE_GENERATED_R2_STORAGE
+    ? (task.videoUrl || record.remoteVideoUrl || record.videoUrl || localVideoUrl || cdnVideoUrl || "")
+    : localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || task.videoUrl || record.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || task.videoUrl || record.videoUrl || "");
   record.localVideoUrl = localVideoUrl || record.localVideoUrl || "";
   record.localVideoPath = localVideoPath || record.localVideoPath || "";
   record.remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
@@ -35360,28 +37573,18 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
   const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
   const task = gatewayTask || normalizeTask(raw);
-  let localVideoUrl = "";
-  let localVideoPath = "";
-  let cdnVideoUrl = "";
-  let cdnPosterUrl = "";
-  let cdnError = "";
-  let downloadError = "";
-  if (isSucceededStatus(task.status) && task.videoUrl) {
-    try {
-      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
-      localVideoUrl = localVideo.localVideoUrl;
-      localVideoPath = localVideo.localVideoPath;
-      cdnVideoUrl = localVideo.cdnVideoUrl || "";
-      cdnPosterUrl = localVideo.cdnPosterUrl || "";
-      cdnError = localVideo.cdnError || "";
-    } catch (error) {
-      downloadError = error.message || "Failed to download scene video.";
-    }
-  }
-
   const nowIso = new Date().toISOString();
   const sceneVideos = { ...(record.sceneVideos || {}) };
   const previous = sceneVideos[matchedVideoKey] || {};
+  const localVideoUrl = previous.localVideoUrl || "";
+  const localVideoPath = previous.localVideoPath || "";
+  const cdnVideoUrl = previous.cdnVideoUrl || "";
+  const cdnPosterUrl = previous.cdnPosterUrl || "";
+  const cdnError = previous.cdnError || "";
+  const downloadError = "";
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    queueGeneratedVideoDownload(task.taskId || taskId, task.videoUrl, "character-scene-background-download");
+  }
   sceneVideos[matchedVideoKey] = {
     ...previous,
     sceneId: previous.sceneId || matchedSceneBaseId,
@@ -37237,11 +39440,13 @@ function adminWalletOrderView(order, userMap) {
   if (!order) return null;
   const user = userMap?.get(order.userId);
   const paymentProvider = order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual");
+  const cashierHost = paymentProvider === "stripe" ? stripeCashierHostForOrder(order) : "";
   return {
     id: order.id,
     userId: order.userId,
     username: user?.username || "",
     paymentProvider,
+    cashierHost,
     baseAmount: order.baseAmount,
     creditAmount: order.creditAmount ?? (
       order.packageCredits !== undefined
@@ -37276,6 +39481,20 @@ function adminWalletOrderView(order, userMap) {
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
     paypalPayerEmail: order.paypalPayerEmail || "",
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: order.stripePaymentIntentId || "",
+    stripeChargeId: order.stripeChargeId || "",
+    stripeCustomerId: order.stripeCustomerId || "",
+    stripeCustomerEmail: order.stripeCustomerEmail || "",
+    stripeCustomerName: order.stripeCustomerName || "",
+    stripePaymentMethodType: order.stripePaymentMethodType || "",
+    stripeFailureCode: order.stripeFailureCode || "",
+    stripeFailureMessage: order.stripeFailureMessage || "",
+    stripeAmountReceived: order.stripeAmountReceived ?? "",
+    stripeRefundedAmount: order.stripeRefundedAmount ?? 0,
+    stripeRefundStatus: order.stripeRefundStatus || "",
+    stripeCreatedAt: order.stripeCreatedAt || "",
+    stripeDetailsSyncedAt: order.stripeDetailsSyncedAt || "",
     status: order.status || "pending",
     createdAt: order.createdAt,
     paidAt: order.paidAt || "",
@@ -37305,6 +39524,19 @@ function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
     asset: record.asset || "",
     network: record.network || record.chain || "",
     paymentProvider: provider,
+    stripeCheckoutSessionId: record.stripeCheckoutSessionId || "",
+    stripePaymentIntentId: record.stripePaymentIntentId || "",
+    stripeChargeId: record.stripeChargeId || "",
+    stripeCustomerId: record.stripeCustomerId || "",
+    stripeCustomerEmail: record.stripeCustomerEmail || "",
+    stripeCustomerName: record.stripeCustomerName || "",
+    stripePaymentMethodType: record.stripePaymentMethodType || "",
+    stripeFailureCode: record.stripeFailureCode || "",
+    stripeFailureMessage: record.stripeFailureMessage || "",
+    stripeAmountReceived: record.stripeAmountReceived ?? "",
+    stripeRefundedAmount: record.stripeRefundedAmount ?? 0,
+    stripeCreatedAt: record.stripeCreatedAt || "",
+    stripeDetailsSyncedAt: record.stripeDetailsSyncedAt || "",
     transactionHash: record.transactionHash || record.txHash || "",
     paypalOrderId: record.paypalOrderId || "",
     adminUserId: record.adminUserId || "",
@@ -37332,6 +39564,18 @@ function adminRechargeLedgerRecords(db = {}) {
       asset: order.asset || order.currency || "",
       network: order.network || order.chain || "",
       paymentProvider: order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual"),
+      stripeCheckoutSessionId: order.stripeCheckoutSessionId || "",
+      stripePaymentIntentId: order.stripePaymentIntentId || "",
+      stripeChargeId: order.stripeChargeId || "",
+      stripeCustomerId: order.stripeCustomerId || "",
+      stripeCustomerEmail: order.stripeCustomerEmail || "",
+      stripeCustomerName: order.stripeCustomerName || "",
+      stripePaymentMethodType: order.stripePaymentMethodType || "",
+      stripeFailureCode: order.stripeFailureCode || "",
+      stripeFailureMessage: order.stripeFailureMessage || "",
+      stripeAmountReceived: order.stripeAmountReceived ?? "",
+      stripeRefundedAmount: order.stripeRefundedAmount ?? 0,
+      stripeCreatedAt: order.stripeCreatedAt || "",
       transactionHash: order.transactionHash || order.txHash || "",
       paypalOrderId: order.paypalOrderId || "",
       note: order.note || "",
@@ -37357,6 +39601,20 @@ function adminRechargeLedgerRecords(db = {}) {
     });
   return [...paidOrders, ...manualEntries]
     .sort((a, b) => String(b.paidAt || b.createdAt || "").localeCompare(String(a.paidAt || a.createdAt || "")));
+}
+
+async function hydrateStripeOrdersForAdmin(orders = [], persist = false) {
+  const candidates = orders.filter((order) =>
+    String(order?.paymentProvider || "").toLowerCase() === "stripe" &&
+    String(order.stripeCheckoutSessionId || "").trim() &&
+    !order.stripeDetailsSyncedAt,
+  ).slice(0, 20);
+  if (!candidates.length) return orders;
+  await Promise.all(candidates.map(async (order) => {
+    await hydrateStripeOrderDetails(order, null, null, null, stripeConfigForOrder(order));
+    if (persist) await updateWalletOrderInDb(order).catch(() => {});
+  }));
+  return orders;
 }
 
 function adminRechargeLedgerSummary(records = []) {
@@ -37434,11 +39692,17 @@ async function handleAdminDashboard(req, res) {
 }
 
 async function handleAdminListUsers(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const role = String((url || new URL("http://localhost")).searchParams.get("role") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminUsersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, role });
+    if (result) {
+      return sendJson(res, 200, { ok: true, users: result.items.map((user) => ({ ...userView(user), customCharacters: user.customCharacters, walletOrders: user.walletOrders, advancedAccess: user.advancedAccess === true, advancedAccessRequestedAt: user.advancedAccessRequestedAt || "", registrationChannel: user.registrationChannel || user.registrationAttribution?.channel || "", registrationAttribution: user.registrationAttribution && typeof user.registrationAttribution === "object" ? user.registrationAttribution : {} })), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
   const charByUser = new Map();
   userCharacters.forEach((c) => {
@@ -37541,6 +39805,29 @@ async function handleAdminUpdateUser(req, res, userId) {
     if (body.advancedAccess) user.advancedAccessReviewedAt = new Date().toISOString();
     changed = true;
   }
+  if (typeof body.apiDocsAccess === "boolean") {
+    const now = new Date().toISOString();
+    const current = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
+    user.apiDocsAccess = body.apiDocsAccess
+      ? {
+          ...current,
+          status: "active",
+          productId: API_DOCS_PRODUCT_ID,
+          grantedAt: current.grantedAt || now,
+          source: current.source || "admin",
+          orderId: current.orderId || "",
+          updatedAt: now,
+        }
+      : {
+          ...current,
+          status: "revoked",
+          productId: API_DOCS_PRODUCT_ID,
+          revokedAt: now,
+          revokedBy: auth.user.id,
+          updatedAt: now,
+        };
+    changed = true;
+  }
   if (
     Object.prototype.hasOwnProperty.call(body, "pricingMultiplier") ||
     Object.prototype.hasOwnProperty.call(body, "priceMultiplier") ||
@@ -37594,10 +39881,10 @@ async function handleAdminResetPassword(req, res, userId) {
   }
   user.passwordHash = hashPassword(password);
   user.updatedAt = new Date().toISOString();
-  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId || s.token === auth.session.token);
+  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId);
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(auth.db);
-  await deleteUserSessionsInDb(userId, auth.session?.token || "");
+  await deleteUserSessionsInDb(userId);
   return sendJson(res, 200, { ok: true, user: userView(user) });
 }
 
@@ -37697,10 +39984,16 @@ async function handleAdminListHomeItems(req, res, url) {
 }
 
 async function handleAdminListMyCharacters(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const q = String(url?.searchParams?.get("q") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminUserCharactersPageFromDb({ page: paging.page, limit: paging.limit, queryText: q });
+    if (result) {
+      return sendJson(res, 200, { ok: true, characters: result.items.map((r) => adminMyCharacterView(r, new Map([[r.userId, { username: r.username }]]))), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
   let list = (auth.db.userCharacters || [])
     .filter((record) => !isSoftDeleted(record))
@@ -37876,16 +40169,25 @@ async function handleAdminUpdateSceneEntry(req, res, sceneId, entryId) {
 }
 
 async function handleAdminListWalletOrders(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminWalletOrdersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, status });
+    if (result) {
+      await hydrateStripeOrdersForAdmin(result.items, true);
+      const userMap = new Map(result.items.map((o) => [o.userId, { username: o.username }]));
+      return sendJson(res, 200, { ok: true, orders: result.items.map((o) => adminWalletOrderView(o, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  await hydrateStripeOrdersForAdmin(auth.db.walletOrders || [], false);
   let list = (auth.db.walletOrders || []).map((o) => adminWalletOrderView(o, userMap));
   if (status) list = list.filter((order) => String(order.status || "").toLowerCase() === status);
   if (query) {
-    list = list.filter((order) => [order.id, order.username, order.userId, order.chain, order.network, order.address, order.transactionHash, order.paypalOrderId]
+    list = list.filter((order) => [order.id, order.username, order.userId, order.chain, order.network, order.address, order.transactionHash, order.paypalOrderId, order.stripeChargeId, order.stripeCustomerEmail, order.stripeCustomerName, order.stripeFailureMessage]
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
@@ -37894,13 +40196,37 @@ async function handleAdminListWalletOrders(req, res, url) {
 }
 
 async function handleAdminListRechargeLedger(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 200 });
   const source = String((url || new URL("http://localhost")).searchParams.get("source") || "").trim().toLowerCase();
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const fromDate = dateFromQuery((url || new URL("http://localhost")).searchParams.get("from"), false);
   const toDate = dateFromQuery((url || new URL("http://localhost")).searchParams.get("to"), true);
+  if (dbEnabled()) {
+    const result = await getAdminRechargeLedgerPageFromDb({
+      page: paging.page,
+      limit: paging.limit,
+      source,
+      queryText: query,
+      fromDate,
+      toDate,
+    });
+    if (result) {
+      const userMap = new Map();
+      const totalPages = Math.max(1, Math.ceil(Number(result.total || 0) / paging.limit));
+      const page = Math.min(paging.page, totalPages);
+      return sendJson(res, 200, {
+        ok: true,
+        records: result.items.map((entry) => adminRechargeLedgerRecordView(entry, userMap)),
+        summary: result.summary,
+        page,
+        limit: paging.limit,
+        total: Number(result.total || 0),
+        totalPages,
+      });
+    }
+  }
   let list = adminRechargeLedgerRecords(auth.db);
   if (source) list = list.filter((entry) => String(entry.source || "").toLowerCase() === source);
   if (fromDate || toDate) {
@@ -37963,10 +40289,17 @@ async function handleAdminScanWalletOrders(req, res) {
 }
 
 async function handleAdminListUserAssets(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  if (dbEnabled()) {
+    const result = await getAdminUserAssetsPageFromDb({ page: paging.page, limit: paging.limit, queryText: query });
+    if (result) {
+      const userMap = new Map(result.items.map((a) => [a.userId, { username: a.username }]));
+      return sendJson(res, 200, { ok: true, assets: result.items.map((a) => adminUserAssetView(a, userMap)), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
+    }
+  }
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
   let list = (auth.db.userAssets || []).map((a) => adminUserAssetView(a, userMap));
   if (query) {
@@ -37979,14 +40312,13 @@ async function handleAdminListUserAssets(req, res, url) {
 }
 
 async function handleAdminListGenerationRecords(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url, { defaultLimit: 20, maxLimit: 100 });
   const query = String(url.searchParams.get("q") || "").trim();
   const provider = String(url.searchParams.get("provider") || "").trim();
   const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
   const kind = String(url.searchParams.get("kind") || "").trim();
-  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   const refreshRequested = generationListRefreshRequested(url);
   if (dbEnabled()) {
     const loadPage = () => getAdminGenerationRecordsPageFromDb({
@@ -38006,6 +40338,8 @@ async function handleAdminListGenerationRecords(req, res, url) {
         .slice(0, 20);
       queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
     }
+    const users = await getUsersByIdsInDb(result.records.map((record) => record.userId));
+    const userMap = new Map(users.map((user) => [user.id, user]));
     return sendJson(res, 200, {
       ok: true,
       records: result.records.map((record) => adminGenerationRecordListView(record, userMap)),
@@ -38028,6 +40362,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
   queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
+  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   const enriched = records.map((record) => adminGenerationRecordListView(record, userMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
@@ -38054,8 +40389,63 @@ async function handleAdminGetGenerationRecord(req, res, taskId) {
   if (!auth) return;
   const record = await getGenerationRecord(decodeURIComponent(taskId));
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const enrichedRecord = await enrichAdminGenerationRecordMedia(record, auth.db);
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
-  return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(record, userMap) });
+  return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(enrichedRecord, userMap) });
+}
+
+async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, referenceIndex, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const index = Number(referenceIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= assets.length) {
+    return sendJson(res, 404, { ok: false, message: "Reference media not found." });
+  }
+  const asset = assets[index] || {};
+  let linked = null;
+  if (asset.userAssetId) {
+    linked = (auth.db.userAssets || []).find((item) => String(item?.id || "") === String(asset.userAssetId) && !isSoftDeleted(item)) || await getUserAssetFromDb(asset.userAssetId);
+  }
+  const localUrl = String(linked?.localUrl || asset.localUrl || asset.localImageUrl || asset.localVideoUrl || "").trim();
+  let localPath = "";
+  if (localUrl && !/^https?:\/\//i.test(localUrl) && !/^asset:\/\//i.test(localUrl)) {
+    try { localPath = localPathForUserAsset({ localUrl }); } catch { localPath = ""; }
+  }
+  const remoteUrl = adminRecordMediaAssetUrl(asset, new Map(linked ? [[String(linked.id), linked]] : []));
+  const download = url?.searchParams?.get("download") === "1";
+  const fileName = String(linked?.name || asset.fileName || asset.name || `reference-${index + 1}`).replace(/[^a-z0-9._-]/gi, "-") || `reference-${index + 1}`;
+  const fallbackMime = String(linked?.mime || asset.mime || "").split(";")[0].trim() || (isVideoUrl(remoteUrl) ? "video/mp4" : "image/png");
+  const disposition = download ? attachmentDisposition(fileName) : `inline; filename="${fileName}"`;
+  const headers = { "cache-control": "private, no-store", "content-disposition": disposition };
+  if (localPath) {
+    try {
+      const stat = await fs.stat(localPath);
+      headers["content-type"] = fallbackMime;
+      headers["content-length"] = stat.size;
+      res.writeHead(200, headers);
+      if (req.method === "HEAD") return res.end();
+      return pipeFileStream(res, localPath);
+    } catch {
+      // Use the durable public/R2 copy below when the local upload was cleaned up.
+    }
+  }
+  if (!isPublicHttpUrl(remoteUrl)) return sendJson(res, 404, { ok: false, message: "Reference media is unavailable." });
+  let response;
+  try {
+    response = await fetch(remoteUrl, { redirect: "follow", signal: AbortSignal.timeout(120000) });
+  } catch (error) {
+    return sendJson(res, 502, { ok: false, message: `Failed to read reference media: ${error.message || "upstream error"}` });
+  }
+  if (!response.ok || !response.body) return sendJson(res, 502, { ok: false, message: `Failed to read reference media: ${response.status}` });
+  headers["content-type"] = String(response.headers.get("content-type") || fallbackMime).split(";")[0].trim();
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) headers["content-length"] = contentLength;
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") return res.end();
+  return Readable.fromWeb(response.body).pipe(res);
 }
 
 async function handleAdminGenerationRecordMedia(req, res, taskId) {
@@ -38089,11 +40479,25 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
 }
 
 async function handleListGenerationRecords(req, res, url) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 8, maxLimit: 50 });
-  const allOwnRecords = await listGenerationRecordsForUser(auth.user.id, Math.max(500, offset + limit));
-  const ownRecords = allOwnRecords.slice(offset, offset + limit);
+  let allOwnRecords = [];
+  let ownRecords = [];
+  let totalPages = 1;
+  let total = 0;
+  if (dbEnabled()) {
+    const result = await getUserGenerationRecordsPageFromDb({ userId: auth.user.id, page, limit });
+    allOwnRecords = result?.records || [];
+    ownRecords = allOwnRecords;
+    total = Number(result?.total || 0);
+    totalPages = Number(result?.totalPages || 1);
+  } else {
+    allOwnRecords = await listGenerationRecordsForUser(auth.user.id, Math.max(500, offset + limit));
+    ownRecords = allOwnRecords.slice(offset, offset + limit);
+    total = allOwnRecords.length;
+    totalPages = Math.max(1, Math.ceil(total / limit));
+  }
 
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
@@ -38119,14 +40523,17 @@ async function handleListGenerationRecords(req, res, url) {
     records: ownRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
     page,
     limit,
-    total: allOwnRecords.length,
-    totalPages: Math.max(1, Math.ceil(allOwnRecords.length / limit)),
-    user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
+    total,
+    totalPages,
+    user: userView(auth.user),
   });
 }
 
 async function handleGetGenerationRecord(req, res, taskId) {
-  const auth = await requireUser(req, res);
+  // Detail polling only needs the session/user row and the requested record.
+  // Loading every application table here makes a single slow refresh block
+  // behind unrelated wallet/assets/history queries and can hit the proxy 524.
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const record = await getGenerationRecord(taskId);
   if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
@@ -38141,72 +40548,24 @@ async function handleGetGenerationRecord(req, res, taskId) {
   } else if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
   } else if (record.provider === "apiz" && (APIZ_API_KEY || record.upstreamSource === "gateway") && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshApizGenerationRecord(record);
-    } catch (error) {
-      console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
-    }
+    // Status/media refresh runs in the bounded background queue. Never make a
+    // browser detail request wait for an upstream download or R2 upload.
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.provider === "seedance25" && SEEDANCE25_API_KEY && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshSeedance25GenerationRecord(record, "detail");
-    } catch (error) {
-      console.warn("[seedance25-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshGenerationRecordStatus(record);
-    } catch (error) {
-      console.warn("[gateway-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.upstreamSource === "ignex" && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshIgnexGenerationRecord(record, "ignex-detail");
-    } catch (error) {
-      console.warn("[ignex-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && (record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
-    } catch (error) {
-      console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    // Do not make a browser detail poll wait on the upstream request. The
+    // status queue performs the query and schedules media download/R2 upload;
+    // the current record is safe to return immediately (R2-gated below).
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.provider === "aliyun-wan27-image" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshWan27ImageGenerationRecord(record, { reason: "detail" });
-    } catch (error) {
-      console.warn("[wan27-image-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
-  } else if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
-    try {
-      const queryTaskId = record.upstreamTaskId || taskId;
-      const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(queryTaskId)}`);
-      const task = normalizeTask(raw);
-      let localVideoUrl = record.localVideoUrl || "";
-      let localVideoPath = record.localVideoPath || "";
-      let downloadError = "";
-      const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-      if (isSucceededStatus(task.status) && remoteVideoUrl) {
-        try {
-          const localVideo = await downloadGeneratedVideo(taskId, remoteVideoUrl);
-          localVideoUrl = localVideo.localVideoUrl;
-          localVideoPath = localVideo.localVideoPath;
-        } catch (error) {
-          downloadError = error.message || "Failed to download generated video.";
-        }
-      }
-      nextRecord = await upsertAndSettleGenerationRecord({
-        taskId,
-        upstreamTaskId: task.taskId || queryTaskId,
-        status: task.status || record.status || "unknown",
-        remoteVideoUrl,
-        localVideoUrl,
-        localVideoPath,
-        error: task.error || downloadError || "",
-        queryResponse: raw,
-      }, "detail");
-    } catch (error) {
-      console.warn("[generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
+  } else if (ARK_API_KEY && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   }
 
   if (undressToolRequestAllowed(req)) {
@@ -38217,7 +40576,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
   return sendJson(res, 200, {
     ok: true,
     record: publicGenerationRecord(nextRecord, generationRecordResponseOptionsForAuth(auth)),
-    user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
+    user: userView(auth.user),
   });
 }
 
@@ -38868,18 +41227,11 @@ async function handleGetSceneVideo(req, res, taskId) {
   const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
   const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
   const task = gatewayTask || normalizeTask(raw);
-  let localVideoUrl = "";
-  let localVideoPath = "";
-  let downloadError = "";
-
+  const localVideoUrl = "";
+  const localVideoPath = "";
+  const downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
-    try {
-      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
-      localVideoUrl = localVideo.localVideoUrl;
-      localVideoPath = localVideo.localVideoPath;
-    } catch (error) {
-      downloadError = error.message || "Failed to download generated video.";
-    }
+    queueGeneratedVideoDownload(task.taskId || taskId, task.videoUrl, "scene-background-download");
   }
 
   await upsertAndSettleGenerationRecord({
@@ -38897,7 +41249,7 @@ async function handleGetSceneVideo(req, res, taskId) {
     task: {
       taskId: task.taskId || taskId,
       status: task.status,
-      videoUrl: localVideoUrl || task.videoUrl,
+      videoUrl: task.videoUrl || localVideoUrl,
       remoteVideoUrl: task.videoUrl,
       localVideoUrl,
       error: task.error || downloadError,
@@ -38935,7 +41287,10 @@ function privateStaticPath(pathname = "") {
 }
 
 async function serveStatic(req, res, url) {
-  let pathname = decodeURIComponent(url.pathname === "/" ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
+  const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
+  let pathname = decodeURIComponent(url.pathname === "/"
+    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : "/platform.html")
+    : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
   if (isPaymentHostRequest(req)) {
@@ -38946,6 +41301,16 @@ async function serveStatic(req, res, url) {
       || pathname === "/favicon.ico"
       || pathname === "/favicon.svg";
     if (!allowedPaymentPath) return sendText(res, 404, "Not Found");
+  }
+  if (chatTenantRequest) {
+    const allowedChatPath = pathname === "/chat.html"
+      || pathname === "/chat.css"
+      || pathname === "/chat.js"
+      || pathname === "/favicon.ico"
+      || pathname === "/favicon.svg"
+      || pathname.startsWith("/assets/brand/")
+      || pathname.startsWith("/assets/ourdream/");
+    if (!allowedChatPath) return sendText(res, 404, "Not Found");
   }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
   if (lockedUndressImageMatch) {
@@ -38977,6 +41342,7 @@ async function serveStatic(req, res, url) {
   const shouldRedirectAssetToR2 =
     (req.method === "GET" || req.method === "HEAD") &&
     pathname.startsWith("/assets/") &&
+    !pathname.startsWith("/assets/brand/") &&
     !pathname.startsWith("/assets/generated/") &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain;
@@ -39056,6 +41422,26 @@ async function serveStatic(req, res, url) {
     if (error.code === "ENOENT") return sendText(res, 404, "Not Found");
     throw error;
   }
+}
+
+function playfluxTemplateTabForGalleryMode(mode = "") {
+  const normalized = String(mode || "").trim().toLowerCase();
+  if (normalized === "playflux-video") return "video";
+  if (normalized === "playflux-image") return "image";
+  if (normalized === "playflux-anime") return "anime";
+  return "";
+}
+
+// Tool-only sites (for example the 123Tops video tool) render the same playflux
+// template gallery, so they need the templates for the gallery modes they expose.
+// Returning an empty list here leaves their home gallery blank.
+function playfluxTemplatesForTenant(templates = [], tenantOptions = {}) {
+  if (!tenantOptions?.toolOnly) return templates;
+  const modes = Array.isArray(tenantOptions.allowedGalleryModes) ? tenantOptions.allowedGalleryModes : [];
+  if (!modes.length) return templates;
+  const tabs = new Set(modes.map(playfluxTemplateTabForGalleryMode).filter(Boolean));
+  if (!tabs.size) return [];
+  return templates.filter((item) => tabs.has(String(item?.tab || "").trim().toLowerCase()));
 }
 
 async function handleRequest(req, res) {
@@ -39149,22 +41535,94 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/config/public") {
       const tenantOptions = requestTenantOptions(req);
       const isToolOnly = Boolean(tenantOptions.toolOnly);
-      let config = await readAppConfig({ includeHomeItems: !isToolOnly });
-      if (!isToolOnly) {
-        config = await ensureSceneEntriesPersisted(config);
-        config = await refreshCompletedHomeVideoItems(config);
+      const includeHomeItems = !isToolOnly || tenantOptions.toolId === "chat";
+      const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
+      const cacheKey = `${requestHostname(req)}:${isToolOnly ? "tool" : "main"}`;
+      let publicView = !auth.user ? publicConfigCache.get(cacheKey)?.value : null;
+      if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {
+        let config = await readAppConfig({ includeHomeItems });
+        if (!isToolOnly) {
+          // ensureSceneEntriesPersisted and refreshCompletedHomeVideoItems(config) are
+          // intentionally deferred to background/admin flows; neither should
+          // block the public bootstrap request.
+        }
+        publicView = await attachBillingViewToPublicConfig(
+          publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
+          req,
+          auth?.user ? auth : null,
+        );
+        if (!auth.user) publicConfigCache.set(cacheKey, { value: publicView, expiresAt: Date.now() + 30_000 });
       }
-      const auth = getBearerToken(req) ? await getAuth(req) : { user: null };
-      const publicView = await attachBillingViewToPublicConfig(
-        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, tenantOptions),
-        req,
-        auth?.user ? auth : null,
+      const cacheControl = getBearerToken(req)
+        ? "private, no-store"
+        : "public, max-age=30, s-maxage=30, stale-while-revalidate=120";
+      return sendJson(res, 200, { ok: true, config: publicView }, { cacheControl });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/platform/playflux-templates") {
+      const tenantOptions = requestTenantOptions(req);
+      const cacheKey = requestHostname(req);
+      const cached = publicPlayfluxTemplatesCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return sendJson(res, 200, { ok: true, templates: cached.value }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
+      }
+      const config = await readAppConfig({ includeHomeItems: false });
+      const templates = playfluxTemplatesForTenant(
+        Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
+        tenantOptions,
       );
-      return sendJson(res, 200, { ok: true, config: publicView });
+      publicPlayfluxTemplatesCache.set(cacheKey, { value: templates, expiresAt: Date.now() + 300_000 });
+      return sendJson(res, 200, { ok: true, templates }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
       return await handlePublicCharacters(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
+      let presets = publicPresetsCache.expiresAt > Date.now() ? publicPresetsCache.value : null;
+      if (!presets) {
+        // const presets = await getOurDreamPresetLibrary(); (cached below)
+        presets = await getOurDreamPresetLibrary();
+        publicPresetsCache = { value: presets, expiresAt: Date.now() + 300_000 };
+      }
+      return sendJson(res, 200, { ok: true, presets }, {
+        cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
+      });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/chat/conversations") {
+      return await handleListChatConversations(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/conversations") {
+      return await handleCreateChatConversation(req, res);
+    }
+    const chatConversationMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/?$/);
+    if (req.method === "GET" && chatConversationMatch) {
+      return await handleGetChatConversation(req, res, decodeURIComponent(chatConversationMatch[1]));
+    }
+    if (req.method === "PATCH" && chatConversationMatch) {
+      return await handleUpdateChatConversation(req, res, decodeURIComponent(chatConversationMatch[1]));
+    }
+    const chatImageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/images\/?$/);
+    if (req.method === "POST" && chatImageMatch) {
+      return await handleCreateChatImage(req, res, decodeURIComponent(chatImageMatch[1]));
+    }
+    const chatImageRefreshMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/images\/([^/]+)\/refresh\/?$/);
+    if (req.method === "POST" && chatImageRefreshMatch) {
+      return await handleRefreshChatImage(req, res, decodeURIComponent(chatImageRefreshMatch[1]), decodeURIComponent(chatImageRefreshMatch[2]));
+    }
+    const chatBranchMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/branch\/?$/);
+    if (req.method === "POST" && chatBranchMatch) {
+      return await handleBranchChatConversation(req, res, decodeURIComponent(chatBranchMatch[1]));
+    }
+    const chatSingleMessageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages\/([^/]+)\/?$/);
+    if (req.method === "DELETE" && chatSingleMessageMatch) {
+      return await handleDeleteChatMessage(req, res, decodeURIComponent(chatSingleMessageMatch[1]), decodeURIComponent(chatSingleMessageMatch[2]));
+    }
+    const chatMessageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages\/?$/);
+    if (req.method === "POST" && chatMessageMatch) {
+      return await handleSendChatMessage(req, res, decodeURIComponent(chatMessageMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/video-tools/estimate") {
@@ -39241,28 +41699,28 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/v3/contents/generations/tasks") {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleByteplusV3CreateTask(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/v3/images/generations") {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleByteplusV3ImageGeneration(req, res);
     }
 
     const byteplusV3TaskMatch = url.pathname.match(/^\/api\/v3\/contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "GET" && byteplusV3TaskMatch) {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleByteplusV3GetTask(req, res, decodeURIComponent(byteplusV3TaskMatch[1]));
     }
 
     const volcengineTaskMatch = url.pathname.match(/^\/(?:v3\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "POST" && /^\/(?:v3\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleVolcengineCreateGenerationTask(req, res);
     }
     if (req.method === "GET" && volcengineTaskMatch) {
-      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      if (!await requireExternalApiDocsAccess(req, res)) return;
       return await handleVolcengineGetGenerationTask(req, res, decodeURIComponent(volcengineTaskMatch[1]));
     }
 
@@ -39292,6 +41750,13 @@ async function handleRequest(req, res) {
       return await handleLoginOrRegister(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/auth/email/request") return await handleEmailLoginRequest(req, res);
+    if (req.method === "POST" && url.pathname === "/api/auth/email/verify") return await handleEmailLoginVerify(req, res);
+    if (req.method === "POST" && url.pathname === "/api/auth/password/reset/request") return await handlePasswordResetRequest(req, res);
+    if (req.method === "POST" && url.pathname === "/api/auth/password/reset") return await handlePasswordReset(req, res);
+    if (req.method === "POST" && url.pathname === "/api/account/email/request") return await handleAccountEmailRequest(req, res);
+    if (req.method === "POST" && url.pathname === "/api/account/email/verify") return await handleAccountEmailVerify(req, res);
+
     if (req.method === "POST" && url.pathname === "/api/google/login") {
       return await handleGoogleLogin(req, res);
     }
@@ -39319,6 +41784,9 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
     }
+    if (["PUT", "PATCH"].includes(req.method) && url.pathname === "/api/referral/wallet") return await handleUpdateReferralWallet(req, res);
+    if (req.method === "GET" && url.pathname === "/api/referral/withdrawals") return await handleListReferralWithdrawals(req, res, url);
+    if (req.method === "POST" && url.pathname === "/api/referral/withdrawals") return await handleCreateReferralWithdrawal(req, res);
     if (req.method === "POST" && url.pathname === "/api/membership/redeem") {
       return await handleRedeemMembershipActivationCode(req, res);
     }
@@ -39356,8 +41824,31 @@ async function handleRequest(req, res) {
       return await handlePayPalConfig(req, res);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/pay/stripe/config") {
+      return sendJson(res, 200, { ok: true, stripe: stripePublicConfig(req) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/stripe/checkout-sessions") {
+      return await createStripeCheckoutSession(req, res);
+    }
+
+    const stripeCheckoutSessionMatch = url.pathname.match(/^\/api\/pay\/stripe\/checkout-sessions\/([^/]+)$/);
+    if (req.method === "GET" && stripeCheckoutSessionMatch) {
+      return await handleStripeCheckoutSessionDetails(req, res, decodeURIComponent(stripeCheckoutSessionMatch[1]));
+    }
+
+    const stripeCheckoutSessionStartMatch = url.pathname.match(/^\/api\/pay\/stripe\/checkout-sessions\/([^/]+)\/start$/);
+    if (req.method === "POST" && stripeCheckoutSessionStartMatch) {
+      if (!isPaymentHostRequest(req)) return sendJson(res, 409, { ok: false, code: "STRIPE_CHECKOUT_REQUIRED", message: "Stripe payments must be started from the secure checkout page.", checkoutBaseUrl: STRIPE_CHECKOUT_BASE_URL });
+      return await handleStartStripeCheckoutSession(req, res, decodeURIComponent(stripeCheckoutSessionStartMatch[1]));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/stripe/webhook") {
+      return await handleStripeWebhook(req, res);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/orders") {
-      return await handleCreatePayPalOrder(req, res);
+      return sendPayPalCheckoutHostRequired(res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/checkout-sessions") {
@@ -39371,11 +41862,13 @@ async function handleRequest(req, res) {
 
     const paypalCheckoutSessionStartMatch = url.pathname.match(/^\/api\/pay\/paypal\/checkout-sessions\/([^/]+)\/start$/);
     if (req.method === "POST" && paypalCheckoutSessionStartMatch) {
+      if (!isPaymentHostRequest(req)) return sendPayPalCheckoutHostRequired(res);
       return await handleStartPayPalCheckoutSession(req, res, decodeURIComponent(paypalCheckoutSessionStartMatch[1]));
     }
 
     const paypalCaptureMatch = url.pathname.match(/^\/api\/pay\/paypal\/orders\/([^/]+)\/capture$/);
     if (req.method === "POST" && paypalCaptureMatch) {
+      if (!isPaymentHostRequest(req)) return sendPayPalCheckoutHostRequired(res);
       return await handleCapturePayPalOrder(req, res, decodeURIComponent(paypalCaptureMatch[1]));
     }
 
@@ -39687,6 +42180,10 @@ async function handleRequest(req, res) {
       return await handleAdminListWalletOrders(req, res, url);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/referral-withdrawals") return await handleAdminListReferralWithdrawals(req, res, url);
+    const adminReferralWithdrawalMatch = url.pathname.match(/^\/api\/admin\/referral-withdrawals\/([^/]+)$/);
+    if (req.method === "PATCH" && adminReferralWithdrawalMatch) return await handleAdminUpdateReferralWithdrawal(req, res, adminReferralWithdrawalMatch[1]);
+
     if (req.method === "GET" && url.pathname === "/api/admin/recharge-ledger") {
       return await handleAdminListRechargeLedger(req, res, url);
     }
@@ -39715,6 +42212,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
       return await handleAdminListGenerationRecords(req, res, url);
+    }
+    const adminGenerationRecordReferenceMediaMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/references\/(\d+)\/media$/);
+    if (["GET", "HEAD"].includes(req.method) && adminGenerationRecordReferenceMediaMatch) {
+      return await handleAdminGenerationRecordReferenceMedia(req, res, adminGenerationRecordReferenceMediaMatch[1], adminGenerationRecordReferenceMediaMatch[2], url);
     }
     const adminGenerationRecordMediaMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/media$/);
     if (["GET", "HEAD"].includes(req.method) && adminGenerationRecordMediaMatch) {
@@ -39981,6 +42482,7 @@ async function bootstrap() {
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
   startLocalMediaCleanupScheduler();
+  startGenerationRecordMediaRecoveryScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);

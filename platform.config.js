@@ -6,7 +6,7 @@ const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["gallery", "characters", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
+const ALL_TABS = new Set(["home", "gallery", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -35,7 +35,9 @@ const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
 const ADVANCED_QWEN_IMAGE3_PRO_2K_USD_PER_IMAGE = 0.068761;
 const ADVANCED_QWEN_IMAGE3_STANDARD_USD_PER_IMAGE = 0.024754;
 const ADVANCED_QWEN_IMAGE3_USD_PER_REFERENCE_IMAGE = 0.00275;
-const DEFAULT_ADVANCED_PROVIDER = "wan27";
+// The Seedance 2.5 engine keeps its provider id; only its public name lost the
+// NSFW wording.
+const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = 3;
@@ -60,10 +62,11 @@ const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
-const OURDREAM_PRESET_URL = "/assets/ourdream/presets/presets.json";
-const ADVANCED_PRESET_SLOT_ORDER = ["character", "action", "outfit", "scene"];
+const OURDREAM_PRESET_URL = "/api/ourdream/presets";
+const ADVANCED_PRESET_SLOT_ORDER = ["character", "pose", "action", "outfit", "scene"];
 const ADVANCED_PRESET_SLOT_META = {
   character: { labelKey: "advancedPreset.character", icon: "user-round", required: true },
+  pose: { labelKey: "advancedPreset.pose", icon: "person-standing", required: false },
   action: { labelKey: "advancedPreset.action", icon: "clapperboard", required: true },
   outfit: { labelKey: "advancedPreset.outfit", icon: "shirt", required: false },
   scene: { labelKey: "advancedPreset.scene", icon: "image", required: false },
@@ -120,8 +123,7 @@ const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
 ]);
 const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
-  Object.freeze({ id: "seedance25", label: "Seedance 2.5", resolution: "480p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "omini" }),
-  Object.freeze({ id: "seedance-nsfw", label: "Seedance2.5 (NSFW)", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
+  Object.freeze({ id: "seedance-nsfw", label: "Seedance 2.5", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
   Object.freeze({ id: "wan30", label: "Wan 3.0 Video", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan30-prime", label: "Wan 3.0 Video Prime", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan27", label: "Wan 2.7", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["720p", "1080p"], ratios: ["9:16", "16:9", "1:1"], durations: [2, 5, 8, 10, 15], modes: [{ value: "auto", label: "Auto from inputs" }, { value: "wan27-t2v", label: "Text to Video" }, { value: "wan27-i2v", label: "Image to Video" }, { value: "wan27-r2v", label: "Reference to Video" }, { value: "wan27-video-edit", label: "Video Edit" }], mode: "auto" }),
@@ -420,17 +422,18 @@ const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
 const ADVANCED_CREATE_KINDS = [
   { id: "image", labelKey: "advanced.createKindImage", icon: "image" },
   { id: "video", labelKey: "advanced.createKindVideo", icon: "clapperboard" },
-  { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal" },
 ];
+const ADVANCED_CUSTOM_KIND = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal" };
 const ADVANCED_CUSTOM_MODE = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal", custom: true, placeholderKey: "advanced.promptPlaceholder" };
+const VIDEO_REPLACE_PROMPT = "将视频1中的人物替换成图片1中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 const ADVANCED_CREATE_MODES = {
   image: [
-    { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageCreate" },
+    { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", activeSlots: ["character", "pose", "outfit", "scene"], placeholderKey: "advanced.promptImageCreate" },
     { id: "image-edit", labelKey: "advanced.modeImageEdit", icon: "wand-sparkles", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageEdit" },
   ],
   video: [
-    { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoText" },
-    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoImage" },
+    { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "wan30", videoCapability: "wan30-video", seedanceMode: "reference_video", assetTarget: "referenceImages", activeSlots: ["character", "action", "outfit", "scene"], placeholderKey: "advanced.promptVideoText" },
+    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", activeSlots: ["character", "action"], placeholderKey: "advanced.promptVideoImage" },
     { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoExtend" },
     { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoReplace" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
@@ -466,7 +469,7 @@ function seedanceModeNeedsReferenceVideo(mode = "") {
 }
 
 function advancedCreateModeUsesAutoPrompt(mode = state.advancedCreateMode) {
-  return ["video-extend", "video-replace"].includes(mode);
+  return ["video-image", "video-extend", "video-replace"].includes(mode);
 }
 
 function advancedCreateModeIsSimpleEdit(mode = state.advancedCreateMode) {
@@ -479,8 +482,10 @@ function advancedCreateModeUsesSingleUpload(mode = state.advancedCreateMode) {
 
 function advancedCreateModeActivePresetSlots(mode = state.advancedCreateMode) {
   if (advancedCreateModeIsSimpleEdit(mode)) return [];
+  const configured = Object.values(ADVANCED_CREATE_MODES).flat().find((item) => item.id === mode);
+  if (Array.isArray(configured?.activeSlots)) return configured.activeSlots;
   if (["video-extend", "video-replace"].includes(mode)) return ["character", "action"];
-  return ADVANCED_PRESET_SLOT_ORDER;
+  return ["character", "action", "outfit", "scene"];
 }
 
 function advancedCreateModeUsesPresetBuilder(mode = state.advancedCreateMode) {
@@ -536,10 +541,13 @@ function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConf
 }
 
 function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
+  if (mode === "video-image") {
+    return VIDEO_REPLACE_PROMPT;
+  }
   if (mode === "video-extend") {
     return "Generate a cinematic video using Image 1 as the main adult character and Image 2 as the action reference. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
   }
-  if (mode === "video-replace") return "Replace the subject of the selected action reference with Image 1 as the main adult character. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
+  if (mode === "video-replace") return VIDEO_REPLACE_PROMPT;
   return "";
 }
 
@@ -550,6 +558,29 @@ function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   }
   if (advancedCreateUploadIsVideo(mode)) return "video/mp4,video/webm,video/quicktime,video/*";
   return "image/*";
+}
+
+function uploadedFileMime(file = {}) {
+  const declared = String(file.type || "").trim().toLowerCase();
+  if (declared) return declared;
+  const extension = String(file.name || "").trim().toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+  const known = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    gif: "image/gif",
+    mp4: "video/mp4",
+    mov: "video/quicktime",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    ogg: "audio/ogg",
+  };
+  return known[extension] || "";
 }
 
 const CHARACTER_ROUTE_PARAM_NAMES = ["characterId", "character", "itemId", "id"];
@@ -601,7 +632,12 @@ function replacePlatformUrlForCharacter(characterId = "", source = "", tab = sta
 function normalizePlatformTab(value = "") {
   const normalized = platformHashParts(value).tab;
   if (PLAYFLUX_GALLERY_HASHES.has(String(normalized || "").toLowerCase())) return DEFAULT_PLATFORM_TAB;
+  if (normalized === "custom") return "advanced";
   return ALL_TABS.has(normalized) ? normalized : DEFAULT_PLATFORM_TAB;
+}
+
+function isAdvancedCustomRoute(value = "") {
+  return String(platformHashParts(value).tab || "").toLowerCase() === "custom";
 }
 
 function galleryModeFromPlatformRoute(value = "") {
@@ -654,6 +690,10 @@ function initialPlatformTab() {
   const searchTab = searchParams.get("tab") || searchParams.get("view") || "";
   if (searchTab) return normalizePlatformTab(searchTab);
   if (bootstrapTenantFeature("toolOnly", false)) return initialTenantDefaultTab();
+  const siteDefaultTab = bootstrapTenantFeatures().defaultTab;
+  if (typeof siteDefaultTab === "string" && siteDefaultTab.trim()) {
+    return normalizePlatformTab(siteDefaultTab);
+  }
   return normalizePlatformTab(localStorage.getItem(TAB_KEY) || "");
 }
 
@@ -703,12 +743,22 @@ const state = {
   galleryUnlocksLoaded: false,
   galleryUnlockMessage: "",
   galleryUnlockLoadingKey: "",
+  chatConversations: [],
+  chatActiveConversationId: "",
+  chatMessages: [],
+  chatLoading: false,
+  chatSending: false,
+  chatSearch: "",
+  chatSetting: "style",
+  chatMode: "chat",
+  chatTrackerVisible: true,
+  chatImagePolls: new Map(),
   advancedCases: [],
   activeAdvancedCaseId: "",
   activeAdvancedCaseTab: "hot",
   advancedCasePages: { hot: 1, extend: 1, replace: 1 },
-  advancedCreateKind: "video",
-  advancedCreateMode: "video-image",
+  advancedCreateKind: isAdvancedCustomRoute(window.location.hash) ? "custom" : "video",
+  advancedCreateMode: isAdvancedCustomRoute(window.location.hash) ? ADVANCED_CUSTOM_MODE.id : "video-image",
   advancedMobileTab: "create",
   advancedEstimate: null,
   advancedEstimateKey: "",
@@ -759,7 +809,7 @@ const state = {
   advancedAudioOrder: 0,
   wallet: null,
   selectedWalletOptionId: "",
-  topupMethod: "paypal",
+  topupMethod: "stripe",
   topupStep: "packages",
   topupPayStep: "transfer",
   selectedTopupPackageId: "",
@@ -767,7 +817,7 @@ const state = {
   selectedProductId: "",
   billing: null,
   activeTopupOrder: null,
-  paypalConfig: null,
+  stripeConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   telegramMiniApp: false,
   telegramView: "",
@@ -783,13 +833,15 @@ const state = {
   referralLoadedUserId: "",
   referralLoadedAt: 0,
   historyRecords: [],
+  generationCompletionPrimed: false,
+  generationCompletionRefreshTimer: 0,
   historyRecordsPage: 1,
   historyRecordsLimit: 8,
   historyRecordsTotal: 0,
   historyRecordsTotalPages: 1,
   assetSearchTimer: 0,
   advancedAssetSearchTimer: 0,
-  advancedSideTab: "assets",
+  advancedSideTab: isAdvancedCustomRoute(window.location.hash) ? "assets" : "result",
   advancedResultRecords: [],
   advancedResultTaskId: "",
   advancedResultTimer: 0,
@@ -962,9 +1014,17 @@ function isTenantTool(toolId = "") {
   return tenantFeature("toolOnly", false) && tenantStringFeature("toolId", "") === String(toolId || "").trim();
 }
 
+function siteProfileId() {
+  return tenantStringFeature("siteProfile", "");
+}
+
+function isSiteProfile(id = "") {
+  return siteProfileId() === String(id || "").trim();
+}
+
 function isTabAllowed(tab) {
   const raw = platformHashParts(tab).tab || String(tab || "").trim();
-  const normalized = ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
+  const normalized = raw === "custom" ? "advanced" : ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
   const allowed = tenantAllowedTabs();
   if (allowed.length && !allowed.includes(normalized)) return false;
   if (tenantDisabledTabs().includes(normalized)) return false;
@@ -976,6 +1036,9 @@ function isTabAllowed(tab) {
 
 const els = {
   brandName: document.querySelector("#brandName"),
+  wan30LaunchBanner: document.querySelector("#wan30LaunchBanner"),
+  wan30LaunchBtn: document.querySelector("#wan30LaunchBtn"),
+  wan30LaunchClose: document.querySelector("#wan30LaunchClose"),
   languageSelect: document.querySelector("#languageSelect"),
   ageGate: document.querySelector("#ageGate"),
   ageGateConfirmBtn: document.querySelector("#ageGateConfirmBtn"),
@@ -993,6 +1056,26 @@ const els = {
   characterCreatePrompt: document.querySelector("#characterCreatePrompt"),
   characterCreateBtn: document.querySelector("#characterCreateBtn"),
   characterCreateStatus: document.querySelector("#characterCreateStatus"),
+  chatShell: document.querySelector("#chatShell"),
+  chatBrowseBtn: document.querySelector("#chatBrowseBtn"),
+  chatEmptyBrowseBtn: document.querySelector("#chatEmptyBrowseBtn"),
+  chatSearch: document.querySelector("#chatSearch"),
+  chatConversationList: document.querySelector("#chatConversationList"),
+  chatMainHead: document.querySelector("#chatMainHead"),
+  chatEmpty: document.querySelector("#chatEmpty"),
+  chatThread: document.querySelector("#chatThread"),
+  chatSuggestion: document.querySelector("#chatSuggestion"),
+  chatSuggestionBtn: document.querySelector("#chatSuggestionBtn"),
+  chatComposer: document.querySelector("#chatComposer"),
+  chatInput: document.querySelector("#chatInput"),
+  chatModeBtn: document.querySelector("#chatModeBtn"),
+  chatModeMenu: document.querySelector("#chatModeMenu"),
+  chatVoiceBtn: document.querySelector("#chatVoiceBtn"),
+  chatContinueBtn: document.querySelector("#chatContinueBtn"),
+  chatSendBtn: document.querySelector("#chatSendBtn"),
+  chatCharacterCard: document.querySelector("#chatCharacterCard"),
+  chatTracker: document.querySelector("#chatTracker"),
+  chatSettingsBody: document.querySelector("#chatSettingsBody"),
   templateDialog: document.querySelector("#templateDialog"),
   modalType: document.querySelector("#modalType"),
   modalTitle: document.querySelector("#modalTitle"),
@@ -1019,6 +1102,7 @@ const els = {
   toggleAccessTokenBtn: document.querySelector("#toggleAccessTokenBtn"),
   copyTokenBtn: document.querySelector("#copyTokenBtn"),
   historyList: document.querySelector("#historyList"),
+  generationCompletionNotices: document.querySelector("#generationCompletionNotices"),
   topupFilters: document.querySelector("#topupFilters"),
   topupSearch: document.querySelector("#topupSearch"),
   topupStatus: document.querySelector("#topupStatus"),
@@ -1029,6 +1113,8 @@ const els = {
   exportTopupsBtn: document.querySelector("#exportTopupsBtn"),
   referralCard: document.querySelector("#referralCard"),
   referralLink: document.querySelector("#referralLink"),
+  copyReferralLinkBtn: document.querySelector("#copyReferralLinkBtn"),
+  referralCopyFeedback: document.querySelector("#referralCopyFeedback"),
   referralProgressFill: document.querySelector("#referralProgressFill"),
   referralInvitedCount: document.querySelector("#referralInvitedCount"),
   referralRewardStatus: document.querySelector("#referralRewardStatus"),
@@ -1043,6 +1129,14 @@ const els = {
   membershipNote: document.querySelector("#membershipNote"),
   referralMembershipProgressText: document.querySelector("#referralMembershipProgressText"),
   referralMembershipProgressFill: document.querySelector("#referralMembershipProgressFill"),
+  referralInvitedUsers: document.querySelector("#referralInvitedUsers"),
+  referralWithdrawable: document.querySelector("#referralWithdrawable"),
+  referralTotalEarned: document.querySelector("#referralTotalEarned"),
+  referralWithdrawForm: document.querySelector("#referralWithdrawForm"),
+  referralWalletAddress: document.querySelector("#referralWalletAddress"),
+  saveReferralWalletBtn: document.querySelector("#saveReferralWalletBtn"),
+  requestReferralWithdrawBtn: document.querySelector("#requestReferralWithdrawBtn"),
+  referralWithdrawals: document.querySelector("#referralWithdrawals"),
   pricingRules: document.querySelector("#pricingRules"),
   spendingFilters: document.querySelector("#spendingFilters"),
   spendingSearch: document.querySelector("#spendingSearch"),
@@ -1066,7 +1160,7 @@ const els = {
   mobileToolDownloadBtn: document.querySelector("#mobileToolDownloadBtn"),
   toolDownloadDialog: document.querySelector("#toolDownloadDialog"),
   topupMethodTabs: document.querySelector("#topupMethodTabs"),
-  topupPaypalPanel: document.querySelector("#topupPaypalPanel"),
+  topupStripePanel: document.querySelector("#topupStripePanel"),
   topupUsdtPanel: document.querySelector("#topupUsdtPanel"),
   topupPanel: document.querySelector("#topupPanel"),
   topupBackBtn: document.querySelector("#topupBackBtn"),
@@ -1105,9 +1199,9 @@ const els = {
   topupTxHashInput: document.querySelector("#topupTxHashInput"),
   topupSubmitHashBtn: document.querySelector("#topupSubmitHashBtn"),
   topupConfirmStatus: document.querySelector("#topupConfirmStatus"),
-  paypalBox: document.querySelector("#paypalBox"),
-  paypalButtons: document.querySelector("#paypalButtons"),
-  paypalStatus: document.querySelector("#paypalStatus"),
+  stripeBox: document.querySelector("#stripeBox"),
+  stripeButtons: document.querySelector("#stripeButtons"),
+  stripeStatus: document.querySelector("#stripeStatus"),
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
   previewImage: document.querySelector("#previewImage"),
@@ -1157,6 +1251,7 @@ const els = {
   advancedQwenPromptExtend: document.querySelector("#advancedQwenPromptExtend"),
   advancedQwenWatermark: document.querySelector("#advancedQwenWatermark"),
   advancedWanPromptExtend: document.querySelector("#advancedWanPromptExtend"),
+  advancedWanPromptOptimize: document.querySelector("#advancedWanPromptOptimize"),
   advancedQwen37Thinking: document.querySelector("#advancedQwen37Thinking"),
   advancedQwen37MaxTokens: document.querySelector("#advancedQwen37MaxTokens"),
   advancedQwen37Temperature: document.querySelector("#advancedQwen37Temperature"),
@@ -1245,6 +1340,17 @@ const els = {
   telegramLoginStatus: document.querySelector("#telegramLoginStatus"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
+  loginEmail: document.querySelector("#loginEmail"),
+  loginEmailCode: document.querySelector("#loginEmailCode"),
+  requestEmailLoginCodeBtn: document.querySelector("#requestEmailLoginCodeBtn"),
+  verifyEmailLoginBtn: document.querySelector("#verifyEmailLoginBtn"),
+  forgotPasswordBtn: document.querySelector("#forgotPasswordBtn"),
+  accountEmail: document.querySelector("#accountEmail"),
+  accountEmailCode: document.querySelector("#accountEmailCode"),
+  accountCurrentPassword: document.querySelector("#accountCurrentPassword"),
+  requestAccountEmailCodeBtn: document.querySelector("#requestAccountEmailCodeBtn"),
+  verifyAccountEmailBtn: document.querySelector("#verifyAccountEmailBtn"),
+  accountSecurityMessage: document.querySelector("#accountSecurityMessage"),
   loginSubmit: document.querySelector("#loginSubmit"),
   loginMessage: document.querySelector("#loginMessage"),
 };

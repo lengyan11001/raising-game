@@ -45,11 +45,36 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(create, /function openEntitlementPaymentChoice/);
   assert.match(create, /state\.selectedProductId = product\.id/);
   assert.match(create, /setTopupStep\("payment"\)/);
-  assert.match(create, /if \(payPalCheckoutVisible\(\)\) renderPayPalCheckout\(\)/);
+  assert.match(create, /if \(stripeCheckoutVisible\(\)\) renderStripeCheckout\(\)/);
   assert.match(explore, /function selectedBillingProduct/);
   assert.match(explore, /\? \{ productId: billingProduct\.id \}/);
   assert.match(explore, /body: billingPlan[\s\S]*?\? \{ productId: billingProduct\.id, walletOptionId:/);
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
+  assert.match(main, /openBillingPaymentChoice\(\{[\s\S]*billingPlanId:\s*"plan-main-creator"/);
+  assert.match(main, /function openTopupDialog\(\)[\s\S]*?topupMembershipLink\.hidden = !membershipProgramEnabled\(\)/);
+  assert.match(create, /function openBillingPaymentChoice/);
+  assert.match(create, /state\.selectedBillingPlanId = plan\?\.id \|\| ""/);
+  assert.match(explore, /function isOwnGalleryCharacter/);
+  assert.match(explore, /ownCharacter/);
+  assert.match(explore, /function isHiddenToolSubscriptionPlan/);
+  assert.match(explore, /Number\(plan\.amount \|\| 0\) === 20/);
+  assert.match(explore, /intervalUnit \|\| ""\)\.toLowerCase\(\) === "month"/);
+  assert.doesNotMatch(explore, /if \(confirmed === "confirm"\) \{[\s\S]*?startEntitlementCheckout\(\{ billingPlanId:/);
+});
+
+test("API documentation access can be revoked for external tokens without blocking the site frontend", () => {
+  const server = read("server.js");
+  const admin = read("admin.js");
+  assert.match(server, /async function requireExternalApiDocsAccess\(/);
+  assert.match(server, /tokenSource === "api_token" \|\| tokenSource === "subtoken"/);
+  assert.match(server, /code: "API_DOCS_ACCESS_REQUIRED"/);
+  assert.match(server, /if \(typeof body\.apiDocsAccess === "boolean"\)/);
+  assert.match(server, /status: "revoked"/);
+  assert.match(server, /status: "active"/);
+  assert.match(server, /requireExternalApiDocsAccess\(req, res\)/);
+  assert.match(admin, /id="editApiDocsAccess"/);
+  assert.match(admin, /const apiDocsAccess = Boolean\(tpl\.querySelector\("#editApiDocsAccess"\)/);
+  assert.match(admin, /const body = \{ role, apiDocsAccess \}/);
 });
 
 test("USDT API documentation checkout creates a product order", () => {

@@ -38,6 +38,7 @@ function trackAnalyticsEvent(eventName, params = {}) {
 
 function setTab(tab) {
   const previousTab = state.tab;
+  const customAdvancedRoute = isAdvancedCustomRoute(tab);
   const hashRoute = platformHashParts(tab);
   let routeGalleryMode = galleryModeFromPlatformRoute(tab);
   if (routeGalleryMode && !isGalleryModeAllowed(routeGalleryMode)) routeGalleryMode = "";
@@ -57,6 +58,18 @@ function setTab(tab) {
     nextTab = state.tab || nextTab;
   }
   state.tab = nextTab;
+  if (nextTab === "advanced") {
+    if (customAdvancedRoute) {
+      state.advancedCreateKind = ADVANCED_CUSTOM_KIND.id;
+      state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
+      state.advancedSideTab = "assets";
+    } else if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) {
+      state.advancedCreateKind = "video";
+      state.advancedCreateMode = advancedCreateModesForKind("video")[0]?.id || "video-image";
+      state.advancedSideTab = "result";
+      if (state.advancedMobileTab === "assets") state.advancedMobileTab = "create";
+    }
+  }
   if (nextTab === "characters") {
     state.characterPanelTab = state.routeCharacterId || state.activeGalleryCharacterId
       ? "list"
@@ -69,7 +82,11 @@ function setTab(tab) {
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
-    : nextTab === DEFAULT_PLATFORM_TAB ? galleryModeHash(state.galleryMode) : `#${nextTab}`;
+    : nextTab === DEFAULT_PLATFORM_TAB
+      ? galleryModeHash(state.galleryMode)
+      : nextTab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id
+        ? "#custom"
+        : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
     const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
@@ -97,19 +114,22 @@ function setTab(tab) {
     control.hidden = nextTab !== "history";
     if (control.hidden) control.open = false;
   });
-  document.querySelectorAll("[data-tab]").forEach((button) => {
-    const active = button.dataset.tab === nextTab
-      && (button.dataset.tab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
-    button.classList.toggle("is-active", active);
-  });
+  syncMainTabState();
   syncGalleryShortcutNav();
   if (typeof renderVideoToolActions === "function") renderVideoToolActions();
-  if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
+  if (nextTab === DEFAULT_PLATFORM_TAB) {
+    renderTemplates();
+    // Undress keeps its home workspace mounted while Result/History is open.
+    // Re-render it on return so a submitted file/result cannot remain visible
+    // until the user changes the tool tab again.
+    if (typeof renderUndressToolHomeState === "function") renderUndressToolHomeState();
+  }
   if (nextTab === "history") loadHistory({ page: isMobileHistoryLayout() ? 1 : state.historyRecordsPage || 1 });
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
+  if (nextTab === "chat") loadChatConversations({ selectFirst: true });
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);
@@ -124,7 +144,7 @@ function setTab(tab) {
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
     renderAdvanced();
-    loadAdvancedAssets();
+    if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
     if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
   }
@@ -136,6 +156,20 @@ function setTab(tab) {
   closeAccountMenu();
   closeMobileDrawer();
   trackGooglePageView();
+}
+
+function syncMainTabState() {
+  const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  document.body.classList.toggle("home-active", state.tab === "home");
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    const buttonTab = button.dataset.tab || "";
+    const active = buttonTab === "custom"
+      ? customActive
+      : buttonTab === state.tab
+        && !(buttonTab === "advanced" && customActive)
+        && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
+    button.classList.toggle("is-active", active);
+  });
 }
 
 function setCategory(category) {
@@ -409,6 +443,11 @@ function renderTemplates() {
     return;
   }
   if (isPlayfluxGalleryMode()) {
+    if (!state.playfluxTemplatesLoaded && !state.playfluxTemplatesLoading) {
+      els.templateGrid.innerHTML = `<div class="job-note">Loading templates…</div>`;
+      void loadPlayfluxTemplates();
+      return;
+    }
     renderPlayfluxTemplateGallery();
     return;
   }
@@ -711,21 +750,25 @@ function playfluxTemplateNeedsSource(template = {}) {
 }
 
 function playfluxTemplateVideoProvider() {
+  if ((typeof isTenantTool === "function" && isTenantTool("video")) || state.galleryMode === "playflux-video") return "seedance";
   const provider = tenantStringFeature("videoProvider", "wan27");
-  return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
+  return ["wan30", "wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
 
-const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan27-r2v";
+const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan30-video";
+const PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY = "wan27-video-edit";
 
 function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvider()) {
-  if (provider === "wan27") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
+  if (provider === "wan30") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
+  if (provider === "wan27") return PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY;
   if (provider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
 
 function playfluxTemplateOutputDuration(template = {}, provider = playfluxTemplateVideoProvider()) {
   const configuredDuration = Number(template.duration || 5) || 5;
-  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== "wan27-r2v") return configuredDuration;
+  if (template.tab === "video" && typeof isTenantTool === "function" && isTenantTool("video") && provider === "seedance") return 6;
+  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY) return configuredDuration;
   const referenceDuration = Number(template.referenceVideoDurationSeconds || configuredDuration) || configuredDuration;
   return Math.max(2, Math.min(10, Math.round(referenceDuration)));
 }
@@ -738,6 +781,7 @@ function playfluxTemplateRequiredSourceCount(template = {}) {
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
   if (template.tab !== "video") return "";
+  if ((typeof isTenantTool === "function" && isTenantTool("video")) || state.galleryMode === "playflux-video") return "reference_video";
   if (playfluxTemplateVideoProvider() !== "seedance") return "reference_video";
   return playfluxNormalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
 }
@@ -846,7 +890,8 @@ function playfluxSeedanceModeNeedsReferenceVideo(mode = "") {
 }
 
 function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
-  return "";
+  if (template.tab !== "video" || !usesReferenceVideo || !hasSourceImage) return "";
+  return VIDEO_REPLACE_PROMPT;
 }
 
 function playfluxTemplateFromDialog(template = {}, root = null) {
@@ -1048,7 +1093,9 @@ async function submitPlayfluxTemplate(template = {}, root) {
   const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? playfluxTemplateVideoProvider() : "wan27-image-edit";
   const selectedVideoSourceMode = isVideo
-    ? (provider !== "seedance"
+    ? ((typeof isTenantTool === "function" && isTenantTool("video")) || state.galleryMode === "playflux-video"
+        ? "reference_video"
+        : provider !== "seedance"
         ? "reference_video"
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
@@ -1068,17 +1115,35 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
       const referenceVideoSeconds = playfluxTemplateVideoInputSeconds(effectiveTemplate, sourceMode, duration);
       const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider);
-      const generateBody = provider === "wan27"
+      const generateBody = provider === "wan30"
         ? {
             provider,
             templateId: effectiveTemplate.id || "",
             videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY,
+            mediaMode: "multimodal",
             referenceImages: reference ? [reference] : [],
             referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
             ratio,
             resolution,
             duration,
             inputVideoSeconds: referenceVideoSeconds,
+            referenceVideoDurationSeconds: referenceVideoSeconds,
+            generateAudio: true,
+            params: { ...recordBase.params },
+          }
+        : provider === "wan27"
+        ? {
+            provider,
+            templateId: effectiveTemplate.id || "",
+            videoCapability: PLAYFLUX_WAN27_VIDEO_EDIT_CAPABILITY,
+            prompt: playfluxTemplateVideoPrompt(effectiveTemplate, { usesReferenceVideo: true, hasSourceImage: Boolean(reference) }),
+            referenceImages: reference ? [reference] : [],
+            videoUrl: playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""),
+            ratio,
+            resolution,
+            duration,
+            inputVideoSeconds: referenceVideoSeconds,
+            followInputDuration: true,
             params: { ...recordBase.params },
           }
         : provider === "happyhorse"
@@ -1096,9 +1161,11 @@ async function submitPlayfluxTemplate(template = {}, root) {
           }
         : {
             provider,
+            model: "ep-20260429142513-zg667",
             seedanceTier: "standard",
             templateId: effectiveTemplate.id || "",
             seedanceMode: sourceMode,
+            prompt: VIDEO_REPLACE_PROMPT,
             referenceImages: (playfluxSeedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
             referenceVideoUrls: usesReferenceVideo
               ? [effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""].filter(Boolean)
@@ -1110,6 +1177,9 @@ async function submitPlayfluxTemplate(template = {}, root) {
             duration,
             inputVideoSeconds: referenceVideoSeconds,
             referenceVideoDurationSeconds: referenceVideoSeconds,
+            generateAudio: true,
+            generate_audio: true,
+            watermark: false,
             params: { ...recordBase.params },
           };
       const payload = await requestJson("/api/advanced/generate", {
@@ -1455,11 +1525,25 @@ function renderGalleryCharacters(root = els.templateGrid) {
     ? filteredCharacters.length
     : Math.max(CHARACTER_PAGE_SIZE, Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE));
   const visibleCharacters = source === "system" ? filteredCharacters : filteredCharacters.slice(0, visibleCount);
-  root.innerHTML = `${filterBar}${
+  const chatIntro = source === "system" && typeof isTenantTool === "function" && isTenantTool("chat") ? `
+    <section class="chat-landing-intro" aria-label="Character chat introduction">
+      <div class="chat-landing-copy">
+        <span class="chat-landing-eyebrow">5VIPS CHAT</span>
+        <h2>${state.lang === "zh" ? "先认识她，再开始聊天" : "Meet a character, then start chatting"}</h2>
+        <p>${state.lang === "zh" ? "浏览角色、选择喜欢的声音和个性。充值后即可解锁专属聊天。" : "Browse the roles, choose a personality, and unlock a private conversation with a top-up."}</p>
+        <div class="chat-landing-steps"><span><b>1</b>${state.lang === "zh" ? "挑选角色" : "Choose a role"}</span><span><b>2</b>${state.lang === "zh" ? "充值解锁" : "Top up to unlock"}</span><span><b>3</b>${state.lang === "zh" ? "进入聊天" : "Enter chat"}</span></div>
+      </div>
+      <button class="primary-button chat-landing-cta" type="button" data-chat-landing-cta><i data-lucide="arrow-down"></i>${state.lang === "zh" ? "浏览角色" : "Browse characters"}</button>
+    </section>
+  ` : "";
+  root.innerHTML = `${chatIntro}${filterBar}${
     visibleCharacters.length
       ? `${visibleCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")}${renderCharacterLoadMore(visibleCharacters.length, serverTotal, source)}`
       : `<div class="job-note character-filter-empty">${escapeHtml(emptyMessage)}</div>`
   }`;
+  root.querySelector("[data-chat-landing-cta]")?.addEventListener("click", () => {
+    root.querySelector(".character-filter-bar, .character-grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   bindCharacterFilterActions(root);
   bindCharacterLoadMore(root, serverTotal, source);
   bindGalleryImageFallbacks(root);
@@ -1541,6 +1625,15 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
       useHomeCharacter(button.dataset.characterUse);
     });
   });
+  root.querySelectorAll("[data-character-chat]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      startCharacterChat(button.dataset.characterChat || "").catch((error) => {
+        if (error?.code === "CHAT_UNLOCK_REQUIRED") return;
+        window.alert(error.message || "Unable to open chat.");
+      });
+    });
+  });
   root.querySelectorAll("[data-character-cases]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1568,7 +1661,18 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
   root.querySelectorAll("[data-character-id]").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (isInteractiveTarget(event.target)) return;
-      openGalleryCharacter(card.dataset.characterId);
+      const characterId = card.dataset.characterId || "";
+      // Chat cards are the entry point to a conversation: clicking anywhere
+      // on the card should run the same login/recharge/unlock flow as the
+      // explicit action button. Other tenants keep the existing detail view.
+      if (typeof isTenantTool === "function" && isTenantTool("chat")) {
+        startCharacterChat(characterId).catch((error) => {
+          if (error?.code === "CHAT_UNLOCK_REQUIRED") return;
+          window.alert(error.message || "Unable to open chat.");
+        });
+        return;
+      }
+      openGalleryCharacter(characterId);
     });
   });
 }
@@ -1975,7 +2079,10 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
     `${compactNumber(item.likeCount)} likes`,
     `${videoCount} videos`,
   ]).join(" / ");
-  const actionMarkup = mine
+  const chatTenant = typeof isTenantTool === "function" && isTenantTool("chat");
+  const actionMarkup = chatTenant
+    ? `<button class="primary-button" data-character-chat="${escapeHtml(item.id || "")}" type="button"><i data-lucide="message-circle-heart"></i>${escapeHtml(state.lang === "zh" ? "开始聊天" : "Chat with this character")}</button>`
+    : mine
     ? `
           ${generating ? `<button class="ghost-button" data-character-refresh="${escapeHtml(item.id || "")}" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>` : ""}
           ${imageReady ? `<button class="primary-button" data-character-alive="${escapeHtml(item.id || "")}" type="button"><i data-lucide="sparkles"></i>Bring alive</button>` : ""}
@@ -2787,6 +2894,15 @@ function isGalleryVideoUnlocked(character = {}, video = {}) {
   return set.has(galleryCharacterUnlockKey(character.id || "")) || set.has(galleryUnlockKey(character.id || "", video.sceneId || "", video.sceneEntryId || "default"));
 }
 
+function isOwnGalleryCharacter(character = {}) {
+  const id = String(character.id || "");
+  return Boolean(
+    character.myCharacter === true ||
+    character.custom === true ||
+    (state.myCharacters || []).some((item) => String(item?.id || "") === id),
+  );
+}
+
 function applyUnlockedCharacterVideos(characterId = "", videos = []) {
   const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
   if (!item || !Array.isArray(videos)) return;
@@ -2814,7 +2930,7 @@ async function unlockGallerySceneVideo(characterId = "") {
       dialogClass: "is-frame-action",
     });
     if (confirmed === "confirm") {
-      await startEntitlementCheckout({ billingPlanId: "plan-main-creator" }, null);
+      openBillingPaymentChoice({ billingPlanId: "plan-main-creator" });
     }
     return;
   }
@@ -3072,7 +3188,8 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
           </div>
         </div>
         <div class="character-detail-actions">
-          <button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>
+          <button class="primary-button compact" data-character-chat="${escapeHtml(item.id || "")}" type="button"><i data-lucide="message-circle-heart"></i>${escapeHtml((typeof isTenantTool === "function" && isTenantTool("chat")) ? (state.lang === "zh" ? "充值解锁并聊天" : "Unlock & chat") : "Chat")}</button>
+          ${(typeof isTenantTool === "function" && isTenantTool("chat")) ? "" : `<button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>`}
           ${item.custom ? `<button class="ghost-button danger compact" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
         </div>
       </div>
@@ -3089,6 +3206,12 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
     else renderTemplates();
   });
   root.querySelector("[data-character-use]")?.addEventListener("click", () => useHomeCharacter(item.id || ""));
+  root.querySelector("[data-character-chat]")?.addEventListener("click", () => {
+    startCharacterChat(item.id || "").catch((error) => {
+      if (error?.code === "CHAT_UNLOCK_REQUIRED") return;
+      window.alert(error.message || "Unable to open chat.");
+    });
+  });
   root.querySelector("[data-character-delete]")?.addEventListener("click", (event) => {
     event.stopPropagation();
     deleteCustomCharacter(item.id || "", event.currentTarget);
@@ -3108,6 +3231,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
 
 function renderCharacterVideoSection(title = "", videos = [], character = {}, { locked = false } = {}) {
   const visibleVideos = videos;
+  const ownCharacter = isOwnGalleryCharacter(character);
   return `
     <section class="character-video-section">
       <div class="character-video-section-head">
@@ -3115,30 +3239,32 @@ function renderCharacterVideoSection(title = "", videos = [], character = {}, { 
         <span>${escapeHtml(String(visibleVideos.length))}</span>
       </div>
       <div class="character-video-list">
-        ${visibleVideos.length ? visibleVideos.map((video, index) => renderCharacterVideoCard(video, character, { locked: Boolean(video.locked), index })).join("") : `<div class="job-note">${escapeHtml(t("gallery.character.noVideos"))}</div>`}
+        ${visibleVideos.length ? visibleVideos.map((video, index) => renderCharacterVideoCard(video, character, { locked: Boolean(video.locked), index, ownCharacter })).join("") : `<div class="job-note">${escapeHtml(t("gallery.character.noVideos"))}</div>`}
       </div>
     </section>
   `;
 }
 
-function renderCharacterVideoCard(video = {}, character = {}, { locked = false, index = 0 } = {}) {
+function renderCharacterVideoCard(video = {}, character = {}, { locked = false, index = 0, ownCharacter = false } = {}) {
   const sceneId = video.sceneId || `role-${index}`;
   const sceneEntryId = video.sceneEntryId || "default";
   const poster = characterVideoPoster(video, character);
   const hasVideo = Boolean(video.videoUrl);
   const characterUnlocked = isGalleryVideoUnlocked(character, video);
   const guest = !state.user;
-  const unlocked = Boolean(state.user) && characterUnlocked;
+  const unlocked = ownCharacter || (Boolean(state.user) && characterUnlocked);
   const loading = state.galleryUnlockLoadingKey === galleryCharacterUnlockKey(character.id || "");
   const canPlay = unlocked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
   const meta = [video.duration ? `${video.duration}s` : "", video.likes ? `${compactNumber(video.likes)} likes` : ""].filter(Boolean).join(" / ");
-  const action = canPlay
+  const action = ownCharacter
+    ? ""
+    : canPlay
     ? ""
     : guest
       ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("gallery.character.unlockLogin"))}</button>`
     : `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="crown"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : "Unlock with membership")}</button>`;
-  const mediaAction = !canPlay
+  const mediaAction = !canPlay && !ownCharacter
     ? `data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
     : canPlay
       ? `data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
@@ -3601,6 +3727,12 @@ function openHistoryDetail(index) {
   prepareModalOpen();
   const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
+  // The local generated copy is served by the site's optimized static
+  // handler and supports byte ranges. Prefer it for the detail preview when
+  // it is still present, while retaining the R2 URL as a fallback after the
+  // local retention cleanup runs.
+  const localVideoUrl = String(record.localVideoUrl || "").trim();
+  const previewVideoUrl = localVideoUrl || videoUrl;
   const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
   const images = recordImageAssets(record);
@@ -3619,8 +3751,8 @@ function openHistoryDetail(index) {
           </button>
         ` : ""}
       </header>
-      ${videoUrl ? `
-        <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+      ${previewVideoUrl ? `
+        <video data-history-detail-result-video src="${escapeHtml(previewVideoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
       ` : imageResultUrl ? `
         <div class="history-detail-images">
           <figure>
@@ -3659,6 +3791,15 @@ function openHistoryDetail(index) {
   els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
     downloadGenerationRecord(record);
   });
+  const detailVideo = els.historyDetailBody.querySelector("[data-history-detail-result-video]");
+  if (detailVideo && localVideoUrl && videoUrl && localVideoUrl !== videoUrl) {
+    detailVideo.addEventListener("error", () => {
+      if (detailVideo.dataset.fallbackTried === "1") return;
+      detailVideo.dataset.fallbackTried = "1";
+      detailVideo.src = videoUrl;
+      detailVideo.load();
+    }, { once: true });
+  }
   if (!els.historyDetailDialog.open) els.historyDetailDialog.showModal();
   refreshIcons();
 }
@@ -3727,9 +3868,12 @@ function advancedCaseInputVideoPoster(item = {}) {
 }
 
 function syncGalleryShortcutNav() {
+  // Site profiles can hide the gallery tab entirely; its shortcut entries must
+  // follow the tab, otherwise they reappear right after the first render.
+  const galleryAllowed = isTabAllowed(DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-gallery-shortcut]").forEach((button) => {
     const mode = normalizeGalleryMode(button.dataset.galleryShortcut || "");
-    const disabled = !isGalleryModeAllowed(button.dataset.galleryShortcut || "");
+    const disabled = !galleryAllowed || !isGalleryModeAllowed(button.dataset.galleryShortcut || "");
     button.hidden = disabled;
     const active = state.tab === DEFAULT_PLATFORM_TAB && mode === normalizeGalleryMode(state.galleryMode);
     button.classList.toggle("is-active", active);
@@ -3908,15 +4052,15 @@ function advancedCaseTabLabel(tab = "hot") {
   return t(item.labelKey, {}, item.id);
 }
 
-let paypalConfigPromise = null;
+let stripeConfigPromise = null;
 
-function payPalCheckoutVisible() {
+function stripeCheckoutVisible() {
   return Boolean(
     els.topupDialog?.open &&
     state.topupStep === "payment" &&
-    state.topupMethod === "paypal" &&
+    state.topupMethod === "stripe" &&
     !els.topupPaymentStage?.hidden &&
-    !els.topupPaypalPanel?.hidden,
+    !els.topupStripePanel?.hidden,
   );
 }
 
@@ -4041,6 +4185,15 @@ function billingPlans() {
   return billingEnabled() && Array.isArray(state.billing?.plans) ? state.billing.plans : [];
 }
 
+function isHiddenToolSubscriptionPlan(plan = {}) {
+  return Boolean(
+    tenantFeature("subscriptions", false) &&
+    Number(plan.amount || 0) === 20 &&
+    String(plan.intervalUnit || "").toLowerCase() === "month" &&
+    Number(plan.intervalCount || 1) === 1,
+  );
+}
+
 function selectedBillingPlan() {
   const plans = billingPlans();
   if (!plans.length) return null;
@@ -4059,7 +4212,7 @@ function selectBillingPlan(planId = "") {
   state.selectedBillingPlanId = plan.id;
   state.selectedProductId = "";
   state.selectedTopupPackageId = "";
-  setTopupMethod("paypal", { skipSummary: true });
+  setTopupMethod("stripe", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4073,7 +4226,7 @@ function billingPeriodLabel(plan = {}) {
 
 function renderToolSubscription() {
   if (!els.toolSubscriptionPanel) return;
-  const plan = billingPlans()[0] || null;
+  const plan = billingPlans().find((item) => !isHiddenToolSubscriptionPlan(item)) || null;
   const visible = Boolean(plan && !membershipProgramEnabled());
   els.toolSubscriptionPanel.hidden = !visible;
   if (els.toolTopupLabel) els.toolTopupLabel.hidden = !visible;
@@ -4108,7 +4261,7 @@ function setTopupStep(step = "packages") {
   if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
   syncTopupBackButtons();
   renderTopupSummary();
-  if (payPalCheckoutVisible()) renderPayPalCheckout();
+  if (stripeCheckoutVisible()) renderStripeCheckout();
   refreshIcons();
 }
 
@@ -4119,7 +4272,7 @@ function selectTopupPackage(packageId = "") {
   state.selectedBillingPlanId = "";
   state.selectedProductId = "";
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("paypal", { skipSummary: true });
+  setTopupMethod("stripe", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4195,17 +4348,17 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "paypal", options = {}) {
-  const next = String(method || "").toLowerCase() === "paypal" ? "paypal" : "usdt";
+function setTopupMethod(method = "stripe", options = {}) {
+  const next = String(method || "").toLowerCase() === "stripe" ? "stripe" : "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
     const active = button.dataset.topupMethod === next;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
-  if (els.topupPaypalPanel) els.topupPaypalPanel.hidden = next !== "paypal";
+  if (els.topupStripePanel) els.topupStripePanel.hidden = next !== "stripe";
   if (els.topupUsdtPanel) els.topupUsdtPanel.hidden = next !== "usdt";
-  if (next === "paypal" && state.topupStep === "payment") renderPayPalCheckout();
+  if (next === "stripe" && state.topupStep === "payment") renderStripeCheckout();
   if (!options.skipSummary) renderTopupSummary();
   refreshIcons();
 }
@@ -4325,8 +4478,8 @@ function renderTopupSummary() {
     els.topupRate.textContent = state.user
       ? state.topupStep === "packages"
         ? t("topup.packages")
-        : state.topupMethod === "paypal"
-        ? t("topup.paypalReady", {}, "Continue on the secure payment page.")
+        : state.topupMethod === "stripe"
+        ? t("topup.stripeReady", {}, "Continue on the secure payment page.")
         : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
@@ -4381,11 +4534,11 @@ function handleTopupBack() {
 
 function renderTopupOrder(order) {
   if (!order) return;
-  const isPayPal = order.paymentProvider === "paypal" || order.network === "PayPal";
+  const isStripe = order.paymentProvider === "stripe" || order.network === "Stripe";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
-  if (isPayPal) {
+  if (isStripe) {
     if (els.topupRate) {
-      els.topupRate.textContent = `${t("topup.paypalOrder")}: ${order.paypalOrderId || order.id || ""}`;
+      els.topupRate.textContent = `${t("topup.stripeOrder", {}, "Stripe order")}: ${order.stripeCheckoutSessionId || order.id || ""}`;
     }
     refreshIcons();
     return;
@@ -4394,34 +4547,34 @@ function renderTopupOrder(order) {
   refreshIcons();
 }
 
-async function loadPayPalConfig() {
-  if (!paypalConfigPromise) {
-    paypalConfigPromise = requestJson("/api/pay/paypal/config")
-      .then((payload) => payload.paypal || {})
+async function loadStripeConfig() {
+  if (!stripeConfigPromise) {
+    stripeConfigPromise = requestJson("/api/pay/stripe/config")
+      .then((payload) => payload.stripe || {})
       .catch((error) => {
-        paypalConfigPromise = null;
+        stripeConfigPromise = null;
         throw error;
       });
   }
-  return paypalConfigPromise;
+  return stripeConfigPromise;
 }
 
-async function startPayPalRedirectCheckout() {
+async function startStripeRedirectCheckout() {
   if (!state.user) return openLogin();
   const billingPlan = selectedBillingPlan();
   const billingProduct = selectedBillingProduct();
   const topupPackage = selectedTopupPackage();
   const amount = Number(billingProduct?.amount || billingPlan?.amount || topupPackage?.amount || 0);
   if ((!billingProduct && !billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
-    if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
+    if (els.stripeStatus) els.stripeStatus.textContent = t("topup.invalid");
     return;
   }
-  const button = els.paypalButtons?.querySelector("[data-paypal-start]");
+  const button = els.stripeButtons?.querySelector("[data-stripe-start]");
   if (button) button.disabled = true;
-  if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
+  if (els.stripeStatus) els.stripeStatus.textContent = t("topup.stripeCreating");
   try {
     const returnUrl = `${window.location.origin}${window.location.pathname}#topups`;
-    const payload = await requestJson("/api/pay/paypal/checkout-sessions", {
+    const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
       method: "POST",
       body: {
         amount,
@@ -4435,54 +4588,59 @@ async function startPayPalRedirectCheckout() {
       },
     });
     const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
-    if (!checkoutUrl) throw new Error("PayPal checkout page was not created.");
+    if (!checkoutUrl) throw new Error("Stripe checkout page was not created.");
     window.location.href = checkoutUrl;
   } catch (error) {
-    if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
+    if (els.stripeStatus) els.stripeStatus.textContent = error.message || String(error);
     if (button) button.disabled = false;
   }
 }
 
-async function renderPayPalCheckout() {
-  if (!els.paypalBox || !els.paypalButtons) return;
-  if (!payPalCheckoutVisible()) return;
+async function renderStripeCheckout() {
+  if (!els.stripeBox || !els.stripeButtons) return;
+  if (!stripeCheckoutVisible()) return;
   try {
-    const config = await loadPayPalConfig();
+    const config = await loadStripeConfig();
     const billingPlan = selectedBillingPlan();
     const billingProduct = selectedBillingProduct();
     const topupPackage = selectedTopupPackage();
     const amount = Number(billingProduct?.amount || billingPlan?.amount || topupPackage?.amount || 0);
     if (!config.enabled) {
-      els.paypalBox.hidden = false;
-      els.paypalButtons.hidden = false;
-      els.paypalButtons.innerHTML = "";
-      if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalUnavailable");
+      els.stripeBox.hidden = false;
+      els.stripeButtons.hidden = false;
+      els.stripeButtons.innerHTML = "";
+      if (els.stripeStatus) els.stripeStatus.textContent = t("topup.stripeUnavailable");
       return;
     }
-    els.paypalBox.hidden = false;
-    if (els.paypalStatus) {
-      els.paypalStatus.textContent = amount
-        ? `${t("topup.paypalReady")} ${formatCredits(amount)} ${config.currency || "USD"}`
-        : t("topup.paypalReady");
+    els.stripeBox.hidden = false;
+    if (els.stripeStatus) {
+      els.stripeStatus.textContent = amount
+        ? `${t("topup.stripeReady")} ${formatCredits(amount)} ${config.currency || "USD"}`
+        : t("topup.stripeReady");
     }
-    els.paypalButtons.innerHTML = `
-      <button class="paypal-redirect-button" type="button" data-paypal-start>
+    els.stripeButtons.innerHTML = `
+      <button class="paypal-redirect-button" type="button" data-stripe-start>
         <i data-lucide="external-link"></i>
-        <span>${escapeHtml(t("topup.paypalContinue", {}, "Continue to PayPal"))}</span>
+        <span>${escapeHtml(t("topup.stripeContinue", {}, "Continue to Stripe"))}</span>
       </button>
-      <p class="paypal-redirect-note">${escapeHtml(t("topup.paypalRedirectNote", {}, "You will continue on the secure payment page."))}</p>
+      <p class="stripe-payment-method-note" role="note" aria-label="${escapeHtml(t("topup.stripeMethods", {}, "Payment methods"))}">
+        <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>${escapeHtml(t("topup.wechatPay", {}, "WeChat Pay"))}</span></span>
+        <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>${escapeHtml(t("topup.creditCard", {}, "Credit card"))}</span></span>
+      </p>
+      <p class="paypal-redirect-note">${escapeHtml(t("topup.stripeRedirectNote", {}, "You will continue on the secure payment page."))}</p>
     `;
-    els.paypalButtons.hidden = false;
-    const button = els.paypalButtons.querySelector("[data-paypal-start]");
+    els.stripeButtons.hidden = false;
+    const button = els.stripeButtons.querySelector("[data-stripe-start]");
     if (button) {
       button.disabled = false;
-      button.onclick = startPayPalRedirectCheckout;
+      button.onclick = startStripeRedirectCheckout;
     }
+    refreshIcons();
   } catch (error) {
-    els.paypalBox.hidden = false;
-    els.paypalButtons.hidden = false;
-    els.paypalButtons.innerHTML = "";
-    if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
+    els.stripeBox.hidden = false;
+    els.stripeButtons.hidden = false;
+    els.stripeButtons.innerHTML = "";
+    if (els.stripeStatus) els.stripeStatus.textContent = error.message || String(error);
   }
 }
 

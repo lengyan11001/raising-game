@@ -39,6 +39,7 @@ assets/ourdream/*
 !assets/ourdream/presets/**
 last_submit_prompt.txt
 LOCAL_CREDENTIALS.md
+.agentic-prime-api-key.private
 scripts/fyshark_*
 scripts/deploy_to_fyshark.py
 scripts/__pycache__/

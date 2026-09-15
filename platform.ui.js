@@ -484,6 +484,7 @@ function applyStaticTranslations() {
 }
 
 function applyTenantFeatures() {
+  applySiteProfileChrome();
   const assetEnabled = tenantFeature("assetLibrary", true);
   const workflowEnabled = canUseWorkflow();
   const animeEnabled = canUseAnimeTemplates();
@@ -504,6 +505,9 @@ function applyTenantFeatures() {
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });
+  document.querySelectorAll(".tenant-main-only").forEach((element) => {
+    element.hidden = toolOnly;
+  });
   document.querySelectorAll(".tenant-compact-only").forEach((element) => {
     element.hidden = accountMenuEnabled;
   });
@@ -517,9 +521,21 @@ function applyTenantFeatures() {
       && tenantDefaultGalleryMode() !== DEFAULT_GALLERY_MODE;
     element.hidden = hiddenByToolGallery || !isTabAllowed(tab);
   });
+  const hiddenNavTabs = tenantListFeature("hiddenNavTabs");
+  if (hiddenNavTabs.length) {
+    document.querySelectorAll("[data-tab]").forEach((element) => {
+      if (hiddenNavTabs.includes(element.dataset.tab || "")) element.hidden = true;
+    });
+  }
+  // The welcome-page entry only exists for site profiles that enable it.
+  document.querySelectorAll('[data-tab="home"]').forEach((element) => {
+    element.hidden = !tenantFeature("navHome", false) || !isTabAllowed("home");
+  });
   document.querySelectorAll("[data-gallery-shortcut]").forEach((element) => {
     const shortcut = element.dataset.galleryShortcut || "";
-    element.hidden = !isGalleryModeAllowed(shortcut) || (shortcut === "playflux-anime" && !animeEnabled);
+    element.hidden = !isTabAllowed(DEFAULT_PLATFORM_TAB)
+      || !isGalleryModeAllowed(shortcut)
+      || (shortcut === "playflux-anime" && !animeEnabled);
   });
   document.querySelectorAll("[data-panel='access'], #accessTokenCard").forEach((element) => {
     element.hidden = !apiAccessEnabled || element.hidden;
@@ -529,6 +545,26 @@ function applyTenantFeatures() {
   });
   const accountTokenBox = els.accountToken?.closest(".token-box");
   if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled;
+  renderHomePanel();
+}
+
+// Site-profile chrome: the 123vip.fans welcome page and its own naming.
+function applySiteProfileChrome() {
+  if (!isSiteProfile("custom-workflow")) return;
+  const brand = document.querySelector("a.brand");
+  if (brand) brand.setAttribute("href", "#home");
+  document.querySelectorAll('[data-tab="custom"] [data-i18n]').forEach((element) => {
+    element.dataset.i18n = "nav.create";
+    setLocalizedContent(element, t("nav.create", {}, element.textContent));
+  });
+}
+
+function renderHomePanel() {
+  if (!isSiteProfile("custom-workflow")) return;
+  const loggedIn = Boolean(state.user);
+  document.querySelectorAll("[data-home-action]").forEach((button) => {
+    button.hidden = (button.dataset.homeAction || "") === "create" ? !loggedIn : loggedIn;
+  });
 }
 
 function applyLanguage() {
@@ -547,6 +583,7 @@ function applyLanguage() {
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
+  if (state.tab === "chat") renderChatPanel();
   if (state.tab === "characters") renderCharactersPanel({ forceCreator: true });
   renderAccountMenu();
   renderTopupSummary();
@@ -562,7 +599,7 @@ function applyLanguage() {
   if (state.tab === "spending") loadSpendingRecords();
   if (state.tab === "referral") renderReferral();
   if (state.tab === "assets") loadUserAssets();
-  if (state.tab === "advanced") loadAdvancedAssets();
+  if (state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens();
   refreshIcons();
 }
@@ -577,13 +614,20 @@ function setLanguage(lang) {
 function setUser(user, { refreshHistory = false, skipReferralRefresh = false } = {}) {
   const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   const previousUserId = state.user?.id || "";
+  const nextUserId = user?.id || "";
+  const userChanged = nextUserId !== previousUserId;
   state.user = user || null;
+  renderHomePanel();
+  if (userChanged) state.generationCompletionPrimed = false;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {
     if (state.billing) state.billing = { ...state.billing, subscription: null };
     state.galleryUnlocks = [];
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
+    state.chatConversations = [];
+    state.chatActiveConversationId = "";
+    state.chatMessages = [];
     state.referral = null;
     state.referralLoadedUserId = "";
     state.referralLoadedAt = 0;
@@ -625,14 +669,15 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   renderAdvanced();
   renderAssets();
   renderAccountMenu();
-  if (state.tab === "topups") loadTopupRecords(1);
-  if (state.tab === "spending") loadSpendingRecords(1);
-  if (state.tab === "assets") loadUserAssets();
-  if (state.tab === "advanced") loadAdvancedAssets();
-  if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "workflow") loadWorkflowCanvases({ force: true });
+  if (userChanged && state.tab === "topups") loadTopupRecords(1);
+  if (userChanged && state.tab === "spending") loadSpendingRecords(1);
+  if (userChanged && state.tab === "assets") loadUserAssets();
+  if (userChanged && state.tab === "advanced") loadAdvancedAssets();
+  if (userChanged && state.tab === "access") loadApiSubtokens({ force: true });
+  if (userChanged && state.tab === "chat") loadChatConversations({ selectFirst: true });
+  if (userChanged && state.tab === "workflow") loadWorkflowCanvases({ force: true });
   if (state.tab === "referral") {
-    if (state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
+    if (userChanged && state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
     else renderReferral();
   }
   if (state.tab === "characters") {
@@ -650,6 +695,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     renderPricing();
   }
   syncTopupAutoRefresh();
+  syncGenerationCompletionRefresh();
 }
 
 function maskToken(token = "") {
@@ -731,14 +777,14 @@ async function tokenAccessPackageMarkdown() {
     `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
     `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
     `- Qwen Image 3.0 generate: ${seedreamImageUrl}`,
-    `- Wan 3.0 / Seedance 2.5 / Seedance2.5 (NSFW) / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
+    `- Wan 3.0 / Seedance 2.5 / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
     `- Wan2.7 image generate/edit: ${apiUrl("/api/wan27/image-edit")}`,
     `- Advanced asset upload: ${apiUrl("/api/user-assets")}`,
     `- Advanced task detail: ${apiUrl("/api/generation-records/<taskId>")}`,
     `- V3 task detail: ${taskUrl}`,
     `- BytePlus-compatible asset upload: ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}`,
     "",
-    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate use the Advanced route. The detailed model document below is the source of truth for fields and limits.",
+    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the Advanced route. The detailed model document below is the source of truth for fields and limits.",
     "",
     "## Quick Start",
     "",
@@ -1094,11 +1140,23 @@ function toggleAccountMenu() {
 }
 
 function generationVideoUrl(record) {
-  return record?.cdnVideoUrl || record?.localVideoUrl || record?.videoUrl || record?.remoteVideoUrl || "";
+  return record?.cdnVideoUrl
+    || record?.remoteVideoUrl
+    || record?.providerVideoUrl
+    || record?.upstreamVideoUrl
+    || record?.videoUrl
+    || record?.localVideoUrl
+    || "";
 }
 
 function generationImageResultUrl(record) {
-  return record?.cdnImageUrl || record?.imageResultUrl || record?.localImageUrl || record?.remoteImageUrl || "";
+  return record?.cdnImageUrl
+    || record?.remoteImageUrl
+    || record?.providerImageUrl
+    || record?.upstreamImageUrl
+    || record?.imageResultUrl
+    || record?.localImageUrl
+    || "";
 }
 
 function generationImageResultUrls(record = {}) {
@@ -1179,43 +1237,43 @@ async function downloadGenerationRecord(record = {}) {
   let href = generationRecordDownloadHref(record);
   if (!href) return;
   let fileName = generationRecordDownloadName(record);
-  let directSignedDownload = false;
   const taskId = String(record?.taskId || "").trim();
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
     : "";
-  if (taskId && !taskId.startsWith("pending-") && !/^https:\/\/media\.123vips\.com\//i.test(href)) {
+
+  // Open a browser tab immediately. Fetching the whole media file through
+  // fetch()+blob made the click appear unresponsive until the download had
+  // completely finished. The browser can stream the upstream/R2 URL itself.
+  const popup = window.open("about:blank", "_blank");
+  const openHref = (url) => {
+    const target = String(url || "").trim();
+    if (!target) return;
+    if (popup && !popup.closed) {
+      popup.location.href = target;
+      return;
+    }
+    window.open(target, "_blank");
+  };
+
+  // A URL already present in the record is authoritative: R2 first, then the
+  // provider URL. Do not wait for a presign request before giving feedback.
+  if (href && !href.startsWith("/api/")) {
+    openHref(href);
+    return;
+  }
+  if (taskId && !taskId.startsWith("pending-")) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {
         href = payload.url;
         fileName = payload.fileName || fileName;
-        directSignedDownload = payload.source === "r2_signed";
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
   }
-  // Keep downloads same-origin so the server can stream the local/R2 public
-  // copy with attachment headers. Do not switch to an R2 S3 presigned URL:
-  // those links bypass the CDN and are slow/short-lived for browser users.
-  if (legacyHref) {
-    try {
-      await saveDownloadFromFetch(href.startsWith("/api/") ? href : legacyHref, fileName);
-      return;
-    } catch {
-      // Fall through to the public URL when the authenticated proxy is unavailable.
-    }
-  }
-  if (directSignedDownload) {
-    triggerBrowserDownload(href, fileName);
-    return;
-  }
-  try {
-    await saveDownloadFromFetch(href, fileName);
-  } catch {
-    // Keep the click on the current page; do not open a preview tab.
-  }
+  openHref(href || legacyHref);
 }
 
 function stripModelParams(value) {
@@ -1282,6 +1340,8 @@ function generationRecordSignature(record = {}) {
     record.updatedAt,
     record.status,
     generationVideoUrl(record),
+    generationPosterUrl(record),
+    record.downloadUrl,
     record.error,
     record.ratio,
     record.resolution,
@@ -1338,6 +1398,72 @@ function statusClass(status) {
 
 function isSucceededGenerationStatus(status) {
   return statusClass(status) === "succeeded";
+}
+
+function isCompletedGenerationRecord(record = {}) {
+  if (isSucceededGenerationStatus(record.status)) return true;
+  return Boolean((generationVideoUrl(record) || generationImageResultUrl(record) || String(record.textResult || record.responseText || "").trim())
+    && !isPendingGenerationRecord(record));
+}
+
+function generationCompletionLabel(record = {}) {
+  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || "生成记录").trim();
+}
+
+function showGenerationCompletionNotice(record = {}) {
+  const root = els.generationCompletionNotices;
+  if (!root) return;
+  const item = document.createElement("div");
+  item.className = "generation-completion-notice";
+  item.setAttribute("role", "status");
+  item.innerHTML = `
+    <span class="generation-completion-notice-icon"><i data-lucide="check"></i></span>
+    <div class="generation-completion-notice-copy">
+      <strong>${escapeHtml(state.lang === "zh" ? "🎉 生成完成" : "🎉 Generation complete")}</strong>
+      <span>${escapeHtml(generationCompletionLabel(record))} ${escapeHtml(state.lang === "zh" ? "记录生成成功" : "generated successfully")}</span>
+    </div>
+    <button class="generation-completion-notice-close" type="button" aria-label="${escapeHtml(state.lang === "zh" ? "关闭通知" : "Close notification")}"><i data-lucide="x"></i></button>
+  `;
+  item.querySelector(".generation-completion-notice-close")?.addEventListener("click", () => item.remove());
+  root.prepend(item);
+  refreshIcons();
+  window.setTimeout(() => item.remove(), 6000);
+}
+
+function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = []) {
+  const previousByTask = new Map((Array.isArray(previousRecords) ? previousRecords : [])
+    .filter((record) => record?.taskId)
+    .map((record) => [String(record.taskId), record]));
+  if (!state.generationCompletionPrimed) {
+    state.generationCompletionPrimed = true;
+    return;
+  }
+  const completed = (Array.isArray(nextRecords) ? nextRecords : [])
+    .filter((record) => record?.taskId && isCompletedGenerationRecord(record))
+    .filter((record) => {
+      const previous = previousByTask.get(String(record.taskId));
+      return previous && !isCompletedGenerationRecord(previous);
+    });
+  completed.slice(0, 3).forEach(showGenerationCompletionNotice);
+  if (completed.length > 3) showGenerationCompletionNotice({ taskId: `${completed.length} records`, modelLabel: state.lang === "zh" ? `还有 ${completed.length - 3} 条` : `${completed.length - 3} more` });
+}
+
+function syncGenerationCompletionRefresh() {
+  const active = Boolean(state.user && typeof loadHistory === "function");
+  if (active && !state.generationCompletionRefreshTimer) {
+    state.generationCompletionRefreshTimer = window.setInterval(() => {
+      if (!state.user || historyLoading || historyRefreshInFlight) return;
+      // This runs on every tab, so it must never move a reader who is paging
+      // through their history: refresh the page on screen, and only the mobile
+      // append list refetches its first page and merges the new rows in.
+      const desktopPage = typeof currentHistoryPage === "function" ? currentHistoryPage() : 1;
+      const mobile = typeof isMobileHistoryLayout === "function" && isMobileHistoryLayout();
+      loadHistory({ silent: true, refresh: true, page: mobile ? 1 : desktopPage, preserveMobile: true }).catch(() => {});
+    }, 15000);
+  } else if (!active && state.generationCompletionRefreshTimer) {
+    window.clearInterval(state.generationCompletionRefreshTimer);
+    state.generationCompletionRefreshTimer = 0;
+  }
 }
 
 function isTerminalGenerationStatus(status) {
@@ -1421,6 +1547,7 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
+  if (["bytepluslanguage", "arklanguage", "ep202608271225548fsgw"].includes(normalized)) return "byteplus-language";
   if (["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized) || normalized.includes("qwen37flash") || normalized.includes("qwen3.7flash")) return "qwen37-flash";
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
@@ -1438,12 +1565,13 @@ function normalizeAdvancedProvider(value = "") {
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
   const capability = currentAdvancedVideoCapability(provider);
+  if (normalized === "byteplus-language") return "BytePlus Language";
   if (normalized === "qwen37-flash") return "Qwen3.7 Flash";
   if (normalized === "qwen-image3") return "Qwen Image 3.0";
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   if (normalized === "wan30") return capability === "wan30-video-prime" ? "Wan 3.0 Prime" : "Wan 3.0";
-  if (normalized === "seedance-nsfw") return "Seedance2.5 (NSFW)";
+  if (normalized === "seedance-nsfw") return "Seedance 2.5";
   if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",
@@ -1503,7 +1631,20 @@ const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
   ]),
 });
 
+// An engine the picker does not offer must not be restored into the select, or
+// the field comes back blank when an older record is reopened.
+function advancedEngineOptionExists(value = "") {
+  const target = String(value || "").trim().toLowerCase();
+  if (!target || !els.advancedProvider) return true;
+  return Array.from(els.advancedProvider.options).some((option) => option.value === target);
+}
+
 function advancedEngineValue(provider = els.advancedProvider?.value || "", capability = "") {
+  const resolved = advancedEngineValueResolved(provider, capability);
+  return advancedEngineOptionExists(resolved) ? resolved : DEFAULT_ADVANCED_PROVIDER;
+}
+
+function advancedEngineValueResolved(provider = els.advancedProvider?.value || "", capability = "") {
   const normalizedCapability = String(capability || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (normalizedCapability === "wan30-video-prime") return "wan30-prime";
   if (normalizedCapability === "wan30-video") return "wan30";
@@ -1513,7 +1654,7 @@ function advancedEngineValue(provider = els.advancedProvider?.value || "", capab
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1648,7 +1789,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
 
 function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
-  if (normalized === "qwen37-flash") return { min: 1, max: 1, fallback: 1 };
+  if (["qwen37-flash", "byteplus-language"].includes(normalized)) return { min: 1, max: 1, fallback: 1 };
   if (normalized === "qwen-image3") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
@@ -1764,7 +1905,7 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const qwenPricing = configPricing.qwen37Flash || {};
     const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || 1) || 1)));
@@ -1775,8 +1916,8 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const originalCredits = creditsAmount(((inputTokens * inputRate + outputTokens * outputRate) / 1000000) * creditsPerCny);
     const multiplier = userPricingMultiplier();
     return {
-      provider: "qwen37-flash",
-      model: "qwen3.7-flash",
+      provider: normalizedProvider,
+      model: normalizedProvider === "byteplus-language" ? "ep-20260827122554-8fsgw" : "qwen3.7-flash",
       inputTokens,
       outputTokens,
       inputCnyPerMillionTokens: inputRate,
@@ -2113,7 +2254,7 @@ function currentAdvancedResolution() {
 
 function advancedVideoSettingsVisible() {
   return state.advancedCreateKind === "video"
-    && currentAdvancedProvider() !== "qwen37-flash"
+    && !["qwen37-flash", "byteplus-language"].includes(currentAdvancedProvider())
     && !advancedCreateModeIsSimpleEdit()
     && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability())
     && !advancedVideoEditUsesSourceDuration()
@@ -2207,7 +2348,7 @@ function advancedCharacterPresetFromItem(item = {}, source = "system") {
   const imageUrl = characterReferenceImageUrl(item) || characterUsableImage(item);
   if (!item?.id || !imageUrl || isGenericCharacterPoster(imageUrl)) return null;
   const sourceLabel = source === "custom" ? t("characters.customTab") : t("characters.systemTab");
-  const label = item.name || item.title || "Character";
+  const label = item.name || item.label || item.title || "Character";
   return {
     id: String(item.id || ""),
     label,
@@ -2218,6 +2359,8 @@ function advancedCharacterPresetFromItem(item = {}, source = "system") {
     imageUrl,
     referenceImageUrl: imageUrl,
     tags: Array.isArray(item.tags) ? item.tags : [],
+    gender: item.gender || "",
+    style: item.style || "",
     assetId: item.assetId || "",
     sourceType: source,
     characterId: item.id || "",
@@ -2234,8 +2377,11 @@ function advancedCharacterPresetItems(source = state.advancedPresetCharacterSour
     .filter((item) => item && !item.deletedAt && characterUsableImage(item))
     .map((item) => advancedCharacterPresetFromItem(item, "custom"))
     .filter(Boolean);
+  const ourdreamItems = (advancedPresetSet("character").items || [])
+    .map((item) => advancedCharacterPresetFromItem(item, "ourdream"))
+    .filter(Boolean);
   const seen = new Set();
-  const pool = source === "custom" ? customItems : systemItems;
+  const pool = source === "custom" ? customItems : [...ourdreamItems, ...systemItems];
   return pool.filter((item) => {
     const key = `${item.sourceType}:${item.id}`;
     if (seen.has(key)) return false;
@@ -2246,7 +2392,34 @@ function advancedCharacterPresetItems(source = state.advancedPresetCharacterSour
 
 function advancedPresetItems(slot = "") {
   if (slot === "character") return advancedCharacterPresetItems();
-  return Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
+  const items = Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
+  const character = selectedAdvancedPreset("character") || {};
+  const gender = ["Female", "Male", "Trans"].includes(character.gender) ? character.gender : "Female";
+  const anime = String(character.style || "").toLowerCase() === "anime";
+  if (slot !== "action") {
+    return items.map((item) => {
+      const variant = item.variants?.[`${gender}:${anime ? "Anime" : "Realistic"}`]
+        || item.variants?.[`Female:${anime ? "Anime" : "Realistic"}`]
+        || item.variants?.[`${gender}:Realistic`]
+        || null;
+      return variant ? {
+        ...item,
+        prompt: variant.prompt || item.prompt || "",
+        imageUrl: variant.imageUrl || item.imageUrl || "",
+        referenceImageUrl: variant.imageUrl || item.referenceImageUrl || item.imageUrl || "",
+      } : item;
+    });
+  }
+  return items.map((item) => {
+    const videoVariant = item.videos?.[gender] || item.videos?.Female || item.videos?.Male || item.videos?.Trans || {};
+    const thumbnailVariant = item.thumbnails?.[gender] || item.thumbnails?.Female || item.thumbnails?.Male || item.thumbnails?.Trans || {};
+    return {
+      ...item,
+      imageUrl: (anime ? thumbnailVariant.animeThumbnailUrl : thumbnailVariant.thumbnailUrl) || thumbnailVariant.thumbnailUrl || item.imageUrl || "",
+      referenceImageUrl: (anime ? thumbnailVariant.animeThumbnailUrl : thumbnailVariant.thumbnailUrl) || thumbnailVariant.thumbnailUrl || item.referenceImageUrl || item.imageUrl || "",
+      videoUrl: (anime ? videoVariant.animeVideoUrl : videoVariant.videoUrl) || videoVariant.videoUrl || item.videoUrl || "",
+    };
+  });
 }
 
 function hasMoreSystemCharacterPresets() {
@@ -2328,9 +2501,10 @@ async function loadAdvancedPresets() {
   if (state.advancedPresetsLoaded || state.advancedPresetsLoading) return;
   state.advancedPresetsLoading = true;
   try {
-    const response = await fetch(`${OURDREAM_PRESET_URL}?v=2`, { cache: "force-cache" });
+    const response = await fetch(`${OURDREAM_PRESET_URL}?v=4`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Preset request failed: ${response.status}`);
-    const payload = await response.json();
+    const rawPayload = await response.json();
+    const payload = rawPayload?.presets || rawPayload;
     state.advancedPresetData = {
       sets: Array.isArray(payload.sets) ? payload.sets : [],
       categories: payload.categories && typeof payload.categories === "object" ? payload.categories : {},
@@ -2344,12 +2518,33 @@ async function loadAdvancedPresets() {
   }
 }
 
+async function loadPlayfluxTemplates() {
+  if (state.playfluxTemplatesLoaded || state.playfluxTemplatesLoading) return;
+  state.playfluxTemplatesLoading = true;
+  try {
+    const response = await fetch("/api/platform/playflux-templates?v=1", { cache: "force-cache" });
+    if (!response.ok) throw new Error(`Template request failed: ${response.status}`);
+    const payload = await response.json();
+    state.playfluxTemplates = Array.isArray(payload?.templates) ? payload.templates : [];
+    state.playfluxTemplatesLoaded = true;
+  } catch (error) {
+    console.warn("playflux templates failed", error);
+  } finally {
+    state.playfluxTemplatesLoading = false;
+    if (typeof renderTemplates === "function" && isPlayfluxGalleryMode()) renderTemplates();
+  }
+}
+
 function presetImageUrl(item = {}) {
   return item.imageUrl || item.referenceImageUrl || "";
 }
 
 function presetPromptText(item = {}) {
   return String(item.prompt || item.description || item.label || "").trim();
+}
+
+function presetVideoUrl(item = {}) {
+  return String(item.videoUrl || item.referenceVideoUrl || "").trim();
 }
 
 function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(slot)) {
@@ -2373,9 +2568,29 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
 
 function advancedPresetReferenceImages() {
   return advancedCreateModeActivePresetSlots()
+    .filter((slot) => !(slot === "action" && presetVideoUrl(selectedAdvancedPreset(slot) || {})))
     .map((slot) => advancedPresetReferenceImage(slot))
     .filter(Boolean)
     .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+}
+
+function advancedPresetVideoReferences() {
+  if (!advancedCreateModeActivePresetSlots().includes("action")) return [];
+  const item = selectedAdvancedPreset("action");
+  const url = presetVideoUrl(item || {});
+  if (!url) return [];
+  return [{
+    assetId: item.assetId || "",
+    dataUrl: url,
+    url,
+    videoUrl: url,
+    fileName: `${item.id || "action"}.mp4`,
+    name: `${advancedPresetLabel("action")}: ${item.label || "Action"}`,
+    presetId: item.id || "",
+    presetSlot: "action",
+    fromPreset: true,
+    sourceUrl: url,
+  }];
 }
 
 function setAdvancedLocalCharacterPreset(ref = {}) {
@@ -2423,9 +2638,11 @@ async function confirmAdvancedSimpleActionCost(costLabel = "") {
 
 function advancedPresetImageRolePrompt() {
   const refs = advancedPresetReferenceImages();
-  if (!refs.length) return "";
+  const videos = advancedPresetVideoReferences();
+  if (!refs.length && !videos.length) return "";
   const roles = {
     character: "character identity and first-frame subject",
+    pose: "pose, body position, and composition",
     action: "action, pose, and motion direction",
     outfit: "outfit and styling",
     scene: "environment, lighting, and background",
@@ -2433,13 +2650,16 @@ function advancedPresetImageRolePrompt() {
   const lines = refs.map((item, index) => (
     `Image ${index + 1}: ${roles[item.presetSlot] || item.presetSlot} reference (${item.name || item.label || item.presetSlot}).`
   ));
+  const videoLines = videos.map((item, index) => (
+    `Reference video ${index + 1}: action, pose sequence, timing, and motion reference (${item.name || item.presetSlot}).`
+  ));
   return [
-    "Follow the selected reference images exactly for their roles.",
+    "Follow the selected reference media exactly for their assigned roles.",
     ...lines,
-    "Image 1 is the highest-priority character identity reference. The final video must use Image 1 for the main subject's face, identity, hairstyle, body type, and overall character consistency.",
-    "Use later reference images only for their assigned role: action references only for pose and motion, outfit references only for clothing and styling, and scene references only for environment, lighting, and background.",
-    "Do not copy faces, identities, body types, or extra people from the action, outfit, or scene reference images unless they are explicitly described in the prompt.",
-    "Do not ignore the action or scene references when composing the video.",
+    ...videoLines,
+    refs.some((item) => item.presetSlot === "character") ? "The character image is the highest-priority identity reference. Preserve its face, identity, hairstyle, body type, age impression, and overall character consistency." : "",
+    "Use pose media only for body position and composition, action video only for motion and timing, outfit images only for clothing and styling, and scene images only for environment, lighting, and background.",
+    "Do not copy faces, identities, body types, or extra people from pose, action, outfit, or scene references.",
   ].join(" ");
 }
 
@@ -2631,7 +2851,15 @@ function selectAdvancedPreset(slot = "", presetId = "") {
   const preset = advancedPresetItems(slot).find((item) => item.id === presetId);
   if (!preset) return;
   state.advancedSelectedPresets = { ...(state.advancedSelectedPresets || {}), [slot]: preset };
-  if (slot === "character") applyAdvancedCharacterPreset(preset);
+  if (slot === "character") {
+    ["pose", "action", "outfit", "scene"].forEach((dependentSlot) => {
+      const selectedId = state.advancedSelectedPresets?.[dependentSlot]?.id;
+      if (!selectedId) return;
+      const resolved = advancedPresetItems(dependentSlot).find((item) => item.id === selectedId);
+      if (resolved) state.advancedSelectedPresets[dependentSlot] = resolved;
+    });
+    applyAdvancedCharacterPreset(preset);
+  }
   els.advancedPresetDialog?.close();
   renderAdvancedPresetBuilder();
   if (els.advancedNote) els.advancedNote.textContent = "";
@@ -2691,6 +2919,7 @@ function advancedPresetSelectionPayload() {
       category: item.category || "",
       prompt: presetPromptText(item),
       imageUrl: item.localUpload ? "" : presetImageUrl(item),
+      videoUrl: item.localUpload ? "" : presetVideoUrl(item),
       sourceType: item.localUpload ? "local" : item.sourceType || "",
     } : null];
   }));
@@ -2711,6 +2940,7 @@ function hydrateAdvancedPresetsFromParams(params = {}) {
       prompt: savedItem.prompt || "",
       imageUrl: savedItem.imageUrl || "",
       referenceImageUrl: savedItem.imageUrl || "",
+      videoUrl: savedItem.videoUrl || "",
     };
   });
   state.advancedSelectedPresets = next;
@@ -2746,16 +2976,45 @@ function promptWithoutPresetParts(prompt = "", params = {}) {
 function advancedEffectivePrompt(basePrompt = "") {
   const prompt = String(basePrompt || "").trim();
   if (state.advancedCreateKind === "custom") return prompt;
+  if (["video-image", "video-replace"].includes(state.advancedCreateMode)) return advancedCreateModeDefaultPrompt(state.advancedCreateMode);
   return [...advancedPresetPromptParts(), prompt]
     .filter(Boolean)
     .join("\n");
 }
 
+// Wan 3.0 responds better to explicit material references and observable
+// actions. Keep this local and conservative so the user's story and dialogue
+// remain intact, while avoiding a second upstream prompt rewrite.
+function optimizeWan30Prompt(prompt = "") {
+  let text = String(prompt || "").trim();
+  if (!text) return text;
+  text = text.replace(/(^|[^@\w])(?:图片|图像|照片)\s*([0-9]+)/gi, "$1@图片$2");
+  text = text.replace(/(^|[^@\w])(?:视频)\s*([0-9]+)/gi, "$1@视频$2");
+  text = text.replace(/(^|[^@\w])(?:音频)\s*([0-9]+)/gi, "$1@音频$2");
+  text = text.replace(/(^|[^@\w])Image\s*([0-9]+)/gi, "$1@图片$2");
+  text = text.replace(/(^|[^@\w])Video\s*([0-9]+)/gi, "$1@视频$2");
+  text = text.replace(/(^|[^@\w])Audio\s*([0-9]+)/gi, "$1@音频$2");
+  const positiveRules = [
+    [/不要(?:出现|添加|加入)\s*(?:任何)?(?:文字|字幕|水印|logo|标志)/gi, "画面保持纯净"],
+    [/不要改变/gi, "保持"],
+    [/禁止移动镜头|不要移动镜头|避免移动镜头/gi, "镜头保持稳定"],
+    [/不要说话|禁止说话|避免说话/gi, "保持安静表演"],
+    [/很惊讶|非常惊讶/gi, "眉毛上扬，眼睛睁大，嘴巴微张"],
+    [/很悲伤|非常悲伤/gi, "眼神下垂，呼吸变慢，肩膀下沉"],
+    [/很开心|非常开心/gi, "嘴角上扬，眼神明亮，身体自然放松"],
+  ];
+  positiveRules.forEach(([pattern, replacement]) => { text = text.replace(pattern, replacement); });
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 function nonCustomAdvancedNeedsCharacterImage() {
   if (state.advancedCreateKind === "custom") return false;
-  const provider = currentAdvancedProvider();
-  if (provider === "wan27-image-edit") return false;
-  return provider === "seedance" && advancedCreateModeActivePresetSlots().includes("character");
+  return advancedCreateModeActivePresetSlots().includes("character");
 }
 
 function hasAdvancedCharacterImage() {
@@ -2771,6 +3030,7 @@ function hasAdvancedCharacterImage() {
 }
 
 function advancedCreateKindConfig(kind = state.advancedCreateKind) {
+  if (kind === ADVANCED_CUSTOM_KIND.id) return ADVANCED_CUSTOM_KIND;
   return ADVANCED_CREATE_KINDS.find((item) => item.id === kind) || ADVANCED_CREATE_KINDS[1];
 }
 
@@ -2867,6 +3127,9 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   }
   if (!custom) {
     if (els.advancedProvider && config.provider) els.advancedProvider.value = config.provider;
+    if (config.videoCapability && typeof syncAdvancedVideoCapabilityOptions === "function") {
+      syncAdvancedVideoCapabilityOptions(config.videoCapability);
+    }
     if (config.seedanceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = advancedCreateModePreferredSeedanceMode(config);
     if (config.wanMode && els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(config.wanMode);
     if (config.assetTarget) {
@@ -2920,6 +3183,7 @@ function renderAdvancedCreateControls() {
     `).join("");
   }
   applyAdvancedCreateMode();
+  if (typeof syncMainTabState === "function") syncMainTabState();
   refreshIcons();
 }
 
@@ -3057,7 +3321,9 @@ function pricingTable(title, description, columns = [], rows = []) {
 }
 
 function renderConfiguredPricingRows(pricing = {}, packages = []) {
-  const configuredRows = Array.isArray(pricing.rows) ? pricing.rows.filter(Boolean) : [];
+  const configuredRows = Array.isArray(pricing.rows)
+    ? pricing.rows.filter((row) => row && normalizeAdvancedProvider(row.provider) !== "seedance25")
+    : [];
   if (!configuredRows.length) return false;
   const creditsPerUsd = Number(pricing.creditsPerUsd || 100) || 100;
   const publicCredits = (value) => `${formatCredits(creditsAmount(value))} credits`;
@@ -3268,7 +3534,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedream5-image", "qwen-image3", "qwen37-flash"].includes(normalizedProvider)) return fullLabel;
+  if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return fullLabel;
   if (normalizedProvider === "wan27-image-edit") return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
     ? state.advancedEstimate
@@ -3278,7 +3544,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "qwen37-flash") {
+  if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
     return [
       normalizedProvider,
       Math.max(1, Number(options.inputTokens || 1) || 1),
@@ -3420,10 +3686,10 @@ function updateAdvancedButtonCost() {
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
-    inputTokens: provider === "qwen37-flash" ? Math.max(1, new TextEncoder().encode(String(els.advancedPrompt?.value || "")).length + 64) : undefined,
-    outputTokens: provider === "qwen37-flash" ? Number(els.advancedQwen37MaxTokens?.value || 1024) : undefined,
-    enableThinking: provider === "qwen37-flash" ? els.advancedQwen37Thinking?.value === "true" : undefined,
-    temperature: provider === "qwen37-flash" ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
+    inputTokens: ["qwen37-flash", "byteplus-language"].includes(provider) ? Math.max(1, new TextEncoder().encode(String(els.advancedPrompt?.value || "")).length + 64) : undefined,
+    outputTokens: ["qwen37-flash", "byteplus-language"].includes(provider) ? Number(els.advancedQwen37MaxTokens?.value || 1024) : undefined,
+    enableThinking: ["qwen37-flash", "byteplus-language"].includes(provider) ? els.advancedQwen37Thinking?.value === "true" : undefined,
+    temperature: ["qwen37-flash", "byteplus-language"].includes(provider) ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
     referenceImageCount: ["seedream5-image", "qwen-image3"].includes(provider) ? selectedAdvancedReferenceImages(provider).length : 0,
     videoCapability,
     model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,

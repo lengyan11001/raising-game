@@ -6,11 +6,12 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-370-api-payment-choice" />
+    <link rel="stylesheet" href="./platform.css?v=referral-copy-feedback-1" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
   <body class="age-gate-locked">
+    <div id="generationCompletionNotices" class="generation-completion-notices" aria-live="polite" aria-atomic="false"></div>
     <script>
       (function () {
         try {
@@ -69,6 +70,10 @@
         <h1 id="brandName">Vipeak AI</h1>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
+        <button class="top-tab" data-tab="home" type="button" hidden>
+          <i data-lucide="house"></i>
+          <span data-i18n="nav.home">Home</span>
+        </button>
         <button class="top-tab is-active" data-tab="gallery" type="button">
           <i data-lucide="compass"></i>
           <span data-i18n="nav.gallery">Explore</span>
@@ -76,6 +81,10 @@
         <button class="top-tab" data-tab="characters" type="button">
           <i data-lucide="user-round-plus"></i>
           <span data-i18n="nav.characters">Characters</span>
+        </button>
+        <button class="top-tab" data-tab="chat" type="button">
+          <i data-lucide="message-circle-heart"></i>
+          <span>Chat</span>
         </button>
         <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
           <i data-lucide="film"></i>
@@ -95,6 +104,10 @@
         <button class="top-tab" data-tab="advanced" type="button">
           <i data-lucide="wand-sparkles"></i>
           <span data-i18n="nav.advanced">Advanced</span>
+        </button>
+        <button class="top-tab" data-tab="custom" type="button">
+          <i data-lucide="sliders-horizontal"></i>
+          <span data-i18n="advanced.modeCustom">Custom</span>
         </button>
         <button class="top-tab" data-tab="workflow" type="button" hidden>
           <i data-lucide="workflow"></i>
@@ -150,6 +163,15 @@
           </div>
         </details>
       </div>
+    </aside>
+
+    <aside class="launch-banner tenant-main-only" id="wan30LaunchBanner" role="status" hidden style="display:none!important">
+      <button class="launch-banner-content" id="wan30LaunchBtn" type="button">
+        <span class="launch-banner-spark" aria-hidden="true">✦</span>
+        <span>Wan3.0 上新，欢迎体验</span>
+        <span class="launch-banner-cta">立即体验</span>
+      </button>
+      <button class="launch-banner-close" id="wan30LaunchClose" type="button" aria-label="关闭通知">×</button>
     </aside>
 
     <header class="site-head">
@@ -210,6 +232,180 @@
     </header>
 
     <main>
+      <section class="home-panel" data-panel="home" hidden>
+        <div class="w-bg" aria-hidden="true">
+          <span class="w-page-glow"></span>
+        </div>
+        <div class="w-hero-bg" aria-hidden="true">
+          <video class="w-hero-video" src="./assets/brand/123vipfans-hero-loop-v2.mp4"
+                 poster="./assets/brand/123vipfans-hero-poster-v2.jpg"
+                 autoplay muted loop playsinline preload="metadata"></video>
+          <span class="w-hero-scrim"></span>
+          <span class="w-aurora w-aurora-1"></span>
+          <span class="w-aurora w-aurora-2"></span>
+          <span class="w-aurora w-aurora-3"></span>
+          <span class="w-stars"></span>
+        </div>
+
+        <header class="w-nav" id="welcomeNav">
+          <div class="w-nav-brand">
+            <img src="./assets/brand/123vipfans-logo.png" alt="" />
+            <strong>123vip.fans</strong>
+          </div>
+          <nav class="w-nav-links" aria-label="Landing sections">
+            <a href="#wFeatures" data-w-anchor="wFeatures" data-i18n="welcome.navFeatures">功能</a>
+            <a href="#wShowcase" data-w-anchor="wShowcase" data-i18n="welcome.navShowcase">示例</a>
+            <a href="#wWorkflow" data-w-anchor="wWorkflow" data-i18n="welcome.navWorkflow">工作流</a>
+            <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
+          </nav>
+          <div class="w-nav-actions">
+            <button class="w-btn ghost sm" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+            <button class="w-btn primary sm" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+            <button class="w-btn primary sm" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+          </div>
+        </header>
+
+        <section class="w-hero" id="wHero">
+          <div class="w-hero-glow" aria-hidden="true"></div>
+          <div class="w-hero-copy">
+            <span class="w-eyebrow" data-i18n="home.eyebrow">AI Animation Studio</span>
+            <h2 class="w-title">
+              <span data-i18n="welcome.title1">Make Animation</span>
+              <em data-i18n="welcome.title2">Great Again</em>
+            </h2>
+            <p class="w-sub" data-i18n="home.subtitle">导演，我们是您的专业 AI 动画代理团队</p>
+            <div class="w-actions">
+              <button class="w-btn primary" type="button" data-home-action="create" data-i18n="welcome.startCreate" hidden>进入创作台</button>
+              <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+              <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+              <button class="w-btn ghost" type="button" data-w-scroll="wShowcase" data-i18n="welcome.seeShowcase">看示例</button>
+            </div>
+            <ul class="w-stats">
+              <li><strong>&lt;3<span>min</span></strong><span data-i18n="welcome.stat1">从参考图到成片</span></li>
+              <li><strong>12<span>+</span></strong><span data-i18n="welcome.stat2">模型与管线可切换</span></li>
+              <li><strong>1<span>click</span></strong><span data-i18n="welcome.stat3">工作流复用与共享</span></li>
+            </ul>
+          </div>
+          <div class="w-hero-stage">
+            <div class="w-frame">
+              <div class="w-frame-bar">
+                <span class="w-dot"></span><span class="w-dot"></span><span class="w-dot"></span>
+                <em>storyboard.wf</em>
+                <i class="w-typing" data-i18n="welcome.frameHint">prompt · reference · motion</i>
+              </div>
+              <div class="w-frame-body" id="wFrameBody">
+                <div class="w-frame-reel">
+                  <video class="w-frame-video is-active" src="./assets/brand/hero-clips/urban-rise.mp4" poster="./assets/brand/hero-clips/urban-rise.jpg" width="1200" height="820" muted playsinline preload="auto" autoplay></video>
+                  <video class="w-frame-video" src="./assets/brand/hero-clips/cyber-scifi.mp4" poster="./assets/brand/hero-clips/cyber-scifi.jpg" width="1200" height="820" muted playsinline preload="metadata" ></video>
+                  <video class="w-frame-video" src="./assets/brand/hero-clips/campus-sweet.mp4" poster="./assets/brand/hero-clips/campus-sweet.jpg" width="1200" height="820" muted playsinline preload="metadata" ></video>
+                  <video class="w-frame-video" src="./assets/brand/hero-clips/wuxia.mp4" poster="./assets/brand/hero-clips/wuxia.jpg" width="1200" height="820" muted playsinline preload="metadata" ></video>
+                </div>
+                <span class="w-scan" aria-hidden="true"></span>
+                <div class="w-frame-controls">
+                  <button class="w-reel-play" type="button" data-w-reel="toggle" aria-label="Play / pause" aria-pressed="false"><span class="w-reel-ico"><i data-lucide="pause"></i></span><span class="w-reel-ico"><i data-lucide="play"></i></span></button>
+                  <div class="w-reel-segs" role="tablist" aria-label="Shots"></div>
+                </div>
+              </div>
+              <div class="w-frame-foot">
+                <span class="w-chip" data-i18n="welcome.chip1">首尾帧</span>
+                <span class="w-chip" data-i18n="welcome.chip2">角色一致</span>
+                <span class="w-chip" data-i18n="welcome.chip3">4K</span>
+                <span class="w-progress"><i></i></span>
+              </div>
+            </div>
+            <div class="w-float w-float-a"><span data-i18n="welcome.floatA">队列 3/5</span></div>
+            <div class="w-float w-float-b"><span data-i18n="welcome.floatB">生成完成</span></div>
+          </div>
+        </section>
+
+        <div class="w-marquee" aria-hidden="true">
+          <div class="w-marquee-track">
+            <span>STORYBOARD</span><span>·</span><span>REFERENCE</span><span>·</span><span>FIRST / LAST FRAME</span><span>·</span>
+            <span>MOTION</span><span>·</span><span>4K</span><span>·</span><span>AUDIO</span><span>·</span><span>QUEUE</span><span>·</span>
+            <span>WORKFLOW</span><span>·</span><span>API</span><span>·</span>
+            <span>STORYBOARD</span><span>·</span><span>REFERENCE</span><span>·</span><span>FIRST / LAST FRAME</span><span>·</span>
+            <span>MOTION</span><span>·</span><span>4K</span><span>·</span><span>AUDIO</span><span>·</span><span>QUEUE</span><span>·</span>
+            <span>WORKFLOW</span><span>·</span><span>API</span><span>·</span>
+          </div>
+        </div>
+
+        <section class="w-section" id="wFeatures">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.featTitle">一条管线，从想法跑到成片</h3>
+            <p data-i18n="welcome.featSub">参考图、运镜、角色一致性和队列都在同一个工作台里完成。</p>
+          </header>
+          <div class="w-grid">
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">01</span><h4 data-i18n="welcome.f1t">分镜与提示词</h4></div>
+              <p data-i18n="welcome.f1d">把想法拆成镜头，提示词自动补全到可执行的参数。</p>
+              <div class="w-mock w-mock-prompt"><span data-i18n="welcome.mock1">深夜天台，霓虹反光，镜头缓慢推进</span><i></i></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">02</span><h4 data-i18n="welcome.f2t">角色一致性</h4></div>
+              <p data-i18n="welcome.f2d">上传一张参考图，跨镜头锁定同一个人物与服装。</p>
+              <div class="w-mock w-mock-ref"><span></span><span></span><span></span></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">03</span><h4 data-i18n="welcome.f3t">运镜与节奏</h4></div>
+              <p data-i18n="welcome.f3d">首尾帧、参考视频与运镜描述叠加，命中你想要的节奏。</p>
+              <div class="w-mock w-mock-timeline"><span class="w-playhead"></span><i></i><i></i><i></i></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">04</span><h4 data-i18n="welcome.f4t">工作流与 API</h4></div>
+              <p data-i18n="welcome.f4d">把调好的流程存成画布，复用、分享，或直接走接口调。</p>
+              <div class="w-mock w-mock-nodes"><span></span><span></span><span></span><span></span></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="w-section" id="wShowcase">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.showTitle">挑一个风格，直接开跑</h3>
+            <p data-i18n="welcome.showSub">这些是站点里现成的模板方向，点开就是可编辑的工程。</p>
+          </header>
+          <div class="w-carousel" id="wCarousel">
+            <button class="w-car-arrow" type="button" data-w-car="prev" aria-label="Previous"><i data-lucide="chevron-left"></i></button>
+            <div class="w-car-stage">
+              <article class="w-slide is-active"><span class="w-slide-tag" data-i18n="welcome.s1t">都市逆袭</span><div class="w-slide-art w-art-a"><picture><source type="image/webp" srcset="./assets/brand/showcase/urban-rise.webp" /><img src="./assets/brand/showcase/urban-rise.jpg" alt="" width="1080" height="1350" loading="eager" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s2t">校园甜宠</span><div class="w-slide-art w-art-b"><picture><source type="image/webp" srcset="./assets/brand/showcase/campus-sweet.webp" /><img src="./assets/brand/showcase/campus-sweet.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s3t">悬疑推理</span><div class="w-slide-art w-art-c"><picture><source type="image/webp" srcset="./assets/brand/showcase/mystery.webp" /><img src="./assets/brand/showcase/mystery.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s4t">科幻赛博</span><div class="w-slide-art w-art-d"><picture><source type="image/webp" srcset="./assets/brand/showcase/cyber-scifi.webp" /><img src="./assets/brand/showcase/cyber-scifi.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s5t">古风武侠</span><div class="w-slide-art w-art-e"><picture><source type="image/webp" srcset="./assets/brand/showcase/wuxia.webp" /><img src="./assets/brand/showcase/wuxia.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+            </div>
+            <button class="w-car-arrow" type="button" data-w-car="next" aria-label="Next"><i data-lucide="chevron-right"></i></button>
+            <div class="w-car-dots" role="tablist" aria-label="Slides"></div>
+          </div>
+        </section>
+
+        <section class="w-section" id="wWorkflow">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.stepTitle">三步进入创作台</h3>
+          </header>
+          <ol class="w-steps">
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st1">登录或注册</strong><p data-i18n="welcome.st1d">和 123vips 共用同一套账号与余额。</p></li>
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st2">进创建台</strong><p data-i18n="welcome.st2d">自定义面板里选模型、传参考、调参数。</p></li>
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st3">跑工作流</strong><p data-i18n="welcome.st3d">把流程存成画布，下次一键复用。</p></li>
+          </ol>
+        </section>
+
+        <section class="w-cta w-reveal">
+          <h3 data-i18n="welcome.ctaTitle">现在就把第一支片子跑出来</h3>
+          <p data-i18n="welcome.ctaSub">登录后按钮会变成「创建」，直接进创作台。</p>
+          <div class="w-actions center">
+            <button class="w-btn primary" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+            <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+            <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+          </div>
+        </section>
+
+        <footer class="w-foot">
+          <span>123vip.fans</span>
+          <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
+          <span class="w-foot-sep">·</span>
+          <span>© <span id="welcomeYear">2026</span></span>
+        </footer>
+      </section>
+
       <section class="workspace" data-panel="gallery">
         <section class="gallery-panel">
           <div class="gallery-mode-tabs" id="galleryModeTabs"></div>
@@ -356,12 +552,11 @@
             <div class="advanced-fields">
               <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
                 <optgroup label="Video">
+                  <option value="seedance-nsfw" selected>Seedance 2.5</option>
                   <option value="wan30">Wan 3.0 Video</option>
                   <option value="wan30-prime">Wan 3.0 Video Prime</option>
-                  <option value="wan27" selected>Wan 2.7</option>
-                  <option value="wan-animate">Wan Animate</option>
+                  <option value="wan27">Wan 2.7</option>
                   <option value="happyhorse">HappyHorse</option>
-                  <option value="seedance-nsfw">Seedance2.5 (NSFW)</option>
                   <option value="seedance">Seedance 2.0</option>
                 </optgroup>
                 <optgroup label="Image">
@@ -370,7 +565,7 @@
                   <option value="qwen-image3">Qwen Image 3.0</option>
                 </optgroup>
                 <optgroup label="Language">
-                  <option value="qwen37-flash">Qwen3.7 Flash</option>
+                  <option value="byteplus-language">BytePlus Language</option>
                 </optgroup>
               </select></label>
               <label class="field advanced-video-capability-field" hidden><span>Mode</span><select id="advancedVideoCapability"></select></label>
@@ -387,6 +582,7 @@
               <label class="field advanced-qwen-option" hidden><span>Extend</span><select id="advancedQwenPromptExtend"><option value="true" selected>On</option><option value="false">Off</option></select></label>
               <label class="field advanced-qwen-option" hidden><span>Mark</span><select id="advancedQwenWatermark"><option value="false" selected>Off</option><option value="true">On</option></select></label>
               <label class="field advanced-wan-prompt-extend-option" hidden><span>Prompt extend</span><div class="advanced-checkbox-control"><input id="advancedWanPromptExtend" type="checkbox" /><span>On</span></div></label>
+              <label class="field advanced-wan-prompt-optimize-option" hidden><span data-i18n="advanced.wanPromptOptimize">Wan3 prompt optimization</span><div class="advanced-checkbox-control"><input id="advancedWanPromptOptimize" type="checkbox" /><span data-i18n="common.on">On</span></div></label>
               <label class="field advanced-qwen37-option" hidden><span>Thinking</span><select id="advancedQwen37Thinking"><option value="false" selected>Off</option><option value="true">On</option></select></label>
               <label class="field advanced-qwen37-option" hidden><span>Max output</span><select id="advancedQwen37MaxTokens"><option value="512">512</option><option value="1024" selected>1024</option><option value="2048">2048</option><option value="4096">4096</option><option value="8192">8192</option></select></label>
               <label class="field advanced-qwen37-option" hidden><span>Temperature</span><select id="advancedQwen37Temperature"><option value="0">0</option><option value="0.3">0.3</option><option value="0.7" selected>0.7</option><option value="1">1</option></select></label>
@@ -419,7 +615,7 @@
                 </div>
                 <div class="advanced-asset-head-actions">
                   <label class="asset-upload-control advanced-asset-upload-control">
-                    <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
+                    <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
                     <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
                   </label>
                   <button class="ghost-button" id="refreshAdvancedAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
@@ -427,7 +623,7 @@
               </div>
               <div class="advanced-asset-toolbar">
                 <input id="advancedAssetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" aria-label="Search assets" />
-                <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select>
+                <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option><option value="document">Documents</option></select>
               </div>
               <div class="advanced-asset-targets" id="advancedAssetTargets"></div>
               <p class="job-note" id="advancedAssetNote"></p>
@@ -459,9 +655,9 @@
       <section class="asset-panel" data-panel="assets" hidden>
         <div class="asset-toolbar">
           <label><span data-i18n="ledger.search">Search</span><input id="assetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
-          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select></label>
+          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option><option value="document">Documents</option></select></label>
           <label class="asset-upload-control">
-            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
+            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
             <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
             <small class="file-picker-name" data-file-name-for="assetUploadInput" data-i18n="file.none">No file selected</small>
           </label>
@@ -499,6 +695,60 @@
           </div>
         </div>
         <div class="access-subtokens" id="accessSubtokens"></div>
+        </div>
+      </section>
+
+      <section class="chat-panel" data-panel="chat" hidden>
+        <div class="chat-shell" id="chatShell">
+          <aside class="chat-list-pane">
+            <div class="chat-pane-head">
+              <strong>Chats</strong>
+              <span><button class="icon-btn" id="chatBrowseBtn" type="button" aria-label="Browse characters" title="Browse characters"><i data-lucide="message-square-plus"></i></button><button class="icon-btn chat-mobile-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button></span>
+            </div>
+            <label class="chat-search"><i data-lucide="search"></i><input id="chatSearch" type="search" placeholder="Search chats..." /></label>
+            <div class="chat-conversation-list" id="chatConversationList"></div>
+          </aside>
+          <section class="chat-main-pane">
+            <header class="chat-main-head" id="chatMainHead"></header>
+            <div class="chat-empty" id="chatEmpty">
+              <i data-lucide="messages-square"></i>
+              <strong>Start a character chat</strong>
+              <button class="primary-button" id="chatEmptyBrowseBtn" type="button">Browse characters</button>
+            </div>
+            <div class="chat-thread" id="chatThread" hidden></div>
+            <div class="chat-suggestion" id="chatSuggestion" hidden>
+              <span>Suggested reply</span>
+              <button type="button" id="chatSuggestionBtn"></button>
+            </div>
+            <form class="chat-composer" id="chatComposer" hidden>
+              <div class="chat-mode-control">
+                <button class="icon-btn" id="chatModeBtn" type="button" aria-label="Generation mode" title="Generation mode"><i data-lucide="message-circle"></i></button>
+                <div class="chat-mode-menu" id="chatModeMenu" role="menu" hidden>
+                  <button type="button" data-chat-mode="chat" role="menuitem"><i data-lucide="message-circle"></i><span>Chat</span></button>
+                  <button type="button" data-chat-mode="image" role="menuitem"><i data-lucide="image"></i><span>Image</span></button>
+                  <button type="button" data-chat-scene role="menuitem"><i data-lucide="scan-eye"></i><span>Generate scene</span></button>
+                  <button type="button" data-chat-tracker role="menuitem"><i data-lucide="list-tree"></i><span>State tracker</span></button>
+                </div>
+              </div>
+              <textarea id="chatInput" rows="2" maxlength="12000" placeholder="Send a message"></textarea>
+              <div class="chat-composer-actions">
+                <button class="icon-btn" id="chatVoiceBtn" type="button" aria-label="Voice input" title="Voice input"><i data-lucide="mic"></i></button>
+                <button class="icon-btn" id="chatContinueBtn" type="button" aria-label="Continue response" title="Continue"><i data-lucide="fast-forward"></i></button>
+                <button class="generate-btn chat-send-btn" id="chatSendBtn" type="submit"><i data-lucide="send"></i><span>Send</span></button>
+              </div>
+            </form>
+          </section>
+          <aside class="chat-detail-pane" id="chatDetailPane">
+            <button class="icon-btn chat-mobile-close chat-detail-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button>
+            <div class="chat-character-card" id="chatCharacterCard"></div>
+            <section class="chat-tracker" id="chatTracker"></section>
+            <div class="chat-settings-tabs" role="tablist">
+              <button class="is-active" type="button" data-chat-setting="style">Style</button>
+              <button type="button" data-chat-setting="memory">Memory</button>
+              <button type="button" data-chat-setting="preferences">Preferences</button>
+            </div>
+            <div class="chat-settings-body" id="chatSettingsBody"></div>
+          </aside>
         </div>
       </section>
 
@@ -550,15 +800,42 @@
             <p data-i18n="membership.referralSubtitle">Members earn 100 credits for each invited user who registers and completes a payment.</p>
           </div>
           <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
-          <div class="referral-link" id="referralLink">Login to get your invite link.</div>
-          <div class="referral-progress" aria-hidden="true"><span id="referralProgressFill"></span></div>
-          <div class="referral-stats">
-            <strong id="referralInvitedCount">0 invited</strong>
-            <strong id="referralRewardStatus">Membership required for rewards</strong>
+          <div class="referral-link-row">
+            <button class="referral-link" id="referralLink" type="button">Login to get your invite link.</button>
+            <button class="ghost-button referral-link-copy-btn" id="copyReferralLinkBtn" type="button" aria-label="Copy referral message"><i data-lucide="copy"></i><span data-i18n="referral.copyLink">Copy link</span></button>
+            <span class="referral-copy-feedback" id="referralCopyFeedback" role="status" aria-live="polite"></span>
           </div>
-          <div class="referral-membership-progress">
-            <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
-            <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
+          <div class="referral-offer-cards">
+            <section class="referral-offer-card referral-commission-card">
+              <div class="referral-offer-heading"><span data-i18n="referral.commissionCardEyebrow">Cash commission</span><h3 data-i18n="referral.commissionCardTitle">Earn withdrawable commission</h3><p data-i18n="referral.commissionCardSubtitle">Earn 20% when an invited user buys membership or API documentation access.</p></div>
+              <div class="referral-commission-earnings">
+                <div class="referral-commission-earning"><span data-i18n="referral.membershipCommissionLabel">$99 membership</span><strong data-i18n="referral.membershipCommissionValue">Earn $19.80 (20%)</strong></div>
+                <div class="referral-commission-earning"><span data-i18n="referral.apiDocsCommissionLabel">$1000 API docs</span><strong data-i18n="referral.apiDocsCommissionValue">Earn $200.00 (20%)</strong></div>
+              </div>
+              <div class="referral-finance" id="referralFinance">
+                <div class="referral-finance-stats">
+                  <div><span data-i18n="referral.invitedUsers">Invited users</span><strong id="referralInvitedUsers">0</strong></div>
+                  <div><span data-i18n="referral.withdrawable">Withdrawable</span><strong id="referralWithdrawable">$0.00</strong></div>
+                  <div><span data-i18n="referral.totalEarned">Total earned</span><strong id="referralTotalEarned">$0.00</strong></div>
+                </div>
+                <form class="referral-withdraw-form" id="referralWithdrawForm">
+                  <label><span data-i18n="referral.walletAddress">USDT wallet address</span><input id="referralWalletAddress" type="text" inputmode="text" autocomplete="off" placeholder="Enter TRC20/ERC20 address" data-i18n-placeholder="referral.walletPlaceholder" /></label>
+                  <div class="referral-withdraw-actions"><button class="ghost-button" id="saveReferralWalletBtn" type="button" data-i18n="referral.saveWallet">Save address</button><button class="copy-btn" id="requestReferralWithdrawBtn" type="submit" data-i18n="referral.requestWithdraw">Request withdrawal</button></div>
+                </form>
+                <div class="referral-withdrawals" id="referralWithdrawals"></div>
+              </div>
+            </section>
+            <section class="referral-offer-card referral-reward-card">
+              <div class="referral-offer-heading"><span data-i18n="referral.rewardCardEyebrow">Credit rewards</span><h3 data-i18n="referral.rewardCardTitle">Earn credits from regular top-ups</h3><p data-i18n="referral.rewardCardSubtitle">Invite users to register and complete a regular top-up to earn credit rewards.</p></div>
+              <div class="referral-stats">
+                <strong id="referralInvitedCount">0 invited</strong>
+                <strong id="referralRewardStatus">Membership required for rewards</strong>
+              </div>
+              <div class="referral-membership-progress">
+                <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
+                <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
+              </div>
+            </section>
           </div>
           <p class="job-note" id="referralNote"></p>
         </div>
@@ -679,6 +956,9 @@
           <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
           <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
+          <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email login" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
+          <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Email verification code" maxlength="6" /><button class="ghost-button" id="verifyEmailLoginBtn" type="button">Email login</button></div>
+          <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
           <p class="auth-register-hint">
             <i data-lucide="info"></i>
             <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
@@ -721,6 +1001,14 @@
               <button class="copy-btn" id="copyAccountTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="copy"></i>Copy token</button>
             </div>
           </div>
+          <div class="account-security-box">
+            <strong>Account security</strong>
+            <p class="adm-muted">Bind an email to sign in with a code or reset your password.</p>
+            <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
+            <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
+            <input id="accountCurrentPassword" type="password" autocomplete="current-password" placeholder="Current password" />
+            <p class="job-note" id="accountSecurityMessage"></p>
+          </div>
           <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
         </div>
       </form>
@@ -754,6 +1042,7 @@
                 <span data-i18n="topup.title">Top Up</span>
                 <strong id="topupCredits">0 credits</strong>
                 <small id="topupRate">Login to create a payment order.</small>
+                <small class="topup-expiry-note">积分永不过期 · Credits never expire.</small>
               </div>
             </div>
             <div class="topup-stage topup-package-stage" id="topupPackageStage">
@@ -777,22 +1066,22 @@
                 <strong id="topupSelectedPackage">0 credits</strong>
               </div>
               <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
-                <button class="topup-method-tab is-active" type="button" data-topup-method="paypal" role="tab" aria-selected="true">
+                <button class="topup-method-tab is-active" type="button" data-topup-method="stripe" role="tab" aria-selected="true">
                   <i data-lucide="credit-card"></i>
-                  <span data-i18n="topup.paypalTab">PayPal</span>
+                  <span data-i18n="topup.stripeTab">Stripe</span>
                 </button>
                 <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
                   <i data-lucide="wallet"></i>
                   <span data-i18n="topup.usdtTab">USDT</span>
                 </button>
               </div>
-              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal">
-                <div class="paypal-checkout" id="paypalBox" hidden>
+              <div class="topup-method-panel" id="topupStripePanel" data-topup-panel="stripe">
+                <div class="paypal-checkout stripe-checkout" id="stripeBox" hidden>
                   <div>
-                    <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
-                    <small id="paypalStatus" data-i18n="topup.paypalLoading">Loading PayPal...</small>
+                    <span data-i18n="topup.stripeTitle">Stripe Checkout</span>
+                    <small id="stripeStatus" data-i18n="topup.stripeLoading">Loading Stripe...</small>
                   </div>
-                  <div class="paypal-buttons" id="paypalButtons"></div>
+                  <div class="paypal-buttons" id="stripeButtons"></div>
                 </div>
               </div>
               <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
@@ -1025,6 +1314,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-370-api-payment-choice"></script>
+    <script src="./platform.js?v=referral-copy-feedback-1"></script>
   </body>
 </html>
