@@ -3,14 +3,14 @@
 const UNDRESS_TOOL_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const UNDRESS_TOOL_EXAMPLE_MEDIA = Object.freeze({
   image: Object.freeze({
-    input: "/api/undress-tool/examples/image/input?v=image-20260819115156-587c60-webp1",
-    result: "/api/undress-tool/examples/image/result?v=image-20260819115156-587c60-webp1",
+    input: "/assets/playflux/templates/video/ai-nude.jpg",
+    result: "/assets/playflux/templates/image/clothes-remover-new.webp",
     inputType: "image",
     resultType: "image",
   }),
   image_video: Object.freeze({
-    input: "/api/undress-tool/examples/image_video/input",
-    result: "https://media.123vips.com/undress-tool/examples/v1/image-video-result.mp4",
+    input: "/assets/playflux/templates/video/pf-video-002-demo-nude.jpg",
+    result: "/assets/playflux/templates/video/pf-video-002-demo-nude.mp4",
     inputType: "image",
     resultType: "video",
   }),

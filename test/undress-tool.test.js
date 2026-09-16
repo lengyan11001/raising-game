@@ -139,11 +139,13 @@ test("Undress home uses the localized fantasy headline and adult creation descri
   assert.match(css, /\.undress-tool-copy p[\s\S]*?color: var\(--undress-muted\)/);
 });
 
-test("all three generation tabs show compact server-backed before and after examples", () => {
+test("all three generation tabs show compact stable before and after examples", () => {
   assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input\?v=image-20260819115156-587c60-webp1/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/result\?v=image-20260819115156-587c60-webp1/);
-  assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/image-video-result\.mp4/);
+  assert.match(frontend, /assets\/playflux\/templates\/video\/ai-nude\.jpg/);
+  assert.match(frontend, /assets\/playflux\/templates\/image\/clothes-remover-new\.webp/);
+  assert.match(frontend, /assets\/playflux\/templates\/video\/pf-video-002-demo-nude\.jpg/);
+  assert.match(frontend, /assets\/playflux\/templates\/video\/pf-video-002-demo-nude\.mp4/);
+  assert.doesNotMatch(frontend, /\/api\/undress-tool\/examples\/(?:image|image_video)\//);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-input\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-result\.mp4/);
   assert.match(frontend, /controls playsinline preload="auto"/);
@@ -198,6 +200,12 @@ test("image-to-video clones the reference Wan2.7 task and uses configured pricin
   assert.match(videoTools, /她脱掉衣服，全裸露出胸部用手抚摸一只胸，并微笑着说：今天又是美好的一天/);
   assert.doesNotMatch(videoTools, /Negative prompt:/);
   assert.match(server, /job\.action === "undress-image-video"[\s\S]*?runVideoToolUndressImageVideo/);
+});
+
+test("standalone Video follows the old-site Video prompt configuration", () => {
+  assert.match(videoTools, /const VIDEO_TOOL_UNDRESS_EDIT_PROMPT = \[/);
+  assert.match(server, /video:\s*\{[\s\S]*?action: "undress-video"[\s\S]*?prompt: prompts\.video/);
+  assert.match(server, /undressToolGenerationDefinition\(body\.generationType, appConfig\.undressPrompts\)/);
 });
 
 test("generated Undress videos are fast-started and show their poster while previewing", () => {
