@@ -27,28 +27,55 @@
   function onboardingSteps() {
     const images = state.characters.slice(0, 12).map((item) => ({ image:imageFor(item), name:item.name || "Creator" }));
     return [
-      { label:"Welcome", title:"Let’s find your perfect match", copy:"A few quick choices help us curate your private chat experience.", kind:"binary", options:["I’m 18 or older", "I’m under 18"] },
-      { label:"Intent", title:"What are you looking for?", copy:"Choose the kind of connection you want to explore.", kind:"binary", options:["A private conversation", "Just browsing"] },
-      { label:"Vibe", title:"Pick a vibe", copy:"Tell us what feels right today.", kind:"binary", options:["Playful and flirty", "Warm and romantic"] },
-      { label:"Style", title:"Choose a style", copy:"Select a creator that catches your eye.", kind:"images", options:images.slice(0,4) },
-      { label:"Energy", title:"What energy do you like?", copy:"You can change this later.", kind:"images", options:images.slice(4,8) },
-      { label:"Mood", title:"Set the mood", copy:"One last preference before we show your matches.", kind:"images", options:images.slice(8,12) },
-      { label:"Ready", title:"Your private space is ready", copy:"We’ve curated a selection of verified creators for you.", kind:"loading" }
+      { label:"Welcome", title:"Are you 18 or older?", kind:"binary", options:["I’m 18 or older", "I’m under 18"], blockedIndex:1 },
+      { label:"Intent", title:"What are you looking for?", kind:"binary", options:["A private conversation", "Just browsing"] },
+      { label:"Vibe", title:"Pick a vibe", kind:"binary", options:["Playful and flirty", "Warm and romantic"] },
+      { label:"Style", title:"Choose a style", kind:"images", options:images.slice(0,4) },
+      { label:"Energy", title:"What energy do you like?", kind:"images", options:images.slice(4,8) },
+      { label:"Mood", title:"Set the mood", kind:"images", options:images.slice(8,12) },
+      { label:"Ready", title:"Your private space is ready", kind:"ready" }
     ];
   }
   function showOnboarding() {
-    if (localStorage.getItem("vipsChatOnboardingDone") === "1") return false;
-    const overlay = document.createElement("div"); overlay.className = "standalone-onboarding"; overlay.innerHTML = `<div class="onboarding-panel"><aside class="onboarding-rail"><div class="onboarding-brand">VIPS<span>CHAT</span></div><div data-onboarding-rail></div></aside><section class="onboarding-main"><div class="onboarding-head"><span>PRIVATE MATCHING</span><b data-onboarding-count></b></div><div class="onboarding-content"><div class="onboarding-icon">✦</div><h1 data-onboarding-title></h1><p data-onboarding-copy></p><div data-onboarding-body></div></div><button class="onboarding-skip" data-onboarding-skip type="button">Skip and browse models</button></section></div>`; document.body.appendChild(overlay);
+    const previewOnly = new URLSearchParams(location.search).get("onboarding") === "1";
+    if (!previewOnly && localStorage.getItem("vipsChatOnboardingDone") === "1") return false;
     const steps = onboardingSteps();
-    const rail = overlay.querySelector("[data-onboarding-rail]"), count = overlay.querySelector("[data-onboarding-count]"), title = overlay.querySelector("[data-onboarding-title]"), copy = overlay.querySelector("[data-onboarding-copy]"), body = overlay.querySelector("[data-onboarding-body]");
-    const finish = () => { localStorage.setItem("vipsChatOnboardingDone", "1"); overlay.remove(); location.hash = "models"; route(); };
-    const render = (step) => { if (step >= steps.length) { finish(); return; } state.onboardingStep = step; const current = steps[step]; count.textContent = `${Math.min(step + 1, steps.length)} / ${steps.length}`; rail.innerHTML = steps.map((item, index) => `<div class="onboarding-rail-item ${index === step ? "is-active" : ""} ${state.onboardingAnswers[index] ? "is-done" : ""}"><i>${index + 1}</i><span>${esc(item.label)}</span></div>`).join(""); title.textContent = current.title; copy.textContent = current.copy;
-      if (current.kind === "loading") { body.innerHTML = `<div class="onboarding-loading"><span></span><div class="onboarding-progress"><i></i></div><small>Curating your matches...</small></div>`; setTimeout(() => render(step + 1), 1500); return; }
-      if (current.kind === "images") body.innerHTML = `<div class="onboarding-images">${current.options.map((item, index) => `<button type="button" data-onboarding-option="${index}"><img src="${esc(item.image)}" alt="" /><span>${esc(item.name)}</span></button>`).join("")}</div>`;
-      else body.innerHTML = `<div class="onboarding-choices">${current.options.map((item, index) => `<button type="button" class="${index ? "is-secondary" : ""}" data-onboarding-option="${index}">${esc(item)}<b>→</b></button>`).join("")}</div>`;
-      body.querySelectorAll("[data-onboarding-option]").forEach((button) => button.addEventListener("click", () => { state.onboardingAnswers[step] = button.dataset.onboardingOption; if (step === 0 && button.dataset.onboardingOption === "1") { copy.textContent = "You must be 18 or older to continue."; return; } render(step + 1); }));
+    state.onboardingAnswers = [];
+    const hero = state.characters.length ? imageFor(state.characters[0]) : "";
+    const overlay = document.createElement("div"); overlay.className = "standalone-onboarding"; if (hero) overlay.style.backgroundImage = `url("${hero.replace(/"/g, "%22")}")`;
+    overlay.innerHTML = `<div class="onboarding-card" data-onboarding-card><div class="onboarding-countdown" data-onboarding-countdown></div><div class="onboarding-intro" data-onboarding-intro><h1>A quick heads-up</h1><h2>This space pairs you with verified creators for private conversations. Please keep it private and respectful.</h2><p>Before we curate your matches we need to ask a few short questions.</p><button class="onboarding-pill" type="button" data-onboarding-agree>I agree</button><button class="onboarding-pill" type="button" data-onboarding-refuse>Decline</button><div class="onboarding-error" data-onboarding-error hidden></div></div><div class="onboarding-loading" data-onboarding-loading hidden><h2 data-onboarding-loading-title>》》》 Curating your matches 》》》</h2><h3 data-onboarding-loading-copy>Please answer honestly so the system can recommend</h3><div class="onboarding-progress"><i data-onboarding-progress></i></div></div><ul class="onboarding-chips" data-onboarding-chips></ul><div class="onboarding-step" data-onboarding-step hidden><h2 data-onboarding-title></h2><div class="onboarding-options" data-onboarding-options></div></div><div class="onboarding-done" data-onboarding-done hidden><h2>Congratulations!</h2><h4>Access granted</h4><p>We matched you with verified creators who are online right now.</p><ul><li>Keep the conversation private — never share anyone’s details outside this space.</li><li>Say hello first; the first message to every creator is free.</li><li>Unlock private media or longer sessions whenever you are ready.</li></ul><button class="onboarding-pill" type="button" data-onboarding-start>Start chatting</button></div><button class="onboarding-skip" type="button" data-onboarding-skip>Skip and browse models</button></div>`;
+    document.body.appendChild(overlay);
+    const card = overlay.querySelector("[data-onboarding-card]"), intro = overlay.querySelector("[data-onboarding-intro]"), error = overlay.querySelector("[data-onboarding-error]"), loading = overlay.querySelector("[data-onboarding-loading]"), loadingTitle = overlay.querySelector("[data-onboarding-loading-title]"), loadingCopy = overlay.querySelector("[data-onboarding-loading-copy]"), bar = overlay.querySelector("[data-onboarding-progress]"), chips = overlay.querySelector("[data-onboarding-chips]"), stepBox = overlay.querySelector("[data-onboarding-step]"), title = overlay.querySelector("[data-onboarding-title]"), options = overlay.querySelector("[data-onboarding-options]"), done = overlay.querySelector("[data-onboarding-done]"), countdown = overlay.querySelector("[data-onboarding-countdown]");
+    let remaining = 5 * 60, countdownTimer = null;
+    const finish = () => { localStorage.setItem("vipsChatOnboardingDone", "1"); if (countdownTimer) clearInterval(countdownTimer); if (previewOnly) { const url = new URL(location.href); url.searchParams.delete("onboarding"); history.replaceState(null, "", url); } overlay.remove(); location.hash = "models"; route(); };
+    const pad = (value) => String(value).padStart(2, "0");
+    const paintCountdown = () => { if (remaining < 0) { countdown.innerHTML = "<strong>00 : 00</strong>"; if (countdownTimer) clearInterval(countdownTimer); return; } countdown.innerHTML = `<strong>${pad(Math.floor(remaining / 60))} : ${pad(remaining % 60)}</strong>`; remaining -= 1; };
+    paintCountdown(); countdownTimer = setInterval(paintCountdown, 1000);
+    const runProgress = (onDone) => { bar.style.width = "0%"; loading.hidden = false; let progress = 0; const loop = setInterval(() => { progress += Math.random() * 10; bar.style.width = `${Math.min(progress, 100)}%`; if (progress >= 100) { clearInterval(loop); setTimeout(() => { loading.hidden = true; onDone(); }, 120); } }, 120); };
+    const paintChips = (activeStep) => { chips.innerHTML = steps.map((item, index) => { const answer = state.onboardingAnswers[index]; const classes = `onboarding-chip ${index === activeStep ? "is-active" : ""} ${answer ? "is-answered" : ""}`; if (!answer) return `<li class="${classes}"><h4>${esc(item.label)}</h4></li>`; const text = typeof answer === "object" ? "" : esc(answer); const thumb = typeof answer === "object" && answer.image ? `<img class="onboarding-chip-image" src="${esc(answer.image)}" alt="" />` : ""; return `<li class="${classes}"><h4>${esc(item.label)}</h4>${thumb}${text ? `<span class="onboarding-chip-answer">${text}</span>` : ""}</li>`; }).join(""); };
+    const renderStep = (stepIndex) => {
+      if (stepIndex >= steps.length) { finish(); return; }
+      const current = steps[stepIndex];
+      state.onboardingStep = stepIndex;
+      if (current.kind === "ready") { chips.classList.remove("is-visible"); chips.classList.add("is-hidden"); card.classList.remove("is-stepped"); loadingTitle.textContent = "》》》 Preparing your private space 》》》"; loadingCopy.textContent = "Almost there, please wait a moment"; runProgress(() => { done.hidden = false; }); return; }
+      intro.hidden = true; stepBox.hidden = false; card.classList.add("is-stepped"); chips.classList.add("is-visible"); chips.classList.remove("is-hidden");
+      paintChips(stepIndex); title.textContent = current.title; error.hidden = true;
+      if (current.kind === "images") options.innerHTML = current.options.map((item, index) => `<button class="onboarding-option-image" type="button" data-onboarding-option="${index}"><span class="image"><img src="${esc(item.image)}" alt="" /></span><span class="name">${esc(item.name)}</span></button>`).join("");
+      else options.innerHTML = current.options.map((item, index) => `<button class="onboarding-option-text ${index ? "is-decline" : "is-accept"}" type="button" data-onboarding-option="${index}">${esc(item)}</button>`).join("");
+      options.querySelectorAll("[data-onboarding-option]").forEach((button) => button.addEventListener("click", () => {
+        const optionIndex = Number(button.dataset.onboardingOption);
+        if (current.blockedIndex === optionIndex) { error.textContent = "You must be 18 or older to continue."; error.hidden = false; return; }
+        state.onboardingAnswers[stepIndex] = current.kind === "images" ? { ...current.options[optionIndex] } : current.options[optionIndex];
+        paintChips(stepIndex);
+        renderStep(stepIndex + 1);
+      }));
     };
-    overlay.querySelector("[data-onboarding-skip]").addEventListener("click", finish); render(0); return true;
+    const startQuestions = () => { intro.hidden = true; chips.classList.add("is-visible"); runProgress(() => renderStep(0)); };
+    overlay.querySelector("[data-onboarding-agree]").addEventListener("click", startQuestions);
+    overlay.querySelector("[data-onboarding-refuse]").addEventListener("click", startQuestions);
+    overlay.querySelector("[data-onboarding-start]").addEventListener("click", finish);
+    overlay.querySelector("[data-onboarding-skip]").addEventListener("click", finish);
+    return true;
   }
   function modelCard(item) { return `<article class="model-card" data-model-id="${esc(item.id)}"><span class="country-badge">🌐</span><span class="free-badge">Free Chat</span><img src="${esc(imageFor(item))}" alt="${esc(item.name || "Model")}" loading="lazy" /><div class="model-card-body"><h3>${esc(item.name || "Model")}</h3><p>${esc((item.tags || []).slice(0,2).join(" · ") || item.style || "Verified creator")}</p></div></article>`; }
   function openDetail(id) { const item = state.characters.find((entry) => String(entry.id) === String(id)); if (!item) return; state.selected = item; location.hash = `model/${encodeURIComponent(item.id)}`; renderDetail(item); }
