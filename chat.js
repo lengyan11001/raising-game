@@ -60,7 +60,7 @@
       if (stepIndex >= steps.length) { finish(); return; }
       const current = steps[stepIndex];
       state.onboardingStep = stepIndex;
-      if (current.kind === "ready") { chips.classList.remove("is-visible"); chips.classList.add("is-hidden"); card.classList.remove("is-stepped"); loadingTitle.textContent = "》》》 Preparing your private space 》》》"; loadingCopy.textContent = "Almost there, please wait a moment"; runProgress(() => { done.hidden = false; }); return; }
+      if (current.kind === "ready") { intro.hidden = true; stepBox.hidden = true; chips.classList.remove("is-visible"); chips.classList.add("is-hidden"); card.classList.remove("is-stepped"); loadingTitle.textContent = "》》》 Preparing your private space 》》》"; loadingCopy.textContent = "Almost there, please wait a moment"; runProgress(() => { done.hidden = false; }); return; }
       intro.hidden = true; stepBox.hidden = false; card.classList.add("is-stepped"); chips.classList.add("is-visible"); chips.classList.remove("is-hidden"); alignChips(stepIndex);
       paintChips(stepIndex); title.textContent = current.title; error.hidden = true;
       if (current.kind === "images") options.innerHTML = current.options.map((item, index) => `<button class="onboarding-option-image" type="button" data-onboarding-option="${index}"><span class="image"><img src="${esc(item.image)}" alt="" /></span><span class="name">${esc(item.name)}</span></button>`).join("");
