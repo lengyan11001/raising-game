@@ -30,9 +30,9 @@
       { label:"Welcome", title:"Are you 18 or older?", kind:"binary", options:["I’m 18 or older", "I’m under 18"], blockedIndex:1 },
       { label:"Intent", title:"What are you looking for?", kind:"binary", options:["A private conversation", "Just browsing"] },
       { label:"Vibe", title:"Pick a vibe", kind:"binary", options:["Playful and flirty", "Warm and romantic"] },
-      { label:"Style", title:"Choose a style", kind:"images", options:images.slice(0,4) },
-      { label:"Energy", title:"What energy do you like?", kind:"images", options:images.slice(4,8) },
-      { label:"Mood", title:"Set the mood", kind:"images", options:images.slice(8,12) },
+      { label:"Style", title:"Choose a style", kind:"images", options:images.slice(0,3) },
+      { label:"Energy", title:"What energy do you like?", kind:"images", options:images.slice(3,6) },
+      { label:"Mood", title:"Set the mood", kind:"images", options:images.slice(6,9) },
       { label:"Ready", title:"Your private space is ready", kind:"ready" }
     ];
   }
@@ -53,12 +53,15 @@
     paintCountdown(); countdownTimer = setInterval(paintCountdown, 1000);
     const runProgress = (onDone) => { bar.style.width = "0%"; loading.hidden = false; let progress = 0; const loop = setInterval(() => { progress += Math.random() * 10; bar.style.width = `${Math.min(progress, 100)}%`; if (progress >= 100) { clearInterval(loop); setTimeout(() => { loading.hidden = true; onDone(); }, 120); } }, 120); };
     const paintChips = (activeStep) => { chips.innerHTML = steps.map((item, index) => { const answer = state.onboardingAnswers[index]; const classes = `onboarding-chip ${index === activeStep ? "is-active" : ""} ${answer ? "is-answered" : ""}`; if (!answer) return `<li class="${classes}"><h4>${esc(item.label)}</h4></li>`; const text = typeof answer === "object" ? "" : esc(answer); const thumb = typeof answer === "object" && answer.image ? `<img class="onboarding-chip-image" src="${esc(answer.image)}" alt="" />` : ""; return `<li class="${classes}"><h4>${esc(item.label)}</h4>${thumb}${text ? `<span class="onboarding-chip-answer">${text}</span>` : ""}</li>`; }).join(""); };
+    // Keep the active chip inside the card: the column slides with the flow instead of
+    // running off the bottom edge on the last questions.
+    const alignChips = (activeStep) => { if (window.innerWidth <= 575) { chips.style.transform = ""; return; } const center = (steps.length - 1) / 2; chips.style.transform = `translateY(calc(-50% + ${Math.round((center - activeStep) * 104)}px))`; };
     const renderStep = (stepIndex) => {
       if (stepIndex >= steps.length) { finish(); return; }
       const current = steps[stepIndex];
       state.onboardingStep = stepIndex;
       if (current.kind === "ready") { chips.classList.remove("is-visible"); chips.classList.add("is-hidden"); card.classList.remove("is-stepped"); loadingTitle.textContent = "》》》 Preparing your private space 》》》"; loadingCopy.textContent = "Almost there, please wait a moment"; runProgress(() => { done.hidden = false; }); return; }
-      intro.hidden = true; stepBox.hidden = false; card.classList.add("is-stepped"); chips.classList.add("is-visible"); chips.classList.remove("is-hidden");
+      intro.hidden = true; stepBox.hidden = false; card.classList.add("is-stepped"); chips.classList.add("is-visible"); chips.classList.remove("is-hidden"); alignChips(stepIndex);
       paintChips(stepIndex); title.textContent = current.title; error.hidden = true;
       if (current.kind === "images") options.innerHTML = current.options.map((item, index) => `<button class="onboarding-option-image" type="button" data-onboarding-option="${index}"><span class="image"><img src="${esc(item.image)}" alt="" /></span><span class="name">${esc(item.name)}</span></button>`).join("");
       else options.innerHTML = current.options.map((item, index) => `<button class="onboarding-option-text ${index ? "is-decline" : "is-accept"}" type="button" data-onboarding-option="${index}">${esc(item)}</button>`).join("");
