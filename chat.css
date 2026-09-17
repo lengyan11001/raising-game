@@ -115,7 +115,7 @@ button { cursor:pointer; }
 .onboarding-progress i { position:absolute; top:0; left:0; height:100%; width:0; border-radius:2rem; background-color:#DE061D; transition:.3s cubic-bezier(.46,.23,.48,1.55); }
 .onboarding-chips { position:absolute; top:50%; left:-10rem; transform:translateY(-50%); margin:0; padding:0; list-style:none; transition:.3s cubic-bezier(.46,.23,.48,1.55); }
 .onboarding-chips.is-visible { left:0; }
-.onboarding-chips.is-hidden { left:-15rem; }
+.onboarding-chips.is-hidden { left:-20rem; opacity:0; }
 .onboarding-chip { position:relative; display:flex; flex-direction:column; justify-content:center; align-items:center; height:5.5rem; min-width:7rem; margin-bottom:1rem; padding:1rem .5rem .5rem; background-color:#fff; border-radius:0 10rem 10rem 0; transition:.3s cubic-bezier(.46,.23,.48,1.55); }
 .onboarding-chip::after { content:""; position:absolute; top:50%; right:1px; transform:translateY(-50%); width:5.4rem; height:5.4rem; border-radius:50%; background-color:#F57381; z-index:-1; }
 .onboarding-chip.is-active::after { right:-.4rem; }
