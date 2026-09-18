@@ -6,7 +6,11 @@ function renderAdvanced() {
     renderAdvancedCreateControls();
     renderAdvancedAssets([]);
     setAdvancedSideTab(state.advancedSideTab, { silent: true });
-    setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
+    // Restoring the remembered mobile tab must never override the side tab the
+    // visitor picked: setAdvancedMobileTab mirrors back into the side tab by
+    // default, which yanked a reader who had switched to Assets back to Result
+    // every time user data refreshed (for example while a task is polling).
+    setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true, skipSideTab: true });
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
     refreshIcons();
@@ -15,7 +19,8 @@ function renderAdvanced() {
   renderAdvancedCreateControls();
   renderAdvancedAssets();
   setAdvancedSideTab(state.advancedSideTab, { silent: true });
-  setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
+  // Same guard as above: a re-render must not move the visitor back to Result.
+  setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true, skipSideTab: true });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
