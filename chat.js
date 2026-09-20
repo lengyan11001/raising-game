@@ -104,6 +104,15 @@
         liveButton.style.marginTop = "10px";
         liveButton.addEventListener("click", (event) => {
           event.preventDefault();
+          /* 和文字聊一样先判断余额：不够就弹充值，不发起（会花钱的）实时会话 */
+          const price = Number(window.ChatLive.saleCreditsPerMinute() || 0);
+          const credits = Number(state.user?.credits || 0) || 0;
+          if (!getToken()) { loginDialog.showModal(); return; }
+          if (credits < price) {
+            window.alert(`余额不足：在线聊天需要 ${price} 积分/分钟，当前 ${credits} 积分。请先充值。`);
+            openUnlock();
+            return;
+          }
           window.ChatLive.open(liveCharacter.id).catch((error) => window.alert(error.message || String(error)));
         });
         (chatButton?.parentElement || app).appendChild(liveButton);
@@ -160,6 +169,7 @@
   /* 先等首页数据加载完，再用后台「在线聊天配置」的角色覆盖 model 列表，
      否则两个请求竞争，老的 homeVideo 列表会把配置好的角色盖回去。 */
   load().then(async () => {
+    syncAccountHeader();
     if (!window.ChatLive) return;
     await window.ChatLive.loadConfig().catch(() => {});
     /* model 列表 = 后台「在线聊天配置」里启用的角色（文字聊用同一份人设） */
@@ -179,6 +189,57 @@
       if (!document.querySelector(".standalone-onboarding")) route();
     }
   }).catch(() => {});
+
+  /* —— 右上角头像菜单（参考老站：点开是菜单，不再一点就退出登录） —— */
+  function creditsText(value) {
+    const number = Number(value || 0) || 0;
+    return `${number.toLocaleString("en-US", { maximumFractionDigits: 2 })} 积分`;
+  }
+  function syncAccountHeader() {
+    const label = document.querySelector("[data-account-label]");
+    if (!label) return;
+    if (!getToken() || !state.user) { label.textContent = "My Account"; return; }
+    const name = state.user.username || state.user.email || "My Account";
+    label.textContent = `${name} · ${creditsText(state.user.credits)}`;
+  }
+  function closeAccountMenu() { document.querySelector("[data-account-menu]")?.remove(); }
+  function toggleAccountMenu() {
+    if (document.querySelector("[data-account-menu]")) { closeAccountMenu(); return; }
+    if (!getToken()) { loginDialog.showModal(); return; }
+    const trigger = document.querySelector("[data-action='account']");
+    const menu = document.createElement("div");
+    menu.dataset.accountMenu = "";
+    menu.style.cssText = "position:fixed;z-index:60;min-width:210px;padding:12px;border-radius:12px;background:#111827;color:#f8fafc;box-shadow:0 18px 44px rgba(0,0,0,.35);font-size:13px";
+    menu.innerHTML = `
+      <div style="color:#94a3b8;font-size:11px">当前账号</div>
+      <strong style="display:block;margin:2px 0 10px">${esc(state.user?.username || state.user?.email || "My Account")}</strong>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,.12);border-bottom:1px solid rgba(255,255,255,.12)"><span style="color:#94a3b8">余额</span><b>${esc(creditsText(state.user?.credits))}</b></div>
+      <button type="button" data-account-topup style="width:100%;margin-top:10px;height:36px;border:0;border-radius:9px;background:#fff;color:#0b0d12;font-weight:700;cursor:pointer">充值</button>
+      <button type="button" data-account-logout style="width:100%;margin-top:8px;height:36px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:transparent;color:#fca5a5;font-weight:600;cursor:pointer">退出登录</button>`;
+    document.body.appendChild(menu);
+    const rect = trigger?.getBoundingClientRect();
+    if (rect) {
+      menu.style.top = `${Math.round(rect.bottom + 8)}px`;
+      menu.style.right = `${Math.max(12, Math.round(window.innerWidth - rect.right))}px`;
+    }
+    menu.querySelector("[data-account-topup]").addEventListener("click", () => { closeAccountMenu(); openUnlock(); });
+    menu.querySelector("[data-account-logout]").addEventListener("click", () => { closeAccountMenu(); localStorage.removeItem(TOKEN_KEY); location.reload(); });
+    window.setTimeout(() => {
+      const onOutside = (event) => {
+        if (menu.contains(event.target) || event.target.closest?.("[data-action='account']")) return;
+        closeAccountMenu();
+        document.removeEventListener("click", onOutside);
+      };
+      document.addEventListener("click", onOutside);
+    }, 0);
+  }
+  /* 捕获阶段拦截，替换掉"点头像=退出登录"的旧行为 */
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("[data-action='account']")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleAccountMenu();
+  }, true);
   document.addEventListener("click", (event) => {
     const startButton = event.target.closest?.("[data-live-start]");
     if (startButton) {
