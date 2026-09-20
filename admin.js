@@ -3929,6 +3929,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       <div class="adm-form-row"><span>人设提示词</span><textarea id="chatLivePersona" rows="5" placeholder="数字人的对话依据：身份、性格、说话风格、称呼、边界…">${escapeHtml(value.persona || "")}</textarea><small class="adm-muted">这段就是数字人的“大脑”，50000 字以内。前台聊天内容完全按它来。</small></div>
       <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
       <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType" size="6" style="width:100%">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
+      <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM（一体化，1.5 积分/秒）</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接我们自己的 LLM/ASR/TTS（1 积分/秒）</option></select><small class="adm-muted">组件版需要服务器配置自建 RTC（ARTC_APP_ID / ARTC_APP_KEY）。</small></div>
       <div class="adm-form-row"><span>音色供应商</span><select id="chatLiveVoiceProvider">${["qwen_omni", "doubao_cn", "doubao_overseas"].map((p) => `<option value="${p}" ${(value.voiceProvider || "qwen_omni") === p ? "selected" : ""}>${escapeHtml(chatLiveVoiceProviderLabel(p))}</option>`).join("")}</select></div>
       <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
       <div class="adm-form-row"><span>标签</span><input id="chatLiveTags" value="${escapeHtml((value.tags || []).join(","))}" placeholder="用逗号分隔，例如：温柔,御姐" /></div>
@@ -3970,6 +3971,7 @@ async function renderChatLive() {
           <div class="adm-form-row"><span>免费时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /></div>
           <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
           <div class="adm-form-row"><span>数字人版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
+          <div class="adm-form-row"><span>默认对话模式</span><select id="chatLiveDefaultMode"><option value="realtime" ${(pricing.defaultMode||"realtime")!=="component"?"selected":""}>实时版（Vidu 内置 LLM）</option><option value="component" ${(pricing.defaultMode||"")==="component"?"selected":""}>组件版（外接我们自己的 LLM）</option></select></div>
           <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（数字人出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
           <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>
           <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSavePricingBtn" type="button"><i data-lucide="save"></i>保存计费</button></div>
@@ -4066,6 +4068,7 @@ async function renderChatLive() {
       greeting: els.adminContent.querySelector("#chatLiveGreeting").value,
       voiceType: els.adminContent.querySelector("#chatLiveVoiceType").value,
       voiceProvider: els.adminContent.querySelector("#chatLiveVoiceProvider").value,
+      mode: els.adminContent.querySelector("#chatLiveMode").value,
       language: els.adminContent.querySelector("#chatLiveLanguage").value,
       tags: els.adminContent.querySelector("#chatLiveTags").value,
       sortOrder: Number(els.adminContent.querySelector("#chatLiveSortOrder").value || 0),
@@ -4091,6 +4094,7 @@ async function renderChatLive() {
           maxMinutes: Number(els.adminContent.querySelector("#chatLiveMaxMinutes").value || 10),
           model: els.adminContent.querySelector("#chatLiveModel").value,
           callMode: els.adminContent.querySelector("#chatLiveCallMode").value,
+          defaultMode: els.adminContent.querySelector("#chatLiveDefaultMode").value,
           enabled: els.adminContent.querySelector("#chatLiveEnabledSwitch").checked,
         },
       });

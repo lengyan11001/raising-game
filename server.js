@@ -527,6 +527,9 @@ const VIDU_API_KEY = String(process.env.VIDU_API_KEY || "").trim();
 const VIDU_LIVE_MODEL = String(process.env.VIDU_LIVE_MODEL || "vidu-s2").trim() || "vidu-s2";
 /* Vidu bills the realtime avatar at 1.5 credits/second → 90/minute. */
 const CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE = 90;
+/* 组件版（外接我们自己的 ASR/LLM/TTS）需要自建 RTC 频道：阿里云 ARTC */
+const ARTC_APP_ID = String(process.env.ARTC_APP_ID || "").trim();
+const ARTC_APP_KEY = String(process.env.ARTC_APP_KEY || "").trim();
 
 const SEEDANCE_QUALITY_ENDPOINT_ID = "ep-20260429142513-zg667";
 const SEEDANCE_FAST_ENDPOINT_ID = "ep-20260429142538-fkm9d";
@@ -5970,6 +5973,8 @@ function normalizeChatLiveConfig(raw = {}) {
     maxMinutes: integer(source.maxMinutes, 10, 1, 120),
     model: String(source.model || VIDU_LIVE_MODEL).trim() || VIDU_LIVE_MODEL,
     callMode: source.callMode === "audio" ? "audio" : "video",
+    /* 对话模式：realtime = Vidu 内置 LLM（一体化）；component = 外接我们自己的 ASR/LLM/TTS */
+    defaultMode: source.defaultMode === "component" ? "component" : "realtime",
     videoChatEnabled: source.videoChatEnabled !== false,
     updatedAt: source.updatedAt || "",
   };
@@ -6032,6 +6037,8 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const voiceType = String(body.voiceType ?? body.voice_type ?? existing?.voiceType ?? "").trim().slice(0, 80);
   /* 关联的平台角色名：chat 站的文字聊角色详情页据此显示"在线聊天"按钮 */
   const linkName = String(body.linkName ?? body.link_name ?? existing?.linkName ?? "").trim().slice(0, 60);
+  const rawMode = String(body.mode ?? existing?.mode ?? "").trim().toLowerCase();
+  const mode = ["realtime", "component"].includes(rawMode) ? rawMode : "";
   const voiceProvider = String(body.voiceProvider ?? body.voice_provider ?? existing?.voiceProvider ?? "qwen_omni").trim() || "qwen_omni";
   const language = String(body.language ?? existing?.language ?? "zh").trim().slice(0, 12) || "zh";
   const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
@@ -6046,6 +6053,7 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     greeting,
     voiceType,
     linkName,
+    mode,
     voiceProvider,
     language,
     tags,
@@ -6099,6 +6107,7 @@ function livePricingView(live = {}) {
     freeSeconds: Number(live.freeSeconds || 0),
     maxMinutes: Number(live.maxMinutes || 10),
     callMode: live.callMode || "video",
+    defaultMode: live.defaultMode === "component" ? "component" : "realtime",
     model: live.model || VIDU_LIVE_MODEL,
     videoChatEnabled: live.videoChatEnabled !== false,
   };
@@ -6205,6 +6214,14 @@ async function handleCreateChatLiveSession(req, res) {
   if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
   const salePerMinute = Number(live.saleCreditsPerMinute || 0);
   if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "在线聊天价格未配置。" });
+  const conversationMode = String(character.mode || live.defaultMode || "realtime") === "component" ? "component" : "realtime";
+  if (conversationMode === "component" && (!ARTC_APP_ID || !ARTC_APP_KEY)) {
+    return sendJson(res, 503, {
+      ok: false,
+      code: "CHAT_LIVE_COMPONENT_NOT_CONFIGURED",
+      message: "该角色配置为「外接 LLM（组件版）」，但服务器还没配置自建 RTC（缺 ARTC_APP_ID / ARTC_APP_KEY）。",
+    });
+  }
   const balance = Number(auth.user?.credits || 0);
   const requiredCredits = Math.max(1, Math.ceil((salePerMinute * Math.min(1, live.maxMinutes)) || salePerMinute));
   if (balance < requiredCredits) return sendJson(res, 402, insufficientCreditsPayload(requiredCredits, balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
