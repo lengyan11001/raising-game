@@ -109,11 +109,10 @@
           const credits = Number(state.user?.credits || 0) || 0;
           if (!getToken()) { loginDialog.showModal(); return; }
           if (credits < price) {
-            window.alert(`余额不足：在线聊天需要 ${price} 积分/分钟，当前 ${credits} 积分。请先充值。`);
-            openUnlock();
+            showNotice("余额不足", `在线聊天需要 ${price} 积分/分钟，当前余额 ${credits} 积分。`, { actionLabel: "去充值", onAction: openUnlock });
             return;
           }
-          window.ChatLive.open(liveCharacter.id).catch((error) => window.alert(error.message || String(error)));
+          window.ChatLive.open(liveCharacter.id).catch((error) => showNotice("无法开始在线聊天", error.message || String(error)));
         });
         (chatButton?.parentElement || app).appendChild(liveButton);
       }
@@ -239,6 +238,58 @@
     event.preventDefault();
     event.stopPropagation();
     toggleAccountMenu();
+  }, true);
+
+  /* —— 页内弹窗提示（替代 alert / 顶部 toast 样式） —— */
+  function showNotice(title, message, { actionLabel = "", onAction = null } = {}) {
+    let dialog = document.querySelector("#chatNoticeDialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "chatNoticeDialog";
+      dialog.className = "chat-dialog";
+      document.body.appendChild(dialog);
+    }
+    dialog.innerHTML = `
+      <form method="dialog" class="dialog-card">
+        <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+        <span class="dialog-kicker">VIPS CHAT</span>
+        <h2>${esc(title)}</h2>
+        <p>${esc(message || "")}</p>
+        <div class="dialog-actions">
+          ${actionLabel ? `<button class="outline-button" type="button" data-notice-action>${esc(actionLabel)}</button>` : ""}
+          <button class="solid-button" value="ok">知道了</button>
+        </div>
+      </form>`;
+    dialog.querySelector("[data-notice-action]")?.addEventListener("click", () => {
+      dialog.close();
+      onAction?.();
+    });
+    if (!dialog.open) dialog.showModal();
+  }
+
+  /* —— 文字聊入口：不再依赖旧实现，点击后必有反馈 —— */
+  async function beginTextChat() {
+    const character = state.selected;
+    if (!character) { showNotice("请先选择角色", "回到列表点一个角色再开始聊天。"); return; }
+    if (!getToken()) { if (!loginDialog.open) loginDialog.showModal(); return; }
+    try {
+      const result = await api("/api/chat/conversations", { method: "POST", body: JSON.stringify({ characterId: character.id }) });
+      const conversationId = result?.conversation?.id;
+      if (!conversationId) throw new Error("服务器没有返回会话信息。");
+      location.hash = `chat/${encodeURIComponent(conversationId)}`;
+    } catch (error) {
+      if (error.status === 402 || error.code === "CHAT_UNLOCK_REQUIRED" || error.code === "INSUFFICIENT_CREDITS") {
+        showNotice("余额不足", "文字聊需要先充值解锁这个角色。", { actionLabel: "去充值", onAction: openUnlock });
+        return;
+      }
+      showNotice("无法开始聊天", error.message || String(error));
+    }
+  }
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("[data-detail-chat]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    beginTextChat();
   }, true);
   document.addEventListener("click", (event) => {
     const startButton = event.target.closest?.("[data-live-start]");
