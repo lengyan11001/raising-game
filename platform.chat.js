@@ -146,6 +146,24 @@ function renderChatPanel() {
     els.chatMainHead.innerHTML = hasConversation ? `<button class="icon-btn chat-mobile-control" type="button" data-chat-mobile-list aria-label="Chats"><i data-lucide="panel-left"></i></button><img src="${escapeHtml(chatPoster(conversation.character))}" alt="" /><span><strong>${escapeHtml(conversation.title)}</strong><small>BytePlus Language</small></span><button class="icon-btn chat-mobile-control" type="button" data-chat-mobile-settings aria-label="Chat settings"><i data-lucide="sliders-horizontal"></i></button>` : "";
     els.chatMainHead.querySelector("[data-chat-mobile-list]")?.addEventListener("click", () => els.chatShell?.classList.toggle("mobile-list-open"));
     els.chatMainHead.querySelector("[data-chat-mobile-settings]")?.addEventListener("click", () => els.chatShell?.classList.toggle("mobile-settings-open"));
+    /* 在线聊天（Vidu 实时数字人）：和角色聊天按钮并排的实时视频入口 */
+    const liveCharacter = (window.ChatLive?.available?.() && window.ChatLive.characters().find((item) => (
+      String(item.id) === String(conversation.characterId || conversation.character?.id || "")
+      || String(item.name || "").toLowerCase() === String(conversation.title || conversation.character?.name || "").toLowerCase()
+    ))) || null;
+    if (liveCharacter) {
+      const liveButton = document.createElement("button");
+      liveButton.type = "button";
+      liveButton.className = "icon-btn chat-live-entry";
+      liveButton.dataset.chatLiveStart = liveCharacter.id;
+      liveButton.title = `在线聊天 · ${window.ChatLive.saleCreditsPerMinute()} 积分/分钟`;
+      liveButton.innerHTML = `<i data-lucide="video"></i><span>在线聊天</span>`;
+      els.chatMainHead.appendChild(liveButton);
+      liveButton.addEventListener("click", () => {
+        window.ChatLive.open(liveCharacter.id).catch((error) => window.alert(error.message || String(error)));
+      });
+      refreshIcons();
+    }
   }
   if (els.chatThread && hasConversation) {
     els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
@@ -766,3 +784,7 @@ els.chatVoiceBtn?.addEventListener("click", () => {
 document.querySelectorAll("[data-chat-setting]").forEach((button) => button.addEventListener("click", () => { state.chatSetting = button.dataset.chatSetting || "style"; renderChatSettings(); refreshIcons(); }));
 document.querySelectorAll("[data-chat-close-panels]").forEach((button) => button.addEventListener("click", () => els.chatShell?.classList.remove("mobile-list-open", "mobile-settings-open")));
 window.addEventListener("resize", syncChatViewportHeight);
+/* 在线聊天（Vidu 实时数字人）：拉一次配置，chat 面板里就能出现实时入口 */
+if (window.ChatLive && typeof window.ChatLive.loadConfig === "function") {
+  window.ChatLive.loadConfig().then(() => { if (typeof renderChatPanel === "function") renderChatPanel(); }).catch(() => {});
+}

@@ -108,5 +108,46 @@
   document.querySelector("[data-login-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const message = form.querySelector("[data-login-message]"); try { const result = await api("/api/auth/login-or-register", { method:"POST", body:JSON.stringify({ username:form.username.value.trim(), password:form.password.value }) }); localStorage.setItem(TOKEN_KEY, result.token); loginDialog.close(); location.reload(); } catch (error) { message.textContent = error.message; } });
   async function requestEmailCode() { const form = document.querySelector("[data-email-form]"); const message = form.querySelector("[data-email-message]"); try { await api("/api/auth/email/request", { method:"POST", body:JSON.stringify({ email:form.email.value.trim() }) }); message.textContent = "Verification code sent."; } catch (error) { message.textContent = error.message; } }
   document.querySelector("[data-email-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const message = form.querySelector("[data-email-message]"); try { const result = await api("/api/auth/email/verify", { method:"POST", body:JSON.stringify({ email:form.email.value.trim(), code:form.code.value.trim() }) }); localStorage.setItem(TOKEN_KEY, result.token); emailDialog.close(); location.reload(); } catch (error) { message.textContent = error.message; } });
+  function chatLiveSectionHTML() {
+    if (!window.ChatLive || !window.ChatLive.available()) return "";
+    const price = window.ChatLive.saleCreditsPerMinute();
+    const cards = window.ChatLive.characters().map((item) => `
+      <article class="model-card" data-live-character="${esc(item.id)}">
+        <span class="free-badge">LIVE</span>
+        <img src="${esc(item.portraitUrl || item.avatarUrl || "")}" alt="${esc(item.name || "Live")}" loading="lazy" />
+        <div class="model-card-body">
+          <h3>${esc(item.name || "Live")}</h3>
+          <p>${esc(item.intro || "在线语音视频聊天")}</p>
+          <button class="solid-button" type="button" data-live-start="${esc(item.id)}">在线聊天 · ${esc(String(price))} 积分/分钟</button>
+        </div>
+      </article>`).join("");
+    return `<section class="models-page" data-chat-live-section style="padding-bottom:0"><div class="models-intro"><span class="eyebrow">LIVE</span><h1>在线聊天</h1><p>数字人实时视频对话：你说话，她回应（单向视频，支持语音与文字）。</p></div><div class="model-grid">${cards}</div></section>`;
+  }
+  function injectChatLiveSection() {
+    if (document.querySelector("[data-chat-live-section]")) return;
+    const modelsPage = document.querySelector("#app .models-page");
+    const html = chatLiveSectionHTML();
+    if (!modelsPage || !html) return;
+    modelsPage.insertAdjacentHTML("beforebegin", html);
+  }
+
   window.addEventListener("hashchange", route); load();
+  window.addEventListener("hashchange", () => window.setTimeout(injectChatLiveSection, 30));
+  /* 在线聊天（Vidu 实时数字人）配置：拉到后重渲染一次，让入口出现 */
+  if (window.ChatLive) {
+    window.ChatLive.loadConfig().then(() => { injectChatLiveSection(); }).catch(() => {});
+  }
+  document.addEventListener("click", (event) => {
+    const startButton = event.target.closest?.("[data-live-start]");
+    if (startButton) {
+      event.preventDefault();
+      if (window.ChatLive) window.ChatLive.open(startButton.dataset.liveStart).catch((error) => window.alert(error.message || String(error)));
+      return;
+    }
+    const card = event.target.closest?.("[data-live-character]");
+    if (card) {
+      event.preventDefault();
+      if (window.ChatLive) window.ChatLive.open(card.dataset.liveCharacter).catch((error) => window.alert(error.message || String(error)));
+    }
+  });
 })();

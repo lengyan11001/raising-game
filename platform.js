@@ -12,6 +12,7 @@
     "platform.video-tools.js",
     "platform.undress-tool.js",
     "platform.main.js",
+    "chat-live.js",
   ];
   const currentScript = document.currentScript;
   const baseUrl = currentScript?.src || "./platform.js";
