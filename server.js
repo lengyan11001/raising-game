@@ -14031,7 +14031,23 @@ function chatCharacterView(item = {}) {
 async function chatCharacterById(characterId = "") {
   const config = await readAppConfig();
   const items = normalizeHomeVideo(config.homeVideo || {}).items || [];
-  return items.find((item) => String(item.id || "") === String(characterId || "")) || null;
+  const found = items.find((item) => String(item.id || "") === String(characterId || "")) || null;
+  if (found) return found;
+  /* 后台「在线聊天配置」里自建的角色同样可以文字聊：人设直接取配置里的 persona */
+  const live = await getChatLiveCharacterInDb(characterId);
+  if (!live || live.enabled === false) return null;
+  return {
+    id: live.id,
+    name: live.name || "Character",
+    title: live.intro || "",
+    summary: live.intro || "",
+    description: live.persona || live.intro || "",
+    posterUrl: live.portraitUrl || live.avatarUrl || "",
+    characterImageUrl: live.portraitUrl || live.avatarUrl || "",
+    tags: Array.isArray(live.tags) ? live.tags : [],
+    chatGreeting: live.greeting || "",
+    source: "chat-live",
+  };
 }
 
 function publicChatConversation(conversation = {}) {
@@ -14199,7 +14215,7 @@ async function handleCreateChatConversation(req, res) {
   await upsertChatConversationInDb(conversation);
   const greeting = {
     id: randomId("msg"), conversationId: conversation.id, userId: auth.user.id, role: "assistant",
-    content: characterView.description || `Hi, I'm ${characterView.name}. What would you like to talk about?`, createdAt: now, updatedAt: now,
+    content: character.chatGreeting || characterView.summary || character.title || `Hi, I'm ${characterView.name}. What would you like to talk about?`, createdAt: now, updatedAt: now,
   };
   await insertChatMessageInDb(greeting);
   return sendJson(res, 201, { ok: true, conversation: publicChatConversation(conversation), messages: [publicChatMessage(greeting)] });

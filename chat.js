@@ -160,10 +160,24 @@
   /* 先等首页数据加载完，再用后台「在线聊天配置」的角色覆盖 model 列表，
      否则两个请求竞争，老的 homeVideo 列表会把配置好的角色盖回去。 */
   load().then(async () => {
-    /* 只拉配置（让详情页出现"在线聊天"按钮），不再改动 model 列表本身。 */
     if (!window.ChatLive) return;
     await window.ChatLive.loadConfig().catch(() => {});
-    if (location.hash.startsWith("#model/")) route();
+    /* model 列表 = 后台「在线聊天配置」里启用的角色（文字聊用同一份人设） */
+    const configured = window.ChatLive?.characters?.() || [];
+    if (configured.length) {
+      state.characters = configured.map((item) => ({
+        id: item.id,
+        name: item.name,
+        title: item.intro || "",
+        summary: item.intro || "",
+        description: item.intro || "",
+        tags: item.tags || [],
+        characterImageUrl: item.portraitUrl || item.avatarUrl || "",
+        referenceImageUrl: item.avatarUrl || "",
+        live: true,
+      }));
+      if (!document.querySelector(".standalone-onboarding")) route();
+    }
   }).catch(() => {});
   document.addEventListener("click", (event) => {
     const startButton = event.target.closest?.("[data-live-start]");
