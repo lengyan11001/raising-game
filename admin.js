@@ -3917,9 +3917,8 @@ function chatLiveCharacterRow(character = {}) {
 
 function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const value = character || {};
-  const formId = "chatLiveCharacterForm";
   return `
-    <form id="${formId}" class="adm-form">
+    <div id="chatLiveCharacterForm" class="adm-form">
       <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
       <div class="adm-form-row"><span>角色名称</span><input id="chatLiveName" value="${escapeHtml(value.name || "")}" placeholder="例如：甜甜 Tina" /></div>
       <div class="adm-form-row"><span>形象图 URL</span><input id="chatLiveAvatarUrl" value="${escapeHtml(value.avatarUrl || "")}" placeholder="https://…/cover.jpg" /><small class="adm-muted">数字人形象，必须是<b>单人</b>图片（PNG/JPG/WEBP，公网可访问），建议正脸半身。</small></div>
@@ -3928,7 +3927,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       <div class="adm-form-row"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
       <div class="adm-form-row"><span>人设提示词</span><textarea id="chatLivePersona" rows="5" placeholder="数字人的对话依据：身份、性格、说话风格、称呼、边界…">${escapeHtml(value.persona || "")}</textarea><small class="adm-muted">这段就是数字人的“大脑”，50000 字以内。前台聊天内容完全按它来。</small></div>
       <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
-      <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType" size="6" style="width:100%">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
+      <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
       <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM（一体化，1.5 积分/秒）</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接我们自己的 LLM/ASR/TTS（1 积分/秒）</option></select><small class="adm-muted">组件版需要服务器配置自建 RTC（ARTC_APP_ID / ARTC_APP_KEY）。</small></div>
       <div class="adm-form-row"><span>音色供应商</span><select id="chatLiveVoiceProvider">${["qwen_omni", "doubao_cn", "doubao_overseas"].map((p) => `<option value="${p}" ${(value.voiceProvider || "qwen_omni") === p ? "selected" : ""}>${escapeHtml(chatLiveVoiceProviderLabel(p))}</option>`).join("")}</select></div>
       <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
@@ -3936,12 +3935,65 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       <div class="adm-form-row"><span>排序</span><input id="chatLiveSortOrder" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
       <div class="adm-form-row"><span>人设增强</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLivePersonaEnhance" type="checkbox" ${value.personaEnhance === true ? "checked" : ""} /> 让 Vidu 自动扩写人设</label></div>
       <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可见）</label></div>
-      <div class="adm-form-actions">
-        <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="save"></i>保存角色</button>
-        <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveResetBtn">清空 / 新增</button>
-      </div>
-    </form>
+    </div>
   `;
+}
+
+async function openChatLiveCharacterDialog(character, defaults = {}, voices = []) {
+  const html = chatLiveCharacterForm(character, defaults, voices);
+  await openDialog({
+    title: character ? `编辑角色：${character.name || ""}` : "新增角色",
+    body: html,
+    confirmText: "保存",
+    onConfirm: async () => {
+      const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
+      const val = (id) => box().querySelector(`#${id}`)?.value ?? "";
+      const body = {
+        id: character?.id || undefined,
+        name: val("chatLiveName"),
+        avatarUrl: val("chatLiveAvatarUrl"),
+        portraitUrl: val("chatLivePortraitUrl"),
+        intro: val("chatLiveIntro"),
+        linkName: val("chatLiveLinkName"),
+        persona: val("chatLivePersona"),
+        greeting: val("chatLiveGreeting"),
+        voiceType: val("chatLiveVoiceType"),
+        voiceProvider: val("chatLiveVoiceProvider"),
+        mode: val("chatLiveMode"),
+        language: val("chatLiveLanguage"),
+        tags: val("chatLiveTags"),
+        sortOrder: Number(val("chatLiveSortOrder") || 0),
+        personaEnhance: box().querySelector("#chatLivePersonaEnhance")?.checked === true,
+        enabled: box().querySelector("#chatLiveEnabled")?.checked !== false,
+      };
+      await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
+      renderChatLive();
+      return true;
+    },
+    onOpen: () => {
+      const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
+      box().querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
+        chatLiveVoiceFilter = event.target.value;
+        const select = box().querySelector("#chatLiveVoiceType");
+        if (select) select.innerHTML = chatLiveVoiceOptions(voices, select.value || character?.voiceType || "", chatLiveVoiceFilter);
+      });
+      box().querySelector("#chatLiveVoiceType")?.addEventListener("change", (event) => {
+        const label = box().querySelector("#chatLiveVoiceSelected");
+        if (label) label.textContent = event.target.value || "未选择";
+      });
+      box().querySelector("#chatLiveMode")?.addEventListener("change", async (event) => {
+        const scope = event.target.value === "component" ? "component" : "realtime";
+        try {
+          const payload = await api(`/api/admin/chat-live/voices?scope=${scope}`);
+          const list = Array.isArray(payload.voices) ? payload.voices : [];
+          const select = box().querySelector("#chatLiveVoiceType");
+          if (select) select.innerHTML = chatLiveVoiceOptions(list, "", "");
+        } catch (error) {
+          toast(error.message || String(error), "error");
+        }
+      });
+    },
+  });
 }
 
 async function renderChatLive() {
@@ -3996,7 +4048,7 @@ async function renderChatLive() {
     </section>
   `;
   refreshIcons?.();
-  /* —— 分 Tab + 弹窗编辑 —— */
+  /* —— 分 Tab；新增/编辑走后台自带 openDialog —— */
   const liveCards = Array.from(els.adminContent.querySelectorAll(".adm-card"));
   const pricingCard = liveCards[0];
   const editorCard = liveCards[1];
@@ -4011,43 +4063,20 @@ async function renderChatLive() {
   page.prepend(tabBar);
   if (pricingCard) pricingCard.hidden = chatLiveTab !== "pricing";
   if (listCard) listCard.hidden = chatLiveTab !== "characters";
-  const modal = document.createElement("div");
-  modal.className = "chat-live-modal";
-  modal.hidden = !chatLiveModalOpen;
-  modal.style.cssText = "position:fixed;inset:0;z-index:500;background:rgba(15,23,42,.6);overflow:auto;padding:24px";
-  const modalCard = document.createElement("div");
-  modalCard.className = "adm-card";
-  modalCard.style.cssText = "max-width:780px;margin:0 auto;background:#fff";
-  const modalHead = document.createElement("div");
-  modalHead.className = "adm-card-head";
-  modalHead.innerHTML = `<div><h3>${editing ? `编辑角色：${escapeHtml(editing.name || "")}` : "新增角色"}</h3><p class="adm-muted">形象图必须是单人图；人设决定聊天内容；音色可搜索。</p></div>`;
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "adm-btn adm-btn-ghost";
-  closeBtn.textContent = "关闭";
-  closeBtn.addEventListener("click", () => { chatLiveModalOpen = false; chatLiveEditingId = ""; renderChatLive(); });
-  modalHead.appendChild(closeBtn);
-  modalCard.append(modalHead, editorCard.querySelector("form") || document.createElement("div"));
-  modal.appendChild(modalCard);
-  editorCard.remove();
-  document.body.appendChild(modal);
+  if (editorCard) editorCard.remove();
   tabBar.querySelectorAll("[data-chat-live-tab]").forEach((button) => button.addEventListener("click", () => {
     chatLiveTab = button.dataset.chatLiveTab === "pricing" ? "pricing" : "characters";
-    chatLiveModalOpen = false;
     renderChatLive();
   }));
   els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => {
-    chatLiveEditingId = "";
     chatLiveVoiceFilter = "";
-    chatLiveModalOpen = true;
-    renderChatLive();
+    openChatLiveCharacterDialog(null, payload.defaults || {}, voices);
   });
-
   els.adminContent.querySelector("#chatLiveReloadBtn")?.addEventListener("click", () => renderChatLive());
   els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => {
-    chatLiveEditingId = button.dataset.chatLiveEdit;
-    chatLiveModalOpen = true;
-    renderChatLive();
+    const target = characters.find((item) => item.id === button.dataset.chatLiveEdit) || null;
+    chatLiveVoiceFilter = "";
+    openChatLiveCharacterDialog(target, payload.defaults || {}, voices);
   }));
   els.adminContent.querySelectorAll("[data-chat-live-delete]").forEach((button) => button.addEventListener("click", async () => {
     if (!window.confirm("确定删除这个角色？")) return;
@@ -4077,36 +4106,6 @@ async function renderChatLive() {
   els.adminContent.querySelector("#chatLiveVoiceType")?.addEventListener("change", (event) => {
     const label = els.adminContent.querySelector("#chatLiveVoiceSelected");
     if (label) label.textContent = event.target.value || "未选择";
-  });
-  els.adminContent.querySelector("#chatLiveResetBtn")?.addEventListener("click", () => { chatLiveEditingId = ""; chatLiveModalOpen = false; renderChatLive(); });
-  els.adminContent.querySelector("#chatLiveCharacterForm")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const body = {
-      id: els.adminContent.querySelector("#chatLiveId").value || undefined,
-      name: els.adminContent.querySelector("#chatLiveName").value,
-      avatarUrl: els.adminContent.querySelector("#chatLiveAvatarUrl").value,
-      portraitUrl: els.adminContent.querySelector("#chatLivePortraitUrl").value,
-      intro: els.adminContent.querySelector("#chatLiveIntro").value,
-      linkName: els.adminContent.querySelector("#chatLiveLinkName").value,
-      persona: els.adminContent.querySelector("#chatLivePersona").value,
-      greeting: els.adminContent.querySelector("#chatLiveGreeting").value,
-      voiceType: els.adminContent.querySelector("#chatLiveVoiceType").value,
-      voiceProvider: els.adminContent.querySelector("#chatLiveVoiceProvider").value,
-      mode: els.adminContent.querySelector("#chatLiveMode").value,
-      language: els.adminContent.querySelector("#chatLiveLanguage").value,
-      tags: els.adminContent.querySelector("#chatLiveTags").value,
-      sortOrder: Number(els.adminContent.querySelector("#chatLiveSortOrder").value || 0),
-      personaEnhance: els.adminContent.querySelector("#chatLivePersonaEnhance").checked,
-      enabled: els.adminContent.querySelector("#chatLiveEnabled").checked,
-    };
-    try {
-      const saved = await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
-      chatLiveEditingId = saved?.character?.id || "";
-      chatLiveModalOpen = false;
-      renderChatLive();
-    } catch (error) {
-      window.alert(error.message || String(error));
-    }
   });
   els.adminContent.querySelector("#chatLiveSavePricingBtn")?.addEventListener("click", async () => {
     try {
