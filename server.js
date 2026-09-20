@@ -41880,6 +41880,7 @@ async function serveStatic(req, res, url) {
     const allowedChatPath = pathname === "/chat.html"
       || pathname === "/chat.css"
       || pathname === "/chat.js"
+      || pathname === "/chat-live.js"
       || pathname === "/favicon.ico"
       || pathname === "/favicon.svg"
       || pathname.startsWith("/assets/brand/")
