@@ -3857,6 +3857,8 @@ async function renderPricingLegacy() {
 let chatLiveVoicesCache = null;
 let chatLiveEditingId = "";
 let chatLiveVoiceFilter = "";
+let chatLiveTab = "characters";
+let chatLiveModalOpen = false;
 
 async function loadChatLiveVoices() {
   if (chatLiveVoicesCache) return chatLiveVoicesCache;
@@ -3960,13 +3962,8 @@ async function renderChatLive() {
       </div>
 
       <div class="adm-card">
-        <div class="adm-card-head">
-          <div>
-            <h3>计费（积分/分钟）</h3>
-            <p class="adm-muted">原价 = Vidu 成本（实时版 1.5 积分/秒 ≈ 90 积分/分钟），卖价自己定；低于成本的卖价会亏。</p>
-          </div>
-        </div>
-        <div class="adm-form">
+        <div class="adm-card-head"><div><h3>计费（积分/分钟）</h3><p class="adm-muted">原价 = Vidu 成本（实时版 1.5 积分/秒 ≈ 90 积分/分钟），卖价自己定；低于成本会亏。</p></div></div>
+        <div class="adm-form" data-chat-live-pane="pricing" ${chatLiveTab === "pricing" ? "" : "hidden"}>
           <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
           <div class="adm-form-row"><span>卖价</span><input id="chatLiveSale" type="number" min="0" value="${escapeHtml(String(pricing.saleCreditsPerMinute ?? 0))}" /><small class="adm-muted">0 = 未定价，此时前台不允许开播。</small></div>
           <div class="adm-form-row"><span>免费时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /></div>
@@ -3995,10 +3992,50 @@ async function renderChatLive() {
     </section>
   `;
   refreshIcons?.();
+  /* —— 分 Tab + 弹窗编辑 —— */
+  const liveCards = Array.from(els.adminContent.querySelectorAll(".adm-card"));
+  const pricingCard = liveCards[0];
+  const editorCard = liveCards[1];
+  const listCard = liveCards[2];
+  const page = els.adminContent.querySelector(".adm-page");
+  const tabBar = document.createElement("div");
+  tabBar.className = "adm-page-actions";
+  tabBar.style.marginBottom = "14px";
+  tabBar.innerHTML = `
+    <button class="adm-btn ${chatLiveTab === "characters" ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="characters" type="button">角色列表</button>
+    <button class="adm-btn ${chatLiveTab === "pricing" ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="pricing" type="button">价格配置</button>`;
+  page.prepend(tabBar);
+  if (pricingCard) pricingCard.hidden = chatLiveTab !== "pricing";
+  if (listCard) listCard.hidden = chatLiveTab !== "characters";
+  const modal = document.createElement("div");
+  modal.className = "chat-live-modal";
+  modal.hidden = !chatLiveModalOpen;
+  modal.style.cssText = "position:fixed;inset:0;z-index:500;background:rgba(15,23,42,.6);overflow:auto;padding:24px";
+  const modalCard = document.createElement("div");
+  modalCard.className = "adm-card";
+  modalCard.style.cssText = "max-width:780px;margin:0 auto;background:#fff";
+  const modalHead = document.createElement("div");
+  modalHead.className = "adm-card-head";
+  modalHead.innerHTML = `<div><h3>${editing ? `编辑角色：${escapeHtml(editing.name || "")}` : "新增角色"}</h3><p class="adm-muted">形象图必须是单人图；人设决定聊天内容；音色可搜索。</p></div>`;
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "adm-btn adm-btn-ghost";
+  closeBtn.textContent = "关闭";
+  closeBtn.addEventListener("click", () => { chatLiveModalOpen = false; chatLiveEditingId = ""; renderChatLive(); });
+  modalHead.appendChild(closeBtn);
+  modalCard.append(modalHead, editorCard.querySelector("form") || document.createElement("div"));
+  modal.appendChild(modalCard);
+  editorCard.remove();
+  document.body.appendChild(modal);
+  tabBar.querySelectorAll("[data-chat-live-tab]").forEach((button) => button.addEventListener("click", () => {
+    chatLiveTab = button.dataset.chatLiveTab === "pricing" ? "pricing" : "characters";
+    chatLiveModalOpen = false;
+    renderChatLive();
+  }));
+  els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => { chatLiveModalOpen = true; });
 
   els.adminContent.querySelector("#chatLiveReloadBtn")?.addEventListener("click", () => renderChatLive());
-  els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => { chatLiveEditingId = ""; chatLiveVoiceFilter = ""; renderChatLive(); });
-  els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => { chatLiveEditingId = button.dataset.chatLiveEdit; renderChatLive(); }));
+  els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => { chatLiveEditingId = button.dataset.chatLiveEdit; chatLiveModalOpen = true; renderChatLive(); }));
   els.adminContent.querySelectorAll("[data-chat-live-delete]").forEach((button) => button.addEventListener("click", async () => {
     if (!window.confirm("确定删除这个角色？")) return;
     await api(`/api/admin/chat-live/characters/${encodeURIComponent(button.dataset.chatLiveDelete)}`, { method: "DELETE" });
