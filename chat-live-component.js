@@ -256,15 +256,25 @@ async function componentSpeechPcm(text, voice) {
   const key = process.env.ALIYUN_DASHSCOPE_API_KEY || process.env.ALIYUN_WAN30_API_KEY || "";
   if (!key) throw new Error("TTS 未配置（缺 ALIYUN_DASHSCOPE_API_KEY）。");
   const base = String(process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
-  const response = await fetch(`${base}/api/v1/services/aigc/multimodal-generation/generation`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model: process.env.CHAT_LIVE_TTS_MODEL || "qwen-tts",
-      input: { text, voice: voice || "Cherry" },
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
+  const model = String(process.env.CHAT_LIVE_TTS_MODEL || "cosyvoice-v1").trim();
+  const headers = { authorization: `Bearer ${key}`, "content-type": "application/json" };
+  /* 用后台角色里选的音色：CosyVoice 走 speech-synthesis，qwen-tts 走 multimodal-generation */
+  const payloads = model.startsWith("cosyvoice")
+    ? [{
+        url: `${base}/api/v1/services/aigc/text2speech/speech-synthesis`,
+        body: { model, input: { text, voice: voice || "longxiaochun" }, parameters: { format: "wav", sample_rate: PCM_SAMPLE_RATE } },
+      }]
+    : [
+        { url: `${base}/api/v1/services/aigc/multimodal-generation/generation`, body: { model, input: { text, voice: voice || "Cherry" } } },
+        { url: `${base}/api/v1/services/aigc/text2speech/speech-synthesis`, body: { model: "cosyvoice-v1", input: { text, voice: voice || "longxiaochun" }, parameters: { format: "wav", sample_rate: PCM_SAMPLE_RATE } } },
+      ];
+  let response = null;
+  let payload = {};
+  for (const attempt of payloads) {
+    response = await fetch(attempt.url, { method: "POST", headers, body: JSON.stringify(attempt.body) });
+    payload = await response.json().catch(() => ({}));
+    if (response.ok) break;
+  }
   if (!response.ok) throw new Error(payload?.message || payload?.error?.message || `TTS HTTP ${response.status}`);
   const audio = payload?.output?.audio;
   const url = typeof audio === "string" ? audio : audio?.url || audio?.data;
