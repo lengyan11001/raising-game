@@ -42,6 +42,7 @@ const ROUTES = [
   { id: "wallet", title: "钱包订单", render: renderWallet },
   { id: "membership-codes", title: "会员激活码", render: renderMembershipCodes },
   { id: "pricing", title: "价格配置", render: renderPricing },
+  { id: "chat-live", title: "在线聊天配置", render: renderChatLive },
   { id: "undress-config", title: "Undress 配置", render: renderUndressConfig },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
@@ -3844,6 +3845,219 @@ async function renderPricingLegacy() {
       renderPricing();
     } catch (err) {
       toast(err.message, "error");
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * 在线聊天（Chat live / Vidu S2-Avatar）                              *
+ * 角色形象、人设、音色、价格都在这里配；前台 123 站和 chat 站共用。   *
+ * ------------------------------------------------------------------ */
+
+let chatLiveVoicesCache = null;
+let chatLiveEditingId = "";
+let chatLiveVoiceFilter = "";
+
+async function loadChatLiveVoices() {
+  if (chatLiveVoicesCache) return chatLiveVoicesCache;
+  try {
+    const payload = await api("/api/admin/chat-live/voices");
+    chatLiveVoicesCache = Array.isArray(payload.voices) ? payload.voices : [];
+  } catch (error) {
+    chatLiveVoicesCache = [];
+  }
+  return chatLiveVoicesCache;
+}
+
+function chatLiveVoiceProviderLabel(provider) {
+  return ({ qwen_omni: "实时版（qwen_omni）", doubao_cn: "实时版（豆包·国内）", doubao_overseas: "实时版（豆包·国外）", offline: "非实时版" }[provider] || provider || "");
+}
+
+function chatLiveVoiceOptions(voices, selectedValue = "", filter = "") {
+  const query = String(filter || "").trim().toLowerCase();
+  const list = (voices || [])
+    .filter((voice) => !query || `${voice.name || ""} ${voice.voiceType || ""} ${voice.desc || ""}`.toLowerCase().includes(query))
+    .slice(0, 400);
+  const options = list.map((voice) => {
+    const value = String(voice.voiceType || "");
+    const label = `${voice.name || value} · ${value}${voice.desc ? ` — ${String(voice.desc).slice(0, 30)}` : ""}`;
+    return `<option value="${escapeHtml(value)}" ${value === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  });
+  if (selectedValue && !list.some((voice) => String(voice.voiceType || "") === selectedValue)) {
+    options.unshift(`<option value="${escapeHtml(selectedValue)}" selected>${escapeHtml(selectedValue)}</option>`);
+  }
+  return options.join("") || `<option value="">（音色清单未加载）</option>`;
+}
+
+function chatLiveCharacterRow(character = {}) {
+  const enabled = character.enabled !== false;
+  return `
+    <tr>
+      <td>
+        <div class="adm-user-cell">
+          <img class="adm-avatar" src="${escapeHtml(character.portraitUrl || character.avatarUrl || "")}" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:8px" />
+          <div>
+            <strong>${escapeHtml(character.name || "-")}</strong>
+            <div class="adm-muted">${escapeHtml((character.tags || []).join(" · ") || character.intro || "")}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="adm-mono">${escapeHtml(character.voiceType || "-")}</span><br/><small class="adm-muted">${escapeHtml(chatLiveVoiceProviderLabel(character.voiceProvider))}</small></td>
+      <td>${escapeHtml(String(character.sortOrder ?? 0))}</td>
+      <td><span class="adm-badge ${enabled ? "adm-badge-ok" : "adm-badge-muted"}">${enabled ? "启用" : "停用"}</span></td>
+      <td>
+        <button class="adm-btn adm-btn-ghost" data-chat-live-edit="${escapeHtml(character.id)}" type="button">编辑</button>
+        <button class="adm-btn adm-btn-danger" data-chat-live-delete="${escapeHtml(character.id)}" type="button">删除</button>
+      </td>
+    </tr>
+  `;
+}
+
+function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
+  const value = character || {};
+  const formId = "chatLiveCharacterForm";
+  return `
+    <form id="${formId}" class="adm-form">
+      <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
+      <div class="adm-form-row"><span>角色名称</span><input id="chatLiveName" value="${escapeHtml(value.name || "")}" placeholder="例如：甜甜 Tina" /></div>
+      <div class="adm-form-row"><span>形象图 URL</span><input id="chatLiveAvatarUrl" value="${escapeHtml(value.avatarUrl || "")}" placeholder="https://…/cover.jpg" /><small class="adm-muted">数字人形象，必须是<b>单人</b>图片（PNG/JPG/WEBP，公网可访问），建议正脸半身。</small></div>
+      <div class="adm-form-row"><span>列表头像 URL</span><input id="chatLivePortraitUrl" value="${escapeHtml(value.portraitUrl || "")}" placeholder="留空则用形象图" /><small class="adm-muted">前台卡片显示用，可留空。</small></div>
+      <div class="adm-form-row"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
+      <div class="adm-form-row"><span>人设提示词</span><textarea id="chatLivePersona" rows="5" placeholder="数字人的对话依据：身份、性格、说话风格、称呼、边界…">${escapeHtml(value.persona || "")}</textarea><small class="adm-muted">这段就是数字人的“大脑”，50000 字以内。前台聊天内容完全按它来。</small></div>
+      <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
+      <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType" size="6" style="width:100%">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
+      <div class="adm-form-row"><span>音色供应商</span><select id="chatLiveVoiceProvider">${["qwen_omni", "doubao_cn", "doubao_overseas"].map((p) => `<option value="${p}" ${(value.voiceProvider || "qwen_omni") === p ? "selected" : ""}>${escapeHtml(chatLiveVoiceProviderLabel(p))}</option>`).join("")}</select></div>
+      <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
+      <div class="adm-form-row"><span>标签</span><input id="chatLiveTags" value="${escapeHtml((value.tags || []).join(","))}" placeholder="用逗号分隔，例如：温柔,御姐" /></div>
+      <div class="adm-form-row"><span>排序</span><input id="chatLiveSortOrder" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
+      <div class="adm-form-row"><span>人设增强</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLivePersonaEnhance" type="checkbox" ${value.personaEnhance === true ? "checked" : ""} /> 让 Vidu 自动扩写人设</label></div>
+      <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可见）</label></div>
+      <div class="adm-form-actions">
+        <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="save"></i>保存角色</button>
+        <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveResetBtn">清空 / 新增</button>
+      </div>
+    </form>
+  `;
+}
+
+async function renderChatLive() {
+  const [payload, voices] = await Promise.all([api("/api/admin/chat-live/characters"), loadChatLiveVoices()]);
+  if (!isActiveRoute("chat-live")) return;
+  const pricing = payload.pricing || {};
+  const characters = Array.isArray(payload.characters) ? payload.characters : [];
+  const editing = characters.find((item) => item.id === chatLiveEditingId) || null;
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>在线聊天配置</h2>
+          <p class="adm-muted">配置 chat 站的“在线聊天”角色（形象、人设、音色）与计费；123 主站与 chat 站共用这份数据。Vidu 密钥：${payload.defaults?.viduConfigured ? "已配置" : "未配置（.env 里加 VIDU_API_KEY）"}</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="chatLiveReloadBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="chatLiveNewBtn" type="button"><i data-lucide="plus"></i>新增角色</button>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>计费（积分/分钟）</h3>
+            <p class="adm-muted">原价 = Vidu 成本（实时版 1.5 积分/秒 ≈ 90 积分/分钟），卖价自己定；低于成本的卖价会亏。</p>
+          </div>
+        </div>
+        <div class="adm-form">
+          <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
+          <div class="adm-form-row"><span>卖价</span><input id="chatLiveSale" type="number" min="0" value="${escapeHtml(String(pricing.saleCreditsPerMinute ?? 0))}" /><small class="adm-muted">0 = 未定价，此时前台不允许开播。</small></div>
+          <div class="adm-form-row"><span>免费时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /></div>
+          <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
+          <div class="adm-form-row"><span>数字人版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
+          <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（数字人出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
+          <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>
+          <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSavePricingBtn" type="button"><i data-lucide="save"></i>保存计费</button></div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-head"><div><h3>${editing ? `编辑角色：${escapeHtml(editing.name || "")}` : "新增角色"}</h3><p class="adm-muted">形象图必须是单人图；人设决定聊天内容；音色可搜索。</p></div></div>
+        ${chatLiveCharacterForm(editing, payload.defaults || {}, voices)}
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-head"><div><h3>角色列表（${characters.length}）</h3></div></div>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <thead><tr><th>角色</th><th>音色</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>${characters.map(chatLiveCharacterRow).join("") || `<tr><td colspan="5" class="adm-muted">还没有角色</td></tr>`}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons?.();
+
+  els.adminContent.querySelector("#chatLiveReloadBtn")?.addEventListener("click", () => renderChatLive());
+  els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => { chatLiveEditingId = ""; chatLiveVoiceFilter = ""; renderChatLive(); });
+  els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => { chatLiveEditingId = button.dataset.chatLiveEdit; renderChatLive(); }));
+  els.adminContent.querySelectorAll("[data-chat-live-delete]").forEach((button) => button.addEventListener("click", async () => {
+    if (!window.confirm("确定删除这个角色？")) return;
+    await api(`/api/admin/chat-live/characters/${encodeURIComponent(button.dataset.chatLiveDelete)}`, { method: "DELETE" });
+    if (chatLiveEditingId === button.dataset.chatLiveDelete) chatLiveEditingId = "";
+    renderChatLive();
+  }));
+  els.adminContent.querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
+    chatLiveVoiceFilter = event.target.value;
+    const select = els.adminContent.querySelector("#chatLiveVoiceType");
+    if (select) select.innerHTML = chatLiveVoiceOptions(voices, select.value || editing?.voiceType || "", chatLiveVoiceFilter);
+  });
+  els.adminContent.querySelector("#chatLiveVoiceType")?.addEventListener("change", (event) => {
+    const label = els.adminContent.querySelector("#chatLiveVoiceSelected");
+    if (label) label.textContent = event.target.value || "未选择";
+  });
+  els.adminContent.querySelector("#chatLiveResetBtn")?.addEventListener("click", () => { chatLiveEditingId = ""; renderChatLive(); });
+  els.adminContent.querySelector("#chatLiveCharacterForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = {
+      id: els.adminContent.querySelector("#chatLiveId").value || undefined,
+      name: els.adminContent.querySelector("#chatLiveName").value,
+      avatarUrl: els.adminContent.querySelector("#chatLiveAvatarUrl").value,
+      portraitUrl: els.adminContent.querySelector("#chatLivePortraitUrl").value,
+      intro: els.adminContent.querySelector("#chatLiveIntro").value,
+      persona: els.adminContent.querySelector("#chatLivePersona").value,
+      greeting: els.adminContent.querySelector("#chatLiveGreeting").value,
+      voiceType: els.adminContent.querySelector("#chatLiveVoiceType").value,
+      voiceProvider: els.adminContent.querySelector("#chatLiveVoiceProvider").value,
+      language: els.adminContent.querySelector("#chatLiveLanguage").value,
+      tags: els.adminContent.querySelector("#chatLiveTags").value,
+      sortOrder: Number(els.adminContent.querySelector("#chatLiveSortOrder").value || 0),
+      personaEnhance: els.adminContent.querySelector("#chatLivePersonaEnhance").checked,
+      enabled: els.adminContent.querySelector("#chatLiveEnabled").checked,
+    };
+    try {
+      const saved = await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
+      chatLiveEditingId = saved?.character?.id || "";
+      renderChatLive();
+    } catch (error) {
+      window.alert(error.message || String(error));
+    }
+  });
+  els.adminContent.querySelector("#chatLiveSavePricingBtn")?.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/chat-live/pricing", {
+        method: "PUT",
+        body: {
+          costCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveCost").value || 0),
+          saleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSale").value || 0),
+          freeSeconds: Number(els.adminContent.querySelector("#chatLiveFreeSeconds").value || 0),
+          maxMinutes: Number(els.adminContent.querySelector("#chatLiveMaxMinutes").value || 10),
+          model: els.adminContent.querySelector("#chatLiveModel").value,
+          callMode: els.adminContent.querySelector("#chatLiveCallMode").value,
+          enabled: els.adminContent.querySelector("#chatLiveEnabledSwitch").checked,
+        },
+      });
+      renderChatLive();
+    } catch (error) {
+      window.alert(error.message || String(error));
     }
   });
 }

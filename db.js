@@ -440,6 +440,51 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_characters (
+      id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_chat_live_characters
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      character_id TEXT NOT NULL DEFAULT '',
+      live_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_chat_live_sessions
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS live_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_user_unlocks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -2166,6 +2211,135 @@ async function deleteChatMessagesAfterInDb(conversationId = "", userId = "", mes
   return rowCount || 0;
 }
 
+/* ------------------------------------------------------------------ *
+ * Chat live (Vidu S2-Avatar realtime video chat)                      *
+ * ------------------------------------------------------------------ */
+
+async function listChatLiveCharactersInDb({ includeDisabled = false } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_live_characters
+    WHERE deleted_at IS NULL ${includeDisabled ? "" : "AND enabled = TRUE"}
+    ORDER BY sort_order ASC, created_at ASC
+  `);
+  return rows.map((row) => row.payload || {});
+}
+
+async function getChatLiveCharacterInDb(id = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_characters WHERE id = $1 AND deleted_at IS NULL`, [String(id || "")]);
+  return rows[0]?.payload || null;
+}
+
+async function upsertChatLiveCharacterInDb(character = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...character };
+  await query(`
+    INSERT INTO app_chat_live_characters(id, payload, enabled, sort_order, deleted_at, created_at, updated_at)
+    VALUES ($1, $2::jsonb, $3, $4, NULLIF($5, '')::timestamptz, $6::timestamptz, $7::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      payload = EXCLUDED.payload,
+      enabled = EXCLUDED.enabled,
+      sort_order = EXCLUDED.sort_order,
+      deleted_at = EXCLUDED.deleted_at,
+      updated_at = EXCLUDED.updated_at
+  `, [
+    payload.id,
+    JSON.stringify(payload),
+    payload.enabled !== false,
+    Number(payload.sortOrder || 0) || 0,
+    payload.deletedAt || "",
+    payload.createdAt,
+    payload.updatedAt,
+  ]);
+  return payload;
+}
+
+async function softDeleteChatLiveCharacterInDb(id = "", deletedAt = new Date().toISOString()) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_chat_live_characters
+    SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz
+    WHERE id = $1
+    RETURNING payload
+  `, [String(id || ""), deletedAt]);
+  return rows[0]?.payload || null;
+}
+
+async function createChatLiveSessionInDb(session = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...session };
+  await query(`
+    INSERT INTO app_chat_live_sessions(id, user_id, character_id, live_id, status, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      live_id = EXCLUDED.live_id,
+      status = EXCLUDED.status,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [
+    payload.id,
+    String(payload.userId || ""),
+    String(payload.characterId || ""),
+    String(payload.liveId || ""),
+    String(payload.status || "pending"),
+    JSON.stringify(payload),
+    payload.createdAt,
+    payload.updatedAt,
+  ]);
+  return payload;
+}
+
+async function getChatLiveSessionInDb(id = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_sessions WHERE id = $1`, [String(id || "")]);
+  return rows[0]?.payload || null;
+}
+
+async function getChatLiveSessionByLiveIdInDb(liveId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(liveId || "");
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_sessions WHERE live_id = $1 ORDER BY created_at DESC LIMIT 1`, [id]);
+  return rows[0]?.payload || null;
+}
+
+async function updateChatLiveSessionInDb(session = {}) {
+  if (!dbEnabled()) return null;
+  if (!session?.id) return null;
+  await ensureSchema();
+  const payload = { ...session };
+  await query(`
+    UPDATE app_chat_live_sessions
+    SET live_id = $2, status = $3, payload = $4::jsonb, updated_at = $5::timestamptz
+    WHERE id = $1
+  `, [
+    payload.id,
+    String(payload.liveId || ""),
+    String(payload.status || "pending"),
+    JSON.stringify(payload),
+    payload.updatedAt || new Date().toISOString(),
+  ]);
+  return payload;
+}
+
+async function listChatLiveSessionsInDb({ userId = "", limit = 50 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
+  const { rows } = String(userId || "")
+    ? await query(`SELECT payload FROM app_chat_live_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [String(userId), safeLimit])
+    : await query(`SELECT payload FROM app_chat_live_sessions ORDER BY created_at DESC LIMIT $1`, [safeLimit]);
+  return rows.map((row) => row.payload || {});
+}
+
 async function claimToolFreeGenerationInDb({ id = "", userId = "", tenantId = "", taskId = "", kind = "" } = {}) {
   if (!dbEnabled()) return null;
   const cleanId = String(id || "").trim();
@@ -3557,6 +3731,15 @@ module.exports = {
   updateChatMessageInDb,
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
+  listChatLiveCharactersInDb,
+  getChatLiveCharacterInDb,
+  upsertChatLiveCharacterInDb,
+  softDeleteChatLiveCharacterInDb,
+  createChatLiveSessionInDb,
+  getChatLiveSessionInDb,
+  getChatLiveSessionByLiveIdInDb,
+  updateChatLiveSessionInDb,
+  listChatLiveSessionsInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,

@@ -4,6 +4,7 @@ const { AsyncLocalStorage } = require("node:async_hooks");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const tls = require("node:tls");
 const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { URL } = require("node:url");
@@ -155,6 +156,15 @@ const {
   updateChatMessageInDb,
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
+  listChatLiveCharactersInDb,
+  getChatLiveCharacterInDb,
+  upsertChatLiveCharacterInDb,
+  softDeleteChatLiveCharacterInDb,
+  createChatLiveSessionInDb,
+  getChatLiveSessionInDb,
+  getChatLiveSessionByLiveIdInDb,
+  updateChatLiveSessionInDb,
+  listChatLiveSessionsInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
@@ -510,6 +520,13 @@ const ARK_API_KEY =
   process.env.BYTEPLUS_ARK_API_KEY ||
   process.env.MODELARK_API_KEY ||
   "";
+
+/* Vidu S2-Avatar realtime (chat tool "在线聊天" / live video chat) */
+const VIDU_API_BASE = String(process.env.VIDU_API_BASE || "https://api.vidu.cn").replace(/\/+$/, "");
+const VIDU_API_KEY = String(process.env.VIDU_API_KEY || "").trim();
+const VIDU_LIVE_MODEL = String(process.env.VIDU_LIVE_MODEL || "vidu-s2").trim() || "vidu-s2";
+/* Vidu bills the realtime avatar at 1.5 credits/second → 90/minute. */
+const CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE = 90;
 
 const SEEDANCE_QUALITY_ENDPOINT_ID = "ep-20260429142513-zg667";
 const SEEDANCE_FAST_ENDPOINT_ID = "ep-20260429142538-fkm9d";
@@ -5930,11 +5947,562 @@ function isHiddenPlatformCategory(category = {}) {
   return value.includes("business") || value.includes("商业接入");
 }
 
+/* ------------------------------------------------------------------ *
+ * Chat live — Vidu S2-Avatar realtime video chat for the chat tool     *
+ * ------------------------------------------------------------------ */
+
+const CHAT_LIVE_VOICES_FILE = path.join(ROOT, "assets", "chat-live", "voices.json");
+
+function normalizeChatLiveConfig(raw = {}) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const integer = (value, fallback, minimum, maximum) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(maximum, Math.max(minimum, Math.round(number)));
+  };
+  return {
+    enabled: source.enabled !== false,
+    /* Vidu 侧成本（1.5 积分/秒 ≈ 90 积分/分钟），后台可改，仅用于展示和报价参考 */
+    costCreditsPerMinute: integer(source.costCreditsPerMinute, CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE, 0, 1000000),
+    /* 卖给用户的积分/分钟，0 表示后台还没定价（此时不允许开聊） */
+    saleCreditsPerMinute: integer(source.saleCreditsPerMinute, 0, 0, 1000000),
+    freeSeconds: integer(source.freeSeconds, 0, 0, 3600),
+    maxMinutes: integer(source.maxMinutes, 10, 1, 120),
+    model: String(source.model || VIDU_LIVE_MODEL).trim() || VIDU_LIVE_MODEL,
+    callMode: source.callMode === "audio" ? "audio" : "video",
+    videoChatEnabled: source.videoChatEnabled !== false,
+    updatedAt: source.updatedAt || "",
+  };
+}
+
+function chatLiveConfigValue(config = {}) {
+  return normalizeChatLiveConfig((config && config.platform && config.platform.chatLive) || {});
+}
+
+async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 30000 } = {}) {
+  if (!VIDU_API_KEY) {
+    const error = new Error("Vidu live chat is not configured.");
+    error.statusCode = 503;
+    error.code = "VIDU_NOT_CONFIGURED";
+    throw error;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${VIDU_API_BASE}${pathname}`, {
+      method,
+      headers: {
+        Authorization: `Token ${VIDU_API_KEY}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      const error = new Error(payload?.message || payload?.reason || `Vidu request failed (${response.status})`);
+      error.statusCode = response.status === 401 || response.status === 403 ? 502 : response.status;
+      error.code = payload?.reason || "VIDU_REQUEST_FAILED";
+      throw error;
+    }
+    return payload;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeChatLiveTags(value) {
+  const list = Array.isArray(value) ? value : String(value || "").split(/[,，]/);
+  return list
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((item) => item.slice(0, 24));
+}
+
+function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
+  const name = String(body.name ?? existing?.name ?? "").trim().slice(0, 60);
+  const avatarUrl = String(body.avatarUrl ?? body.avatar_image_url ?? existing?.avatarUrl ?? "").trim().slice(0, 600);
+  const portraitUrl = String(body.portraitUrl ?? body.portrait_url ?? existing?.portraitUrl ?? "").trim().slice(0, 600);
+  const intro = String(body.intro ?? existing?.intro ?? "").trim().slice(0, 600);
+  const persona = String(body.persona ?? existing?.persona ?? "").trim().slice(0, 20000);
+  const greeting = String(body.greeting ?? existing?.greeting ?? "").trim().slice(0, 200);
+  const voiceType = String(body.voiceType ?? body.voice_type ?? existing?.voiceType ?? "").trim().slice(0, 80);
+  const voiceProvider = String(body.voiceProvider ?? body.voice_provider ?? existing?.voiceProvider ?? "qwen_omni").trim() || "qwen_omni";
+  const language = String(body.language ?? existing?.language ?? "zh").trim().slice(0, 12) || "zh";
+  const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
+  const sortOrderRaw = Number(body.sortOrder ?? body.sort_order ?? existing?.sortOrder ?? 0);
+  const enabledRaw = body.enabled ?? existing?.enabled;
+  return {
+    name,
+    avatarUrl,
+    portraitUrl,
+    intro,
+    persona,
+    greeting,
+    voiceType,
+    voiceProvider,
+    language,
+    tags,
+    personaEnhance: String(body.personaEnhance ?? existing?.personaEnhance ?? "") === "true" || body.personaEnhance === true || existing?.personaEnhance === true,
+    sortOrder: Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0,
+    enabled: enabledRaw === undefined ? true : !(enabledRaw === false || String(enabledRaw) === "false"),
+  };
+}
+
+function chatLiveCharacterValidationError(character = {}) {
+  if (!character.name) return "请填写角色名称。";
+  if (!/^https?:\/\//i.test(character.avatarUrl || "")) return "请填写可用于数字人的形象图 URL（单人图，公网可访问）。";
+  if (!character.persona) return "请填写角色人设（数字人的对话依据）。";
+  if (!character.voiceType) return "请选择音色。";
+  return "";
+}
+
+function publicChatLiveCharacter(character = {}) {
+  return {
+    id: character.id,
+    name: character.name || "",
+    intro: character.intro || "",
+    avatarUrl: character.avatarUrl || "",
+    portraitUrl: character.portraitUrl || character.avatarUrl || "",
+    tags: Array.isArray(character.tags) ? character.tags : [],
+    language: character.language || "zh",
+    greeting: character.greeting || "",
+    sortOrder: Number(character.sortOrder || 0) || 0,
+  };
+}
+
+async function handlePublicChatLiveCharacters(req, res) {
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], pricing: livePricingView(live) });
+  const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
+  return sendJson(res, 200, {
+    ok: true,
+    enabled: true,
+    pricing: livePricingView(live),
+    characters: characters.map(publicChatLiveCharacter),
+  });
+}
+
+function livePricingView(live = {}) {
+  return {
+    enabled: live.enabled !== false,
+    costCreditsPerMinute: Number(live.costCreditsPerMinute || 0),
+    saleCreditsPerMinute: Number(live.saleCreditsPerMinute || 0),
+    freeSeconds: Number(live.freeSeconds || 0),
+    maxMinutes: Number(live.maxMinutes || 10),
+    callMode: live.callMode || "video",
+    model: live.model || VIDU_LIVE_MODEL,
+    videoChatEnabled: live.videoChatEnabled !== false,
+  };
+}
+
+async function handleAdminChatLiveCharacters(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  const characters = await listChatLiveCharactersInDb({ includeDisabled: true });
+  return sendJson(res, 200, {
+    ok: true,
+    pricing: livePricingView(live),
+    characters,
+    defaults: {
+      model: live.model,
+      callMode: live.callMode,
+      voiceProvider: "qwen_omni",
+      viduConfigured: Boolean(VIDU_API_KEY),
+    },
+  });
+}
+
+async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const id = String(characterId || body.id || "").trim();
+  const existing = id ? await getChatLiveCharacterInDb(id) : null;
+  if (id && !existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  const payload = normalizeChatLiveCharacterPayload(body, existing);
+  const invalid = chatLiveCharacterValidationError(payload);
+  if (invalid) return sendJson(res, 422, { ok: false, code: "INVALID_CHAT_LIVE_CHARACTER", message: invalid });
+  const now = new Date().toISOString();
+  const character = {
+    ...(existing || {}),
+    ...payload,
+    id: id || randomId("chatlive-char"),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    updatedBy: auth.user?.username || auth.user?.id || "",
+  };
+  const saved = await upsertChatLiveCharacterInDb(character);
+  return sendJson(res, 200, { ok: true, character: saved });
+}
+
+async function handleAdminDeleteChatLiveCharacter(req, res, characterId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const id = String(characterId || "").trim();
+  if (!id) return sendJson(res, 400, { ok: false, message: "缺少角色 ID。" });
+  const removed = await softDeleteChatLiveCharacterInDb(id);
+  if (!removed) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  return sendJson(res, 200, { ok: true, character: removed });
+}
+
+async function handleAdminChatLiveVoices(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  try {
+    const raw = await fs.readFile(CHAT_LIVE_VOICES_FILE, "utf8");
+    const voices = JSON.parse(raw);
+    return sendJson(res, 200, { ok: true, voices: Array.isArray(voices) ? voices : [] });
+  } catch (error) {
+    return sendJson(res, 200, { ok: true, voices: [], message: "音色清单尚未生成。" });
+  }
+}
+
+async function handleAdminGetChatLivePricing(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  return sendJson(res, 200, { ok: true, pricing: livePricingView(chatLiveConfigValue(config)) });
+}
+
+async function handleAdminSaveChatLivePricing(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const current = await readAppConfig();
+  const next = normalizeChatLiveConfig({
+    ...chatLiveConfigValue(current),
+    ...(body.pricing && typeof body.pricing === "object" ? body.pricing : body),
+    updatedAt: new Date().toISOString(),
+  });
+  await writeAppConfig({
+    ...current,
+    platform: normalizePlatformConfig({ ...(current.platform || {}), chatLive: next }),
+    updatedAt: new Date().toISOString(),
+  });
+  return sendJson(res, 200, { ok: true, pricing: livePricingView(next) });
+}
+
+async function handleCreateChatLiveSession(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!VIDU_API_KEY) return sendJson(res, 503, { ok: false, code: "VIDU_NOT_CONFIGURED", message: "在线聊天暂未开通。" });
+  const body = await readJson(req);
+  const character = await getChatLiveCharacterInDb(String(body.characterId || "").trim());
+  if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
+  const salePerMinute = Number(live.saleCreditsPerMinute || 0);
+  if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "在线聊天价格未配置。" });
+  const balance = Number(auth.user?.credits || 0);
+  const requiredCredits = Math.max(1, Math.ceil((salePerMinute * Math.min(1, live.maxMinutes)) || salePerMinute));
+  if (balance < requiredCredits) return sendJson(res, 402, insufficientCreditsPayload(requiredCredits, balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
+
+  const avatar = {
+    persona: character.persona,
+    image_uri: character.avatarUrl,
+    name: character.name,
+    voice: character.voiceType,
+  };
+  if (character.greeting) avatar.greeting_instruction = character.greeting;
+  if (character.personaEnhance === true) avatar.persona_enhance = true;
+  if (!live.videoChatEnabled) avatar.farewell_enabled = false;
+
+  let upstream;
+  try {
+    upstream = await viduLiveRequest("/live/s_avatar/realtime", {
+      method: "POST",
+      timeoutMs: 45000,
+      body: {
+        model: live.model,
+        call_mode: live.callMode,
+        avatar,
+        audio: { enable_transcription: true },
+        vad: { type: "semantic", idle_timeout_ms: 0 },
+        idle_timeout_seconds: Math.min(7200, Math.max(10, Math.round(live.maxMinutes * 60))),
+      },
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: error.code || "CHAT_LIVE_CREATE_FAILED",
+      message: error.message || "创建在线聊天失败。",
+    });
+  }
+
+  const now = new Date().toISOString();
+  const session = await createChatLiveSessionInDb({
+    id: randomId("chatlive"),
+    userId: auth.user.id,
+    characterId: character.id,
+    liveId: String(upstream?.live?.id || ""),
+    status: "waiting",
+    rtc: upstream?.rtc || null,
+    costCreditsPerMinute: live.costCreditsPerMinute,
+    saleCreditsPerMinute: salePerMinute,
+    model: live.model,
+    callMode: live.callMode,
+    voiceProvider: upstream?.live?.voice_model?.provider || character.voiceProvider || "",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return sendJson(res, 201, {
+    ok: true,
+    session: {
+      id: session.id,
+      liveId: session.liveId,
+      status: session.status,
+      rtc: session.rtc,
+      model: session.model,
+      callMode: session.callMode,
+      voiceProvider: session.voiceProvider,
+      saleCreditsPerMinute: salePerMinute,
+      costCreditsPerMinute: live.costCreditsPerMinute,
+      maxMinutes: live.maxMinutes,
+      freeSeconds: live.freeSeconds,
+      wsPath: `/api/chat-live/ws?session=${encodeURIComponent(session.id)}`,
+    },
+    character: publicChatLiveCharacter(character),
+  });
+}
+
+async function settleChatLiveSession(session = {}, { auth = null } = {}) {
+  if (!session?.id) return null;
+  if (session.status === "ended" && session.settled === true) return session;
+  let detail = null;
+  if (session.liveId) {
+    try {
+      detail = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 20000 });
+    } catch (error) {
+      detail = null;
+    }
+  }
+  const liveInfo = detail?.live || detail || {};
+  const billedSeconds = Math.max(0, Number(liveInfo.billed_seconds || session.billedSeconds || 0) || 0);
+  const upstreamCredits = Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0);
+  const salePerMinute = Number(session.saleCreditsPerMinute || 0) || 0;
+  const chargeableSeconds = Math.max(0, billedSeconds - Number(session.freeSeconds || 0) || 0);
+  const chargeCredits = salePerMinute > 0 && chargeableSeconds > 0
+    ? Math.max(1, Math.ceil((chargeCreditsFromSeconds(chargeableSeconds, salePerMinute))))
+    : 0;
+  let charged = 0;
+  if (chargeCredits > 0 && !session.charged) {
+    const chargedSession = auth
+      ? await chargeChatLiveSession(auth, session, chargeCredits)
+      : null;
+    charged = chargedSession ? chargeCredits : 0;
+  }
+  const now = new Date().toISOString();
+  const updated = await updateChatLiveSessionInDb({
+    ...session,
+    status: liveInfo.status === "ended" || liveInfo.status === "ending" ? "ended" : (session.status || "ended"),
+    billedSeconds,
+    upstreamCredits,
+    chargedCredits: Number(session.chargedCredits || 0) + charged,
+    charged: session.charged === true || charged > 0,
+    settled: true,
+    endReason: liveInfo.close_reason || session.endReason || "",
+    endedAt: session.endedAt || now,
+    updatedAt: now,
+  });
+  return updated;
+}
+
+function chargeCreditsFromSeconds(seconds, creditsPerMinute) {
+  return (Number(seconds || 0) / 60) * Number(creditsPerMinute || 0);
+}
+
+async function chargeChatLiveSession(auth, session, credits) {
+  try {
+    await chargeUserWithSubtoken(auth, {
+      cost: credits,
+      type: "chat_live",
+      taskId: session.id,
+      meta: { liveId: session.liveId, characterId: session.characterId, seconds: session.billedSeconds, model: session.model },
+    });
+    return true;
+  } catch (error) {
+    console.warn("[chat-live] charge failed", error.message || error);
+    return false;
+  }
+}
+
+async function handleEndChatLiveSession(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  const settled = await settleChatLiveSession(session, { auth });
+  return sendJson(res, 200, { ok: true, session: publicChatLiveSession(settled) });
+}
+
+async function handleGetChatLiveSession(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  let upstream = null;
+  if (session.liveId) {
+    try {
+      upstream = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 15000 });
+    } catch (error) {
+      upstream = null;
+    }
+  }
+  const liveInfo = upstream?.live || upstream || {};
+  const billedSeconds = Math.max(0, Number(liveInfo.billed_seconds || session.billedSeconds || 0) || 0);
+  return sendJson(res, 200, {
+    ok: true,
+    session: {
+      ...publicChatLiveSession({ ...session, billedSeconds }),
+      upstreamStatus: liveInfo.status || "",
+      upstreamCredits: Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0),
+      balance: Number(auth.user?.credits || 0) || 0,
+    },
+  });
+}
+
+function publicChatLiveSession(session = {}) {
+  return {
+    id: session.id,
+    liveId: session.liveId,
+    status: session.status,
+    billedSeconds: Number(session.billedSeconds || 0) || 0,
+    chargedCredits: Number(session.chargedCredits || 0) || 0,
+    saleCreditsPerMinute: Number(session.saleCreditsPerMinute || 0) || 0,
+    endedAt: session.endedAt || "",
+    endReason: session.endReason || "",
+  };
+}
+
+/* Server-side auth stand-in so a session can be settled after the browser left. */
+async function chatLiveSettlementAuth(userId = "") {
+  const id = String(userId || "");
+  if (!id) return null;
+  const user = await getUserByIdInDb(id);
+  if (!user) return null;
+  return { db: await readDb(), user, session: null, token: "", tokenSource: "server", tokenRecord: null };
+}
+
+async function settleChatLiveSessionById(sessionId = "") {
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session) return null;
+  const auth = await chatLiveSettlementAuth(session.userId);
+  return settleChatLiveSession(session, { auth });
+}
+
+/*
+ * Transparent WebSocket proxy for the Vidu control channel.
+ * The API key never reaches the browser: the browser talks to
+ * /api/chat-live/ws and this server re-issues the handshake to Vidu with
+ * `authorization=Token <key>` in the query string, then pipes both ways.
+ */
+async function handleChatLiveUpgrade(req, socket, head) {
+  let parsed;
+  try {
+    parsed = new URL(req.url, "http://127.0.0.1");
+  } catch {
+    socket.destroy();
+    return;
+  }
+  if (parsed.pathname !== "/api/chat-live/ws") {
+    socket.destroy();
+    return;
+  }
+  const sessionId = String(parsed.searchParams.get("session") || "").trim();
+  const token = String(parsed.searchParams.get("token") || "").trim();
+  const session = sessionId ? await getChatLiveSessionInDb(sessionId) : null;
+  if (!session || !session.liveId) {
+    socket.destroy();
+    return;
+  }
+  let allowed = false;
+  if (token && dbEnabled()) {
+    const sessionRecord = await getSessionByTokenInDb(token);
+    allowed = Boolean(sessionRecord && String(sessionRecord.userId) === String(session.userId));
+  }
+  if (!allowed) {
+    socket.destroy();
+    return;
+  }
+  if (!VIDU_API_KEY) {
+    socket.destroy();
+    return;
+  }
+
+  const connId = String(parsed.searchParams.get("conn") || `app-${session.id}`).slice(0, 64);
+  const upstreamHost = new URL(VIDU_API_BASE).hostname;
+  const upstreamPath = `/live/ws/live/connect?live_id=${encodeURIComponent(session.liveId)}&conn_id=${encodeURIComponent(connId)}&authorization=${encodeURIComponent(`Token ${VIDU_API_KEY}`)}`;
+
+  const upstream = tls.connect({ host: upstreamHost, port: 443, servername: upstreamHost });
+  const closeBoth = () => {
+    try { socket.destroy(); } catch {}
+    try { upstream.destroy(); } catch {}
+  };
+  upstream.setTimeout(0);
+  upstream.on("error", closeBoth);
+  upstream.on("close", () => {
+    closeBoth();
+    settleChatLiveSessionById(session.id).catch(() => {});
+  });
+  socket.on("error", closeBoth);
+  socket.on("close", () => {
+    try { upstream.destroy(); } catch {}
+  });
+  upstream.on("secureConnect", () => {
+    const lines = [`GET ${upstreamPath} HTTP/1.1`, `Host: ${upstreamHost}`];
+    for (const [key, value] of Object.entries(req.headers)) {
+      const lower = String(key).toLowerCase();
+      if (["host", "origin", "authorization", "referer"].includes(lower)) continue;
+      if (Array.isArray(value)) {
+        value.forEach((entry) => lines.push(`${key}: ${entry}`));
+      } else if (value !== undefined) {
+        lines.push(`${key}: ${value}`);
+      }
+    }
+    lines.push("", "");
+    upstream.write(lines.join("\r\n"));
+    if (head && head.length) upstream.write(head);
+    socket.pipe(upstream);
+    upstream.pipe(socket);
+  });
+}
+
+async function settleStaleChatLiveSessions() {
+  if (!dbEnabled() || !VIDU_API_KEY) return;
+  let sessions = [];
+  try {
+    sessions = await listChatLiveSessionsInDb({ limit: 30 });
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const session of sessions) {
+    if (!session?.id || !session.liveId || session.settled === true) continue;
+    const age = now - Date.parse(session.createdAt || "");
+    if (!Number.isFinite(age) || age < 60000) continue;
+    try {
+      await settleChatLiveSessionById(session.id);
+    } catch (error) {
+      /* retry on the next sweep */
+    }
+  }
+}
+
 function normalizePlatformConfig(platform = {}) {
   const fallback = DEFAULT_CONFIG.platform || {};
   const categories = Array.isArray(platform.categories) ? platform.categories : fallback.categories || [];
   const templates = Array.isArray(platform.templates) ? platform.templates : fallback.templates || [];
   const advancedPricing = normalizeAdvancedPricing(platform.advancedPricing || fallback.advancedPricing || DEFAULT_ADVANCED_PRICING);
+  const chatLive = normalizeChatLiveConfig(platform.chatLive || fallback.chatLive || {});
   const rawAnalytics = platform.analytics && typeof platform.analytics === "object" && !Array.isArray(platform.analytics)
     ? platform.analytics
     : fallback.analytics || {};
@@ -5959,6 +6527,7 @@ function normalizePlatformConfig(platform = {}) {
       googleMeasurementId,
     },
     advancedPricing,
+    chatLive,
     advanced: normalizePlatformAdvancedConfig(platform.advanced || fallback.advanced || {}, advancedPricing),
     categories: categories
       .map((category, index) => ({
@@ -20364,6 +20933,11 @@ async function cleanupStaleLocalMedia() {
 function startLocalMediaCleanupScheduler() {
   setTimeout(() => cleanupStaleLocalMedia(), 30000).unref?.();
   setInterval(() => cleanupStaleLocalMedia(), 60 * 60 * 1000).unref?.();
+}
+
+function startChatLiveSettlementScheduler() {
+  setTimeout(() => settleStaleChatLiveSessions().catch(() => {}), 45000).unref?.();
+  setInterval(() => settleStaleChatLiveSessions().catch(() => {}), 60000).unref?.();
 }
 
 async function handleVideoToolGenerate(req, res) {
@@ -41625,6 +42199,23 @@ async function handleRequest(req, res) {
       return await handleSendChatMessage(req, res, decodeURIComponent(chatMessageMatch[1]));
     }
 
+    /* Chat live (Vidu S2-Avatar realtime) — shared by the 123 platform chat tab
+       and the standalone chat.5vips.com page. */
+    if (req.method === "GET" && url.pathname === "/api/chat-live/characters") {
+      return await handlePublicChatLiveCharacters(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/sessions") {
+      return await handleCreateChatLiveSession(req, res);
+    }
+    const chatLiveSessionEndMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/end$/);
+    if (req.method === "POST" && chatLiveSessionEndMatch) {
+      return await handleEndChatLiveSession(req, res, decodeURIComponent(chatLiveSessionEndMatch[1]));
+    }
+    const chatLiveSessionMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)$/);
+    if (req.method === "GET" && chatLiveSessionMatch) {
+      return await handleGetChatLiveSession(req, res, decodeURIComponent(chatLiveSessionMatch[1]));
+    }
+
     if (req.method === "POST" && url.pathname === "/api/video-tools/estimate") {
       return await handleVideoToolEstimate(req, res);
     }
@@ -42040,6 +42631,29 @@ async function handleRequest(req, res) {
       return await handleAdminSavePricing(req, res);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/chat-live/characters") {
+      return await handleAdminChatLiveCharacters(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/chat-live/characters") {
+      return await handleAdminSaveChatLiveCharacter(req, res);
+    }
+    const adminChatLiveCharacterMatch = url.pathname.match(/^\/api\/admin\/chat-live\/characters\/([^/]+)$/);
+    if (req.method === "PUT" && adminChatLiveCharacterMatch) {
+      return await handleAdminSaveChatLiveCharacter(req, res, decodeURIComponent(adminChatLiveCharacterMatch[1]));
+    }
+    if (req.method === "DELETE" && adminChatLiveCharacterMatch) {
+      return await handleAdminDeleteChatLiveCharacter(req, res, decodeURIComponent(adminChatLiveCharacterMatch[1]));
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/chat-live/voices") {
+      return await handleAdminChatLiveVoices(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/chat-live/pricing") {
+      return await handleAdminGetChatLivePricing(req, res);
+    }
+    if (req.method === "PUT" && url.pathname === "/api/admin/chat-live/pricing") {
+      return await handleAdminSaveChatLivePricing(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/admin/overview") {
       return await handleAdminList(req, res);
     }
@@ -42367,6 +42981,19 @@ const server = http.createServer((req, res) => {
     });
   });
 });
+
+/* WebSocket upgrade: Vidu control channel proxy for chat live sessions. */
+server.on("upgrade", (req, socket, head) => {
+  if (!String(req.url || "").startsWith("/api/chat-live/ws")) {
+    socket.destroy();
+    return;
+  }
+  handleChatLiveUpgrade(req, socket, head).catch((error) => {
+    console.warn("[chat-live-ws] upgrade failed", error.message || error);
+    try { socket.destroy(); } catch {}
+  });
+});
+
 server.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 65000);
 server.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 70000);
 server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 180000);
@@ -42483,6 +43110,7 @@ async function bootstrap() {
   startVideoToolUploadCleanupScheduler();
   startLocalMediaCleanupScheduler();
   startGenerationRecordMediaRecoveryScheduler();
+  startChatLiveSettlementScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
