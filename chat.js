@@ -135,7 +135,23 @@
   window.addEventListener("hashchange", () => window.setTimeout(injectChatLiveSection, 30));
   /* 在线聊天（Vidu 实时数字人）配置：拉到后重渲染一次，让入口出现 */
   if (window.ChatLive) {
-    window.ChatLive.loadConfig().then(() => { injectChatLiveSection(); }).catch(() => {});
+    window.ChatLive.loadConfig().then(() => {
+      /* chat 站的 model 列表以后台「在线聊天配置」里的角色为准 */
+      const configured = window.ChatLive.characters();
+      if (configured.length) {
+        state.characters = configured.map((item) => ({
+          id: item.id,
+          name: item.name,
+          title: item.intro || "",
+          description: item.intro || "",
+          tags: item.tags || [],
+          characterImageUrl: item.portraitUrl || item.avatarUrl || "",
+          referenceImageUrl: item.avatarUrl || "",
+        }));
+        if (!document.querySelector(".standalone-onboarding")) route();
+      }
+      injectChatLiveSection();
+    }).catch(() => {});
   }
   document.addEventListener("click", (event) => {
     const startButton = event.target.closest?.("[data-live-start]");
