@@ -1,0 +1,114 @@
+[
+ {
+  "name": "龙小淳",
+  "voiceType": "longxiaochun",
+  "provider": "dashscope_cosyvoice",
+  "desc": "标准普通话，温柔亲和",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙小夏",
+  "voiceType": "longxiaoxia",
+  "provider": "dashscope_cosyvoice",
+  "desc": "活泼俏皮",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙小诚",
+  "voiceType": "longxiaocheng",
+  "provider": "dashscope_cosyvoice",
+  "desc": "沉稳可靠",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙小白",
+  "voiceType": "longxiaobai",
+  "provider": "dashscope_cosyvoice",
+  "desc": "知性清晰",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙老铁",
+  "voiceType": "longlaotie",
+  "provider": "dashscope_cosyvoice",
+  "desc": "东北口音，豪爽",
+  "languages": "中文（东北口音）"
+ },
+ {
+  "name": "龙书",
+  "voiceType": "longshu",
+  "provider": "dashscope_cosyvoice",
+  "desc": "温和讲述感",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙硕",
+  "voiceType": "longshuo",
+  "provider": "dashscope_cosyvoice",
+  "desc": "低沉磁性",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙婧",
+  "voiceType": "longjing",
+  "provider": "dashscope_cosyvoice",
+  "desc": "清冷优雅",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙妙",
+  "voiceType": "longmiao",
+  "provider": "dashscope_cosyvoice",
+  "desc": "甜美少女",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙悦",
+  "voiceType": "longyue",
+  "provider": "dashscope_cosyvoice",
+  "desc": "温柔舒缓",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙媛",
+  "voiceType": "longyuan",
+  "provider": "dashscope_cosyvoice",
+  "desc": "大方自然",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙飞",
+  "voiceType": "longfei",
+  "provider": "dashscope_cosyvoice",
+  "desc": "年轻阳光",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙杰力豆",
+  "voiceType": "longjielidou",
+  "provider": "dashscope_cosyvoice",
+  "desc": "童声活泼",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙彤",
+  "voiceType": "longtong",
+  "provider": "dashscope_cosyvoice",
+  "desc": "清爽利落",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "龙祥",
+  "voiceType": "longxiang",
+  "provider": "dashscope_cosyvoice",
+  "desc": "浑厚有力",
+  "languages": "中文（普通话）"
+ },
+ {
+  "name": "Bella",
+  "voiceType": "loongbella",
+  "provider": "dashscope_cosyvoice",
+  "desc": "多语种，国际感",
+  "languages": "中文（普通话）"
+ }
+]

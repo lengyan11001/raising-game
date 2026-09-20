@@ -118,6 +118,15 @@
   }
 
   function loadRtcSdk() {
+    /* 不同 SDK 版本方法名不一致，逐个尝试存在的方法 */
+    async function callIfPresent(engine, names, ...args) {
+      for (const name of names) {
+        if (typeof engine?.[name] === "function") {
+          try { await engine[name](...args); return true; } catch { /* 试下一个 */ }
+        }
+      }
+      return false;
+    }
     if (window.AliRtcEngine) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
@@ -313,16 +322,19 @@
       state.overlay.video.play().catch(() => {});
     });
     engine.on("authInfoWillExpire", () => appendLine("sys", "凭证即将过期，请尽快结束本轮对话。"));
-    await engine.setChannelProfile("communication");
-    await engine.setDefaultPublishLocalAudioStream(true);
-    await engine.setDefaultPublishLocalVideoStream(false);     /* 单向：不推摄像头 */
-    await engine.setDefaultSubscribeAllRemoteAudioStreams(true);
-    await engine.setDefaultSubscribeAllRemoteVideoStreams(true);
+    /* SDK 版本之间方法名不一致：存在才调，避免 "is not a function" 直接中断接入 */
+    await callIfPresent(engine, ["setChannelProfile"], "communication");
+    await callIfPresent(engine, ["setDefaultPublishLocalAudioStream", "publishLocalAudioStreamEnabled"], true);
+    await callIfPresent(engine, ["setDefaultPublishLocalVideoStream", "publishLocalVideoStreamEnabled"], false); /* 单向：不推摄像头 */
+    await callIfPresent(engine, ["setDefaultSubscribeAllRemoteAudioStreams", "subscribeAllRemoteAudioStreams"], true);
+    await callIfPresent(engine, ["setDefaultSubscribeAllRemoteVideoStreams", "subscribeAllRemoteVideoStreams"], true);
     await engine.joinChannel(session.rtc.token, session.rtc.user_id);
-    await engine.publishLocalAudioStream(true).catch(() => {
+    try {
+      await engine.publishLocalAudioStream(true);
+    } catch (error) {
       appendLine("sys", "麦克风未授权，你可以先用文字聊天。");
       setStageStatus("无麦克风权限", "error");
-    });
+    }
     setStageStatus("连线中", "");
   }
 

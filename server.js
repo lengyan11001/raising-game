@@ -6185,11 +6185,15 @@ async function handleAdminDeleteChatLiveCharacter(req, res, characterId = "") {
   return sendJson(res, 200, { ok: true, character: removed });
 }
 
-async function handleAdminChatLiveVoices(req, res) {
+async function handleAdminChatLiveVoices(req, res, url = null) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
+  const scope = String(url?.searchParams?.get("scope") || "realtime");
+  const file = scope === "component"
+    ? path.join(ROOT, "assets", "chat-live", "voices-component.json")
+    : CHAT_LIVE_VOICES_FILE;
   try {
-    const raw = await fs.readFile(CHAT_LIVE_VOICES_FILE, "utf8");
+    const raw = await fs.readFile(file, "utf8");
     const voices = JSON.parse(raw);
     return sendJson(res, 200, { ok: true, voices: Array.isArray(voices) ? voices : [] });
   } catch (error) {
@@ -42789,7 +42793,7 @@ async function handleRequest(req, res) {
       return await handleAdminDeleteChatLiveCharacter(req, res, decodeURIComponent(adminChatLiveCharacterMatch[1]));
     }
     if (req.method === "GET" && url.pathname === "/api/admin/chat-live/voices") {
-      return await handleAdminChatLiveVoices(req, res);
+      return await handleAdminChatLiveVoices(req, res, url);
     }
     if (req.method === "GET" && url.pathname === "/api/admin/chat-live/pricing") {
       return await handleAdminGetChatLivePricing(req, res);

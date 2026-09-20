@@ -4045,6 +4045,20 @@ async function renderChatLive() {
     if (chatLiveEditingId === button.dataset.chatLiveDelete) chatLiveEditingId = "";
     renderChatLive();
   }));
+  els.adminContent.querySelector("#chatLiveMode")?.addEventListener("change", async (event) => {
+    /* 实时版用 Vidu 音色，组件版用我们自己的 TTS 音色 */
+    const scope = event.target.value === "component" ? "component" : "realtime";
+    try {
+      const payload = await api(`/api/admin/chat-live/voices?scope=${scope}`);
+      chatLiveVoicesCache = Array.isArray(payload.voices) ? payload.voices : [];
+      const select = els.adminContent.querySelector("#chatLiveVoiceType");
+      if (select) select.innerHTML = chatLiveVoiceOptions(chatLiveVoicesCache, select.value || "", "");
+      const hint = els.adminContent.querySelector("#chatLiveVoiceSelected");
+      if (hint) hint.textContent = hint.textContent;
+    } catch (error) {
+      window.alert(error.message || String(error));
+    }
+  });
   els.adminContent.querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
     chatLiveVoiceFilter = event.target.value;
     const select = els.adminContent.querySelector("#chatLiveVoiceType");
