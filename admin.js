@@ -3945,6 +3945,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
 }
 
 async function renderChatLive() {
+  document.querySelectorAll(".chat-live-modal").forEach((node) => node.remove());
   const [payload, voices] = await Promise.all([api("/api/admin/chat-live/characters"), loadChatLiveVoices()]);
   if (!isActiveRoute("chat-live")) return;
   const pricing = payload.pricing || {};
@@ -4035,10 +4036,19 @@ async function renderChatLive() {
     chatLiveModalOpen = false;
     renderChatLive();
   }));
-  els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => { chatLiveModalOpen = true; });
+  els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => {
+    chatLiveEditingId = "";
+    chatLiveVoiceFilter = "";
+    chatLiveModalOpen = true;
+    renderChatLive();
+  });
 
   els.adminContent.querySelector("#chatLiveReloadBtn")?.addEventListener("click", () => renderChatLive());
-  els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => { chatLiveEditingId = button.dataset.chatLiveEdit; chatLiveModalOpen = true; renderChatLive(); }));
+  els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => {
+    chatLiveEditingId = button.dataset.chatLiveEdit;
+    chatLiveModalOpen = true;
+    renderChatLive();
+  }));
   els.adminContent.querySelectorAll("[data-chat-live-delete]").forEach((button) => button.addEventListener("click", async () => {
     if (!window.confirm("确定删除这个角色？")) return;
     await api(`/api/admin/chat-live/characters/${encodeURIComponent(button.dataset.chatLiveDelete)}`, { method: "DELETE" });
@@ -4068,7 +4078,7 @@ async function renderChatLive() {
     const label = els.adminContent.querySelector("#chatLiveVoiceSelected");
     if (label) label.textContent = event.target.value || "未选择";
   });
-  els.adminContent.querySelector("#chatLiveResetBtn")?.addEventListener("click", () => { chatLiveEditingId = ""; renderChatLive(); });
+  els.adminContent.querySelector("#chatLiveResetBtn")?.addEventListener("click", () => { chatLiveEditingId = ""; chatLiveModalOpen = false; renderChatLive(); });
   els.adminContent.querySelector("#chatLiveCharacterForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = {
@@ -4092,6 +4102,7 @@ async function renderChatLive() {
     try {
       const saved = await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
       chatLiveEditingId = saved?.character?.id || "";
+      chatLiveModalOpen = false;
       renderChatLive();
     } catch (error) {
       window.alert(error.message || String(error));
