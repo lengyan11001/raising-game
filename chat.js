@@ -269,7 +269,13 @@
 
   /* —— 文字聊入口：不再依赖旧实现，点击后必有反馈 —— */
   async function beginTextChat() {
-    const character = state.selected;
+    /* 直接打开/刷新 #model/xxx 详情页时 state.selected 还是空的，这里按路由兜底 */
+    const character = state.selected || (() => {
+      const matched = String(location.hash || "").match(/^#model\/(.+)$/);
+      if (!matched) return null;
+      const id = decodeURIComponent(matched[1]);
+      return state.characters.find((entry) => String(entry.id) === String(id)) || null;
+    })();
     if (!character) { showNotice("请先选择角色", "回到列表点一个角色再开始聊天。"); return; }
     if (!getToken()) { if (!loginDialog.open) loginDialog.showModal(); return; }
     try {
