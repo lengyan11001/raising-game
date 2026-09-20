@@ -6454,7 +6454,9 @@ async function handleChatLiveUpgrade(req, socket, head) {
 
   const connId = String(parsed.searchParams.get("conn") || `app-${session.id}`).slice(0, 64);
   const upstreamHost = new URL(VIDU_API_BASE).hostname;
-  const upstreamPath = `/live/ws/live/connect?live_id=${encodeURIComponent(session.liveId)}&conn_id=${encodeURIComponent(connId)}&authorization=${encodeURIComponent(`Token ${VIDU_API_KEY}`)}`;
+  /* Vidu 的 WS 校验的是 Authorization 请求头（不是 query），这里由服务端注入，
+     浏览器永远拿不到密钥。 */
+  const upstreamPath = `/live/ws/live/connect?live_id=${encodeURIComponent(session.liveId)}&conn_id=${encodeURIComponent(connId)}`;
 
   const upstream = tls.connect({ host: upstreamHost, port: 443, servername: upstreamHost });
   const closeBoth = () => {
@@ -6472,7 +6474,7 @@ async function handleChatLiveUpgrade(req, socket, head) {
     try { upstream.destroy(); } catch {}
   });
   upstream.on("secureConnect", () => {
-    const lines = [`GET ${upstreamPath} HTTP/1.1`, `Host: ${upstreamHost}`];
+    const lines = [`GET ${upstreamPath} HTTP/1.1`, `Host: ${upstreamHost}`, `Authorization: Token ${VIDU_API_KEY}`];
     for (const [key, value] of Object.entries(req.headers)) {
       const lower = String(key).toLowerCase();
       if (["host", "origin", "authorization", "referer"].includes(lower)) continue;
