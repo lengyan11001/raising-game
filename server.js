@@ -5984,6 +5984,26 @@ function chatLiveConfigValue(config = {}) {
   return normalizeChatLiveConfig((config && config.platform && config.platform.chatLive) || {});
 }
 
+/**
+ * 阿里云 ARTC 1.0 token（Base64）：签名内容 = appId + appKey + channelId + userId + nonce + timestamp，
+ * HMAC-SHA256 后按 hex 放进 JSON，再整体 base64。AppKey 只留在服务端。
+ */
+function artcToken({ channelId = "", userId = "", ttlSeconds = 3600 } = {}) {
+  if (!ARTC_APP_ID || !ARTC_APP_KEY) throw new Error("ARTC is not configured.");
+  const nonce = crypto.randomBytes(8).toString("hex");
+  const timestamp = Math.floor(Date.now() / 1000) + Math.max(60, Number(ttlSeconds) || 3600);
+  const content = `${ARTC_APP_ID}${ARTC_APP_KEY}${channelId}${userId}${nonce}${timestamp}`;
+  const signature = crypto.createHmac("sha256", ARTC_APP_KEY).update(content).digest("hex");
+  return Buffer.from(JSON.stringify({
+    appid: ARTC_APP_ID,
+    channelid: String(channelId),
+    userid: String(userId),
+    nonce,
+    timestamp,
+    token: signature,
+  })).toString("base64");
+}
+
 async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 30000 } = {}) {
   if (!VIDU_API_KEY) {
     const error = new Error("Vidu live chat is not configured.");
@@ -6223,6 +6243,80 @@ async function handleCreateChatLiveSession(req, res) {
     });
   }
   const balance = Number(auth.user?.credits || 0);
+
+  /* —— 组件版：我们自建 RTC 频道，Vidu 只把数字人推进来 —— */
+  if (conversationMode === "component") {
+    const sessionId = randomId("chatlive");
+    const channelId = `aiyes-live-${sessionId.replace(/[^a-z0-9]/gi, "").slice(-16)}`;
+    const pusherId = `aiyes-push-${Date.now().toString(36)}`;
+    const viewerId = `${auth.user.id}`.slice(0, 32);
+    let upstream;
+    try {
+      upstream = await viduLiveRequest("/live/s_avatar/component", {
+        method: "POST",
+        timeoutMs: 45000,
+        body: {
+          model: live.model,
+          image_uri: character.avatarUrl,
+          rtc_info: {
+            provider: "artc",
+            app_id: ARTC_APP_ID,
+            channel_id: channelId,
+            user_id: pusherId,
+            token: artcToken({ channelId, userId: pusherId }),
+          },
+        },
+      });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 502, {
+        ok: false,
+        code: error.code || "CHAT_LIVE_COMPONENT_CREATE_FAILED",
+        message: error.message || "创建组件版会话失败。",
+      });
+    }
+    const now = new Date().toISOString();
+    const session = await createChatLiveSessionInDb({
+      id: sessionId,
+      userId: auth.user.id,
+      characterId: character.id,
+      liveId: String(upstream?.live?.id || ""),
+      status: "waiting",
+      mode: "component",
+      clientSecret: String(upstream?.client_secret || ""),
+      channel: { provider: "artc", appId: ARTC_APP_ID, channelId, pusherId },
+      costCreditsPerMinute: live.costCreditsPerMinute,
+      saleCreditsPerMinute: salePerMinute,
+      maxMinutes: live.maxMinutes,
+      freeSeconds: live.freeSeconds,
+      model: live.model,
+      callMode: "video",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return sendJson(res, 201, {
+      ok: true,
+      session: {
+        id: session.id,
+        mode: "component",
+        liveId: session.liveId,
+        status: session.status,
+        /* 浏览器进的是我们自己的频道，用一次性 viewer token */
+        rtc: {
+          provider: "artc",
+          appId: ARTC_APP_ID,
+          channelId,
+          userId: viewerId,
+          token: artcToken({ channelId, userId: viewerId, ttlSeconds: 3600 }),
+        },
+        saleCreditsPerMinute: salePerMinute,
+        costCreditsPerMinute: live.costCreditsPerMinute,
+        maxMinutes: live.maxMinutes,
+        freeSeconds: live.freeSeconds,
+      },
+      character: publicChatLiveCharacter(character),
+    });
+  }
+
   const requiredCredits = Math.max(1, Math.ceil((salePerMinute * Math.min(1, live.maxMinutes)) || salePerMinute));
   if (balance < requiredCredits) return sendJson(res, 402, insufficientCreditsPayload(requiredCredits, balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
 
