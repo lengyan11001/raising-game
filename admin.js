@@ -3925,6 +3925,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       <div class="adm-form-row"><span>形象图 URL</span><input id="chatLiveAvatarUrl" value="${escapeHtml(value.avatarUrl || "")}" placeholder="https://…/cover.jpg" /><small class="adm-muted">数字人形象，必须是<b>单人</b>图片（PNG/JPG/WEBP，公网可访问），建议正脸半身。</small></div>
       <div class="adm-form-row"><span>列表头像 URL</span><input id="chatLivePortraitUrl" value="${escapeHtml(value.portraitUrl || "")}" placeholder="留空则用形象图" /><small class="adm-muted">前台卡片显示用，可留空。</small></div>
       <div class="adm-form-row"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
+      <div class="adm-form-row"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
       <div class="adm-form-row"><span>人设提示词</span><textarea id="chatLivePersona" rows="5" placeholder="数字人的对话依据：身份、性格、说话风格、称呼、边界…">${escapeHtml(value.persona || "")}</textarea><small class="adm-muted">这段就是数字人的“大脑”，50000 字以内。前台聊天内容完全按它来。</small></div>
       <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
       <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType" size="6" style="width:100%">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
@@ -4060,6 +4061,7 @@ async function renderChatLive() {
       avatarUrl: els.adminContent.querySelector("#chatLiveAvatarUrl").value,
       portraitUrl: els.adminContent.querySelector("#chatLivePortraitUrl").value,
       intro: els.adminContent.querySelector("#chatLiveIntro").value,
+      linkName: els.adminContent.querySelector("#chatLiveLinkName").value,
       persona: els.adminContent.querySelector("#chatLivePersona").value,
       greeting: els.adminContent.querySelector("#chatLiveGreeting").value,
       voiceType: els.adminContent.querySelector("#chatLiveVoiceType").value,

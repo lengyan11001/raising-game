@@ -92,6 +92,7 @@
     /* 在线聊天（Vidu 实时数字人）：放在文字聊 Chat 按钮旁边，按角色名匹配后台配置 */
     if (window.ChatLive && window.ChatLive.available()) {
       const liveCharacter = window.ChatLive.characters().find((entry) => String(entry.id) === String(item.id))
+        || window.ChatLive.characters().find((entry) => entry.linkName && String(entry.linkName).toLowerCase() === String(item.name || "").toLowerCase())
         || window.ChatLive.characters().find((entry) => String(entry.name || "").toLowerCase() === String(item.name || "").toLowerCase());
       if (liveCharacter) {
         const chatButton = app.querySelector("[data-detail-chat]");

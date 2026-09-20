@@ -6030,6 +6030,8 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const persona = String(body.persona ?? existing?.persona ?? "").trim().slice(0, 20000);
   const greeting = String(body.greeting ?? existing?.greeting ?? "").trim().slice(0, 200);
   const voiceType = String(body.voiceType ?? body.voice_type ?? existing?.voiceType ?? "").trim().slice(0, 80);
+  /* 关联的平台角色名：chat 站的文字聊角色详情页据此显示"在线聊天"按钮 */
+  const linkName = String(body.linkName ?? body.link_name ?? existing?.linkName ?? "").trim().slice(0, 60);
   const voiceProvider = String(body.voiceProvider ?? body.voice_provider ?? existing?.voiceProvider ?? "qwen_omni").trim() || "qwen_omni";
   const language = String(body.language ?? existing?.language ?? "zh").trim().slice(0, 12) || "zh";
   const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
@@ -6043,6 +6045,7 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     persona,
     greeting,
     voiceType,
+    linkName,
     voiceProvider,
     language,
     tags,
@@ -6070,6 +6073,7 @@ function publicChatLiveCharacter(character = {}) {
     tags: Array.isArray(character.tags) ? character.tags : [],
     language: character.language || "zh",
     greeting: character.greeting || "",
+    linkName: character.linkName || "",
     sortOrder: Number(character.sortOrder || 0) || 0,
   };
 }
