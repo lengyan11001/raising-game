@@ -117,16 +117,17 @@
     document.head.appendChild(style);
   }
 
-  function loadRtcSdk() {
-    /* 不同 SDK 版本方法名不一致，逐个尝试存在的方法 */
-    async function callIfPresent(engine, names, ...args) {
-      for (const name of names) {
-        if (typeof engine?.[name] === "function") {
-          try { await engine[name](...args); return true; } catch { /* 试下一个 */ }
-        }
+  /* 不同 SDK 版本方法名不一致，逐个尝试存在的方法（模块作用域，供 joinRtc 使用） */
+  async function callIfPresent(engine, names, ...args) {
+    for (const name of names) {
+      if (typeof engine?.[name] === "function") {
+        try { await engine[name](...args); return true; } catch { /* 试下一个 */ }
       }
-      return false;
     }
+    return false;
+  }
+
+  function loadRtcSdk() {
     if (window.AliRtcEngine) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
