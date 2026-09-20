@@ -435,12 +435,24 @@
     buildOverlay(character);
     const overlay = state.overlay;
     overlay.hangBtn.onclick = () => finishSession("user_end");
-    overlay.sendBtn.onclick = () => {
+    overlay.sendBtn.onclick = async () => {
       const text = overlay.input.value.trim();
       if (!text) return;
-      sendSignal(buildSignal(99, { text_msg: { msg_id: `c-${Date.now()}`, content: text, timestamp: Date.now() } }));
-      appendLine("user", text);
       overlay.input.value = "";
+      appendLine("user", text);
+      if (state.session?.mode === "component") {
+        overlay.sendBtn.disabled = true;
+        try {
+          const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/say`, { method: "POST", body: JSON.stringify({ text }) });
+          if (payload?.reply) appendLine("bot", payload.reply);
+        } catch (error) {
+          appendLine("sys", error.message || "数字人回复失败。");
+        } finally {
+          overlay.sendBtn.disabled = false;
+        }
+        return;
+      }
+      sendSignal(buildSignal(99, { text_msg: { msg_id: `c-${Date.now()}`, content: text, timestamp: Date.now() } }));
     };
     overlay.input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -470,7 +482,13 @@
     bindUnloadGuard();
     startTimer();
     try {
-      await Promise.all([connectSignaling(payload.session), joinRtc(payload.session)]);
+      if (payload.session.mode === "component") {
+        /* 组件版：服务端负责 LLM/TTS/推流，浏览器只进我们自己的 RTC 频道 */
+        await joinRtc(payload.session);
+        appendLine("sys", "已进入在线聊天，直接说话或打字都可以。");
+      } else {
+        await Promise.all([connectSignaling(payload.session), joinRtc(payload.session)]);
+      }
     } catch (error) {
       setStageStatus("接入失败", "error");
       appendLine("sys", error.message || "接入实时音视频失败。");

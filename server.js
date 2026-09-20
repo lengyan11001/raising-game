@@ -5,6 +5,7 @@ const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const tls = require("node:tls");
+const chatLiveComponent = require("./chat-live-component");
 const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { URL } = require("node:url");
@@ -6247,6 +6248,8 @@ async function handleCreateChatLiveSession(req, res) {
     });
   }
   const balance = Number(auth.user?.credits || 0);
+  const requiredCredits = Math.max(1, Math.ceil((salePerMinute * Math.min(1, live.maxMinutes)) || salePerMinute));
+  if (balance < requiredCredits) return sendJson(res, 402, insufficientCreditsPayload(requiredCredits, balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
 
   /* —— 组件版：我们自建 RTC 频道，Vidu 只把数字人推进来 —— */
   if (conversationMode === "component") {
@@ -6279,6 +6282,13 @@ async function handleCreateChatLiveSession(req, res) {
       });
     }
     const now = new Date().toISOString();
+    /* 启动服务端流水线：连 Vidu 外部 live 流，之后「用户话 → 我们的 LLM → TTS → 推流」 */
+    chatLiveComponent.startComponentSession({
+      liveId: String(upstream?.live?.id || ""),
+      clientSecret: String(upstream?.client_secret || ""),
+      character,
+      language: character.language || "zh",
+    }).catch((error) => console.warn("[chat-live-component] start failed", error.message || error));
     const session = await createChatLiveSessionInDb({
       id: sessionId,
       userId: auth.user.id,
@@ -6321,8 +6331,6 @@ async function handleCreateChatLiveSession(req, res) {
     });
   }
 
-  const requiredCredits = Math.max(1, Math.ceil((salePerMinute * Math.min(1, live.maxMinutes)) || salePerMinute));
-  if (balance < requiredCredits) return sendJson(res, 402, insufficientCreditsPayload(requiredCredits, balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
 
   const avatar = {
     persona: character.persona,
@@ -6469,8 +6477,28 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
   if (!auth) return;
   const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  if (session.mode === "component" && session.liveId) {
+    try { chatLiveComponent.stopComponentSession(session.liveId); } catch {}
+  }
   const settled = await settleChatLiveSession(session, { auth });
   return sendJson(res, 200, { ok: true, session: publicChatLiveSession(settled) });
+}
+
+async function handleChatLiveSay(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  if (session.mode !== "component") return sendJson(res, 400, { ok: false, code: "NOT_COMPONENT_SESSION", message: "该会话不是组件版。" });
+  const body = await readJson(req);
+  const text = String(body.text || "").trim().slice(0, 2000);
+  if (!text) return sendJson(res, 422, { ok: false, message: "消息不能为空。" });
+  try {
+    const reply = await chatLiveComponent.componentSay(session.liveId, text);
+    return sendJson(res, 200, { ok: true, reply });
+  } catch (error) {
+    return sendJson(res, 502, { ok: false, code: "CHAT_LIVE_COMPONENT_SAY_FAILED", message: error.message || "数字人回复失败。" });
+  }
 }
 
 async function handleGetChatLiveSession(req, res, sessionId = "") {
@@ -42358,6 +42386,10 @@ async function handleRequest(req, res) {
     const chatLiveSessionEndMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/end$/);
     if (req.method === "POST" && chatLiveSessionEndMatch) {
       return await handleEndChatLiveSession(req, res, decodeURIComponent(chatLiveSessionEndMatch[1]));
+    }
+    const chatLiveSayMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/say$/);
+    if (req.method === "POST" && chatLiveSayMatch) {
+      return await handleChatLiveSay(req, res, decodeURIComponent(chatLiveSayMatch[1]));
     }
     const chatLiveSessionMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)$/);
     if (req.method === "GET" && chatLiveSessionMatch) {
