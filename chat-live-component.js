@@ -242,7 +242,7 @@ async function componentReply(session, userText) {
   const response = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { authorization: `Bearer ${process.env.ARK_API_KEY || ""}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: process.env.BYTEPLUS_LANGUAGE_MODEL || process.env.BYTEPLUS_LANGUAGE_ENDPOINT_ID || "", messages, max_tokens: 220, temperature: 0.8 }),
+    body: JSON.stringify({ model: process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw", messages, max_tokens: 220, temperature: 0.8 }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload?.error?.message || `LLM HTTP ${response.status}`);
