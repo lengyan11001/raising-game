@@ -89,6 +89,25 @@
     const loved = localStorage.getItem(`vipsChatLove:${item.id}`) === "1";
     loveButton?.classList.toggle("is-loved", loved); if (loveButton) loveButton.textContent = loved ? "♥ Loved" : "♡ Love";
     app.querySelector("[data-detail-chat]")?.addEventListener("click", (event) => { event.preventDefault(); startChat(); });
+    /* 在线聊天（Vidu 实时数字人）：放在文字聊 Chat 按钮旁边，按角色名匹配后台配置 */
+    if (window.ChatLive && window.ChatLive.available()) {
+      const liveCharacter = window.ChatLive.characters().find((entry) => String(entry.id) === String(item.id))
+        || window.ChatLive.characters().find((entry) => String(entry.name || "").toLowerCase() === String(item.name || "").toLowerCase());
+      if (liveCharacter) {
+        const chatButton = app.querySelector("[data-detail-chat]");
+        const liveButton = document.createElement("button");
+        liveButton.type = "button";
+        liveButton.className = "solid-button";
+        liveButton.dataset.detailLive = liveCharacter.id;
+        liveButton.textContent = `▶ 在线聊天 · ${window.ChatLive.saleCreditsPerMinute()} 积分/分钟`;
+        liveButton.style.marginTop = "10px";
+        liveButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          window.ChatLive.open(liveCharacter.id).catch((error) => window.alert(error.message || String(error)));
+        });
+        (chatButton?.parentElement || app).appendChild(liveButton);
+      }
+    }
     loveButton?.addEventListener("click", (event) => { event.preventDefault(); const next = localStorage.getItem(`vipsChatLove:${item.id}`) !== "1"; localStorage.setItem(`vipsChatLove:${item.id}`, next ? "1" : "0"); loveButton.classList.toggle("is-loved", next); loveButton.textContent = next ? "♥ Loved" : "♡ Love"; });
     app.querySelector("[data-subscribe]")?.addEventListener("click", (event) => { event.preventDefault(); openUnlock(); }); app.querySelectorAll("[data-plan]").forEach((button) => button.addEventListener("click", () => { app.querySelectorAll("[data-plan]").forEach((entry) => entry.classList.remove("is-selected")); button.classList.add("is-selected"); }));
   }
@@ -109,6 +128,10 @@
   async function requestEmailCode() { const form = document.querySelector("[data-email-form]"); const message = form.querySelector("[data-email-message]"); try { await api("/api/auth/email/request", { method:"POST", body:JSON.stringify({ email:form.email.value.trim() }) }); message.textContent = "Verification code sent."; } catch (error) { message.textContent = error.message; } }
   document.querySelector("[data-email-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const message = form.querySelector("[data-email-message]"); try { const result = await api("/api/auth/email/verify", { method:"POST", body:JSON.stringify({ email:form.email.value.trim(), code:form.code.value.trim() }) }); localStorage.setItem(TOKEN_KEY, result.token); emailDialog.close(); location.reload(); } catch (error) { message.textContent = error.message; } });
   function chatLiveSectionHTML() {
+    /* 不再单列 LIVE 区块：在线聊天入口放在角色详情页的 Chat 按钮旁边。 */
+    return "";
+  }
+  function chatLiveSectionHTMLLegacy() {
     if (!window.ChatLive || !window.ChatLive.available()) return "";
     const price = window.ChatLive.saleCreditsPerMinute();
     const cards = window.ChatLive.characters().map((item) => `
@@ -136,22 +159,10 @@
   /* 先等首页数据加载完，再用后台「在线聊天配置」的角色覆盖 model 列表，
      否则两个请求竞争，老的 homeVideo 列表会把配置好的角色盖回去。 */
   load().then(async () => {
+    /* 只拉配置（让详情页出现"在线聊天"按钮），不再改动 model 列表本身。 */
     if (!window.ChatLive) return;
     await window.ChatLive.loadConfig().catch(() => {});
-    const configured = window.ChatLive?.characters?.() || [];
-    if (configured.length) {
-      state.characters = configured.map((item) => ({
-        id: item.id,
-        name: item.name,
-        title: item.intro || "",
-        description: item.intro || "",
-        tags: item.tags || [],
-        characterImageUrl: item.portraitUrl || item.avatarUrl || "",
-        referenceImageUrl: item.avatarUrl || "",
-      }));
-      if (!document.querySelector(".standalone-onboarding")) route();
-    }
-    injectChatLiveSection();
+    if (location.hash.startsWith("#model/")) route();
   }).catch(() => {});
   document.addEventListener("click", (event) => {
     const startButton = event.target.closest?.("[data-live-start]");
