@@ -370,6 +370,38 @@
     }
   }
 
+  /* 浏览器被直接关掉 / 切走 / 崩溃：立刻通知服务端结算，别留下僵尸会话 */
+  function bindUnloadGuard() {
+    const endNow = (reason) => {
+      const sessionId = state.session?.id;
+      if (!sessionId || state.ended) return;
+      state.ended = true;
+      try {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          state.ws.send(JSON.stringify({ type: 5, live_id: String(state.session?.liveId || ""), conn_id: state.connId, seq_id: state.seqId++, payload: { hangup: { hangup_reason: reason } } }));
+        }
+      } catch {}
+      try {
+        const url = `/api/chat-live/sessions/${encodeURIComponent(sessionId)}/end`;
+        if (navigator.sendBeacon) navigator.sendBeacon(url, new Blob([JSON.stringify({ reason })], { type: "application/json" }));
+        else fetch(url, { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
+      } catch {}
+      try { state.engine?.leaveChannel?.(); state.engine?.destroy?.(); } catch {}
+    };
+    window.addEventListener("pagehide", () => endNow("page_hidden"));
+    window.addEventListener("beforeunload", () => endNow("before_unload"));
+    /* 切到后台不立刻挂断（手机常见），但超过 60 秒没回来就结束，避免静默计费 */
+    let hiddenTimer = 0;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        if (hiddenTimer) window.clearTimeout(hiddenTimer);
+        hiddenTimer = window.setTimeout(() => endNow("tab_hidden"), 60000);
+        return;
+      }
+      if (hiddenTimer) { window.clearTimeout(hiddenTimer); hiddenTimer = 0; }
+    });
+  }
+
   function closeOverlay() {
     if (state.heartbeat) window.clearInterval(state.heartbeat);
     state.overlay?.root?.remove();
@@ -423,6 +455,7 @@
       return;
     }
     state.session = payload.session;
+    bindUnloadGuard();
     startTimer();
     try {
       await Promise.all([connectSignaling(payload.session), joinRtc(payload.session)]);

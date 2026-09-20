@@ -6251,6 +6251,8 @@ async function handleCreateChatLiveSession(req, res) {
     rtc: upstream?.rtc || null,
     costCreditsPerMinute: live.costCreditsPerMinute,
     saleCreditsPerMinute: salePerMinute,
+    maxMinutes: live.maxMinutes,
+    freeSeconds: live.freeSeconds,
     model: live.model,
     callMode: live.callMode,
     voiceProvider: upstream?.live?.voice_model?.provider || character.voiceProvider || "",
@@ -6290,6 +6292,11 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
     }
   }
   const liveInfo = detail?.live || detail || {};
+  const upstreamStatus = String(liveInfo.status || "");
+  const terminalStatus = ["ended", "ending"].includes(upstreamStatus);
+  const startedMs = Date.parse(session.createdAt || "");
+  const maxAgeMs = Math.max(60, Number(session.maxMinutes || 0) || 10) * 60 * 1000 + 120000;
+  const abandoned = Number.isFinite(startedMs) && Date.now() - startedMs > maxAgeMs;
   const billedSeconds = Math.max(0, Number(liveInfo.billed_seconds || session.billedSeconds || 0) || 0);
   const upstreamCredits = Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0);
   const salePerMinute = Number(session.saleCreditsPerMinute || 0) || 0;
@@ -6297,8 +6304,11 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   const chargeCredits = salePerMinute > 0 && chargeableSeconds > 0
     ? Math.max(1, Math.ceil((chargeCreditsFromSeconds(chargeableSeconds, salePerMinute))))
     : 0;
+  /* 浏览器被直接关掉时 Vidu 可能还在 on_live：这时先把当前秒数记下来，
+     等它真正结束（或超过单次最长时长兜底）再结算，避免少扣或重复扣。 */
+  const shouldFinalize = terminalStatus || abandoned || !session.liveId;
   let charged = 0;
-  if (chargeCredits > 0 && !session.charged) {
+  if (chargeCredits > 0 && !session.charged && shouldFinalize) {
     const chargedSession = auth
       ? await chargeChatLiveSession(auth, session, chargeCredits)
       : null;
@@ -6307,14 +6317,14 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   const now = new Date().toISOString();
   const updated = await updateChatLiveSessionInDb({
     ...session,
-    status: liveInfo.status === "ended" || liveInfo.status === "ending" ? "ended" : (session.status || "ended"),
+    status: shouldFinalize ? "ended" : (session.status || "waiting"),
     billedSeconds,
     upstreamCredits,
     chargedCredits: Number(session.chargedCredits || 0) + charged,
     charged: session.charged === true || charged > 0,
-    settled: true,
+    settled: shouldFinalize,
     endReason: liveInfo.close_reason || session.endReason || "",
-    endedAt: session.endedAt || now,
+    endedAt: shouldFinalize ? (session.endedAt || now) : session.endedAt,
     updatedAt: now,
   });
   return updated;
