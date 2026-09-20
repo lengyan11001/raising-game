@@ -88,6 +88,8 @@
 .chat-live-stage video { width:100%; height:100%; object-fit:cover; background:#05060a; }
 .chat-live-placeholder { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#94a3b8; text-align:center; padding:20px; }
 .chat-live-placeholder img { width:96px; height:96px; border-radius:50%; object-fit:cover; opacity:.9; }
+.chat-live-dot { width:12px; height:12px; border-radius:50%; background:rgba(255,255,255,.75); animation:chatLivePulse 1.2s ease-in-out infinite; }
+@keyframes chatLivePulse { 0%,100% { opacity:.35; transform:scale(.85); } 50% { opacity:1; transform:scale(1.15); } }
 .chat-live-badge { position:absolute; top:14px; left:14px; display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:rgba(0,0,0,.55); font-size:12px; }
 .chat-live-timer { position:absolute; top:14px; right:14px; padding:6px 12px; border-radius:999px; background:rgba(0,0,0,.55); font-size:12px; font-variant-numeric:tabular-nums; }
 .chat-live-side { display:flex; flex-direction:column; min-height:0; border-left:1px solid rgba(255,255,255,.08); background:#0e1118; }
@@ -148,9 +150,12 @@
     const avatar = document.createElement("img");
     avatar.src = character.portraitUrl || character.avatarUrl || "";
     avatar.alt = "";
-    const placeholderText = el("span", "", "正在连接数字人…");
+    /* 不再显示"正在连接数字人"这类过程文案：只放头像 + 呼吸点 */
+    const placeholderText = el("span", "chat-live-dot", "");
+    placeholderText.setAttribute("aria-hidden", "true");
     placeholder.append(avatar, placeholderText);
-    const badge = el("span", "chat-live-badge", "● 连接中");
+    const badge = el("span", "chat-live-badge", "");
+    badge.hidden = true;
     const timer = el("span", "chat-live-timer", "00:00");
     stage.append(video, placeholder, badge, timer);
 
@@ -194,7 +199,14 @@
 
   function setStageStatus(text, tone = "") {
     if (!state.overlay) return;
-    state.overlay.badge.textContent = tone === "ok" ? `● ${text}` : `● ${text}`;
+    /* 只在出错时显示状态；连接过程不打扰用户 */
+    if (tone !== "error") {
+      state.overlay.badge.hidden = true;
+      state.overlay.badge.textContent = "";
+      return;
+    }
+    state.overlay.badge.hidden = false;
+    state.overlay.badge.textContent = `● ${text}`;
     state.overlay.badge.style.color = tone === "ok" ? "#34d399" : tone === "error" ? "#f87171" : "#e2e8f0";
   }
 
@@ -243,7 +255,6 @@
       if (ack.success === true) {
         setStageStatus("已连接", "ok");
         state.overlay.placeholder.style.display = "none";
-        appendLine("sys", "连接成功，开始说话吧。");
       } else {
         setStageStatus("准备中", "");
         window.setTimeout(() => sendSignal(buildSignal(1, { conn_init: { version: 1 } })), 2000);
@@ -279,7 +290,6 @@
       socket.addEventListener("error", () => setStageStatus("控制通道异常", "error"));
       socket.addEventListener("close", () => {
         if (!state.ended) {
-          appendLine("sys", "控制通道已断开。");
           finishSession("socket_closed");
         }
       });
@@ -379,8 +389,6 @@
     state.seqId = 1;
     state.connId = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     buildOverlay(character);
-    setStageStatus("创建会话…", "");
-    appendLine("sys", `正在连接 ${character.name || "数字人"}…`);
     const overlay = state.overlay;
     overlay.hangBtn.onclick = () => finishSession("user_end");
     overlay.sendBtn.onclick = () => {
@@ -415,7 +423,6 @@
       return;
     }
     state.session = payload.session;
-    appendLine("sys", `会话已创建（${saleCreditsPerMinute()} 积分/分钟）。正在接入实时音视频…`);
     startTimer();
     try {
       await Promise.all([connectSignaling(payload.session), joinRtc(payload.session)]);
