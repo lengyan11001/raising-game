@@ -484,6 +484,7 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_user_unlocks (
       id TEXT PRIMARY KEY,
@@ -2330,14 +2331,27 @@ async function updateChatLiveSessionInDb(session = {}) {
   return payload;
 }
 
-async function listChatLiveSessionsInDb({ userId = "", limit = 50 } = {}) {
-  if (!dbEnabled()) return [];
+async function listChatLiveSessionsInDb({ userId = "", limit = 50, offset = 0, withTotal = false } = {}) {
+  if (!dbEnabled()) return withTotal ? { items: [], total: 0 } : [];
   await ensureSchema();
   const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
-  const { rows } = String(userId || "")
-    ? await query(`SELECT payload FROM app_chat_live_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [String(userId), safeLimit])
-    : await query(`SELECT payload FROM app_chat_live_sessions ORDER BY created_at DESC LIMIT $1`, [safeLimit]);
-  return rows.map((row) => row.payload || {});
+  const safeOffset = Math.max(0, Math.min(1000000, Number(offset || 0) || 0));
+  const cleanUserId = String(userId || "");
+  const { rows } = cleanUserId
+    ? await query(
+      `SELECT payload FROM app_chat_live_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [cleanUserId, safeLimit, safeOffset],
+    )
+    : await query(
+      `SELECT payload FROM app_chat_live_sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [safeLimit, safeOffset],
+    );
+  const items = rows.map((row) => row.payload || {});
+  if (!withTotal) return items;
+  const counted = cleanUserId
+    ? await query(`SELECT COUNT(*)::int AS total FROM app_chat_live_sessions WHERE user_id = $1`, [cleanUserId])
+    : await query(`SELECT COUNT(*)::int AS total FROM app_chat_live_sessions`);
+  return { items, total: Number(counted.rows[0]?.total || 0) || 0 };
 }
 
 async function claimToolFreeGenerationInDb({ id = "", userId = "", tenantId = "", taskId = "", kind = "" } = {}) {

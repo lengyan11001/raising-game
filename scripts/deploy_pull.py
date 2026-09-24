@@ -7,8 +7,8 @@ This script intentionally does not upload files. The release flow is:
 1. Commit locally.
 2. Push to GitHub.
 3. SSH to the server.
-4. Run scripts/server_pull_deploy.sh, which fetches the selected production
-   branch and restarts the systemd service.
+4. Fast-forward the selected production branch on a clean server worktree
+   and restart the systemd service.
 """
 from __future__ import annotations
 
@@ -127,9 +127,13 @@ set -euo pipefail
 cd {args.remote_root}
 {env_check}
 {required_files_check}
-git fetch origin {args.branch}
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo 'Server has uncommitted tracked changes; reconcile them before deploying.' >&2
+  git status --short --untracked-files=no >&2
+  exit 25
+fi
 git checkout {args.branch}
-git reset --hard origin/{args.branch}
+git pull --ff-only origin {args.branch}
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short

@@ -156,7 +156,7 @@ function buildSignal(type, liveId, connId, payload = {}) {
   return JSON.stringify({ type, live_id: String(liveId), conn_id: connId, seq_id: seq, payload });
 }
 
-async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null }) {
+async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "" } = {}) {
   const id = String(liveId);
   if (sessions.has(id)) return sessions.get(id);
   const connId = `srv-${crypto.randomBytes(4).toString("hex")}`;
@@ -173,11 +173,13 @@ async function startComponentSession({ liveId, clientSecret, character, language
     ws: null,
   };
   sessions.set(id, session);
-  const wsUrl = new URL("wss://api.vidu.cn/live/v1/external-lives/" + encodeURIComponent(id) + "/stream");
+  const viduHttpBase = String(viduBase || process.env.VIDU_API_BASE || "https://api.vidu.com").replace(/\/+$/, "");
+  const viduWsOrigin = viduHttpBase.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
+  const wsUrl = new URL(viduWsOrigin + "/live/v1/external-lives/" + encodeURIComponent(id) + "/stream");
   wsUrl.searchParams.set("conn_id", connId);
   if (clientSecret) wsUrl.searchParams.set("client_secret", clientSecret);
   const ws = new MiniWebSocket(wsUrl.toString(), {
-    headers: { Authorization: `Token ${process.env.VIDU_API_KEY || ""}` },
+    headers: { Authorization: `Token ${viduKey || process.env.VIDU_API_KEY || ""}` },
     onOpen: () => {
       ws.sendText(buildSignal(1, id, connId, { conn_init: { version: 1 } }));
       log("conn_init sent", id);
@@ -186,6 +188,7 @@ async function startComponentSession({ liveId, clientSecret, character, language
     onClose: (error) => {
       log("ws closed", id, error?.message || "");
       session.ready = false;
+      session.lookPending?.({ success: false, error_code: "PROMPT_OP_LIVE_NOT_ACTIVE" });
       session.onEvent?.({ type: "closed", message: error?.message || "" });
       sessions.delete(id);
     },
@@ -213,8 +216,12 @@ function handleServerSignal(session, text) {
     return;
   }
   if (type === 6) {
+    session.lookPending?.({ success: false, error_code: "PROMPT_OP_LIVE_NOT_ACTIVE" });
     session.onEvent?.({ type: "force_hangup", reason: payload.hangup?.hangup_reason || "" });
     return;
+  }
+  if (type === 12) {
+    session.lookPending?.(payload.prompt_operation_ack || {});
   }
 }
 
@@ -222,9 +229,12 @@ function stopComponentSession(liveId) {
   const session = sessions.get(String(liveId));
   if (!session) return false;
   try {
+    session.lookPending?.({ success: false, error_code: "PROMPT_OP_LIVE_NOT_ACTIVE" });
+  } catch {}
+  try {
     session.ws?.sendText(buildSignal(5, session.liveId, session.connId, { hangup: { hangup_reason: "user_end" } }));
   } catch {}
-  session.ws?.close();
+  try { session.ws?.close(); } catch {}
   sessions.delete(String(liveId));
   return true;
 }
@@ -304,9 +314,68 @@ async function componentSay(liveId, userText) {
   return reply;
 }
 
+function componentLookError(code) {
+  const message = ({
+    PROMPT_OP_PARAM_INVALID: "素材参数不对，换不了。",
+    PROMPT_OP_MODEL_NOT_SUPPORTED: "当前数字人不是 vidu-s2，不能换画面。",
+    PROMPT_OP_LIVE_NOT_ACTIVE: "会话还没开始或已经结束。",
+    PROMPT_OP_IMAGE_TRANSFER_FAILED: "数字人拉不到这张图，请换一张再试。",
+    PROMPT_OP_SIP_NOT_CONNECTED: "画面还在准备，请几秒后再试。",
+    PROMPT_OP_FAILED: "画面切换失败，请再试一次。",
+    LOOK_BUSY: "上一次切换还在处理。",
+    LOOK_TIMEOUT: "画面切换超时，请再试一次。",
+    LOOK_CHANNEL: "画面通道不可用，请稍后再试。",
+  })[String(code || "")] || "画面切换失败，请再试一次。";
+  const error = new Error(message);
+  error.code = String(code || "PROMPT_OP_FAILED");
+  error.statusCode = error.code === "PROMPT_OP_LIVE_NOT_ACTIVE" ? 409 : error.code === "PROMPT_OP_PARAM_INVALID" ? 422 : 502;
+  return error;
+}
+
+/* 换衣服 / 拿东西 / 换背景。等 type=12，通道不认这条消息就超时失败，不假装成功。 */
+function componentApplyLook(liveId, operation = {}) {
+  const session = sessions.get(String(liveId));
+  if (!session?.ws) return Promise.reject(componentLookError("PROMPT_OP_LIVE_NOT_ACTIVE"));
+  if (!session.ready) return Promise.reject(componentLookError("PROMPT_OP_SIP_NOT_CONNECTED"));
+  if (session.lookPending) return Promise.reject(componentLookError("LOOK_BUSY"));
+  const opType = operation.opType === "remove" ? "remove" : "switch";
+  const prompt = { op_type: opType };
+  if (opType === "switch") {
+    const imageUri = String(operation.imageUrl || "").trim();
+    const imageId = String(operation.imageId || "").trim().slice(0, 128);
+    const kind = String(operation.kind || "").trim();
+    const userText = String(operation.userText || "").trim().slice(0, 200);
+    if (!imageUri || !imageId || !["garment", "object", "background"].includes(kind)) {
+      return Promise.reject(componentLookError("PROMPT_OP_PARAM_INVALID"));
+    }
+    prompt.images = [{ image_uri: imageUri, image_id: imageId, kind, user_text: userText }];
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (session.lookPending !== finish) return;
+      session.lookPending = null;
+      reject(componentLookError("LOOK_TIMEOUT"));
+    }, 12000);
+    const finish = (ack) => {
+      clearTimeout(timer);
+      if (session.lookPending === finish) session.lookPending = null;
+      if (ack?.success === true) resolve(ack);
+      else reject(componentLookError(ack?.error_code || "PROMPT_OP_FAILED"));
+    };
+    session.lookPending = finish;
+    const sent = session.ws.sendText(buildSignal(11, session.liveId, session.connId, { prompt_operation: prompt }));
+    if (!sent) {
+      clearTimeout(timer);
+      session.lookPending = null;
+      reject(componentLookError("LOOK_CHANNEL"));
+    }
+  });
+}
+
 module.exports = {
   startComponentSession,
   stopComponentSession,
   componentSay,
+  componentApplyLook,
   hasComponentSession: (liveId) => sessions.has(String(liveId)),
 };

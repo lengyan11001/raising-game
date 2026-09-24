@@ -106,13 +106,12 @@ Qwen uses `ALIYUN_QWEN_IMAGE3_BASE_URL` and `ALIYUN_QWEN_IMAGE3_API_KEY` when se
 
 Recommended flow:
 
-1. Push code to `old-site` on GitHub.
+1. Commit and push code to `old-site` on GitHub. Reconcile any tracked server changes first; the deploy helper refuses a dirty worktree.
 2. On the server, inside `/opt/raising-game-demo`:
 
 ```bash
-git fetch origin old-site
 git checkout old-site
-git reset --hard origin/old-site
+git pull --ff-only origin old-site
 systemctl restart raising-game-demo
 ```
 

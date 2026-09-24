@@ -166,6 +166,7 @@ const {
   getChatLiveSessionByLiveIdInDb,
   updateChatLiveSessionInDb,
   listChatLiveSessionsInDb,
+  query: dbQuery,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
@@ -523,14 +524,53 @@ const ARK_API_KEY =
   "";
 
 /* Vidu S2-Avatar realtime (chat tool "在线聊天" / live video chat) */
-const VIDU_API_BASE = String(process.env.VIDU_API_BASE || "https://api.vidu.cn").replace(/\/+$/, "");
+const VIDU_API_BASE = String(process.env.VIDU_API_BASE || "https://api.vidu.com").replace(/\/+$/, "");
 const VIDU_API_KEY = String(process.env.VIDU_API_KEY || "").trim();
+const VIDU_API_BASE_OVERSEAS = String(process.env.VIDU_API_BASE_OVERSEAS || "https://api.vidu.com").replace(/\/+$/, "");
+const VIDU_API_BASE_CN = String(process.env.VIDU_API_BASE_CN || "https://api.vidu.cn").replace(/\/+$/, "");
+function viduBaseLooksOverseas(base = "") {
+  try { return new URL(String(base || "")).hostname.toLowerCase() === "api.vidu.com"; } catch { return false; }
+}
+const VIDU_API_KEY_OVERSEAS = String(
+  process.env.VIDU_API_KEY_OVERSEAS || (viduBaseLooksOverseas(VIDU_API_BASE) ? VIDU_API_KEY : ""),
+).trim();
+const VIDU_API_KEY_CN = String(
+  process.env.VIDU_API_KEY_CN || (!viduBaseLooksOverseas(VIDU_API_BASE) ? VIDU_API_KEY : ""),
+).trim();
+let chatLiveRegionCache = "";
 const VIDU_LIVE_MODEL = String(process.env.VIDU_LIVE_MODEL || "vidu-s2").trim() || "vidu-s2";
 /* Vidu bills the realtime avatar at 1.5 credits/second → 90/minute. */
 const CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE = 90;
 /* 组件版（外接我们自己的 ASR/LLM/TTS）需要自建 RTC 频道：阿里云 ARTC */
 const ARTC_APP_ID = String(process.env.ARTC_APP_ID || "").trim();
 const ARTC_APP_KEY = String(process.env.ARTC_APP_KEY || "").trim();
+
+function viduCredentialsForRegion(region = "") {
+  const requested = region === "cn" || region === "overseas"
+    ? region
+    : (chatLiveRegionCache === "cn" || chatLiveRegionCache === "overseas"
+      ? chatLiveRegionCache
+      : (viduBaseLooksOverseas(VIDU_API_BASE) ? "overseas" : "cn"));
+  if (requested === "cn") return { region: "cn", base: VIDU_API_BASE_CN, key: VIDU_API_KEY_CN };
+  return { region: "overseas", base: VIDU_API_BASE_OVERSEAS, key: VIDU_API_KEY_OVERSEAS };
+}
+
+function viduLiveRegion() {
+  return viduCredentialsForRegion(chatLiveRegionCache).region;
+}
+
+function chatLiveVoiceRegionError(provider = "") {
+  const value = String(provider || "");
+  const region = viduLiveRegion();
+  if (region === "overseas" && value === "doubao_cn") {
+    return "当前接入的是海外 Vidu，不能使用国内豆包音色。请改成 qwen_omni 或海外豆包。";
+  }
+  if (region === "cn" && value === "doubao_overseas") {
+    return "当前接入的是国内 Vidu，不能使用海外豆包音色。请改成 qwen_omni 或国内豆包。";
+  }
+  return "";
+}
+
 
 const SEEDANCE_QUALITY_ENDPOINT_ID = "ep-20260429142513-zg667";
 const SEEDANCE_FAST_ENDPOINT_ID = "ep-20260429142538-fkm9d";
@@ -5977,12 +6017,20 @@ function normalizeChatLiveConfig(raw = {}) {
     /* 对话模式：realtime = Vidu 内置 LLM（一体化）；component = 外接我们自己的 ASR/LLM/TTS */
     defaultMode: source.defaultMode === "component" ? "component" : "realtime",
     videoChatEnabled: source.videoChatEnabled !== false,
+    region: String(source.region || "").trim().toLowerCase() === "cn"
+      ? "cn"
+      : (String(source.region || "").trim().toLowerCase() === "overseas"
+        ? "overseas"
+        : (viduBaseLooksOverseas(VIDU_API_BASE) ? "overseas" : "cn")),
+    looks: normalizeChatLiveLooks(source.looks),
     updatedAt: source.updatedAt || "",
   };
 }
 
 function chatLiveConfigValue(config = {}) {
-  return normalizeChatLiveConfig((config && config.platform && config.platform.chatLive) || {});
+  const live = normalizeChatLiveConfig((config && config.platform && config.platform.chatLive) || {});
+  chatLiveRegionCache = live.region === "cn" ? "cn" : "overseas";
+  return live;
 }
 
 /**
@@ -6005,8 +6053,36 @@ function artcToken({ channelId = "", userId = "", ttlSeconds = 3600 } = {}) {
   })).toString("base64");
 }
 
-async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 30000 } = {}) {
-  if (!VIDU_API_KEY) {
+function logViduLiveFailure(error, extra = {}) {
+  const detail = {
+    status: Number(error?.upstreamStatus || error?.statusCode || 0) || 0,
+    reason: sanitizeChatLiveDiagnosticText(error?.code || "", 80),
+    message: sanitizeChatLiveDiagnosticText(error?.message || "", 160),
+    bytes: Number(error?.upstreamBytes || 0) || 0,
+    path: sanitizeChatLiveDiagnosticText(extra.path || "", 80),
+    region: sanitizeChatLiveDiagnosticText(extra.region || "", 16),
+    attempt: Number(extra.attempt || 0) || 0,
+    characterId: String(extra.characterId || "").replace(/\s+/g, "").slice(0, 80),
+    model: sanitizeChatLiveDiagnosticText(extra.model || "", 40),
+    callMode: sanitizeChatLiveDiagnosticText(extra.callMode || "", 16),
+  };
+  console.warn("[vidu-live]", JSON.stringify(detail));
+}
+
+function viduCreateIsTransient(error) {
+  const status = Number(error?.upstreamStatus || 0);
+  const message = String(error?.message || "").trim().toLowerCase();
+  if ([400, 401, 403, 404, 409, 422].includes(status)) return false;
+  if (error?.code === "VIDU_TIMEOUT" || error?.code === "VIDU_NETWORK") {
+    return Number(error?.elapsedMs || 0) < 12000;
+  }
+  if ([408, 429, 500, 502, 503, 504].includes(status)) return true;
+  return ["timeout", "unknown", "aborted", "failure"].includes(message);
+}
+
+async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 30000, region = "", logMeta = null } = {}) {
+  const creds = viduCredentialsForRegion(region);
+  if (!creds.key) {
     const error = new Error("Vidu live chat is not configured.");
     error.statusCode = 503;
     error.code = "VIDU_NOT_CONFIGURED";
@@ -6014,29 +6090,104 @@ async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 300
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${VIDU_API_BASE}${pathname}`, {
-      method,
-      headers: {
-        Authorization: `Token ${VIDU_API_KEY}`,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: controller.signal,
+  const started = Date.now();
+  const fail = (error) => {
+    error.elapsedMs = Date.now() - started;
+    logViduLiveFailure(error, {
+      path: pathname,
+      region: creds.region,
+      ...(logMeta && typeof logMeta === "object" ? logMeta : {}),
     });
+    return error;
+  };
+  try {
+    let response;
+    try {
+      response = await fetch(`${creds.base}${pathname}`, {
+        method,
+        headers: {
+          Authorization: `Token ${creds.key}`,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const aborted = error?.name === "AbortError";
+      const wrapped = new Error(aborted ? "timeout" : (error?.message || "network"));
+      wrapped.code = aborted ? "VIDU_TIMEOUT" : "VIDU_NETWORK";
+      wrapped.upstreamStatus = 0;
+      wrapped.upstreamBytes = 0;
+      wrapped.statusCode = aborted ? 504 : 502;
+      throw fail(wrapped);
+    }
     const text = await response.text();
-    const payload = text ? JSON.parse(text) : {};
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      const error = new Error("invalid");
+      error.upstreamStatus = response.status;
+      error.upstreamBytes = Buffer.byteLength(text || "");
+      error.statusCode = response.status === 401 || response.status === 403 ? 502 : response.status;
+      error.code = "VIDU_RESPONSE_INVALID";
+      throw fail(error);
+    }
     if (!response.ok) {
       const error = new Error(payload?.message || payload?.reason || `Vidu request failed (${response.status})`);
+      error.upstreamStatus = response.status;
+      error.upstreamBytes = Buffer.byteLength(text || "");
       error.statusCode = response.status === 401 || response.status === 403 ? 502 : response.status;
       error.code = payload?.reason || "VIDU_REQUEST_FAILED";
-      throw error;
+      throw fail(error);
     }
     return payload;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function viduLiveRequestRetry(pathname, options = {}, meta = {}) {
+  let last = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await viduLiveRequest(pathname, {
+        ...options,
+        logMeta: {
+          attempt,
+          characterId: String(meta.characterId || "").slice(0, 80),
+          model: String(meta.model || options?.body?.model || "").slice(0, 40),
+          callMode: String(meta.callMode || options?.body?.call_mode || "").slice(0, 16),
+        },
+      });
+    } catch (error) {
+      last = error;
+      if (attempt >= 3 || !viduCreateIsTransient(error)) break;
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+    }
+  }
+  throw last;
+}
+
+function publicChatLiveUpstreamMessage(error) {
+  const raw = sanitizeChatLiveDiagnosticText(error?.message || "", 160);
+  if (!raw) return "创建在线聊天失败。";
+  if (/[\u4e00-\u9fff]/.test(raw)) return raw;
+  if (["timeout", "unknown", "aborted", "failure"].includes(raw.toLowerCase())) {
+    return `数字人暂时没有接通（${raw}）。请再试一次。`;
+  }
+  return raw;
+}
+
+function sendChatLiveCreateError(res, error) {
+  const status = Number(error?.statusCode || 502);
+  const safeStatus = status === 502 || status === 504 ? 424 : status;
+  return sendJson(res, safeStatus, {
+    ok: false,
+    code: error?.code || "CHAT_LIVE_CREATE_FAILED",
+    message: publicChatLiveUpstreamMessage(error),
+  });
 }
 
 function normalizeChatLiveTags(value) {
@@ -6084,15 +6235,146 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   };
 }
 
-function chatLiveCharacterValidationError(character = {}) {
-  if (!character.name) return "请填写角色名称。";
-  if (!/^https?:\/\//i.test(character.avatarUrl || "")) return "请填写可用于数字人的形象图 URL（单人图，公网可访问）。";
-  if (!character.persona) return "请填写角色人设（数字人的对话依据）。";
-  if (!character.voiceType) return "请选择音色。";
+
+function isManagedChatLiveAssetUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    const base = new URL(String(R2.publicDomain || "").trim());
+    if (parsed.protocol !== "https:" || parsed.origin !== base.origin) return false;
+    const prefix = `/${String(OBJECT_STORAGE_KEY_PREFIX || "").replace(/^\/+|\/+$/g, "")}/chat-live/`;
+    return parsed.pathname.startsWith(prefix);
+  } catch {
+    return false;
+  }
+}
+
+const CHAT_LIVE_LOOK_LIMIT = 240;
+const CHAT_LIVE_LOOK_KINDS = ["garment", "object", "background"];
+const CHAT_LIVE_LOOK_TEXT = {
+  garment: "穿上参考图里的衣服。",
+  object: "拿着参考图里的物品。",
+  background: "换成参考图里的背景。",
+};
+
+function normalizeChatLiveLook(raw, index = 0) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const kind = CHAT_LIVE_LOOK_KINDS.includes(raw.kind) ? raw.kind : "";
+  const id = String(raw.id || "").trim().slice(0, 80);
+  const imageUrl = String(raw.imageUrl || "").trim().slice(0, 600);
+  if (!kind || !id || !imageUrl) return null;
+  const fallbackName = kind === "object" ? "道具" : kind === "background" ? "背景" : "衣服";
+  const name = String(raw.name || "").trim().slice(0, 40) || fallbackName;
+  const customText = String(raw.userText || "").trim().slice(0, 200);
+  const sortNumber = Number(raw.sortOrder);
+  return {
+    id,
+    kind,
+    name,
+    imageUrl,
+    userText: customText || CHAT_LIVE_LOOK_TEXT[kind],
+    enabled: raw.enabled !== false,
+    sortOrder: Number.isFinite(sortNumber) ? Math.round(sortNumber) : index,
+    createdAt: String(raw.createdAt || "").slice(0, 40),
+    updatedAt: String(raw.updatedAt || "").slice(0, 40),
+  };
+}
+
+function normalizeChatLiveLooks(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  const looks = [];
+  list.forEach((item, index) => {
+    const look = normalizeChatLiveLook(item, index);
+    if (!look || seen.has(look.id)) return;
+    seen.add(look.id);
+    looks.push(look);
+  });
+  looks.sort((a, b) => a.sortOrder - b.sortOrder || String(a.createdAt).localeCompare(String(b.createdAt)) || a.name.localeCompare(b.name, "zh"));
+  return looks.slice(0, CHAT_LIVE_LOOK_LIMIT);
+}
+
+function publicChatLiveLook(look = {}) {
+  return {
+    id: look.id,
+    kind: look.kind,
+    name: look.name || "",
+    imageUrl: look.imageUrl || "",
+    userText: look.userText || CHAT_LIVE_LOOK_TEXT[look.kind] || "",
+    sortOrder: Number(look.sortOrder || 0) || 0,
+  };
+}
+
+function enabledChatLiveLooks(live = {}) {
+  return (Array.isArray(live.looks) ? live.looks : [])
+    .filter((look) => look && look.enabled !== false && isManagedChatLiveAssetUrl(look.imageUrl))
+    .map(publicChatLiveLook);
+}
+
+function chatLiveLookFailureMessage(code = "") {
+  return ({
+    PROMPT_OP_PARAM_INVALID: "素材参数不对，换不了。",
+    PROMPT_OP_MODEL_NOT_SUPPORTED: "当前数字人不是 vidu-s2，不能换画面。",
+    PROMPT_OP_LIVE_NOT_ACTIVE: "会话还没开始或已经结束。",
+    PROMPT_OP_IMAGE_TRANSFER_FAILED: "数字人拉不到这张图，请换一张再试。",
+    PROMPT_OP_SIP_NOT_CONNECTED: "画面还在准备，请几秒后再试。",
+    PROMPT_OP_FAILED: "画面切换失败，请再试一次。",
+    LOOK_BUSY: "上一次切换还在处理。",
+    LOOK_TIMEOUT: "画面切换超时，请再试一次。",
+    LOOK_CHANNEL: "画面通道不可用，请稍后再试。",
+  })[String(code || "")] || "画面切换失败，请再试一次。";
+}
+
+function chatLiveAssetUrlError(url = "", { required = false, previous = "", label = "图片" } = {}) {
+  const value = String(url || "").trim();
+  const prev = String(previous || "").trim();
+  if (!value) return required ? `请上传${label}。` : "";
+  if (!/^https?:\/\//i.test(value)) return `${label}无效，请重新上传。`;
+  if (prev && value === prev) return "";
+  if (!isManagedChatLiveAssetUrl(value)) return `${label}请用上传控件上传，不要粘贴外部地址。`;
   return "";
 }
 
+function chatLiveCharacterValidationError(character = {}, existing = null) {
+  if (!character.name) return "请填写角色名称。";
+  const avatarError = chatLiveAssetUrlError(character.avatarUrl, { required: true, previous: existing?.avatarUrl || "", label: "形象图" });
+  if (avatarError) return avatarError;
+  const portraitError = chatLiveAssetUrlError(character.portraitUrl, { required: false, previous: existing?.portraitUrl || "", label: "列表头像" });
+  if (portraitError) return portraitError;
+  if (!character.persona) return "请填写角色人设（数字人的对话依据）。";
+  if (!character.voiceType) return "请选择音色。";
+  const regionError = chatLiveVoiceRegionError(character.voiceProvider);
+  if (regionError) return regionError;
+  return "";
+}
+
+const CHAT_LIVE_UNDRESS_USER_TEXT = "按照参考图改变衣着，呈现参考图中的状态。";
+const CHAT_LIVE_UNDRESS_STALE_MS = 8 * 60 * 1000;
+const chatLiveUndressJobs = new Set();
+
+function publicChatLiveUndressImageUrl(character = {}) {
+  const url = String(character?.undressImageUrl || "").trim();
+  const source = String(character?.undressSourceAvatarUrl || "").trim();
+  const avatar = String(character?.avatarUrl || "").trim();
+  if (String(character?.undressStatus || "") !== "ready") return "";
+  if (!url || !source || source !== avatar) return "";
+  if (!isManagedChatLiveAssetUrl(url)) return "";
+  return url;
+}
+
+function chatLiveUndressGenerating(character = {}) {
+  if (String(character?.undressStatus || "") !== "generating") return false;
+  const started = Date.parse(character?.undressStartedAt || "");
+  if (!Number.isFinite(started)) return true;
+  return Date.now() - started < CHAT_LIVE_UNDRESS_STALE_MS;
+}
+
+function chatLiveUndressErrorText(error) {
+  const raw = String(error?.message || "生成失败。").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+  return raw.slice(0, 180) || "生成失败。";
+}
+
 function publicChatLiveCharacter(character = {}) {
+  const undressImageUrl = publicChatLiveUndressImageUrl(character);
   return {
     id: character.id,
     name: character.name || "",
@@ -6104,19 +6386,21 @@ function publicChatLiveCharacter(character = {}) {
     greeting: character.greeting || "",
     linkName: character.linkName || "",
     sortOrder: Number(character.sortOrder || 0) || 0,
+    ...(undressImageUrl ? { undressImageUrl } : {}),
   };
 }
 
 async function handlePublicChatLiveCharacters(req, res) {
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
-  if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], pricing: livePricingView(live) });
+  if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], looks: [], pricing: livePricingView(live) });
   const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
   return sendJson(res, 200, {
     ok: true,
     enabled: true,
     pricing: livePricingView(live),
     characters: characters.map(publicChatLiveCharacter),
+    looks: enabledChatLiveLooks(live),
   });
 }
 
@@ -6131,7 +6415,43 @@ function livePricingView(live = {}) {
     defaultMode: live.defaultMode === "component" ? "component" : "realtime",
     model: live.model || VIDU_LIVE_MODEL,
     videoChatEnabled: live.videoChatEnabled !== false,
+    region: live.region === "cn" ? "cn" : "overseas",
   };
+}
+
+
+async function handleAdminUploadChatLiveAsset(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  let decoded;
+  try {
+    decoded = decodeImageDataUrl(body.dataUrl || "");
+  } catch {
+    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP 图片。" });
+  }
+  if (!["image/png", "image/jpeg", "image/webp"].includes(decoded.mime)) {
+    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP 图片。" });
+  }
+  if (decoded.bytes.byteLength > 8 * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: "图片不能超过 8MB。" });
+  }
+  if (decoded.bytes.byteLength < 32) {
+    return sendJson(res, 400, { ok: false, message: "图片内容无效。" });
+  }
+  const kind = body.kind === "portrait" ? "portrait" : body.kind === "look" ? "look" : "avatar";
+  const ext = imageExtFromMime(decoded.mime);
+  const stamp = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+  const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/chat-live/${kind}-${stamp}${ext}`;
+  try {
+    const uploaded = await uploadStaticAssetToR2({ key, bytes: decoded.bytes, mime: decoded.mime });
+    if (!isManagedChatLiveAssetUrl(uploaded.publicUrl)) {
+      return sendJson(res, 502, { ok: false, message: "素材已上传，但公网地址不可用。" });
+    }
+    return sendJson(res, 200, { ok: true, url: uploaded.publicUrl, kind });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, { ok: false, message: "素材上传到 R2 失败，请稍后再试。" });
+  }
 }
 
 async function handleAdminChatLiveCharacters(req, res) {
@@ -6144,11 +6464,17 @@ async function handleAdminChatLiveCharacters(req, res) {
     ok: true,
     pricing: livePricingView(live),
     characters,
+    looks: live.looks,
     defaults: {
       model: live.model,
       callMode: live.callMode,
       voiceProvider: "qwen_omni",
-      viduConfigured: Boolean(VIDU_API_KEY),
+      viduRegion: live.region === "cn" ? "cn" : "overseas",
+      viduConfigured: Boolean(viduCredentialsForRegion(live.region).key),
+      regions: {
+        overseas: { configured: Boolean(VIDU_API_KEY_OVERSEAS) },
+        cn: { configured: Boolean(VIDU_API_KEY_CN) },
+      },
     },
   });
 }
@@ -6161,7 +6487,8 @@ async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
   const existing = id ? await getChatLiveCharacterInDb(id) : null;
   if (id && !existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
   const payload = normalizeChatLiveCharacterPayload(body, existing);
-  const invalid = chatLiveCharacterValidationError(payload);
+  await chatLiveConfigValue(await readAppConfig());
+  const invalid = chatLiveCharacterValidationError(payload, existing);
   if (invalid) return sendJson(res, 422, { ok: false, code: "INVALID_CHAT_LIVE_CHARACTER", message: invalid });
   const now = new Date().toISOString();
   const character = {
@@ -6172,6 +6499,15 @@ async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
     updatedAt: now,
     updatedBy: auth.user?.username || auth.user?.id || "",
   };
+  if (String(existing?.avatarUrl || "") !== String(payload.avatarUrl || "")) {
+    character.undressImageUrl = "";
+    character.undressSourceAvatarUrl = "";
+    character.undressStatus = "";
+    character.undressError = "";
+    character.undressGeneratedAt = "";
+    character.undressStartedAt = "";
+    character.undressTaskId = "";
+  }
   const saved = await upsertChatLiveCharacterInDb(character);
   return sendJson(res, 200, { ok: true, character: saved });
 }
@@ -6186,9 +6522,129 @@ async function handleAdminDeleteChatLiveCharacter(req, res, characterId = "") {
   return sendJson(res, 200, { ok: true, character: removed });
 }
 
+async function patchChatLiveUndressIfCurrent(characterId, startedAt, patch = {}) {
+  const latest = await getChatLiveCharacterInDb(characterId);
+  if (!latest) return null;
+  if (String(latest.undressStartedAt || "") !== String(startedAt || "")) return null;
+  return upsertChatLiveCharacterInDb({
+    ...latest,
+    ...patch,
+    id: latest.id,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function runChatLiveCharacterUndress(characterId, avatarUrl, startedAt) {
+  try {
+    const config = await readAppConfig();
+    const prompt = String(undressPromptForAction("undress", config.undressPrompts) || VIDEO_TOOL_UNDRESS_TARGET_PROMPT).trim();
+    if (!prompt) throw new Error("Undress 提示词为空。");
+    const imageOptions = wan27ImageRequestOptions({}, {
+      defaultModel: normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro.model || WAN27_IMAGE_PRO_MODEL,
+      defaultRatio: "9:16",
+      defaultResolution: "2K",
+    });
+    const submit = USE_GATEWAY_UPSTREAM ? gatewaySubmitWan27ImageEditTask : submitWan27ImageModify;
+    const submitted = await submit({
+      imageUrls: [avatarUrl],
+      prompt,
+      ratio: imageOptions.ratio,
+      resolution: imageOptions.resolution,
+      model: imageOptions.model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+      waitForResult: false,
+    });
+    const upstreamTaskId = String(submitted.task?.taskId || "").trim();
+    let completed = submitted;
+    const immediateUrl = submitted.task?.imageUrls?.[0] || submitted.task?.imageUrl || "";
+    if (!immediateUrl) {
+      if (!upstreamTaskId) throw new Error("出图没有返回任务号。");
+      await patchChatLiveUndressIfCurrent(characterId, startedAt, { undressTaskId: upstreamTaskId });
+      completed = await waitForWan27ImageToolTask(upstreamTaskId, { timeoutMs: 15 * 60 * 1000 });
+    }
+    const remoteUrl = completed.task?.imageUrls?.[0] || completed.task?.imageUrl || "";
+    if (!remoteUrl) throw new Error("出图没有返回图片。");
+    const downloaded = await downloadRemoteFileToBuffer(remoteUrl, { label: "chat live undress", maxBytes: 20 * 1024 * 1024 });
+    let mime = String(downloaded.mime || "").toLowerCase();
+    if (!["image/png", "image/jpeg", "image/webp"].includes(mime)) mime = "image/jpeg";
+    const stamp = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+    const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/chat-live/undress-${stamp}${imageExtFromMime(mime)}`;
+    const uploaded = await uploadStaticAssetToR2({ key, bytes: downloaded.bytes, mime });
+    if (!isManagedChatLiveAssetUrl(uploaded.publicUrl)) throw new Error("生成图公网地址不可用。");
+    const latest = await getChatLiveCharacterInDb(characterId);
+    if (!latest || String(latest.undressStartedAt || "") !== startedAt) return;
+    if (String(latest.avatarUrl || "").trim() !== avatarUrl) {
+      await patchChatLiveUndressIfCurrent(characterId, startedAt, {
+        undressStatus: "failed",
+        undressError: "形象图已更换，这次生成作废。",
+        undressImageUrl: "",
+        undressGeneratedAt: "",
+      });
+      return;
+    }
+    await patchChatLiveUndressIfCurrent(characterId, startedAt, {
+      undressStatus: "ready",
+      undressError: "",
+      undressImageUrl: uploaded.publicUrl,
+      undressSourceAvatarUrl: avatarUrl,
+      undressGeneratedAt: new Date().toISOString(),
+      undressTaskId: upstreamTaskId,
+    });
+  } catch (error) {
+    console.error("[chat-live-undress-failed]", characterId, error?.message || error);
+    await patchChatLiveUndressIfCurrent(characterId, startedAt, {
+      undressStatus: "failed",
+      undressError: chatLiveUndressErrorText(error),
+      undressImageUrl: "",
+      undressGeneratedAt: "",
+    }).catch((patchError) => {
+      console.error("[chat-live-undress-status-failed]", characterId, patchError?.message || patchError);
+    });
+  }
+}
+
+async function handleAdminGenerateChatLiveUndress(req, res, characterId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const id = String(characterId || "").trim();
+  const character = id ? await getChatLiveCharacterInDb(id) : null;
+  if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  const avatarUrl = String(character.avatarUrl || "").trim();
+  if (!avatarUrl || !isManagedChatLiveAssetUrl(avatarUrl)) {
+    return sendJson(res, 422, { ok: false, message: "请先保存形象图，再用上传控件上传。" });
+  }
+  if (chatLiveUndressJobs.has(id) || chatLiveUndressGenerating(character)) {
+    return sendJson(res, 409, { ok: false, message: "Undress 图正在生成，请稍等。" });
+  }
+  chatLiveUndressJobs.add(id);
+  const startedAt = new Date().toISOString();
+  try {
+    const marked = await upsertChatLiveCharacterInDb({
+      ...character,
+      undressStatus: "generating",
+      undressError: "",
+      undressStartedAt: startedAt,
+      undressImageUrl: "",
+      undressSourceAvatarUrl: avatarUrl,
+      undressGeneratedAt: "",
+      undressTaskId: "",
+      updatedAt: startedAt,
+    });
+    sendJson(res, 202, { ok: true, character: marked });
+  } catch (error) {
+    chatLiveUndressJobs.delete(id);
+    return sendJson(res, error.statusCode || 502, { ok: false, message: "暂时生成不了，请稍后再试。" });
+  }
+  void runChatLiveCharacterUndress(id, avatarUrl, startedAt).finally(() => {
+    chatLiveUndressJobs.delete(id);
+  });
+}
+
 async function handleAdminChatLiveVoices(req, res, url = null) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
+  const live = chatLiveConfigValue(await readAppConfig());
   const scope = String(url?.searchParams?.get("scope") || "realtime");
   const file = scope === "component"
     ? path.join(ROOT, "assets", "chat-live", "voices-component.json")
@@ -6196,7 +6652,11 @@ async function handleAdminChatLiveVoices(req, res, url = null) {
   try {
     const raw = await fs.readFile(file, "utf8");
     const voices = JSON.parse(raw);
-    return sendJson(res, 200, { ok: true, voices: Array.isArray(voices) ? voices : [] });
+    const list = Array.isArray(voices) ? voices : [];
+    const region = live.region === "cn" ? "cn" : "overseas";
+    const blocked = region === "overseas" ? "doubao_cn" : "doubao_overseas";
+    const filtered = scope === "component" ? list : list.filter((voice) => String(voice?.provider || "") !== blocked);
+    return sendJson(res, 200, { ok: true, voices: filtered, viduRegion: region });
   } catch (error) {
     return sendJson(res, 200, { ok: true, voices: [], message: "音色清单尚未生成。" });
   }
@@ -6214,11 +6674,19 @@ async function handleAdminSaveChatLivePricing(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const current = await readAppConfig();
+  const currentLive = chatLiveConfigValue(current);
   const next = normalizeChatLiveConfig({
-    ...chatLiveConfigValue(current),
+    ...currentLive,
     ...(body.pricing && typeof body.pricing === "object" ? body.pricing : body),
+    looks: currentLive.looks,
     updatedAt: new Date().toISOString(),
   });
+  if (!viduCredentialsForRegion(next.region).key) {
+    chatLiveRegionCache = chatLiveConfigValue(current).region;
+    const label = next.region === "cn" ? "国内" : "海外";
+    return sendJson(res, 422, { ok: false, code: "VIDU_REGION_KEY_MISSING", message: `${label} Vidu 密钥未配置，不能切换。` });
+  }
+  chatLiveRegionCache = next.region;
   await writeAppConfig({
     ...current,
     platform: normalizePlatformConfig({ ...(current.platform || {}), chatLive: next }),
@@ -6227,15 +6695,97 @@ async function handleAdminSaveChatLivePricing(req, res) {
   return sendJson(res, 200, { ok: true, pricing: livePricingView(next) });
 }
 
+async function writeChatLiveConfig(nextLive) {
+  const current = await readAppConfig();
+  const next = normalizeChatLiveConfig({ ...nextLive, updatedAt: new Date().toISOString() });
+  chatLiveRegionCache = next.region === "cn" ? "cn" : "overseas";
+  await writeAppConfig({
+    ...current,
+    platform: normalizePlatformConfig({ ...(current.platform || {}), chatLive: next }),
+    updatedAt: new Date().toISOString(),
+  });
+  return next;
+}
+
+async function handleAdminSaveChatLiveLook(req, res, lookId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const live = chatLiveConfigValue(await readAppConfig());
+  const id = String(lookId || body.id || "").trim();
+  const existing = id ? live.looks.find((item) => item.id === id) : null;
+  if (id && !existing) return sendJson(res, 404, { ok: false, message: "素材不存在。" });
+  if (!existing && live.looks.length >= CHAT_LIVE_LOOK_LIMIT) {
+    return sendJson(res, 422, { ok: false, message: "素材最多 240 个。" });
+  }
+  const kind = String(body.kind || existing?.kind || "").trim();
+  if (!CHAT_LIVE_LOOK_KINDS.includes(kind)) {
+    return sendJson(res, 422, { ok: false, message: "请选择类别：换衣服、手里拿东西或换背景。" });
+  }
+  const name = String(body.name ?? existing?.name ?? "").trim().slice(0, 40);
+  if (!name) return sendJson(res, 422, { ok: false, message: "请填写素材名称。" });
+  const imageUrl = String(body.imageUrl ?? existing?.imageUrl ?? "").trim().slice(0, 600);
+  const imageError = chatLiveAssetUrlError(imageUrl, { required: true, previous: existing?.imageUrl || "", label: "素材图" });
+  if (imageError) return sendJson(res, 422, { ok: false, message: imageError });
+  const customText = String(body.userText !== undefined ? body.userText : (existing?.userText || "")).trim().slice(0, 200);
+  const now = new Date().toISOString();
+  const sortNumber = Number(body.sortOrder ?? existing?.sortOrder ?? 0);
+  const enabledRaw = body.enabled ?? existing?.enabled;
+  const look = {
+    id: existing?.id || randomId("look"),
+    kind,
+    name,
+    imageUrl,
+    userText: customText || CHAT_LIVE_LOOK_TEXT[kind],
+    enabled: enabledRaw === undefined ? true : !(enabledRaw === false || String(enabledRaw) === "false"),
+    sortOrder: Number.isFinite(sortNumber) ? Math.round(sortNumber) : 0,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const looks = existing
+    ? live.looks.map((item) => (item.id === existing.id ? look : item))
+    : live.looks.concat(look);
+  const saved = await writeChatLiveConfig({ ...live, looks });
+  return sendJson(res, 200, { ok: true, look: saved.looks.find((item) => item.id === look.id) || look });
+}
+
+async function handleAdminDeleteChatLiveLook(req, res, lookId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const id = String(lookId || "").trim();
+  const live = chatLiveConfigValue(await readAppConfig());
+  if (!live.looks.some((item) => item.id === id)) return sendJson(res, 404, { ok: false, message: "素材不存在。" });
+  await writeChatLiveConfig({ ...live, looks: live.looks.filter((item) => item.id !== id) });
+  return sendJson(res, 200, { ok: true });
+}
+
+
+function chatLiveSessionIdentity(req, auth, character) {
+  const referer = String(req?.headers?.referer || req?.headers?.referrer || "").trim();
+  let refererOrigin = "";
+  try {
+    if (referer) refererOrigin = new URL(referer).origin;
+  } catch {
+    refererOrigin = "";
+  }
+  const sourceOrigin = String(refererOrigin || pageOriginFromRequest(req) || "").slice(0, 200);
+  return {
+    username: String(auth?.user?.username || "").trim().slice(0, 80),
+    characterName: String(character?.name || "").trim().slice(0, 80),
+    sourceOrigin,
+    sourceHost: hostnameFromOrigin(sourceOrigin),
+  };
+}
+
 async function handleCreateChatLiveSession(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!VIDU_API_KEY) return sendJson(res, 503, { ok: false, code: "VIDU_NOT_CONFIGURED", message: "在线聊天暂未开通。" });
   const body = await readJson(req);
   const character = await getChatLiveCharacterInDb(String(body.characterId || "").trim());
   if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
+  if (!viduCredentialsForRegion(live.region).key) return sendJson(res, 503, { ok: false, code: "VIDU_NOT_CONFIGURED", message: "在线聊天暂未开通。" });
   if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
   const salePerMinute = Number(live.saleCreditsPerMinute || 0);
   if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "在线聊天价格未配置。" });
@@ -6259,11 +6809,14 @@ async function handleCreateChatLiveSession(req, res) {
     const viewerId = `${auth.user.id}`.slice(0, 32);
     let upstream;
     try {
-      upstream = await viduLiveRequest("/live/s_avatar/component", {
+      upstream = await viduLiveRequestRetry("/live/s_avatar/component", {
         method: "POST",
         timeoutMs: 45000,
+        region: live.region,
         body: {
           model: live.model,
+          extra_motion: false,
+          moderation: "disabled",
           image_uri: character.avatarUrl,
           rtc_info: {
             provider: "artc",
@@ -6273,21 +6826,20 @@ async function handleCreateChatLiveSession(req, res) {
             token: artcToken({ channelId, userId: pusherId }),
           },
         },
-      });
+      }, { characterId: character.id, model: live.model, callMode: "video" });
     } catch (error) {
-      return sendJson(res, error.statusCode || 502, {
-        ok: false,
-        code: error.code || "CHAT_LIVE_COMPONENT_CREATE_FAILED",
-        message: error.message || "创建组件版会话失败。",
-      });
+      return sendChatLiveCreateError(res, error);
     }
     const now = new Date().toISOString();
     /* 启动服务端流水线：连 Vidu 外部 live 流，之后「用户话 → 我们的 LLM → TTS → 推流」 */
+    const componentCreds = viduCredentialsForRegion(live.region);
     chatLiveComponent.startComponentSession({
       liveId: String(upstream?.live?.id || ""),
       clientSecret: String(upstream?.client_secret || ""),
       character,
       language: character.language || "zh",
+      viduBase: componentCreds.base,
+      viduKey: componentCreds.key,
     }).catch((error) => console.warn("[chat-live-component] start failed", error.message || error));
     const session = await createChatLiveSessionInDb({
       id: sessionId,
@@ -6296,8 +6848,10 @@ async function handleCreateChatLiveSession(req, res) {
       liveId: String(upstream?.live?.id || ""),
       status: "waiting",
       mode: "component",
+      ...chatLiveSessionIdentity(req, auth, character),
       clientSecret: String(upstream?.client_secret || ""),
       channel: { provider: "artc", appId: ARTC_APP_ID, channelId, pusherId },
+      viduRegion: live.region === "cn" ? "cn" : "overseas",
       costCreditsPerMinute: live.costCreditsPerMinute,
       saleCreditsPerMinute: salePerMinute,
       maxMinutes: live.maxMinutes,
@@ -6326,6 +6880,7 @@ async function handleCreateChatLiveSession(req, res) {
         costCreditsPerMinute: live.costCreditsPerMinute,
         maxMinutes: live.maxMinutes,
         freeSeconds: live.freeSeconds,
+        model: live.model,
       },
       character: publicChatLiveCharacter(character),
     });
@@ -6341,27 +6896,38 @@ async function handleCreateChatLiveSession(req, res) {
   if (character.greeting) avatar.greeting_instruction = character.greeting;
   if (character.personaEnhance === true) avatar.persona_enhance = true;
   if (!live.videoChatEnabled) avatar.farewell_enabled = false;
+  const voiceRegionError = chatLiveVoiceRegionError(character.voiceProvider);
+  if (voiceRegionError) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_VOICE_REGION", message: voiceRegionError });
+  }
+  const voiceProviderName = String(character.voiceProvider || "qwen_omni");
+  const realtimeBody = {
+    model: live.model,
+    extra_motion: false,
+    moderation: "disabled",
+    call_mode: live.callMode,
+    avatar,
+    audio: { enable_transcription: true },
+    vad: { type: "semantic", idle_timeout_ms: 0 },
+    idle_timeout_seconds: Math.min(7200, Math.max(10, Math.round(live.maxMinutes * 60))),
+  };
+  if (voiceProviderName === "doubao_cn" || voiceProviderName === "doubao_overseas" || voiceProviderName === "doubao") {
+    realtimeBody.voice_model = {
+      provider: "doubao",
+      doubao: { voice: character.voiceType },
+    };
+  }
 
   let upstream;
   try {
-    upstream = await viduLiveRequest("/live/s_avatar/realtime", {
+    upstream = await viduLiveRequestRetry("/live/s_avatar/realtime", {
       method: "POST",
       timeoutMs: 45000,
-      body: {
-        model: live.model,
-        call_mode: live.callMode,
-        avatar,
-        audio: { enable_transcription: true },
-        vad: { type: "semantic", idle_timeout_ms: 0 },
-        idle_timeout_seconds: Math.min(7200, Math.max(10, Math.round(live.maxMinutes * 60))),
-      },
-    });
+      region: live.region,
+      body: realtimeBody,
+    }, { characterId: character.id, model: live.model, callMode: live.callMode });
   } catch (error) {
-    return sendJson(res, error.statusCode || 502, {
-      ok: false,
-      code: error.code || "CHAT_LIVE_CREATE_FAILED",
-      message: error.message || "创建在线聊天失败。",
-    });
+    return sendChatLiveCreateError(res, error);
   }
 
   const now = new Date().toISOString();
@@ -6371,6 +6937,8 @@ async function handleCreateChatLiveSession(req, res) {
     characterId: character.id,
     liveId: String(upstream?.live?.id || ""),
     status: "waiting",
+    mode: "realtime",
+    ...chatLiveSessionIdentity(req, auth, character),
     rtc: upstream?.rtc || null,
     costCreditsPerMinute: live.costCreditsPerMinute,
     saleCreditsPerMinute: salePerMinute,
@@ -6379,6 +6947,7 @@ async function handleCreateChatLiveSession(req, res) {
     model: live.model,
     callMode: live.callMode,
     voiceProvider: upstream?.live?.voice_model?.provider || character.voiceProvider || "",
+    viduRegion: live.region === "cn" ? "cn" : "overseas",
     createdAt: now,
     updatedAt: now,
   });
@@ -6387,6 +6956,7 @@ async function handleCreateChatLiveSession(req, res) {
     ok: true,
     session: {
       id: session.id,
+      mode: "realtime",
       liveId: session.liveId,
       status: session.status,
       rtc: session.rtc,
@@ -6403,15 +6973,81 @@ async function handleCreateChatLiveSession(req, res) {
   });
 }
 
+function sanitizeChatLiveDiagnosticText(value, max = 180) {
+  return String(value || "")
+    .replace(/bearer\s+\S+/gi, "bearer [redacted]")
+    .replace(/[A-Za-z0-9_-]{24,}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+function isAbnormalChatLiveReason(reason = "") {
+  const key = String(reason || "").trim();
+  return key.startsWith("video_") || ["rtc_bye", "remote_offline", "idle_timeout", "client_reconnect_timeout", "join_failed", "socket_closed", "socket_error", "upstream_hangup"].includes(key);
+}
+
+function normalizeChatLiveIssues(issues) {
+  const list = Array.isArray(issues) ? issues : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const code = String(item?.code || "").trim().slice(0, 48).replace(/[^a-z0-9_.-]/gi, "");
+    const message = sanitizeChatLiveDiagnosticText(item?.message || "", 180);
+    const at = String(item?.at || "").slice(0, 40);
+    if (!code && !message) continue;
+    const key = `${code}|${message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ code, message, at });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function mergeChatLiveIssues(...groups) {
+  const flat = [];
+  for (const group of groups) {
+    if (Array.isArray(group)) flat.push(...group);
+  }
+  return normalizeChatLiveIssues(flat);
+}
+
+function chatLiveChargeExpected(session = {}, billedSeconds = null) {
+  const seconds = billedSeconds == null
+    ? Math.max(0, Number(session.billedSeconds || 0) || 0)
+    : Math.max(0, Number(billedSeconds || 0) || 0);
+  const freeSeconds = Math.max(0, Number(session.freeSeconds || 0) || 0);
+  const salePerMinute = Math.max(0, Number(session.saleCreditsPerMinute || 0) || 0);
+  const chargeableSeconds = Math.max(0, seconds - freeSeconds);
+  if (!(salePerMinute > 0 && chargeableSeconds > 0)) return 0;
+  return Math.max(1, Math.ceil(chargeCreditsFromSeconds(chargeableSeconds, salePerMinute)));
+}
+
+async function saveChatLiveSessionIssues(sessionId, issues) {
+  const normalized = normalizeChatLiveIssues(issues);
+  await dbQuery(
+    `UPDATE app_chat_live_sessions
+     SET payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{issues}', $2::jsonb, true),
+         updated_at = NOW()
+     WHERE id = $1`,
+    [String(sessionId || ""), JSON.stringify(normalized)],
+  );
+  return normalized;
+}
+
 async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   if (!session?.id) return null;
   if (session.status === "ended" && session.settled === true) return session;
   let detail = null;
+  let upstreamError = "";
   if (session.liveId) {
     try {
-      detail = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 20000 });
+      detail = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 20000, region: session.viduRegion || "" });
     } catch (error) {
       detail = null;
+      const code = String(error?.code || "").trim();
+      upstreamError = sanitizeChatLiveDiagnosticText(code ? `${code}: ${error?.message || "upstream_query_failed"}` : (error?.message || "upstream_query_failed"));
     }
   }
   const liveInfo = detail?.live || detail || {};
@@ -6431,23 +7067,38 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
      等它真正结束（或超过单次最长时长兜底）再结算，避免少扣或重复扣。 */
   const shouldFinalize = terminalStatus || abandoned || !session.liveId;
   let charged = 0;
+  let chargeError = "";
   if (chargeCredits > 0 && !session.charged && shouldFinalize) {
-    const chargedSession = auth
-      ? await chargeChatLiveSession(auth, session, chargeCredits)
-      : null;
-    charged = chargedSession ? chargeCredits : 0;
+    if (!auth) {
+      chargeError = "找不到用户，未能扣费";
+    } else {
+      const chargedResult = await chargeChatLiveSession(auth, session, chargeCredits);
+      if (chargedResult?.ok) charged = chargeCredits;
+      else chargeError = chargedResult?.error || "扣费失败";
+    }
   }
   const now = new Date().toISOString();
+  const latest = await getChatLiveSessionInDb(session.id).catch(() => null);
+  const issues = mergeChatLiveIssues(latest?.issues, session.issues);
+  const preservedUpstreamStatus = upstreamStatus || session.upstreamStatus || latest?.upstreamStatus || "";
+  const preservedUpstreamError = upstreamError || (detail ? "" : (session.upstreamError || latest?.upstreamError || ""));
+  const preservedChargeError = chargeError || ((session.charged === true || charged > 0) ? "" : (session.chargeError || latest?.chargeError || ""));
   const updated = await updateChatLiveSessionInDb({
     ...session,
     status: shouldFinalize ? "ended" : (session.status || "waiting"),
     billedSeconds,
     upstreamCredits,
+    upstreamStatus: preservedUpstreamStatus,
+    upstreamError: preservedUpstreamError,
+    chargeError: preservedChargeError,
     chargedCredits: Number(session.chargedCredits || 0) + charged,
     charged: session.charged === true || charged > 0,
     settled: shouldFinalize,
-    endReason: liveInfo.close_reason || session.endReason || "",
-    endedAt: shouldFinalize ? (session.endedAt || now) : session.endedAt,
+    endReason: liveInfo.close_reason || session.endReason || latest?.endReason || "",
+    clientEndReason: session.clientEndReason || latest?.clientEndReason || "",
+    clientEndNote: session.clientEndNote || latest?.clientEndNote || "",
+    issues,
+    endedAt: shouldFinalize ? (session.endedAt || latest?.endedAt || now) : (session.endedAt || latest?.endedAt || ""),
     updatedAt: now,
   });
   return updated;
@@ -6465,10 +7116,11 @@ async function chargeChatLiveSession(auth, session, credits) {
       taskId: session.id,
       meta: { liveId: session.liveId, characterId: session.characterId, seconds: session.billedSeconds, model: session.model },
     });
-    return true;
+    return { ok: true, error: "" };
   } catch (error) {
-    console.warn("[chat-live] charge failed", error.message || error);
-    return false;
+    const message = sanitizeChatLiveDiagnosticText(error?.message || "扣费失败");
+    console.warn("[chat-live] charge failed", message || "charge_failed");
+    return { ok: false, error: message || "扣费失败" };
   }
 }
 
@@ -6477,11 +7129,68 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
   if (!auth) return;
   const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  const body = await readJson(req).catch(() => ({}));
+  const clientReason = String(body?.reason || body?.endReason || "").trim().slice(0, 64).replace(/[^a-z0-9_.-]/gi, "");
+  const note = sanitizeChatLiveDiagnosticText(body?.note || "", 180);
+  if (clientReason) {
+    session.clientEndReason = clientReason;
+    if (!session.endReason) session.endReason = clientReason;
+  }
+  if (note) session.clientEndNote = note;
+  if (isAbnormalChatLiveReason(clientReason)) {
+    session.issues = mergeChatLiveIssues(session.issues, [{
+      code: clientReason,
+      message: note,
+      at: new Date().toISOString(),
+    }]);
+  }
   if (session.mode === "component" && session.liveId) {
     try { chatLiveComponent.stopComponentSession(session.liveId); } catch {}
   }
+  if (session.status === "ended" && session.settled === true) {
+    const latest = await getChatLiveSessionInDb(session.id);
+    const base = latest || session;
+    const issues = mergeChatLiveIssues(base.issues, session.issues);
+    if (JSON.stringify(normalizeChatLiveIssues(base.issues)) !== JSON.stringify(issues)) {
+      await saveChatLiveSessionIssues(session.id, issues);
+    }
+    const updated = await updateChatLiveSessionInDb({
+      ...(latest || base),
+      clientEndReason: session.clientEndReason || base.clientEndReason || "",
+      clientEndNote: session.clientEndNote || base.clientEndNote || "",
+      endReason: base.endReason || session.endReason || "",
+      issues,
+      updatedAt: new Date().toISOString(),
+    });
+    return sendJson(res, 200, { ok: true, session: publicChatLiveSession(updated) });
+  }
   const settled = await settleChatLiveSession(session, { auth });
   return sendJson(res, 200, { ok: true, session: publicChatLiveSession(settled) });
+}
+
+async function handleReportChatLiveSessionIssue(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const id = String(sessionId || "").trim();
+  const session = await getChatLiveSessionInDb(id);
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  const body = await readJson(req).catch(() => ({}));
+  const code = String(body?.code || body?.reason || "").trim().slice(0, 48).replace(/[^a-z0-9_.-]/gi, "");
+  const message = sanitizeChatLiveDiagnosticText(body?.message || body?.note || "", 180);
+  if (!code && !message) return sendJson(res, 422, { ok: false, message: "缺少问题信息。" });
+  const issue = { code: code || "client", message, at: new Date().toISOString() };
+  let stored = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const latest = await getChatLiveSessionInDb(id);
+    const base = latest || session;
+    const issues = mergeChatLiveIssues(base.issues, [issue]);
+    if (JSON.stringify(normalizeChatLiveIssues(base.issues)) === JSON.stringify(issues)) break;
+    await saveChatLiveSessionIssues(id, issues);
+    stored = true;
+    const check = await getChatLiveSessionInDb(id);
+    if (JSON.stringify(normalizeChatLiveIssues(check?.issues)) === JSON.stringify(mergeChatLiveIssues(check?.issues, [issue]))) break;
+  }
+  return sendJson(res, 200, { ok: true, stored });
 }
 
 async function handleChatLiveSay(req, res, sessionId = "") {
@@ -6501,6 +7210,62 @@ async function handleChatLiveSay(req, res, sessionId = "") {
   }
 }
 
+async function handleChatLiveLook(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  if (session.mode !== "component") return sendJson(res, 400, { ok: false, code: "NOT_COMPONENT_SESSION", message: "实时版请在通话画面里直接切换。" });
+  if (session.settled === true || ["ended", "closed", "failed"].includes(String(session.status || ""))) {
+    return sendJson(res, 409, { ok: false, message: "会话已经结束。" });
+  }
+  const model = String(session.model || "");
+  if (model && model !== "vidu-s2") {
+    return sendJson(res, 422, { ok: false, code: "PROMPT_OP_MODEL_NOT_SUPPORTED", message: chatLiveLookFailureMessage("PROMPT_OP_MODEL_NOT_SUPPORTED") });
+  }
+  const body = await readJson(req);
+  const op = String(body.op || body.opType || "");
+  const remove = op === "remove";
+  let operation;
+  if (remove) {
+    operation = { opType: "remove" };
+  } else if (op === "undress") {
+    const character = await getChatLiveCharacterInDb(session.characterId);
+    const imageUrl = publicChatLiveUndressImageUrl(character || {});
+    if (!imageUrl) return sendJson(res, 422, { ok: false, message: "这个角色还没有 Undress 图。" });
+    operation = {
+      opType: "switch",
+      imageUrl,
+      imageId: `ud${Date.now().toString(36)}${crypto.randomBytes(3).toString("hex")}`.slice(0, 128),
+      kind: "garment",
+      userText: CHAT_LIVE_UNDRESS_USER_TEXT,
+    };
+  } else {
+    const lookId = String(body.lookId || "").trim();
+    const live = chatLiveConfigValue(await readAppConfig());
+    const look = live.looks.find((item) => item.id === lookId && item.enabled !== false);
+    if (!look) return sendJson(res, 404, { ok: false, message: "这个素材不存在或已停用。" });
+    if (!isManagedChatLiveAssetUrl(look.imageUrl)) return sendJson(res, 422, { ok: false, message: "素材图片无效，请在后台重新上传。" });
+    operation = {
+      opType: "switch",
+      imageUrl: look.imageUrl,
+      imageId: `lk${Date.now().toString(36)}${crypto.randomBytes(3).toString("hex")}`.slice(0, 128),
+      kind: look.kind,
+      userText: look.userText || CHAT_LIVE_LOOK_TEXT[look.kind],
+    };
+  }
+  try {
+    await chatLiveComponent.componentApplyLook(session.liveId, operation);
+    return sendJson(res, 200, { ok: true });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: error.code || "CHAT_LIVE_LOOK_FAILED",
+      message: chatLiveLookFailureMessage(error.code),
+    });
+  }
+}
+
 async function handleGetChatLiveSession(req, res, sessionId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -6509,7 +7274,7 @@ async function handleGetChatLiveSession(req, res, sessionId = "") {
   let upstream = null;
   if (session.liveId) {
     try {
-      upstream = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 15000 });
+      upstream = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 15000, region: session.viduRegion || "" });
     } catch (error) {
       upstream = null;
     }
@@ -6538,6 +7303,82 @@ function publicChatLiveSession(session = {}) {
     endedAt: session.endedAt || "",
     endReason: session.endReason || "",
   };
+}
+
+function publicAdminChatLiveSession(session = {}, extras = {}) {
+  const billedSeconds = Math.max(0, Number(session.billedSeconds || 0) || 0);
+  const startedMs = Date.parse(session.createdAt || "");
+  const endedMs = Date.parse(session.endedAt || "");
+  const wallSeconds = Number.isFinite(startedMs)
+    ? Math.max(0, Math.round(((Number.isFinite(endedMs) ? endedMs : Date.now()) - startedMs) / 1000))
+    : 0;
+  const chargedCredits = Number(session.chargedCredits || 0) || 0;
+  const chargeExpected = chatLiveChargeExpected(session, billedSeconds);
+  return {
+    id: session.id || "",
+    userId: session.userId || "",
+    username: extras.username || session.username || "",
+    characterId: session.characterId || "",
+    characterName: extras.characterName || session.characterName || "",
+    status: session.status || "",
+    settled: session.settled === true,
+    mode: session.mode === "component" ? "component" : "realtime",
+    viduRegion: session.viduRegion === "cn" ? "cn" : "overseas",
+    sourceHost: session.sourceHost || hostnameFromOrigin(session.sourceOrigin || ""),
+    billedSeconds,
+    durationSeconds: billedSeconds > 0 ? billedSeconds : wallSeconds,
+    durationEstimated: !(billedSeconds > 0),
+    chargedCredits,
+    chargeExpected,
+    chargeGap: Math.max(0, chargeExpected - chargedCredits),
+    chargeError: sanitizeChatLiveDiagnosticText(session.chargeError || ""),
+    freeSeconds: Math.max(0, Number(session.freeSeconds || 0) || 0),
+    saleCreditsPerMinute: Math.max(0, Number(session.saleCreditsPerMinute || 0) || 0),
+    upstreamCredits: Math.max(0, Number(session.upstreamCredits || 0) || 0),
+    upstreamStatus: sanitizeChatLiveDiagnosticText(session.upstreamStatus || "", 64),
+    upstreamError: sanitizeChatLiveDiagnosticText(session.upstreamError || ""),
+    liveId: String(session.liveId || ""),
+    model: String(session.model || ""),
+    callMode: String(session.callMode || ""),
+    voiceProvider: String(session.voiceProvider || ""),
+    clientEndNote: sanitizeChatLiveDiagnosticText(session.clientEndNote || ""),
+    issues: normalizeChatLiveIssues(session.issues),
+    endReason: session.endReason || "",
+    clientEndReason: session.clientEndReason || "",
+    createdAt: session.createdAt || "",
+    endedAt: session.endedAt || "",
+  };
+}
+
+async function handleAdminListChatLiveSessions(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const page = Math.max(1, Number.parseInt(url?.searchParams?.get("page") || "1", 10) || 1);
+  const limit = Math.max(1, Math.min(100, Number.parseInt(url?.searchParams?.get("limit") || "20", 10) || 20));
+  const listed = await listChatLiveSessionsInDb({ limit, offset: (page - 1) * limit, withTotal: true });
+  const sessions = Array.isArray(listed?.items) ? listed.items : [];
+  const total = Math.max(0, Number(listed?.total || 0) || 0);
+  const userIds = [...new Set(sessions.map((session) => String(session?.userId || "")).filter(Boolean))];
+  const users = userIds.length ? await getUsersByIdsInDb(userIds) : [];
+  const userMap = new Map((users || []).map((user) => [String(user.id || ""), user]));
+  let characters = [];
+  try {
+    characters = await listChatLiveCharactersInDb({ includeDisabled: true });
+  } catch {
+    characters = [];
+  }
+  const characterMap = new Map((characters || []).map((character) => [String(character.id || ""), character]));
+  return sendJson(res, 200, {
+    ok: true,
+    page,
+    limit,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+    sessions: sessions.map((session) => publicAdminChatLiveSession(session, {
+      username: userMap.get(String(session.userId || ""))?.username || "",
+      characterName: characterMap.get(String(session.characterId || ""))?.name || "",
+    })),
+  });
 }
 
 /* Server-side auth stand-in so a session can be settled after the browser left. */
@@ -6590,13 +7431,14 @@ async function handleChatLiveUpgrade(req, socket, head) {
     socket.destroy();
     return;
   }
-  if (!VIDU_API_KEY) {
+  const creds = viduCredentialsForRegion(session.viduRegion || "");
+  if (!creds.key) {
     socket.destroy();
     return;
   }
 
   const connId = String(parsed.searchParams.get("conn") || `app-${session.id}`).slice(0, 64);
-  const upstreamHost = new URL(VIDU_API_BASE).hostname;
+  const upstreamHost = new URL(creds.base).hostname;
   /* Vidu 的 WS 校验的是 Authorization 请求头（不是 query），这里由服务端注入，
      浏览器永远拿不到密钥。 */
   const upstreamPath = `/live/ws/live/connect?live_id=${encodeURIComponent(session.liveId)}&conn_id=${encodeURIComponent(connId)}`;
@@ -6617,7 +7459,7 @@ async function handleChatLiveUpgrade(req, socket, head) {
     try { upstream.destroy(); } catch {}
   });
   upstream.on("secureConnect", () => {
-    const lines = [`GET ${upstreamPath} HTTP/1.1`, `Host: ${upstreamHost}`, `Authorization: Token ${VIDU_API_KEY}`];
+    const lines = [`GET ${upstreamPath} HTTP/1.1`, `Host: ${upstreamHost}`, `Authorization: Token ${creds.key}`];
     for (const [key, value] of Object.entries(req.headers)) {
       const lower = String(key).toLowerCase();
       if (["host", "origin", "authorization", "referer"].includes(lower)) continue;
@@ -6636,7 +7478,7 @@ async function handleChatLiveUpgrade(req, socket, head) {
 }
 
 async function settleStaleChatLiveSessions() {
-  if (!dbEnabled() || !VIDU_API_KEY) return;
+  if (!dbEnabled() || !(VIDU_API_KEY_OVERSEAS || VIDU_API_KEY_CN || VIDU_API_KEY)) return;
   let sessions = [];
   try {
     sessions = await listChatLiveSessionsInDb({ limit: 30 });
@@ -40196,6 +41038,8 @@ function adminWalletOrderView(order, userMap) {
     username: user?.username || "",
     paymentProvider,
     cashierHost,
+    sourceOrigin: String(order.sourceOrigin || ""),
+    sourceHost: hostnameFromOrigin(order.sourceOrigin || ""),
     baseAmount: order.baseAmount,
     creditAmount: order.creditAmount ?? (
       order.packageCredits !== undefined
@@ -42387,9 +43231,17 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && chatLiveSessionEndMatch) {
       return await handleEndChatLiveSession(req, res, decodeURIComponent(chatLiveSessionEndMatch[1]));
     }
+    const chatLiveSessionIssueMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/issues$/);
+    if (req.method === "POST" && chatLiveSessionIssueMatch) {
+      return await handleReportChatLiveSessionIssue(req, res, decodeURIComponent(chatLiveSessionIssueMatch[1]));
+    }
     const chatLiveSayMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/say$/);
     if (req.method === "POST" && chatLiveSayMatch) {
       return await handleChatLiveSay(req, res, decodeURIComponent(chatLiveSayMatch[1]));
+    }
+    const chatLiveLookMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/look$/);
+    if (req.method === "POST" && chatLiveLookMatch) {
+      return await handleChatLiveLook(req, res, decodeURIComponent(chatLiveLookMatch[1]));
     }
     const chatLiveSessionMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)$/);
     if (req.method === "GET" && chatLiveSessionMatch) {
@@ -42811,11 +43663,18 @@ async function handleRequest(req, res) {
       return await handleAdminSavePricing(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/admin/chat-live/assets") {
+      return await handleAdminUploadChatLiveAsset(req, res);
+    }
     if (req.method === "GET" && url.pathname === "/api/admin/chat-live/characters") {
       return await handleAdminChatLiveCharacters(req, res);
     }
     if (req.method === "POST" && url.pathname === "/api/admin/chat-live/characters") {
       return await handleAdminSaveChatLiveCharacter(req, res);
+    }
+    const adminChatLiveUndressMatch = url.pathname.match(/^\/api\/admin\/chat-live\/characters\/([^/]+)\/undress$/);
+    if (req.method === "POST" && adminChatLiveUndressMatch) {
+      return await handleAdminGenerateChatLiveUndress(req, res, decodeURIComponent(adminChatLiveUndressMatch[1]));
     }
     const adminChatLiveCharacterMatch = url.pathname.match(/^\/api\/admin\/chat-live\/characters\/([^/]+)$/);
     if (req.method === "PUT" && adminChatLiveCharacterMatch) {
@@ -42827,11 +43686,24 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/admin/chat-live/voices") {
       return await handleAdminChatLiveVoices(req, res, url);
     }
+    if (req.method === "GET" && url.pathname === "/api/admin/chat-live/sessions") {
+      return await handleAdminListChatLiveSessions(req, res, url);
+    }
     if (req.method === "GET" && url.pathname === "/api/admin/chat-live/pricing") {
       return await handleAdminGetChatLivePricing(req, res);
     }
     if (req.method === "PUT" && url.pathname === "/api/admin/chat-live/pricing") {
       return await handleAdminSaveChatLivePricing(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/chat-live/looks") {
+      return await handleAdminSaveChatLiveLook(req, res);
+    }
+    const adminChatLiveLookMatch = url.pathname.match(/^\/api\/admin\/chat-live\/looks\/([^/]+)$/);
+    if (adminChatLiveLookMatch && req.method === "PUT") {
+      return await handleAdminSaveChatLiveLook(req, res, decodeURIComponent(adminChatLiveLookMatch[1]));
+    }
+    if (adminChatLiveLookMatch && req.method === "DELETE") {
+      return await handleAdminDeleteChatLiveLook(req, res, decodeURIComponent(adminChatLiveLookMatch[1]));
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/overview") {

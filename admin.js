@@ -3502,13 +3502,14 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>收银台</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
+              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>来源网站</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>收银台</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
                     <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id || "-")}</strong></td>
                     <td class="adm-mono adm-truncate">${escapeHtml(o.stripeChargeId || o.paypalCaptureId || "-")}</td>
                     <td class="adm-truncate"><strong>${escapeHtml(o.username || "-")}</strong></td>
+                    <td class="adm-truncate" title="${escapeHtml(o.sourceOrigin || "")}">${escapeHtml(o.sourceHost || "-")}</td>
                     <td class="adm-truncate">${escapeHtml(o.stripeCustomerEmail || o.paypalPayerEmail || "-")}</td>
                     <td class="adm-truncate">${escapeHtml(o.stripeCustomerName || "-")}</td>
                     <td><strong>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeAmountReceived ?? o.baseAmount ?? "")}` : escapeHtml(o.payableAmountText || o.baseAmount || "-")}</strong><br/><span class="adm-muted">积分：${escapeHtml(o.creditAmount || 0)}</span></td>
@@ -3570,6 +3571,7 @@ async function renderWallet(pageArg = null, limitArg = null) {
         ["Payment Intent", order.stripePaymentIntentId],
         ["Checkout Session", order.stripeCheckoutSessionId],
         ["用户 ID", order.userId],
+        ["来源网站", order.sourceHost || order.sourceOrigin],
         ["邮箱", order.stripeCustomerEmail],
         ["客户名", order.stripeCustomerName],
         ["支付方式", order.stripePaymentMethodType],
@@ -3858,6 +3860,9 @@ let chatLiveVoicesCache = null;
 let chatLiveEditingId = "";
 let chatLiveVoiceFilter = "";
 let chatLiveTab = "characters";
+let chatLiveSessionPage = 1;
+let chatLiveSessionLimit = 20;
+let chatLiveSessionsById = new Map();
 let chatLiveModalOpen = false;
 
 async function loadChatLiveVoices() {
@@ -3891,6 +3896,21 @@ function chatLiveVoiceOptions(voices, selectedValue = "", filter = "") {
   return options.join("") || `<option value="">（音色清单未加载）</option>`;
 }
 
+function chatLiveUndressReady(character = {}) {
+  const url = String(character.undressImageUrl || "");
+  const source = String(character.undressSourceAvatarUrl || "");
+  const avatar = String(character.avatarUrl || "");
+  return String(character.undressStatus || "") === "ready" && Boolean(url) && source === avatar;
+}
+
+function chatLiveUndressLabel(character = {}) {
+  const status = String(character.undressStatus || "");
+  if (status === "generating") return `<span class="adm-badge">生成中</span>`;
+  if (chatLiveUndressReady(character)) return `<span class="adm-badge adm-badge-ok">已生成</span>`;
+  if (status === "failed") return `<span class="adm-badge adm-badge-muted">失败</span>`;
+  return `<span class="adm-muted">未生成</span>`;
+}
+
 function chatLiveCharacterRow(character = {}) {
   const enabled = character.enabled !== false;
   return `
@@ -3906,6 +3926,7 @@ function chatLiveCharacterRow(character = {}) {
       </td>
       <td><span class="adm-mono">${escapeHtml(character.voiceType || "-")}</span><br/><small class="adm-muted">${escapeHtml(chatLiveVoiceProviderLabel(character.voiceProvider))}</small></td>
       <td>${escapeHtml(String(character.sortOrder ?? 0))}</td>
+      <td>${chatLiveUndressLabel(character)}</td>
       <td><span class="adm-badge ${enabled ? "adm-badge-ok" : "adm-badge-muted"}">${enabled ? "启用" : "停用"}</span></td>
       <td>
         <button class="adm-btn adm-btn-ghost" data-chat-live-edit="${escapeHtml(character.id)}" type="button">编辑</button>
@@ -3915,21 +3936,139 @@ function chatLiveCharacterRow(character = {}) {
   `;
 }
 
+function chatLiveVoiceProviders(defaults = {}, current = "") {
+  const region = defaults.viduRegion === "cn" ? "cn" : defaults.viduRegion === "overseas" ? "overseas" : "";
+  const list = region === "cn"
+    ? ["qwen_omni", "doubao_cn"]
+    : region === "overseas"
+      ? ["qwen_omni", "doubao_overseas"]
+      : ["qwen_omni", "doubao_cn", "doubao_overseas"];
+  if (current && !list.includes(current)) list.push(current);
+  return list;
+}
+
+
+function chatLiveAssetField({ id, label, url = "", hint = "", clearable = false, kind = "" } = {}) {
+  const preview = url
+    ? `<img src="${escapeHtml(url)}" alt="" draggable="false" />`
+    : `<span>未上传</span>`;
+  return `
+    <div class="adm-form-row">
+      <span>${escapeHtml(label)}</span>
+      <div class="chat-live-asset" data-asset-field="${escapeHtml(id)}" data-asset-kind="${escapeHtml(kind)}">
+        <input type="hidden" id="${escapeHtml(id)}" value="${escapeHtml(url)}" />
+        <div class="chat-live-asset-preview">${preview}</div>
+        <div class="chat-live-asset-actions">
+          <button class="adm-btn adm-btn-ghost" type="button" data-asset-pick="${escapeHtml(id)}">上传图片</button>
+          ${clearable ? `<button class="adm-btn adm-btn-ghost" type="button" data-asset-clear="${escapeHtml(id)}">清除</button>` : ""}
+          <input type="file" accept="image/png,image/jpeg,image/webp" data-asset-file="${escapeHtml(id)}" hidden />
+        </div>
+        <small class="adm-muted">${hint}</small>
+      </div>
+    </div>`;
+}
+
+function readChatLiveAssetFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取图片失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function bindChatLiveAssetUploads(root) {
+  if (!root) return;
+  const previewOf = (id) => root.querySelector(`[data-asset-field="${id}"] .chat-live-asset-preview`);
+  const setPreview = (id, url) => {
+    const box = previewOf(id);
+    if (!box) return;
+    box.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" draggable="false" />` : `<span>未上传</span>`;
+  };
+  root.querySelectorAll("[data-asset-pick]").forEach((button) => {
+    button.addEventListener("click", () => {
+      root.querySelector(`[data-asset-file="${button.dataset.assetPick}"]`)?.click();
+    });
+  });
+  root.querySelectorAll("[data-asset-clear]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.assetClear;
+      const hidden = root.querySelector(`#${id}`);
+      if (hidden) {
+        hidden.value = "";
+        hidden.dispatchEvent(new Event("change"));
+      }
+      setPreview(id, "");
+    });
+  });
+  root.querySelectorAll("[data-asset-file]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+      const assetType = String(file.type || "").toLowerCase();
+      const assetName = String(file.name || "").toLowerCase();
+      if (!["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(assetType) && !/\.(png|jpe?g|webp)$/.test(assetName)) {
+        toast("只支持 PNG、JPG、WEBP。", "error");
+        return;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        toast("图片不能超过 8MB。", "error");
+        return;
+      }
+      const id = input.dataset.assetFile;
+      const pick = root.querySelector(`[data-asset-pick="${id}"]`);
+      if (pick) pick.disabled = true;
+      try {
+        const localUrl = URL.createObjectURL(file);
+        setPreview(id, localUrl);
+        const dataUrl = await readChatLiveAssetFile(file);
+        const explicitKind = input.closest(".chat-live-asset")?.getAttribute("data-asset-kind") || "";
+        const kind = explicitKind || (id === "chatLivePortraitUrl" ? "portrait" : "avatar");
+        const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind } });
+        const hidden = root.querySelector(`#${id}`);
+        if (hidden) {
+          hidden.value = result.url || "";
+          hidden.dispatchEvent(new Event("change"));
+        }
+        if (!result.url) throw new Error("上传成功但没有返回素材。");
+        toast("图片已上传。", "success");
+      } catch (error) {
+        const hidden = root.querySelector(`#${id}`);
+        setPreview(id, hidden?.value || "");
+        toast(error.message || "上传失败。", "error");
+      } finally {
+        if (pick) pick.disabled = false;
+      }
+    });
+  });
+}
+
 function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const value = character || {};
   return `
     <div id="chatLiveCharacterForm" class="adm-form">
       <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
       <div class="adm-form-row"><span>角色名称</span><input id="chatLiveName" value="${escapeHtml(value.name || "")}" placeholder="例如：甜甜 Tina" /></div>
-      <div class="adm-form-row"><span>形象图 URL</span><input id="chatLiveAvatarUrl" value="${escapeHtml(value.avatarUrl || "")}" placeholder="https://…/cover.jpg" /><small class="adm-muted">数字人形象，必须是<b>单人</b>图片（PNG/JPG/WEBP，公网可访问），建议正脸半身。</small></div>
-      <div class="adm-form-row"><span>列表头像 URL</span><input id="chatLivePortraitUrl" value="${escapeHtml(value.portraitUrl || "")}" placeholder="留空则用形象图" /><small class="adm-muted">前台卡片显示用，可留空。</small></div>
+      ${chatLiveAssetField({ id: "chatLiveAvatarUrl", label: "形象图", url: value.avatarUrl || "", hint: "上传单人正脸半身图（PNG / JPG / WEBP，8MB 以内）。图片存到 R2，页面上不显示地址。" })}
+      <div class="adm-form-row" id="chatLiveUndressRow">
+        <span>Undress</span>
+        <div class="chat-live-undress">
+          <div class="chat-live-asset-preview" id="chatLiveUndressPreview"><span>未生成</span></div>
+          <div class="chat-live-undress-meta">
+            <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveUndressBtn">生成 Undress</button>
+            <small class="adm-muted" id="chatLiveUndressStatus"></small>
+          </div>
+        </div>
+      </div>
+      ${chatLiveAssetField({ id: "chatLivePortraitUrl", label: "列表头像", url: value.portraitUrl || "", hint: "前台卡片用，可不传。不传就用形象图。", clearable: true })}
       <div class="adm-form-row"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
       <div class="adm-form-row"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
       <div class="adm-form-row"><span>人设提示词</span><textarea id="chatLivePersona" rows="5" placeholder="数字人的对话依据：身份、性格、说话风格、称呼、边界…">${escapeHtml(value.persona || "")}</textarea><small class="adm-muted">这段就是数字人的“大脑”，50000 字以内。前台聊天内容完全按它来。</small></div>
       <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
       <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
       <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM（一体化，1.5 积分/秒）</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接我们自己的 LLM/ASR/TTS（1 积分/秒）</option></select><small class="adm-muted">组件版需要服务器配置自建 RTC（ARTC_APP_ID / ARTC_APP_KEY）。</small></div>
-      <div class="adm-form-row"><span>音色供应商</span><select id="chatLiveVoiceProvider">${["qwen_omni", "doubao_cn", "doubao_overseas"].map((p) => `<option value="${p}" ${(value.voiceProvider || "qwen_omni") === p ? "selected" : ""}>${escapeHtml(chatLiveVoiceProviderLabel(p))}</option>`).join("")}</select></div>
+      <div class="adm-form-row"><span>音色供应商</span><select id="chatLiveVoiceProvider">${chatLiveVoiceProviders(defaults, value.voiceProvider || "").map((p) => `<option value="${p}" ${(value.voiceProvider || "qwen_omni") === p ? "selected" : ""}>${escapeHtml(chatLiveVoiceProviderLabel(p))}</option>`).join("")}</select></div>
       <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
       <div class="adm-form-row"><span>标签</span><input id="chatLiveTags" value="${escapeHtml((value.tags || []).join(","))}" placeholder="用逗号分隔，例如：温柔,御姐" /></div>
       <div class="adm-form-row"><span>排序</span><input id="chatLiveSortOrder" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
@@ -3937,6 +4076,106 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可见）</label></div>
     </div>
   `;
+}
+
+function bindChatLiveUndress(box, getCharacter) {
+  let timer = 0;
+  const stop = () => {
+    if (!timer) return;
+    window.clearInterval(timer);
+    timer = 0;
+  };
+  const paint = (current) => {
+    const root = box();
+    const preview = root?.querySelector("#chatLiveUndressPreview");
+    const button = root?.querySelector("#chatLiveUndressBtn");
+    const status = root?.querySelector("#chatLiveUndressStatus");
+    if (!preview || !button || !status) return;
+    const savedAvatar = String(current?.avatarUrl || "");
+    const formAvatar = String(root.querySelector("#chatLiveAvatarUrl")?.value || "");
+    const dirtyAvatar = Boolean(current?.id) && formAvatar !== savedAvatar;
+    const generating = String(current?.undressStatus || "") === "generating";
+    const ready = chatLiveUndressReady(current) && !dirtyAvatar;
+    preview.innerHTML = ready
+      ? `<img src="${escapeHtml(current.undressImageUrl)}" alt="" draggable="false" />`
+      : `<span>${generating ? "生成中" : "未生成"}</span>`;
+    if (!current?.id) {
+      button.disabled = true;
+      button.textContent = "生成 Undress";
+      status.textContent = "请先保存角色，再生成。";
+    } else if (!savedAvatar || !formAvatar) {
+      button.disabled = true;
+      button.textContent = "生成 Undress";
+      status.textContent = "请先上传并保存形象图。";
+    } else if (dirtyAvatar) {
+      button.disabled = true;
+      button.textContent = "生成 Undress";
+      status.textContent = "形象图已更换，请先保存。换图后需要重新生成。";
+    } else if (generating) {
+      button.disabled = true;
+      button.textContent = "生成中";
+      status.textContent = "正在按 Undress 提示词出图，生成好后通话里才能用。";
+    } else if (ready) {
+      button.disabled = false;
+      button.textContent = "重新生成";
+      status.textContent = "已生成。通话中点 Undress 会切到这张图，不重开会话。";
+    } else if (String(current?.undressStatus || "") === "failed") {
+      button.disabled = false;
+      button.textContent = "重试";
+      status.textContent = current.undressError || "生成失败，可以重试。";
+    } else {
+      button.disabled = false;
+      button.textContent = "生成 Undress";
+      status.textContent = "用当前形象图生成一张 Undress 图。地址不会显示出来。";
+    }
+    if (generating && !timer) timer = window.setInterval(refresh, 3000);
+    if (!generating) stop();
+  };
+  const refresh = async () => {
+    const current = getCharacter() || {};
+    if (!els.dialog?.open || !current.id) {
+      stop();
+      return;
+    }
+    try {
+      const payload = await api("/api/admin/chat-live/characters");
+      const latest = (payload.characters || []).find((item) => item.id === current.id);
+      if (!latest || !els.dialog?.open) return;
+      const wasGenerating = String(current.undressStatus || "") === "generating";
+      Object.assign(current, latest);
+      paint(current);
+      if (wasGenerating && String(latest.undressStatus || "") === "ready") toast("Undress 图已生成。", "success");
+      if (wasGenerating && String(latest.undressStatus || "") === "failed") toast(latest.undressError || "Undress 图生成失败。", "error");
+    } catch (error) {
+      if (!els.dialog?.open) stop();
+    }
+  };
+  paint(getCharacter());
+  box().querySelector("#chatLiveUndressBtn")?.addEventListener("click", async () => {
+    const current = getCharacter() || {};
+    const formAvatar = String(box().querySelector("#chatLiveAvatarUrl")?.value || "");
+    if (!current.id) {
+      toast("请先保存角色。", "error");
+      return;
+    }
+    if (!formAvatar || formAvatar !== String(current.avatarUrl || "")) {
+      toast("请先保存当前形象图。", "error");
+      return;
+    }
+    const button = box().querySelector("#chatLiveUndressBtn");
+    if (button) button.disabled = true;
+    try {
+      const result = await api(`/api/admin/chat-live/characters/${encodeURIComponent(current.id)}/undress`, { method: "POST", body: {} });
+      if (result.character) Object.assign(current, result.character);
+      paint(current);
+      toast("已开始生成 Undress 图。", "success");
+    } catch (error) {
+      paint(current);
+      toast(error.message || "生成失败。", "error");
+    }
+  });
+  box().querySelector("#chatLiveAvatarUrl")?.addEventListener("change", () => paint(getCharacter()));
+  els.dialog?.addEventListener("close", stop, { once: true });
 }
 
 async function openChatLiveCharacterDialog(character, defaults = {}, voices = []) {
@@ -3966,12 +4205,14 @@ async function openChatLiveCharacterDialog(character, defaults = {}, voices = []
         personaEnhance: box().querySelector("#chatLivePersonaEnhance")?.checked === true,
         enabled: box().querySelector("#chatLiveEnabled")?.checked !== false,
       };
-      await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
-      renderChatLive();
+      const saved = await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
+      if (saved?.character?.id) character = saved.character;
       return true;
     },
     onOpen: () => {
       const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
+      bindChatLiveAssetUploads(box());
+      bindChatLiveUndress(box, () => character);
       box().querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
         chatLiveVoiceFilter = event.target.value;
         const select = box().querySelector("#chatLiveVoiceType");
@@ -3994,29 +4235,307 @@ async function openChatLiveCharacterDialog(character, defaults = {}, voices = []
       });
     },
   });
+  if (isActiveRoute("chat-live")) renderChatLive();
+}
+
+const CHAT_LIVE_LOOK_LABELS = {
+  garment: "换衣服",
+  object: "手里拿东西",
+  background: "换背景",
+};
+const CHAT_LIVE_LOOK_TEXT = {
+  garment: "穿上参考图里的衣服。",
+  object: "拿着参考图里的物品。",
+  background: "换成参考图里的背景。",
+};
+
+function chatLiveLookKindLabel(kind) {
+  return CHAT_LIVE_LOOK_LABELS[kind] || "素材";
+}
+
+function chatLiveLookCard(look = {}) {
+  const enabled = look.enabled !== false;
+  return `
+    <article class="chat-live-look-card ${enabled ? "" : "is-off"}">
+      <img src="${escapeHtml(look.imageUrl || "")}" alt="" draggable="false" />
+      <strong>${escapeHtml(look.name || "未命名")}</strong>
+      <small class="adm-muted">${escapeHtml(chatLiveLookKindLabel(look.kind))} · ${enabled ? "启用" : "停用"}</small>
+      <div class="chat-live-look-actions">
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-chat-live-look-edit="${escapeHtml(look.id)}">编辑</button>
+        <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-chat-live-look-delete="${escapeHtml(look.id)}">删除</button>
+      </div>
+    </article>`;
+}
+
+function chatLiveLooksHtml(looks = []) {
+  return ["garment", "object", "background"].map((kind) => {
+    const items = looks.filter((look) => look.kind === kind);
+    const cards = items.map(chatLiveLookCard).join("") || `<div class="adm-empty">还没有${escapeHtml(chatLiveLookKindLabel(kind))}素材</div>`;
+    return `<section class="chat-live-look-group"><h4>${escapeHtml(chatLiveLookKindLabel(kind))}（${items.length}）</h4><div class="chat-live-look-grid">${cards}</div></section>`;
+  }).join("");
+}
+
+function chatLiveLookForm(look = null) {
+  const value = look || {};
+  const kind = ["garment", "object", "background"].includes(value.kind) ? value.kind : "garment";
+  return `
+    <div id="chatLiveLookForm" class="adm-form">
+      <div class="adm-form-row"><span>名称</span><input id="chatLiveLookName" value="${escapeHtml(value.name || "")}" maxlength="40" placeholder="例如：红色外套" /></div>
+      <div class="adm-form-row"><span>类别</span><select id="chatLiveLookKind">
+        <option value="garment" ${kind === "garment" ? "selected" : ""}>换衣服</option>
+        <option value="object" ${kind === "object" ? "selected" : ""}>手里拿东西</option>
+        <option value="background" ${kind === "background" ? "selected" : ""}>换背景</option>
+      </select></div>
+      ${chatLiveAssetField({ id: "chatLiveLookImageUrl", label: "素材图", url: value.imageUrl || "", kind: "look", hint: "上传 PNG / JPG / WEBP，8MB 以内。图片存到 R2，这里不显示地址。" })}
+      <div class="adm-form-row"><span>发给数字人的说明</span><textarea id="chatLiveLookText" maxlength="200" placeholder="${escapeHtml(CHAT_LIVE_LOOK_TEXT[kind])}">${escapeHtml(value.userText || CHAT_LIVE_LOOK_TEXT[kind])}</textarea><small class="adm-muted">留空会用默认说明。用户看不到这段字，只用来告诉 Vidu 怎么改画面。</small></div>
+      <div class="adm-form-row"><span>排序</span><input id="chatLiveLookSort" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
+      <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveLookEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可选）</label></div>
+    </div>`;
+}
+
+async function openChatLiveLookDialog(look = null) {
+  await openDialog({
+    title: look ? `编辑素材：${look.name || ""}` : "新增画面素材",
+    body: chatLiveLookForm(look),
+    confirmText: "保存",
+    onConfirm: async () => {
+      const box = els.dialogBody.querySelector("#chatLiveLookForm");
+      const kind = box.querySelector("#chatLiveLookKind")?.value || "";
+      const userText = String(box.querySelector("#chatLiveLookText")?.value || "").trim();
+      const body = {
+        name: box.querySelector("#chatLiveLookName")?.value || "",
+        kind,
+        imageUrl: box.querySelector("#chatLiveLookImageUrl")?.value || "",
+        userText: userText === CHAT_LIVE_LOOK_TEXT[kind] ? "" : userText,
+        sortOrder: Number(box.querySelector("#chatLiveLookSort")?.value || 0),
+        enabled: box.querySelector("#chatLiveLookEnabled")?.checked !== false,
+      };
+      await api(look?.id ? `/api/admin/chat-live/looks/${encodeURIComponent(look.id)}` : "/api/admin/chat-live/looks", { method: look?.id ? "PUT" : "POST", body });
+      chatLiveTab = "looks";
+      renderChatLive();
+      return true;
+    },
+    onOpen: (root) => {
+      bindChatLiveAssetUploads(root);
+      const kindSelect = root.querySelector("#chatLiveLookKind");
+      const text = root.querySelector("#chatLiveLookText");
+      kindSelect?.addEventListener("change", () => {
+        const next = kindSelect.value;
+        const current = String(text?.value || "").trim();
+        if (text && (!current || Object.values(CHAT_LIVE_LOOK_TEXT).includes(current))) {
+          text.value = CHAT_LIVE_LOOK_TEXT[next] || "";
+          text.placeholder = CHAT_LIVE_LOOK_TEXT[next] || "";
+        }
+      });
+    },
+  });
+}
+
+function chatLiveRegionLabel(region) {
+  return region === "cn" ? "国内" : "海外";
+}
+
+function chatLiveModeLabel(mode) {
+  return mode === "component" ? "组件版" : "实时版";
+}
+
+function chatLiveDurationLabel(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes > 0 ? `${minutes}分${rest}秒` : `${rest}秒`;
+}
+
+function chatLiveEndReasonLabel(reason) {
+  const key = String(reason || "").trim();
+  if (!key) return "";
+  return ({
+    user_end: "用户挂断",
+    page_hidden: "离开页面",
+    before_unload: "关闭页面",
+    tab_hidden: "切到后台超时",
+    client_timeout: "达到时长上限",
+    video_stalled: "画面卡住",
+    video_stall: "画面卡住",
+    video_black: "画面黑屏",
+    video_offline: "画面断开",
+    video_unsubscribe: "视频订阅中断",
+    rtc_bye: "连接断开",
+    remote_offline: "远端离线",
+    idle_timeout: "空闲超时",
+    client_reconnect_timeout: "重连超时",
+    join_failed: "接入失败",
+    socket_closed: "控制通道断开",
+    socket_error: "控制通道异常",
+    upstream_hangup: "上游挂断",
+  })[key] || key;
+}
+
+function chatLiveReasonAbnormal(reason) {
+  const key = String(reason || "").trim();
+  return key.startsWith("video_") || ["rtc_bye", "remote_offline", "idle_timeout", "client_reconnect_timeout", "join_failed", "socket_closed", "socket_error", "upstream_hangup"].includes(key);
+}
+
+function chatLiveProblemLabels(session = {}) {
+  const labels = [];
+  const push = (label) => {
+    const text = String(label || "").trim();
+    if (text && !labels.includes(text)) labels.push(text);
+  };
+  for (const reason of [session.clientEndReason, session.endReason]) {
+    if (chatLiveReasonAbnormal(reason)) push(chatLiveEndReasonLabel(reason));
+  }
+  if (!session.liveId) push("无 Live ID");
+  const ended = session.settled === true || session.status === "ended";
+  if (ended && Number(session.chargeGap) > 0) push(`应扣未扣 ${session.chargeGap}`);
+  if (session.upstreamError) push("上游查询失败");
+  if (session.chargeError) push("扣费失败");
+  const upstreamStatus = String(session.upstreamStatus || "");
+  if (upstreamStatus && /fail|error|abort/i.test(upstreamStatus)) push(`上游 ${upstreamStatus}`);
+  for (const issue of session.issues || []) {
+    const code = String(issue?.code || "");
+    if (chatLiveReasonAbnormal(code)) push(chatLiveEndReasonLabel(code));
+    else if (issue?.message) push(String(issue.message).slice(0, 24));
+    else if (code) push(chatLiveEndReasonLabel(code));
+  }
+  return labels;
+}
+
+function chatLiveProblemCell(session = {}) {
+  const labels = chatLiveProblemLabels(session);
+  if (!labels.length) {
+    const ended = session.settled === true || session.status === "ended";
+    return `<span class="adm-badge ${ended ? "adm-badge-ok" : "adm-badge-muted"}">${ended ? "正常" : "暂无"}</span>`;
+  }
+  const shown = labels.slice(0, 2).join(" · ");
+  const extra = labels.length > 2 ? ` +${labels.length - 2}` : "";
+  return `<span class="adm-badge" title="${escapeHtml(labels.join("；"))}">${escapeHtml(shown + extra)}</span>`;
+}
+
+function chatLiveDetailRow(label, value) {
+  return `<div style="display:grid;grid-template-columns:108px minmax(0,1fr);gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="adm-muted">${escapeHtml(label)}</span><span style="word-break:break-all">${escapeHtml(value || "—")}</span></div>`;
+}
+
+function chatLiveSessionDetailHtml(session = {}) {
+  const issues = Array.isArray(session.issues) ? session.issues : [];
+  const issueHtml = issues.length
+    ? issues.map((issue) => {
+        const label = chatLiveEndReasonLabel(issue.code) || issue.code || "问题";
+        const when = issue.at ? fmtDate(issue.at) : "";
+        const message = issue.message ? `：${issue.message}` : "";
+        return `<li>${escapeHtml(label + message)}${when ? `<br/><small class="adm-muted">${escapeHtml(when)}</small>` : ""}</li>`;
+      }).join("")
+    : `<li class="adm-muted">没有上报异常</li>`;
+  return `
+    <div>
+      ${session.liveId ? `<div style="margin-bottom:10px"><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-copy-live-id="${escapeHtml(session.liveId)}">复制 Live ID</button></div>` : ""}
+      ${chatLiveDetailRow("Live ID", session.liveId || "无")}
+      ${chatLiveDetailRow("会话 ID", session.id)}
+      ${chatLiveDetailRow("用户", `${session.username || "—"} ${session.userId || ""}`.trim())}
+      ${chatLiveDetailRow("角色", session.characterName || "—")}
+      ${chatLiveDetailRow("模型", session.model || "—")}
+      ${chatLiveDetailRow("模式", `${chatLiveModeLabel(session.mode)} / ${session.callMode || "—"}`)}
+      ${chatLiveDetailRow("音色", session.voiceProvider || "—")}
+      ${chatLiveDetailRow("地区", chatLiveRegionLabel(session.viduRegion))}
+      ${chatLiveDetailRow("来源网站", session.sourceHost || "—")}
+      ${chatLiveDetailRow("上游状态", session.upstreamStatus || "—")}
+      ${chatLiveDetailRow("上游积分", String(session.upstreamCredits ?? 0))}
+      ${chatLiveDetailRow("上游错误", session.upstreamError || "—")}
+      ${chatLiveDetailRow("免费秒数", String(session.freeSeconds ?? 0))}
+      ${chatLiveDetailRow("售价/分钟", String(session.saleCreditsPerMinute ?? 0))}
+      ${chatLiveDetailRow("计费秒数", String(session.billedSeconds ?? 0))}
+      ${chatLiveDetailRow("应扣积分", String(session.chargeExpected ?? 0))}
+      ${chatLiveDetailRow("实扣积分", String(session.chargedCredits ?? 0))}
+      ${chatLiveDetailRow("扣费差额", String(session.chargeGap ?? 0))}
+      ${chatLiveDetailRow("扣费错误", session.chargeError || "—")}
+      ${chatLiveDetailRow("结束原因", chatLiveEndReasonText(session))}
+      ${chatLiveDetailRow("客户端备注", session.clientEndNote || "—")}
+      ${chatLiveDetailRow("开始", fmtDate(session.createdAt))}
+      ${chatLiveDetailRow("结束", session.endedAt ? fmtDate(session.endedAt) : "—")}
+      <div style="margin-top:12px"><strong>异常记录</strong><ul style="margin:8px 0 0;padding-left:18px">${issueHtml}</ul></div>
+    </div>
+  `;
+}
+
+function openChatLiveSessionDetail(sessionId) {
+  const session = chatLiveSessionsById.get(String(sessionId || ""));
+  if (!session) return;
+  openDialog({
+    title: "连接详情",
+    body: chatLiveSessionDetailHtml(session),
+    hideConfirm: true,
+    cancelText: "关闭",
+    onOpen: (root) => {
+      root.querySelector("[data-copy-live-id]")?.addEventListener("click", () => copyText(session.liveId || "", "Live ID 已复制。"));
+    },
+  });
+}
+
+function chatLiveEndReasonText(session = {}) {
+  const client = String(session.clientEndReason || "");
+  const upstream = String(session.endReason || "");
+  if (client && upstream && client !== upstream) {
+    return `${chatLiveEndReasonLabel(client)} / ${chatLiveEndReasonLabel(upstream)}`;
+  }
+  return chatLiveEndReasonLabel(client || upstream) || "—";
+}
+
+function chatLiveSessionRow(session = {}) {
+  const live = !(session.settled || session.status === "ended");
+  const duration = chatLiveDurationLabel(session.durationSeconds);
+  const liveId = String(session.liveId || "");
+  return `
+    <tr>
+      <td><span class="adm-mono">${escapeHtml(fmtDate(session.createdAt))}</span><br/><small class="adm-muted">${escapeHtml(fmtRelative(session.createdAt))}</small></td>
+      <td><strong>${escapeHtml(session.username || "—")}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(session.userId || "")}</small></td>
+      <td><strong>${escapeHtml(session.characterName || "—")}</strong><br/><small class="adm-muted">${escapeHtml(chatLiveModeLabel(session.mode))}</small></td>
+      <td>${escapeHtml(session.sourceHost || "—")}</td>
+      <td>${escapeHtml(chatLiveRegionLabel(session.viduRegion))}</td>
+      <td>${liveId ? `<div class="adm-mono" style="font-size:12px;word-break:break-all">${escapeHtml(liveId)}</div><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-copy-live-id="${escapeHtml(liveId)}">复制</button>` : `<span class="adm-badge">无</span>`}</td>
+      <td>${escapeHtml(session.durationEstimated ? `约 ${duration}` : duration)}</td>
+      <td>${escapeHtml(String(session.chargedCredits ?? 0))}${Number(session.chargeGap) > 0 && (session.settled || session.status === "ended") ? `<br/><small class="adm-muted">应扣 ${escapeHtml(String(session.chargeExpected ?? 0))}</small>` : ""}</td>
+      <td>${escapeHtml(chatLiveEndReasonText(session))}</td>
+      <td>${chatLiveProblemCell(session)}<div style="margin-top:6px"><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-chat-live-detail="${escapeHtml(session.id || "")}">详情</button></div></td>
+      <td><span class="adm-badge ${live ? "adm-badge-ok" : "adm-badge-muted"}">${live ? "连接中" : "已结束"}</span></td>
+    </tr>`;
 }
 
 async function renderChatLive() {
   document.querySelectorAll(".chat-live-modal").forEach((node) => node.remove());
-  const [payload, voices] = await Promise.all([api("/api/admin/chat-live/characters"), loadChatLiveVoices()]);
+  const requests = [api("/api/admin/chat-live/characters"), loadChatLiveVoices()];
+  if (chatLiveTab === "sessions") {
+    requests.push(api(`/api/admin/chat-live/sessions?page=${encodeURIComponent(chatLiveSessionPage)}&limit=${encodeURIComponent(chatLiveSessionLimit)}`));
+  }
+  const [payload, voices, sessionsPayload] = await Promise.all(requests);
   if (!isActiveRoute("chat-live")) return;
   const pricing = payload.pricing || {};
   const characters = Array.isArray(payload.characters) ? payload.characters : [];
+  const looks = Array.isArray(payload.looks) ? payload.looks : [];
   const editing = characters.find((item) => item.id === chatLiveEditingId) || null;
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>在线聊天配置</h2>
-          <p class="adm-muted">配置 chat 站的“在线聊天”角色（形象、人设、音色）与计费；123 主站与 chat 站共用这份数据。Vidu 密钥：${payload.defaults?.viduConfigured ? "已配置" : "未配置（.env 里加 VIDU_API_KEY）"}</p>
+          <p class="adm-muted">配置 chat 站的“在线聊天”角色。形象和头像用上传控件，素材存 R2，不手填地址。当前接入：${payload.defaults?.viduRegion === "cn" ? "国内" : "海外"}${payload.defaults?.viduConfigured ? "（密钥已配置）" : "（当前环境密钥未配置）"}。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="chatLiveReloadBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
           <button class="adm-btn adm-btn-primary" id="chatLiveNewBtn" type="button"><i data-lucide="plus"></i>新增角色</button>
+          <button class="adm-btn adm-btn-primary" id="chatLiveNewLookBtn" type="button"><i data-lucide="plus"></i>新增素材</button>
         </div>
       </div>
 
-      <div class="adm-card">
+      <div class="adm-card" id="chatLiveRegionCard">
+        <div class="adm-card-head"><div><h3>接入环境</h3><p class="adm-muted">海外走 api.vidu.com，国内走 api.vidu.cn。切换只影响之后新开的会话。</p></div></div>
+        <div class="chat-live-region">
+          <button class="adm-btn ${payload.defaults?.viduRegion === "cn" ? "adm-btn-ghost" : "adm-btn-primary"}" type="button" data-chat-live-region="overseas" ${payload.defaults?.regions?.overseas?.configured ? "" : "disabled"}>海外</button>
+          <button class="adm-btn ${payload.defaults?.viduRegion === "cn" ? "adm-btn-primary" : "adm-btn-ghost"}" type="button" data-chat-live-region="cn" ${payload.defaults?.regions?.cn?.configured ? "" : "disabled"}>国内</button>
+          <small class="adm-muted">海外密钥${payload.defaults?.regions?.overseas?.configured ? "已配置" : "未配置"} · 国内密钥${payload.defaults?.regions?.cn?.configured ? "已配置" : "未配置"}。音色供应商会跟着当前环境变。</small>
+        </div>
+      </div>
+
+      <div class="adm-card" id="chatLivePricingCard">
         <div class="adm-card-head"><div><h3>计费（积分/分钟）</h3><p class="adm-muted">原价 = Vidu 成本（实时版 1.5 积分/秒 ≈ 90 积分/分钟），卖价自己定；低于成本会亏。</p></div></div>
         <div class="adm-form" data-chat-live-pane="pricing" ${chatLiveTab === "pricing" ? "" : "hidden"}>
           <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
@@ -4031,17 +4550,33 @@ async function renderChatLive() {
         </div>
       </div>
 
-      <div class="adm-card">
+      <div class="adm-card" id="chatLiveLooksCard">
+        <div class="adm-card-head"><div><h3>画面素材（${looks.length}）</h3><p class="adm-muted">换衣服、手里拿东西、换背景。上传后只在前台显示缩略图和名称，不展示地址。只对 vidu-s2 生效。</p></div></div>
+        <div class="adm-card-body chat-live-looks">${chatLiveLooksHtml(looks)}</div>
+      </div>
+
+      <div class="adm-card" id="chatLiveEditorCard">
         <div class="adm-card-head"><div><h3>${editing ? `编辑角色：${escapeHtml(editing.name || "")}` : "新增角色"}</h3><p class="adm-muted">形象图必须是单人图；人设决定聊天内容；音色可搜索。</p></div></div>
         ${chatLiveCharacterForm(editing, payload.defaults || {}, voices)}
       </div>
 
-      <div class="adm-card">
+      <div class="adm-card" id="chatLiveSessionsCard">
+        <div class="adm-card-head"><div><h3>连接记录</h3><p class="adm-muted">每次成功连上记一条。Live ID 和异常用来定位问题，不显示通话密钥。</p></div></div>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <thead><tr><th>时间</th><th>用户</th><th>角色</th><th>来源网站</th><th>地区</th><th>Live ID</th><th>时长</th><th>扣费</th><th>结束原因</th><th>问题</th><th>状态</th></tr></thead>
+            <tbody>${(sessionsPayload?.sessions || []).map(chatLiveSessionRow).join("") || `<tr><td colspan="11" class="adm-muted">还没有连接记录</td></tr>`}</tbody>
+          </table>
+        </div>
+        ${sessionsPayload ? adminPagerHtml(sessionsPayload) : ""}
+      </div>
+
+      <div class="adm-card" id="chatLiveListCard">
         <div class="adm-card-head"><div><h3>角色列表（${characters.length}）</h3></div></div>
         <div class="adm-table-wrap">
           <table class="adm-table">
-            <thead><tr><th>角色</th><th>音色</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody>${characters.map(chatLiveCharacterRow).join("") || `<tr><td colspan="5" class="adm-muted">还没有角色</td></tr>`}</tbody>
+            <thead><tr><th>角色</th><th>音色</th><th>排序</th><th>Undress</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>${characters.map(chatLiveCharacterRow).join("") || `<tr><td colspan="6" class="adm-muted">还没有角色</td></tr>`}</tbody>
           </table>
         </div>
       </div>
@@ -4049,30 +4584,79 @@ async function renderChatLive() {
   `;
   refreshIcons?.();
   /* —— 分 Tab；新增/编辑走后台自带 openDialog —— */
-  const liveCards = Array.from(els.adminContent.querySelectorAll(".adm-card"));
-  const pricingCard = liveCards[0];
-  const editorCard = liveCards[1];
-  const listCard = liveCards[2];
+  const pricingCard = els.adminContent.querySelector("#chatLivePricingCard");
+  const editorCard = els.adminContent.querySelector("#chatLiveEditorCard");
+  const listCard = els.adminContent.querySelector("#chatLiveListCard");
+  const sessionsCard = els.adminContent.querySelector("#chatLiveSessionsCard");
   const page = els.adminContent.querySelector(".adm-page");
   const tabBar = document.createElement("div");
   tabBar.className = "adm-page-actions";
   tabBar.style.marginBottom = "14px";
-  tabBar.innerHTML = `
-    <button class="adm-btn ${chatLiveTab === "characters" ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="characters" type="button">角色列表</button>
-    <button class="adm-btn ${chatLiveTab === "pricing" ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="pricing" type="button">价格配置</button>`;
+  const looksCard = els.adminContent.querySelector("#chatLiveLooksCard");
+  tabBar.innerHTML = ["characters", "looks", "pricing", "sessions"].map((id) => {
+    const label = id === "pricing" ? "价格配置" : id === "sessions" ? "连接记录" : id === "looks" ? "画面素材" : "角色列表";
+    return `<button class="adm-btn ${chatLiveTab === id ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="${id}" type="button">${label}</button>`;
+  }).join("");
   page.prepend(tabBar);
   if (pricingCard) pricingCard.hidden = chatLiveTab !== "pricing";
   if (listCard) listCard.hidden = chatLiveTab !== "characters";
+  if (sessionsCard) sessionsCard.hidden = chatLiveTab !== "sessions";
+  if (looksCard) looksCard.hidden = chatLiveTab !== "looks";
+  const newBtn = els.adminContent.querySelector("#chatLiveNewBtn");
+  if (newBtn) newBtn.hidden = chatLiveTab !== "characters";
+  const newLookBtn = els.adminContent.querySelector("#chatLiveNewLookBtn");
+  if (newLookBtn) newLookBtn.hidden = chatLiveTab !== "looks";
   if (editorCard) editorCard.remove();
   tabBar.querySelectorAll("[data-chat-live-tab]").forEach((button) => button.addEventListener("click", () => {
-    chatLiveTab = button.dataset.chatLiveTab === "pricing" ? "pricing" : "characters";
+    const next = button.dataset.chatLiveTab;
+    chatLiveTab = ["pricing", "sessions", "looks"].includes(next) ? next : "characters";
     renderChatLive();
   }));
+  chatLiveSessionsById = new Map((sessionsPayload?.sessions || []).map((item) => [String(item.id || ""), item]));
+  if (sessionsCard && sessionsPayload) {
+    bindAdminPager(sessionsCard, sessionsPayload, ({ page: nextPage, limit }) => {
+      chatLiveSessionPage = nextPage;
+      chatLiveSessionLimit = limit;
+      renderChatLive();
+    });
+  }
+  els.adminContent.querySelectorAll("[data-copy-live-id]").forEach((button) => {
+    button.addEventListener("click", () => copyText(button.dataset.copyLiveId || "", "Live ID 已复制。"));
+  });
+  els.adminContent.querySelectorAll("[data-chat-live-detail]").forEach((button) => {
+    button.addEventListener("click", () => openChatLiveSessionDetail(button.dataset.chatLiveDetail || ""));
+  });
   els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => {
     chatLiveVoiceFilter = "";
     openChatLiveCharacterDialog(null, payload.defaults || {}, voices);
   });
+  els.adminContent.querySelector("#chatLiveNewLookBtn")?.addEventListener("click", () => openChatLiveLookDialog(null));
+  els.adminContent.querySelectorAll("[data-chat-live-look-edit]").forEach((button) => button.addEventListener("click", () => {
+    const target = looks.find((item) => item.id === button.dataset.chatLiveLookEdit) || null;
+    if (target) openChatLiveLookDialog(target);
+  }));
+  els.adminContent.querySelectorAll("[data-chat-live-look-delete]").forEach((button) => button.addEventListener("click", async () => {
+    if (!window.confirm("确定删除这个素材？")) return;
+    await api(`/api/admin/chat-live/looks/${encodeURIComponent(button.dataset.chatLiveLookDelete)}`, { method: "DELETE" });
+    renderChatLive();
+  }));
   els.adminContent.querySelector("#chatLiveReloadBtn")?.addEventListener("click", () => renderChatLive());
+  els.adminContent.querySelectorAll("[data-chat-live-region]").forEach((button) => button.addEventListener("click", async () => {
+    const region = button.dataset.chatLiveRegion === "cn" ? "cn" : "overseas";
+    if (region === (payload.defaults?.viduRegion === "cn" ? "cn" : "overseas")) return;
+    const label = region === "cn" ? "国内" : "海外";
+    if (!window.confirm(`切换到${label} Vidu？新开的在线聊天会走${label}接口，已经打开的会话不变。`)) return;
+    button.disabled = true;
+    try {
+      await api("/api/admin/chat-live/pricing", { method: "PUT", body: { region } });
+      chatLiveVoicesCache = null;
+      toast(`已切换到${label}。`, "success");
+      renderChatLive();
+    } catch (error) {
+      button.disabled = false;
+      toast(error.message || "切换失败。", "error");
+    }
+  }));
   els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => {
     const target = characters.find((item) => item.id === button.dataset.chatLiveEdit) || null;
     chatLiveVoiceFilter = "";
