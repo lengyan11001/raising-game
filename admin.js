@@ -4416,6 +4416,10 @@ function chatLiveDetailRow(label, value) {
   return `<div style="display:grid;grid-template-columns:108px minmax(0,1fr);gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="adm-muted">${escapeHtml(label)}</span><span style="word-break:break-all">${escapeHtml(value || "—")}</span></div>`;
 }
 
+function chatLiveOperationLabel(operation = {}) {
+  return ({ undress: "Undress", switch_look: "切换素材", remove_look: "撤销画面", video_ready: "首帧计时" })[String(operation.action || "")] || operation.action || "操作";
+}
+
 function chatLiveSessionDetailHtml(session = {}) {
   const issues = Array.isArray(session.issues) ? session.issues : [];
   const issueHtml = issues.length
@@ -4426,6 +4430,15 @@ function chatLiveSessionDetailHtml(session = {}) {
         return `<li>${escapeHtml(label + message)}${when ? `<br/><small class="adm-muted">${escapeHtml(when)}</small>` : ""}</li>`;
       }).join("")
     : `<li class="adm-muted">没有上报异常</li>`;
+  const operations = Array.isArray(session.operations) ? session.operations : [];
+  const operationHtml = operations.length
+    ? operations.slice().reverse().map((operation) => {
+        const status = operation.success === true ? "成功" : operation.success === false ? "失败" : "处理中";
+        const tone = operation.success === true ? "adm-badge-ok" : operation.success === false ? "" : "adm-badge-muted";
+        const detail = [operation.phase, operation.code, operation.message].filter(Boolean).join(" · ");
+        return `<li><span class="adm-badge ${tone}">${escapeHtml(status)}</span> <strong>${escapeHtml(chatLiveOperationLabel(operation))}</strong>${detail ? `：${escapeHtml(detail)}` : ""}${operation.at ? `<br/><small class="adm-muted">${escapeHtml(fmtDate(operation.at))}</small>` : ""}</li>`;
+      }).join("")
+    : `<li class="adm-muted">没有操作记录</li>`;
   return `
     <div>
       ${session.liveId ? `<div style="margin-bottom:10px"><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-copy-live-id="${escapeHtml(session.liveId)}">复制 Live ID</button></div>` : ""}
@@ -4442,6 +4455,7 @@ function chatLiveSessionDetailHtml(session = {}) {
       ${chatLiveDetailRow("上游积分", String(session.upstreamCredits ?? 0))}
       ${chatLiveDetailRow("上游错误", session.upstreamError || "—")}
       ${chatLiveDetailRow("免费秒数", String(session.freeSeconds ?? 0))}
+      ${chatLiveDetailRow("开始计费", session.billableStartedAt ? fmtDate(session.billableStartedAt) : "未显示画面")}
       ${chatLiveDetailRow("售价/分钟", String(session.saleCreditsPerMinute ?? 0))}
       ${chatLiveDetailRow("计费秒数", String(session.billedSeconds ?? 0))}
       ${chatLiveDetailRow("应扣积分", String(session.chargeExpected ?? 0))}
@@ -4453,6 +4467,7 @@ function chatLiveSessionDetailHtml(session = {}) {
       ${chatLiveDetailRow("开始", fmtDate(session.createdAt))}
       ${chatLiveDetailRow("结束", session.endedAt ? fmtDate(session.endedAt) : "—")}
       <div style="margin-top:12px"><strong>异常记录</strong><ul style="margin:8px 0 0;padding-left:18px">${issueHtml}</ul></div>
+      <div style="margin-top:12px"><strong>操作明细</strong><ul style="margin:8px 0 0;padding-left:18px">${operationHtml}</ul></div>
     </div>
   `;
 }

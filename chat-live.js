@@ -16,6 +16,7 @@
     remoteVideo: null,
     heartbeat: 0,
     startedAt: 0,
+    billableStartedAt: 0,
     ended: false,
     micOn: false,
     listening: false,
@@ -37,6 +38,7 @@
     frameCallback: 0,
     rtcRecoverTimer: 0,
     controlReady: false,
+    controlReconnectAttempted: false,
     lookBusy: false,
     lookWait: null,
     lookStack: [],
@@ -316,7 +318,7 @@
     placeholder.append(avatarWrap, callLabel, callDetail);
     const badge = el("span", "chat-live-badge", "");
     badge.hidden = true;
-    const timer = el("span", "chat-live-timer", "00:00");
+    const timer = el("span", "chat-live-timer", "--:--");
     const lookRail = el("div", "chat-live-looks");
     lookRail.hidden = true;
     const lookIcons = {
@@ -374,7 +376,7 @@
     const hangBtn = el("button", "chat-live-btn is-danger", "挂断");
     hangBtn.type = "button";
     row.append(muteBtn, hangBtn);
-    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 最长 ${pricing.maxMinutes || 10} 分钟`);
+    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 画面显示后计时 · 最长 ${pricing.maxMinutes || 10} 分钟`);
     actions.append(inputRow, row, cost);
     side.append(head, log, actions, listen);
     shell.append(stage, side, closeBtn);
@@ -516,15 +518,32 @@
 
   function startTimer() {
     state.startedAt = Date.now();
+    state.billableStartedAt = 0;
     state.heartbeat = window.setInterval(() => {
       if (!state.overlay) return;
-      const seconds = Math.floor((Date.now() - state.startedAt) / 1000);
+      const seconds = state.billableStartedAt ? Math.floor((Date.now() - state.billableStartedAt) / 1000) : 0;
       const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
       const ss = String(seconds % 60).padStart(2, "0");
-      state.overlay.timer.textContent = `${mm}:${ss}`;
+      state.overlay.timer.textContent = state.billableStartedAt ? `${mm}:${ss}` : "--:--";
       const maxSeconds = Number(state.config?.pricing?.maxMinutes || 10) * 60;
-      if (seconds >= maxSeconds) finishSession("client_timeout", "达到单次最长时长");
+      if (state.billableStartedAt && seconds >= maxSeconds) finishSession("client_timeout", "达到单次最长时长");
     }, 1000);
+  }
+
+  function reportChatLiveOperation(operation = {}) {
+    const sessionId = state.session?.id;
+    if (!sessionId) return Promise.resolve(false);
+    return apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/operations`, {
+      method: "POST",
+      body: JSON.stringify(operation),
+    }).then(() => true).catch(() => false);
+  }
+
+  function markBillableStart() {
+    if (state.billableStartedAt || state.ended || !state.session?.id) return;
+    state.billableStartedAt = Date.now();
+    reportChatLiveOperation({ action: "video_ready", phase: "client", success: true, message: "首个有效画面已显示" });
+    apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/ready`, { method: "POST", body: "{}" }).catch(() => {});
   }
 
   function wsUrl(session) {
@@ -592,10 +611,12 @@
   }
 
   function connectSignaling(session) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const socket = new WebSocket(wsUrl(session));
       state.ws = socket;
+      let opened = false;
       socket.addEventListener("open", () => {
+        opened = true;
         socket.send(JSON.stringify(buildSignal(1, { conn_init: { version: 1 } })));
         resolve();
       });
@@ -605,9 +626,30 @@
         reportSessionIssue("socket_error", "控制通道异常");
       });
       socket.addEventListener("close", () => {
-        if (!state.ended) {
-          finishSession("socket_closed", "控制通道断开");
+        if (!opened) reject(new Error("控制通道连接失败。"));
+        if (state.ended) return;
+        if (state.lookBusy) {
+          failLookWait("画面切换时控制通道断开。");
+          const operation = state.lookOperation || {};
+          reportChatLiveOperation({ id: operation.id, action: operation.action || "switch_look", phase: "transport", success: false, code: "socket_closed", kind: operation.kind || "", message: "画面切换时控制通道断开" });
         }
+        if (state.seenPicture && !state.controlReconnectAttempted) {
+          state.controlReconnectAttempted = true;
+          reportSessionIssue("socket_closed", "控制通道断开，正在重连");
+          setStageStatus("通道重连中", "error");
+          window.setTimeout(async () => {
+            if (state.ended) return;
+            try {
+              await connectSignaling(state.session);
+              state.controlReconnectAttempted = false;
+              setStageStatus("已连接", "ok");
+            } catch {
+              finishSession("socket_closed", "控制通道重连失败");
+            }
+          }, 1000);
+          return;
+        }
+        finishSession("socket_closed", "控制通道断开");
       });
     });
   }
@@ -757,6 +799,7 @@
     state.lastFrameAt = now;
     state.videoFixes = 0;
     state.seenPicture = true;
+    markBillableStart();
     hidePlaceholder();
   }
 
@@ -1107,10 +1150,17 @@
     if (state.lookBusy) throw new Error("上一次切换还在处理。");
     if (!lookChannelReady()) throw new Error("画面还在准备，请几秒后再试。");
     state.lookBusy = true;
+    const operationId = `look-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const action = remove ? "remove_look" : (undress ? "undress" : "switch_look");
+    const operationKind = undress ? "garment" : (look?.kind || "");
+    state.lookOperation = { id: operationId, action, kind: operationKind };
+    const componentSession = state.session?.mode === "component";
+    if (!componentSession) reportChatLiveOperation({ id: operationId, action, phase: "started", success: null, kind: operationKind, message: "已发送画面切换请求" });
     syncLookRail();
     try {
-      if (state.session?.mode === "component") {
+      if (componentSession) {
         const body = remove ? { op: "remove" } : undress ? { op: "undress" } : { lookId: look?.id || "" };
+        body.id = operationId;
         await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/look`, {
           method: "POST",
           body: JSON.stringify(body),
@@ -1132,8 +1182,13 @@
       const sent = sendSignal(buildSignal(11, { prompt_operation: prompt }));
       if (!sent) failLookWait("画面通道不可用，请稍后再试。");
       await pending;
+      await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: true, kind: operationKind, message: "Vidu 已确认画面切换" });
+    } catch (error) {
+      if (!error?.operationId) await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: false, code: error?.code || "LOOK_FAILED", kind: operationKind, message: error?.message || "画面切换失败" });
+      throw error;
     } finally {
       state.lookBusy = false;
+      state.lookOperation = null;
       syncLookRail();
     }
   }
@@ -1264,7 +1319,10 @@
     state.remoteBoundOnce = false;
     state.rtcRecoveries = 0;
     state.controlReady = false;
+    state.controlReconnectAttempted = false;
     state.lookBusy = false;
+    state.lookOperation = null;
+    state.billableStartedAt = 0;
     state.lookStack = [];
     state.connId = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     buildOverlay(character);

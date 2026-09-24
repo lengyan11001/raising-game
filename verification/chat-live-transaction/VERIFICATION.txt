@@ -1,0 +1,35 @@
+Chat live diagnostics and first-frame billing transaction
+
+TARGET
+- Repository: /Users/x042/Documents/Codex/2026-09-17/01a0aa23-845c-78b0-a4b0-b24621715aef-2/work/raising-gh
+- Changed symbols/fields: chat-live operations, billableStartedAt, billingPolicy=first_frame, extra_motion=false, moderation=disabled
+- Original tracked source: server.js at HEAD before this transaction
+
+BASELINE
+- Command: bundled Node --check on the original server.js
+- Input: /Users/x042/Documents/Codex/2026-09-17/01a0aa23-845c-78b0-a4b0-b24621715aef-2/work/raising-gh/verification/chat-live-transaction/BASELINE_FILE
+- Expected/observed stdout: (empty)
+- Expected/observed stderr: (empty)
+- Exit: 0
+- SHA-256: 571b03ee7988dbd36de4d633d40dd6d3f8e644600634b2eed95314936c6f77e6
+
+MODIFIED
+- Command: bundled Node --check server.js; bundled Node --test test/chat-live-vidu-defaults.test.js test/chat-live-diagnostics.test.js; git diff --check
+- Input: MODIFIED_FILE and repository test sources
+- Observed stdout: 4 tests passed; 0 failed
+- Observed stderr: (empty)
+- Exit: 0
+- SHA-256: a7b08455df6736a5dd307afaa3d89d10708f5712222e3252c54e1fac2a3fcc69
+- State transition: both Vidu creation paths carry disabled motion/moderation; billing starts only after /ready from a valid frame; operation results persist with action, phase, success, code, message, and timestamp.
+
+ROLLBACK
+- Command: ./ROLLBACK.sh ROLLBACK_COPY; bundled Node --check ROLLBACK_COPY
+- Input: copy of MODIFIED_FILE named ROLLBACK_COPY
+- Observed stdout: (empty)
+- Observed stderr: (empty)
+- Exit: 0
+- SHA-256 after rollback: 571b03ee7988dbd36de4d633d40dd6d3f8e644600634b2eed95314936c6f77e6
+- State transition: restored bytes equal BASELINE_FILE.
+
+REAPPLY
+- MODIFIED_FILE remains the changed candidate and was rechecked with the MODIFIED commands above before commit.
