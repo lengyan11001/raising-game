@@ -46,6 +46,7 @@
     rtcClockStart: null,
     visibilityRecoveryTimer: 0,
     visibilityReturnedAt: 0,
+    lookVideoRecoveryTimer: 0,
   };
 
   const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
@@ -718,12 +719,14 @@
     if (userId && typeof engine.subscribeRemoteMediaStream === "function") {
       try {
         await engine.subscribeRemoteMediaStream(userId, 1, true, true);
-        bindRemoteVideo(userId, true);
+        /* Vidu can briefly report unsubscribe while applying a look.  A forced
+           setRemoteViewConfig/load here clears the element and leaves it black. */
+        bindRemoteVideo(userId);
         return;
       } catch {}
     }
     await callIfPresent(engine, ["subscribeAllRemoteVideoStreams", "setDefaultSubscribeAllRemoteVideoStreams"], true);
-    bindRemoteVideo(userId, true);
+    bindRemoteVideo(userId);
   }
 
   function reportSessionIssue(code, message) {
@@ -824,6 +827,8 @@
     state.frameWatch = 0;
     if (state.rtcRecoverTimer) window.clearTimeout(state.rtcRecoverTimer);
     state.rtcRecoverTimer = 0;
+    if (state.lookVideoRecoveryTimer) window.clearTimeout(state.lookVideoRecoveryTimer);
+    state.lookVideoRecoveryTimer = 0;
     const video = state.overlay?.video;
     if (video && state.frameCallback && typeof video.cancelVideoFrameCallback === "function") {
       try { video.cancelVideoFrameCallback(state.frameCallback); } catch {}
@@ -910,8 +915,24 @@
       }
       /* 开播前就会先报未订阅，这时重拉会把恢复机会提前用掉 */
       if (newState === 1 && (state.seenPicture || state.remoteBoundOnce)) {
-        showPlaceholder();
-        recoverVideoOnce("unsubscribe");
+        /* During an Undress/look operation Vidu normally tears down the old
+           stream before publishing the new one. Do not treat that transition
+           as a dead video or force-load the element. Only recover if no new
+           subscribed state/frame arrives after a short grace period. */
+        if (state.lookVideoRecoveryTimer) window.clearTimeout(state.lookVideoRecoveryTimer);
+        state.lookVideoRecoveryTimer = window.setTimeout(() => {
+          state.lookVideoRecoveryTimer = 0;
+          if (state.ended || state.remoteBoundOnce === false) return;
+          if (state.lookBusy || state.lookOperation) {
+            state.lookVideoRecoveryTimer = window.setTimeout(() => {
+              state.lookVideoRecoveryTimer = 0;
+              if (!state.ended && state.lookBusy && state.lastFrameAt && Date.now() - state.lastFrameAt >= 8000) recoverVideoOnce("unsubscribe");
+            }, 8000);
+            return;
+          }
+          if (state.lastFrameAt && Date.now() - state.lastFrameAt < 5000) return;
+          recoverVideoOnce("unsubscribe");
+        }, 5000);
       }
     });
     engine.on("userVideoMuted", (userId, muted) => {
