@@ -44,6 +44,8 @@
     lookStack: [],
     rtcClock: null,
     rtcClockStart: null,
+    visibilityRecoveryTimer: 0,
+    visibilityReturnedAt: 0,
   };
 
   const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
@@ -796,6 +798,13 @@
 
   function noteHealthyPicture(now) {
     state.lastPictureAt = now;
+    if (state.visibilityRecoveryTimer) {
+      window.clearTimeout(state.visibilityRecoveryTimer);
+      state.visibilityRecoveryTimer = 0;
+      state.visibilityReturnedAt = 0;
+      appendLine("sys", "画面已恢复。");
+      setStageStatus("通话中", "");
+    }
     state.lastFrameAt = now;
     state.videoFixes = 0;
     state.seenPicture = true;
@@ -804,6 +813,9 @@
   }
 
   function stopVideoWatch() {
+    if (state.visibilityRecoveryTimer) window.clearTimeout(state.visibilityRecoveryTimer);
+    state.visibilityRecoveryTimer = 0;
+    state.visibilityReturnedAt = 0;
     if (state.frameWatch) window.clearInterval(state.frameWatch);
     state.frameWatch = 0;
     if (state.rtcRecoverTimer) window.clearTimeout(state.rtcRecoverTimer);
@@ -1025,9 +1037,27 @@
         return;
       }
       if (hiddenTimer) { window.clearTimeout(hiddenTimer); hiddenTimer = 0; }
-      state.lastFrameAt = Date.now();
-      state.lastPictureAt = Date.now();
+      const returnedAt = Date.now();
+      state.visibilityReturnedAt = returnedAt;
+      state.lastFrameAt = returnedAt;
+      state.lastPictureAt = returnedAt;
       state.overlay?.video?.play?.().catch(() => {});
+      appendLine("sys", "已切回页面，正在检查画面是否恢复…");
+      setStageStatus("检查画面", "warning");
+      if (state.visibilityRecoveryTimer) window.clearTimeout(state.visibilityRecoveryTimer);
+      state.visibilityRecoveryTimer = window.setTimeout(() => {
+        state.visibilityRecoveryTimer = 0;
+        if (state.ended || document.visibilityState === "hidden") return;
+        const video = state.overlay?.video;
+        const pictureRecovered = Boolean(video && video.readyState >= 2 && video.videoWidth > 0 && video.currentTime > state.lastVideoTime + 0.05);
+        if (pictureRecovered) {
+          noteHealthyPicture(Date.now());
+          return;
+        }
+        appendLine("sys", "切回页面后画面没有恢复，已结束通话，避免继续计费。");
+        setStageStatus("画面未恢复，通话已结束", "error");
+        finishSession("video_black", "切回页面后画面未恢复");
+      }, 8000);
     });
   }
 
