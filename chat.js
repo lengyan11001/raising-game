@@ -100,18 +100,11 @@
         liveButton.type = "button";
         liveButton.className = "solid-button";
         liveButton.dataset.detailLive = liveCharacter.id;
-        liveButton.textContent = `▶ 在线聊天 · ${window.ChatLive.saleCreditsPerMinute()} 积分/分钟`;
+        liveButton.textContent = "▶ 在线聊天";
         liveButton.style.marginTop = "10px";
         liveButton.addEventListener("click", (event) => {
           event.preventDefault();
-          /* 和文字聊一样先判断余额：不够就弹充值，不发起（会花钱的）实时会话 */
-          const price = Number(window.ChatLive.saleCreditsPerMinute() || 0);
-          const credits = Number(state.user?.credits || 0) || 0;
           if (!getToken()) { loginDialog.showModal(); return; }
-          if (credits < price) {
-            showNotice("余额不足", `在线聊天需要 ${price} 积分/分钟，当前余额 ${credits} 积分。`, { actionLabel: "去充值", onAction: openUnlock });
-            return;
-          }
           window.ChatLive.open(liveCharacter.id).catch((error) => showNotice("无法开始在线聊天", error.message || String(error)));
         });
         (chatButton?.parentElement || app).appendChild(liveButton);
@@ -150,7 +143,7 @@
         <div class="model-card-body">
           <h3>${esc(item.name || "Live")}</h3>
           <p>${esc(item.intro || "在线语音视频聊天")}</p>
-          <button class="solid-button" type="button" data-live-start="${esc(item.id)}">在线聊天 · ${esc(String(price))} 积分/分钟</button>
+        <button class="solid-button" type="button" data-live-start="${esc(item.id)}">在线聊天</button>
         </div>
       </article>`).join("");
     return `<section class="models-page" data-chat-live-section style="padding-bottom:0"><div class="models-intro"><span class="eyebrow">LIVE</span><h1>在线聊天</h1><p>数字人实时视频对话：你说话，她回应（单向视频，支持语音与文字）。</p></div><div class="model-grid">${cards}</div></section>`;
