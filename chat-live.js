@@ -619,6 +619,8 @@
       let opened = false;
       socket.addEventListener("open", () => {
         opened = true;
+        state.controlReady = false;
+        syncLookRail();
         socket.send(JSON.stringify(buildSignal(1, { conn_init: { version: 1 } })));
         resolve();
       });
@@ -628,6 +630,8 @@
         reportSessionIssue("socket_error", "控制通道异常");
       });
       socket.addEventListener("close", () => {
+        state.controlReady = false;
+        syncLookRail();
         if (!opened) reject(new Error("控制通道连接失败。"));
         if (state.ended) return;
         if (state.lookBusy) {
@@ -1113,7 +1117,23 @@
   function lookChannelReady() {
     if (state.ended || !state.session) return false;
     if (state.session.mode === "component") return true;
-    return state.controlReady === true || state.ws?.readyState === WebSocket.OPEN;
+    return state.controlReady === true;
+  }
+
+  async function ensureLookChannelReady() {
+    if (state.ended || !state.session) return false;
+    if (state.session.mode === "component") return true;
+    if (state.controlReady === true) return true;
+    try {
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) await connectSignaling(state.session);
+      else state.ws.send(JSON.stringify(buildSignal(1, { conn_init: { version: 1 } })));
+    } catch { return false; }
+    const deadline = Date.now() + 3500;
+    while (!state.ended && Date.now() < deadline) {
+      if (state.controlReady === true) return true;
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+    return state.controlReady === true;
   }
 
   function syncLookRail() {
@@ -1182,14 +1202,20 @@
 
   async function sendLookOperation({ look = null, remove = false, undress = false } = {}) {
     if (state.lookBusy) throw new Error("上一次切换还在处理。");
-    if (!lookChannelReady()) throw new Error("画面还在准备，请几秒后再试。");
+    const channelReady = await ensureLookChannelReady();
+    if (!channelReady) {
+      const error = new Error("画面控制通道没有完成连接，请稍后再试。");
+      error.code = "CONTROL_CHANNEL_NOT_READY";
+      await reportChatLiveOperation({ action: undress ? "undress" : (remove ? "remove_look" : "switch_look"), phase: "transport", success: false, code: error.code, kind: undress ? "garment" : (look?.kind || ""), message: error.message });
+      throw error;
+    }
     state.lookBusy = true;
     const operationId = `look-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const action = remove ? "remove_look" : (undress ? "undress" : "switch_look");
     const operationKind = undress ? "garment" : (look?.kind || "");
     state.lookOperation = { id: operationId, action, kind: operationKind };
     const componentSession = state.session?.mode === "component";
-    if (!componentSession) reportChatLiveOperation({ id: operationId, action, phase: "started", success: null, kind: operationKind, message: "已发送画面切换请求" });
+    if (!componentSession) await reportChatLiveOperation({ id: operationId, action, phase: "started", success: null, kind: operationKind, message: "已发送画面切换请求" });
     syncLookRail();
     try {
       if (componentSession) {
