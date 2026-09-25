@@ -597,6 +597,9 @@
     }
     if (type === 12) {
       const ack = payload.prompt_operation_ack || {};
+      const operation = state.lookOperation || {};
+      const safeAck = JSON.stringify({ success: ack?.success === true, error_code: ack?.error_code || "", status: ack?.status || "", message: ack?.message || "", keys: Object.keys(ack || {}).slice(0, 20) }).slice(0, 700);
+      reportChatLiveOperation({ id: operation.id || "", action: operation.action || "switch_look", phase: "upstream_ack", success: ack?.success === true, code: ack?.error_code || "", kind: operation.kind || "", message: "Vidu type=12 ACK " + safeAck });
       state.lookWait?.settle(ack);
       return;
     }
@@ -911,8 +914,10 @@
       setStageStatus("画面中断", "error");
       recoverVideoOnce("offline");
     });
-    engine.on("videoSubscribeStateChanged", (userId, _oldState, newState) => {
+    engine.on("videoSubscribeStateChanged", (userId, oldState, newState) => {
       if (userId) state.remoteUserId = userId;
+      const operation = state.lookOperation || {};
+      reportChatLiveOperation({ id: operation.id || ("rtc-" + Date.now().toString(36)), action: operation.action || "rtc", phase: "rtc_subscribe", success: newState === 3, code: "state_" + oldState + "_to_" + newState, kind: operation.kind || "", message: "RTC videoSubscribeStateChanged user=" + String(userId || "").slice(0, 64) + " old=" + oldState + " new=" + newState + " frameAgeMs=" + (state.lastFrameAt ? Date.now() - state.lastFrameAt : -1) });
       /* 0 idle, 1 not subscribed, 2 subscribing, 3 subscribed */
       if (newState === 3) {
         state.remoteBoundOnce = true;
@@ -1266,7 +1271,9 @@
               user_text: String(undress ? UNDRESS_LOOK_TEXT : (look.userText || LOOK_TEXT[look.kind] || "")).slice(0, 200),
             }],
           };
-      const sent = sendSignal(buildSignal(11, { prompt_operation: prompt }));
+      const signal = buildSignal(11, { prompt_operation: prompt });
+      const sent = sendSignal(signal);
+      await reportChatLiveOperation({ id: operationId, action, phase: "signal_sent", success: sent, code: sent ? "" : "CONTROL_CHANNEL_NOT_OPEN", kind: operationKind, message: JSON.stringify({ type: signal.type, seq_id: signal.seq_id, op_type: prompt.op_type, image_uri: prompt.images?.[0]?.image_uri || "", image_id: prompt.images?.[0]?.image_id || "", image_kind: prompt.images?.[0]?.kind || "", user_text: prompt.images?.[0]?.user_text || "" }).slice(0, 900) });
       if (!sent) failLookWait("画面通道不可用，请稍后再试。");
       await pending;
       await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: true, kind: operationKind, message: `Vidu 已确认画面切换（${undress ? "undress" : remove ? "remove" : "look"}；图片已发送）` });
