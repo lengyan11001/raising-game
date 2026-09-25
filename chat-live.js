@@ -533,13 +533,19 @@
     }, 1000);
   }
 
-  function reportChatLiveOperation(operation = {}) {
+  async function reportChatLiveOperation(operation = {}) {
     const sessionId = state.session?.id;
-    if (!sessionId) return Promise.resolve(false);
-    return apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/operations`, {
-      method: "POST",
-      body: JSON.stringify(operation),
-    }).then(() => true).catch(() => false);
+    if (!sessionId) return false;
+    const path = `/api/chat-live/sessions/${encodeURIComponent(sessionId)}/operations`;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await apiFetch(path, { method: "POST", body: JSON.stringify(operation) });
+        return true;
+      } catch {
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+    return false;
   }
 
   function markBillableStart() {
@@ -1195,7 +1201,7 @@
           if (state.lookWait !== wait) return;
           state.lookWait = null;
           reject(new Error("画面切换超时，请再试一次。"));
-        }, 12000),
+        }, 30000),
         settle(ack) {
           if (state.lookWait !== wait) return;
           window.clearTimeout(wait.timer);
@@ -1263,9 +1269,9 @@
       const sent = sendSignal(buildSignal(11, { prompt_operation: prompt }));
       if (!sent) failLookWait("画面通道不可用，请稍后再试。");
       await pending;
-      await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: true, kind: operationKind, message: "Vidu 已确认画面切换" });
+      await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: true, kind: operationKind, message: `Vidu 已确认画面切换（${undress ? "undress" : remove ? "remove" : "look"}；图片已发送）` });
     } catch (error) {
-      if (!error?.operationId) await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: false, code: error?.code || "LOOK_FAILED", kind: operationKind, message: error?.message || "画面切换失败" });
+      if (!error?.operationId) await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: false, code: error?.code || "LOOK_FAILED", kind: operationKind, message: `${error?.message || "画面切换失败"}（请求${undress ? "undress" : remove ? "remove" : "look"}；图片${undress ? "已发送" : "不适用"}）` });
       throw error;
     } finally {
       state.lookBusy = false;
@@ -1342,7 +1348,7 @@
   }
 
   async function toggleUndress() {
-    if (!state.overlay || state.ended) return;
+    if (!state.overlay || state.ended || state.lookBusy) return;
     const imageUrl = String(state.character?.undressImageUrl || "");
     if (!imageUrl) return;
     if (!lookChannelReady()) {
