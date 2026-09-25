@@ -1083,7 +1083,7 @@
   function lookChannelReady() {
     if (state.ended || !state.session) return false;
     if (state.session.mode === "component") return true;
-    return state.controlReady === true;
+    return state.controlReady === true || state.ws?.readyState === WebSocket.OPEN;
   }
 
   function syncLookRail() {
@@ -1130,7 +1130,11 @@
           window.clearTimeout(wait.timer);
           state.lookWait = null;
           if (ack?.success === true) resolve(ack);
-          else reject(new Error(lookFailureMessage(ack?.error_code)));
+          else {
+            const error = new Error(lookFailureMessage(ack?.error_code));
+            error.code = ack?.error_code || "PROMPT_OP_FAILED";
+            reject(error);
+          }
         },
       };
       state.lookWait = wait;

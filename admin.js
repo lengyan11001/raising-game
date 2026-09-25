@@ -4455,6 +4455,9 @@ function chatLiveSessionDetailHtml(session = {}) {
       ${chatLiveDetailRow("上游积分", String(session.upstreamCredits ?? 0))}
       ${chatLiveDetailRow("上游错误", session.upstreamError || "—")}
       ${chatLiveDetailRow("免费秒数", String(session.freeSeconds ?? 0))}
+      ${chatLiveDetailRow("预付秒数", String(session.prepaidSeconds ?? 0))}
+      ${chatLiveDetailRow("预付积分", String(session.prepaidCredits ?? 0))}
+      ${chatLiveDetailRow("退款积分", String(session.refundedCredits ?? 0))}
       ${chatLiveDetailRow("开始计费", session.billableStartedAt ? fmtDate(session.billableStartedAt) : "未显示画面")}
       ${chatLiveDetailRow("售价/分钟", String(session.saleCreditsPerMinute ?? 0))}
       ${chatLiveDetailRow("计费秒数", String(session.billedSeconds ?? 0))}
