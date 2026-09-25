@@ -6971,6 +6971,7 @@ async function handleCreateChatLiveSession(req, res) {
     model: live.model,
     callMode: live.callMode,
     billingPolicy: "first_frame",
+    billingVersion: "prepaid_v1",
     prepaidSeconds: initialHold?.seconds || 0,
     prepaidCredits: initialHold?.credits || 0,
     holdSequence: initialHold?.holdSequence || 0,
@@ -7182,7 +7183,7 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
     : 0;
   const billingPolicy = session.billingPolicy || latest?.billingPolicy || "";
   const billedSeconds = billingPolicy === "first_frame"
-    ? (upstreamBilledSeconds > 0 ? Math.min(upstreamBilledSeconds, billableElapsedSeconds) : billableElapsedSeconds)
+    ? (upstreamBilledSeconds > 0 ? (billableStartMs ? Math.min(upstreamBilledSeconds, billableElapsedSeconds) : upstreamBilledSeconds) : billableElapsedSeconds)
     : upstreamBilledSeconds;
   const prepaidSeconds = Math.max(0, Number(latest?.prepaidSeconds ?? session.prepaidSeconds ?? 0) || 0);
   const observedSeconds = billedSeconds;
@@ -7197,7 +7198,8 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   const shouldFinalize = terminalStatus || abandoned || !session.liveId;
   let charged = 0;
   let chargeError = "";
-  if (chargeCredits > 0 && !session.charged && shouldFinalize && !(Number(session.prepaidCredits || 0) > 0)) {
+  const prepaidFieldPresent = Object.prototype.hasOwnProperty.call(session, "prepaidCredits") || Object.prototype.hasOwnProperty.call(latest || {}, "prepaidCredits");
+  if (chargeCredits > 0 && !session.charged && shouldFinalize && (!(Number(session.prepaidCredits || 0) > 0) && prepaidFieldPresent)) {
     if (!auth) {
       chargeError = "找不到用户，未能扣费";
     } else {
@@ -7304,9 +7306,18 @@ async function monitorChatLiveSession(session = {}) {
     const detail = await viduLiveRequest('/live/v1/lives/' + encodeURIComponent(session.liveId), { timeoutMs: 12000, region: session.viduRegion || '' });
     const liveInfo = detail?.live || detail || {};
     const upstreamSeconds = Math.max(0, Number(liveInfo.billed_seconds ?? 0) || 0);
+    const liveStatus = String(liveInfo.status || "").toLowerCase();
+    const liveStartedMs = Date.parse(session.createdAt || "");
+    const wallLiveSeconds = ["on_live", "live", "running", "active", "started", "starting", "connected"].includes(liveStatus) && Number.isFinite(liveStartedMs)
+      ? Math.max(0, Math.floor((Date.now() - liveStartedMs) / 1000))
+      : 0;
+    // Vidu may report billed_seconds only after the live ends. Keep the free
+    // runway and prepaid checks moving from the observed live wall time, while
+    // preserving Vidu's final billed_seconds for settlement.
+    const observedLiveSeconds = Math.max(upstreamSeconds, wallLiveSeconds);
     const freeSeconds = Math.max(0, Number(session.freeSeconds || 0) || 0);
-    const paidSeconds = Math.max(0, upstreamSeconds - freeSeconds);
-    if (freeSeconds > 0 && upstreamSeconds < Math.max(0, freeSeconds - 15)) {
+    const paidSeconds = Math.max(0, observedLiveSeconds - freeSeconds);
+    if (freeSeconds > 0 && observedLiveSeconds < Math.max(0, freeSeconds - 15)) {
       const waiting = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
       return await updateChatLiveSessionInDb({ ...waiting, upstreamBilledSeconds: upstreamSeconds, billedSeconds: upstreamSeconds, updatedAt: new Date().toISOString() });
     }
@@ -7341,6 +7352,7 @@ async function monitorChatLiveSession(session = {}) {
     if (latest.billingBlocked) await closeChatLiveForInsufficientCredits(latest);
     return await updateChatLiveSessionInDb({ ...latest, updatedAt: new Date().toISOString() });
   } catch (error) {
+    console.warn("[chat-live-billing-monitor-failed]", session.id, error?.message || error);
     return session;
   } finally { chatLiveBillingLocks.delete(session.id); }
 }
