@@ -7705,6 +7705,73 @@ async function handleChatLiveUpgrade(req, socket, head) {
   const upstreamPath = `/live/ws/live/connect?live_id=${encodeURIComponent(session.liveId)}&conn_id=${encodeURIComponent(connId)}`;
 
   const upstream = tls.connect({ host: upstreamHost, port: 443, servername: upstreamHost });
+  let clientFrameBuffer = Buffer.alloc(0);
+  let upstreamFrameBuffer = Buffer.alloc(0);
+  let lastPromptSeq = "";
+  const inspectWsFrames = (buffer, masked, source) => {
+    let offset = 0;
+    while (buffer.length - offset >= 2) {
+      const first = buffer[offset];
+      const second = buffer[offset + 1];
+      const opcode = first & 0x0f;
+      const isMasked = (second & 0x80) !== 0;
+      let length = second & 0x7f;
+      let header = 2;
+      if (length === 126) {
+        if (buffer.length - offset < 4) break;
+        length = buffer.readUInt16BE(offset + 2);
+        header = 4;
+      } else if (length === 127) {
+        if (buffer.length - offset < 10) break;
+        const big = buffer.readBigUInt64BE(offset + 2);
+        if (big > BigInt(2 ** 31)) return Buffer.alloc(0);
+        length = Number(big);
+        header = 10;
+      }
+      const maskBytes = isMasked ? 4 : 0;
+      if (buffer.length - offset < header + maskBytes + length) break;
+      let payload = buffer.subarray(offset + header + maskBytes, offset + header + maskBytes + length);
+      if (isMasked) {
+        const mask = buffer.subarray(offset + header, offset + header + 4);
+        const decoded = Buffer.alloc(payload.length);
+        for (let i = 0; i < payload.length; i += 1) decoded[i] = payload[i] ^ mask[i % 4];
+        payload = decoded;
+      }
+      if (opcode === 1) {
+        try {
+          const message = JSON.parse(payload.toString("utf8"));
+          const type = Number(message?.type || 0);
+          if (source === "client" && type === 11) {
+            const prompt = message?.payload?.prompt_operation || {};
+            lastPromptSeq = String(message?.seq_id || "");
+            void appendChatLiveOperation(session.id, {
+              id: `proxy-${lastPromptSeq || Date.now().toString(36)}`,
+              action: prompt?.op_type === "remove" ? "remove_look" : "undress",
+              phase: "proxy_signal",
+              success: true,
+              code: "",
+              kind: prompt?.images?.[0]?.kind || "",
+              message: JSON.stringify({ seq_id: message?.seq_id, op_type: prompt?.op_type, image_uri: prompt?.images?.[0]?.image_uri || "", image_id: prompt?.images?.[0]?.image_id || "", user_text: prompt?.images?.[0]?.user_text || "" }).slice(0, 900),
+            }).catch(() => {});
+          }
+          if (source === "upstream" && type === 12) {
+            const ack = message?.payload?.prompt_operation_ack || {};
+            void appendChatLiveOperation(session.id, {
+              id: `proxy-${lastPromptSeq || Date.now().toString(36)}`,
+              action: ack?.op_type === "remove" ? "remove_look" : "undress",
+              phase: "proxy_ack",
+              success: ack?.success === true,
+              code: ack?.error_code || "",
+              kind: "",
+              message: JSON.stringify({ seq_id: lastPromptSeq, type: 12, success: ack?.success === true, error_code: ack?.error_code || "", status: ack?.status || "", message: ack?.message || "", keys: Object.keys(ack || {}).slice(0, 20) }).slice(0, 900),
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+      offset += header + maskBytes + length;
+    }
+    return buffer.subarray(offset);
+  };
   const closeBoth = () => {
     chatLiveSockets.delete(session.id);
     try { socket.destroy(); } catch {}
@@ -7738,6 +7805,12 @@ async function handleChatLiveUpgrade(req, socket, head) {
     if (head && head.length) upstream.write(head);
     socket.pipe(upstream);
     upstream.pipe(socket);
+    socket.on("data", (chunk) => {
+      clientFrameBuffer = inspectWsFrames(Buffer.concat([clientFrameBuffer, chunk]), true, "client");
+    });
+    upstream.on("data", (chunk) => {
+      upstreamFrameBuffer = inspectWsFrames(Buffer.concat([upstreamFrameBuffer, chunk]), false, "upstream");
+    });
   });
 }
 
