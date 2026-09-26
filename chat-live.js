@@ -1371,26 +1371,23 @@
         appendLine("sys", "已恢复上一个画面。");
         return;
       }
-      await sendLookOperation({
-        undress: true,
-        look: {
-          id: "undress",
-          kind: "garment",
-          imageUrl,
-          name: "Undress",
-          userText: UNDRESS_LOOK_TEXT,
-        },
-      });
-      state.lookStack.push("undress");
+      const oldSessionId = state.session?.id || "";
+      appendLine("sys", "正在结束当前画面连接，使用 Undress 图片重新连接…");
+      await reportChatLiveOperation({ id: `look-${Date.now().toString(36)}`, action: "undress", phase: "reconnect_start", success: null, kind: "garment", message: "Undress 改用新连接；旧连接即将释放" });
+      const requested = { ...(state.character || {}), id: state.character?.id || "" };
+      await finishSession("look_reconnect", "Undress 使用新图片重新建立连接");
+      closeOverlay();
+      await open(requested, { avatarMode: "undress", replaceSessionId: oldSessionId });
+      state.lookStack = ["undress"];
       syncLookRail();
-      appendLine("sys", "已切换 Undress。");
+      appendLine("sys", "已使用 Undress 图片建立新连接。");
     } catch (error) {
       if (state.ended) return;
       appendLine("sys", error.message || "画面切换失败，请再试一次。");
     }
   }
 
-  async function open(characterId) {
+  async function open(characterId, openOptions = {}) {
     try { await loadConfig(true); } catch {}
     const requested = typeof characterId === "object" ? characterId : null;
     const character = characterById(requested?.id || characterId) || requested;
@@ -1484,7 +1481,11 @@
 
     let payload;
     try {
-      payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({ characterId: character.id }) });
+      payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({
+        characterId: character.id,
+        avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
+        replaceSessionId: String(openOptions.replaceSessionId || ""),
+      }) });
     } catch (error) {
       const message = error.message || "创建会话失败。";
       setStageStatus("创建失败", "error", message);

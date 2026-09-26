@@ -6790,6 +6790,14 @@ async function handleCreateChatLiveSession(req, res) {
   if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
+  const avatarMode = body.avatarMode === "undress" ? "undress" : "default";
+  const replacingSession = String(body.replaceSessionId || "").trim();
+  const avatarImageUrl = avatarMode === "undress"
+    ? publicChatLiveUndressImageUrl(character)
+    : character.avatarUrl;
+  if (avatarMode === "undress" && !avatarImageUrl) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_UNDRESS_IMAGE_NOT_READY", message: "这个角色还没有可用的 Undress 图片。" });
+  }
   if (!viduCredentialsForRegion(live.region).key) return sendJson(res, 503, { ok: false, code: "VIDU_NOT_CONFIGURED", message: "在线聊天暂未开通。" });
   if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
   const salePerMinute = Number(live.saleCreditsPerMinute || 0);
@@ -6808,7 +6816,11 @@ async function handleCreateChatLiveSession(req, res) {
     return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ALREADY_ACTIVE", message: "你已经有一路在线聊天正在进行。" });
   }
   const initialSessionId = randomId("chatlive");
-  const initialPrepaidSeconds = live.freeSeconds > 0 ? 0 : CHAT_LIVE_BILLING_BLOCK_SECONDS;
+  /* Replacing a live connection must not grant the configured free runway a
+     second time. The new Vidu live is a fresh connection, but it is still the
+     same user interaction and starts on paid prepaid blocks. */
+  const effectiveFreeSeconds = replacingSession ? 0 : live.freeSeconds;
+  const initialPrepaidSeconds = effectiveFreeSeconds > 0 ? 0 : CHAT_LIVE_BILLING_BLOCK_SECONDS;
   let initialHold = null;
   if (initialPrepaidSeconds > 0) {
     try {
@@ -6834,7 +6846,7 @@ async function handleCreateChatLiveSession(req, res) {
           model: live.model,
           extra_motion: false,
           moderation: "disabled",
-          image_uri: character.avatarUrl,
+          image_uri: avatarImageUrl,
           rtc_info: {
             provider: "artc",
             app_id: ARTC_APP_ID,
@@ -6873,7 +6885,8 @@ async function handleCreateChatLiveSession(req, res) {
       costCreditsPerMinute: live.costCreditsPerMinute,
       saleCreditsPerMinute: salePerMinute,
       maxMinutes: live.maxMinutes,
-      freeSeconds: live.freeSeconds,
+      freeSeconds: effectiveFreeSeconds,
+      avatarMode,
       model: live.model,
       callMode: "video",
       billingPolicy: "first_frame",
@@ -6912,7 +6925,7 @@ async function handleCreateChatLiveSession(req, res) {
 
   const avatar = {
     persona: character.persona,
-    image_uri: character.avatarUrl,
+    image_uri: avatarImageUrl,
     name: character.name,
     voice: character.voiceType,
   };
@@ -6967,7 +6980,8 @@ async function handleCreateChatLiveSession(req, res) {
     costCreditsPerMinute: live.costCreditsPerMinute,
     saleCreditsPerMinute: salePerMinute,
     maxMinutes: live.maxMinutes,
-    freeSeconds: live.freeSeconds,
+    freeSeconds: effectiveFreeSeconds,
+    avatarMode,
     model: live.model,
     callMode: live.callMode,
     billingPolicy: "first_frame",
@@ -6996,7 +7010,8 @@ async function handleCreateChatLiveSession(req, res) {
       saleCreditsPerMinute: salePerMinute,
       costCreditsPerMinute: live.costCreditsPerMinute,
       maxMinutes: live.maxMinutes,
-      freeSeconds: live.freeSeconds,
+      freeSeconds: effectiveFreeSeconds,
+      avatarMode,
       wsPath: `/api/chat-live/ws?session=${encodeURIComponent(session.id)}`,
     },
     character: publicChatLiveCharacter(character),
