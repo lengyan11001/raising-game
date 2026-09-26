@@ -7356,9 +7356,20 @@ async function monitorChatLiveSession(session = {}) {
         latest.billingBlocked = true;
         latest.chargeError = error?.message || '积分不足，已停止续费';
         latest.endReason = 'insufficient_credits';
-        await updateChatLiveSessionInDb({ ...latest, prepaidSeconds, prepaidCredits, updatedAt: new Date().toISOString() });
+        const blocked = await updateChatLiveSessionInDb({
+          ...latest,
+          prepaidSeconds,
+          prepaidCredits,
+          status: 'ended',
+          settled: false,
+          holdSettled: false,
+          endedAt: latest.endedAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
         await closeChatLiveForInsufficientCredits(latest);
-        return latest;
+        /* Return all unused prepaid blocks immediately. The normal settlement
+           path is idempotent and records the refund ledger entry. */
+        return await settleChatLiveSessionById(blocked.id).catch(() => blocked);
       }
     }
     latest.prepaidSeconds = prepaidSeconds;
