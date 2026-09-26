@@ -2706,6 +2706,57 @@ function openTemplate(templateId) {
 }
 
 function readFileAsDataUrl(file) {
+  if (String(file?.type || "").toLowerCase().startsWith("image/") && typeof document !== "undefined" && typeof URL !== "undefined") {
+    return new Promise((resolve, reject) => {
+      const sourceUrl = URL.createObjectURL(file);
+      const image = new Image();
+      const cleanup = () => {
+        URL.revokeObjectURL(sourceUrl);
+        image.onload = null;
+        image.onerror = null;
+        image.removeAttribute("src");
+      };
+      image.onload = () => {
+        const width = Number(image.naturalWidth || image.width || 0);
+        const height = Number(image.naturalHeight || image.height || 0);
+        const pixels = width * height;
+        if (!(width > 0 && height > 0) || pixels <= ADVANCED_CLIENT_IMAGE_MAX_PIXELS) {
+          cleanup();
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error(t("modal.readImageFailed")));
+          reader.readAsDataURL(file);
+          return;
+        }
+        try {
+          const size = scaledCanvasSize(width, height, ADVANCED_CLIENT_IMAGE_MAX_PIXELS);
+          const canvas = document.createElement("canvas");
+          canvas.width = size.width;
+          canvas.height = size.height;
+          const context = canvas.getContext("2d", { alpha: true });
+          if (!context) throw new Error("canvas_unavailable");
+          context.drawImage(image, 0, 0, size.width, size.height);
+          const outputType = String(file.type || "").toLowerCase() === "image/png" ? "image/png" : "image/jpeg";
+          const dataUrl = canvas.toDataURL(outputType, outputType === "image/jpeg" ? ADVANCED_CLIENT_IMAGE_JPEG_QUALITY : undefined);
+          canvas.width = 1;
+          canvas.height = 1;
+          cleanup();
+          resolve(dataUrl);
+        } catch {
+          cleanup();
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error(t("modal.readImageFailed")));
+          reader.readAsDataURL(file);
+        }
+      };
+      image.onerror = () => {
+        cleanup();
+        reject(new Error(t("modal.readImageFailed")));
+      };
+      image.src = sourceUrl;
+    });
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
@@ -2786,10 +2837,14 @@ async function handleAdvancedPromptPaste(event) {
     updateAdvancedModelControls();
     return;
   }
-  const addedImages = await Promise.all(selectedFiles.map(async (file, index) => ({
-    dataUrl: await readFileAsDataUrl(file),
-    fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
-  })));
+  const addedImages = [];
+  for (let index = 0; index < selectedFiles.length; index += 1) {
+    const file = selectedFiles[index];
+    addedImages.push({
+      dataUrl: await readFileAsDataUrl(file),
+      fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
+    });
+  }
   state.activeAdvancedCaseId = "";
   if (rule.target === "frames") {
     state.advancedReferenceImages = [];
@@ -4168,7 +4223,7 @@ function renderAdvancedReferencePreviews() {
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
         : kind === "document"
           ? `<div class="advanced-audio-ref"><i data-lucide="file-text"></i><span>${escapeHtml(item.fileName || item.name || "Document")}</span></div>`
-        : (url ? `<img src="${escapeHtml(url)}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
+        : (url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
     return `
       <figure class="advanced-reference-chip is-${escapeHtml(kind)} ${pending ? "is-pending" : ""}" title="${escapeHtml(item.name || item.fileName || label)}">
         ${pending ? "" : `<button class="advanced-preview-remove" type="button" ${removeAttr} aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>`}

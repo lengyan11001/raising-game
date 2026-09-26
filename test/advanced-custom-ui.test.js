@@ -339,3 +339,11 @@ test("Wan input combinations are inferred and media URLs are not exposed in the 
   assert.doesNotMatch(html, /id="advancedSeedance(?:Video|Audio)Urls"/);
   assert.match(create, /capability === "wan27-i2v"\) return 2/);
 });
+
+test("custom media previews avoid retaining full-resolution image copies", () => {
+  assert.match(config, /const ADVANCED_CLIENT_IMAGE_MAX_PIXELS = 2000000/);
+  assert.match(create, /function readFileAsDataUrl\(file\)/);
+  assert.match(create, /scaledCanvasSize\(width, height, ADVANCED_CLIENT_IMAGE_MAX_PIXELS\)/);
+  assert.match(create, /for \(let index = 0; index < selectedFiles.length; index \+= 1\)/);
+  assert.match(create, /loading="lazy" decoding="async"/);
+});
