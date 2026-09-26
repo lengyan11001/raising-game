@@ -34,3 +34,8 @@ test("control disconnect reports the active operation instead of hard-coded Undr
   assert.match(client, /action: operation\.action \|\| "switch_look"/);
   assert.doesNotMatch(client, /reportChatLiveOperation\(\{ action: "undress", phase: "transport"/);
 });
+
+test("legacy string settled values do not block a new chat", () => {
+  assert.match(server, /item\.settled === true \|\| String\(item\.settled \|\| ""\)\.toLowerCase\(\) === "true"/);
+  assert.match(server, /const status = String\(item\.status \|\| ""\)\.toLowerCase\(\)/);
+});

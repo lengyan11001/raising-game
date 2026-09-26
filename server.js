@@ -6812,7 +6812,14 @@ async function handleCreateChatLiveSession(req, res) {
   }
   const balance = Number(auth.user?.credits || 0);
   const activeSessions = await listChatLiveSessionsInDb({ userId: auth.user.id, limit: 10 }).catch(() => []);
-  if (activeSessions.some((item) => item && item.settled !== true && !["ended", "closed", "failed"].includes(String(item.status || "")))) {
+  /* Older rows stored settled as the JSON string "true". Treat both forms as
+     settled so a stale waiting row cannot block a new character connection. */
+  if (activeSessions.some((item) => {
+    if (!item) return false;
+    const settled = item.settled === true || String(item.settled || "").toLowerCase() === "true";
+    const status = String(item.status || "").toLowerCase();
+    return !settled && !["ended", "closed", "failed"].includes(status);
+  })) {
     return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ALREADY_ACTIVE", message: "你已经有一路在线聊天正在进行。" });
   }
   const initialSessionId = randomId("chatlive");
