@@ -47,6 +47,7 @@
     visibilityRecoveryTimer: 0,
     visibilityReturnedAt: 0,
     lookVideoRecoveryTimer: 0,
+    videoRecoveryPending: false,
   };
 
   const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
@@ -797,6 +798,7 @@
     if (state.videoFixes >= 1 || state.videoFixTotal >= 2) return;
     state.videoFixes += 1;
     state.videoFixTotal += 1;
+    state.videoRecoveryPending = true;
     state.boundUserId = "";
     const now = Date.now();
     state.lastFrameAt = now;
@@ -807,8 +809,11 @@
     reportVideoDiagnostic("video_recovery_start", null, issue.code, videoDiagnosticDetails({ reason }));
     appendLine("sys", reason === "offline" ? "数字人画面断开，正在重拉…" : "画面卡住了，正在重新拉取…");
     resubscribeVideo()
-      .then(() => reportVideoDiagnostic("video_recovery_result", true, "recovered", videoDiagnosticDetails({ reason })))
-      .catch((error) => reportVideoDiagnostic("video_recovery_result", false, "recovery_failed", videoDiagnosticDetails({ reason, error: String(error?.message || error || "").slice(0, 120) })));
+      .then(() => reportVideoDiagnostic("video_recovery_request", null, "rebind_requested", videoDiagnosticDetails({ reason })))
+      .catch((error) => {
+        state.videoRecoveryPending = false;
+        reportVideoDiagnostic("video_recovery_request", false, "recovery_failed", videoDiagnosticDetails({ reason, error: String(error?.message || error || "").slice(0, 120) }));
+      });
   }
 
   function scheduleRtcRecover(reason, code) {
@@ -858,6 +863,10 @@
     state.lastFrameAt = now;
     state.videoFixes = 0;
     state.seenPicture = true;
+    if (state.videoRecoveryPending) {
+      state.videoRecoveryPending = false;
+      reportVideoDiagnostic("video_recovery_frame", true, "recovered", videoDiagnosticDetails({ recoveredAt: now }));
+    }
     markBillableStart();
     hidePlaceholder();
   }

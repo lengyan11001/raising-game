@@ -49,4 +49,8 @@ test("chat live retains upstream trace, request, response, billing, and RTC diag
   assert.match(server, /event: "vidu_final_status"/);
   assert.match(server, /console\.info\("\[vidu-live-response\]"/);
   assert.match(client, /phase: "rtc_subscribe"/);
+  assert.match(client, /function reportVideoDiagnostic/);
+  assert.match(client, /first_frame_timeout/);
+  assert.match(client, /video_recovery_request/);
+  assert.match(client, /video_recovery_frame/);
 });
