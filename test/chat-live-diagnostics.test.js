@@ -39,3 +39,14 @@ test("legacy string settled values do not block a new chat", () => {
   assert.match(server, /item\.settled === true \|\| String\(item\.settled \|\| ""\)\.toLowerCase\(\) === "true"/);
   assert.match(server, /const status = String\(item\.status \|\| ""\)\.toLowerCase\(\)/);
 });
+
+test("chat live retains upstream trace, request, response, billing, and RTC diagnostics", () => {
+  assert.match(server, /function chatLiveUpstreamSummary/);
+  assert.match(server, /upstreamTraceId/);
+  assert.match(server, /event: "vidu_create"/);
+  assert.match(server, /event: "balance_check"/);
+  assert.match(server, /event: "vidu_live_status"/);
+  assert.match(server, /event: "vidu_final_status"/);
+  assert.match(server, /console\.info\("\[vidu-live-response\]"/);
+  assert.match(client, /phase: "rtc_subscribe"/);
+});

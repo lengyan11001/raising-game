@@ -4439,6 +4439,13 @@ function chatLiveSessionDetailHtml(session = {}) {
         return `<li><span class="adm-badge ${tone}">${escapeHtml(status)}</span> <strong>${escapeHtml(chatLiveOperationLabel(operation))}</strong>${detail ? `：${escapeHtml(detail)}` : ""}${operation.at ? `<br/><small class="adm-muted">${escapeHtml(fmtDate(operation.at))}</small>` : ""}</li>`;
       }).join("")
     : `<li class="adm-muted">没有操作记录</li>`;
+  const diagnostics = Array.isArray(session.diagnostics) ? session.diagnostics : [];
+  const diagnosticHtml = diagnostics.length
+    ? diagnostics.slice().reverse().map((item) => {
+        const detail = [item.phase, item.event, item.traceId, item.data ? JSON.stringify(item.data) : ""].filter(Boolean).join(" · ");
+        return `<li>${escapeHtml(detail)}${item.at ? `<br/><small class="adm-muted">${escapeHtml(fmtDate(item.at))}</small>` : ""}</li>`;
+      }).join("")
+    : `<li class="adm-muted">没有诊断记录</li>`;
   return `
     <div>
       ${session.liveId ? `<div style="margin-bottom:10px"><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-copy-live-id="${escapeHtml(session.liveId)}">复制 Live ID</button></div>` : ""}
@@ -4452,6 +4459,7 @@ function chatLiveSessionDetailHtml(session = {}) {
       ${chatLiveDetailRow("地区", chatLiveRegionLabel(session.viduRegion))}
       ${chatLiveDetailRow("来源网站", session.sourceHost || "—")}
       ${chatLiveDetailRow("上游状态", session.upstreamStatus || "—")}
+      ${chatLiveDetailRow("上游 trace_id", session.upstreamTraceId || "—")}
       ${chatLiveDetailRow("上游积分", String(session.upstreamCredits ?? 0))}
       ${chatLiveDetailRow("上游错误", session.upstreamError || "—")}
       ${chatLiveDetailRow("免费秒数", String(session.freeSeconds ?? 0))}
@@ -4471,6 +4479,7 @@ function chatLiveSessionDetailHtml(session = {}) {
       ${chatLiveDetailRow("结束", session.endedAt ? fmtDate(session.endedAt) : "—")}
       <div style="margin-top:12px"><strong>异常记录</strong><ul style="margin:8px 0 0;padding-left:18px">${issueHtml}</ul></div>
       <div style="margin-top:12px"><strong>操作明细</strong><ul style="margin:8px 0 0;padding-left:18px">${operationHtml}</ul></div>
+      <div style="margin-top:12px"><strong>上游/计费诊断</strong><ul style="margin:8px 0 0;padding-left:18px;max-height:360px;overflow:auto">${diagnosticHtml}</ul></div>
     </div>
   `;
 }

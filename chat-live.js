@@ -754,6 +754,37 @@
     }).then(() => true).catch(() => false);
   }
 
+  function reportVideoDiagnostic(event, success, code, details = {}) {
+    const operation = state.lookOperation || {};
+    return reportChatLiveOperation({
+      id: `video-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      action: event,
+      phase: "client_watch",
+      success,
+      code,
+      kind: operation.kind || "",
+      message: event === "first_frame_timeout" ? "首帧等待超时前的客户端状态" : "首帧/视频恢复后的客户端状态",
+      details,
+    });
+  }
+
+  function videoDiagnosticDetails(extra = {}) {
+    const video = state.overlay?.video;
+    return {
+      visibility: document.visibilityState,
+      readyState: Number(video?.readyState || 0),
+      videoWidth: Number(video?.videoWidth || 0),
+      videoHeight: Number(video?.videoHeight || 0),
+      currentTime: Number.isFinite(video?.currentTime) ? Number(video.currentTime.toFixed(3)) : -1,
+      remoteUserId: String(state.remoteUserId || "").slice(0, 80),
+      lastFrameAgeMs: state.lastFrameAt ? Math.max(0, Date.now() - state.lastFrameAt) : -1,
+      lastPictureAgeMs: state.lastPictureAt ? Math.max(0, Date.now() - state.lastPictureAt) : -1,
+      remoteBoundOnce: state.remoteBoundOnce === true,
+      rtcRecoveries: state.rtcRecoveries,
+      ...extra,
+    };
+  }
+
   function videoIssue(reason) {
     if (reason === "black") return { code: "video_black", message: "画面变黑" };
     if (reason === "offline") return { code: "video_offline", message: "数字人画面断开" };
@@ -773,8 +804,11 @@
     showPlaceholder();
     const issue = videoIssue(reason);
     reportSessionIssue(issue.code, issue.message);
+    reportVideoDiagnostic("video_recovery_start", null, issue.code, videoDiagnosticDetails({ reason }));
     appendLine("sys", reason === "offline" ? "数字人画面断开，正在重拉…" : "画面卡住了，正在重新拉取…");
-    resubscribeVideo();
+    resubscribeVideo()
+      .then(() => reportVideoDiagnostic("video_recovery_result", true, "recovered", videoDiagnosticDetails({ reason })))
+      .catch((error) => reportVideoDiagnostic("video_recovery_result", false, "recovery_failed", videoDiagnosticDetails({ reason, error: String(error?.message || error || "").slice(0, 120) })));
   }
 
   function scheduleRtcRecover(reason, code) {
@@ -890,6 +924,12 @@
       const pictureBlack = state.seenBright && bright != null && bright < 400 && noPictureFor >= 12000;
       const framesDead = noFrameFor >= frameLimit;
       if (!framesDead && !pictureBlack) return;
+      reportVideoDiagnostic("first_frame_timeout", false, pictureBlack ? "video_black" : "video_stalled", videoDiagnosticDetails({
+        reason: pictureBlack ? "black" : "stall",
+        frameLimitMs: frameLimit,
+        noFrameForMs: noFrameFor,
+        noPictureForMs: noPictureFor,
+      }));
       if (state.videoFixes < 1 && state.videoFixTotal < 2) {
         recoverVideoOnce(pictureBlack ? "black" : "stall");
         return;

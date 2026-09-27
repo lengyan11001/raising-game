@@ -6070,8 +6070,62 @@ function logViduLiveFailure(error, extra = {}) {
     characterId: String(extra.characterId || "").replace(/\s+/g, "").slice(0, 80),
     model: sanitizeChatLiveDiagnosticText(extra.model || "", 40),
     callMode: sanitizeChatLiveDiagnosticText(extra.callMode || "", 16),
+    requestBody: extra.requestBody || undefined,
   };
   console.warn("[vidu-live]", JSON.stringify(detail));
+}
+
+function chatLiveDiagnosticValue(value, max = 1200) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return sanitizeChatLiveDiagnosticText(value
+      .replace(/([?&](?:x-amz-[^=]+|signature|token|authorization))=[^&]+/gi, "$1=[redacted]")
+      .replace(/(bearer\s+|Token\s+)[^\s,}]+/gi, "$1[redacted]"), max);
+  }
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => chatLiveDiagnosticValue(item, 300));
+  if (typeof value === "object") {
+    const out = {};
+    for (const [key, item] of Object.entries(value).slice(0, 40)) {
+      if (/key|token|secret|authorization|signature|credential|password/i.test(key)) out[key] = "[redacted]";
+      else if (/image_uri|imageUrl|avatarUrl|url/i.test(key) && typeof item === "string") out[key] = String(item).split("?")[0].slice(0, 300);
+      else out[key] = chatLiveDiagnosticValue(item, 500);
+    }
+    return out;
+  }
+  return value;
+}
+
+function chatLiveUpstreamSummary(payload = {}, status = 0) {
+  const live = payload?.live || payload || {};
+  return chatLiveDiagnosticValue({
+    httpStatus: Number(status || 0) || 0,
+    traceId: live.trace_id || payload.trace_id || payload.traceId || "",
+    liveId: live.id || "",
+    status: live.status || "",
+    callMode: live.call_mode || "",
+    model: live.model || "",
+    billedSeconds: live.billed_seconds,
+    creditsCost: live.credits_cost,
+    closeReason: live.close_reason || "",
+    rtc: payload.rtc ? { hasRtc: true, keys: Object.keys(payload.rtc).slice(0, 20) } : null,
+    keys: Object.keys(payload || {}).slice(0, 30),
+  }, 1800);
+}
+
+function chatLiveDiagnosticEvent(session = {}, event = {}) {
+  return {
+    at: event.at || new Date().toISOString(),
+    phase: String(event.phase || "runtime").slice(0, 32),
+    event: String(event.event || "event").slice(0, 48),
+    liveId: String(event.liveId || session.liveId || "").slice(0, 80),
+    traceId: String(event.traceId || session.upstreamTraceId || "").slice(0, 100),
+    data: chatLiveDiagnosticValue(event.data || {}, 1800),
+  };
+}
+
+function appendChatLiveDiagnostic(session = {}, event = {}) {
+  const prior = Array.isArray(session.diagnostics) ? session.diagnostics : [];
+  return [...prior, chatLiveDiagnosticEvent(session, event)].slice(-30);
 }
 
 function viduCreateIsTransient(error) {
@@ -6101,6 +6155,7 @@ async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 300
     logViduLiveFailure(error, {
       path: pathname,
       region: creds.region,
+      requestBody: pathname.startsWith("/live/") ? chatLiveDiagnosticValue(body, 1800) : undefined,
       ...(logMeta && typeof logMeta === "object" ? logMeta : {}),
     });
     return error;
@@ -6146,6 +6201,17 @@ async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 300
       error.statusCode = response.status === 401 || response.status === 403 ? 502 : response.status;
       error.code = payload?.reason || "VIDU_REQUEST_FAILED";
       throw fail(error);
+    }
+    if (pathname.startsWith("/live/")) {
+      console.info("[vidu-live-response]", JSON.stringify({
+        path: pathname,
+        method,
+        region: creds.region,
+        status: response.status,
+        elapsedMs: Date.now() - started,
+        request: chatLiveDiagnosticValue(body, 1800),
+        response: chatLiveUpstreamSummary(payload, response.status),
+      }));
     }
     return payload;
   } finally {
@@ -6868,6 +6934,8 @@ async function handleCreateChatLiveSession(req, res) {
       return sendChatLiveCreateError(res, error);
     }
     const now = new Date().toISOString();
+    const componentLive = upstream?.live || upstream || {};
+    const componentTraceId = String(componentLive.trace_id || upstream?.trace_id || componentLive.traceId || "").slice(0, 100);
     /* 启动服务端流水线：连 Vidu 外部 live 流，之后「用户话 → 我们的 LLM → TTS → 推流」 */
     const componentCreds = viduCredentialsForRegion(live.region);
     chatLiveComponent.startComponentSession({
@@ -6887,6 +6955,19 @@ async function handleCreateChatLiveSession(req, res) {
       mode: "component",
       ...chatLiveSessionIdentity(req, auth, character),
       clientSecret: String(upstream?.client_secret || ""),
+      upstreamTraceId: componentTraceId,
+      diagnostics: [chatLiveDiagnosticEvent({ liveId: String(componentLive.id || ""), upstreamTraceId: componentTraceId }, {
+        phase: "create",
+        event: "vidu_component_create",
+        traceId: componentTraceId,
+        liveId: String(componentLive.id || ""),
+        data: {
+          request: { path: "/live/s_avatar/component", method: "POST", body: { model: live.model, extra_motion: false, moderation: "disabled", image_uri: avatarImageUrl, rtc_info: { provider: "artc", app_id: ARTC_APP_ID, channel_id: channelId, user_id: pusherId } } },
+          response: chatLiveUpstreamSummary(upstream, 200),
+          balanceBeforeCreate: balance,
+          initialHold: { seconds: initialHold?.seconds || 0, credits: initialHold?.credits || 0 },
+        },
+      })],
       channel: { provider: "artc", appId: ARTC_APP_ID, channelId, pusherId },
       viduRegion: live.region === "cn" ? "cn" : "overseas",
       costCreditsPerMinute: live.costCreditsPerMinute,
@@ -6975,6 +7056,8 @@ async function handleCreateChatLiveSession(req, res) {
   }
 
   const now = new Date().toISOString();
+  const upstreamLive = upstream?.live || upstream || {};
+  const upstreamTraceId = String(upstreamLive.trace_id || upstream?.trace_id || upstreamLive.traceId || "").slice(0, 100);
   const session = await createChatLiveSessionInDb({
     id: initialSessionId,
     userId: auth.user.id,
@@ -6998,6 +7081,20 @@ async function handleCreateChatLiveSession(req, res) {
     holdSequence: initialHold?.holdSequence || 0,
     holdSettled: false,
     voiceProvider: upstream?.live?.voice_model?.provider || character.voiceProvider || "",
+    upstreamTraceId,
+    diagnostics: [chatLiveDiagnosticEvent({ liveId: String(upstreamLive.id || ""), upstreamTraceId }, {
+      phase: "create",
+      event: "vidu_create",
+      traceId: upstreamTraceId,
+      liveId: String(upstreamLive.id || ""),
+      data: {
+        request: { path: "/live/s_avatar/realtime", method: "POST", body: realtimeBody },
+        response: chatLiveUpstreamSummary(upstream, 200),
+        balanceBeforeCreate: balance,
+        initialHold: { seconds: initialHold?.seconds || 0, credits: initialHold?.credits || 0 },
+        balanceCheck: { requiredCredits: initialPrepaidSeconds > 0 ? chatLiveBlockCredits({ saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds) : 0, decision: "create_allowed" },
+      },
+    })],
     viduRegion: live.region === "cn" ? "cn" : "overseas",
     createdAt: now,
     updatedAt: now,
@@ -7134,7 +7231,11 @@ async function handleMarkChatLiveReady(req, res, sessionId = "") {
       SET payload = jsonb_set(payload, '{billableStartedAt}', to_jsonb($2::text), true), updated_at = NOW()
       WHERE id = $1 AND NOT (payload ? 'billableStartedAt') AND status NOT IN ('ended', 'closed', 'failed')
       RETURNING id`, [id, startedAt]);
-    if (result.rowCount) await appendChatLiveOperation(id, { id: `ready-${Date.now().toString(36)}`, action: "video_ready", phase: "success", success: true, message: "首个有效画面已到达", at: startedAt });
+    if (result.rowCount) {
+      await appendChatLiveOperation(id, { id: `ready-${Date.now().toString(36)}`, action: "video_ready", phase: "success", success: true, message: "首个有效画面已到达", at: startedAt });
+      const latest = await getChatLiveSessionInDb(id).catch(() => null);
+      if (latest) await updateChatLiveSessionInDb({ ...latest, diagnostics: appendChatLiveDiagnostic(latest, { phase: "first_frame", event: "video_ready", data: { source: "client", billableStartedAt: startedAt } }), updatedAt: new Date().toISOString() });
+    }
   }
   return sendJson(res, 200, { ok: true, billableStartedAt: (await getChatLiveSessionInDb(id))?.billableStartedAt || session.billableStartedAt });
 }
@@ -7157,6 +7258,18 @@ async function handleReportChatLiveOperation(req, res, sessionId = "") {
     kind: String(body?.kind || "").slice(0, 24),
     at: new Date().toISOString(),
   });
+  if (["rtc_subscribe", "client", "client_watch", "transport", "proxy_signal", "proxy_ack"].includes(String(body?.phase || ""))) {
+    const latest = await getChatLiveSessionInDb(id).catch(() => null);
+    if (latest) await updateChatLiveSessionInDb({
+      ...latest,
+      diagnostics: appendChatLiveDiagnostic(latest, {
+        phase: String(body?.phase || "runtime"),
+        event: String(body?.action || "operation"),
+        data: { success: body?.success, code: body?.code || "", message: body?.message || "", kind: body?.kind || "", details: body?.details || null },
+      }),
+      updatedAt: new Date().toISOString(),
+    });
+  }
   return sendJson(res, 200, { ok: true, operationId, operations });
 }
 
@@ -7198,6 +7311,14 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   const upstreamBilledSeconds = Math.max(0, Number(liveInfo.billed_seconds ?? session.upstreamBilledSeconds ?? session.billedSeconds ?? 0) || 0);
   const upstreamCredits = Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0);
   const latest = await getChatLiveSessionInDb(session.id).catch(() => null);
+  let diagnostics = Array.isArray(latest?.diagnostics || session.diagnostics) ? [...(latest?.diagnostics || session.diagnostics)] : [];
+  diagnostics = appendChatLiveDiagnostic({ ...session, ...latest }, {
+    phase: "settlement",
+    event: "vidu_final_status",
+    traceId: liveInfo.trace_id || detail?.trace_id || "",
+    liveId: session.liveId,
+    data: { response: chatLiveUpstreamSummary(detail, 200), terminalStatus, abandoned },
+  });
   const billableStartMs = Date.parse(latest?.billableStartedAt || session.billableStartedAt || "");
   const billableEndMs = Date.parse(session.endedAt || latest?.endedAt || "");
   const billableElapsedSeconds = Number.isFinite(billableStartMs)
@@ -7262,6 +7383,7 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
     clientEndReason: session.clientEndReason || latest?.clientEndReason || "",
     clientEndNote: session.clientEndNote || latest?.clientEndNote || "",
     issues,
+    diagnostics,
     endedAt: shouldFinalize ? (session.endedAt || latest?.endedAt || now) : (session.endedAt || latest?.endedAt || ""),
     updatedAt: now,
   });
@@ -7327,6 +7449,14 @@ async function monitorChatLiveSession(session = {}) {
   try {
     const detail = await viduLiveRequest('/live/v1/lives/' + encodeURIComponent(session.liveId), { timeoutMs: 12000, region: session.viduRegion || '' });
     const liveInfo = detail?.live || detail || {};
+    let diagnosticSession = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
+    let diagnostics = appendChatLiveDiagnostic(diagnosticSession, {
+      phase: "upstream_poll",
+      event: "vidu_live_status",
+      traceId: liveInfo.trace_id || detail?.trace_id || "",
+      liveId: session.liveId,
+      data: { response: chatLiveUpstreamSummary(detail, 200) },
+    });
     const upstreamSeconds = Math.max(0, Number(liveInfo.billed_seconds ?? 0) || 0);
     const liveStatus = String(liveInfo.status || "").toLowerCase();
     const liveStartedMs = Date.parse(session.createdAt || "");
@@ -7339,27 +7469,50 @@ async function monitorChatLiveSession(session = {}) {
     const observedLiveSeconds = Math.max(upstreamSeconds, wallLiveSeconds);
     const freeSeconds = Math.max(0, Number(session.freeSeconds || 0) || 0);
     const paidSeconds = Math.max(0, observedLiveSeconds - freeSeconds);
+    const auth = await chatLiveSettlementAuth(session.userId);
     if (freeSeconds > 0 && observedLiveSeconds < Math.max(0, freeSeconds - 15)) {
       const waiting = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
-      return await updateChatLiveSessionInDb({ ...waiting, upstreamBilledSeconds: upstreamSeconds, billedSeconds: upstreamSeconds, updatedAt: new Date().toISOString() });
+      return await updateChatLiveSessionInDb({ ...waiting, upstreamBilledSeconds: upstreamSeconds, billedSeconds: upstreamSeconds, diagnostics, updatedAt: new Date().toISOString() });
     }
     const target = Math.min(Math.max(0, Number(session.maxMinutes || 10) * 60), paidSeconds + CHAT_LIVE_BILLING_TARGET_SECONDS);
     let latest = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
+    diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
+      phase: "billing",
+      event: "balance_check",
+      data: {
+        observedLiveSeconds,
+        upstreamBilledSeconds: upstreamSeconds,
+        paidSeconds,
+        prepaidSeconds: latest.prepaidSeconds || 0,
+        prepaidCredits: latest.prepaidCredits || 0,
+        balance: Number(auth?.user?.credits || 0) || 0,
+        decision: "checking_renewal",
+      },
+    });
     if (!latest.billableStartedAt && upstreamSeconds > 0) latest.billableStartedAt = new Date().toISOString();
     latest.upstreamBilledSeconds = upstreamSeconds;
     latest.billedSeconds = upstreamSeconds;
     latest.billingObservedAt = new Date().toISOString();
     let prepaidSeconds = Math.max(0, Number(latest.prepaidSeconds || 0) || 0);
     let prepaidCredits = Math.max(0, Number(latest.prepaidCredits || 0) || 0);
-    const auth = await chatLiveSettlementAuth(latest.userId);
     while (auth && prepaidSeconds - paidSeconds <= 15 && prepaidSeconds < target) {
       const block = Math.min(CHAT_LIVE_BILLING_BLOCK_SECONDS, target - prepaidSeconds);
       try {
         const hold = await reserveChatLiveBlock(auth, latest, block);
+        diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
+          phase: "billing",
+          event: "prepaid_block_reserved",
+          data: { seconds: hold.seconds, credits: hold.credits, holdSequence: hold.holdSequence, balanceAfter: Number(auth?.user?.credits || 0) || 0 },
+        });
         prepaidSeconds += hold.seconds;
         prepaidCredits += hold.credits;
         latest.holdSequence = hold.holdSequence;
       } catch (error) {
+        diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
+          phase: "billing",
+          event: "prepaid_block_rejected",
+          data: { requestedSeconds: block, requestedCredits: chatLiveBlockCredits(latest, block), balance: Number(auth?.user?.credits || 0) || 0, error: error?.message || "" },
+        });
         latest.billingBlocked = true;
         latest.chargeError = error?.message || '积分不足，已停止续费';
         latest.endReason = 'insufficient_credits';
@@ -7367,6 +7520,7 @@ async function monitorChatLiveSession(session = {}) {
           ...latest,
           prepaidSeconds,
           prepaidCredits,
+          diagnostics,
           status: 'ended',
           settled: false,
           holdSettled: false,
@@ -7383,7 +7537,7 @@ async function monitorChatLiveSession(session = {}) {
     latest.prepaidCredits = prepaidCredits;
     latest.billingBlocked = paidSeconds >= prepaidSeconds && upstreamSeconds > 0;
     if (latest.billingBlocked) await closeChatLiveForInsufficientCredits(latest);
-    return await updateChatLiveSessionInDb({ ...latest, updatedAt: new Date().toISOString() });
+    return await updateChatLiveSessionInDb({ ...latest, diagnostics, updatedAt: new Date().toISOString() });
   } catch (error) {
     console.warn("[chat-live-billing-monitor-failed]", session.id, error?.message || error);
     return session;
@@ -7452,6 +7606,12 @@ async function handleReportChatLiveSessionIssue(req, res, sessionId = "") {
     const issues = mergeChatLiveIssues(base.issues, [issue]);
     if (JSON.stringify(normalizeChatLiveIssues(base.issues)) === JSON.stringify(issues)) break;
     await saveChatLiveSessionIssues(id, issues);
+    const diagnosticEntry = chatLiveDiagnosticEvent(base, {
+      phase: "client_watch",
+      event: code || "client_issue",
+      data: { message, code },
+    });
+    await updateChatLiveSessionInDb({ ...base, issues, diagnostics: [...(Array.isArray(base.diagnostics) ? base.diagnostics : []), diagnosticEntry].slice(-30), updatedAt: new Date().toISOString() });
     stored = true;
     const check = await getChatLiveSessionInDb(id);
     if (JSON.stringify(normalizeChatLiveIssues(check?.issues)) === JSON.stringify(mergeChatLiveIssues(check?.issues, [issue]))) break;
@@ -7629,6 +7789,7 @@ function publicAdminChatLiveSession(session = {}, extras = {}) {
     upstreamCredits: Math.max(0, Number(session.upstreamCredits || 0) || 0),
     upstreamStatus: sanitizeChatLiveDiagnosticText(session.upstreamStatus || "", 64),
     upstreamError: sanitizeChatLiveDiagnosticText(session.upstreamError || ""),
+    upstreamTraceId: String(session.upstreamTraceId || "").slice(0, 100),
     liveId: String(session.liveId || ""),
     model: String(session.model || ""),
     callMode: String(session.callMode || ""),
@@ -7636,6 +7797,7 @@ function publicAdminChatLiveSession(session = {}, extras = {}) {
     clientEndNote: sanitizeChatLiveDiagnosticText(session.clientEndNote || ""),
     issues: normalizeChatLiveIssues(session.issues),
     operations: normalizeChatLiveOperations(session.operations),
+    diagnostics: Array.isArray(session.diagnostics) ? session.diagnostics.slice(-30).map((item) => chatLiveDiagnosticValue(item, 2200)) : [],
     billableStartedAt: session.billableStartedAt || "",
     endReason: session.endReason || "",
     clientEndReason: session.clientEndReason || "",
