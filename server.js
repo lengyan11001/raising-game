@@ -6071,6 +6071,7 @@ function logViduLiveFailure(error, extra = {}) {
     model: sanitizeChatLiveDiagnosticText(extra.model || "", 40),
     callMode: sanitizeChatLiveDiagnosticText(extra.callMode || "", 16),
     requestBody: extra.requestBody || undefined,
+    responseBody: extra.responseBody || undefined,
   };
   console.warn("[vidu-live]", JSON.stringify(detail));
 }
@@ -6156,6 +6157,7 @@ async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 300
       path: pathname,
       region: creds.region,
       requestBody: pathname.startsWith("/live/") ? chatLiveDiagnosticValue(body, 1800) : undefined,
+      responseBody: pathname.startsWith("/live/") ? error?.upstreamPayload : undefined,
       ...(logMeta && typeof logMeta === "object" ? logMeta : {}),
     });
     return error;
@@ -6200,6 +6202,7 @@ async function viduLiveRequest(pathname, { method = "GET", body, timeoutMs = 300
       error.upstreamBytes = Buffer.byteLength(text || "");
       error.statusCode = response.status === 401 || response.status === 403 ? 502 : response.status;
       error.code = payload?.reason || "VIDU_REQUEST_FAILED";
+      error.upstreamPayload = chatLiveDiagnosticValue(payload, 1800);
       throw fail(error);
     }
     if (pathname.startsWith("/live/")) {
