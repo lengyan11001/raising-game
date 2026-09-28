@@ -36,6 +36,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /HUMAN CHAT DEFAULT/);
   assert.match(server, /real text-message conversation/);
   assert.match(server, /direct spoken message/);
+  assert.match(server, /NATURAL RHYTHM/);
+  assert.match(server, /Do not ask a question in every reply/);
+  assert.match(server, /正常 WeChat chat|normal private WeChat chat/);
   assert.match(server, /withoutStageDirections/);
   assert.match(server, /quoted\.slice\(0, 2\)/);
   assert.match(server, /function normalizeChatReply/);
