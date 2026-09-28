@@ -15700,9 +15700,17 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   const text = String(value || "").replace(/\r/g, "").trim();
   if (!text || expanded) return text;
   const compact = text.replace(/[\t ]*\n+[\t ]*/g, " ").replace(/[ ]{2,}/g, " ").trim();
-  const sentences = compact.match(/[^。！？.!?]+[。！？.!?]?/g) || [compact];
+  const quoted = [...compact.matchAll(/[“"]([^”"]+)[”"]/g)].map((match) => match[1].trim()).filter(Boolean);
+  if (quoted.length) return quoted.slice(0, 2).join(" ").slice(0, 180).trim();
+  const withoutStageDirections = compact
+    .replace(/\*[^*]+\*/g, "")
+    .replace(/（[^）]{1,80}）/g, "")
+    .replace(/\([^)]{1,80}\)/g, "")
+    .replace(/[ ]{2,}/g, " ")
+    .trim();
+  const sentences = withoutStageDirections.match(/[^。！？.!?]+[。！？.!?]?/g) || [withoutStageDirections];
   const short = sentences.slice(0, 3).join("").trim();
-  return short.slice(0, 240).trim();
+  return short.slice(0, 180).trim();
 }
 
 function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "") {
@@ -15722,17 +15730,17 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     ? "GREETING OVERRIDE (highest priority for this turn): The latest user message is only a greeting. Reply with one or two short, natural sentences acknowledging the greeting and optionally asking one neutral question about what they want to discuss. Do not continue, recap, or embellish the previous scene. Do not add physical contact, erotic or romantic escalation, stage directions, or new plot unless the user explicitly asks for it in a later message."
     : "";
   return [
-    `You are roleplaying as ${character.name || "the character"}.`,
-    `Character background: ${character.description || "Stay consistent with the established character."}`,
+    `You are ${character.name || "the character"} chatting with the user by text message.`,
+    `Character background (reference only): ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
     styleGuide,
     `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every dialogue line, narration sentence, and action beat in that language. Do not use English unless that is the requested language.`,
     latest ? `LATEST USER MESSAGE (answer this exact message first): ${latest}` : "",
     greetingOverride,
-    "HUMAN CHAT DEFAULT: Sound like a real person texting, not a novelist. Respond to what the user just said, keep one conversational thread, and stop once the point is answered.",
+    "HUMAN CHAT DEFAULT: This is a real text-message conversation, not a novel or roleplay transcript. Reply as the character's direct spoken message, like a person typing on a phone. Answer what the user just said, keep one conversational thread, and stop once the point is answered.",
     asksForExpandedScene
       ? "The user explicitly asked for an expanded scene. Keep it focused on that request, avoid unrelated plot, and never decide the user's actions for them."
-      : "Do not produce a long monologue, story chapter, recap, scene transition, list of alternatives, or several paragraphs of atmosphere. Do not add stage directions, inner thoughts, body-language inventories, physical contact, or erotic escalation unless the user's latest message explicitly asks for that.",
+      : "Do not produce a monologue, story chapter, recap, scene transition, or atmosphere. Do not use stage directions, asterisks, parentheses, inner thoughts, body-language inventories, quoted dialogue blocks, physical contact, or erotic escalation. Write only the direct chat message; even if the user is flirtatious, answer conversationally instead of narrating actions.",
     "TURN FOCUS: Answer the user's latest message first and make one clear immediate response or action. Do not introduce unrelated topics, characters, locations, backstory, or time jumps.",
     "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
     "End at a natural handoff that leaves room for the user to respond. Ask at most one focused question, and only when it fits the latest message.",

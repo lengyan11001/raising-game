@@ -34,7 +34,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /你好\|您好\|嗨\|哈喽\|哈啰/);
   assert.match(server, /啊\|呀\|哦\|喔/);
   assert.match(server, /HUMAN CHAT DEFAULT/);
-  assert.match(server, /not a novelist/);
+  assert.match(server, /real text-message conversation/);
+  assert.match(server, /direct spoken message/);
+  assert.match(server, /withoutStageDirections/);
+  assert.match(server, /quoted\.slice\(0, 2\)/);
   assert.match(server, /HUMAN CHAT DEFAULT/);
   assert.match(server, /not a novelist/);
   assert.match(server, /function normalizeChatReply/);
