@@ -104,6 +104,11 @@ test("Seedance 2.5 keeps its engine everywhere but loses the NSFW wording", () =
   assert.match(ui, /return advancedEngineOptionExists\(resolved\) \? resolved : DEFAULT_ADVANCED_PROVIDER;/);
 });
 
+test("stale Seedance submissions include the direct NSFW provider", () => {
+  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", "aliyun-wan30"/);
+  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER/);
+});
+
 test("Playflux image templates resolve prompts on the server", () => {
   assert.match(server, /function findImageEditTemplate\(config = \{}, templateId = ""\)/);
   assert.match(server, /function imageEditPromptFromTemplate\(template = \{\}, \{ sourceImageCount = 0/);
