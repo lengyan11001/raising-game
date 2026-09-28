@@ -48,6 +48,10 @@
     visibilityReturnedAt: 0,
     lookVideoRecoveryTimer: 0,
     videoRecoveryPending: false,
+    forceFreshRtc: false,
+    overlayControlsBound: false,
+    unloadGuardBound: false,
+    lookSwitching: false,
   };
 
   const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
@@ -270,6 +274,26 @@
       const done = engine.destroy?.();
       if (done && typeof done.then === "function") await done;
     } catch {}
+    /* ARTC destroy is asynchronous even when the Web SDK method returns void.
+       Do not immediately reuse the singleton: a switch must get a genuinely
+       released engine, otherwise the new session can stop at subscribe 0->2. */
+    await new Promise((resolve) => window.setTimeout(resolve, 450));
+  }
+
+  async function freshRtcEngine() {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        const create = window.AliRtcEngine?.createInstance;
+        if (typeof create === "function") {
+          const created = await create.call(window.AliRtcEngine);
+          if (created) return created;
+        }
+        const engine = window.AliRtcEngine?.getInstance?.();
+        if (engine) return engine;
+      } catch {}
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    }
+    throw new Error("实时音视频组件仍在释放，请稍后重试。");
   }
 
   function loadRtcSdk() {
@@ -863,6 +887,11 @@
     state.lastFrameAt = now;
     state.videoFixes = 0;
     state.seenPicture = true;
+    if (state.lookSwitching) {
+      state.lookSwitching = false;
+      finishLookSwitchingUi();
+      appendLine("sys", "已切换到 Undress 画面。");
+    }
     if (state.videoRecoveryPending) {
       state.videoRecoveryPending = false;
       reportVideoDiagnostic("video_recovery_frame", true, "recovered", videoDiagnosticDetails({ recoveredAt: now }));
@@ -953,7 +982,8 @@
     const supported = await window.AliRtcEngine.isSupported();
     if (!supported?.support) throw new Error(`当前浏览器不支持实时通话（${supported?.reason || "unknown"}）`);
     window.AliRtcEngine.setLogLevel(0);
-    const engine = window.AliRtcEngine.getInstance();
+    const engine = state.forceFreshRtc ? await freshRtcEngine() : window.AliRtcEngine.getInstance();
+    state.forceFreshRtc = false;
     state.engine = engine;
     resumeRtcClock();
     engine.on("bye", (code) => scheduleRtcRecover("bye", code));
@@ -1043,7 +1073,7 @@
     }
   }
 
-  async function finishSession(reason = "user_end", note = "") {
+  async function finishSession(reason = "user_end", note = "", options = {}) {
     if (state.ended) return;
     state.ended = true;
     pauseRtcClock();
@@ -1068,7 +1098,7 @@
     state.ws = null;
     await releaseRtc();
     const settled = sessionId ? await endSessionRequest(sessionId, reason, diagnosticNote) : null;
-    if (state.overlay) {
+    if (state.overlay && options.keepOverlay !== true) {
       setStageStatus("已结束", "");
       if (settled) {
         const seconds = Number(settled.billedSeconds || 0);
@@ -1157,6 +1187,7 @@
     if (state.overlay?.restoreOverflow !== undefined) document.body.style.overflow = state.overlay.restoreOverflow;
     state.overlay?.root?.remove();
     state.overlay = null;
+    state.overlayControlsBound = false;
     state.session = null;
     state.character = null;
     state.ended = false;
@@ -1403,6 +1434,33 @@
     state.overlay.picker = picker;
   }
 
+  function setLookSwitchingUi(text = "正在换衣服…") {
+    const overlay = state.overlay;
+    if (!overlay) return;
+    overlay.badge.hidden = false;
+    overlay.badge.textContent = `● ${text}`;
+    overlay.badge.style.color = "#fbbf24";
+    overlay.callLabel.textContent = text;
+    overlay.callDetail.textContent = state.character?.name || "";
+    overlay.lookRail?.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    overlay.sendBtn.disabled = true;
+    overlay.muteBtn.disabled = true;
+    overlay.voiceBtn.disabled = true;
+    overlay.hangBtn.disabled = true;
+  }
+
+  function finishLookSwitchingUi() {
+    const overlay = state.overlay;
+    if (!overlay) return;
+    overlay.badge.hidden = true;
+    overlay.badge.textContent = "";
+    overlay.sendBtn.disabled = false;
+    overlay.muteBtn.disabled = false;
+    overlay.voiceBtn.disabled = false;
+    overlay.hangBtn.disabled = false;
+    syncLookRail();
+  }
+
   async function toggleUndress() {
     if (!state.overlay || state.ended || state.lookBusy) return;
     const imageUrl = String(state.character?.undressImageUrl || "");
@@ -1421,16 +1479,19 @@
         return;
       }
       const oldSessionId = state.session?.id || "";
-      appendLine("sys", "正在结束当前画面连接，使用 Undress 图片重新连接…");
-      await reportChatLiveOperation({ id: `look-${Date.now().toString(36)}`, action: "undress", phase: "reconnect_start", success: null, kind: "garment", message: "Undress 改用新连接；旧连接即将释放" });
+      appendLine("sys", "正在换衣服，画面会保持在当前窗口…");
+      setLookSwitchingUi("正在换衣服…");
+      state.lookSwitching = true;
+      await reportChatLiveOperation({ id: `look-${Date.now().toString(36)}`, action: "undress", phase: "reconnect_start", success: null, kind: "garment", message: "Undress 改用全新连接；界面保持不变" });
       const requested = { ...(state.character || {}), id: state.character?.id || "" };
-      await finishSession("look_reconnect", "Undress 使用新图片重新建立连接");
-      closeOverlay();
-      await open(requested, { avatarMode: "undress", replaceSessionId: oldSessionId });
+      await finishSession("look_reconnect", "Undress 使用新图片重新建立连接", { keepOverlay: true });
+      state.forceFreshRtc = true;
+      const switched = await open(requested, { avatarMode: "undress", replaceSessionId: oldSessionId, preserveOverlay: true, freshRtc: true });
+      if (!switched || !state.engine) throw new Error("新的画面连接没有建立，请再试一次。");
       state.lookStack = ["undress"];
-      syncLookRail();
-      appendLine("sys", "已使用 Undress 图片建立新连接。");
     } catch (error) {
+      state.lookSwitching = false;
+      finishLookSwitchingUi();
       if (state.ended) return;
       appendLine("sys", error.message || "画面切换失败，请再试一次。");
     }
@@ -1439,6 +1500,7 @@
   async function open(characterId, openOptions = {}) {
     try { await loadConfig(true); } catch {}
     const requested = typeof characterId === "object" ? characterId : null;
+    const preserveOverlay = openOptions.preserveOverlay === true && Boolean(state.overlay);
     const character = characterById(requested?.id || characterId) || requested;
     if (!character) throw new Error("角色不存在。");
     if (!authToken()) throw new Error("请先登录再开始在线聊天。");
@@ -1464,8 +1526,11 @@
     state.lookOperation = null;
     state.billableStartedAt = 0;
     state.lookStack = [];
+    state.forceFreshRtc = openOptions.freshRtc === true || state.forceFreshRtc === true;
     state.connId = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    buildOverlay(character);
+    if (!preserveOverlay) buildOverlay(character);
+    const overlay = state.overlay;
+    if (!state.overlayControlsBound) {
     state.overlay.lookRail?.querySelectorAll("[data-look-kind]").forEach((button) => {
       button.addEventListener("click", () => {
         const kind = button.dataset.lookKind || "";
@@ -1477,7 +1542,6 @@
       });
     });
     syncLookRail();
-    const overlay = state.overlay;
     overlay.hangBtn.onclick = () => finishSession("user_end");
     overlay.closeBtn.onclick = async () => {
       overlay.closeBtn.disabled = true;
@@ -1527,6 +1591,17 @@
       const ok = await setMicPublished(!state.micOn);
       if (!ok) appendLine("sys", "麦克风没打开。请允许浏览器使用麦克风，或改用文字。");
     };
+    state.overlayControlsBound = true;
+    }
+
+    if (preserveOverlay) {
+      overlay.placeholder.classList.remove("is-failed");
+      overlay.callLabel.textContent = "正在换衣服…";
+      overlay.callDetail.textContent = character.name || "";
+      overlay.badge.hidden = false;
+      overlay.badge.textContent = "● 正在换衣服…";
+      overlay.badge.style.color = "#fbbf24";
+    }
 
     let payload;
     try {
@@ -1550,7 +1625,7 @@
       };
     }
     syncLookRail();
-    bindUnloadGuard();
+    if (!state.unloadGuardBound) { bindUnloadGuard(); state.unloadGuardBound = true; }
     startTimer();
     startVideoWatch();
     try {

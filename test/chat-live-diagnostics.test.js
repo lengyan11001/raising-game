@@ -54,3 +54,13 @@ test("chat live retains upstream trace, request, response, billing, and RTC diag
   assert.match(client, /video_recovery_request/);
   assert.match(client, /video_recovery_frame/);
 });
+
+test("Undress replacement keeps the overlay but releases RTC before a fresh session", () => {
+  assert.match(client, /finishSession\("look_reconnect", "Undress 使用新图片重新建立连接", \{ keepOverlay: true \}\)/);
+  assert.match(client, /replaceSessionId: oldSessionId/);
+  assert.match(client, /preserveOverlay: true, freshRtc: true/);
+  assert.match(client, /await new Promise\(\(resolve\) => window\.setTimeout\(resolve, 450\)\)/);
+  assert.match(client, /createInstance/);
+  assert.match(client, /正在换衣服/);
+  assert.match(client, /videoRecoveryPending/);
+});
