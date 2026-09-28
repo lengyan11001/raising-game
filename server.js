@@ -15681,7 +15681,18 @@ function chatResponseLanguage(value = "") {
   })[normalized] || "English";
 }
 
-function chatSystemPrompt(conversation = {}, language = "") {
+function isSimpleChatGreeting(value = "") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[!！?？。,，、.~～\s]+/g, "");
+  return [
+    "你好", "您好", "嗨", "哈喽", "哈啰", "嘿", "早上好", "早安", "午安", "晚安",
+    "hello", "hi", "hey", "goodmorning", "goodafternoon", "goodevening",
+  ].includes(normalized);
+}
+
+function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "") {
   const character = conversation.character || {};
   const pinnedMemory = String(conversation.memory || "").trim().slice(0, 2000);
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
@@ -15692,12 +15703,18 @@ function chatSystemPrompt(conversation = {}, language = "") {
     concise: "Keep replies short and direct while staying in character: 1-3 short paragraphs.",
     cinematic: "Write a focused cinematic beat with clear dialogue and limited action: 2-4 short paragraphs.",
   }[conversation.style] || "Keep replies conversational, vivid, and concise.";
+  const latest = String(latestUserMessage || "").trim().slice(0, 1600);
+  const greetingOverride = isSimpleChatGreeting(latest)
+    ? "GREETING OVERRIDE (highest priority for this turn): The latest user message is only a greeting. Reply with one or two short, natural sentences acknowledging the greeting and optionally asking one neutral question about what they want to discuss. Do not continue, recap, or embellish the previous scene. Do not add physical contact, erotic or romantic escalation, stage directions, or new plot unless the user explicitly asks for it in a later message."
+    : "";
   return [
     `You are roleplaying as ${character.name || "the character"}.`,
     `Character background: ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
     styleGuide,
     `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every dialogue line, narration sentence, and action beat in that language. Do not use English unless that is the requested language.`,
+    latest ? `LATEST USER MESSAGE (answer this exact message first): ${latest}` : "",
+    greetingOverride,
     "TURN FOCUS: Answer the user's latest message first and make one clear immediate response or action. Do not introduce unrelated topics, characters, locations, backstory, or time jumps.",
     "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
     "End at a natural handoff that leaves room for the user to respond. Ask at most one focused question, and only when it fits the latest message.",
@@ -15910,11 +15927,16 @@ async function handleSendChatMessage(req, res, conversationId) {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
     const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: String(message.content || "") }));
     if (action === "continue") messages.push({ role: "user", content });
+    const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || content;
+    const simpleGreeting = isSimpleChatGreeting(latestUserMessage);
+    const modelMessages = simpleGreeting
+      ? [{ role: "user", content: latestUserMessage }]
+      : messages;
     const raw = await byteplusLanguageRequest({
       model: BYTEPLUS_LANGUAGE_MODEL,
-      messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage) }, ...messages],
-      temperature: 0.72,
-      max_tokens: 720,
+      messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage, latestUserMessage) }, ...modelMessages],
+      temperature: simpleGreeting ? 0.45 : 0.72,
+      max_tokens: simpleGreeting ? 180 : 720,
     });
     const reply = qwen37FlashResponseText(raw);
     if (!reply) throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });

@@ -24,10 +24,16 @@ test("character chat persists user-scoped conversations and messages in PostgreS
 test("character chat uses the BytePlus language endpoint with roleplay context and billing", () => {
   assert.match(server, /CHAT_MESSAGE_CREDITS/);
   assert.match(server, /model: BYTEPLUS_LANGUAGE_MODEL/);
-  assert.match(server, /chatSystemPrompt\(conversation, responseLanguage\)/);
+  assert.match(server, /chatSystemPrompt\(conversation, responseLanguage, latestUserMessage\)/);
   assert.match(server, /chatResponseLanguage/);
   assert.match(server, /IMPORTANT LANGUAGE RULE/);
   assert.match(server, /TURN FOCUS/);
+  assert.match(server, /GREETING OVERRIDE/);
+  assert.match(server, /LATEST USER MESSAGE/);
+  assert.match(server, /isSimpleChatGreeting/);
+  assert.match(server, /temperature: simpleGreeting \? 0\.45 : 0\.72/);
+  assert.match(server, /max_tokens: simpleGreeting \? 180 : 720/);
+  assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
   assert.match(server, /temperature: 0\.72/);
   assert.match(server, /max_tokens: 720/);
