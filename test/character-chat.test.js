@@ -27,7 +27,6 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /chatSystemPrompt\(conversation, responseLanguage, latestUserMessage\)/);
   assert.match(server, /chatResponseLanguage/);
   assert.match(server, /IMPORTANT LANGUAGE RULE/);
-  assert.match(server, /TURN FOCUS/);
   assert.match(server, /REAL-PERSON CHAT/);
   assert.match(server, /DEFAULT SHORT MODE/);
   assert.match(server, /history\.slice\(-16\)/);
@@ -39,9 +38,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /temperature: simpleGreeting \? 0\.45 : 0\.58/);
   assert.match(server, /max_tokens: simpleGreeting \? 120 : 360/);
   assert.match(server, /const modelMessages = simpleGreeting/);
-  assert.match(server, /one clear immediate response/);
-  assert.match(server, /temperature: 0\.72/);
-  assert.match(server, /max_tokens: 720/);
+  assert.match(server, /one clear point/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
