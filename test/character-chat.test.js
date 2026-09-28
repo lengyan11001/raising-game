@@ -43,7 +43,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /quoted\.slice\(0, 2\)/);
   assert.match(server, /function normalizeChatReply/);
   assert.match(server, /sentences\.slice\(0, 3\)/);
-  assert.match(server, /short\.slice\(0, 240\)/);
+  assert.match(server, /short\.slice\(0, 180\)/);
   assert.match(server, /temperature: simpleGreeting \? 0\.45 : expandedScene \? 0\.68 : 0\.62/);
   assert.match(server, /max_tokens: simpleGreeting \? 180 : expandedScene \? 720 : 300/);
   assert.match(server, /const modelMessages = simpleGreeting/);
