@@ -123,7 +123,41 @@
   function usdtQrUrl(value) { return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(value)}`; }
   async function createUnlockUsdtOrder() { const message = unlockDialog.querySelector("[data-unlock-message]"); const panel = unlockDialog.querySelector("[data-unlock-usdt-payment]"); message.textContent = "Creating USDT order..."; panel.hidden = false; panel.innerHTML = "<span>Loading secure USDT payment...</span>"; try { const result = await api("/api/pay/orders", { method:"POST", body:JSON.stringify({ packageId: unlockPackageId }) }); const order = result.order || {}; const amount = order.payableAmountText || order.payableAmount || order.amount || ""; const asset = order.asset || "USDT"; const network = order.network || "TRC20"; const address = order.address || ""; panel.innerHTML = `<strong>Pay exactly ${esc(amount)} ${esc(asset)}</strong><small>Network: ${esc(network)}</small>${address ? `<img src="${esc(usdtQrUrl(`${asset}:${address}?amount=${amount}`))}" alt="USDT QR" /><code>${esc(address)}</code>` : ""}<input data-unlock-tx-hash placeholder="Transaction hash" /><button type="button" data-unlock-confirm>I've paid, confirm transaction</button>`; panel.querySelector("[data-unlock-confirm]")?.addEventListener("click", async () => { const hash = panel.querySelector("[data-unlock-tx-hash]")?.value || ""; if (!hash.trim()) { message.textContent = "Enter the transaction hash first."; return; } try { await api(`/api/pay/orders/${encodeURIComponent(order.id)}/confirm`, { method:"POST", body:JSON.stringify({ confirmationHash:hash.trim(), transactionHash:hash.trim() }) }); message.textContent = "Payment submitted. Credits will be added after confirmation."; } catch (error) { message.textContent = error.message; } }); message.textContent = "Send USDT using the exact amount, then submit the transaction hash."; } catch (error) { panel.innerHTML = ""; message.textContent = error.message; } }
   async function load() { try { const result = await api("/api/config/public"); state.config = result.config; state.characters = result.config?.homeVideo?.items || []; const token = getToken(); if (token) { try { const me = await api("/api/auth/me"); state.user = me.user; document.querySelector("[data-account-label]").textContent = me.user?.username || me.user?.email || "My Account"; } catch {} } if (!showOnboarding()) route(); } catch (error) { app.innerHTML = `<div class="empty-state">Unable to load models: ${esc(error.message)}</div>`; } }
-  function route() { const match = location.hash.match(/^#model\/(.+)$/); if (match) { const id = decodeURIComponent(match[1]); const item = state.characters.find((entry) => String(entry.id) === id); if (item) return renderDetail(item); } renderModels(); }
+  let standaloneChatRenderToken = 0;
+  function chatText(value) { return esc(value).replace(/\*([^*\n]+)\*/g, "<em>$1</em>").replace(/\n/g, "<br>"); }
+  function standaloneChatMessage(message = {}) {
+    const assistant = message.role !== "user";
+    return `<article class="standalone-chat-message ${assistant ? "is-assistant" : "is-user"}"><div class="standalone-chat-bubble">${chatText(message.content || "")}</div></article>`;
+  }
+  async function renderStandaloneChat(conversationId) {
+    const renderToken = ++standaloneChatRenderToken;
+    app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-loading">Loading conversation…</div></section>`;
+    try {
+      const payload = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+      if (renderToken !== standaloneChatRenderToken) return;
+      const conversation = payload.conversation || {};
+      const character = conversation.character || {};
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      const avatar = imageFor(character);
+      app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-shell"><button class="back-link standalone-chat-back" type="button" data-chat-back>← Back to ${esc(character.name || "models")}</button><header class="standalone-chat-heading"><img src="${esc(avatar)}" alt="${esc(character.name || "Character")}" /><div><span class="eyebrow">PRIVATE CHAT</span><h1>${esc(conversation.title || character.name || "Chat")}</h1><p>${esc(character.title || character.summary || "A focused conversation with your selected creator.")}</p></div></header><div class="standalone-chat-thread" data-chat-thread>${messages.length ? messages.map(standaloneChatMessage).join("") : `<p class="empty-state">Start the conversation below.</p>`}</div><form class="standalone-chat-composer" data-chat-composer><textarea name="content" rows="2" maxlength="12000" placeholder="Write a message…" required></textarea><button class="solid-button" type="submit">Send</button><div class="standalone-chat-error" data-chat-error role="alert"></div></form></div></section>`;
+      app.querySelector("[data-chat-back]")?.addEventListener("click", () => { location.hash = `model/${encodeURIComponent(conversation.characterId || character.id || "")}`; });
+      const thread = app.querySelector("[data-chat-thread]"); if (thread) thread.scrollTop = thread.scrollHeight;
+      app.querySelector("[data-chat-composer]")?.addEventListener("submit", (event) => sendStandaloneChatMessage(event, conversationId));
+    } catch (error) {
+      if (renderToken !== standaloneChatRenderToken) return;
+      app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-shell"><button class="back-link standalone-chat-back" type="button" data-chat-back>← Back to models</button><div class="empty-state">${esc(error.message || "Unable to load this conversation.")}</div></div></section>`;
+      app.querySelector("[data-chat-back]")?.addEventListener("click", () => { location.hash = "models"; });
+    }
+  }
+  async function sendStandaloneChatMessage(event, conversationId) {
+    event.preventDefault();
+    const form = event.currentTarget; const input = form.elements.content; const button = form.querySelector("button[type=submit]"); const errorNode = form.querySelector("[data-chat-error]");
+    const content = String(input.value || "").trim(); if (!content) return;
+    input.disabled = true; button.disabled = true; button.textContent = "Thinking…"; if (errorNode) errorNode.textContent = "";
+    try { await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, { method: "POST", body: JSON.stringify({ content, action: "send", language: navigator.language || "en" }) }); await renderStandaloneChat(conversationId); }
+    catch (error) { input.disabled = false; button.disabled = false; button.textContent = "Send"; if (errorNode) errorNode.textContent = error.message || "Chat failed."; }
+  }
+  function route() { const chatMatch = location.hash.match(/^#chat\/(.+)$/); if (chatMatch) return renderStandaloneChat(decodeURIComponent(chatMatch[1])); const match = location.hash.match(/^#model\/(.+)$/); if (match) { const id = decodeURIComponent(match[1]); const item = state.characters.find((entry) => String(entry.id) === id); if (item) return renderDetail(item); } renderModels(); }
   document.addEventListener("click", (event) => { const action = event.target.closest("[data-action]")?.dataset.action; if (action === "models") { location.hash = "models"; route(); } if (action === "categories") { document.querySelector("[data-search]")?.focus(); } if (action === "account") { if (getToken()) { localStorage.removeItem(TOKEN_KEY); location.reload(); } else loginDialog.showModal(); } if (action === "theme") { document.body.classList.toggle("dark"); } if (action === "email-login") { loginDialog.close(); emailDialog.showModal(); } if (action === "request-email") requestEmailCode(); });
   document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", (event) => { event.preventDefault(); button.closest("dialog")?.close(); }));
   document.querySelector("[data-login-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const message = form.querySelector("[data-login-message]"); try { const result = await api("/api/auth/login-or-register", { method:"POST", body:JSON.stringify({ username:form.username.value.trim(), password:form.password.value }) }); localStorage.setItem(TOKEN_KEY, result.token); loginDialog.close(); location.reload(); } catch (error) { message.textContent = error.message; } });

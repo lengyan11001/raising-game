@@ -15683,11 +15683,14 @@ function chatResponseLanguage(value = "") {
 
 function chatSystemPrompt(conversation = {}, language = "") {
   const character = conversation.character || {};
+  const pinnedMemory = String(conversation.memory || "").trim().slice(0, 2000);
+  const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
+  const tracker = plainObject(conversation.tracker);
   const styleGuide = {
-    balanced: "Keep replies conversational, vivid, and concise.",
-    immersive: "Write immersive roleplay with sensory detail and distinct character voice.",
-    concise: "Keep replies short and direct while staying in character.",
-    cinematic: "Write cinematic scenes with action, atmosphere, and clear dialogue.",
+    balanced: "Keep replies conversational, vivid, and concise: 2-4 short paragraphs.",
+    immersive: "Write immersive roleplay with selective sensory detail and a distinct character voice: 2-5 short paragraphs.",
+    concise: "Keep replies short and direct while staying in character: 1-3 short paragraphs.",
+    cinematic: "Write a focused cinematic beat with clear dialogue and limited action: 2-4 short paragraphs.",
   }[conversation.style] || "Keep replies conversational, vivid, and concise.";
   return [
     `You are roleplaying as ${character.name || "the character"}.`,
@@ -15695,10 +15698,13 @@ function chatSystemPrompt(conversation = {}, language = "") {
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
     styleGuide,
     `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every dialogue line, narration sentence, and action beat in that language. Do not use English unless that is the requested language.`,
-    "Stay in character. Advance the scene naturally. Use first-person dialogue and italicized action beats when useful.",
-    "Never claim to be an AI, never write the user's actions or decisions for them, and do not repeat the same passage.",
-    conversation.memory ? `Pinned memory: ${conversation.memory}` : "",
-    conversation.instructions ? `User instructions: ${conversation.instructions}` : "",
+    "TURN FOCUS: Answer the user's latest message first and make one clear immediate response or action. Do not introduce unrelated topics, characters, locations, backstory, or time jumps.",
+    "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
+    "End at a natural handoff that leaves room for the user to respond. Ask at most one focused question, and only when it fits the latest message.",
+    "Never claim to be an AI, break character, or repeat a previous passage.",
+    Object.keys(tracker).length ? `Current scene state (preserve unless the user changes it): ${JSON.stringify(tracker).slice(0, 3000)}` : "",
+    pinnedMemory ? `Pinned memory (use only when relevant): ${pinnedMemory}` : "",
+    userInstructions ? `User preferences (follow when compatible with the current request): ${userInstructions}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -15907,8 +15913,8 @@ async function handleSendChatMessage(req, res, conversationId) {
     const raw = await byteplusLanguageRequest({
       model: BYTEPLUS_LANGUAGE_MODEL,
       messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage) }, ...messages],
-      temperature: 0.9,
-      max_tokens: 1200,
+      temperature: 0.72,
+      max_tokens: 720,
     });
     const reply = qwen37FlashResponseText(raw);
     if (!reply) throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });

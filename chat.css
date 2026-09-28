@@ -33,6 +33,24 @@ button { cursor:pointer; }
 .country-badge { left:12px; background:#fff; }
 .free-badge { right:12px; color:#fff; background:var(--green); }
 .empty-state { grid-column:1/-1; padding:80px 20px; color:var(--muted); text-align:center; }
+.standalone-chat-page { padding:32px 24px 72px; }
+.standalone-chat-shell { max-width:900px; margin:0 auto; }
+.standalone-chat-back { border:0; background:transparent; padding:0; cursor:pointer; }
+.standalone-chat-heading { display:flex; align-items:center; gap:18px; margin:10px 0 22px; padding:22px; border:1px solid var(--line); border-radius:20px; background:var(--surface); }
+.standalone-chat-heading img { width:72px; height:72px; border-radius:18px; object-fit:cover; background:#eef0f6; }
+.standalone-chat-heading h1 { margin:4px 0 3px; font-size:28px; }
+.standalone-chat-heading p { margin:0; color:var(--muted); }
+.standalone-chat-thread { display:flex; flex-direction:column; gap:12px; min-height:360px; max-height:58vh; overflow:auto; padding:22px; border:1px solid var(--line); border-radius:20px; background:var(--soft); }
+.standalone-chat-message { display:flex; max-width:82%; }
+.standalone-chat-message.is-user { align-self:flex-end; }
+.standalone-chat-bubble { padding:11px 14px; border-radius:16px 16px 16px 4px; color:var(--ink); background:#fff; box-shadow:0 2px 8px rgba(16,24,40,.06); white-space:normal; overflow-wrap:anywhere; }
+.standalone-chat-message.is-user .standalone-chat-bubble { border-radius:16px 16px 4px 16px; color:#fff; background:#111827; }
+.standalone-chat-composer { display:grid; grid-template-columns:1fr auto; gap:10px; margin-top:14px; }
+.standalone-chat-composer textarea { min-width:0; resize:vertical; padding:12px 14px; border:1px solid var(--line); border-radius:14px; color:var(--ink); background:#fff; outline:none; }
+.standalone-chat-composer textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(95,92,232,.12); }
+.standalone-chat-composer .solid-button { min-height:48px; align-self:end; }
+.standalone-chat-error { grid-column:1/-1; min-height:20px; color:#d92d20; }
+.standalone-chat-loading { padding:100px 20px; color:var(--muted); text-align:center; }
 .detail-page { padding:32px 24px 80px; }
 .detail-shell { max-width:1190px; margin:0 auto; }
 .back-link { display:inline-flex; margin-bottom:18px; color:var(--muted); text-decoration:none; }

@@ -12,6 +12,7 @@ const db = read("db.js");
 const html = read("platform.html");
 const loader = read("platform.js");
 const chat = read("platform.chat.js");
+const standaloneChat = read("chat.js");
 
 test("character chat persists user-scoped conversations and messages in PostgreSQL", () => {
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_chat_conversations/);
@@ -26,10 +27,22 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /chatSystemPrompt\(conversation, responseLanguage\)/);
   assert.match(server, /chatResponseLanguage/);
   assert.match(server, /IMPORTANT LANGUAGE RULE/);
+  assert.match(server, /TURN FOCUS/);
+  assert.match(server, /one clear immediate response/);
+  assert.match(server, /temperature: 0\.72/);
+  assert.match(server, /max_tokens: 720/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
   assert.match(server, /\/api\/chat\/conversations/);
+});
+
+test("standalone chat opens the created conversation and sends messages", () => {
+  assert.match(standaloneChat, /location\.hash\.match\(\/\^#chat\\\//);
+  assert.match(standaloneChat, /api\(`\/api\/chat\/conversations\/\$\{encodeURIComponent\(conversationId\)\}`\)/);
+  assert.match(standaloneChat, /\/messages`/);
+  assert.match(standaloneChat, /data-chat-composer/);
+  assert.match(standaloneChat, /renderStandaloneChat\(conversationId\)/);
 });
 
 test("chat UI exposes the three-pane workflow and character entry point", () => {
