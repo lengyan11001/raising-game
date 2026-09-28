@@ -15692,13 +15692,26 @@ function isSimpleChatGreeting(value = "") {
     || /^(goodmorning|goodafternoon|goodevening)$/i.test(normalized);
 }
 
+function chatWantsExpandedScene(value = "") {
+  return /(?:继续(?:剧情|这个场景)|详细(?:描述|写)|展开写|沉浸式|描写一下|写长一点|roleplay|in character|describe the scene|continue the scene)/i.test(String(value || ""));
+}
+
+function normalizeChatReply(value = "", { expanded = false } = {}) {
+  const text = String(value || "").replace(/\r/g, "").trim();
+  if (!text || expanded) return text;
+  const compact = text.replace(/[\t ]*\n+[\t ]*/g, " ").replace(/[ ]{2,}/g, " ").trim();
+  const sentences = compact.match(/[^。！？.!?]+[。！？.!?]?/g) || [compact];
+  const short = sentences.slice(0, 3).join("").trim();
+  return short.slice(0, 240).trim();
+}
+
 function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "") {
   const character = conversation.character || {};
   const pinnedMemory = String(conversation.memory || "").trim().slice(0, 2000);
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
   const tracker = plainObject(conversation.tracker);
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
-  const asksForExpandedScene = /(?:继续(?:剧情|这个场景)|详细(?:描述|写)|展开写|沉浸式|描写一下|写长一点|roleplay|in character|describe the scene|continue the scene)/i.test(latest);
+  const asksForExpandedScene = chatWantsExpandedScene(latest);
   const styleGuide = {
     balanced: "Use natural everyday conversation: usually 1-4 short sentences, one compact paragraph.",
     immersive: asksForExpandedScene ? "Use restrained roleplay with selective sensory detail: at most 2 short paragraphs." : "Use natural everyday conversation: usually 1-4 short sentences, one compact paragraph.",
@@ -15934,16 +15947,17 @@ async function handleSendChatMessage(req, res, conversationId) {
     if (action === "continue") messages.push({ role: "user", content });
     const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || content;
     const simpleGreeting = isSimpleChatGreeting(latestUserMessage);
+    const expandedScene = chatWantsExpandedScene(latestUserMessage);
     const modelMessages = simpleGreeting
       ? [{ role: "user", content: latestUserMessage }]
       : messages;
     const raw = await byteplusLanguageRequest({
       model: BYTEPLUS_LANGUAGE_MODEL,
       messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage, latestUserMessage) }, ...modelMessages],
-      temperature: simpleGreeting ? 0.45 : 0.62,
-      max_tokens: simpleGreeting ? 180 : 420,
+      temperature: simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62,
+      max_tokens: simpleGreeting ? 180 : expandedScene ? 720 : 300,
     });
-    const reply = qwen37FlashResponseText(raw);
+    const reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     if (!reply) throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });
     const now = new Date().toISOString();
     const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
