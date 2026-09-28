@@ -31,6 +31,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /GREETING OVERRIDE/);
   assert.match(server, /LATEST USER MESSAGE/);
   assert.match(server, /isSimpleChatGreeting/);
+  assert.match(server, /你好\|您好\|嗨\|哈喽\|哈啰/);
+  assert.match(server, /啊\|呀\|哦\|喔/);
   assert.match(server, /temperature: simpleGreeting \? 0\.45 : 0\.72/);
   assert.match(server, /max_tokens: simpleGreeting \? 180 : 720/);
   assert.match(server, /const modelMessages = simpleGreeting/);

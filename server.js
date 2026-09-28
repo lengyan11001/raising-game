@@ -15686,10 +15686,10 @@ function isSimpleChatGreeting(value = "") {
     .trim()
     .toLowerCase()
     .replace(/[!！?？。,，、.~～\s]+/g, "");
-  return [
-    "你好", "您好", "嗨", "哈喽", "哈啰", "嘿", "早上好", "早安", "午安", "晚安",
-    "hello", "hi", "hey", "goodmorning", "goodafternoon", "goodevening",
-  ].includes(normalized);
+  if (/^(你好|您好|嗨|哈喽|哈啰|嘿)(啊|呀|哦|喔|哟|呦|啦|咯|喽|了)*$/u.test(normalized)) return true;
+  return /^(早上好|早安|午安|晚安)(啊|呀|哦|喔|哟|呦|啦|咯|喽|了)*$/u.test(normalized)
+    || /^(hello|hi|hey)(there)?$/i.test(normalized)
+    || /^(goodmorning|goodafternoon|goodevening)$/i.test(normalized);
 }
 
 function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "") {
