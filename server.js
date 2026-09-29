@@ -43783,6 +43783,7 @@ async function serveStatic(req, res, url) {
 
     const isHtml = contentType === "text/html";
     const isVersionedAsset = Boolean(url.searchParams.get("v"));
+    const isLiveFrontendAsset = liveTenantRequest && ["/live.html", "/live.css", "/live.js", "/chat-live.js"].includes(pathname);
     const isLongCacheAsset =
       isVersionedAsset ||
       contentType.startsWith("image/") ||
@@ -43798,7 +43799,9 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") ? "bytes" : "none",
-      "cache-control": isHtml
+      "cache-control": isLiveFrontendAsset
+        ? "no-store, no-cache, must-revalidate"
+        : isHtml
         ? "no-cache"
         : contentType.startsWith("video/") || isLongCacheAsset
           ? "public, max-age=604800, immutable"
