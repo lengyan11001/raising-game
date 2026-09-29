@@ -1272,7 +1272,7 @@
     rail.querySelectorAll("button").forEach((button) => {
       if (button.dataset.giftAction === "true") {
         button.hidden = false;
-        button.disabled = !state.controlReady || state.ended || !giftsOf().length;
+        button.disabled = state.session?.mode === "component" ? (state.ended || !giftsOf().length) : (!state.controlReady || state.ended || !giftsOf().length);
         return;
       }
       if (!looksSupported()) {
@@ -1288,7 +1288,7 @@
       }
       button.disabled = !ready;
     });
-    if (state.overlay.giftBtn) state.overlay.giftBtn.disabled = !state.controlReady || state.ended || !giftsOf().length;
+    if (state.overlay.giftBtn) state.overlay.giftBtn.disabled = state.session?.mode === "component" ? (state.ended || !giftsOf().length) : (!state.controlReady || state.ended || !giftsOf().length);
     state.overlay.picker?.querySelectorAll("button").forEach((button) => {
       if (button.classList.contains("chat-live-picker-x")) return;
       button.disabled = state.lookBusy || state.ended;
