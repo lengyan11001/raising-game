@@ -192,11 +192,12 @@
 .chat-live-gift-btn span:first-child { font-size:22px; line-height:1; }
 .chat-live-gift-card img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#000; }
 .chat-live-gift-card small { color:#fbbf24; font-size:11px; }
-.chat-live-gift-burst { position:absolute; inset:0; z-index:9; display:flex; align-items:center; justify-content:center; pointer-events:none; overflow:hidden; animation:chatLiveGiftFade 2.8s ease both; }
+.chat-live-gift-burst { position:absolute !important; inset:0 !important; z-index:9999 !important; display:flex !important; align-items:center; justify-content:center; pointer-events:none; overflow:hidden; animation:chatLiveGiftFade 2.8s ease both; }
 .chat-live-gift-burst::before { content:""; position:absolute; width:min(420px,90vw); height:min(420px,90vw); border-radius:50%; background:radial-gradient(circle,rgba(255,210,115,.3),rgba(255,210,115,0) 67%); animation:chatLiveGiftHalo 2.2s ease both; }
 .chat-live-gift-burst::after { content:"✦  ✧  ✦  ✧  ✦"; position:absolute; color:#ffe7a3; font-size:28px; letter-spacing:18px; white-space:nowrap; animation:chatLiveGiftSparkle 2.2s ease both; }
 .chat-live-gift-burst img { position:relative; z-index:1; width:min(210px,48vw); height:min(210px,48vw); object-fit:contain; filter:drop-shadow(0 16px 34px rgba(255,196,85,.7)); animation:chatLiveGiftPop 1.2s cubic-bezier(.2,1.4,.4,1) both; }
 .chat-live-gift-burst span { position:absolute; z-index:2; top:64%; padding:9px 16px; border:1px solid rgba(255,238,185,.45); border-radius:999px; background:rgba(8,10,16,.78); color:#fff8e3; font-size:14px; font-weight:700; box-shadow:0 8px 28px rgba(0,0,0,.4); }
+.chat-live-gift-burst .gift-fallback { position:relative; z-index:1; display:none; font-size:min(110px,25vw); line-height:1; filter:drop-shadow(0 16px 34px rgba(255,196,85,.7)); animation:chatLiveGiftPop 1.2s cubic-bezier(.2,1.4,.4,1) both; }
 @keyframes chatLiveGiftPop { 0% { transform:scale(.2) rotate(-12deg); opacity:0; } 45% { transform:scale(1.12) rotate(5deg); opacity:1; } 100% { transform:scale(1) rotate(0); opacity:1; } }
 @keyframes chatLiveGiftHalo { 0% { transform:scale(.2); opacity:0; } 35% { transform:scale(1); opacity:1; } 100% { transform:scale(1.35); opacity:0; } }
 @keyframes chatLiveGiftSparkle { 0% { transform:scale(.4) rotate(-12deg); opacity:0; } 35% { transform:scale(1.1) rotate(4deg); opacity:1; } 100% { transform:scale(1.4) rotate(12deg); opacity:0; } }
@@ -1341,13 +1342,15 @@
 
   function giftsOf() { return Array.isArray(state.config?.gifts) ? state.config.gifts.filter((item) => item && item.id && item.credits > 0) : []; }
   function showGiftEffect(gift, reaction = "") {
-    const stage = state.overlay?.root?.querySelector(".chat-live-stage");
-    if (!stage) return;
-    stage.querySelectorAll(".chat-live-gift-burst").forEach((node) => node.remove());
+    const root = state.overlay?.root;
+    if (!root) return;
+    root.querySelectorAll(".chat-live-gift-burst").forEach((node) => node.remove());
     const burst = el("div", "chat-live-gift-burst");
     const img = document.createElement("img"); img.src = gift?.imageUrl || ""; img.alt = gift?.name || "礼物";
+    const fallback = el("div", "gift-fallback", gift?.emoji || "🎁");
+    img.addEventListener("error", () => { img.style.display = "none"; fallback.style.display = "block"; }, { once: true });
     const label = el("span", "", reaction || `${gift?.name || "礼物"} 已送到`);
-    burst.append(img, label); stage.appendChild(burst);
+    burst.append(img, fallback, label); root.appendChild(burst);
     window.setTimeout(() => burst.remove(), 2400);
   }
   function openGiftPicker() {
