@@ -192,6 +192,11 @@
 .chat-live-gift-btn span:first-child { font-size:22px; line-height:1; }
 .chat-live-gift-card img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#000; }
 .chat-live-gift-card small { color:#fbbf24; font-size:11px; }
+.chat-live-gift-burst { position:absolute; inset:0; z-index:9; display:flex; align-items:center; justify-content:center; pointer-events:none; animation:chatLiveGiftFade 2.2s ease both; }
+.chat-live-gift-burst img { width:min(180px,42vw); height:min(180px,42vw); object-fit:contain; filter:drop-shadow(0 12px 28px rgba(255,196,85,.55)); animation:chatLiveGiftPop 1.1s cubic-bezier(.2,1.4,.4,1) both; }
+.chat-live-gift-burst span { position:absolute; top:58%; padding:7px 14px; border-radius:999px; background:rgba(0,0,0,.68); color:#fff; font-size:14px; font-weight:700; }
+@keyframes chatLiveGiftPop { 0% { transform:scale(.2) rotate(-12deg); opacity:0; } 45% { transform:scale(1.12) rotate(5deg); opacity:1; } 100% { transform:scale(1) rotate(0); opacity:1; } }
+@keyframes chatLiveGiftFade { 0%,72% { opacity:1; } 100% { opacity:0; } }
 @media (max-width:880px) {
   .chat-live-overlay { align-items:stretch; background:#000; overflow:hidden; -webkit-backdrop-filter:none; backdrop-filter:none; }
   .chat-live-shell { width:100%; height:100%; border:0; border-radius:0; display:block; }
@@ -1331,6 +1336,16 @@
   }
 
   function giftsOf() { return Array.isArray(state.config?.gifts) ? state.config.gifts.filter((item) => item && item.id && item.credits > 0) : []; }
+  function showGiftEffect(gift, reaction = "") {
+    const stage = state.overlay?.root?.querySelector(".chat-live-stage");
+    if (!stage) return;
+    stage.querySelectorAll(".chat-live-gift-burst").forEach((node) => node.remove());
+    const burst = el("div", "chat-live-gift-burst");
+    const img = document.createElement("img"); img.src = gift?.imageUrl || ""; img.alt = gift?.name || "礼物";
+    const label = el("span", "", reaction || `${gift?.name || "礼物"} 已送到`);
+    burst.append(img, label); stage.appendChild(burst);
+    window.setTimeout(() => burst.remove(), 2400);
+  }
   function openGiftPicker() {
     if (!state.overlay || state.ended) return;
     closeLookPicker();
@@ -1359,7 +1374,8 @@
             if (!sent) throw new Error("礼物暂时没有送出，请稍后再试。");
           }
           if (payload?.reply) appendLine("bot", payload.reply);
-          appendLine("sys", "礼物已经送到了。");
+          showGiftEffect(payload?.gift || gift, payload?.reaction || payload?.gift?.reaction || "");
+          appendLine("sys", payload?.reaction || `${gift.name} 已经送到了。`);
         } catch (error) {
           appendLine("sys", error.code === "INSUFFICIENT_CREDITS" ? "积分不够了，请先充值。" : (error.message || "礼物暂时没有送出。"));
           if (error.code === "INSUFFICIENT_CREDITS") {

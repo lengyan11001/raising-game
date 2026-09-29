@@ -6323,6 +6323,10 @@ function isManagedChatLiveAssetUrl(url = "") {
   }
 }
 
+function isPublicChatLiveGiftAssetUrl(url = "") {
+  return /^\/assets\/chat-live\/gifts\/[a-z0-9_.-]+\.svg$/i.test(String(url || "").trim());
+}
+
 const CHAT_LIVE_LOOK_LIMIT = 240;
 const CHAT_LIVE_LOOK_KINDS = ["garment", "object", "background"];
 const CHAT_LIVE_LOOK_TEXT = {
@@ -6386,9 +6390,13 @@ function enabledChatLiveLooks(live = {}) {
 }
 
 const CHAT_LIVE_GIFT_LIMIT = 5;
-const CHAT_LIVE_DEFAULT_GIFTS = [10, 50, 100, 500, 1000].map((credits, index) => ({
-  id: `gift-${index + 1}`, name: `${credits}积分礼物`, credits, imageUrl: "", userText: `送你一个${credits}积分礼物。`, enabled: true, sortOrder: index,
-}));
+const CHAT_LIVE_DEFAULT_GIFTS = [
+  { id: "gift-flower", name: "鲜花", credits: 10, imageUrl: "/assets/chat-live/gifts/flower.svg", emoji: "💐", reaction: "她开心地接过鲜花，轻轻闻了闻，笑着向你道谢。", userText: "用户送给你一束鲜花。请自然地开心回应，感谢他，不要提积分。" },
+  { id: "gift-coffee", name: "咖啡", credits: 50, imageUrl: "/assets/chat-live/gifts/coffee.svg", emoji: "☕", reaction: "她捧起热咖啡抿了一口，语气也变得更亲近了。", userText: "用户请你喝了一杯咖啡。请自然地回应这份体贴，可以说说你喜欢的口味，不要提积分。" },
+  { id: "gift-cake", name: "蛋糕", credits: 100, imageUrl: "/assets/chat-live/gifts/cake.svg", emoji: "🍰", reaction: "她切下一小块蛋糕，眼睛亮了起来，甜甜地向你道谢。", userText: "用户送给你一块蛋糕。请自然地开心回应，可以邀请他一起分享，不要提积分。" },
+  { id: "gift-sports-car", name: "跑车", credits: 500, imageUrl: "/assets/chat-live/gifts/car.svg", emoji: "🏎️", reaction: "她惊喜地睁大眼睛，俏皮地向你比了个心。", userText: "用户送给你一辆跑车。请表现出明显的惊喜和亲近感，真诚感谢他，不要提积分。" },
+  { id: "gift-rocket", name: "火箭", credits: 1000, imageUrl: "/assets/chat-live/gifts/rocket.svg", emoji: "🚀", reaction: "她被这份惊喜逗得笑出声，认真地向你表达感谢和特别的心意。", userText: "用户送给你一枚火箭。这是很贵重的礼物，请自然地表现出强烈惊喜和特别感谢，但不要提积分。" },
+].map((gift, index) => ({ ...gift, enabled: true, sortOrder: index }));
 function normalizeChatLiveGift(raw, index = 0) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const fallback = CHAT_LIVE_DEFAULT_GIFTS[index] || CHAT_LIVE_DEFAULT_GIFTS[0];
@@ -6397,15 +6405,33 @@ function normalizeChatLiveGift(raw, index = 0) {
   const credits = Math.max(1, Math.min(1000000, Math.round(Number(raw.credits ?? fallback.credits) || fallback.credits)));
   const imageUrl = String(raw.imageUrl || "").trim().slice(0, 600);
   const userText = String(raw.userText || fallback.userText).trim().slice(0, 200) || fallback.userText;
+  const emoji = String(raw.emoji || fallback.emoji || "🎁").trim().slice(0, 8);
+  const reaction = String(raw.reaction || fallback.reaction || "她开心地收下了礼物。 ").trim().slice(0, 200);
   const sortOrder = Number(raw.sortOrder);
-  return { id, name, credits, imageUrl, userText, enabled: raw.enabled !== false, sortOrder: Number.isFinite(sortOrder) ? Math.round(sortOrder) : index, createdAt: String(raw.createdAt || "").slice(0, 40), updatedAt: String(raw.updatedAt || "").slice(0, 40) };
+  return { id, name, credits, imageUrl, emoji, reaction, userText, enabled: raw.enabled !== false, sortOrder: Number.isFinite(sortOrder) ? Math.round(sortOrder) : index, createdAt: String(raw.createdAt || "").slice(0, 40), updatedAt: String(raw.updatedAt || "").slice(0, 40) };
 }
 function normalizeChatLiveGifts(raw) {
-  const list = Array.isArray(raw) && raw.length ? raw : CHAT_LIVE_DEFAULT_GIFTS;
+  const supplied = Array.isArray(raw) && raw.length ? raw : [];
+  const legacyDefaults = supplied.length === 5 && supplied.every((item, index) => String(item?.id || "") === `gift-${index + 1}`);
+  const list = legacyDefaults ? CHAT_LIVE_DEFAULT_GIFTS.map((gift, index) => {
+    const old = supplied[index] || {};
+    const oldName = String(old.name || "");
+    const oldText = String(old.userText || "");
+    return {
+      ...gift,
+      ...old,
+      id: gift.id,
+      name: /^\d+积分礼物$/.test(oldName) || !oldName ? gift.name : oldName,
+      imageUrl: old.imageUrl || gift.imageUrl,
+      emoji: old.emoji || gift.emoji,
+      reaction: old.reaction || gift.reaction,
+      userText: /^送你一个\d+积分礼物。?$/.test(oldText) || !oldText ? gift.userText : oldText,
+    };
+  }) : (supplied.length ? supplied : CHAT_LIVE_DEFAULT_GIFTS);
   const seen = new Set();
   return list.map((item, index) => normalizeChatLiveGift(item, index)).filter((item) => item && !seen.has(item.id) && (seen.add(item.id), true)).sort((a, b) => a.sortOrder - b.sortOrder).slice(0, CHAT_LIVE_GIFT_LIMIT);
 }
-function publicChatLiveGift(gift = {}) { return { id: gift.id, name: gift.name || "礼物", credits: Number(gift.credits || 0), imageUrl: gift.imageUrl || "" }; }
+function publicChatLiveGift(gift = {}) { return { id: gift.id, name: gift.name || "礼物", credits: Number(gift.credits || 0), imageUrl: gift.imageUrl || "", emoji: gift.emoji || "🎁", reaction: gift.reaction || "她开心地收下了礼物。" }; }
 function enabledChatLiveGifts(live = {}) { return (live.gifts || []).filter((gift) => gift && gift.enabled !== false && Number(gift.credits) > 0).map(publicChatLiveGift); }
 
 function chatLiveLookFailureMessage(code = "") {
@@ -6530,7 +6556,7 @@ async function handleAdminSaveChatLiveGift(req, res, giftId = "") {
   if (id && !existing) return sendJson(res, 404, { ok: false, message: "礼物不存在。" });
   if (!existing && live.gifts.length >= CHAT_LIVE_GIFT_LIMIT) return sendJson(res, 422, { ok: false, message: "礼物最多配置 5 个。" });
   const imageUrl = String(body.imageUrl ?? existing?.imageUrl ?? "").trim();
-  if (imageUrl && !isManagedChatLiveAssetUrl(imageUrl)) return sendJson(res, 422, { ok: false, message: "请上传站内 GIF 素材。" });
+  if (imageUrl && !isManagedChatLiveAssetUrl(imageUrl) && !isPublicChatLiveGiftAssetUrl(imageUrl)) return sendJson(res, 422, { ok: false, message: "请上传站内 GIF 素材。" });
   const now = new Date().toISOString();
   const gift = normalizeChatLiveGift({ ...existing, ...body, id: id || randomId("gift"), imageUrl, createdAt: existing?.createdAt || now, updatedAt: now }, existing ? live.gifts.indexOf(existing) : live.gifts.length);
   const gifts = existing ? live.gifts.map((item) => item.id === existing.id ? gift : item) : live.gifts.concat(gift);
@@ -7073,6 +7099,7 @@ async function handleCreateChatLiveSession(req, res) {
     name: character.name,
     voice: character.voiceType,
   };
+  avatar.persona = `${String(avatar.persona || "").trim()}\n礼物互动规则：用户主动提出额外要求、想让你做特别准备或表达支持时，可以自然地提到一个合适的礼物作为可选的小心意；不要频繁索要，不要把聊天变成推销，不要编造价格，只有在语境合适时才提一次。收到礼物后要根据礼物档位表现不同程度的惊喜和感谢。`.trim();
   if (character.greeting) avatar.greeting_instruction = character.greeting;
   if (character.personaEnhance === true) avatar.persona_enhance = true;
   if (!live.videoChatEnabled) avatar.farewell_enabled = false;
@@ -7709,7 +7736,7 @@ async function handleChatLiveGift(req, res, sessionId = "") {
       const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText);
       return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), reply });
     }
-    return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), text: gift.userText, needsRealtimeSignal: true });
+    return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), text: gift.userText, reaction: gift.reaction, needsRealtimeSignal: true });
   } catch (error) {
     await changeUserCredits(auth.db, auth.user.id, gift.credits, "chat_live_gift_refund", { taskId, sessionId: session.id, giftId: gift.id, reason: error.message || "gift dispatch failed" }).catch(() => {});
     return sendJson(res, 502, { ok: false, message: "礼物暂时没有送出，积分已退回。" });
@@ -43579,7 +43606,8 @@ async function serveStatic(req, res, url) {
       || pathname === "/favicon.ico"
       || pathname === "/favicon.svg"
       || pathname.startsWith("/assets/brand/")
-      || pathname.startsWith("/assets/ourdream/");
+      || pathname.startsWith("/assets/ourdream/")
+      || pathname.startsWith("/assets/chat-live/gifts/");
     if (!allowedChatPath) return sendText(res, 404, "Not Found");
   }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);

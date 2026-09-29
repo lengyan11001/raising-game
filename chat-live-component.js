@@ -244,7 +244,7 @@ async function componentReply(session, userText) {
   const persona = session.character?.persona || "";
   const name = session.character?.name || "Character";
   const messages = [
-    { role: "system", content: `You are roleplaying as ${name}. Character: ${persona}\nReply ONLY in the user's language. Keep replies short (1-3 sentences), natural and in character. Never say you are an AI.` },
+    { role: "system", content: `You are roleplaying as ${name}. Character: ${persona}\nGift interaction: if the user asks for extra preparation, a special action, or makes a request that naturally needs support, you may gently mention one suitable gift as an optional gesture. Do this sparingly, never in consecutive replies, never pressure the user, and never turn the chat into a sales pitch. React more warmly to larger gifts, but never mention prices or credits unless the user asks.\nReply ONLY in the user's language. Keep replies short (1-3 sentences), natural and in character. Never say you are an AI.` },
     ...session.history.slice(-12),
     { role: "user", content: userText },
   ];
