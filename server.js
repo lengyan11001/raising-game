@@ -6397,6 +6397,23 @@ const CHAT_LIVE_DEFAULT_GIFTS = [
   { id: "gift-sports-car", name: "跑车", credits: 500, imageUrl: "/assets/chat-live/gifts/car.svg", emoji: "🏎️", reaction: "她惊喜地睁大眼睛，俏皮地向你比了个心。", userText: "用户送给你一辆跑车。请表现出明显的惊喜和亲近感，真诚感谢他，不要提积分。" },
   { id: "gift-rocket", name: "火箭", credits: 1000, imageUrl: "/assets/chat-live/gifts/rocket.svg", emoji: "🚀", reaction: "她被这份惊喜逗得笑出声，认真地向你表达感谢和特别的心意。", userText: "用户送给你一枚火箭。这是很贵重的礼物，请自然地表现出强烈惊喜和特别感谢，但不要提积分。" },
 ].map((gift, index) => ({ ...gift, enabled: true, sortOrder: index }));
+const CHAT_LIVE_GIFT_ASSET_FILES = new Map(CHAT_LIVE_DEFAULT_GIFTS.map((gift) => [gift.imageUrl, path.join(ROOT, gift.imageUrl.replace(/^\//, ""))]));
+const chatLiveGiftAssetCache = new Map();
+function chatLiveGiftImageUrl(gift = {}) {
+  const imageUrl = String(gift.imageUrl || "").trim();
+  if (!imageUrl.startsWith("/assets/chat-live/gifts/") || !imageUrl.endsWith(".svg")) return imageUrl;
+  if (chatLiveGiftAssetCache.has(imageUrl)) return chatLiveGiftAssetCache.get(imageUrl);
+  try {
+    const filePath = CHAT_LIVE_GIFT_ASSET_FILES.get(imageUrl);
+    const data = filePath && fs.readFileSync(filePath).toString("utf8");
+    if (!data) return imageUrl;
+    const encoded = `data:image/svg+xml;base64,${Buffer.from(data).toString("base64")}`;
+    chatLiveGiftAssetCache.set(imageUrl, encoded);
+    return encoded;
+  } catch {
+    return imageUrl;
+  }
+}
 function normalizeChatLiveGift(raw, index = 0) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const fallback = CHAT_LIVE_DEFAULT_GIFTS[index] || CHAT_LIVE_DEFAULT_GIFTS[0];
@@ -6431,7 +6448,7 @@ function normalizeChatLiveGifts(raw) {
   const seen = new Set();
   return list.map((item, index) => normalizeChatLiveGift(item, index)).filter((item) => item && !seen.has(item.id) && (seen.add(item.id), true)).sort((a, b) => a.sortOrder - b.sortOrder).slice(0, CHAT_LIVE_GIFT_LIMIT);
 }
-function publicChatLiveGift(gift = {}) { return { id: gift.id, name: gift.name || "礼物", credits: Number(gift.credits || 0), imageUrl: gift.imageUrl || "", emoji: gift.emoji || "🎁", reaction: gift.reaction || "她开心地收下了礼物。" }; }
+function publicChatLiveGift(gift = {}) { return { id: gift.id, name: gift.name || "礼物", credits: Number(gift.credits || 0), imageUrl: chatLiveGiftImageUrl(gift), emoji: gift.emoji || "🎁", reaction: gift.reaction || "她开心地收下了礼物。" }; }
 function enabledChatLiveGifts(live = {}) { return (live.gifts || []).filter((gift) => gift && gift.enabled !== false && Number(gift.credits) > 0).map(publicChatLiveGift); }
 
 function chatLiveLookFailureMessage(code = "") {
