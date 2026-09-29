@@ -61,6 +61,7 @@ test("Undress replacement keeps the overlay but releases RTC before a fresh sess
   assert.match(client, /preserveOverlay: true, freshRtc: true/);
   assert.match(client, /await new Promise\(\(resolve\) => window\.setTimeout\(resolve, 450\)\)/);
   assert.match(client, /createInstance/);
-  assert.match(client, /正在换衣服/);
+  assert.match(client, /你等我一下哦，我去准备一下/);
+  assert.match(client, /LOOK_SWITCHING_MESSAGE/);
   assert.match(client, /videoRecoveryPending/);
 });

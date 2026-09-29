@@ -153,7 +153,7 @@
     event.preventDefault();
     const form = event.currentTarget; const input = form.elements.content; const button = form.querySelector("button[type=submit]"); const errorNode = form.querySelector("[data-chat-error]");
     const content = String(input.value || "").trim(); if (!content) return;
-    input.disabled = true; button.disabled = true; button.textContent = "Thinking…"; if (errorNode) errorNode.textContent = "";
+    input.disabled = true; button.disabled = true; button.textContent = "Send"; if (errorNode) errorNode.textContent = "";
     try { await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, { method: "POST", body: JSON.stringify({ content, action: "send", language: navigator.language || "en" }) }); await renderStandaloneChat(conversationId); }
     catch (error) { input.disabled = false; button.disabled = false; button.textContent = "Send"; if (errorNode) errorNode.textContent = error.message || "Chat failed."; }
   }

@@ -1434,12 +1434,14 @@
     state.overlay.picker = picker;
   }
 
-  function setLookSwitchingUi(text = "正在换衣服…") {
+  const LOOK_SWITCHING_MESSAGE = "你等我一下哦，我去准备一下。";
+  function setLookSwitchingUi(text = LOOK_SWITCHING_MESSAGE) {
     const overlay = state.overlay;
     if (!overlay) return;
-    overlay.badge.hidden = false;
-    overlay.badge.textContent = `● ${text}`;
-    overlay.badge.style.color = "#fbbf24";
+    overlay.badge.hidden = true;
+    overlay.badge.textContent = "";
+    overlay.placeholder.classList.add("is-calling");
+    overlay.placeholder.style.display = "flex";
     overlay.callLabel.textContent = text;
     overlay.callDetail.textContent = state.character?.name || "";
     overlay.lookRail?.querySelectorAll("button").forEach((button) => { button.disabled = true; });
@@ -1479,8 +1481,7 @@
         return;
       }
       const oldSessionId = state.session?.id || "";
-      appendLine("sys", "正在换衣服，画面会保持在当前窗口…");
-      setLookSwitchingUi("正在换衣服…");
+      setLookSwitchingUi();
       state.lookSwitching = true;
       await reportChatLiveOperation({ id: `look-${Date.now().toString(36)}`, action: "undress", phase: "reconnect_start", success: null, kind: "garment", message: "Undress 改用全新连接；界面保持不变" });
       const requested = { ...(state.character || {}), id: state.character?.id || "" };
@@ -1596,11 +1597,10 @@
 
     if (preserveOverlay) {
       overlay.placeholder.classList.remove("is-failed");
-      overlay.callLabel.textContent = "正在换衣服…";
+      overlay.callLabel.textContent = LOOK_SWITCHING_MESSAGE;
       overlay.callDetail.textContent = character.name || "";
-      overlay.badge.hidden = false;
-      overlay.badge.textContent = "● 正在换衣服…";
-      overlay.badge.style.color = "#fbbf24";
+      overlay.badge.hidden = true;
+      overlay.badge.textContent = "";
     }
 
     let payload;

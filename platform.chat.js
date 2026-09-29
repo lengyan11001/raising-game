@@ -169,7 +169,9 @@ function renderChatPanel() {
   if (els.chatThread && hasConversation) {
     els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
     els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
-    const pendingMarkup = state.chatSending ? `<article class="chat-message is-assistant chat-message-pending" aria-live="polite"><div class="chat-message-content"><i data-lucide="loader-circle"></i><span>${chatCopy("Thinking...", "思考中...")}</span></div></article>` : "";
+    // Keep the thread clean while the assistant is responding; transport state is
+    // reflected by the disabled composer, not exposed as an internal status.
+    const pendingMarkup = "";
     els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMarkup || `<div class="chat-list-empty">No messages yet</div>`;
     els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
       const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
@@ -696,7 +698,7 @@ async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
   renderChatPanel();
   if (els.chatSendBtn) {
     els.chatSendBtn.disabled = true;
-    els.chatSendBtn.innerHTML = `<i data-lucide="loader-circle"></i><span>Thinking...</span>`;
+    els.chatSendBtn.innerHTML = `<i data-lucide="send"></i><span>${state.lang === "zh" ? "发送" : "Send"}</span>`;
   }
   if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
   refreshIcons();
