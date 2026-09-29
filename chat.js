@@ -12,7 +12,14 @@
     const token = getToken(); if (token) headers.authorization = `Bearer ${token}`;
     const response = await fetch(url, { ...options, headers });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) { const error = new Error(payload.message || `Request failed (${response.status})`); Object.assign(error, payload, { status:response.status }); throw error; }
+    if (!response.ok) {
+      if (payload.code === "SESSION_REPLACED") {
+        localStorage.removeItem(TOKEN_KEY);
+        state.user = null;
+        window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
+      }
+      const error = new Error(payload.message || `Request failed (${response.status})`); Object.assign(error, payload, { status:response.status }); throw error;
+    }
     return payload;
   }
   function imageFor(item) { return item.characterImageUrl || item.referenceImageUrl || item.posterUrl || item.localImageUrl || item.imageUrl || "/assets/brand/logo-mark.svg"; }
