@@ -129,6 +129,7 @@ const {
   getReferralWithdrawalsPageFromDb,
   listBillingPlansInDb,
   getBillingPlanInDb,
+  updateBillingPlansInDb,
   getUserSubscriptionInDb,
   upsertUserSubscriptionInDb,
   createMembershipActivationCodesInDb,
@@ -2897,7 +2898,9 @@ async function billingViewForRequest(req, auth = null) {
   const membershipProgram = Boolean(tenant.membershipProgram);
   if (!tenant.subscriptions && !membershipProgram) return { enabled: false, plans: [], subscription: null };
   const allPlans = await listBillingPlansInDb(tenant.tenantId);
-  const plans = membershipProgram
+  const plans = tenant.toolId === "live"
+    ? allPlans.filter((plan) => /^plan-tool-chat-(monthly|quarterly|yearly)$/.test(plan.id))
+    : membershipProgram
     ? allPlans.filter((plan) => plan.id === CREATOR_MEMBERSHIP_PLAN_ID)
     : allPlans;
   const primaryPlan = plans[0] || null;
@@ -6339,6 +6342,9 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
   const sortOrderRaw = Number(body.sortOrder ?? body.sort_order ?? existing?.sortOrder ?? 0);
   const enabledRaw = body.enabled ?? existing?.enabled;
+  const privateResources = Array.isArray(body.privateResources) ? body.privateResources.slice(0, 30).map((item, index) => ({
+    id: String(item?.id || randomId("private")).slice(0, 80), name: String(item?.name || `私密资源 ${index + 1}`).slice(0, 80), type: item?.type === "video" ? "video" : "image", url: String(item?.url || "").slice(0, 800), thumbnailUrl: String(item?.thumbnailUrl || item?.url || "").slice(0, 800), enabled: item?.enabled !== false,
+  })).filter((item) => item.url) : (Array.isArray(existing?.privateResources) ? existing.privateResources : []);
   return {
     name,
     avatarUrl,
@@ -6358,6 +6364,7 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     personaEnhance: String(body.personaEnhance ?? existing?.personaEnhance ?? "") === "true" || body.personaEnhance === true || existing?.personaEnhance === true,
     sortOrder: Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0,
     enabled: enabledRaw === undefined ? true : !(enabledRaw === false || String(enabledRaw) === "false"),
+    privateResources,
   };
 }
 
@@ -6582,16 +6589,36 @@ function publicChatLiveCharacter(character = {}) {
   };
 }
 
+function publicChatLiveCharacterForRequest(character = {}, hasMembership = false) {
+  const value = publicChatLiveCharacter(character);
+  if (!hasMembership) delete value.undressImageUrl;
+  return value;
+}
+
+function liveMembershipActive(subscription = null) {
+  if (!subscription || String(subscription.status || "").toLowerCase() !== "active") return false;
+  return !subscription.currentPeriodEnd || Date.parse(subscription.currentPeriodEnd) > Date.now();
+}
+
+function publicChatLivePrivateResources(character = {}, hasMembership = false) {
+  if (!hasMembership) return [];
+  return (Array.isArray(character.privateResources) ? character.privateResources : []).filter((item) => item && item.enabled !== false && item.url).map((item) => ({ id: String(item.id || ""), name: String(item.name || "私密资源"), type: item.type === "video" ? "video" : "image", url: String(item.url), thumbnailUrl: String(item.thumbnailUrl || item.url) }));
+}
+
 async function handlePublicChatLiveCharacters(req, res) {
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
   if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], looks: [], gifts: [], pricing: livePricingView(live) });
+  const auth = await getAuth(req, { loadDb: false });
+  const subscription = auth?.user ? await getUserSubscriptionInDb(auth.user.id, requestTenantId(req)) : null;
+  const hasMembership = liveMembershipActive(subscription);
   const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
   return sendJson(res, 200, {
     ok: true,
     enabled: true,
     pricing: livePricingView(live),
-    characters: characters.map(publicChatLiveCharacter),
+    membership: { active: hasMembership, plans: (await listBillingPlansInDb(requestTenantId(req))).filter((plan) => /^plan-tool-chat-(monthly|quarterly|yearly)$/.test(plan.id)).map(publicBillingPlan) },
+    characters: characters.map((character) => ({ ...publicChatLiveCharacterForRequest(character, hasMembership), privateResources: publicChatLivePrivateResources(character, hasMembership) })),
     looks: enabledChatLiveLooks(live),
     gifts: enabledChatLiveGifts(live),
   });
@@ -6645,22 +6672,24 @@ async function handleAdminUploadChatLiveAsset(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   let decoded;
+  const requestedKind = String(body.kind || "avatar");
   try {
-    decoded = decodeImageDataUrl(body.dataUrl || "");
+    decoded = requestedKind === "private-video" ? decodeWanMediaDataUrl(body.dataUrl || "") : decodeImageDataUrl(body.dataUrl || "");
   } catch {
+    return sendJson(res, 400, { ok: false, message: requestedKind === "private-video" ? "只支持 MP4、WEBM 视频。" : "只支持 PNG、JPG、WEBP、GIF 图片。" });
+  }
+  const allowedMimes = requestedKind === "private-video" ? ["video/mp4", "video/webm", "video/quicktime"] : ["image/png", "image/jpeg", "image/webp", "image/gif"];
+  if (!allowedMimes.includes(decoded.mime)) {
     return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP、GIF 图片。" });
   }
-  if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(decoded.mime)) {
-    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP、GIF 图片。" });
-  }
-  if (decoded.bytes.byteLength > 8 * 1024 * 1024) {
-    return sendJson(res, 400, { ok: false, message: "图片不能超过 8MB。" });
+  if (decoded.bytes.byteLength > (requestedKind === "private-video" ? 80 : 8) * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: requestedKind === "private-video" ? "视频不能超过 80MB。" : "图片不能超过 8MB。" });
   }
   if (decoded.bytes.byteLength < 32) {
     return sendJson(res, 400, { ok: false, message: "图片内容无效。" });
   }
-  const kind = body.kind === "portrait" ? "portrait" : body.kind === "look" ? "look" : body.kind === "gift" ? "gift" : "avatar";
-  const ext = imageExtFromMime(decoded.mime);
+  const kind = requestedKind === "private-video" ? "private-video" : requestedKind === "private-image" ? "private-image" : requestedKind === "portrait" ? "portrait" : requestedKind === "look" ? "look" : requestedKind === "gift" ? "gift" : "avatar";
+  const ext = requestedKind === "private-video" ? ".mp4" : imageExtFromMime(decoded.mime);
   const stamp = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/chat-live/${kind}-${stamp}${ext}`;
   try {
@@ -6890,6 +6919,19 @@ async function handleAdminGetChatLivePricing(req, res) {
   return sendJson(res, 200, { ok: true, pricing: livePricingView(chatLiveConfigValue(config)) });
 }
 
+async function handleAdminGetChatLiveMembershipPlans(req, res) {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const tenantId = requestTenantId(req);
+  return sendJson(res, 200, { ok: true, plans: (await listBillingPlansInDb(tenantId, { includeInactive: true })).filter((plan) => plan.id.startsWith("plan-tool-chat-monthly") || plan.id.startsWith("plan-tool-chat-quarterly") || plan.id.startsWith("plan-tool-chat-yearly")).map(publicBillingPlan) });
+}
+
+async function handleAdminSaveChatLiveMembershipPlans(req, res) {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const body = await readJson(req);
+  const plans = await updateBillingPlansInDb(requestTenantId(req), body.plans);
+  return sendJson(res, 200, { ok: true, plans: plans.map(publicBillingPlan) });
+}
+
 async function handleAdminSaveChatLivePricing(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
@@ -7007,6 +7049,10 @@ async function handleCreateChatLiveSession(req, res) {
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
   const avatarMode = body.avatarMode === "undress" ? "undress" : "default";
+  const liveSubscription = await getUserSubscriptionInDb(auth.user.id, requestTenantId(req));
+  if (avatarMode === "undress" && !liveMembershipActive(liveSubscription)) {
+    return sendJson(res, 402, { ok: false, code: "CHAT_LIVE_MEMBERSHIP_REQUIRED", message: "Undress 是会员权益，请先订阅会员。" });
+  }
   const replacingSession = String(body.replaceSessionId || "").trim();
   const avatarImageUrl = avatarMode === "undress"
     ? publicChatLiveUndressImageUrl(character)
@@ -8900,6 +8946,7 @@ function userView(user) {
     id: user.id,
     tenantId: recordTenantId(user),
     username: user.username,
+    email: String(user.email || ""),
     role: user.role || "user",
     credits: Number(user.credits || 0),
     apiToken: String(user.apiToken || ""),
@@ -8914,6 +8961,19 @@ function userView(user) {
     apiDocsAccess: userHasApiDocsAccess(user),
     createdAt: user.createdAt,
   };
+}
+
+async function handleAccountProfile(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  const body = await readJson(req);
+  const username = String(body.username ?? "").trim().replace(/\s+/g, " ");
+  if (username.length < 2 || username.length > 40) return sendJson(res, 400, { ok: false, message: "昵称长度需为 2-40 个字符。" });
+  const duplicate = await getUserByUsernameInDb(username, requestTenantId(req));
+  if (duplicate && duplicate.id !== auth.user.id) return sendJson(res, 409, { ok: false, message: "这个昵称已被使用。" });
+  auth.user.username = username;
+  auth.user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(auth.user); else { const db = await readDb(); const i = db.users.findIndex((item) => item.id === auth.user.id); if (i >= 0) db.users[i] = auth.user; await writeDb(db); }
+  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
 function referralCodeForUser(user = {}) {
@@ -44192,6 +44252,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/auth/password/reset") return await handlePasswordReset(req, res);
     if (req.method === "POST" && url.pathname === "/api/account/email/request") return await handleAccountEmailRequest(req, res);
     if (req.method === "POST" && url.pathname === "/api/account/email/verify") return await handleAccountEmailVerify(req, res);
+    if (req.method === "PATCH" && url.pathname === "/api/account/profile") return await handleAccountProfile(req, res);
 
     if (req.method === "POST" && url.pathname === "/api/google/login") {
       return await handleGoogleLogin(req, res);
@@ -44513,6 +44574,8 @@ async function handleRequest(req, res) {
     if (req.method === "PUT" && url.pathname === "/api/admin/chat-live/pricing") {
       return await handleAdminSaveChatLivePricing(req, res);
     }
+    if (req.method === "GET" && url.pathname === "/api/admin/chat-live/membership-plans") return await handleAdminGetChatLiveMembershipPlans(req, res);
+    if (req.method === "PUT" && url.pathname === "/api/admin/chat-live/membership-plans") return await handleAdminSaveChatLiveMembershipPlans(req, res);
     if (req.method === "POST" && url.pathname === "/api/admin/chat-live/looks") {
       return await handleAdminSaveChatLiveLook(req, res);
     }

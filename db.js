@@ -315,6 +315,14 @@ async function ensureSchemaInner() {
       updated_at = NOW();
   `);
   await query(`
+    INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
+    VALUES
+      ('plan-tool-chat-monthly', 'tool-chat-5vips', '月度会员', 'active', 'USD', 29.9, 'month', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources'))),
+      ('plan-tool-chat-quarterly', 'tool-chat-5vips', '季度会员', 'active', 'USD', 59.9, 'month', 3, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources'))),
+      ('plan-tool-chat-yearly', 'tool-chat-5vips', '年度会员', 'active', 'USD', 99.9, 'year', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
+  `);
+  await query(`
     INSERT INTO app_billing_plans (
       id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
     )
@@ -338,7 +346,8 @@ async function ensureSchemaInner() {
       'tool-image',
       'tool-anime',
       'tool-characters',
-      'tool-advanced'
+      'tool-advanced',
+      'tool-chat-5vips'
     ]) AS tenant_id
     ON CONFLICT (id) DO NOTHING;
   `);
@@ -1451,6 +1460,28 @@ async function getBillingPlanInDb(tenantId = DEFAULT_TENANT_ID, planId = "") {
     [cleanTenantId, cleanPlanId],
   );
   return rows[0] ? billingPlanFromRow(rows[0]) : null;
+}
+
+async function updateBillingPlansInDb(tenantId = DEFAULT_TENANT_ID, plans = []) {
+  if (!dbEnabled()) return [];
+  const cleanTenantId = normalizeTenantId(tenantId);
+  await ensureSchema();
+  const updated = [];
+  for (const item of Array.isArray(plans) ? plans : []) {
+    const id = String(item?.id || "").trim();
+    if (!id) continue;
+    const amount = Number(item.amount);
+    if (!Number.isFinite(amount) || amount < 0) throw new Error("Invalid billing plan amount");
+    const { rows } = await query(`
+      UPDATE app_billing_plans
+      SET name = $3, currency = $4, amount = $5::numeric, interval_unit = $6,
+          interval_count = $7::int, payload = payload || $8::jsonb, updated_at = NOW()
+      WHERE tenant_id = $1 AND id = $2
+      RETURNING *
+    `, [cleanTenantId, id, String(item.name || "会员"), String(item.currency || "USD").toUpperCase(), amount, String(item.intervalUnit || "month"), Math.max(1, Math.trunc(Number(item.intervalCount || 1))), JSON.stringify({ benefits: Array.isArray(item.benefits) ? item.benefits : [] })]);
+    if (rows[0]) updated.push(billingPlanFromRow(rows[0]));
+  }
+  return updated;
 }
 
 async function getUserSubscriptionInDb(userId = "", tenantId = DEFAULT_TENANT_ID) {
@@ -3766,6 +3797,7 @@ module.exports = {
   getReferralWithdrawalsPageFromDb,
   listBillingPlansInDb,
   getBillingPlanInDb,
+  updateBillingPlansInDb,
   getUserSubscriptionInDb,
   upsertUserSubscriptionInDb,
   createMembershipActivationCodesInDb,

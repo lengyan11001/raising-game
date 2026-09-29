@@ -4059,6 +4059,8 @@ function bindChatLiveAssetUploads(root) {
 
 function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const value = character || {};
+  const privateResources = Array.isArray(value.privateResources) ? value.privateResources : [];
+  const privateRows = privateResources.map((item, index) => `<div class="chat-live-private-row" data-private-index="${index}"><input data-private-name value="${escapeHtml(item.name || `私密资源 ${index + 1}`)}" placeholder="资源名称" /><select data-private-type><option value="image" ${item.type === "video" ? "" : "selected"}>图片</option><option value="video" ${item.type === "video" ? "selected" : ""}>视频</option></select><input data-private-url value="${escapeHtml(item.url || "")}" placeholder="上传后自动填写" readonly /><button class="adm-btn adm-btn-ghost" type="button" data-private-upload>上传</button><input data-private-file type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" hidden /><button class="adm-btn adm-btn-danger" type="button" data-private-remove>删除</button></div>`).join("");
   return `
     <div id="chatLiveCharacterForm" class="adm-form">
       <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
@@ -4075,6 +4077,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
         </div>
       </div>
       ${chatLiveAssetField({ id: "chatLivePortraitUrl", label: "列表头像", url: value.portraitUrl || "", hint: "前台卡片用，可不传。不传就用形象图。", clearable: true })}
+      <div class="adm-form-row"><span>会员私密资源</span><div id="chatLivePrivateResources" class="chat-live-private-resources">${privateRows}<button class="adm-btn adm-btn-ghost" type="button" id="chatLivePrivateAdd">添加私密资源</button><small class="adm-muted">仅已订阅会员可见。图片 ≤8MB，视频 ≤80MB。</small></div></div>
       <div class="adm-form-row"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
       <div class="adm-form-row"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
       <div class="adm-form-row"><span>人设 / 对话剧本</span><div class="chat-live-persona-editor"><textarea id="chatLivePersona" rows="12" placeholder="支持 Markdown：身份、性格、欢迎语、聊天节奏、安抚方式、礼物边界…">${escapeHtml(value.personaMd || value.persona || "")}</textarea><div class="chat-live-persona-actions"><label class="adm-btn adm-btn-ghost" for="chatLivePersonaMdFile">上传 Markdown</label><input id="chatLivePersonaMdFile" type="file" accept=".md,text/markdown,text/plain" hidden /><button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaTemplateBtn">插入模板</button><button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaDownloadBtn">导出 Markdown</button><span class="adm-muted" id="chatLivePersonaFileName">${escapeHtml(value.personaSourceFile || (value.personaMd ? "已保存 Markdown" : "未导入文件"))}</span></div></div><small class="adm-muted">每个角色单独保存一份人设。Markdown 会原样进入数字人的角色提示词；建议按“身份、性格、语言习惯、开场、安抚、礼物边界”分段，最多 50000 字。</small></div>
@@ -4219,6 +4222,7 @@ async function openChatLiveCharacterDialog(character, defaults = {}, voices = []
         sortOrder: Number(val("chatLiveSortOrder") || 0),
         personaEnhance: box().querySelector("#chatLivePersonaEnhance")?.checked === true,
         enabled: box().querySelector("#chatLiveEnabled")?.checked !== false,
+        privateResources: Array.from(box().querySelectorAll(".chat-live-private-row")).map((row, index) => ({ id: row.dataset.privateId || `private-${Date.now()}-${index}`, name: row.querySelector("[data-private-name]")?.value || `私密资源 ${index + 1}`, type: row.querySelector("[data-private-type]")?.value === "video" ? "video" : "image", url: row.querySelector("[data-private-url]")?.value || "", enabled: true })).filter((item) => item.url),
       };
       const saved = await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
       if (saved?.character?.id) character = saved.character;
@@ -4227,6 +4231,20 @@ async function openChatLiveCharacterDialog(character, defaults = {}, voices = []
     onOpen: () => {
       const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
       bindChatLiveAssetUploads(box());
+      const privateRoot = box().querySelector("#chatLivePrivateResources");
+      const bindPrivate = () => {
+        privateRoot?.querySelectorAll("[data-private-remove]").forEach((button) => button.onclick = () => { button.closest(".chat-live-private-row")?.remove(); });
+        privateRoot?.querySelectorAll("[data-private-upload]").forEach((button) => button.onclick = () => button.parentElement.querySelector("[data-private-file]")?.click());
+        privateRoot?.querySelectorAll("[data-private-file]").forEach((input) => input.onchange = async () => {
+          const file = input.files?.[0]; input.value = ""; if (!file) return;
+          const row = input.closest(".chat-live-private-row"); const type = row.querySelector("[data-private-type]").value === "video" ? "video" : "image";
+          const valid = type === "video" ? /^video\/(mp4|webm|quicktime)$/.test(file.type) && file.size <= 80 * 1024 * 1024 : /^image\/(png|jpeg|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024;
+          if (!valid) { toast(type === "video" ? "视频需为 MP4/WebM/MOV 且不超过 80MB。" : "图片需为 PNG/JPG/WEBP 且不超过 8MB。", "error"); return; }
+          try { const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl: await readChatLiveAssetFile(file), kind: type === "video" ? "private-video" : "private-image" } }); row.querySelector("[data-private-url]").value = result.url || ""; toast("私密资源已上传。", "success"); } catch (error) { toast(error.message || "上传失败。", "error"); }
+        });
+      };
+      privateRoot?.querySelector("#chatLivePrivateAdd")?.addEventListener("click", () => { const row = document.createElement("div"); row.className = "chat-live-private-row"; row.innerHTML = `<input data-private-name value="" placeholder="资源名称" /><select data-private-type><option value="image">图片</option><option value="video">视频</option></select><input data-private-url value="" placeholder="上传后自动填写" readonly /><button class="adm-btn adm-btn-ghost" type="button" data-private-upload>上传</button><input data-private-file type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" hidden /><button class="adm-btn adm-btn-danger" type="button" data-private-remove>删除</button>`; privateRoot.querySelector("#chatLivePrivateAdd").before(row); bindPrivate(); });
+      bindPrivate();
       bindChatLiveUndress(box, () => character);
       const persona = box().querySelector("#chatLivePersona");
       const personaFile = box().querySelector("#chatLivePersonaMdFile");
@@ -4632,6 +4650,8 @@ async function renderChatLive() {
           <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（数字人出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
           <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>
           <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSavePricingBtn" type="button"><i data-lucide="save"></i>保存计费</button></div>
+          <div class="adm-form-row"><span>会员价格（USD）</span><div id="chatLiveMembershipPlans" class="chat-live-private-resources"><small class="adm-muted">正在加载会员套餐…</small></div></div>
+          <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSaveMembershipBtn" type="button">保存会员价格</button></div>
         </div>
       </div>
 
@@ -4828,6 +4848,17 @@ async function renderChatLive() {
     } catch (error) {
       window.alert(error.message || String(error));
     }
+  });
+  const membershipBox = els.adminContent.querySelector("#chatLiveMembershipPlans");
+  if (membershipBox) {
+    try {
+      const membership = await api("/api/admin/chat-live/membership-plans");
+      membershipBox.innerHTML = (membership.plans || []).map((plan) => `<label class="adm-form-row"><span>${escapeHtml(plan.name)}</span><input data-membership-plan="${escapeHtml(plan.id)}" type="number" min="0" step="0.1" value="${escapeHtml(String(plan.amount))}" /> <small>USD · ${escapeHtml(plan.intervalCount > 1 ? `${plan.intervalCount} ${plan.intervalUnit}` : plan.intervalUnit)}</small></label>`).join("") || '<small class="adm-muted">暂无套餐</small>';
+    } catch (error) { membershipBox.innerHTML = `<small class="adm-muted">${escapeHtml(error.message || "会员套餐加载失败")}</small>`; }
+  }
+  els.adminContent.querySelector("#chatLiveSaveMembershipBtn")?.addEventListener("click", async () => {
+    const values = Array.from(els.adminContent.querySelectorAll("[data-membership-plan]")).map((input) => ({ id: input.dataset.membershipPlan, amount: Number(input.value) }));
+    try { await api("/api/admin/chat-live/membership-plans", { method: "PUT", body: { plans: values } }); toast("会员价格已保存（USD）。", "success"); } catch (error) { toast(error.message || "保存失败。", "error"); }
   });
 }
 
