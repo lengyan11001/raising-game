@@ -6921,14 +6921,14 @@ async function handleAdminGetChatLivePricing(req, res) {
 
 async function handleAdminGetChatLiveMembershipPlans(req, res) {
   const auth = await requireAdmin(req, res); if (!auth) return;
-  const tenantId = requestTenantId(req);
+  const tenantId = "tool-chat-5vips";
   return sendJson(res, 200, { ok: true, plans: (await listBillingPlansInDb(tenantId, { includeInactive: true })).filter((plan) => plan.id.startsWith("plan-tool-chat-monthly") || plan.id.startsWith("plan-tool-chat-quarterly") || plan.id.startsWith("plan-tool-chat-yearly")).map(publicBillingPlan) });
 }
 
 async function handleAdminSaveChatLiveMembershipPlans(req, res) {
   const auth = await requireAdmin(req, res); if (!auth) return;
   const body = await readJson(req);
-  const plans = await updateBillingPlansInDb(requestTenantId(req), body.plans);
+  const plans = await updateBillingPlansInDb("tool-chat-5vips", body.plans);
   return sendJson(res, 200, { ok: true, plans: plans.map(publicBillingPlan) });
 }
 
