@@ -65,3 +65,11 @@ test("Undress replacement keeps the overlay but releases RTC before a fresh sess
   assert.match(client, /LOOK_SWITCHING_MESSAGE/);
   assert.match(client, /videoRecoveryPending/);
 });
+
+test("chat live characters support per-role Markdown persona maintenance", () => {
+  assert.match(server, /const personaMd = String\(body\.personaMd/);
+  assert.match(server, /personaFormat: personaMd \? "markdown"/);
+  assert.match(admin, /上传 Markdown/);
+  assert.match(admin, /chatLivePersonaTemplate/);
+  assert.match(admin, /readChatLivePersonaMarkdown/);
+});

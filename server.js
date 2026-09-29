@@ -6279,7 +6279,9 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const avatarUrl = String(body.avatarUrl ?? body.avatar_image_url ?? existing?.avatarUrl ?? "").trim().slice(0, 600);
   const portraitUrl = String(body.portraitUrl ?? body.portrait_url ?? existing?.portraitUrl ?? "").trim().slice(0, 600);
   const intro = String(body.intro ?? existing?.intro ?? "").trim().slice(0, 600);
-  const persona = String(body.persona ?? existing?.persona ?? "").trim().slice(0, 20000);
+  const personaMd = String(body.personaMd ?? existing?.personaMd ?? body.persona ?? existing?.persona ?? "").replace(/^\uFEFF/, "").trim().slice(0, 50000);
+  const persona = personaMd;
+  const personaSourceFile = String(body.personaSourceFile ?? existing?.personaSourceFile ?? "").trim().slice(0, 160);
   const greeting = String(body.greeting ?? existing?.greeting ?? "").trim().slice(0, 200);
   const voiceType = String(body.voiceType ?? body.voice_type ?? existing?.voiceType ?? "").trim().slice(0, 80);
   /* 关联的平台角色名：chat 站的文字聊角色详情页据此显示"在线聊天"按钮 */
@@ -6297,6 +6299,9 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     portraitUrl,
     intro,
     persona,
+    personaMd,
+    personaSourceFile,
+    personaFormat: personaMd ? "markdown" : "plain_text",
     greeting,
     voiceType,
     linkName,

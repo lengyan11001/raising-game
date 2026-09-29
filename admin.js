@@ -3977,6 +3977,19 @@ function readChatLiveAssetFile(file) {
   });
 }
 
+function readChatLivePersonaMarkdown(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").replace(/^\uFEFF/, ""));
+    reader.onerror = () => reject(new Error("读取 Markdown 文件失败。"));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+function chatLivePersonaTemplate(name = "角色名") {
+  return `# ${name}\n\n## 对外身份\n- 年龄与身份：\n- 所在地/背景：\n- 对外介绍：\n\n## 性格内核\n- 温柔但有边界：\n- 共情方式：\n- 不做的事：\n\n## 语言习惯\n- 称呼用户：\n- 高频词：\n- 句子长度与语气：\n- 禁用词：\n\n## 开场与聊天节奏\n- 第一句欢迎：\n- 用户只说“你好”时：\n- 用户沉默时：\n- 用户倾诉时：\n- 适合分享的 1-2 个小故事：\n\n## 礼物互动\n- 什么时候可以自然提到礼物：\n- 不得索要的场景：\n- 收到小礼物的反应：\n- 收到大礼物的反应：\n\n## 硬性边界\n- 不诊断、不评判、不替用户做决定。\n- 不承诺“一定会好起来”。\n- 不把陪伴和打赏绑定。\n`;
+}
+
 function bindChatLiveAssetUploads(root) {
   if (!root) return;
   const previewOf = (id) => root.querySelector(`[data-asset-field="${id}"] .chat-live-asset-preview`);
@@ -4064,7 +4077,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       ${chatLiveAssetField({ id: "chatLivePortraitUrl", label: "列表头像", url: value.portraitUrl || "", hint: "前台卡片用，可不传。不传就用形象图。", clearable: true })}
       <div class="adm-form-row"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
       <div class="adm-form-row"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
-      <div class="adm-form-row"><span>人设提示词</span><textarea id="chatLivePersona" rows="5" placeholder="数字人的对话依据：身份、性格、说话风格、称呼、边界…">${escapeHtml(value.persona || "")}</textarea><small class="adm-muted">这段就是数字人的“大脑”，50000 字以内。前台聊天内容完全按它来。</small></div>
+      <div class="adm-form-row"><span>人设 / 对话剧本</span><div class="chat-live-persona-editor"><textarea id="chatLivePersona" rows="12" placeholder="支持 Markdown：身份、性格、欢迎语、聊天节奏、安抚方式、礼物边界…">${escapeHtml(value.personaMd || value.persona || "")}</textarea><div class="chat-live-persona-actions"><label class="adm-btn adm-btn-ghost" for="chatLivePersonaMdFile">上传 Markdown</label><input id="chatLivePersonaMdFile" type="file" accept=".md,text/markdown,text/plain" hidden /><button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaTemplateBtn">插入模板</button><button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaDownloadBtn">导出 Markdown</button><span class="adm-muted" id="chatLivePersonaFileName">${escapeHtml(value.personaSourceFile || (value.personaMd ? "已保存 Markdown" : "未导入文件"))}</span></div></div><small class="adm-muted">每个角色单独保存一份人设。Markdown 会原样进入数字人的角色提示词；建议按“身份、性格、语言习惯、开场、安抚、礼物边界”分段，最多 50000 字。</small></div>
       <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
       <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
       <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM（一体化，1.5 积分/秒）</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接我们自己的 LLM/ASR/TTS（1 积分/秒）</option></select><small class="adm-muted">组件版需要服务器配置自建 RTC（ARTC_APP_ID / ARTC_APP_KEY）。</small></div>
@@ -4195,6 +4208,8 @@ async function openChatLiveCharacterDialog(character, defaults = {}, voices = []
         intro: val("chatLiveIntro"),
         linkName: val("chatLiveLinkName"),
         persona: val("chatLivePersona"),
+        personaMd: val("chatLivePersona"),
+        personaSourceFile: box().querySelector("#chatLivePersonaMdFile")?.dataset.loadedName || character?.personaSourceFile || "",
         greeting: val("chatLiveGreeting"),
         voiceType: val("chatLiveVoiceType"),
         voiceProvider: val("chatLiveVoiceProvider"),
@@ -4213,6 +4228,37 @@ async function openChatLiveCharacterDialog(character, defaults = {}, voices = []
       const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
       bindChatLiveAssetUploads(box());
       bindChatLiveUndress(box, () => character);
+      const persona = box().querySelector("#chatLivePersona");
+      const personaFile = box().querySelector("#chatLivePersonaMdFile");
+      const personaName = box().querySelector("#chatLivePersonaFileName");
+      personaFile?.addEventListener("change", async () => {
+        const file = personaFile.files?.[0];
+        personaFile.value = "";
+        if (!file) return;
+        if (!/\.md$/i.test(file.name) && file.type !== "text/markdown" && file.type !== "text/plain") { toast("请上传 Markdown（.md）文件。", "error"); return; }
+        if (file.size > 512 * 1024) { toast("Markdown 文件不能超过 512KB。", "error"); return; }
+        try {
+          const text = await readChatLivePersonaMarkdown(file);
+          if (!text.trim()) throw new Error("Markdown 文件是空的。");
+          if (text.length > 50000) throw new Error("人设内容不能超过 50000 字。");
+          persona.value = text;
+          personaFile.dataset.loadedName = file.name.slice(0, 160);
+          if (personaName) personaName.textContent = file.name;
+          toast("Markdown 人设已载入，点击保存后生效。", "success");
+        } catch (error) { toast(error.message || "读取 Markdown 失败。", "error"); }
+      });
+      box().querySelector("#chatLivePersonaTemplateBtn")?.addEventListener("click", () => {
+        if (persona.value.trim() && !window.confirm("用模板替换当前人设内容？")) return;
+        persona.value = chatLivePersonaTemplate(box().querySelector("#chatLiveName")?.value || "角色名");
+        if (personaName) personaName.textContent = "已插入模板";
+      });
+      box().querySelector("#chatLivePersonaDownloadBtn")?.addEventListener("click", () => {
+        const text = persona.value || "";
+        const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob); link.download = `${(box().querySelector("#chatLiveName")?.value || "角色人设").replace(/[^\w\u4e00-\u9fff-]+/g, "-")}.md`;
+        document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
+      });
       box().querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
         chatLiveVoiceFilter = event.target.value;
         const select = box().querySelector("#chatLiveVoiceType");
