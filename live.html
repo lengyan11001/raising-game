@@ -3,44 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0d1117" />
-  <title>Vipeak Live</title>
+  <meta name="theme-color" content="#0b0b10" />
+  <title>Vipeak Live · AI 陪伴</title>
   <link rel="icon" href="/assets/brand/favicon.svg" />
-  <link rel="stylesheet" href="/live.css?v=live-v1" />
+  <link rel="stylesheet" href="/live.css?v=live-v2" />
 </head>
-<body>
-  <div class="live-shell">
-    <header class="live-header">
-      <a class="live-brand" href="#home" aria-label="Vipeak Live 首页"><span class="brand-mark">V</span><span>VIPEAK <b>LIVE</b></span></a>
-      <div class="header-actions">
-        <button class="icon-button" type="button" data-action="refresh" aria-label="刷新角色列表" title="刷新">↻</button>
-        <button class="account-button" type="button" data-action="account"><span class="account-dot">●</span><span data-account-label>登录</span></button>
-      </div>
-    </header>
-
-    <main id="liveApp" class="live-main" aria-live="polite"></main>
-
-    <nav class="live-nav" aria-label="主导航">
-      <a href="#home" class="nav-item is-active" data-nav="home"><span>⌂</span><small>首页</small></a>
-      <a href="#rooms" class="nav-item" data-nav="rooms"><span>◉</span><small>直播间</small></a>
-      <button class="nav-item" type="button" data-action="account"><span>♙</span><small>我的</small></button>
-    </nav>
-  </div>
-
-  <dialog id="loginDialog" class="login-dialog">
-    <form method="dialog" class="login-card" data-login-form>
-      <button class="dialog-close" value="cancel" aria-label="关闭">×</button>
-      <span class="eyebrow">VIPEAK LIVE</span>
-      <h2>登录后进入直播间</h2>
-      <p>账号在各站点通用，登录一次即可继续。</p>
-      <label>用户名<input name="username" autocomplete="username" required /></label>
-      <label>密码<input name="password" type="password" autocomplete="current-password" minlength="6" required /></label>
-      <div class="form-message" data-login-message></div>
-      <button class="primary-button" type="submit">登录 / 注册</button>
-    </form>
-  </dialog>
-
-  <script src="/chat-live.js?v=chat-live-12" defer></script>
-  <script src="/live.js?v=live-v1" defer></script>
-</body>
-</html>
+<body><div id="liveApp" class="live-device" aria-live="polite"></div>
+  <dialog id="loginDialog" class="login-dialog"><form method="dialog" class="login-card" data-login-form>
+    <button class="dialog-close" value="cancel" aria-label="关闭">×</button><span class="eyebrow">VIPEAK LIVE</span>
+    <h2>登录后进入直播间</h2><p>账号在各站点通用，登录一次即可继续。</p>
+    <label>用户名<input name="username" autocomplete="username" required /></label><label>密码<input name="password" type="password" autocomplete="current-password" minlength="6" required /></label>
+    <div class="form-message" data-login-message></div><button class="primary-button" type="submit">登录 / 注册</button>
+  </form></dialog>
+  <script src="/chat-live.js?v=chat-live-12" defer></script><script src="/live.js?v=live-v2" defer></script>
+</body></html>
