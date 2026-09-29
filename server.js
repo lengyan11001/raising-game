@@ -7738,9 +7738,26 @@ async function handleChatLiveSay(req, res, sessionId = "") {
 
 async function handleChatLiveGift(req, res, sessionId = "") {
   const auth = await requireUser(req, res); if (!auth) return;
-  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  let session = await getChatLiveSessionInDb(String(sessionId || "").trim());
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
-  if (session.settled === true || ["ended", "closed", "failed"].includes(String(session.status || ""))) return sendJson(res, 409, { ok: false, message: "会话已经结束。" });
+  const settled = session.settled === true || String(session.settled || "").toLowerCase() === "true";
+  if (settled) return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ENDED", message: "会话已经结束。" });
+  const status = String(session.status || "").toLowerCase();
+  if (["ended", "closed", "failed"].includes(status)) {
+    let upstreamActive = false;
+    if (session.mode === "component") {
+      upstreamActive = Boolean(session.liveId && chatLiveComponent.hasComponentSession?.(session.liveId));
+    } else if (session.liveId) {
+      try {
+        const detail = await viduLiveRequest(`/live/v1/lives/${encodeURIComponent(session.liveId)}`, { timeoutMs: 8000, region: session.viduRegion || "" });
+        const live = detail?.live || detail || {};
+        upstreamActive = ["waiting", "on_live", "live", "running", "active", "started", "starting", "connected"].includes(String(live.status || "").toLowerCase());
+      } catch {}
+    }
+    console.warn("[chat-live-gift-session-check]", JSON.stringify({ sessionId: session.id, liveId: session.liveId, status, settled: false, upstreamActive }));
+    if (!upstreamActive) return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ENDED", message: "会话已经结束。" });
+    session = await updateChatLiveSessionInDb({ ...session, status: "waiting", settled: false, endedAt: "", endReason: "", updatedAt: new Date().toISOString() }).catch(() => session);
+  }
   const body = await readJson(req); const live = chatLiveConfigValue(await readAppConfig());
   const gift = live.gifts.find((item) => item.id === String(body.giftId || "").trim() && item.enabled !== false);
   if (!gift) return sendJson(res, 404, { ok: false, message: "这个礼物暂时不可用。" });
