@@ -6405,7 +6405,7 @@ function chatLiveGiftImageUrl(gift = {}) {
   if (chatLiveGiftAssetCache.has(imageUrl)) return chatLiveGiftAssetCache.get(imageUrl);
   try {
     const filePath = CHAT_LIVE_GIFT_ASSET_FILES.get(imageUrl);
-    const data = filePath && fs.readFileSync(filePath).toString("utf8");
+    const data = filePath && fsSync.readFileSync(filePath).toString("utf8");
     if (!data) return imageUrl;
     const encoded = `data:image/svg+xml;base64,${Buffer.from(data).toString("base64")}`;
     chatLiveGiftAssetCache.set(imageUrl, encoded);
