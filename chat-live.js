@@ -192,11 +192,15 @@
 .chat-live-gift-btn span:first-child { font-size:22px; line-height:1; }
 .chat-live-gift-card img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#000; }
 .chat-live-gift-card small { color:#fbbf24; font-size:11px; }
-.chat-live-gift-burst { position:absolute; inset:0; z-index:9; display:flex; align-items:center; justify-content:center; pointer-events:none; animation:chatLiveGiftFade 2.2s ease both; }
-.chat-live-gift-burst img { width:min(180px,42vw); height:min(180px,42vw); object-fit:contain; filter:drop-shadow(0 12px 28px rgba(255,196,85,.55)); animation:chatLiveGiftPop 1.1s cubic-bezier(.2,1.4,.4,1) both; }
-.chat-live-gift-burst span { position:absolute; top:58%; padding:7px 14px; border-radius:999px; background:rgba(0,0,0,.68); color:#fff; font-size:14px; font-weight:700; }
+.chat-live-gift-burst { position:absolute; inset:0; z-index:9; display:flex; align-items:center; justify-content:center; pointer-events:none; overflow:hidden; animation:chatLiveGiftFade 2.8s ease both; }
+.chat-live-gift-burst::before { content:""; position:absolute; width:min(420px,90vw); height:min(420px,90vw); border-radius:50%; background:radial-gradient(circle,rgba(255,210,115,.3),rgba(255,210,115,0) 67%); animation:chatLiveGiftHalo 2.2s ease both; }
+.chat-live-gift-burst::after { content:"✦  ✧  ✦  ✧  ✦"; position:absolute; color:#ffe7a3; font-size:28px; letter-spacing:18px; white-space:nowrap; animation:chatLiveGiftSparkle 2.2s ease both; }
+.chat-live-gift-burst img { position:relative; z-index:1; width:min(210px,48vw); height:min(210px,48vw); object-fit:contain; filter:drop-shadow(0 16px 34px rgba(255,196,85,.7)); animation:chatLiveGiftPop 1.2s cubic-bezier(.2,1.4,.4,1) both; }
+.chat-live-gift-burst span { position:absolute; z-index:2; top:64%; padding:9px 16px; border:1px solid rgba(255,238,185,.45); border-radius:999px; background:rgba(8,10,16,.78); color:#fff8e3; font-size:14px; font-weight:700; box-shadow:0 8px 28px rgba(0,0,0,.4); }
 @keyframes chatLiveGiftPop { 0% { transform:scale(.2) rotate(-12deg); opacity:0; } 45% { transform:scale(1.12) rotate(5deg); opacity:1; } 100% { transform:scale(1) rotate(0); opacity:1; } }
-@keyframes chatLiveGiftFade { 0%,72% { opacity:1; } 100% { opacity:0; } }
+@keyframes chatLiveGiftHalo { 0% { transform:scale(.2); opacity:0; } 35% { transform:scale(1); opacity:1; } 100% { transform:scale(1.35); opacity:0; } }
+@keyframes chatLiveGiftSparkle { 0% { transform:scale(.4) rotate(-12deg); opacity:0; } 35% { transform:scale(1.1) rotate(4deg); opacity:1; } 100% { transform:scale(1.4) rotate(12deg); opacity:0; } }
+@keyframes chatLiveGiftFade { 0%,68% { opacity:1; } 100% { opacity:0; } }
 @media (max-width:880px) {
   .chat-live-overlay { align-items:stretch; background:#000; overflow:hidden; -webkit-backdrop-filter:none; backdrop-filter:none; }
   .chat-live-shell { width:100%; height:100%; border:0; border-radius:0; display:block; }
@@ -1369,13 +1373,13 @@
         try {
           const eventId = `gift-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
           const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/gift`, { method: "POST", body: JSON.stringify({ giftId: gift.id, eventId }) });
-          if (payload?.needsRealtimeSignal && payload.text) {
-            const sent = sendSignal(buildSignal(99, { text_msg: { msg_id: eventId, content: payload.text, timestamp: Date.now() } }));
-            if (!sent) throw new Error("礼物暂时没有送出，请稍后再试。");
-          }
-          if (payload?.reply) appendLine("bot", payload.reply);
           showGiftEffect(payload?.gift || gift, payload?.reaction || payload?.gift?.reaction || "");
           appendLine("sys", payload?.reaction || `${gift.name} 已经送到了。`);
+          if (payload?.needsRealtimeSignal && payload.text) {
+            const sent = sendSignal(buildSignal(99, { text_msg: { msg_id: eventId, content: payload.text, timestamp: Date.now() } }));
+            if (!sent) appendLine("sys", "她已经收到礼物了，稍后会回应你。");
+          }
+          if (payload?.reply) appendLine("bot", payload.reply);
         } catch (error) {
           appendLine("sys", error.code === "INSUFFICIENT_CREDITS" ? "积分不够了，请先充值。" : (error.message || "礼物暂时没有送出。"));
           if (error.code === "INSUFFICIENT_CREDITS") {
