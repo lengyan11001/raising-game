@@ -1,0 +1,24 @@
+Vipeak Live transaction verification
+TARGET: /Users/x042/Documents/Codex/2026-09-17/01a0aa23-845c-78b0-a4b0-b24621715aef-2/work/raising-gh
+COMMIT: b50c527df3e3128e12a78092e40a6d20bdbfddbd
+
+BASELINE
+Command: curl -sS -o /dev/null -w '%{http_code}\n' https://123vips.com/
+Observed: 200
+Meaning: existing platform root remains available.
+
+MODIFIED
+Command: curl -fsS https://live.123vipeak.com/
+Observed: HTTP 200; body begins <!doctype html> and contains title Vipeak Live.
+Command: curl -fsS https://live.123vipeak.com/api/chat-live/characters
+Observed: ok=true, enabled=true, characters=8, gifts=5.
+Command: curl -sS -o /dev/null -w '%{http_code}\n' https://live.123vipeak.com/live.js
+Observed: 200
+
+ROLLBACK
+Command: ./ROLLBACK.sh verification/live-transaction/rollback-copy.html
+Observed: restores the sibling .baseline file and exits 0; restored SHA-256 equals the baseline SHA-256.
+
+CHANGED SURFACE
+Added the live tenant mapping, live static allowlist, live.html, live.css, and live.js.
+The live tenant reuses the existing PostgreSQL-backed chat-live characters, sessions, billing, gifts, and RTC implementation.

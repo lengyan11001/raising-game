@@ -1,0 +1,179 @@
+diff --git a/live.css b/live.css
+new file mode 100644
+index 0000000..c2af92e
+--- /dev/null
++++ b/live.css
+@@ -0,0 +1,8 @@
++@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
++:root{color-scheme:dark;--bg:#0b0e13;--panel:#141922;--panel-2:#1a202b;--line:#28303d;--muted:#929baa;--text:#f6f7fa;--accent:#ff4f82;--accent-2:#ff9f68;--safe:env(safe-area-inset-bottom,0px)}
++*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:'DM Sans','Noto Sans SC',sans-serif}button,a{font:inherit}button{cursor:pointer}a{color:inherit;text-decoration:none}.live-shell{min-height:100vh;padding-bottom:calc(76px + var(--safe));background:radial-gradient(900px 420px at 90% -8%,#252036 0%,transparent 66%),var(--bg)}
++.live-header{height:72px;padding:0 clamp(18px,4vw,56px);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07);position:sticky;top:0;z-index:10;background:rgba(11,14,19,.88);backdrop-filter:blur(18px)}.live-brand{display:flex;align-items:center;gap:10px;font-size:14px;letter-spacing:.16em;font-weight:700}.live-brand b{color:var(--accent);font-weight:700}.brand-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:linear-gradient(145deg,var(--accent),var(--accent-2));color:#fff;font-size:17px;letter-spacing:0}.header-actions{display:flex;align-items:center;gap:10px}.icon-button,.account-button{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);border-radius:999px;height:38px;padding:0 13px}.icon-button{width:38px;padding:0;font-size:22px;color:var(--muted)}.account-button{display:flex;gap:8px;align-items:center;font-size:13px}.account-dot{font-size:10px;color:#63e6a2}
++.live-main{max-width:1180px;margin:0 auto;padding:28px clamp(18px,4vw,56px)}.hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;padding:16px 0 24px}.eyebrow{color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.18em}.hero h1{font-size:clamp(28px,4vw,48px);line-height:1.1;margin:10px 0 10px;letter-spacing:-.03em}.hero p{margin:0;color:var(--muted);font-size:14px;line-height:1.7}.hero-note{max-width:230px;text-align:right;color:var(--muted);font-size:12px;line-height:1.6}.section-head{display:flex;justify-content:space-between;align-items:center;margin:16px 0}.section-head h2{font-size:18px;margin:0}.section-head span{font-size:12px;color:var(--muted)}.character-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.character-card{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:linear-gradient(160deg,rgba(255,255,255,.06),rgba(255,255,255,.02));transition:transform .2s,border-color .2s,box-shadow .2s}.character-card:hover{transform:translateY(-3px);border-color:#596174;box-shadow:0 12px 35px rgba(0,0,0,.25)}.portrait-wrap{aspect-ratio:4/5;background:#202631;position:relative;overflow:hidden}.portrait-wrap img{width:100%;height:100%;object-fit:cover;display:block}.live-pill{position:absolute;left:10px;top:10px;background:rgba(13,17,23,.76);border:1px solid rgba(255,255,255,.14);padding:5px 8px;border-radius:999px;font-size:10px;color:#7cf0b0}.live-pill:before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#63e6a2;margin-right:5px}.card-info{padding:13px}.card-title{display:flex;justify-content:space-between;gap:8px;align-items:center}.card-title h3{font-size:16px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.online-count{font-size:11px;color:var(--muted)}.card-intro{color:var(--muted);font-size:12px;line-height:1.5;height:36px;margin:7px 0 12px;overflow:hidden}.enter-button{width:100%;border:0;border-radius:9px;padding:10px;background:var(--accent);color:#fff;font-weight:600;font-size:13px}.enter-button:hover{background:#ff6d97}.tags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px}.tag{border:1px solid var(--line);border-radius:999px;padding:3px 7px;color:#b6bdc9;font-size:10px}.empty-state,.loading-state{padding:80px 20px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:16px}.error-state{color:#ff9baf}.live-nav{position:fixed;z-index:20;bottom:0;left:0;right:0;height:68px;padding-bottom:var(--safe);display:flex;justify-content:center;gap:clamp(34px,9vw,110px);background:rgba(16,20,28,.94);border-top:1px solid rgba(255,255,255,.08);backdrop-filter:blur(18px)}.nav-item{border:0;background:none;color:#777f8c;display:flex;min-width:52px;align-items:center;justify-content:center;flex-direction:column;gap:3px;font-size:20px}.nav-item small{font-size:10px}.nav-item.is-active{color:#fff}.nav-item.is-active span{color:var(--accent)}
++.login-dialog{border:0;padding:0;background:transparent;color:var(--text)}.login-dialog::backdrop{background:rgba(0,0,0,.7);backdrop-filter:blur(5px)}.login-card{position:relative;width:min(390px,calc(100vw - 32px));padding:28px;border:1px solid var(--line);border-radius:18px;background:#161c26;box-shadow:0 24px 80px rgba(0,0,0,.5)}.dialog-close{position:absolute;right:12px;top:9px;border:0;background:none;color:var(--muted);font-size:26px}.login-card h2{font-size:23px;margin:12px 0 8px}.login-card p{color:var(--muted);font-size:13px;line-height:1.6;margin:0 0 22px}.login-card label{display:block;color:#b8beca;font-size:12px;margin:12px 0}.login-card input{display:block;width:100%;margin-top:6px;padding:12px;border:1px solid var(--line);border-radius:9px;background:#0f141c;color:var(--text);outline:none}.login-card input:focus{border-color:var(--accent)}.primary-button{width:100%;border:0;border-radius:9px;padding:12px;background:var(--accent);color:#fff;font-weight:600}.form-message{min-height:20px;color:#ff9baf;font-size:12px;margin:7px 0}
++@media(max-width:800px){.character-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.hero{display:block}.hero-note{text-align:left;margin-top:12px}.live-main{padding-top:20px}.card-info{padding:11px}.card-intro{font-size:11px}.live-header{height:64px}}
++@media(min-width:1200px){.live-nav{display:none}.live-shell{padding-bottom:20px}}
+diff --git a/live.html b/live.html
+new file mode 100644
+index 0000000..5993f00
+--- /dev/null
++++ b/live.html
+@@ -0,0 +1,46 @@
++<!doctype html>
++<html lang="zh-CN">
++<head>
++  <meta charset="utf-8" />
++  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
++  <meta name="theme-color" content="#0d1117" />
++  <title>Vipeak Live</title>
++  <link rel="icon" href="/assets/brand/favicon.svg" />
++  <link rel="stylesheet" href="/live.css?v=live-v1" />
++</head>
++<body>
++  <div class="live-shell">
++    <header class="live-header">
++      <a class="live-brand" href="#home" aria-label="Vipeak Live 首页"><span class="brand-mark">V</span><span>VIPEAK <b>LIVE</b></span></a>
++      <div class="header-actions">
++        <button class="icon-button" type="button" data-action="refresh" aria-label="刷新角色列表" title="刷新">↻</button>
++        <button class="account-button" type="button" data-action="account"><span class="account-dot">●</span><span data-account-label>登录</span></button>
++      </div>
++    </header>
++
++    <main id="liveApp" class="live-main" aria-live="polite"></main>
++
++    <nav class="live-nav" aria-label="主导航">
++      <a href="#home" class="nav-item is-active" data-nav="home"><span>⌂</span><small>首页</small></a>
++      <a href="#rooms" class="nav-item" data-nav="rooms"><span>◉</span><small>直播间</small></a>
++      <button class="nav-item" type="button" data-action="account"><span>♙</span><small>我的</small></button>
++    </nav>
++  </div>
++
++  <dialog id="loginDialog" class="login-dialog">
++    <form method="dialog" class="login-card" data-login-form>
++      <button class="dialog-close" value="cancel" aria-label="关闭">×</button>
++      <span class="eyebrow">VIPEAK LIVE</span>
++      <h2>登录后进入直播间</h2>
++      <p>账号在各站点通用，登录一次即可继续。</p>
++      <label>用户名<input name="username" autocomplete="username" required /></label>
++      <label>密码<input name="password" type="password" autocomplete="current-password" minlength="6" required /></label>
++      <div class="form-message" data-login-message></div>
++      <button class="primary-button" type="submit">登录 / 注册</button>
++    </form>
++  </dialog>
++
++  <script src="/chat-live.js?v=chat-live-12" defer></script>
++  <script src="/live.js?v=live-v1" defer></script>
++</body>
++</html>
+diff --git a/live.js b/live.js
+new file mode 100644
+index 0000000..5adf7bd
+--- /dev/null
++++ b/live.js
+@@ -0,0 +1,46 @@
++(() => {
++  const TOKEN_KEY = "raisingGameToken";
++  const app = document.querySelector("#liveApp");
++  const loginDialog = document.querySelector("#loginDialog");
++  const state = { config: null, characters: [], user: null, loading: false };
++  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
++  const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
++  async function api(url, options = {}) {
++    const headers = { "content-type": "application/json", ...(options.headers || {}) };
++    if (token()) headers.authorization = `Bearer ${token()}`;
++    const response = await fetch(url, { ...options, headers });
++    const payload = await response.json().catch(() => ({}));
++    if (!response.ok) throw new Error(payload.message || `请求失败（${response.status}）`);
++    return payload;
++  }
++  function imageOf(character) { return character.avatarUrl || character.portraitUrl || "/assets/brand/logo-mark.svg"; }
++  function setAccountLabel() { const node = document.querySelector("[data-account-label]"); if (node) node.textContent = state.user?.username || state.user?.email || (token() ? "我的账户" : "登录"); }
++  function renderLoading() { app.innerHTML = '<div class="loading-state">正在加载在线角色…</div>'; }
++  function renderHome() {
++    document.querySelectorAll("[data-nav]").forEach((item) => item.classList.toggle("is-active", item.dataset.nav === "home"));
++    const chars = state.characters;
++    app.innerHTML = `<section class="hero"><div><span class="eyebrow">LIVE CHARACTER ROOMS</span><h1>今晚，和谁聊一会儿？</h1><p>选择一位在线角色，进入真实的实时视频对话。</p></div><div class="hero-note">单角色直播间已开放<br>多人同场直播正在准备中</div></section><div class="section-head"><h2>在线角色</h2><span>${chars.length} 位正在等待你</span></div><section class="character-grid">${chars.map((character) => `<article class="character-card"><div class="portrait-wrap"><img loading="lazy" src="${esc(imageOf(character))}" alt="${esc(character.name || "角色")}"><span class="live-pill">在线</span></div><div class="card-info"><div class="card-title"><h3>${esc(character.name || "未命名角色")}</h3><span class="online-count">实时视频</span></div><p class="card-intro">${esc(character.intro || character.greeting || "和她聊聊今天的事。")}</p><div class="tags">${(character.tags || []).slice(0, 3).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</div><button class="enter-button" type="button" data-character-id="${esc(character.id)}">进入直播间</button></div></article>`).join("")}</section>`;
++  }
++  function renderRooms() { document.querySelectorAll("[data-nav]").forEach((item) => item.classList.toggle("is-active", item.dataset.nav === "rooms")); app.innerHTML = '<div class="empty-state"><h2>直播间</h2><p>从首页选择角色即可进入直播间。你最近的直播记录会显示在这里。</p><button class="enter-button" style="max-width:180px" data-action="home">浏览在线角色</button></div>'; }
++  async function load() {
++    renderLoading(); state.loading = true;
++    try { state.config = await window.ChatLive.loadConfig(true); state.characters = window.ChatLive.characters(); renderHome(); } catch (error) { app.innerHTML = `<div class="empty-state error-state">暂时无法加载在线角色<br><small>${esc(error.message)}</small></div>`; } finally { state.loading = false; }
++    if (token()) { try { state.user = (await api("/api/auth/me")).user; } catch { state.user = null; } } setAccountLabel();
++  }
++  function openCharacter(id) {
++    if (!token()) { loginDialog.showModal(); loginDialog.dataset.pendingCharacter = id; return; }
++    const character = state.characters.find((item) => String(item.id) === String(id));
++    if (character && window.ChatLive?.open) window.ChatLive.open(character.id).catch((error) => { app.insertAdjacentHTML("afterbegin", `<div class="empty-state error-state">${esc(error.message)}</div>`); });
++  }
++  document.addEventListener("click", (event) => {
++    const characterButton = event.target.closest("[data-character-id]"); if (characterButton) return openCharacter(characterButton.dataset.characterId);
++    const action = event.target.closest("[data-action]")?.dataset.action;
++    if (action === "refresh") return load();
++    if (action === "home") { location.hash = "home"; return renderHome(); }
++    if (action === "account") { if (token()) { localStorage.removeItem(TOKEN_KEY); state.user = null; setAccountLabel(); } else loginDialog.showModal(); }
++  });
++  document.addEventListener("click", (event) => { const nav = event.target.closest("[data-nav]")?.dataset.nav; if (nav === "rooms") { location.hash = "rooms"; renderRooms(); } if (nav === "home") { location.hash = "home"; renderHome(); } });
++  document.querySelector("[data-login-form]").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const message = form.querySelector("[data-login-message]"); message.textContent = "正在登录…"; try { const result = await api("/api/auth/login-or-register", { method: "POST", body: JSON.stringify({ username: form.username.value.trim(), password: form.password.value }) }); localStorage.setItem(TOKEN_KEY, result.token); state.user = result.user || null; loginDialog.close(); setAccountLabel(); const pending = loginDialog.dataset.pendingCharacter; delete loginDialog.dataset.pendingCharacter; if (pending) openCharacter(pending); } catch (error) { message.textContent = error.message; } });
++  window.addEventListener("hashchange", () => { if (location.hash === "#rooms") renderRooms(); else renderHome(); });
++  load();
++})();
+diff --git a/server.js b/server.js
+index 5235a39..f2bfa0d 100644
+--- a/server.js
++++ b/server.js
+@@ -417,6 +417,18 @@ const TOOL_TENANT_SPECS = Object.freeze({
+     disabledTabs: ["access", "assets", "workflow", "characters", "advanced", "referral"],
+     assetLibrary: false,
+   },
++  live: {
++    id: "live",
++    tenantId: "tool-chat-5vips",
++    brand: "Vipeak Live",
++    title: "Vipeak Live",
++    description: "Live conversations with AI characters.",
++    defaultTab: "home",
++    allowedTabs: ["home", "rooms", "messages", "account"],
++    allowedGalleryModes: ["characters"],
++    disabledTabs: ["access", "assets", "workflow", "advanced"],
++    assetLibrary: false,
++  },
+   advanced: {
+     id: "advanced",
+     tenantId: "tool-advanced",
+@@ -426,7 +438,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
+     assetLibrary: false,
+   },
+ });
+-const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat";
++const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat,live.123vipeak.com=live";
+ const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
+ 
+ // Platform (non-tool) hosts that ship their own site profile. They keep the main
+@@ -43653,8 +43665,9 @@ function privateStaticPath(pathname = "") {
+ 
+ async function serveStatic(req, res, url) {
+   const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
++  const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
+   let pathname = decodeURIComponent(url.pathname === "/"
+-    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : "/platform.html")
++    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : "/platform.html")
+     : url.pathname);
+   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
+   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
+@@ -43679,6 +43692,17 @@ async function serveStatic(req, res, url) {
+       || pathname.startsWith("/assets/chat-live/gifts/");
+     if (!allowedChatPath) return sendText(res, 404, "Not Found");
+   }
++  if (liveTenantRequest) {
++    const allowedLivePath = pathname === "/live.html"
++      || pathname === "/live.css"
++      || pathname === "/live.js"
++      || pathname === "/chat-live.js"
++      || pathname === "/favicon.ico"
++      || pathname === "/favicon.svg"
++      || pathname.startsWith("/assets/brand/")
++      || pathname.startsWith("/assets/chat-live/gifts/");
++    if (!allowedLivePath) return sendText(res, 404, "Not Found");
++  }
+   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
+   if (lockedUndressImageMatch) {
+     const lockedRecord = await getGenerationRecord(lockedUndressImageMatch[1]);
