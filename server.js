@@ -19830,10 +19830,10 @@ function publicGenerationRecord(record = {}, options = {}) {
     // Keep all browser media hidden until the durable R2 copy is published.
     // Otherwise the UI sees localVideoUrl and starts preview/download while
     // the record is still deliberately gated as processing.
-    publicRecord.localVideoUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.localVideoUrl || "");
-    publicRecord.cdnVideoUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.cdnVideoUrl || "");
-    publicRecord.localPosterUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.localPosterUrl || "");
-    publicRecord.cdnPosterUrl = providerOnlyOutputs || r2PublicationPending ? "" : String(record.cdnPosterUrl || "");
+    publicRecord.localVideoUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.localVideoUrl || ""));
+    publicRecord.cdnVideoUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.cdnVideoUrl || ""));
+    publicRecord.localPosterUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.localPosterUrl || ""));
+    publicRecord.cdnPosterUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.cdnPosterUrl || ""));
   }
   if (includeStoredImageUrls) {
     publicRecord.localImageUrl = providerOnlyOutputs ? "" : String(record.localImageUrl || "");

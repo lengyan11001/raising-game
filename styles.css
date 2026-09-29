@@ -1847,6 +1847,61 @@ input[type="text"]:focus {
     linear-gradient(145deg, rgba(255, 244, 247, 0.075), rgba(255, 244, 247, 0.025)),
     rgba(8, 6, 10, 0.48);
 }
+.history-item.is-result-expired .history-expired-preview-wrap {
+  position: relative;
+  min-height: 180px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #182535;
+}
+.history-item.is-result-expired .history-expired-preview {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  object-fit: cover;
+}
+.history-item.is-result-expired .generation-expired-label {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 7px 12px;
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(15, 23, 42, .78);
+  font-size: .84rem;
+  font-weight: 650;
+  text-align: center;
+}
+.history-expired-result {
+  position: relative;
+  overflow: hidden;
+  margin: 12px 0;
+  border-radius: 10px;
+  background: #182535;
+}
+.history-expired-result img {
+  display: block;
+  width: 100%;
+  min-height: 150px;
+  object-fit: cover;
+}
+.history-expired-result span {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(15, 23, 42, .78);
+  font-size: .82rem;
+  font-weight: 650;
+}
 
 .history-item-head {
   display: grid;

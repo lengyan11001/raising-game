@@ -448,8 +448,9 @@ function renderAdvancedResultPanel() {
     return;
   }
   els.advancedResultList.innerHTML = records.map((record, index) => {
-    const videoUrl = generationVideoUrl(record);
-    const imageUrls = generationImageResultUrls(record);
+    const resultExpired = isGenerationResultExpired(record);
+    const videoUrl = resultExpired ? "" : generationVideoUrl(record);
+    const imageUrls = resultExpired ? [] : generationImageResultUrls(record);
     const imageUrl = imageUrls[0] || "";
     const textResult = String(record.textResult || record.responseText || "").trim();
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl || textResult);
@@ -458,8 +459,10 @@ function renderAdvancedResultPanel() {
     const taskId = record.taskId || "";
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
     const ratio = record.ratio || record.params?.ratio || "16:9";
-    const canDownload = canDownloadGenerationRecord(record);
-    const media = videoUrl
+    const canDownload = !resultExpired && canDownloadGenerationRecord(record);
+    const media = resultExpired
+      ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="图片已过24小时有效期" loading="lazy" decoding="async" /><span class="generation-expired-label">图片已过24小时有效期</span></div>`
+      : videoUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
         ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="${index === 0 && imageIndex === 0 ? "eager" : "lazy"}" fetchpriority="${index === 0 && imageIndex === 0 ? "high" : "auto"}" decoding="async" /></button>`).join("")}</div>`
@@ -4648,8 +4651,16 @@ function renderHistory(records = []) {
     ? `<div class="history-load-sentinel" data-history-load-more><i data-lucide="loader-circle"></i></div>`
     : "";
   els.historyList.innerHTML = `${sortedRecords.map((record, index) => {
-    const videoUrl = generationVideoUrl(record);
-    const imageResultUrl = generationImageResultUrl(record);
+    const resultExpired = isGenerationResultExpired(record);
+    const videoUrl = resultExpired ? "" : generationVideoUrl(record);
+    const imageResultUrl = resultExpired ? "" : generationImageResultUrl(record);
+    const hasExpiredResult = resultExpired && Boolean(
+      generationVideoUrl(record)
+      || generationImageResultUrl(record)
+      || record.downloadUrl
+      || (Array.isArray(record.imageResultUrls) && record.imageResultUrls.some(Boolean))
+      || (Array.isArray(record.cdnImageUrls) && record.cdnImageUrls.some(Boolean)),
+    );
     const textResult = String(record.textResult || record.responseText || "").trim();
     const resultLocked = record.resultLocked === true;
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl || textResult);
@@ -4663,7 +4674,7 @@ function renderHistory(records = []) {
     // connection when the history page contains several results.
     const imageLoading = index === 0 ? "eager" : "lazy";
     const imageFetchPriority = index === 0 ? "high" : "auto";
-    const canDownload = canDownloadGenerationRecord(record);
+    const canDownload = !resultExpired && canDownloadGenerationRecord(record);
     const isUndressHistory = isTenantTool("undress");
     const recordStatusClass = statusClass(record.status);
     const recordStatusLabel = statusLabel(record.status);
@@ -4737,9 +4748,12 @@ function renderHistory(records = []) {
     const primaryActions = `${unlockAction}${regenerateAction}${resultActions}${videoActions}`;
     const allActions = `${primaryActions}${detailAction}${deleteAction}`;
     return `
-      <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}" data-history-index="${index}">
+      <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}${hasExpiredResult ? " is-result-expired" : ""}" data-history-index="${index}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${resultLocked ? `<div class="history-placeholder history-locked-preview-wrap">
+          ${hasExpiredResult ? `<div class="history-placeholder history-expired-preview-wrap">
+            <img class="history-expired-preview" src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="图片已过24小时有效期" loading="lazy" decoding="async" />
+            <span class="generation-expired-label">图片已过24小时有效期</span>
+          </div>` : resultLocked ? `<div class="history-placeholder history-locked-preview-wrap">
             ${record.lockedPreviewUrl ? `<img class="history-locked-preview" src="${escapeHtml(record.lockedPreviewUrl)}" alt="" loading="lazy" decoding="async" draggable="false" /><span class="history-locked-scrim" aria-hidden="true"></span>` : ""}
             <span class="history-locked-mark" aria-hidden="true"><i data-lucide="lock-keyhole"></i></span>
             ${unlockOverlay}

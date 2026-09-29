@@ -1049,6 +1049,16 @@ function generationRecordVideoUrl(record) {
   ).trim();
 }
 
+const GENERATION_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
+const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg";
+
+function isGenerationResultExpired(record = {}) {
+  const timestamp = Date.parse(String(record.createdAt || record.created_at || ""));
+  if (!Number.isFinite(timestamp) || Date.now() - timestamp < GENERATION_RESULT_TTL_MS) return false;
+  const status = String(record.status || "").toLowerCase();
+  return ["succeeded", "success", "done", "completed"].includes(status) || Boolean(generationRecordVideoUrl(record));
+}
+
 function generationRecordKindLabel(record) {
   if (record?.kind === "unlock-video") return "Unlock video";
   return record?.kind === "main-video" ? "Main video" : "Scene video";
@@ -1120,7 +1130,8 @@ function renderGenerationHistory(records = [], { loading = false, page = state.g
   }
 
   els.generationHistoryList.innerHTML = records.map((record, index) => {
-    const videoUrl = generationRecordVideoUrl(record);
+    const resultExpired = isGenerationResultExpired(record);
+    const videoUrl = resultExpired ? "" : generationRecordVideoUrl(record);
     const params = generationRecordParams(record);
     const status = generationRecordStatusLabel(record.status);
     const statusClass = status.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -1139,10 +1150,11 @@ function renderGenerationHistory(records = [], { loading = false, page = state.g
           </div>
           <span class="history-status is-${escapeHtmlSafe(statusClass)}">${escapeHtmlSafe(status)}</span>
         </header>
+        ${resultExpired ? `<div class="history-expired-result"><img src="${GENERATION_EXPIRED_PLACEHOLDER_URL}" alt="图片已过24小时有效期" /><span>图片已过24小时有效期</span></div>` : ""}
         <div class="history-actions">
-          <button class="primary-btn compact-btn" type="button" data-history-action="play">
-            <i data-lucide="${videoUrl ? "play" : "refresh-cw"}"></i>
-            ${videoUrl ? "Play" : "Check"}
+          <button class="primary-btn compact-btn${resultExpired ? " is-expired" : ""}" type="button" data-history-action="play" ${resultExpired ? "disabled" : ""}>
+            <i data-lucide="${resultExpired ? "clock-3" : videoUrl ? "play" : "refresh-cw"}"></i>
+            ${resultExpired ? "图片已过24小时有效期" : videoUrl ? "Play" : "Check"}
           </button>
           <button class="secondary-btn compact-btn" type="button" data-history-action="params">
             <i data-lucide="sliders-horizontal"></i>
@@ -1178,6 +1190,7 @@ function renderGenerationHistory(records = [], { loading = false, page = state.g
 }
 
 async function playGenerationHistoryRecord(record, button) {
+  if (isGenerationResultExpired(record)) return;
   const existingUrl = generationRecordVideoUrl(record);
   const taskId = String(record?.taskId || "").trim();
   if (!taskId) {

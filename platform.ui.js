@@ -1149,6 +1149,33 @@ function generationVideoUrl(record) {
     || "";
 }
 
+const GENERATION_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
+const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg";
+
+function generationResultTimestamp(record = {}) {
+  const value = record.createdAt || record.created_at || record.updatedAt || record.updated_at || "";
+  const timestamp = Date.parse(String(value || ""));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isGenerationResultExpired(record = {}) {
+  const timestamp = generationResultTimestamp(record);
+  if (!timestamp || Date.now() - timestamp < GENERATION_RESULT_TTL_MS) return false;
+  const status = String(record.status || "").toLowerCase();
+  return ["succeeded", "success", "done", "completed"].includes(status)
+    || Boolean(
+      generationVideoUrl(record)
+      || generationImageResultUrl(record)
+      || record.downloadUrl
+      || (Array.isArray(record.imageResultUrls) && record.imageResultUrls.some(Boolean))
+      || (Array.isArray(record.cdnImageUrls) && record.cdnImageUrls.some(Boolean)),
+    );
+}
+
+function generationExpiredPlaceholderUrl() {
+  return GENERATION_EXPIRED_PLACEHOLDER_URL;
+}
+
 function generationImageResultUrl(record) {
   return record?.cdnImageUrl
     || record?.remoteImageUrl
