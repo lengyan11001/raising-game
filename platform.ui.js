@@ -1150,7 +1150,7 @@ function generationVideoUrl(record) {
 }
 
 const GENERATION_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
-const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg";
+const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg?v=content-expired-1";
 
 function generationResultTimestamp(record = {}) {
   const value = record.createdAt || record.created_at || record.updatedAt || record.updated_at || "";
@@ -1160,16 +1160,9 @@ function generationResultTimestamp(record = {}) {
 
 function isGenerationResultExpired(record = {}) {
   const timestamp = generationResultTimestamp(record);
-  if (!timestamp || Date.now() - timestamp < GENERATION_RESULT_TTL_MS) return false;
-  const status = String(record.status || "").toLowerCase();
-  return ["succeeded", "success", "done", "completed"].includes(status)
-    || Boolean(
-      generationVideoUrl(record)
-      || generationImageResultUrl(record)
-      || record.downloadUrl
-      || (Array.isArray(record.imageResultUrls) && record.imageResultUrls.some(Boolean))
-      || (Array.isArray(record.cdnImageUrls) && record.cdnImageUrls.some(Boolean)),
-    );
+  // Once a task is older than the provider's 24-hour result window, hide all
+  // media uniformly, including records whose provider URL is already gone.
+  return Boolean(timestamp && Date.now() - timestamp >= GENERATION_RESULT_TTL_MS);
 }
 
 function generationExpiredPlaceholderUrl() {

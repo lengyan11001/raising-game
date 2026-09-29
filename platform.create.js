@@ -461,7 +461,7 @@ function renderAdvancedResultPanel() {
     const ratio = record.ratio || record.params?.ratio || "16:9";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
     const media = resultExpired
-      ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="图片已过24小时有效期" loading="lazy" decoding="async" /><span class="generation-expired-label">图片已过24小时有效期</span></div>`
+      ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
       : videoUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
@@ -4654,13 +4654,7 @@ function renderHistory(records = []) {
     const resultExpired = isGenerationResultExpired(record);
     const videoUrl = resultExpired ? "" : generationVideoUrl(record);
     const imageResultUrl = resultExpired ? "" : generationImageResultUrl(record);
-    const hasExpiredResult = resultExpired && Boolean(
-      generationVideoUrl(record)
-      || generationImageResultUrl(record)
-      || record.downloadUrl
-      || (Array.isArray(record.imageResultUrls) && record.imageResultUrls.some(Boolean))
-      || (Array.isArray(record.cdnImageUrls) && record.cdnImageUrls.some(Boolean)),
-    );
+    const hasExpiredResult = resultExpired;
     const textResult = String(record.textResult || record.responseText || "").trim();
     const resultLocked = record.resultLocked === true;
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl || textResult);
@@ -4751,8 +4745,8 @@ function renderHistory(records = []) {
       <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}${hasExpiredResult ? " is-result-expired" : ""}" data-history-index="${index}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
           ${hasExpiredResult ? `<div class="history-placeholder history-expired-preview-wrap">
-            <img class="history-expired-preview" src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="图片已过24小时有效期" loading="lazy" decoding="async" />
-            <span class="generation-expired-label">图片已过24小时有效期</span>
+            <img class="history-expired-preview" src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" />
+            <span class="generation-expired-label">内容已经过期</span>
           </div>` : resultLocked ? `<div class="history-placeholder history-locked-preview-wrap">
             ${record.lockedPreviewUrl ? `<img class="history-locked-preview" src="${escapeHtml(record.lockedPreviewUrl)}" alt="" loading="lazy" decoding="async" draggable="false" /><span class="history-locked-scrim" aria-hidden="true"></span>` : ""}
             <span class="history-locked-mark" aria-hidden="true"><i data-lucide="lock-keyhole"></i></span>

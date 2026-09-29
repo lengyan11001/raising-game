@@ -1050,13 +1050,11 @@ function generationRecordVideoUrl(record) {
 }
 
 const GENERATION_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
-const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg";
+const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg?v=content-expired-1";
 
 function isGenerationResultExpired(record = {}) {
-  const timestamp = Date.parse(String(record.createdAt || record.created_at || ""));
-  if (!Number.isFinite(timestamp) || Date.now() - timestamp < GENERATION_RESULT_TTL_MS) return false;
-  const status = String(record.status || "").toLowerCase();
-  return ["succeeded", "success", "done", "completed"].includes(status) || Boolean(generationRecordVideoUrl(record));
+  const timestamp = Date.parse(String(record.createdAt || record.created_at || record.updatedAt || record.updated_at || ""));
+  return Number.isFinite(timestamp) && Date.now() - timestamp >= GENERATION_RESULT_TTL_MS;
 }
 
 function generationRecordKindLabel(record) {
@@ -1150,11 +1148,11 @@ function renderGenerationHistory(records = [], { loading = false, page = state.g
           </div>
           <span class="history-status is-${escapeHtmlSafe(statusClass)}">${escapeHtmlSafe(status)}</span>
         </header>
-        ${resultExpired ? `<div class="history-expired-result"><img src="${GENERATION_EXPIRED_PLACEHOLDER_URL}" alt="图片已过24小时有效期" /><span>图片已过24小时有效期</span></div>` : ""}
+        ${resultExpired ? `<div class="history-expired-result"><img src="${GENERATION_EXPIRED_PLACEHOLDER_URL}" alt="内容已经过期" /><span>内容已经过期</span></div>` : ""}
         <div class="history-actions">
           <button class="primary-btn compact-btn${resultExpired ? " is-expired" : ""}" type="button" data-history-action="play" ${resultExpired ? "disabled" : ""}>
             <i data-lucide="${resultExpired ? "clock-3" : videoUrl ? "play" : "refresh-cw"}"></i>
-            ${resultExpired ? "图片已过24小时有效期" : videoUrl ? "Play" : "Check"}
+            ${resultExpired ? "内容已经过期" : videoUrl ? "Play" : "Check"}
           </button>
           <button class="secondary-btn compact-btn" type="button" data-history-action="params">
             <i data-lucide="sliders-horizontal"></i>
