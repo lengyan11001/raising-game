@@ -10976,7 +10976,9 @@ async function getAuth(req, options = {}) {
 async function requireUser(req, res, options = {}) {
   const auth = await getAuth(req, options);
   if (!auth.user) {
-    sendJson(res, 401, { ok: false, code: getBearerToken(req) ? "SESSION_REPLACED" : "LOGIN_REQUIRED", message: getBearerToken(req) ? "这个账号已在另一台设备登录，请重新登录。" : "Please sign in to continue." });
+    const bearer = getBearerToken(req);
+    const likelyBrowserSession = /^[a-f0-9]{64}$/i.test(bearer);
+    sendJson(res, 401, { ok: false, code: likelyBrowserSession ? "SESSION_REPLACED" : "LOGIN_REQUIRED", message: likelyBrowserSession ? "这个账号已在另一台设备登录，请重新登录。" : "Please sign in to continue." });
     return null;
   }
   return auth;
