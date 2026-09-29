@@ -108,6 +108,8 @@ const {
   replaceAppDbTables,
   applyCreditDeltaInDb,
   deleteUserSessionsInDb,
+  replaceUserSessionInDb,
+  deleteSessionByTokenInDb,
   deleteUserWalletOrdersInDb,
   createWalletOrderInDb,
   createManualWalletOrderInDb,
@@ -2096,6 +2098,38 @@ function isSoftDeleted(record) {
 
 async function writeDb(db) {
   return withAppStateWriteLock(() => replaceAppDbTables(db));
+}
+
+async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID) {
+  const now = new Date().toISOString();
+  const session = {
+    token: crypto.randomBytes(32).toString("hex"),
+    userId: String(user?.id || ""),
+    tenantId: normalizeTenantId(tenantId),
+    accountKey: loginAccountKey(user),
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (!session.userId) throw new Error("Cannot create a login session without a user.");
+  db.sessions = (db.sessions || []).filter((item) => (
+    String(item.userId || "") !== session.userId
+    && (!session.accountKey || String(item.accountKey || "") !== session.accountKey)
+  ));
+  db.sessions.push(session);
+  if (dbEnabled()) await replaceUserSessionInDb(session);
+  else await writeDb(db);
+  return session;
+}
+
+function loginAccountKey(user = {}) {
+  const email = String(user.email || "").trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const googleId = String(user.googleId || "").trim();
+  if (googleId) return `google:${googleId}`;
+  const telegramId = String(user.telegramUserId || "").trim();
+  if (telegramId) return `telegram:${telegramId}`;
+  const username = String(user.username || "").trim().toLowerCase();
+  return username ? `username:${username}` : `user:${String(user.id || "")}`;
 }
 
 async function readAdminHomeItemsStore() {
@@ -10942,7 +10976,7 @@ async function getAuth(req, options = {}) {
 async function requireUser(req, res, options = {}) {
   const auth = await getAuth(req, options);
   if (!auth.user) {
-    sendJson(res, 401, { ok: false, code: "LOGIN_REQUIRED", message: "Please sign in to continue." });
+    sendJson(res, 401, { ok: false, code: getBearerToken(req) ? "SESSION_REPLACED" : "LOGIN_REQUIRED", message: getBearerToken(req) ? "这个账号已在另一台设备登录，请重新登录。" : "Please sign in to continue." });
     return null;
   }
   return auth;
@@ -32589,16 +32623,13 @@ async function registerWithBody(req, res, body = {}) {
       registeredAt: now,
     };
   }
-  const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: user.id, tenantId, createdAt: now };
   db.users.push(user);
-  db.sessions.push(session);
   if (dbEnabled()) {
     await updateUserInDb(user);
-    await createSessionInDb(session);
   } else {
     await writeDb(db);
   }
+  const session = await createSingleLoginSession(db, user, tenantId);
   if (referrer?.id) {
     const wasMember = userHasCreatorMembership(referrer);
     await ensureCreatorMembershipFromReferrals(db, referrer);
@@ -32607,7 +32638,7 @@ async function registerWithBody(req, res, body = {}) {
       if (!dbEnabled()) await writeDb(db);
     }
   }
-  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+  return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
 
 async function handleRegister(req, res) {
@@ -32629,16 +32660,13 @@ async function loginWithBody(req, res, body = {}, { registerIfMissing = false } 
   }
 
   ensureUserApiToken(user, db);
-  const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: user.id, tenantId, createdAt: new Date().toISOString() };
-  db.sessions.push(session);
   if (dbEnabled()) {
     await updateUserInDb(user);
-    await createSessionInDb(session);
   } else {
     await writeDb(db);
   }
-  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+  const session = await createSingleLoginSession(db, user, tenantId);
+  return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
 
 async function handleLogin(req, res) {
@@ -32736,11 +32764,10 @@ async function createEmailSession(req, res, email) {
     user.emailVerifiedAt = now;
     user.updatedAt = now;
   }
-  const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: user.id, tenantId, createdAt: now };
-  db.sessions.push(session);
-  if (dbEnabled()) { await updateUserInDb(user); await createSessionInDb(session); } else await writeDb(db);
-  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+  if (dbEnabled()) await updateUserInDb(user);
+  else await writeDb(db);
+  const session = await createSingleLoginSession(db, user, tenantId);
+  return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
 
 async function handleEmailLoginRequest(req, res) {
@@ -32955,13 +32982,8 @@ async function handleGoogleLogin(req, res) {
       host: requestHostname(req),
       referralCode: body.referralCode || body.referral || body.ref || "",
     });
-    const now = new Date().toISOString();
-    const token = crypto.randomBytes(32).toString("hex");
-    const session = { token, userId: account.user.id, tenantId: tenant.tenantId, createdAt: now };
-    account.db.sessions.push(session);
-    if (dbEnabled()) await createSessionInDb(session);
-    else await writeDb(account.db);
-    return sendJson(res, 200, { ok: true, token, user: userView(account.user) });
+    const session = await createSingleLoginSession(account.db, account.user, tenant.tenantId);
+    return sendJson(res, 200, { ok: true, token: session.token, user: userView(account.user) });
   } catch (error) {
     return sendJson(res, error.statusCode || 401, { ok: false, code: error.code || "GOOGLE_LOGIN_INVALID", message: error.message || "Google login failed." });
   }
@@ -32983,6 +33005,17 @@ async function handleMe(req, res) {
     user.accessTokenPreview = auth.tokenRecord?.tokenPreview || "";
   }
   return sendJson(res, 200, { ok: true, user });
+}
+
+async function handleLogout(req, res) {
+  const token = getBearerToken(req);
+  if (token && dbEnabled()) await deleteSessionByTokenInDb(token);
+  if (token && !dbEnabled()) {
+    const db = await readDb();
+    db.sessions = (db.sessions || []).filter((session) => session.token !== token);
+    await writeDb(db);
+  }
+  return sendJson(res, 200, { ok: true });
 }
 
 const telegramBotClient = createTelegramBotClient({
@@ -33145,13 +33178,8 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
 
 async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT_ID) {
   const normalizedTenant = normalizeTenantId(tenantId);
-  const now = new Date().toISOString();
-  const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: account.user.id, tenantId: normalizedTenant, createdAt: now };
-  account.db.sessions.push(session);
-  if (dbEnabled()) await createSessionInDb(session);
-  else await writeDb(account.db);
-  return { token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
+  const session = await createSingleLoginSession(account.db, account.user, normalizedTenant);
+  return { token: session.token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
 }
 
 async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "" } = {}) {
@@ -44127,6 +44155,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/auth/login-or-register") {
       return await handleLoginOrRegister(req, res);
     }
+    if (req.method === "POST" && url.pathname === "/api/auth/logout") return await handleLogout(req, res);
 
     if (req.method === "POST" && url.pathname === "/api/auth/email/request") return await handleEmailLoginRequest(req, res);
     if (req.method === "POST" && url.pathname === "/api/auth/email/verify") return await handleEmailLoginVerify(req, res);

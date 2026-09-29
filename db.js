@@ -1108,6 +1108,55 @@ async function deleteUserSessionsInDb(userId = "", exceptToken = "") {
   );
 }
 
+/* Replace every browser login for a user atomically. The advisory lock makes
+   simultaneous logins deterministic: the last transaction wins. */
+async function replaceUserSessionInDb(session = {}) {
+  if (!dbEnabled()) return session;
+  const userId = String(session.userId || "").trim();
+  const token = String(session.token || "").trim();
+  if (!userId || !token) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const accountKey = String(session.accountKey || "").trim();
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`raising-login:${accountKey || userId}`]);
+    if (accountKey.startsWith("username:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR lower(u.username) = $2)", [userId, accountKey.slice(9)]);
+    } else if (accountKey.startsWith("email:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR lower(u.payload->>'email') = $2)", [userId, accountKey.slice(6)]);
+    } else if (accountKey.startsWith("google:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR u.payload->>'googleId' = $2)", [userId, accountKey.slice(7)]);
+    } else if (accountKey.startsWith("telegram:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR u.payload->>'telegramUserId' = $2)", [userId, accountKey.slice(9)]);
+    } else {
+      await client.query("DELETE FROM app_sessions WHERE user_id = $1", [userId]);
+    }
+    const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
+    const payload = { ...session, tenantId };
+    await client.query(
+      `INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)`,
+      [token, userId, tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+    );
+    await client.query("COMMIT");
+    return session;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteSessionByTokenInDb(token = "") {
+  if (!dbEnabled()) return { rowCount: 0 };
+  const cleanToken = String(token || "").trim();
+  if (!cleanToken) return { rowCount: 0 };
+  await ensureSchema();
+  return query("DELETE FROM app_sessions WHERE token = $1", [cleanToken]);
+}
+
 async function deleteUserWalletOrdersInDb(userId = "") {
   if (!dbEnabled()) return { rowCount: 0 };
   const cleanUserId = String(userId || "").trim();
@@ -3696,6 +3745,8 @@ module.exports = {
   replaceAppDbTables,
   applyCreditDeltaInDb,
   deleteUserSessionsInDb,
+  replaceUserSessionInDb,
+  deleteSessionByTokenInDb,
   deleteUserWalletOrdersInDb,
   createWalletOrderInDb,
   createManualWalletOrderInDb,

@@ -3723,6 +3723,12 @@ async function requestJson(url, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
+    if (payload.code === "SESSION_REPLACED") {
+      state.token = "";
+      state.user = null;
+      localStorage.removeItem(TOKEN_KEY);
+      window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
+    }
     const error = new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
     error.statusCode = response.status;
     error.code = payload.code || "";
