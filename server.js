@@ -417,6 +417,18 @@ const TOOL_TENANT_SPECS = Object.freeze({
     disabledTabs: ["access", "assets", "workflow", "characters", "advanced", "referral"],
     assetLibrary: false,
   },
+  live: {
+    id: "live",
+    tenantId: "tool-chat-5vips",
+    brand: "Vipeak Live",
+    title: "Vipeak Live",
+    description: "Live conversations with AI characters.",
+    defaultTab: "home",
+    allowedTabs: ["home", "rooms", "messages", "account"],
+    allowedGalleryModes: ["characters"],
+    disabledTabs: ["access", "assets", "workflow", "advanced"],
+    assetLibrary: false,
+  },
   advanced: {
     id: "advanced",
     tenantId: "tool-advanced",
@@ -426,7 +438,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
     assetLibrary: false,
   },
 });
-const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat";
+const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat,live.123vipeak.com=live";
 const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
 
 // Platform (non-tool) hosts that ship their own site profile. They keep the main
@@ -43653,8 +43665,9 @@ function privateStaticPath(pathname = "") {
 
 async function serveStatic(req, res, url) {
   const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
+  const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
   let pathname = decodeURIComponent(url.pathname === "/"
-    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : "/platform.html")
+    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : "/platform.html")
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
@@ -43678,6 +43691,17 @@ async function serveStatic(req, res, url) {
       || pathname.startsWith("/assets/ourdream/")
       || pathname.startsWith("/assets/chat-live/gifts/");
     if (!allowedChatPath) return sendText(res, 404, "Not Found");
+  }
+  if (liveTenantRequest) {
+    const allowedLivePath = pathname === "/live.html"
+      || pathname === "/live.css"
+      || pathname === "/live.js"
+      || pathname === "/chat-live.js"
+      || pathname === "/favicon.ico"
+      || pathname === "/favicon.svg"
+      || pathname.startsWith("/assets/brand/")
+      || pathname.startsWith("/assets/chat-live/gifts/");
+    if (!allowedLivePath) return sendText(res, 404, "Not Found");
   }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
   if (lockedUndressImageMatch) {
