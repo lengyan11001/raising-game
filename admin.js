@@ -4008,8 +4008,8 @@ function bindChatLiveAssetUploads(root) {
       if (!file) return;
       const assetType = String(file.type || "").toLowerCase();
       const assetName = String(file.name || "").toLowerCase();
-      if (!["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(assetType) && !/\.(png|jpe?g|webp)$/.test(assetName)) {
-        toast("只支持 PNG、JPG、WEBP。", "error");
+      if (!["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"].includes(assetType) && !/\.(png|jpe?g|webp|gif)$/.test(assetName)) {
+        toast("只支持 PNG、JPG、WEBP、GIF。", "error");
         return;
       }
       if (file.size > 8 * 1024 * 1024) {
@@ -4527,6 +4527,17 @@ function chatLiveSessionRow(session = {}) {
     </tr>`;
 }
 
+function chatLiveGiftsHtml(gifts = []) {
+  return (gifts || []).map((gift, index) => `<div class="adm-form-row chat-live-gift-admin" data-gift-id="${escapeHtml(gift.id || "")}">
+    <span>礼物 ${index + 1}</span><div style="display:grid;grid-template-columns:1fr 110px 1.4fr 1.5fr auto;gap:8px;align-items:center;width:100%">
+      <input data-gift-name value="${escapeHtml(gift.name || "")}" placeholder="名称" />
+      <input data-gift-credits type="number" min="1" value="${escapeHtml(String(gift.credits || 1))}" placeholder="积分" />
+      <div style="display:flex;gap:6px;align-items:center"><input data-gift-image value="${escapeHtml(gift.imageUrl || "")}" placeholder="GIF 图片地址" /><input data-gift-file type="file" accept="image/gif,image/png,image/webp,image/jpeg" style="max-width:150px" /></div>
+      <input data-gift-text value="${escapeHtml(gift.userText || "")}" placeholder="发给数字人的文案" />
+      <label><input data-gift-enabled type="checkbox" ${gift.enabled === false ? "" : "checked"} />启用</label>
+    </div></div>`).join("");
+}
+
 async function renderChatLive() {
   document.querySelectorAll(".chat-live-modal").forEach((node) => node.remove());
   const requests = [api("/api/admin/chat-live/characters"), loadChatLiveVoices()];
@@ -4538,6 +4549,7 @@ async function renderChatLive() {
   const pricing = payload.pricing || {};
   const characters = Array.isArray(payload.characters) ? payload.characters : [];
   const looks = Array.isArray(payload.looks) ? payload.looks : [];
+  const gifts = Array.isArray(payload.gifts) ? payload.gifts : [];
   const editing = characters.find((item) => item.id === chatLiveEditingId) || null;
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -4582,6 +4594,11 @@ async function renderChatLive() {
         <div class="adm-card-body chat-live-looks">${chatLiveLooksHtml(looks)}</div>
       </div>
 
+      <div class="adm-card" id="chatLiveGiftsCard">
+        <div class="adm-card-head"><div><h3>打赏礼物（最多 5 个）</h3><p class="adm-muted">每个礼物配置名称、积分、动图地址和发给数字人的文案。图片请使用站内 GIF 素材地址。</p></div><button class="adm-btn adm-btn-primary" id="chatLiveSaveGiftsBtn" type="button">保存礼物</button></div>
+        <div class="adm-card-body">${chatLiveGiftsHtml(gifts)}</div>
+      </div>
+
       <div class="adm-card" id="chatLiveEditorCard">
         <div class="adm-card-head"><div><h3>${editing ? `编辑角色：${escapeHtml(editing.name || "")}` : "新增角色"}</h3><p class="adm-muted">形象图必须是单人图；人设决定聊天内容；音色可搜索。</p></div></div>
         ${chatLiveCharacterForm(editing, payload.defaults || {}, voices)}
@@ -4620,8 +4637,9 @@ async function renderChatLive() {
   tabBar.className = "adm-page-actions";
   tabBar.style.marginBottom = "14px";
   const looksCard = els.adminContent.querySelector("#chatLiveLooksCard");
-  tabBar.innerHTML = ["characters", "looks", "pricing", "sessions"].map((id) => {
-    const label = id === "pricing" ? "价格配置" : id === "sessions" ? "连接记录" : id === "looks" ? "画面素材" : "角色列表";
+  const giftsCard = els.adminContent.querySelector("#chatLiveGiftsCard");
+  tabBar.innerHTML = ["characters", "looks", "gifts", "pricing", "sessions"].map((id) => {
+    const label = id === "pricing" ? "价格配置" : id === "sessions" ? "连接记录" : id === "looks" ? "画面素材" : id === "gifts" ? "打赏礼物" : "角色列表";
     return `<button class="adm-btn ${chatLiveTab === id ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="${id}" type="button">${label}</button>`;
   }).join("");
   page.prepend(tabBar);
@@ -4629,6 +4647,7 @@ async function renderChatLive() {
   if (listCard) listCard.hidden = chatLiveTab !== "characters";
   if (sessionsCard) sessionsCard.hidden = chatLiveTab !== "sessions";
   if (looksCard) looksCard.hidden = chatLiveTab !== "looks";
+  if (giftsCard) giftsCard.hidden = chatLiveTab !== "gifts";
   const newBtn = els.adminContent.querySelector("#chatLiveNewBtn");
   if (newBtn) newBtn.hidden = chatLiveTab !== "characters";
   const newLookBtn = els.adminContent.querySelector("#chatLiveNewLookBtn");
@@ -4636,7 +4655,7 @@ async function renderChatLive() {
   if (editorCard) editorCard.remove();
   tabBar.querySelectorAll("[data-chat-live-tab]").forEach((button) => button.addEventListener("click", () => {
     const next = button.dataset.chatLiveTab;
-    chatLiveTab = ["pricing", "sessions", "looks"].includes(next) ? next : "characters";
+    chatLiveTab = ["pricing", "sessions", "looks", "gifts"].includes(next) ? next : "characters";
     renderChatLive();
   }));
   chatLiveSessionsById = new Map((sessionsPayload?.sessions || []).map((item) => [String(item.id || ""), item]));
@@ -4658,6 +4677,32 @@ async function renderChatLive() {
     openChatLiveCharacterDialog(null, payload.defaults || {}, voices);
   });
   els.adminContent.querySelector("#chatLiveNewLookBtn")?.addEventListener("click", () => openChatLiveLookDialog(null));
+  els.adminContent.querySelector("#chatLiveSaveGiftsBtn")?.addEventListener("click", async () => {
+    try {
+      for (const row of els.adminContent.querySelectorAll(".chat-live-gift-admin")) {
+        await api(`/api/admin/chat-live/gifts/${encodeURIComponent(row.dataset.giftId || "")}`, { method: "PUT", body: {
+          name: row.querySelector("[data-gift-name]")?.value || "礼物",
+          credits: Number(row.querySelector("[data-gift-credits]")?.value || 1),
+          imageUrl: row.querySelector("[data-gift-image]")?.value || "",
+          userText: row.querySelector("[data-gift-text]")?.value || "",
+          enabled: row.querySelector("[data-gift-enabled]")?.checked !== false,
+        } });
+      }
+      toast("礼物配置已保存。", "success"); renderChatLive();
+    } catch (error) { toast(error.message || "保存失败。", "error"); }
+  });
+  els.adminContent.querySelectorAll("[data-gift-file]").forEach((input) => input.addEventListener("change", async () => {
+    const file = input.files?.[0]; if (!file) return;
+    if (!/^(image\/gif|image\/png|image\/webp|image\/jpeg)$/.test(file.type) || file.size > 8 * 1024 * 1024) { toast("请上传 8MB 以内的 GIF、PNG、JPG 或 WEBP。", "error"); return; }
+    const row = input.closest(".chat-live-gift-admin"); input.disabled = true;
+    try {
+      const dataUrl = await readChatLiveAssetFile(file);
+      const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind: "gift" } });
+      const field = row?.querySelector("[data-gift-image]"); if (field) field.value = result.url || "";
+      toast("礼物动图已上传。", "success");
+    } catch (error) { toast(error.message || "上传失败。", "error"); }
+    finally { input.disabled = false; }
+  }));
   els.adminContent.querySelectorAll("[data-chat-live-look-edit]").forEach((button) => button.addEventListener("click", () => {
     const target = looks.find((item) => item.id === button.dataset.chatLiveLookEdit) || null;
     if (target) openChatLiveLookDialog(target);

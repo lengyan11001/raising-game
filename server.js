@@ -6028,6 +6028,7 @@ function normalizeChatLiveConfig(raw = {}) {
         ? "overseas"
         : (viduBaseLooksOverseas(VIDU_API_BASE) ? "overseas" : "cn")),
     looks: normalizeChatLiveLooks(source.looks),
+    gifts: normalizeChatLiveGifts(source.gifts),
     updatedAt: source.updatedAt || "",
   };
 }
@@ -6384,6 +6385,29 @@ function enabledChatLiveLooks(live = {}) {
     .map(publicChatLiveLook);
 }
 
+const CHAT_LIVE_GIFT_LIMIT = 5;
+const CHAT_LIVE_DEFAULT_GIFTS = [10, 50, 100, 500, 1000].map((credits, index) => ({
+  id: `gift-${index + 1}`, name: `${credits}积分礼物`, credits, imageUrl: "", userText: `送你一个${credits}积分礼物。`, enabled: true, sortOrder: index,
+}));
+function normalizeChatLiveGift(raw, index = 0) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const fallback = CHAT_LIVE_DEFAULT_GIFTS[index] || CHAT_LIVE_DEFAULT_GIFTS[0];
+  const id = String(raw.id || fallback.id || `gift-${index + 1}`).trim().slice(0, 80);
+  const name = String(raw.name || fallback.name).trim().slice(0, 40) || fallback.name;
+  const credits = Math.max(1, Math.min(1000000, Math.round(Number(raw.credits ?? fallback.credits) || fallback.credits)));
+  const imageUrl = String(raw.imageUrl || "").trim().slice(0, 600);
+  const userText = String(raw.userText || fallback.userText).trim().slice(0, 200) || fallback.userText;
+  const sortOrder = Number(raw.sortOrder);
+  return { id, name, credits, imageUrl, userText, enabled: raw.enabled !== false, sortOrder: Number.isFinite(sortOrder) ? Math.round(sortOrder) : index, createdAt: String(raw.createdAt || "").slice(0, 40), updatedAt: String(raw.updatedAt || "").slice(0, 40) };
+}
+function normalizeChatLiveGifts(raw) {
+  const list = Array.isArray(raw) && raw.length ? raw : CHAT_LIVE_DEFAULT_GIFTS;
+  const seen = new Set();
+  return list.map((item, index) => normalizeChatLiveGift(item, index)).filter((item) => item && !seen.has(item.id) && (seen.add(item.id), true)).sort((a, b) => a.sortOrder - b.sortOrder).slice(0, CHAT_LIVE_GIFT_LIMIT);
+}
+function publicChatLiveGift(gift = {}) { return { id: gift.id, name: gift.name || "礼物", credits: Number(gift.credits || 0), imageUrl: gift.imageUrl || "" }; }
+function enabledChatLiveGifts(live = {}) { return (live.gifts || []).filter((gift) => gift && gift.enabled !== false && Number(gift.credits) > 0).map(publicChatLiveGift); }
+
 function chatLiveLookFailureMessage(code = "") {
   return ({
     PROMPT_OP_PARAM_INVALID: "素材参数不对，换不了。",
@@ -6467,7 +6491,7 @@ function publicChatLiveCharacter(character = {}) {
 async function handlePublicChatLiveCharacters(req, res) {
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
-  if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], looks: [], pricing: livePricingView(live) });
+  if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], looks: [], gifts: [], pricing: livePricingView(live) });
   const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
   return sendJson(res, 200, {
     ok: true,
@@ -6475,6 +6499,7 @@ async function handlePublicChatLiveCharacters(req, res) {
     pricing: livePricingView(live),
     characters: characters.map(publicChatLiveCharacter),
     looks: enabledChatLiveLooks(live),
+    gifts: enabledChatLiveGifts(live),
   });
 }
 
@@ -6493,6 +6518,33 @@ function livePricingView(live = {}) {
   };
 }
 
+async function handleAdminChatLiveGifts(req, res) {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const live = chatLiveConfigValue(await readAppConfig());
+  return sendJson(res, 200, { ok: true, gifts: live.gifts });
+}
+async function handleAdminSaveChatLiveGift(req, res, giftId = "") {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const body = await readJson(req); const live = chatLiveConfigValue(await readAppConfig());
+  const id = String(giftId || body.id || "").trim(); const existing = id ? live.gifts.find((item) => item.id === id) : null;
+  if (id && !existing) return sendJson(res, 404, { ok: false, message: "礼物不存在。" });
+  if (!existing && live.gifts.length >= CHAT_LIVE_GIFT_LIMIT) return sendJson(res, 422, { ok: false, message: "礼物最多配置 5 个。" });
+  const imageUrl = String(body.imageUrl ?? existing?.imageUrl ?? "").trim();
+  if (imageUrl && !isManagedChatLiveAssetUrl(imageUrl)) return sendJson(res, 422, { ok: false, message: "请上传站内 GIF 素材。" });
+  const now = new Date().toISOString();
+  const gift = normalizeChatLiveGift({ ...existing, ...body, id: id || randomId("gift"), imageUrl, createdAt: existing?.createdAt || now, updatedAt: now }, existing ? live.gifts.indexOf(existing) : live.gifts.length);
+  const gifts = existing ? live.gifts.map((item) => item.id === existing.id ? gift : item) : live.gifts.concat(gift);
+  const saved = await writeChatLiveConfig({ ...live, gifts });
+  return sendJson(res, 200, { ok: true, gift: saved.gifts.find((item) => item.id === gift.id) || gift });
+}
+async function handleAdminDeleteChatLiveGift(req, res, giftId = "") {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const live = chatLiveConfigValue(await readAppConfig());
+  if (!live.gifts.some((item) => item.id === giftId)) return sendJson(res, 404, { ok: false, message: "礼物不存在。" });
+  await writeChatLiveConfig({ ...live, gifts: live.gifts.filter((item) => item.id !== giftId) });
+  return sendJson(res, 200, { ok: true });
+}
+
 
 async function handleAdminUploadChatLiveAsset(req, res) {
   const auth = await requireAdmin(req, res);
@@ -6502,10 +6554,10 @@ async function handleAdminUploadChatLiveAsset(req, res) {
   try {
     decoded = decodeImageDataUrl(body.dataUrl || "");
   } catch {
-    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP 图片。" });
+    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP、GIF 图片。" });
   }
-  if (!["image/png", "image/jpeg", "image/webp"].includes(decoded.mime)) {
-    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP 图片。" });
+  if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(decoded.mime)) {
+    return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP、GIF 图片。" });
   }
   if (decoded.bytes.byteLength > 8 * 1024 * 1024) {
     return sendJson(res, 400, { ok: false, message: "图片不能超过 8MB。" });
@@ -6513,7 +6565,7 @@ async function handleAdminUploadChatLiveAsset(req, res) {
   if (decoded.bytes.byteLength < 32) {
     return sendJson(res, 400, { ok: false, message: "图片内容无效。" });
   }
-  const kind = body.kind === "portrait" ? "portrait" : body.kind === "look" ? "look" : "avatar";
+  const kind = body.kind === "portrait" ? "portrait" : body.kind === "look" ? "look" : body.kind === "gift" ? "gift" : "avatar";
   const ext = imageExtFromMime(decoded.mime);
   const stamp = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/chat-live/${kind}-${stamp}${ext}`;
@@ -6539,6 +6591,7 @@ async function handleAdminChatLiveCharacters(req, res) {
     pricing: livePricingView(live),
     characters,
     looks: live.looks,
+    gifts: live.gifts,
     defaults: {
       model: live.model,
       callMode: live.callMode,
@@ -7636,6 +7689,30 @@ async function handleChatLiveSay(req, res, sessionId = "") {
     return sendJson(res, 200, { ok: true, reply });
   } catch (error) {
     return sendJson(res, 502, { ok: false, code: "CHAT_LIVE_COMPONENT_SAY_FAILED", message: error.message || "数字人回复失败。" });
+  }
+}
+
+async function handleChatLiveGift(req, res, sessionId = "") {
+  const auth = await requireUser(req, res); if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  if (session.settled === true || ["ended", "closed", "failed"].includes(String(session.status || ""))) return sendJson(res, 409, { ok: false, message: "会话已经结束。" });
+  const body = await readJson(req); const live = chatLiveConfigValue(await readAppConfig());
+  const gift = live.gifts.find((item) => item.id === String(body.giftId || "").trim() && item.enabled !== false);
+  if (!gift) return sendJson(res, 404, { ok: false, message: "这个礼物暂时不可用。" });
+  const eventId = String(body.eventId || "").replace(/[^a-z0-9_.-]/gi, "").slice(0, 80) || randomId("event");
+  const taskId = `chat-live-gift:${session.id}:${eventId}`;
+  try { await chargeUserWithSubtoken(auth, { cost: gift.credits, type: "chat_live_gift", taskId, meta: { taskId, sessionId: session.id, liveId: session.liveId, giftId: gift.id, giftName: gift.name } }); }
+  catch (error) { if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) return sendJson(res, 402, { ok: false, code: "INSUFFICIENT_CREDITS", message: "积分不够了，请先充值。", credits: Number(auth.user?.credits || 0), cost: gift.credits }); return sendJson(res, 502, { ok: false, message: "礼物暂时没有送出，请稍后再试。" }); }
+  try {
+    if (session.mode === "component") {
+      const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText);
+      return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), reply });
+    }
+    return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), text: gift.userText, needsRealtimeSignal: true });
+  } catch (error) {
+    await changeUserCredits(auth.db, auth.user.id, gift.credits, "chat_live_gift_refund", { taskId, sessionId: session.id, giftId: gift.id, reason: error.message || "gift dispatch failed" }).catch(() => {});
+    return sendJson(res, 502, { ok: false, message: "礼物暂时没有送出，积分已退回。" });
   }
 }
 
@@ -12002,9 +12079,9 @@ async function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
 }
 
 function decodeDataUrl(dataUrl) {
-  const match = String(dataUrl || "").match(/^data:(image\/(?:png|jpeg|jpg|webp|bmp));base64,([a-z0-9+/=]+)$/i);
+  const match = String(dataUrl || "").match(/^data:(image\/(?:png|jpeg|jpg|webp|bmp|gif));base64,([a-z0-9+/=]+)$/i);
   if (!match) {
-    const error = new Error("Only PNG/JPG/WebP/BMP images are supported.");
+    const error = new Error("Only PNG/JPG/WebP/BMP/GIF images are supported.");
     error.statusCode = 400;
     throw error;
   }
@@ -12022,6 +12099,7 @@ function imageExtFromMime(mime) {
   if (mime === "image/png") return ".png";
   if (mime === "image/webp") return ".webp";
   if (mime === "image/bmp") return ".bmp";
+  if (mime === "image/gif") return ".gif";
   return ".jpg";
 }
 
@@ -12030,12 +12108,13 @@ function imageMimeFromPath(filePath) {
   if (ext === ".png") return "image/png";
   if (ext === ".webp") return "image/webp";
   if (ext === ".bmp") return "image/bmp";
+  if (ext === ".gif") return "image/gif";
   return "image/jpeg";
 }
 
 function imageMimeFromKnownPath(filePath) {
   const ext = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
-  if (![".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(ext)) return "";
+  if (![".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"].includes(ext)) return "";
   return imageMimeFromPath(filePath);
 }
 
@@ -43844,6 +43923,10 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && chatLiveSayMatch) {
       return await handleChatLiveSay(req, res, decodeURIComponent(chatLiveSayMatch[1]));
     }
+    const chatLiveGiftMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/gift$/);
+    if (req.method === "POST" && chatLiveGiftMatch) {
+      return await handleChatLiveGift(req, res, decodeURIComponent(chatLiveGiftMatch[1]));
+    }
     const chatLiveLookMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/look$/);
     if (req.method === "POST" && chatLiveLookMatch) {
       return await handleChatLiveLook(req, res, decodeURIComponent(chatLiveLookMatch[1]));
@@ -44274,6 +44357,11 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/admin/chat-live/characters") {
       return await handleAdminChatLiveCharacters(req, res);
     }
+    if (req.method === "GET" && url.pathname === "/api/admin/chat-live/gifts") return await handleAdminChatLiveGifts(req, res);
+    if (req.method === "POST" && url.pathname === "/api/admin/chat-live/gifts") return await handleAdminSaveChatLiveGift(req, res);
+    const adminChatLiveGiftMatch = url.pathname.match(/^\/api\/admin\/chat-live\/gifts\/([^/]+)$/);
+    if (adminChatLiveGiftMatch && req.method === "PUT") return await handleAdminSaveChatLiveGift(req, res, decodeURIComponent(adminChatLiveGiftMatch[1]));
+    if (adminChatLiveGiftMatch && req.method === "DELETE") return await handleAdminDeleteChatLiveGift(req, res, decodeURIComponent(adminChatLiveGiftMatch[1]));
     if (req.method === "POST" && url.pathname === "/api/admin/chat-live/characters") {
       return await handleAdminSaveChatLiveCharacter(req, res);
     }

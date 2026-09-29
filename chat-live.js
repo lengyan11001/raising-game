@@ -188,6 +188,10 @@
 .chat-live-pick[disabled] { opacity:.5; cursor:not-allowed; }
 .chat-live-picker-empty { grid-column:1 / -1; margin:8px 0; color:#94a3b8; font-size:13px; }
 .chat-live-picker-undo { width:100%; }
+.chat-live-gift-btn { width:58px; min-height:58px; padding:6px 4px; border:0; border-radius:18px; background:rgba(255,255,255,.08); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:10px; font-weight:700; cursor:pointer; }
+.chat-live-gift-btn span:first-child { font-size:22px; line-height:1; }
+.chat-live-gift-card img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#000; }
+.chat-live-gift-card small { color:#fbbf24; font-size:11px; }
 @media (max-width:880px) {
   .chat-live-overlay { align-items:stretch; background:#000; overflow:hidden; -webkit-backdrop-filter:none; backdrop-filter:none; }
   .chat-live-shell { width:100%; height:100%; border:0; border-radius:0; display:block; }
@@ -374,6 +378,12 @@
     undressIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3v3"/><path d="m7 6 2 2"/><path d="m17 6-2 2"/><circle cx="12" cy="14" r="5"/></svg>';
     undressBtn.append(undressIcon, el("span", "", "Undress"));
     lookRail.appendChild(undressBtn);
+    const giftBtn = el("button", "chat-live-gift-btn");
+    giftBtn.type = "button";
+    giftBtn.dataset.giftAction = "true";
+    giftBtn.innerHTML = "<span>🎁</span><span>打赏</span>";
+    giftBtn.disabled = true;
+    lookRail.appendChild(giftBtn);
     stage.append(video, placeholder, badge, timer, lookRail);
 
     const side = el("div", "chat-live-side");
@@ -411,7 +421,7 @@
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
 
-    state.overlay = { root: overlay, video, placeholder, callLabel, callDetail, badge, timer, log, input, sendBtn, muteBtn, hangBtn, cost, voiceBtn, closeBtn, listen, lookRail, picker: null };
+    state.overlay = { root: overlay, video, placeholder, callLabel, callDetail, badge, timer, log, input, sendBtn, muteBtn, hangBtn, cost, voiceBtn, closeBtn, listen, lookRail, giftBtn, picker: null };
     state.unbindViewport = bindViewport(overlay);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -1251,10 +1261,21 @@
   function syncLookRail() {
     const rail = state.overlay?.lookRail;
     if (!rail) return;
-    rail.hidden = !state.session || !looksSupported() || state.ended;
+    rail.hidden = !state.session || state.ended || (!looksSupported() && !giftsOf().length);
     const ready = lookChannelReady() && !state.lookBusy;
     const undressOn = state.lookStack[state.lookStack.length - 1] === "undress";
     rail.querySelectorAll("button").forEach((button) => {
+      if (button.dataset.giftAction === "true") {
+        button.hidden = false;
+        button.disabled = !state.controlReady || state.ended || !giftsOf().length;
+        return;
+      }
+      if (!looksSupported()) {
+        button.hidden = true;
+        button.disabled = true;
+        return;
+      }
+      if (button.dataset.lookKind !== "undress") button.hidden = false;
       if (button.dataset.lookKind === "undress") {
         button.hidden = !String(state.character?.undressImageUrl || "");
         button.classList.toggle("is-on", undressOn && !button.hidden);
@@ -1262,6 +1283,7 @@
       }
       button.disabled = !ready;
     });
+    if (state.overlay.giftBtn) state.overlay.giftBtn.disabled = !state.controlReady || state.ended || !giftsOf().length;
     state.overlay.picker?.querySelectorAll("button").forEach((button) => {
       if (button.classList.contains("chat-live-picker-x")) return;
       button.disabled = state.lookBusy || state.ended;
@@ -1306,6 +1328,50 @@
   function closeLookPicker() {
     state.overlay?.picker?.remove();
     if (state.overlay) state.overlay.picker = null;
+  }
+
+  function giftsOf() { return Array.isArray(state.config?.gifts) ? state.config.gifts.filter((item) => item && item.id && item.credits > 0) : []; }
+  function openGiftPicker() {
+    if (!state.overlay || state.ended) return;
+    closeLookPicker();
+    const picker = el("div", "chat-live-picker");
+    const card = el("div", "chat-live-picker-card");
+    const head = el("div", "chat-live-picker-head");
+    head.append(el("strong", "", "选一个礼物"));
+    const close = el("button", "chat-live-picker-x", "×"); close.type = "button"; head.append(close);
+    const grid = el("div", "chat-live-picker-grid");
+    const gifts = giftsOf();
+    if (!gifts.length) grid.appendChild(el("p", "chat-live-picker-empty", "礼物还没有准备好。"));
+    gifts.forEach((gift) => {
+      const button = el("button", "chat-live-pick chat-live-gift-card"); button.type = "button";
+      const img = document.createElement("img"); img.src = gift.imageUrl || ""; img.alt = gift.name || "礼物"; img.draggable = false;
+      button.append(img, el("span", "", gift.name || "礼物"), el("small", "", `${gift.credits} 积分`));
+      button.addEventListener("click", async () => {
+        closeLookPicker();
+        const confirmed = window.confirm(`要送出「${gift.name}」，消耗 ${gift.credits} 积分吗？`);
+        if (!confirmed) return;
+        button.disabled = true;
+        try {
+          const eventId = `gift-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/gift`, { method: "POST", body: JSON.stringify({ giftId: gift.id, eventId }) });
+          if (payload?.needsRealtimeSignal && payload.text) {
+            const sent = sendSignal(buildSignal(99, { text_msg: { msg_id: eventId, content: payload.text, timestamp: Date.now() } }));
+            if (!sent) throw new Error("礼物暂时没有送出，请稍后再试。");
+          }
+          if (payload?.reply) appendLine("bot", payload.reply);
+          appendLine("sys", "礼物已经送到了。");
+        } catch (error) {
+          appendLine("sys", error.code === "INSUFFICIENT_CREDITS" ? "积分不够了，请先充值。" : (error.message || "礼物暂时没有送出。"));
+          if (error.code === "INSUFFICIENT_CREDITS") {
+            if (typeof window.openUnlock === "function") window.openUnlock();
+            else window.dispatchEvent(new CustomEvent("open-recharge"));
+          }
+        }
+      });
+      grid.appendChild(button);
+    });
+    card.append(head, grid); picker.appendChild(card); picker.addEventListener("click", (event) => { if (event.target === picker) closeLookPicker(); }); close.addEventListener("click", closeLookPicker);
+    state.overlay.root.appendChild(picker); state.overlay.picker = picker;
   }
 
   function looksOf(kind) {
@@ -1557,6 +1623,7 @@
       const ok = await setMicPublished(!state.micOn);
       if (!ok) appendLine("sys", "麦克风没打开。请允许浏览器使用麦克风，或改用文字。");
     };
+    overlay.giftBtn.onclick = () => openGiftPicker();
     async function sendUserText(text) {
       const value = String(text || "").trim();
       if (!value || state.ended) return;
