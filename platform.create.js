@@ -434,16 +434,31 @@ function advancedResultHistoryFallbackRecords() {
     .slice(0, 1);
 }
 
+function advancedResultKind(record = {}) {
+  if (generationVideoUrl(record)) return "video";
+  if (generationImageResultUrl(record)) return "image";
+  const provider = String(record.provider || record.params?.provider || record.model || "").toLowerCase();
+  if (provider.includes("language") || provider.includes("qwen37") || record.textResult || record.responseText) return "conversation";
+  return "video";
+}
+
 function advancedResultVisibleRecords() {
   const current = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
-  return current.length ? current : advancedResultHistoryFallbackRecords();
+  const records = current.length ? current : advancedResultHistoryFallbackRecords();
+  return records.filter((record) => advancedResultKind(record) === (state.advancedResultMediaKind || "video"));
 }
 
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
   const records = advancedResultVisibleRecords();
+  els.advancedResultKindTabs?.querySelectorAll("[data-advanced-result-kind]").forEach((button) => {
+    const active = button.dataset.advancedResultKind === (state.advancedResultMediaKind || "video");
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
   if (!records.length) {
-    els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
+    const label = t(({ video: "advanced.createKindVideo", image: "advanced.createKindImage", conversation: "advanced.createKindConversation" })[state.advancedResultMediaKind || "video"]);
+    els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>${escapeHtml(state.lang === "zh" ? `${label}暂无记录` : `No ${label.toLowerCase()} yet`)}</strong><p>${escapeHtml(state.lang === "zh" ? "该分类的生成结果会显示在这里。" : "Results for this type will appear here.")}</p></div>`;
     refreshIcons();
     return;
   }
@@ -1449,6 +1464,13 @@ function isPublicQwenImage3ProviderOption(value = "") {
   return String(value || "").trim().toLowerCase() === "qwen-image3";
 }
 
+function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCustomMediaKind) {
+  const provider = String(value || "").trim().toLowerCase();
+  if (kind === "image") return ["wan27-image-edit", "seedream5-image", "qwen-image3"].includes(provider);
+  if (kind === "conversation") return provider === "byteplus-language";
+  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance25"].includes(provider);
+}
+
 function syncAdvancedProviderExposure() {
   if (!els.advancedProvider) return;
   const hiddenProviders = new Set(["wan30", "wan27", "wan-animate", "happyhorse", "wan27-image-edit", "qwen-image3"]);
@@ -1463,7 +1485,8 @@ function syncAdvancedProviderExposure() {
     // with Wan 3.0 when that tenant feature is enabled.
     const permanentlyHidden = raw === "happyhorse";
     const primeHidden = raw === "wan30-prime" && !wan30Enabled;
-    option.hidden = permanentlyHidden || primeHidden || (!enabled && hiddenProviders.has(raw) && !(
+    const customKindHidden = state.advancedCreateKind === "custom" && !advancedProviderMatchesCustomKind(raw);
+    option.hidden = customKindHidden || permanentlyHidden || primeHidden || (!enabled && hiddenProviders.has(raw) && !(
       (wan30Enabled && isPublicWan30ProviderOption(raw))
       || (wan27Enabled && isPublicWan27ProviderOption(raw))
       || (happyhorseEnabled && isPublicHappyhorseProviderOption(raw))
@@ -1473,7 +1496,11 @@ function syncAdvancedProviderExposure() {
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
   const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
-  if (current !== modeProvider && (permanentlyHiddenCurrent || (!enabled && hiddenProviders.has(current) && !(
+  const currentHiddenForCustomKind = state.advancedCreateKind === "custom" && !advancedProviderMatchesCustomKind(current);
+  if (state.advancedCreateKind === "custom" && currentHiddenForCustomKind) {
+    const replacement = Array.from(els.advancedProvider.options).find((option) => !option.hidden && advancedProviderMatchesCustomKind(option.value));
+    if (replacement) els.advancedProvider.value = replacement.value;
+  } else if (current !== modeProvider && (permanentlyHiddenCurrent || (!enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))

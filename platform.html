@@ -640,6 +640,11 @@
                 </div>
                 <button class="ghost-button" id="refreshAdvancedResultBtn" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
               </div>
+              <div class="advanced-result-kind-tabs" id="advancedResultKindTabs" role="tablist" aria-label="Filter results by type">
+                <button class="advanced-create-kind is-active" type="button" data-advanced-result-kind="video" role="tab" aria-selected="true"><i data-lucide="clapperboard"></i><span data-i18n="advanced.createKindVideo">视频生成</span></button>
+                <button class="advanced-create-kind" type="button" data-advanced-result-kind="image" role="tab" aria-selected="false"><i data-lucide="image"></i><span data-i18n="advanced.createKindImage">图片生成</span></button>
+                <button class="advanced-create-kind" type="button" data-advanced-result-kind="conversation" role="tab" aria-selected="false"><i data-lucide="message-circle"></i><span data-i18n="advanced.createKindConversation">对话生成</span></button>
+              </div>
               <div class="advanced-result-list" id="advancedResultList">
                 <div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>
               </div>

@@ -694,9 +694,20 @@ document.addEventListener("pointermove", handleWorkflowPointerMove);
 document.addEventListener("pointerup", handleWorkflowPointerUp);
 document.addEventListener("pointercancel", handleWorkflowPointerCancel);
 els.advancedCreateKindTabs?.addEventListener("click", (event) => {
+  const customButton = event.target.closest("[data-advanced-custom-media-kind]");
+  if (customButton) {
+    setAdvancedCustomMediaKind(customButton.dataset.advancedCustomMediaKind || "video");
+    return;
+  }
   const button = event.target.closest("[data-advanced-create-kind]");
   if (!button) return;
   setAdvancedCreateKind(button.dataset.advancedCreateKind || "video");
+});
+els.advancedResultKindTabs?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-advanced-result-kind]");
+  if (!button) return;
+  state.advancedResultMediaKind = button.dataset.advancedResultKind || "video";
+  renderAdvancedResultPanel();
 });
 els.advancedCreateModeTabs?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-advanced-create-mode]");

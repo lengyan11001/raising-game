@@ -3184,11 +3184,20 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
 
 function renderAdvancedCreateControls() {
   if (els.advancedCreateKindTabs) {
-    els.advancedCreateKindTabs.innerHTML = ADVANCED_CREATE_KINDS.map((kind) => `
-      <button class="advanced-create-kind ${kind.id === state.advancedCreateKind ? "is-active" : ""}" data-advanced-create-kind="${escapeHtml(kind.id)}" type="button" role="tab" aria-selected="${kind.id === state.advancedCreateKind ? "true" : "false"}">
-        <i data-lucide="${escapeHtml(kind.icon)}"></i><span>${escapeHtml(t(kind.labelKey))}</span>
-      </button>
-    `).join("");
+    const customKinds = [
+      { id: "video", labelKey: "advanced.createKindVideo", icon: "clapperboard" },
+      { id: "image", labelKey: "advanced.createKindImage", icon: "image" },
+      { id: "conversation", labelKey: "advanced.createKindConversation", icon: "message-circle" },
+    ];
+    els.advancedCreateKindTabs.innerHTML = (state.advancedCreateKind === "custom" ? customKinds : ADVANCED_CREATE_KINDS).map((kind) => {
+      const active = state.advancedCreateKind === "custom"
+        ? kind.id === state.advancedCustomMediaKind
+        : kind.id === state.advancedCreateKind;
+      const attribute = state.advancedCreateKind === "custom"
+        ? `data-advanced-custom-media-kind="${escapeHtml(kind.id)}"`
+        : `data-advanced-create-kind="${escapeHtml(kind.id)}"`;
+      return `<button class="advanced-create-kind ${active ? "is-active" : ""}" ${attribute} type="button" role="tab" aria-selected="${active ? "true" : "false"}"><i data-lucide="${escapeHtml(kind.icon)}"></i><span>${escapeHtml(t(kind.labelKey))}</span></button>`;
+    }).join("");
   }
   if (els.advancedCreateModeTabs) {
     const modes = advancedCreateModesForKind();
@@ -3217,6 +3226,21 @@ function setAdvancedCreateKind(kind = "video") {
   if (previousKind !== nextKind) resetAdvancedPresets();
   renderAdvancedCreateControls();
   applyAdvancedCreateMode({ clearMedia: previousKind !== nextKind && nextKind !== "custom" });
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function setAdvancedCustomMediaKind(kind = "video") {
+  if (state.advancedCreateKind !== "custom") return;
+  const next = ["video", "image", "conversation"].includes(kind) ? kind : "video";
+  if (state.advancedCustomMediaKind === next) return;
+  state.advancedCustomMediaKind = next;
+  const option = Array.from(els.advancedProvider?.options || []).find((item) => !item.hidden && advancedProviderMatchesCustomKind(item.value, next));
+  if (option && els.advancedProvider) {
+    els.advancedProvider.value = option.value;
+    els.advancedProvider.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  renderAdvancedCreateControls();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }

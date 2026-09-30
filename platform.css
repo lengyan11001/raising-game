@@ -10132,8 +10132,26 @@ select:focus,
   display: none !important;
 }
 .advanced-workspace.is-create-custom .advanced-create-switch {
+  display: grid !important;
+}
+.advanced-workspace.is-create-custom .advanced-create-mode-tabs {
   display: none !important;
 }
+.advanced-workspace.is-create-custom .advanced-create-kind-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 14px;
+}
+.advanced-result-kind-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 4px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  background: #0f0f12;
+}
+.advanced-result-kind-tabs .advanced-create-kind { border-radius: 10px; }
 
 @media (max-width: 1080px) {
   .gallery-panel { width: 100%; }
