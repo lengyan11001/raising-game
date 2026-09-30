@@ -8947,6 +8947,14 @@ function userView(user) {
     tenantId: recordTenantId(user),
     username: user.username,
     email: String(user.email || ""),
+    profilePhotos: Array.isArray(user.profilePhotos) ? user.profilePhotos.slice(0, 6).map(String) : [],
+    gender: ["male", "female", "other"].includes(String(user.gender || "")) ? String(user.gender) : "",
+    birthday: String(user.birthday || ""),
+    occupation: String(user.occupation || ""),
+    city: String(user.city || ""),
+    bio: String(user.bio || ""),
+    interests: Array.isArray(user.interests) ? user.interests.slice(0, 8).map(String) : [],
+    voiceIntroUrl: String(user.voiceIntroUrl || ""),
     role: user.role || "user",
     credits: Number(user.credits || 0),
     apiToken: String(user.apiToken || ""),
@@ -8965,15 +8973,43 @@ function userView(user) {
 
 async function handleAccountProfile(req, res) {
   const auth = await requireUser(req, res); if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "资料保存需要数据库服务。" });
   const body = await readJson(req);
   const username = String(body.username ?? "").trim().replace(/\s+/g, " ");
   if (username.length < 2 || username.length > 40) return sendJson(res, 400, { ok: false, message: "昵称长度需为 2-40 个字符。" });
   const duplicate = await getUserByUsernameInDb(username, requestTenantId(req));
   if (duplicate && duplicate.id !== auth.user.id) return sendJson(res, 409, { ok: false, message: "这个昵称已被使用。" });
   auth.user.username = username;
+  auth.user.gender = ["male", "female", "other"].includes(String(body.gender || "")) ? String(body.gender) : "";
+  auth.user.birthday = /^\d{4}-\d{2}-\d{2}$/.test(String(body.birthday || "")) ? String(body.birthday) : "";
+  auth.user.occupation = String(body.occupation || "").trim().slice(0, 40);
+  auth.user.city = String(body.city || "").trim().slice(0, 60);
+  auth.user.bio = String(body.bio || "").trim().slice(0, 120);
+  auth.user.interests = (Array.isArray(body.interests) ? body.interests : []).map((item) => String(item || "").trim().slice(0, 20)).filter(Boolean).slice(0, 8);
+  if (Array.isArray(body.profilePhotos)) {
+    const existing = new Set(Array.isArray(auth.user.profilePhotos) ? auth.user.profilePhotos.map(String) : []);
+    auth.user.profilePhotos = body.profilePhotos.map(String).filter((url) => existing.has(url)).slice(0, 6);
+  }
   auth.user.updatedAt = new Date().toISOString();
-  if (dbEnabled()) await updateUserInDb(auth.user); else { const db = await readDb(); const i = db.users.findIndex((item) => item.id === auth.user.id); if (i >= 0) db.users[i] = auth.user; await writeDb(db); }
+  await updateUserInDb(auth.user);
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
+}
+
+async function handleAccountProfileMedia(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "照片上传需要数据库服务。" });
+  const current = Array.isArray(auth.user.profilePhotos) ? auth.user.profilePhotos.map(String) : [];
+  if (current.length >= 6) return sendJson(res, 422, { ok: false, message: "最多上传 6 张照片。" });
+  const body = await readJson(req);
+  let decoded;
+  try { decoded = decodeImageDataUrl(body.dataUrl || ""); } catch { return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP 图片。" }); }
+  if (!["image/png", "image/jpeg", "image/webp"].includes(decoded.mime) || decoded.bytes.byteLength > 8 * 1024 * 1024) return sendJson(res, 400, { ok: false, message: "请上传 8MB 以内的 PNG、JPG 或 WEBP 图片。" });
+  const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/live-profile/${auth.user.id}-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}${imageExtFromMime(decoded.mime)}`;
+  const uploaded = await uploadStaticAssetToR2({ key, bytes: decoded.bytes, mime: decoded.mime });
+  auth.user.profilePhotos = current.concat(uploaded.publicUrl).slice(0, 6);
+  auth.user.updatedAt = new Date().toISOString();
+  await updateUserInDb(auth.user);
+  return sendJson(res, 200, { ok: true, url: uploaded.publicUrl, user: userView(auth.user) });
 }
 
 function referralCodeForUser(user = {}) {
@@ -44253,6 +44289,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/account/email/request") return await handleAccountEmailRequest(req, res);
     if (req.method === "POST" && url.pathname === "/api/account/email/verify") return await handleAccountEmailVerify(req, res);
     if (req.method === "PATCH" && url.pathname === "/api/account/profile") return await handleAccountProfile(req, res);
+    if (req.method === "POST" && url.pathname === "/api/account/profile/media") return await handleAccountProfileMedia(req, res);
 
     if (req.method === "POST" && url.pathname === "/api/google/login") {
       return await handleGoogleLogin(req, res);
