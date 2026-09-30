@@ -1479,34 +1479,49 @@ function syncAdvancedProviderExposure() {
   const wan27Enabled = publicWan27ModelsEnabled();
   const happyhorseEnabled = publicHappyhorseModelsEnabled();
   const qwenImage3Enabled = publicQwenImage3ModelsEnabled();
+  const selectedMediaKind = state.advancedCreateKind === "custom"
+    ? state.advancedCustomMediaKind
+    : state.advancedCreateKind;
   els.advancedProvider.querySelectorAll("option").forEach((option) => {
     const raw = String(option.value || "").trim().toLowerCase();
     // Keep HappyHorse hidden on the old site, but expose Wan 3.0 Prime along
     // with Wan 3.0 when that tenant feature is enabled.
     const permanentlyHidden = raw === "happyhorse";
     const primeHidden = raw === "wan30-prime" && !wan30Enabled;
-    const customKindHidden = state.advancedCreateKind === "custom" && !advancedProviderMatchesCustomKind(raw);
-    option.hidden = customKindHidden || permanentlyHidden || primeHidden || (!enabled && hiddenProviders.has(raw) && !(
+    // Only show models belonging to the selected video/image/conversation tab.
+    const otherMediaKindHidden = !advancedProviderMatchesCustomKind(raw, selectedMediaKind);
+    option.hidden = otherMediaKindHidden || permanentlyHidden || primeHidden || (!enabled && hiddenProviders.has(raw) && !(
       (wan30Enabled && isPublicWan30ProviderOption(raw))
       || (wan27Enabled && isPublicWan27ProviderOption(raw))
       || (happyhorseEnabled && isPublicHappyhorseProviderOption(raw))
       || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(raw))
     ));
   });
+  els.advancedProvider.querySelectorAll("optgroup").forEach((group) => {
+    group.hidden = !Array.from(group.querySelectorAll("option")).some((option) => !option.hidden);
+  });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
   const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
-  const currentHiddenForCustomKind = state.advancedCreateKind === "custom" && !advancedProviderMatchesCustomKind(current);
-  if (state.advancedCreateKind === "custom" && currentHiddenForCustomKind) {
-    const replacement = Array.from(els.advancedProvider.options).find((option) => !option.hidden && advancedProviderMatchesCustomKind(option.value));
-    if (replacement) els.advancedProvider.value = replacement.value;
-  } else if (current !== modeProvider && (permanentlyHiddenCurrent || (!enabled && hiddenProviders.has(current) && !(
+  const tenantHiddenCurrent = !enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
     || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
     || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
-  )))) {
-    els.advancedProvider.value = DEFAULT_ADVANCED_PROVIDER;
+  );
+  const currentHiddenForSelectedKind = !advancedProviderMatchesCustomKind(current, selectedMediaKind);
+  if (currentHiddenForSelectedKind || (state.advancedCreateKind === "custom" && permanentlyHiddenCurrent)) {
+    const preferred = Array.from(els.advancedProvider.options).find((option) => !option.hidden && option.value.toLowerCase() === modeProvider);
+    const replacement = preferred || Array.from(els.advancedProvider.options).find((option) => !option.hidden);
+    if (replacement) els.advancedProvider.value = replacement.value;
+  } else if (current !== modeProvider && (permanentlyHiddenCurrent || tenantHiddenCurrent)) {
+    if (selectedMediaKind === "video" && !Array.from(els.advancedProvider.options).find((option) => option.value === DEFAULT_ADVANCED_PROVIDER)?.hidden) {
+      els.advancedProvider.value = DEFAULT_ADVANCED_PROVIDER;
+    } else {
+      const preferred = Array.from(els.advancedProvider.options).find((option) => !option.hidden && option.value.toLowerCase() === modeProvider);
+      const replacement = preferred || Array.from(els.advancedProvider.options).find((option) => !option.hidden);
+      if (replacement) els.advancedProvider.value = replacement.value;
+    }
   }
 }
 

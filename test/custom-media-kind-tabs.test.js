@@ -16,7 +16,8 @@ test("custom model selector filters models by the selected generation kind", () 
   const create = read("platform.create.js");
   assert.match(create, /if \(kind === "image"\) return \["wan27-image-edit", "seedream5-image", "qwen-image3"\]/);
   assert.match(create, /if \(kind === "conversation"\) return provider === "byteplus-language"/);
-  assert.match(create, /customKindHidden \|\| permanentlyHidden/);
+  assert.match(create, /otherMediaKindHidden \|\| permanentlyHidden/);
+  assert.match(create, /group\.hidden = !Array\.from\(group\.querySelectorAll\("option"\)\)\.some/);
 });
 
 test("advanced results have separate video, image, and conversation filters", () => {
