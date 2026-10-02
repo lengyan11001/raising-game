@@ -6639,59 +6639,82 @@ function publicChatLivePrivateResources(character = {}, hasMembership = false) {
   return (Array.isArray(character.privateResources) ? character.privateResources : []).filter((item) => item && item.enabled !== false && item.url).map((item) => ({ id: String(item.id || ""), name: String(item.name || "私密资源"), type: item.type === "video" ? "video" : "image", url: String(item.url), thumbnailUrl: String(item.thumbnailUrl || item.url) }));
 }
 
-const CHAT_LIVE_ROOM_AUTO_THRESHOLD = Math.max(1, Number(process.env.CHAT_LIVE_ROOM_AUTO_THRESHOLD || 3) || 3);
+const CHAT_LIVE_ROOM_ACTIVE_THRESHOLD = 2;
 
 function publicChatLiveRoom(room = {}, character = null) {
+  const activeCount = Number(room.activeCount ?? room.viewerCount ?? 0) || 0;
   return {
     id: String(room.id || ""),
     characterId: String(room.characterId || character?.id || ""),
     title: String(room.title || `${character?.name || "角色"}的陪伴房`).slice(0, 80),
     description: String(room.description || "一起聊聊，看看大家都在说什么").slice(0, 160),
-    mode: room.mode === "voice" ? "voice" : "video",
-    modeLabel: room.mode === "voice" ? "语音房" : "视频房",
+    mode: "video",
+    modeLabel: "视频房",
     priceCreditsPerMinute: Number(room.priceCreditsPerMinute || 0) || 0,
-    viewerCount: Number(room.viewerCount || 0) || 0,
-    requestCount24h: Number(room.requestCount24h || 0) || 0,
-    maxViewers: Number(room.maxViewers || 50) || 50,
-    shareSupported: room.shareSupported !== false,
+    viewerCount: activeCount,
+    activeCount,
+    shareSupported: room.shareSupported === true,
+    currentSessionId: String(room.currentSessionId || ""),
     character: character ? publicChatLiveCharacter(character) : null,
   };
 }
 
+async function currentChatLiveConnections() {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is not configured");
+  const result = await dbQuery(`
+    SELECT character_id, COUNT(*)::int AS active_count,
+      (array_agg(id ORDER BY updated_at DESC))[1] AS session_id,
+      (array_agg(payload ORDER BY updated_at DESC))[1] AS session_payload
+    FROM app_chat_live_sessions
+    WHERE status NOT IN ('ended', 'closed', 'failed')
+      AND COALESCE((payload->>'settled')::boolean, FALSE) = FALSE
+      AND COALESCE(payload->>'mode', '') = 'component'
+      AND updated_at > NOW() - INTERVAL '35 seconds'
+      AND live_id <> ''
+    GROUP BY character_id
+    ORDER BY active_count DESC, MAX(updated_at) DESC
+  `);
+  return result.rows.map((row) => ({
+    characterId: String(row.character_id || ""),
+    activeCount: Number(row.active_count || 0) || 0,
+    sessionId: String(row.session_id || ""),
+    session: row.session_payload || {},
+  }));
+}
+
 async function ensureAutoChatLiveRooms(characters = [], live = {}) {
   if (!dbEnabled()) throw new Error("DATABASE_URL is not configured");
-  const counts = await dbQuery(`
-    SELECT character_id, COUNT(*)::int AS requests
-    FROM app_chat_live_sessions
-    WHERE created_at > NOW() - INTERVAL '24 hours'
-      AND character_id <> ''
-      AND status NOT IN ('failed', 'closed')
-    GROUP BY character_id
-  `);
-  const byCharacter = new Map(counts.rows.map((row) => [String(row.character_id), Number(row.requests || 0) || 0]));
+  const connections = await currentChatLiveConnections();
+  const currentByCharacter = new Map(connections.map((item) => [item.characterId, item]));
   const existing = await listChatLiveRoomsInDb({ enabledOnly: false, limit: 200 });
   const existingByCharacter = new Map(existing.map((room) => [String(room.characterId || ""), room]));
   for (const character of characters) {
-    const requestCount24h = byCharacter.get(String(character.id)) || 0;
-    const old = existingByCharacter.get(String(character.id));
-    if (requestCount24h < CHAT_LIVE_ROOM_AUTO_THRESHOLD && !old) continue;
-    const now = new Date().toISOString();
-    const room = {
-      ...(old || {}),
-      id: old?.id || randomId("room"),
-      characterId: String(character.id),
-      title: old?.title || `${character.name || "角色"}的陪伴房`,
-      description: old?.description || `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
-      mode: old?.mode || (String(character.mode || live.defaultMode || "realtime") === "component" ? "video" : "voice"),
-      priceCreditsPerMinute: Number(old?.priceCreditsPerMinute || live.saleCreditsPerMinute || 0) || 0,
-      requestCount24h,
-      shareSupported: old?.shareSupported !== undefined ? old.shareSupported !== false : String(character.mode || live.defaultMode || "realtime") === "component",
-      enabled: old?.enabled !== false,
-      status: old?.status || "active",
-      updatedAt: now,
-      createdAt: old?.createdAt || now,
-    };
-    await upsertChatLiveRoomInDb(room);
+    const current = currentByCharacter.get(String(character.id)) || null;
+    const old = existingByCharacter.get(String(character.id)) || null;
+    const canShare = Boolean(current && current.activeCount >= CHAT_LIVE_ROOM_ACTIVE_THRESHOLD && current.session?.liveId && current.session?.channel?.channelId && chatLiveComponent.hasComponentSession?.(current.session.liveId));
+    if (canShare) {
+      const now = new Date().toISOString();
+      await upsertChatLiveRoomInDb({
+        ...(old || {}),
+        id: old?.id || randomId("room"),
+        characterId: String(character.id),
+        title: old?.title || `${character.name || "角色"}的陪伴房`,
+        description: old?.description || `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
+        mode: "video",
+        priceCreditsPerMinute: Number(old?.priceCreditsPerMinute || live.saleCreditsPerMinute || 0) || 0,
+        activeCount: current.activeCount,
+        currentSessionId: current.sessionId,
+        currentLiveId: String(current.session.liveId || ""),
+        shareSupported: true,
+        autoGenerated: true,
+        enabled: true,
+        status: "active",
+        updatedAt: now,
+        createdAt: old?.createdAt || now,
+      });
+    } else if (old?.autoGenerated === true && (old.enabled !== false || old.status === "active")) {
+      await upsertChatLiveRoomInDb({ ...old, activeCount: current?.activeCount || 0, enabled: false, status: "closed", updatedAt: new Date().toISOString() });
+    }
   }
   return listChatLiveRoomsInDb({ enabledOnly: true, limit: 50 });
 }
@@ -6703,21 +6726,54 @@ async function handlePublicChatLiveRooms(req, res) {
   const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
   const rooms = await ensureAutoChatLiveRooms(characters, live);
   const byId = new Map(characters.map((character) => [String(character.id), character]));
-  return sendJson(res, 200, { ok: true, threshold: CHAT_LIVE_ROOM_AUTO_THRESHOLD, rooms: rooms.map((room) => publicChatLiveRoom(room, byId.get(String(room.characterId)))) });
+  return sendJson(res, 200, { ok: true, threshold: CHAT_LIVE_ROOM_ACTIVE_THRESHOLD, basis: "current_active_connections", rooms: rooms.map((room) => publicChatLiveRoom(room, byId.get(String(room.characterId)))) });
 }
 
 async function handleJoinChatLiveRoom(req, res, roomId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const room = await getChatLiveRoomInDb(roomId);
-  if (!room || room.enabled === false || room.status !== "active") return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_ROOM_NOT_FOUND", message: "房间不存在或已关闭。" });
+  if (!room || room.enabled === false || room.status !== "active" || room.shareSupported !== true) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_ROOM_NOT_FOUND", message: "房间不存在、已关闭或暂不支持多人加入。" });
+  const host = await getChatLiveSessionInDb(String(room.currentSessionId || ""));
+  if (!host || host.mode !== "component" || host.settled === true || ["ended", "closed", "failed"].includes(String(host.status || "")) || !host.liveId || !host.channel?.channelId || !chatLiveComponent.hasComponentSession?.(host.liveId)) {
+    return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ROOM_OFFLINE", message: "这个房间刚刚结束了，请刷新后再试。" });
+  }
   const character = await getChatLiveCharacterInDb(room.characterId);
   if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  const sessionId = randomId("chatlive-room");
+  const channelId = String(host.channel.channelId);
+  const viewerId = `room-${String(auth.user.id).slice(0, 20)}-${crypto.randomBytes(3).toString("hex")}`.slice(0, 32);
+  const now = new Date().toISOString();
+  const viewer = await createChatLiveSessionInDb({
+    id: sessionId,
+    userId: auth.user.id,
+    characterId: character.id,
+    liveId: host.liveId,
+    status: "waiting",
+    mode: "component",
+    roomId: String(roomId),
+    sharedRoomViewer: true,
+    roomHostSessionId: host.id,
+    username: String(auth.user.username || ""),
+    characterName: String(character.name || ""),
+    rtc: { provider: "artc", appId: ARTC_APP_ID, channelId, userId: viewerId, token: artcToken({ channelId, userId: viewerId, ttlSeconds: 3600 }) },
+    channel: host.channel,
+    model: host.model,
+    callMode: "video",
+    saleCreditsPerMinute: 0,
+    costCreditsPerMinute: 0,
+    maxMinutes: host.maxMinutes,
+    freeSeconds: host.maxMinutes ? Number(host.maxMinutes) * 60 : 600,
+    billingPolicy: "room_shared",
+    prepaidSeconds: 0,
+    prepaidCredits: 0,
+    holdSettled: true,
+    createdAt: now,
+    updatedAt: now,
+  });
   await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
   const messages = await listChatLiveRoomMessagesInDb(roomId, 100);
-  const rooms = await listChatLiveRoomsInDb({ enabledOnly: true, limit: 200 });
-  const current = rooms.find((item) => String(item.id) === String(roomId)) || room;
-  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(current, character), messages });
+  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(room, character), session: { id: viewer.id, mode: "component", liveId: viewer.liveId, status: viewer.status, rtc: viewer.rtc, saleCreditsPerMinute: 0, costCreditsPerMinute: 0, maxMinutes: viewer.maxMinutes, freeSeconds: viewer.freeSeconds, model: viewer.model, avatarMode: "default" }, character: publicChatLiveCharacter(character), messages });
 }
 
 async function handleChatLiveRoomMessage(req, res, roomId = "") {
@@ -7678,7 +7734,9 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   const observedSeconds = billedSeconds;
   const cappedBilledSeconds = prepaidSeconds > 0 ? Math.min(observedSeconds, prepaidSeconds + Number(session.freeSeconds || 0)) : observedSeconds;
   const salePerMinute = Number(session.saleCreditsPerMinute || 0) || 0;
-  const chargeableSeconds = Math.max(0, Math.min(cappedBilledSeconds - Number(session.freeSeconds || 0), prepaidSeconds > 0 ? prepaidSeconds : Number.MAX_SAFE_INTEGER));
+  const chargeableSeconds = session.sharedRoomViewer === true
+    ? 0
+    : Math.max(0, Math.min(cappedBilledSeconds - Number(session.freeSeconds || 0), prepaidSeconds > 0 ? prepaidSeconds : Number.MAX_SAFE_INTEGER));
   const chargeCredits = salePerMinute > 0 && chargeableSeconds > 0
     ? Math.max(1, Math.ceil((chargeCreditsFromSeconds(chargeableSeconds, salePerMinute))))
     : 0;
@@ -7785,7 +7843,7 @@ async function refundChatLiveHold(auth, session = {}, credits = 0, holdId = '') 
 async function closeChatLiveForInsufficientCredits(session = {}) {
   const socket = chatLiveSockets.get(String(session.id || ''));
   if (socket) { try { socket.destroy(); } catch {} }
-  if (session.mode === 'component' && session.liveId) { try { chatLiveComponent.stopComponentSession(session.liveId); } catch {} }
+  if (session.mode === 'component' && session.liveId && session.sharedRoomViewer !== true) { try { chatLiveComponent.stopComponentSession(session.liveId); } catch {} }
 }
 
 async function monitorChatLiveSession(session = {}) {
@@ -7910,7 +7968,7 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
       at: new Date().toISOString(),
     }]);
   }
-  if (session.mode === "component" && session.liveId) {
+  if (session.mode === "component" && session.liveId && session.sharedRoomViewer !== true) {
     try { chatLiveComponent.stopComponentSession(session.liveId); } catch {}
   }
   if (session.status === "ended" && session.settled === true) {

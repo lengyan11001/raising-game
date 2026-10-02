@@ -2514,7 +2514,7 @@ async function listChatLiveRoomsInDb({ enabledOnly = true, limit = 50 } = {}) {
     LEFT JOIN app_chat_live_room_members m ON m.room_id = r.id
     ${clauses}
     GROUP BY r.id
-    ORDER BY COALESCE((r.payload->>'requestCount24h')::int, 0) DESC, r.updated_at DESC
+    ORDER BY COALESCE((r.payload->>'activeCount')::int, 0) DESC, r.updated_at DESC
     LIMIT $1
   `, [safeLimit]);
   return rows.map((row) => ({ ...(row.payload || {}), viewerCount: Number(row.viewer_count || 0) || 0 }));

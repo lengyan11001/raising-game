@@ -15,6 +15,7 @@
     overlay: null,
     remoteVideo: null,
     heartbeat: 0,
+    lastPresenceAt: 0,
     startedAt: 0,
     billableStartedAt: 0,
     ended: false,
@@ -567,8 +568,13 @@
   function startTimer() {
     state.startedAt = Date.now();
     state.billableStartedAt = 0;
+    state.lastPresenceAt = 0;
     state.heartbeat = window.setInterval(() => {
       if (!state.overlay) return;
+      if (Date.now() - state.lastPresenceAt >= 10000) {
+        state.lastPresenceAt = Date.now();
+        reportChatLiveOperation({ id: `presence-${Date.now().toString(36)}`, action: "presence", phase: "heartbeat", success: true, message: "active connection" });
+      }
       const seconds = state.billableStartedAt ? Math.floor((Date.now() - state.billableStartedAt) / 1000) : 0;
       const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
       const ss = String(seconds % 60).padStart(2, "0");
@@ -1695,12 +1701,15 @@
 
     let payload;
     try {
-      payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({
-        characterId: character.id,
-        avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
-        replaceSessionId: String(openOptions.replaceSessionId || ""),
-        roomId: String(openOptions.roomId || ""),
-      }) });
+      if (openOptions.roomId) {
+        payload = await apiFetch(`/api/chat-live/rooms/${encodeURIComponent(openOptions.roomId)}/join`, { method: "POST", body: "{}" });
+      } else {
+        payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({
+          characterId: character.id,
+          avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
+          replaceSessionId: String(openOptions.replaceSessionId || ""),
+        }) });
+      }
     } catch (error) {
       const message = error.message || "创建会话失败。";
       setStageStatus("创建失败", "error", message);
