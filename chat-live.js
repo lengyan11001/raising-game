@@ -1699,6 +1699,7 @@
         characterId: character.id,
         avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
         replaceSessionId: String(openOptions.replaceSessionId || ""),
+        roomId: String(openOptions.roomId || ""),
       }) });
     } catch (error) {
       const message = error.message || "创建会话失败。";

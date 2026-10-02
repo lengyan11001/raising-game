@@ -169,6 +169,12 @@ const {
   getChatLiveSessionByLiveIdInDb,
   updateChatLiveSessionInDb,
   listChatLiveSessionsInDb,
+  upsertChatLiveRoomInDb,
+  getChatLiveRoomInDb,
+  listChatLiveRoomsInDb,
+  upsertChatLiveRoomMemberInDb,
+  insertChatLiveRoomMessageInDb,
+  listChatLiveRoomMessagesInDb,
   query: dbQuery,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
@@ -6339,6 +6345,12 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const mode = ["realtime", "component"].includes(rawMode) ? rawMode : "";
   const voiceProvider = String(body.voiceProvider ?? body.voice_provider ?? existing?.voiceProvider ?? "qwen_omni").trim() || "qwen_omni";
   const language = String(body.language ?? existing?.language ?? "zh").trim().slice(0, 12) || "zh";
+  const ageRaw = Number(body.age ?? existing?.age ?? 0);
+  const age = Number.isFinite(ageRaw) && ageRaw >= 18 && ageRaw <= 80 ? Math.round(ageRaw) : 0;
+  const gender = String(body.gender ?? existing?.gender ?? "").trim().toLowerCase();
+  const normalizedGender = ["female", "male"].includes(gender) ? gender : "";
+  const companionStyleRaw = String(body.companionStyle ?? body.style ?? existing?.companionStyle ?? "").trim();
+  const companionStyle = ["温柔治愈", "元气活力", "知性深夜"].includes(companionStyleRaw) ? companionStyleRaw : "";
   const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
   const sortOrderRaw = Number(body.sortOrder ?? body.sort_order ?? existing?.sortOrder ?? 0);
   const enabledRaw = body.enabled ?? existing?.enabled;
@@ -6360,6 +6372,9 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     mode,
     voiceProvider,
     language,
+    age,
+    gender: normalizedGender,
+    companionStyle,
     tags,
     personaEnhance: String(body.personaEnhance ?? existing?.personaEnhance ?? "") === "true" || body.personaEnhance === true || existing?.personaEnhance === true,
     sortOrder: Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0,
@@ -6582,6 +6597,9 @@ function publicChatLiveCharacter(character = {}) {
     portraitUrl: character.portraitUrl || character.avatarUrl || "",
     tags: Array.isArray(character.tags) ? character.tags : [],
     language: character.language || "zh",
+    age: Number(character.age || 0) || 0,
+    gender: ["female", "male"].includes(String(character.gender || "")) ? String(character.gender) : "",
+    companionStyle: ["温柔治愈", "元气活力", "知性深夜"].includes(String(character.companionStyle || "")) ? String(character.companionStyle) : "",
     greeting: character.greeting || "",
     linkName: character.linkName || "",
     sortOrder: Number(character.sortOrder || 0) || 0,
@@ -6603,6 +6621,100 @@ function liveMembershipActive(subscription = null) {
 function publicChatLivePrivateResources(character = {}, hasMembership = false) {
   if (!hasMembership) return [];
   return (Array.isArray(character.privateResources) ? character.privateResources : []).filter((item) => item && item.enabled !== false && item.url).map((item) => ({ id: String(item.id || ""), name: String(item.name || "私密资源"), type: item.type === "video" ? "video" : "image", url: String(item.url), thumbnailUrl: String(item.thumbnailUrl || item.url) }));
+}
+
+const CHAT_LIVE_ROOM_AUTO_THRESHOLD = Math.max(1, Number(process.env.CHAT_LIVE_ROOM_AUTO_THRESHOLD || 3) || 3);
+
+function publicChatLiveRoom(room = {}, character = null) {
+  return {
+    id: String(room.id || ""),
+    characterId: String(room.characterId || character?.id || ""),
+    title: String(room.title || `${character?.name || "角色"}的陪伴房`).slice(0, 80),
+    description: String(room.description || "一起聊聊，看看大家都在说什么").slice(0, 160),
+    mode: room.mode === "voice" ? "voice" : "video",
+    modeLabel: room.mode === "voice" ? "语音房" : "视频房",
+    priceCreditsPerMinute: Number(room.priceCreditsPerMinute || 0) || 0,
+    viewerCount: Number(room.viewerCount || 0) || 0,
+    requestCount24h: Number(room.requestCount24h || 0) || 0,
+    maxViewers: Number(room.maxViewers || 50) || 50,
+    shareSupported: room.shareSupported !== false,
+    character: character ? publicChatLiveCharacter(character) : null,
+  };
+}
+
+async function ensureAutoChatLiveRooms(characters = [], live = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is not configured");
+  const counts = await dbQuery(`
+    SELECT character_id, COUNT(*)::int AS requests
+    FROM app_chat_live_sessions
+    WHERE created_at > NOW() - INTERVAL '24 hours'
+      AND character_id <> ''
+      AND status NOT IN ('failed', 'closed')
+    GROUP BY character_id
+  `);
+  const byCharacter = new Map(counts.rows.map((row) => [String(row.character_id), Number(row.requests || 0) || 0]));
+  const existing = await listChatLiveRoomsInDb({ enabledOnly: false, limit: 200 });
+  const existingByCharacter = new Map(existing.map((room) => [String(room.characterId || ""), room]));
+  for (const character of characters) {
+    const requestCount24h = byCharacter.get(String(character.id)) || 0;
+    const old = existingByCharacter.get(String(character.id));
+    if (requestCount24h < CHAT_LIVE_ROOM_AUTO_THRESHOLD && !old) continue;
+    const now = new Date().toISOString();
+    const room = {
+      ...(old || {}),
+      id: old?.id || randomId("room"),
+      characterId: String(character.id),
+      title: old?.title || `${character.name || "角色"}的陪伴房`,
+      description: old?.description || `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
+      mode: old?.mode || (String(character.mode || live.defaultMode || "realtime") === "component" ? "video" : "voice"),
+      priceCreditsPerMinute: Number(old?.priceCreditsPerMinute || live.saleCreditsPerMinute || 0) || 0,
+      requestCount24h,
+      shareSupported: old?.shareSupported !== undefined ? old.shareSupported !== false : String(character.mode || live.defaultMode || "realtime") === "component",
+      enabled: old?.enabled !== false,
+      status: old?.status || "active",
+      updatedAt: now,
+      createdAt: old?.createdAt || now,
+    };
+    await upsertChatLiveRoomInDb(room);
+  }
+  return listChatLiveRoomsInDb({ enabledOnly: true, limit: 50 });
+}
+
+async function handlePublicChatLiveRooms(req, res) {
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "房间服务暂时不可用。" });
+  const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
+  const rooms = await ensureAutoChatLiveRooms(characters, live);
+  const byId = new Map(characters.map((character) => [String(character.id), character]));
+  return sendJson(res, 200, { ok: true, threshold: CHAT_LIVE_ROOM_AUTO_THRESHOLD, rooms: rooms.map((room) => publicChatLiveRoom(room, byId.get(String(room.characterId)))) });
+}
+
+async function handleJoinChatLiveRoom(req, res, roomId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const room = await getChatLiveRoomInDb(roomId);
+  if (!room || room.enabled === false || room.status !== "active") return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_ROOM_NOT_FOUND", message: "房间不存在或已关闭。" });
+  const character = await getChatLiveCharacterInDb(room.characterId);
+  if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
+  const messages = await listChatLiveRoomMessagesInDb(roomId, 100);
+  const rooms = await listChatLiveRoomsInDb({ enabledOnly: true, limit: 200 });
+  const current = rooms.find((item) => String(item.id) === String(roomId)) || room;
+  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(current, character), messages });
+}
+
+async function handleChatLiveRoomMessage(req, res, roomId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const room = await getChatLiveRoomInDb(roomId);
+  if (!room || room.enabled === false || room.status !== "active") return sendJson(res, 404, { ok: false, message: "房间不存在或已关闭。" });
+  const body = await readJson(req);
+  const content = String(body.content || body.text || "").trim().slice(0, 500);
+  if (!content) return sendJson(res, 422, { ok: false, message: "消息不能为空。" });
+  await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
+  const message = await insertChatLiveRoomMessageInDb({ roomId, userId: auth.user.id, role: "user", content });
+  return sendJson(res, 201, { ok: true, message });
 }
 
 async function handlePublicChatLiveCharacters(req, res) {
@@ -7040,11 +7152,30 @@ function chatLiveSessionIdentity(req, auth, character) {
   };
 }
 
+async function linkChatLiveSessionToRoom(roomId = "", session = {}) {
+  const id = String(roomId || "").trim();
+  if (!id || !session?.id) return;
+  const room = await getChatLiveRoomInDb(id).catch(() => null);
+  if (!room || String(room.characterId || "") !== String(session.characterId || "")) return;
+  await upsertChatLiveRoomInDb({
+    ...room,
+    currentSessionId: String(session.id),
+    currentLiveId: String(session.liveId || ""),
+    currentMode: String(session.mode || "realtime"),
+    shareSupported: String(session.mode || "") === "component",
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 async function handleCreateChatLiveSession(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
-  const character = await getChatLiveCharacterInDb(String(body.characterId || "").trim());
+  const roomId = String(body.roomId || "").trim();
+  const room = roomId ? await getChatLiveRoomInDb(roomId) : null;
+  if (roomId && (!room || room.enabled === false || room.status !== "active")) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_ROOM_NOT_FOUND", message: "房间不存在或已关闭。" });
+  const character = await getChatLiveCharacterInDb(String(body.characterId || room?.characterId || "").trim());
+  if (roomId && character && String(room.characterId || "") !== String(character.id || "")) return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_ROOM_CHARACTER_MISMATCH", message: "房间角色已变化，请刷新后再试。" });
   if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
@@ -7181,6 +7312,7 @@ async function handleCreateChatLiveSession(req, res) {
       createdAt: now,
       updatedAt: now,
     });
+    await linkChatLiveSessionToRoom(roomId, session);
     return sendJson(res, 201, {
       ok: true,
       session: {
@@ -7297,6 +7429,7 @@ async function handleCreateChatLiveSession(req, res) {
     updatedAt: now,
   });
 
+  await linkChatLiveSessionToRoom(roomId, session);
   return sendJson(res, 201, {
     ok: true,
     session: {
@@ -44119,6 +44252,17 @@ async function handleRequest(req, res) {
        and the standalone chat.5vips.com page. */
     if (req.method === "GET" && url.pathname === "/api/chat-live/characters") {
       return await handlePublicChatLiveCharacters(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/chat-live/rooms") {
+      return await handlePublicChatLiveRooms(req, res);
+    }
+    const chatLiveRoomJoinMatch = url.pathname.match(/^\/api\/chat-live\/rooms\/([^/]+)\/join\/?$/);
+    if (req.method === "POST" && chatLiveRoomJoinMatch) {
+      return await handleJoinChatLiveRoom(req, res, decodeURIComponent(chatLiveRoomJoinMatch[1]));
+    }
+    const chatLiveRoomMessageMatch = url.pathname.match(/^\/api\/chat-live\/rooms\/([^/]+)\/messages\/?$/);
+    if (req.method === "POST" && chatLiveRoomMessageMatch) {
+      return await handleChatLiveRoomMessage(req, res, decodeURIComponent(chatLiveRoomMessageMatch[1]));
     }
     if (req.method === "POST" && url.pathname === "/api/chat-live/sessions") {
       return await handleCreateChatLiveSession(req, res);

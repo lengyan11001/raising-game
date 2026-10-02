@@ -495,6 +495,49 @@ async function ensureSchemaInner() {
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_rooms (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_chat_live_rooms
+    ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+    ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_character_idx ON app_chat_live_rooms (character_id, enabled, status);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_updated_idx ON app_chat_live_rooms (updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_room_members (
+      room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (room_id, user_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_room_messages (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT 'user',
+      content TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_messages_room_idx ON app_chat_live_room_messages (room_id, created_at ASC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_user_unlocks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -2434,6 +2477,81 @@ async function listChatLiveSessionsInDb({ userId = "", limit = 50, offset = 0, w
   return { items, total: Number(counted.rows[0]?.total || 0) || 0 };
 }
 
+async function upsertChatLiveRoomInDb(room = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...room };
+  const now = payload.updatedAt || new Date().toISOString();
+  await query(`
+    INSERT INTO app_chat_live_rooms(id, character_id, status, enabled, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, COALESCE(NULLIF($6, '')::timestamptz, NOW()), $7::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      character_id = EXCLUDED.character_id,
+      status = EXCLUDED.status,
+      enabled = EXCLUDED.enabled,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [String(payload.id || ''), String(payload.characterId || ''), String(payload.status || 'active'), payload.enabled !== false, JSON.stringify(payload), payload.createdAt || now, now]);
+  return payload;
+}
+
+async function getChatLiveRoomInDb(id = '') {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_rooms WHERE id = $1`, [String(id || '')]);
+  return rows[0]?.payload || null;
+}
+
+async function listChatLiveRoomsInDb({ enabledOnly = true, limit = 50 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
+  const clauses = enabledOnly ? `WHERE r.enabled = TRUE AND r.status = 'active'` : '';
+  const { rows } = await query(`
+    SELECT r.payload,
+      COALESCE(COUNT(m.user_id) FILTER (WHERE m.last_seen_at > NOW() - INTERVAL '90 seconds'), 0)::int AS viewer_count
+    FROM app_chat_live_rooms r
+    LEFT JOIN app_chat_live_room_members m ON m.room_id = r.id
+    ${clauses}
+    GROUP BY r.id
+    ORDER BY COALESCE((r.payload->>'requestCount24h')::int, 0) DESC, r.updated_at DESC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => ({ ...(row.payload || {}), viewerCount: Number(row.viewer_count || 0) || 0 }));
+}
+
+async function upsertChatLiveRoomMemberInDb({ roomId = '', userId = '', role = 'viewer' } = {}) {
+  if (!dbEnabled() || !roomId || !userId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_chat_live_room_members(room_id, user_id, role, joined_at, last_seen_at)
+    VALUES ($1, $2, $3, NOW(), NOW())
+    ON CONFLICT (room_id, user_id) DO UPDATE SET role = EXCLUDED.role, last_seen_at = NOW()
+    RETURNING room_id, user_id, role, joined_at, last_seen_at
+  `, [String(roomId), String(userId), String(role || 'viewer')]);
+  return rows[0] || null;
+}
+
+async function insertChatLiveRoomMessageInDb({ id = '', roomId = '', userId = '', role = 'user', content = '', payload = {} } = {}) {
+  if (!dbEnabled() || !roomId || !content) return null;
+  await ensureSchema();
+  const messageId = String(id || `roommsg-${Date.now().toString(36)}`);
+  const { rows } = await query(`
+    INSERT INTO app_chat_live_room_messages(id, room_id, user_id, role, content, payload)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+    RETURNING id, room_id AS "roomId", user_id AS "userId", role, content, payload, created_at AS "createdAt"
+  `, [messageId, String(roomId), String(userId || ''), String(role || 'user'), String(content).slice(0, 2000), JSON.stringify(payload || {})]);
+  return rows[0] || null;
+}
+
+async function listChatLiveRoomMessagesInDb(roomId = '', limit = 100) {
+  if (!dbEnabled() || !roomId) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 100) || 100));
+  const { rows } = await query(`SELECT id, room_id AS "roomId", user_id AS "userId", role, content, payload, created_at AS "createdAt" FROM app_chat_live_room_messages WHERE room_id = $1 ORDER BY created_at DESC LIMIT $2`, [String(roomId), safeLimit]);
+  return rows.reverse();
+}
+
 async function claimToolFreeGenerationInDb({ id = "", userId = "", tenantId = "", taskId = "", kind = "" } = {}) {
   if (!dbEnabled()) return null;
   const cleanId = String(id || "").trim();
@@ -3837,6 +3955,12 @@ module.exports = {
   getChatLiveSessionByLiveIdInDb,
   updateChatLiveSessionInDb,
   listChatLiveSessionsInDb,
+  upsertChatLiveRoomInDb,
+  getChatLiveRoomInDb,
+  listChatLiveRoomsInDb,
+  upsertChatLiveRoomMemberInDb,
+  insertChatLiveRoomMessageInDb,
+  listChatLiveRoomMessagesInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
