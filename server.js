@@ -6587,8 +6587,24 @@ function chatLiveUndressErrorText(error) {
   return raw.slice(0, 180) || "生成失败。";
 }
 
+function inferChatLiveProfile(character = {}) {
+  const source = `${character.name || ""} ${character.intro || ""} ${character.persona || ""} ${character.personaMd || ""}`;
+  const ageMatch = source.match(/(?:^|[^0-9])([1-7][0-9])\s*岁/);
+  const age = Number(character.age || ageMatch?.[1] || 0);
+  const genderText = String(character.gender || "").toLowerCase();
+  const gender = ["female", "male"].includes(genderText)
+    ? genderText
+    : (/女性|女生|女孩|女主播|她的|她是|女人/.test(source) ? "female" : (/男性|男生|男孩|男主播|他的|他是|男人/.test(source) ? "male" : ""));
+  const styleText = String(character.companionStyle || "");
+  const companionStyle = ["温柔治愈", "元气活力", "知性深夜"].includes(styleText)
+    ? styleText
+    : (/深夜|电台|失眠|黑胶|文字编辑|知性/.test(source) ? "知性深夜" : (/元气|户外|健身|篮球|骑行|运动|活泼/.test(source) ? "元气活力" : "温柔治愈"));
+  return { age: age >= 18 && age <= 80 ? Math.round(age) : 0, gender, companionStyle };
+}
+
 function publicChatLiveCharacter(character = {}) {
   const undressImageUrl = publicChatLiveUndressImageUrl(character);
+  const profile = inferChatLiveProfile(character);
   return {
     id: character.id,
     name: character.name || "",
@@ -6597,9 +6613,9 @@ function publicChatLiveCharacter(character = {}) {
     portraitUrl: character.portraitUrl || character.avatarUrl || "",
     tags: Array.isArray(character.tags) ? character.tags : [],
     language: character.language || "zh",
-    age: Number(character.age || 0) || 0,
-    gender: ["female", "male"].includes(String(character.gender || "")) ? String(character.gender) : "",
-    companionStyle: ["温柔治愈", "元气活力", "知性深夜"].includes(String(character.companionStyle || "")) ? String(character.companionStyle) : "",
+    age: profile.age,
+    gender: profile.gender,
+    companionStyle: profile.companionStyle,
     greeting: character.greeting || "",
     linkName: character.linkName || "",
     sortOrder: Number(character.sortOrder || 0) || 0,
