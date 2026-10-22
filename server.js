@@ -9842,6 +9842,11 @@ function replaceHomeVideoItem(homeVideo = {}, item) {
 
 function userView(user) {
   if (!user) return null;
+  // A sub token authenticates with its parent user's account context so that
+  // balances and records stay shared. Never expose the parent's primary API
+  // token to the sub token caller through any endpoint that reuses userView().
+  const auth = currentAuthContext();
+  const isSubtokenRequest = String(auth?.tokenSource || "").toLowerCase() === "subtoken";
   return {
     id: user.id,
     tenantId: recordTenantId(user),
@@ -9857,7 +9862,7 @@ function userView(user) {
     voiceIntroUrl: String(user.voiceIntroUrl || ""),
     role: user.role || "user",
     credits: Number(user.credits || 0),
-    apiToken: String(user.apiToken || ""),
+    apiToken: isSubtokenRequest ? "" : String(user.apiToken || ""),
     pricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "web" }),
     apiPricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "api" }),
     advancedAccess: user.advancedAccess === true,
