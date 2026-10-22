@@ -2,6 +2,7 @@
 
 let googleLoginSdkPromise = null;
 let googleLoginConfigured = false;
+let googleLoginRenderedWidth = 0;
 
 function ensureGoogleLoginSdk() {
   if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
@@ -29,6 +30,46 @@ function ensureGoogleLoginSdk() {
   return googleLoginSdkPromise;
 }
 
+function googleButtonLocale() {
+  const locales = { zh: "zh-CN", ja: "ja", ko: "ko", vi: "vi", id: "id", en: "en" };
+  return locales[String(state.lang || "en")] || "en";
+}
+
+function googleLoginButtonWidth() {
+  const available = Math.floor(els.googleLoginBtn?.getBoundingClientRect?.().width || 0);
+  return Math.max(200, Math.min(400, available || googleLoginRenderedWidth || 320));
+}
+
+function setGoogleLoginBusy(busy) {
+  if (!els.googleLoginBtn) return;
+  els.googleLoginBtn.classList.toggle("is-busy", Boolean(busy));
+  els.googleLoginBtn.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+function renderGoogleLoginButton(googleId = window.google?.accounts?.id) {
+  if (!googleLoginConfigured || !els.googleLoginBtn || !googleId?.renderButton) return false;
+  const container = els.googleLoginBtn;
+  // GSI One Tap renders into the normal document layer, where a native
+  // <dialog> top layer can cover it on mobile. An inline GIS button is clicked
+  // directly and opens the browser's own authorization window instead.
+  container.hidden = false;
+  container.innerHTML = "";
+  const width = googleLoginButtonWidth();
+  googleLoginRenderedWidth = width;
+  googleId.renderButton(container, {
+    type: "standard",
+    theme: "outline",
+    size: "large",
+    text: "continue_with",
+    shape: "rectangular",
+    logo_alignment: "left",
+    locale: googleButtonLocale(),
+    width,
+  });
+  container.dataset.renderedWidth = String(width);
+  return true;
+}
+
 function configureGoogleLogin() {
   const clientId = String(state.config?.auth?.google?.clientId || "").trim();
   googleLoginConfigured = Boolean(state.config?.auth?.google?.enabled && clientId);
@@ -41,6 +82,7 @@ function configureGoogleLogin() {
       auto_select: false,
       cancel_on_tap_outside: true,
     });
+    if (els.loginDialog?.open) renderGoogleLoginButton(googleId);
   }).catch(() => {
     if (els.googleLoginBtn) els.googleLoginBtn.hidden = true;
   });
@@ -53,7 +95,7 @@ async function handleGoogleCredential(response = {}) {
       els.googleLoginStatus.hidden = false;
       els.googleLoginStatus.textContent = t("auth.googleFailed", { message: "No credential was returned." });
     }
-    if (els.googleLoginBtn) els.googleLoginBtn.disabled = false;
+    setGoogleLoginBusy(false);
     return;
   }
   try {
@@ -72,28 +114,6 @@ async function handleGoogleCredential(response = {}) {
       els.googleLoginStatus.textContent = t("auth.googleFailed", { message: String(error?.message || error || "Authorization failed.") });
     }
   } finally {
-    if (els.googleLoginBtn) els.googleLoginBtn.disabled = false;
-  }
-}
-
-async function authorizeGoogleLogin() {
-  if (!googleLoginConfigured || !els.googleLoginBtn || els.googleLoginBtn.disabled) return;
-  els.googleLoginBtn.disabled = true;
-  if (els.googleLoginStatus) {
-    els.googleLoginStatus.hidden = false;
-    els.googleLoginStatus.textContent = t("auth.googleStarting");
-  }
-  if (els.loginMessage) els.loginMessage.textContent = "";
-  try {
-    const googleId = await ensureGoogleLoginSdk();
-    googleId.prompt((notification) => {
-      if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
-        if (els.googleLoginStatus) els.googleLoginStatus.textContent = t("auth.googleFailed", { message: "Google authorization was not displayed." });
-        if (els.googleLoginBtn) els.googleLoginBtn.disabled = false;
-      }
-    });
-  } catch (error) {
-    if (els.googleLoginStatus) els.googleLoginStatus.textContent = t("auth.googleFailed", { message: String(error?.message || error || "Authorization failed.") });
-    if (els.googleLoginBtn) els.googleLoginBtn.disabled = false;
+    setGoogleLoginBusy(false);
   }
 }

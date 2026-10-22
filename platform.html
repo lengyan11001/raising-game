@@ -984,10 +984,7 @@
             <i data-lucide="send"></i>
             <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
           </button>
-          <button class="google-login-button" id="googleLoginBtn" type="button" hidden>
-            <i data-lucide="globe"></i>
-            <span data-i18n="auth.googleLogin">Continue with Google</span>
-          </button>
+          <div class="google-login-mount" id="googleLoginBtn" aria-live="polite" hidden></div>
           <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
           <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />

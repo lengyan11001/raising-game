@@ -5889,7 +5889,10 @@ function openLogin() {
   prepareModalOpen();
   renderLoginForm();
   els.loginDialog.showModal();
-  window.requestAnimationFrame(() => els.loginUsername?.focus());
+  window.requestAnimationFrame(() => {
+    renderGoogleLoginButton();
+    els.loginUsername?.focus();
+  });
 }
 
 function openAccount() {
@@ -5935,7 +5938,7 @@ function renderLoginForm() {
   if (els.loginSubmit) els.loginSubmit.disabled = false;
   if (els.telegramLoginBtn) els.telegramLoginBtn.disabled = false;
   if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = "";
-  if (els.googleLoginBtn) els.googleLoginBtn.disabled = false;
+  setGoogleLoginBusy(false);
   if (els.googleLoginStatus) {
     els.googleLoginStatus.textContent = "";
     els.googleLoginStatus.hidden = true;

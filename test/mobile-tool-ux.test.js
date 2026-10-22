@@ -16,6 +16,7 @@ const undress = read("platform.undress-tool.js");
 const main = read("platform.main.js");
 const ui = read("platform.ui.js");
 const css = read("platform.css");
+const google = read("platform.google.js");
 const undressCss = read("tool-undress.css");
 
 test("Undress alone gets a responsive idle-loaded ambient background", () => {
@@ -128,4 +129,16 @@ test("opening a dialog always closes the mobile drawer", () => {
   const styleVersion = html.match(/platform\.css\?v=([^"']+)/)?.[1];
   assert.ok(scriptVersion);
   assert.equal(styleVersion, scriptVersion);
+});
+
+test("Google login stays inside the mobile login dialog", () => {
+  const loginDialog = html.match(/<dialog id="loginDialog"[\s\S]*?<\/dialog>/)?.[0] || "";
+  assert.ok(loginDialog);
+  assert.match(loginDialog, /<div class="google-login-mount" id="googleLoginBtn"[^>]*hidden><\/div>/);
+  assert.doesNotMatch(loginDialog, /google-login-button/);
+  assert.match(google, /function renderGoogleLoginButton\(/);
+  assert.match(google, /googleId\.renderButton\(container,/);
+  assert.doesNotMatch(google, /googleId\.prompt\(/);
+  assert.match(create, /els\.loginDialog\.showModal\(\);[\s\S]*?renderGoogleLoginButton\(\)/);
+  assert.match(css, /\.google-login-mount \{[\s\S]*?width: 100%;/);
 });
