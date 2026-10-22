@@ -3234,6 +3234,7 @@ async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {})
     SELECT payload
     FROM app_generation_records
     WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'r2PurgedAt', '') = ''
       AND updated_at > NOW() - INTERVAL '48 hours'
       AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
       AND (

@@ -21203,7 +21203,15 @@ function generationRecordRequiresR2Publication(record = {}) {
   return createdAt >= GENERATED_R2_REQUIRED_SINCE_MS;
 }
 
+function generationRecordR2Expired(record = {}) {
+  // r2PurgedAt means retention deliberately removed the durable copy. It is a
+  // terminal state, not a failed upload that should be retried from an expired
+  // provider URL.
+  return Boolean(String(record.r2PurgedAt || "").trim());
+}
+
 function generationRecordR2PublicationPending(record = {}) {
+  if (generationRecordR2Expired(record)) return false;
   if (!generationRecordRequiresR2Publication(record)) return false;
   if (!generatedOutputStorageEnabled() || generationRecordIsApiTask(record) || !isSucceededStatus(record.status)) return false;
   if (isChatCompletionGenerationRecord(record)) return false;
@@ -21264,9 +21272,11 @@ function publicGenerationRecord(record = {}, options = {}) {
     ? providerImageUrls
     : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
-  const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
-    ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
-    : record.error || "";
+  const recordError = generationRecordR2Expired(record)
+    ? ""
+    : (String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
+      ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
+      : record.error || "");
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
@@ -21488,6 +21498,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isChatCompletionGenerationRecord(record)) return false;
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
+  if (generationRecordR2Expired(record)) return false;
   if (record.upstreamSource === "video-tool-orchestrator") return false;
   if (["seedream5-image", "qwen-image3"].includes(String(record.provider || "").toLowerCase())) {
     if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
@@ -21865,7 +21876,7 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 }
 
 function generationRecordNeedsMediaMaintenance(record = {}) {
-  if (DISABLE_GENERATED_R2_STORAGE) return false;
+  if (DISABLE_GENERATED_R2_STORAGE || generationRecordR2Expired(record)) return false;
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
   if (!record.localVideoUrl) return !record.cdnVideoUrl;
   return !record.localPosterUrl
@@ -24368,7 +24379,14 @@ async function expireGeneratedR2Objects() {
             'cdnVideoUrl', '',
             'cdnPosterUrl', '',
             'cdnImageUrl', '',
-            'cdnImageUrls', '[]'::jsonb
+            'cdnImageUrls', '[]'::jsonb,
+            'localVideoUrl', '',
+            'localVideoPath', '',
+            'localPosterUrl', '',
+            'localPosterPath', '',
+            'localImageUrl', '',
+            'remoteVideoUrl', '',
+            'error', ''
           ),
           updated_at = NOW()
         WHERE task_id = $1

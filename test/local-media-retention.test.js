@@ -96,3 +96,14 @@ test("generation records recover delayed R2 publication automatically", async ()
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /async function getGenerationRecordsNeedingR2RecoveryFromDb\(/);
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /updated_at > NOW\(\) - INTERVAL '48 hours'/);
 });
+
+test("expired generated media is terminal and never retried from provider URLs", async () => {
+  const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
+  const db = await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8");
+  assert.match(server, /function generationRecordR2Expired\(record = \{\}\)/);
+  assert.match(server, /function shouldRefreshGenerationRecord[\s\S]*?if \(generationRecordR2Expired\(record\)\) return false;/);
+  assert.match(server, /function generationRecordNeedsMediaMaintenance[\s\S]*?generationRecordR2Expired\(record\)/);
+  assert.match(server, /function generationRecordR2PublicationPending[\s\S]*?generationRecordR2Expired\(record\)/);
+  assert.match(server, /'localVideoUrl', ''[\s\S]*?'remoteVideoUrl', ''[\s\S]*?'error', ''/);
+  assert.match(db, /COALESCE\(payload->>'r2PurgedAt', ''\) = ''/);
+});
