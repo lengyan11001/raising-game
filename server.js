@@ -823,6 +823,16 @@ const DEFAULT_ADVANCED_PRICING = {
     "720p": pricingNumber(defaultWan30SaleCreditsPerSecond("720p") * 1.5, 0, 0, 6),
     "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 1.5, 0, 0, 6),
   },
+  wan30ProCreditsPerSecondByResolution: {
+    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p"), 0, 0, 6),
+    "2k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 2, 0, 0, 6),
+    "4k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 4, 0, 0, 6),
+  },
+  wan30PrimeProCreditsPerSecondByResolution: {
+    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 1.5, 0, 0, 6),
+    "2k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 3, 0, 0, 6),
+    "4k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 6, 0, 0, 6),
+  },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
@@ -1912,6 +1922,12 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan30Prime = source.wan30PrimeCreditsPerSecondByResolution && typeof source.wan30PrimeCreditsPerSecondByResolution === "object"
     ? source.wan30PrimeCreditsPerSecondByResolution
     : {};
+  const wan30Pro = source.wan30ProCreditsPerSecondByResolution && typeof source.wan30ProCreditsPerSecondByResolution === "object"
+    ? source.wan30ProCreditsPerSecondByResolution
+    : {};
+  const wan30PrimePro = source.wan30PrimeProCreditsPerSecondByResolution && typeof source.wan30PrimeProCreditsPerSecondByResolution === "object"
+    ? source.wan30PrimeProCreditsPerSecondByResolution
+    : {};
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
@@ -2128,6 +2144,16 @@ function normalizeAdvancedPricing(pricing = {}) {
       "720p": normalizeStoredCredits(wan30Prime["720p"], pricingNumber(normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
       "1080p": normalizeStoredCredits(wan30Prime["1080p"], pricingNumber(normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
     },
+    wan30ProCreditsPerSecondByResolution: {
+      "1080p": normalizeStoredCredits(wan30Pro["1080p"], DEFAULT_ADVANCED_PRICING.wan30ProCreditsPerSecondByResolution["1080p"], 6),
+      "2k": normalizeStoredCredits(wan30Pro["2k"], DEFAULT_ADVANCED_PRICING.wan30ProCreditsPerSecondByResolution["2k"], 6),
+      "4k": normalizeStoredCredits(wan30Pro["4k"], DEFAULT_ADVANCED_PRICING.wan30ProCreditsPerSecondByResolution["4k"], 6),
+    },
+    wan30PrimeProCreditsPerSecondByResolution: {
+      "1080p": normalizeStoredCredits(wan30PrimePro["1080p"], DEFAULT_ADVANCED_PRICING.wan30PrimeProCreditsPerSecondByResolution["1080p"], 6),
+      "2k": normalizeStoredCredits(wan30PrimePro["2k"], DEFAULT_ADVANCED_PRICING.wan30PrimeProCreditsPerSecondByResolution["2k"], 6),
+      "4k": normalizeStoredCredits(wan30PrimePro["4k"], DEFAULT_ADVANCED_PRICING.wan30PrimeProCreditsPerSecondByResolution["4k"], 6),
+    },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
     happyhorseCreditsPerSecondByResolution: normalizedHappyhorseRates,
     aliyunVideoCreditsPerSecondByCapability,
@@ -2227,7 +2253,9 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan30CreditsPerSecondByResolution: { ...normalized.wan30CreditsPerSecondByResolution },
+    wan30ProCreditsPerSecondByResolution: { ...normalized.wan30ProCreditsPerSecondByResolution },
     wan30PrimeCreditsPerSecondByResolution: { ...normalized.wan30PrimeCreditsPerSecondByResolution },
+    wan30PrimeProCreditsPerSecondByResolution: { ...normalized.wan30PrimeProCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     happyhorseCreditsPerSecondByResolution: { ...normalized.happyhorseCreditsPerSecondByResolution },
     aliyunVideoCreditsPerSecondByCapability: {
@@ -4782,8 +4810,8 @@ function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
     "## API",
     "- Seedance 2.0 video: POST /api/v3/contents/generations/tasks",
     "- Seedream 5.0 Pro and Qwen Image 3.0: POST /api/v3/images/generations",
-    "- Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate: POST /api/advanced/generate",
-    "- Wan2.7 image generation/edit: POST /api/wan27/image-edit",
+    "- W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V: POST /api/advanced/generate",
+    "- Z-Image Spicy Pro and Qwen Image Edit Spicy: POST /api/wan27/image-edit",
     "- Query V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
     "- Query Advanced tasks: GET /api/generation-records/<taskId>",
     "- Public model guide: GET /models.md",
@@ -10248,7 +10276,8 @@ function publicHttpUrlForUserAsset(asset = {}, fallback = "") {
 function normalizeAdvancedResolution(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "480p") return "480p";
-  if (["4k", "4K", "2160p"].includes(String(value || "").trim())) return "4k";
+  if (normalized === "2k") return "2k";
+  if (["4k", "2160p"].includes(normalized)) return "4k";
   return normalized === "1080p" ? "1080p" : "720p";
 }
 
@@ -10329,9 +10358,10 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
   }
 }
 
-function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard" } = {}) {
+function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard", videoCapability = "" } = {}) {
   if (value === undefined || value === null || value === "") return;
   const raw = String(value || "").trim().toLowerCase();
+  const capability = normalizeAliyunVideoCapability(videoCapability, { provider });
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider))) {
     if (!["480p", "720p"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", `${publicProviderLabel(provider)} resolution must be 480p or 720p.`, { resolution: value, allowed: ["480p", "720p"] });
@@ -10339,8 +10369,10 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
     return;
   }
   if (normalizeAdvancedProvider(provider) === "wan30") {
-    if (!["480p", "720p", "1080p"].includes(raw)) {
-      throw advancedValidationError("INVALID_RESOLUTION", "Wan 3.0 resolution must be one of: 480P, 720P, 1080P.", { resolution: value, allowed: ["480P", "720P", "1080P"] });
+    const allowed = ALIYUN_VIDEO_CAPABILITIES[capability]?.resolutions?.map((item) => item.toLowerCase())
+      || ["480p", "720p", "1080p"];
+    if (!allowed.includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", `${capability === "wan30-video-pro" || capability === "wan30-video-prime-pro" ? "Wan 3.0 Pro" : "Wan 3.0"} resolution must be one of: ${allowed.join(", ")}.`, { resolution: value, allowed });
     }
     return;
   }
@@ -10786,20 +10818,22 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const billingDuration = adaptiveDuration ? 30 : duration;
     const resolution = normalizeAdvancedResolution(options.resolution || "1080p");
     const capability = normalizeAliyunVideoCapability(firstPresent(options.videoCapability, options.capability, "wan30-video"), { provider: "wan30" });
-    const prime = capability === "wan30-video-prime";
-    const configuredRates = prime
-      ? advancedPricing.wan30PrimeCreditsPerSecondByResolution || {}
-      : advancedPricing.wan30CreditsPerSecondByResolution || {};
-    const fallbackRates = prime
-      ? DEFAULT_ADVANCED_PRICING.wan30PrimeCreditsPerSecondByResolution
-      : DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution;
+    const rateTables = {
+      "wan30-video": ["wan30CreditsPerSecondByResolution", "Wan 3.0", ALIYUN_WAN30_MODEL],
+      "wan30-video-pro": ["wan30ProCreditsPerSecondByResolution", "Wan 3.0 Pro", ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro")],
+      "wan30-video-prime": ["wan30PrimeCreditsPerSecondByResolution", "Wan 3.0 Prime", ALIYUN_WAN30_PRIME_MODEL],
+      "wan30-video-prime-pro": ["wan30PrimeProCreditsPerSecondByResolution", "Wan 3.0 VSR-Prime", ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro")],
+    };
+    const [tableKey, providerLabel, model] = rateTables[capability] || rateTables["wan30-video"];
+    const configuredRates = advancedPricing[tableKey] || {};
+    const fallbackRates = DEFAULT_ADVANCED_PRICING[tableKey];
     const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
     const credits = creditsAmount(billingDuration * creditsPerSecond);
     return {
       provider: "wan30",
-      providerLabel: prime ? "Wan 3.0 Prime" : "Wan 3.0",
+      providerLabel,
       capability,
-      model: prime ? ALIYUN_WAN30_PRIME_MODEL : ALIYUN_WAN30_MODEL,
+      model,
       duration,
       billingDuration,
       adaptiveDuration,
@@ -10812,7 +10846,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       baseCredits: credits,
       credits,
       markup: 1,
-      source: prime ? "configured_wan30_prime_output_duration_rate" : "configured_wan30_output_duration_rate",
+      source: `configured_${capability.replace(/-/g, "_")}_output_duration_rate`,
     };
   }
   const bounds = advancedDurationBounds(normalizedProvider);
@@ -10938,7 +10972,12 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       definition?.duration?.[0] ?? bounds.min,
       definition?.duration?.[1] ?? bounds.max,
     );
-    const resolution = normalizeWan27Resolution(options.resolution);
+    const definitionResolutions = definition?.resolutions || ["720P", "1080P"];
+    const requestedResolution = String(options.resolution || "").trim().toUpperCase();
+    const normalizedWanResolution = normalizeWan27Resolution(requestedResolution);
+    const resolution = definitionResolutions.includes(normalizedWanResolution)
+      ? normalizedWanResolution
+      : (definitionResolutions.includes("720P") ? "720P" : definitionResolutions[0]);
     const publicResolution = normalizeAdvancedResolution(resolution);
     const animateMode = String(firstPresent(options.animateMode, options.mode, options.parameters?.mode, "wan-std")).toLowerCase() === "wan-pro" ? "wan-pro" : "wan-std";
     const model = String(options.model || aliyunVideoModelForCapability(capability)).trim().toLowerCase();
@@ -10960,25 +10999,35 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       : configuredModelTable?.[variantRateKey] !== undefined || fallbackModelTable?.[variantRateKey] !== undefined
       ? variantRateKey
       : publicResolution;
+    const wan30PriceTableKey = {
+      "wan30-video": "wan30CreditsPerSecondByResolution",
+      "wan30-video-pro": "wan30ProCreditsPerSecondByResolution",
+      "wan30-video-prime": "wan30PrimeCreditsPerSecondByResolution",
+      "wan30-video-prime-pro": "wan30PrimeProCreditsPerSecondByResolution",
+    }[capability];
     const familyPriceTable = capability.startsWith("happyhorse-")
       ? advancedPricing.happyhorseCreditsPerSecondByResolution
       : capability.startsWith("wan27-")
       ? advancedPricing.wan27CreditsPerSecondByResolution
+      : wan30PriceTableKey
+      ? advancedPricing[wan30PriceTableKey]
       : null;
     const fallbackFamilyPriceTable = capability.startsWith("happyhorse-")
       ? DEFAULT_ADVANCED_PRICING.happyhorseCreditsPerSecondByResolution
       : capability.startsWith("wan27-")
       ? DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution
+      : wan30PriceTableKey
+      ? DEFAULT_ADVANCED_PRICING[wan30PriceTableKey]
       : null;
     const priceTable = configuredModelTable
       || familyPriceTable
       || advancedPricing.aliyunVideoCreditsPerSecondByCapability?.[capability]
-      || advancedPricing.wan27CreditsPerSecondByResolution;
+      || null;
     const fallbackTable = fallbackModelTable
       || fallbackFamilyPriceTable
       || DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability?.[capability]
-      || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution;
-    const creditsPerSecond = priceTable?.[rateKey] || fallbackTable?.[rateKey] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
+      || null;
+    const creditsPerSecond = priceTable?.[rateKey] || fallbackTable?.[rateKey] || 0;
     const rawInputVideoSeconds = durationSecondsFromValue(firstPresent(
       options.inputVideoSeconds,
       options.videoInputSeconds,
@@ -10993,7 +11042,12 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const credits = creditsAmount(outputCredits + inputVideoCredits);
     return {
       provider: normalizedProvider,
-      providerLabel: normalizedProvider === "happyhorse" ? "HappyHorse" : "Wan",
+      providerLabel: {
+        "wan30-video": "Wan 3.0",
+        "wan30-video-pro": "Wan 3.0 Pro",
+        "wan30-video-prime": "Wan 3.0 Prime",
+        "wan30-video-prime-pro": "Wan 3.0 VSR-Prime",
+      }[capability] || (normalizedProvider === "happyhorse" ? "HappyHorse" : "Wan"),
       capability,
       model,
       duration: aliyunDuration,
@@ -16597,7 +16651,9 @@ function normalizeWan27Resolution(value = "") {
   const normalized = String(value || "").trim().toUpperCase();
   if (normalized === "480P") return "480P";
   if (normalized === "1080P") return "1080P";
-  return "720P";
+  if (normalized === "2K" || normalized === "4K" || normalized === "2160P") return normalized === "2160P" ? "4K" : normalized;
+  if (normalized === "720P") return "720P";
+  return "";
 }
 
 function optionalWan27Seed(value) {
@@ -17552,12 +17608,16 @@ function isAliyunVideoProvider(provider = "") {
 
 function aliyunVideoModelForCapability(capability = "", requestedModel = "") {
   if (capability === "wan30-video") return ALIYUN_WAN30_MODEL;
+  if (capability === "wan30-video-pro") return ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro");
   if (capability === "wan30-video-prime") return ALIYUN_WAN30_PRIME_MODEL;
+  if (capability === "wan30-video-prime-pro") return ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro");
   const requested = String(requestedModel || "").trim();
   if (requested) return requested;
   const configured = {
     "wan30-video": ALIYUN_WAN30_MODEL,
+    "wan30-video-pro": ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"),
     "wan30-video-prime": ALIYUN_WAN30_PRIME_MODEL,
+    "wan30-video-prime-pro": ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"),
     "wan27-t2v": ALIYUN_WAN27_T2V_MODEL,
     "wan27-i2v": ALIYUN_WAN27_I2V_MODEL,
     "wan27-r2v": ALIYUN_WAN27_R2V_MODEL,
@@ -17627,9 +17687,10 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
   const parameterExtras = plainObject(source.parameters);
   const followInputDuration = resolvedCapability === "wan27-video-edit"
     && boolFromRequest(source.followInputDuration, false);
+  const isWan30Capability = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(resolvedCapability);
   const parameters = {
     ...parameterExtras,
-    resolution: firstPresent(parameterExtras.resolution, source.resolution, "720p"),
+    resolution: firstPresent(parameterExtras.resolution, source.resolution, isWan30Capability ? "1080p" : "720p"),
     duration: followInputDuration ? 0 : firstPresent(parameterExtras.duration, source.duration, source.durationSeconds),
     ratio: firstPresent(parameterExtras.ratio, source.ratio, source.aspect_ratio),
     prompt_extend: boolFromRequest(firstPresent(parameterExtras.prompt_extend, source.prompt_extend, source.promptExtend), true),
@@ -17655,7 +17716,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     prompt,
     media: normalizedMedia,
     duration: source.duration,
-    resolution: source.resolution,
+    resolution: parameters.resolution,
     ratio: source.ratio,
     parameters,
   });
@@ -17694,6 +17755,16 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
       upstreamSource: "mulerouter",
       upstreamModel: mulerouterDecision.slug,
     };
+  }
+  if (mulerouterAliyun.mulerouterOnlyCapability(resolvedCapability)) {
+    const reason = !mulerouterDecision.use ? mulerouterDecision.reason : "mulerouter-route-inactive";
+    const error = new Error(
+      `${resolvedCapability} is served exclusively by Mulerouter and cannot fall back to Alibaba Cloud (${reason || "route unavailable"}).`,
+    );
+    error.statusCode = mulerouterDecision.reason === "aliyun-default" ? 503 : 400;
+    error.code = mulerouterDecision.reason === "aliyun-default" ? "MULEROUTER_ROUTE_UNAVAILABLE" : "MULEROUTER_VIDEO_REQUEST_UNSUPPORTED";
+    error.details = { capability: resolvedCapability, reason, slug: mulerouterDecision.slug || "" };
+    throw error;
   }
   if (mulerouterDecision.reason && mulerouterDecision.reason !== "aliyun-default" && mulerouterDecision.reason !== "no-mulerouter-equivalent") {
     console.log("[mulerouter-video-fallback]", JSON.stringify({
@@ -17969,8 +18040,10 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
   const provider = record.provider === "aliyun-wan30" ? "wan30" : "wan27";
-  const prime = provider === "wan30"
-    && String(record.videoCapability || record.params?.videoCapability || "").toLowerCase() === "wan30-video-prime";
+  const capability = String(record.videoCapability || record.params?.videoCapability || "").toLowerCase();
+  const mulerouterTask = record.upstreamSource === "mulerouter" || String(queryTaskId).startsWith("mr:");
+  const prime = !mulerouterTask && provider === "wan30"
+    && capability === "wan30-video-prime";
   let raw;
   if (upstreamRaw) {
     raw = await queryAliyunOrMulerouterTask(queryTaskId, {
@@ -17986,7 +18059,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
       prime,
     });
   } catch (error) {
-    if (!prime || !ALIYUN_WAN30_PRIME_API_KEY) throw error;
+    if (!prime || !ALIYUN_WAN30_PRIME_API_KEY || mulerouterTask) throw error;
     console.warn("[aliyun-video-prime-fallback] Agentic Mobile query failed; retrying legacy Wan endpoint", error?.message || error);
     raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
       method: "GET",
@@ -19737,7 +19810,7 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
 async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null } = {}) {
   const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
   const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
-  if (["wan30-video", "wan30-video-prime"].includes(capability)) {
+  if (["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(capability)) {
     const rawMode = String(firstPresent(requestParams.mediaMode, body.mediaMode, body.wan30Mode, "multimodal") || "").trim().toLowerCase();
     const frameMode = ["first_frame", "first_last_frame", "frames"].includes(rawMode);
     let inputs = frameMode
@@ -23951,7 +24024,7 @@ async function runVideoToolUndressImageVideo(job) {
         resolution: "720P",
         ratio: "9:16",
         generateAudio: true,
-        prompt_extend: false,
+        prompt_extend: true,
         watermark: false,
       },
     });
@@ -27978,7 +28051,7 @@ async function runAdvancedGenerationJob(job = {}) {
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || requestParams.videoCapability || "first_frame";
     let resolvedWan27Media = Array.isArray(wan27Media) ? wan27Media : [];
-    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan30-video-prime", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
       const resolved = await resolveAliyunVideoMedia({
         db,
         user: { id: userId },
@@ -28140,7 +28213,7 @@ async function runAdvancedGenerationJob(job = {}) {
       payload = gatewayBody;
       createResponse = task.raw;
     } else if (isAliyunVideoProvider(provider)) {
-      if (!resolvedWan27Media.length && !["wan30-video", "wan30-video-prime", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+      if (!resolvedWan27Media.length && !["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
         const error = new Error(`${requestParams.videoCapability || "Alibaba video"} requires media input.`);
         error.statusCode = 400;
         throw error;
@@ -28424,10 +28497,37 @@ function byteplusSeedanceTierFromModel(model = "") {
   return normalized.includes("fast") || normalized.includes("mini") ? "fast" : "standard";
 }
 
+function byteplusV3SupportedSeedanceModel(model = "") {
+  const raw = String(model || "").trim();
+  if (!raw) return false;
+  const compact = (value) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  const wanted = compact(raw);
+  if (!wanted) return false;
+  if ([MODEL_QUALITY, MODEL_FAST, SEEDANCE_QUALITY_ENDPOINT_ID, SEEDANCE_FAST_ENDPOINT_ID]
+    .map(compact)
+    .filter(Boolean)
+    .includes(wanted)) return true;
+  if (seedanceModelAliasKind(raw)) return true;
+  // Seedance 2.5 is a different product that runs on the advanced route, so reject it here
+  // even though its id is Seedance-branded.
+  if (wanted.includes("seedance25") || wanted.includes("seedance2.5")) return false;
+  // Allow any other Seedance-branded model id so future Seedance 2.0 revisions keep working;
+  // reject everything else (Wan, HappyHorse, ...) with a route hint instead of a silent async failure.
+  return wanted.includes("seedance");
+}
+
 function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
   const source = { ...requestParamsFromBody(body), ...body };
   const model = String(source.model || "").trim();
   if (!model) throw byteplusHttpError(400, "model is required.", "model");
+  if (!byteplusV3SupportedSeedanceModel(model)) {
+    throw byteplusHttpError(
+      400,
+      `model "${model}" is not supported on POST /api/v3/contents/generations/tasks. This endpoint only accepts Seedance models. Wan 3.0, Wan2.7, HappyHorse, and other video models use POST /api/advanced/generate.`,
+      "model",
+      "InvalidParameter.UnsupportedModel",
+    );
+  }
   if (!Array.isArray(source.content) || source.content.length < 1 || source.content.length > 16) {
     throw byteplusHttpError(400, "content must be an array with 1 to 16 items.", "content");
   }
@@ -30903,7 +31003,10 @@ async function handleAdvancedGenerate(req, res) {
   const rawRatioInput = firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio);
   try {
     assertAdvancedDurationInput(provider, rawDurationInput);
-    assertAdvancedResolutionInput(provider, rawResolutionInput, { seedanceTier: requestedSeedanceTier });
+    assertAdvancedResolutionInput(provider, rawResolutionInput, {
+      seedanceTier: requestedSeedanceTier,
+      videoCapability: firstPresent(body.videoCapability, body.aliyunVideoCapability, body.wanCapability, body.capability, bodyParams.videoCapability, bodyParams.aliyunVideoCapability, bodyParams.wanCapability, caseParams.videoCapability, caseParams.wanCapability),
+    });
     assertAdvancedRatioInput(rawRatioInput, provider);
   } catch (error) {
     return sendAdvancedValidationError(res, error);
@@ -30942,7 +31045,9 @@ async function handleAdvancedGenerate(req, res) {
     requestParams.watermark = false;
   }
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
-  requestParams.resolution = isAliyunVideoProvider(provider) ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
+  requestParams.resolution = isAliyunVideoProvider(provider)
+    ? (normalizeWan27Resolution(requestParams.resolution) || (provider === "wan30" ? "1080P" : "720P"))
+    : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = provider === "seedance" && boolFromRequest(firstPresent(
     body.preprocessReference,
     bodyParams.preprocessReference,
@@ -30967,7 +31072,11 @@ async function handleAdvancedGenerate(req, res) {
     caseParams.happyhorseCapability,
     provider === "wan27" ? "wan27-i2v" : "",
     provider === "happyhorse" ? "happyhorse-i2v" : "",
-    provider === "wan30" && String(requestedModel || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase()
+    provider === "wan30" && ["wan3.0-video-prime-pro", "wan30-video-prime-pro"].includes(String(requestedModel || "").trim().toLowerCase())
+      ? "wan30-video-prime-pro"
+      : provider === "wan30" && ["wan3.0-video-pro", "wan30-video-pro"].includes(String(requestedModel || "").trim().toLowerCase())
+      ? "wan30-video-pro"
+      : provider === "wan30" && String(requestedModel || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase()
       ? "wan30-video-prime"
       : provider === "wan30" ? "wan30-video" : "",
   );
@@ -32204,23 +32313,18 @@ function docsParameterMarkdown(fields = []) {
 function wan27VideoParameterFields() {
   const bounds = advancedDurationBounds("wan27");
   return [
-    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Wan2.7 video generation endpoint.", default: "-" },
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan2.7 image-to-video task.", default: "-" },
     { name: "provider", type: "string", required: "Yes", description: "Use `wan27`.", default: "wan27" },
-    { name: "videoCapability", type: "enum", required: "Yes", description: "`wan27-t2v`, `wan27-i2v`, `wan27-r2v`, or `wan27-video-edit`.", default: "wan27-i2v" },
-    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt or edit instruction.", default: "-" },
-    { name: "mediaMode", type: "enum", required: "For wan27-i2v", description: "`first_frame`, `first_last_frame`, `first_frame_audio`, `first_last_frame_audio`, `first_clip`, or `first_clip_last_frame`.", default: "first_frame" },
-    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes; optional for r2v", description: `First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
-    { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For last-frame modes", description: `Last-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
-    { name: "firstClipUrl / firstClipDataUrl / firstClipAssetId", type: "string", required: "For first_clip modes", description: `Source video clip. Use public URL, supported data URL, or uploaded asset id. Uploaded video max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
-    { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "For audio modes", description: `Driving audio. Use public URL, supported data URL, or uploaded asset id. Uploaded audio max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
-    { name: "referenceImages / referenceVideos", type: "array", required: "For wan27-r2v", description: "Reference generation requires 1-5 reference images/videos in total. Each item accepts assetId, URL, or dataUrl. One optional first frame may also be supplied.", default: "[]" },
-    { name: "videoUrl / videoDataUrl / videoAssetId", type: "string", required: "For wan27-video-edit", description: "Exactly one source video. Video edit also accepts 0-4 reference images.", default: "-" },
-    { name: "resolution", type: "string", required: "No", description: "Supported values: `720p`, `1080p`.", default: "720p" },
-    { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${bounds.min}-${bounds.max}. Reference generation with a video and video edit are limited to 2-10 seconds.`, default: String(bounds.fallback) },
-    { name: "followInputDuration", type: "boolean", required: "No", description: "For wan27-video-edit, set true to use the source-video duration, capped at 10 seconds.", default: "false" },
-    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether generated audio should be requested when supported by the selected capability.", default: "true" },
-    { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported by the model.", default: "-" },
-    { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "false" },
+    { name: "videoCapability", type: "string", required: "Yes", description: "Use the Mulerouter node `wan2.7-i2v-spicy`.", default: "wan2.7-i2v-spicy" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "Yes", description: `First-frame image. Use a public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "No", description: `Optional driving audio. Use a public URL, supported data URL, or uploaded asset id. Uploaded audio max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "negative_prompt / negativePrompt", type: "string", required: "No", description: "Optional negative prompt passed to the Mulerouter node.", default: "-" },
+    { name: "resolution", type: "string", required: "No", description: "`720p` or `1080p`.", default: "720p" },
+    { name: "duration", type: "integer", required: "No", description: `Output duration in seconds, integer ${Math.max(2, bounds.min)}-${Math.min(15, bounds.max)}.`, default: String(Math.min(5, bounds.fallback)) },
+    { name: "generateAudio / generate_audio / audio", type: "boolean", required: "No", description: "Whether the output should include an audio track when supported.", default: "true" },
+    { name: "seed", type: "integer", required: "No", description: "Integer from 0 to 2147483647.", default: "-" },
+    { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "true" },
     { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
   ];
 }
@@ -32237,6 +32341,60 @@ function wan27ImageParameterFields() {
     { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
     { name: "async / asyncResponse / returnImmediately", type: "boolean", required: "No", description: "Return immediately with task info instead of waiting for the image result.", default: "false" },
   ];
+}
+
+function zImageSpicyProParameterFields() {
+  return [
+    { name: "/api/wan27/image-edit", type: "endpoint", required: "Yes", description: "Create a Z-Image Spicy Pro text-to-image task. Send no input image.", default: "-" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt.", default: "-" },
+    { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: "Leave empty for text-to-image. Supplying one or more images switches the request to image editing.", default: "[]" },
+    { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Leave empty for text-to-image.", default: "-" },
+    { name: "ratio", type: "string", required: "No", description: "`1:1`, `3:4`, `4:3`, `9:16`, or `16:9`.", default: "9:16" },
+    { name: "resolution", type: "string", required: "No", description: "`1K` or `2K`.", default: "2K" },
+    { name: "size", type: "string", required: "No", description: "Explicit output size as `width*height`, for example `1440*2560`. Width and height must each stay within 256-2560px. When omitted, the platform derives it from `resolution` and `ratio`.", default: "derived from resolution + ratio" },
+    { name: "model", type: "string", required: "No", description: "Optional explicit model id. The platform normally selects the serving model from the request shape, so most callers omit this field.", default: "-" },
+    { name: "n", type: "integer", required: "No", description: "Number of output images. Keep it at `1`; single-image output is the supported shape for this engine.", default: "1" },
+    { name: "prompt_extend", type: "boolean", required: "No", description: "Whether to expand the prompt before generation.", default: "true" },
+    { name: "seed", type: "integer", required: "No", description: "Integer 0-2147483647.", default: "random" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
+    { name: "async / asyncResponse / returnImmediately", type: "boolean", required: "No", description: "Return immediately with task info instead of waiting for the image result.", default: "false" },
+  ];
+}
+
+function qwenImageEditSpicyParameterFields() {
+  return [
+    { name: "/api/wan27/image-edit", type: "endpoint", required: "Yes", description: "Create a Qwen Image Edit Spicy image-editing task.", default: "-" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty edit instruction.", default: "-" },
+    { name: "imageUrls / imageAssetIds", type: "array", required: "Yes", description: "1-3 images. The first image is the picture being edited; the remaining ones are optional references. Use public image URLs or uploaded image asset ids.", default: "[]" },
+    { name: "imageUrl / imageAssetId", type: "string", required: "Yes", description: "Single input image URL or uploaded image asset id.", default: "-" },
+    { name: "ratio", type: "string", required: "No", description: "`1:1`, `3:4`, `4:3`, `9:16`, or `16:9`. The output size also follows the input image.", default: "9:16" },
+    { name: "resolution", type: "string", required: "No", description: "`1K` or `2K`.", default: "2K" },
+    { name: "size", type: "string", required: "No", description: "Explicit output size as `width*height`. When omitted, the platform derives it from `resolution` and `ratio`.", default: "derived from resolution + ratio" },
+    { name: "model", type: "string", required: "No", description: "Optional explicit model id. The platform normally selects the serving model from the request shape, so most callers omit this field.", default: "-" },
+    { name: "n", type: "integer", required: "No", description: "Number of output images. Keep it at `1`; single-image output is the supported shape for this engine.", default: "1" },
+    { name: "seed", type: "integer", required: "No", description: "Integer 0-2147483647.", default: "random" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
+    { name: "async / asyncResponse / returnImmediately", type: "boolean", required: "No", description: "Return immediately with task info instead of waiting for the image result.", default: "false" },
+  ];
+}
+
+function mulerouterRoutingMarkdown() {
+  return [
+    "## Mulerouter Routing",
+    "",
+    "Generation requests are fulfilled by Mulerouter. The platform keeps a stable public API surface and maps every request to the matching Mulerouter model, so callers only ever send their Vipeak AI token.",
+    "",
+    "| Public model | Platform provider | `videoCapability` / Mulerouter node | Result type |",
+    "|--------------|-------------------|-----------------------------------|-------------|",
+    "| W3.0 | `wan30` | `w3.0-video` | video |",
+    "| W3.0-Pro | `wan30` | `w3.0-video-pro` | video |",
+    "| W3.0-Prime | `wan30` | `w3.0-video-prime` | video |",
+    "| W3.0-VSR-Prime | `wan30` | `w3.0-video-prime-pro` | video |",
+    "| Wan 2.7 spicy I2V | `wan27` | `wan2.7-i2v-spicy` | image-to-video |",
+    "| Z-Image Spicy Pro | — | `z-image-spicy-pro` | text-to-image |",
+    "| Qwen Image Edit Spicy | — | `qwen-image-edit-spicy` | image edit |",
+    "",
+  ].join("\n");
 }
 
 function seedream5ImageParameterFields() {
@@ -32284,11 +32442,18 @@ function advancedAssetParameterFields() {
   ];
 }
 
-function wan30VideoParameterFields() {
+function wan30VideoParameterFields(capability = "w3.0-video") {
+  const definitions = {
+    "w3.0-video": { model: "W3.0", resolutions: "`480p`, `720p`, or `1080p`", defaultResolution: "1080p" },
+    "w3.0-video-pro": { model: "W3.0-Pro", resolutions: "`1080p`, `2k`, or `4k`", defaultResolution: "1080p" },
+    "w3.0-video-prime": { model: "W3.0-Prime", resolutions: "`480p`, `720p`, or `1080p`", defaultResolution: "1080p" },
+    "w3.0-video-prime-pro": { model: "W3.0-VSR-Prime", resolutions: "`1080p`, `2k`, or `4k`", defaultResolution: "1080p" },
+  };
+  const definition = definitions[capability] || definitions["w3.0-video"];
   return [
-    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan 3.0 video task.", default: "-" },
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: `Create an asynchronous ${definition.model} video task.`, default: "-" },
     { name: "provider", type: "string", required: "Yes", description: "Use `wan30`.", default: "wan30" },
-    { name: "videoCapability", type: "enum", required: "No", description: "Use `wan30-video` for the standard model or `wan30-video-prime` for Wan 3.0 Video Prime.", default: "wan30-video" },
+    { name: "videoCapability", type: "enum", required: "Yes", description: `Use the Mulerouter node \`${capability}\` for ${definition.model}.`, default: capability },
     { name: "prompt", type: "string", required: "Unless media is supplied", description: "Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc.", default: "-" },
     { name: "mediaMode", type: "enum", required: "No", description: "`multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed.", default: "multimodal" },
     { name: "referenceImages", type: "array", required: "For image references", description: "0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
@@ -32297,7 +32462,7 @@ function wan30VideoParameterFields() {
     { name: "referenceFileAssetId / referenceFile", type: "string/object", required: "For document input", description: "One PDF, Word, Excel, PowerPoint, TXT, or Markdown document, up to 100MB. It cannot be combined with other media inputs.", default: "-" },
     { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image.", default: "-" },
     { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frame images are required.", default: "-" },
-    { name: "resolution", type: "enum", required: "No", description: "`480p`, `720p`, or `1080p`.", default: "1080p" },
+    { name: "resolution", type: "enum", required: "No", description: `${definition.resolutions}.`, default: definition.defaultResolution },
     { name: "ratio", type: "enum", required: "No", description: "`16:9`, `4:3`, `1:1`, `3:4`, `9:16`, or `adaptive`.", default: "adaptive" },
     { name: "duration", type: "integer", required: "No", description: "Output duration from 2-30 seconds. Use `-1` for adaptive output duration.", default: "5" },
     { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether the output should include generated audio.", default: "true" },
@@ -32517,11 +32682,21 @@ function advancedGenerateConstraintsDoc() {
     wan30: {
       provider: "wan30",
       route: "/api/advanced/generate",
-      capabilities: ["wan30-video", "wan30-video-prime"],
-      models: [ALIYUN_WAN30_MODEL, ALIYUN_WAN30_PRIME_MODEL],
+      capabilities: ["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro"],
+      models: [
+        { id: "w3.0-video", providerModel: "wan3.0-video" },
+        { id: "w3.0-video-pro", providerModel: "wan3.0-video-pro" },
+        { id: "w3.0-video-prime", providerModel: "wan3.0-video-prime" },
+        { id: "w3.0-video-prime-pro", providerModel: "wan3.0-video-prime-pro" },
+      ],
       mediaMode: ["multimodal", "first_last_frame"],
       durationSeconds: { integer: true, min: 2, max: 30, adaptive: -1 },
-      resolution: ["480p", "720p", "1080p"],
+      resolutionsByCapability: {
+        "w3.0-video": ["480p", "720p", "1080p"],
+        "w3.0-video-pro": ["1080p", "2k", "4k"],
+        "w3.0-video-prime": ["480p", "720p", "1080p"],
+        "w3.0-video-prime-pro": ["1080p", "2k", "4k"],
+      },
       ratio: ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
       referenceLimits: { images: 10, videos: 5, audios: 5 },
       imageInput: { formats: ["JPG", "JPEG", "PNG", "BMP", "WebP"], maxBytes: IMAGE_UPLOAD_MAX_BYTES, widthPx: { min: 240, max: 8000 }, heightPx: { min: 240, max: 8000 }, maxAspectRatio: 8, pngTransparency: false },
@@ -32569,17 +32744,13 @@ function advancedGenerateConstraintsDoc() {
       provider: "wan27",
       route: "/api/advanced/generate",
       model: ALIYUN_WAN27_MODEL,
-      capabilities: ["wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit"],
+      capabilities: ["wan2.7-i2v-spicy"],
       mediaMode: Array.from(WAN27_MEDIA_MODE),
       durationSeconds: { integer: true, min: advancedDurationBounds("wan27").min, max: advancedDurationBounds("wan27").max },
       resolution: ["720p", "1080p"],
       mediaCombinations: [
         "first_frame",
-        "first_frame + last_frame",
         "first_frame + driving_audio",
-        "first_frame + last_frame + driving_audio",
-        "first_clip",
-        "first_clip + last_frame",
       ],
       imageInput: {
         formats: ["JPG", "PNG", "WebP", "BMP"],
@@ -32593,43 +32764,6 @@ function advancedGenerateConstraintsDoc() {
         maxBytes: MEDIA_UPLOAD_MAX_BYTES,
       },
       mediaUrl: "Use public http(s) URLs, supported data URLs, or uploaded asset ids.",
-    },
-    happyhorse: {
-      provider: "happyhorse",
-      route: "/api/advanced/generate",
-      capabilities: ["happyhorse-t2v", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"],
-      durationSeconds: { integer: true, min: 3, max: 15 },
-      resolution: ["720p", "1080p"],
-      modeRules: {
-        "happyhorse-t2v": "Does not accept media.",
-        "happyhorse-i2v": "Requires exactly one first-frame image.",
-        "happyhorse-r2v": "Requires 1-9 reference images.",
-        "happyhorse-video-edit": "Requires exactly one source video and accepts 0-5 reference images.",
-      },
-    },
-    wanAnimate: {
-      provider: "wan27",
-      route: "/api/advanced/generate",
-      capabilities: ["wan-animate-move", "wan-animate-mix"],
-      modes: ["wan-std", "wan-pro"],
-      sourceDurationSeconds: { min: 2, max: 30 },
-      mediaRule: "Requires exactly one image and one source video. Omit duration; output duration follows the source video.",
-    },
-    wan27Image: {
-      provider: "wan27-image",
-      route: "/api/wan27/image-edit",
-      model: WAN27_IMAGE_PRO_MODEL,
-      referenceImages: { min: 0, max: 9 },
-      resolution: {
-        textToImage: ["1K", "2K", "4K"],
-        referenceImage: ["1K", "2K"],
-      },
-      ratio: ["1:1", "3:4", "4:3", "9:16", "16:9"],
-      imageInput: {
-        formats: ["JPG", "PNG", "WebP", "BMP"],
-        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
-      },
-      mediaUrl: "Use public http(s) image URLs or uploaded image asset ids.",
     },
     seedream5Image: {
       provider: "seedream5-image",
@@ -32692,22 +32826,23 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
       { name: "Seedance 2.0 Standard", model: "dreamina-seedance-2-0-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
-      { name: "Wan 3.0 Video", provider: "wan30", capability: "wan30-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Wan 3.0 Video Prime", provider: "wan30", capability: "wan30-video-prime", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "W3.0", provider: "wan30", capability: "w3.0-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "W3.0-Pro", provider: "wan30", capability: "w3.0-video-pro", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "W3.0-Prime", provider: "wan30", capability: "w3.0-video-prime", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "W3.0-VSR-Prime", provider: "wan30", capability: "w3.0-video-prime-pro", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Wan2.7 Video", provider: "wan27", capability: "wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "HappyHorse Video", provider: "happyhorse", capability: "happyhorse-t2v / happyhorse-i2v / happyhorse-r2v / happyhorse-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Wan Animate", provider: "wan27", capability: "wan-animate-move / wan-animate-mix", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Wan 2.7 spicy I2V", provider: "wan27", capability: "wan2.7-i2v-spicy", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
-      { name: "Wan2.7 Image", model: WAN27_IMAGE_PRO_MODEL, create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
+      { name: "Z-Image Spicy Pro", model: "z-image-spicy-pro", capability: "text-to-image", create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
+      { name: "Qwen Image Edit Spicy", model: "qwen-image-edit-spicy", capability: "image-edit", create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
     ],
     endpoints: {
       byteplusGenerate,
@@ -32796,21 +32931,46 @@ function externalAdvancedApiDoc(origin) {
     wan30Example: {
       method: "POST",
       url: advancedGenerate,
-      headers: {
-        Authorization: "Bearer <user-token>",
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
       body: {
-        provider: "wan30",
-        videoCapability: "wan30-video",
-        mediaMode: "multimodal",
+        provider: "wan30", videoCapability: "w3.0-video", mediaMode: "multimodal",
         prompt: "Use Image 1 as the character and Video 1 as the motion reference.",
         referenceImages: [{ assetId: "uploaded-image-asset-id" }],
         referenceVideos: [{ assetId: "uploaded-video-asset-id" }],
-        ratio: "9:16",
-        resolution: "720p",
-        duration: 8,
-        generateAudio: true,
+        ratio: "9:16", resolution: "720p", duration: 8, generateAudio: true,
+      },
+    },
+    wan30ProExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "wan30", videoCapability: "w3.0-video-pro", mediaMode: "multimodal",
+        prompt: "Create a high-detail cinematic product shot.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        ratio: "16:9", resolution: "2k", duration: 5, generateAudio: true,
+      },
+    },
+    wan30PrimeExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "wan30", videoCapability: "w3.0-video-prime", mediaMode: "multimodal",
+        prompt: "Create a cinematic character performance with natural motion.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        ratio: "9:16", resolution: "1080p", duration: 5, generateAudio: true,
+      },
+    },
+    wan30PrimeProExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "wan30", videoCapability: "w3.0-video-prime-pro", mediaMode: "multimodal",
+        prompt: "Create a premium cinematic shot with precise identity and motion.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        ratio: "16:9", resolution: "2k", duration: 5, generateAudio: true,
       },
     },
     seedance25Example: {
@@ -32860,13 +33020,13 @@ function externalAdvancedApiDoc(origin) {
       },
       body: {
         provider: "wan27",
-        videoCapability: "wan27-r2v",
-        prompt: "Use Image 1 as the subject and Video 1 as the motion reference.",
-        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
-        referenceVideos: [{ assetId: "uploaded-video-asset-id" }],
+        videoCapability: "wan2.7-i2v-spicy",
+        prompt: "Create a cinematic shot that follows the first-frame image and the driving audio.",
+        firstFrameAssetId: "uploaded-image-asset-id",
+        drivingAudioAssetId: "uploaded-audio-asset-id",
         resolution: "720p",
         duration: 5,
-        prompt_extend: false,
+        prompt_extend: true,
         watermark: false,
       },
     },
@@ -32916,6 +33076,40 @@ function externalAdvancedApiDoc(origin) {
         ratio: "9:16",
         resolution: "2K",
         watermark: false,
+      },
+    },
+    zImageSpicyProExample: {
+      method: "POST",
+      url: wan27ImageEdit,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        prompt: "A cinematic portrait of a traveler in a rain-soaked neon city, ultra detailed.",
+        ratio: "9:16",
+        resolution: "2K",
+        prompt_extend: true,
+        seed: 123456,
+        watermark: false,
+        async: true,
+      },
+    },
+    qwenImageEditSpicyExample: {
+      method: "POST",
+      url: wan27ImageEdit,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        prompt: "Turn the subject into a cinematic portrait while preserving identity.",
+        imageUrls: ["https://example.com/reference.png"],
+        ratio: "9:16",
+        resolution: "2K",
+        seed: 42,
+        watermark: false,
+        async: true,
       },
     },
     polling: {
@@ -33237,8 +33431,7 @@ function publicModelDocsView(docs = {}) {
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
     ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
-    ...(PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED ? ["Wan2.7 and Wan Animate use the Advanced route."] : []),
-    ...(PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED ? ["HappyHorse uses the Advanced route."] : []),
+    ...(PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED ? ["Wan2.7 uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
   ];
   external.summary = `${publicModelFamilies.join(" ")} Other temporarily unavailable model families are omitted from this public guide.`;
@@ -33247,25 +33440,19 @@ function publicModelDocsView(docs = {}) {
   if (external.constraints && typeof external.constraints === "object") {
     const restrictedConstraintKeys = [];
     if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan30");
-    if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan27", "wanAnimate", "wan27Image");
-    if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("happyhorse");
+    if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan27");
     if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) restrictedConstraintKeys.push("qwenImage3");
     restrictedConstraintKeys.forEach((key) => delete external.constraints[key]);
-    if (external.constraints.common && Array.isArray(external.constraints.common.routes) && !PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
-      external.constraints.common.routes = external.constraints.common.routes.filter((route) => !String(route || "").includes("/api/wan27/image-edit"));
-    }
   }
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3Generate", "qwenImage3TaskDetail"].forEach((key) => delete external.endpoints?.[key]);
-  if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) delete external.endpoints?.wan27ImageEdit;
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3ResponseShape", "qwenImage3Example"].forEach((key) => delete external[key]);
-  if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) ["wan30Example"].forEach((key) => delete external[key]);
+  if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) ["wan30Example", "wan30ProExample", "wan30PrimeExample", "wan30PrimeProExample"].forEach((key) => delete external[key]);
   if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete external.happyhorseExample;
   if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
     ["wan27Example", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
   }
   view.advancedExternalApi = external;
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3Generate", "qwenImage3TaskDetail"].forEach((key) => delete view.endpoints?.[key]);
-  if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) delete view.endpoints?.wan27ImageEdit;
   if (view.advanced && Array.isArray(view.advanced.cases)) {
     view.advanced.cases = view.advanced.cases.filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.params?.provider || item.params?.model));
   }
@@ -33294,6 +33481,7 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     "",
     markdownCodeBlock("http", "Authorization: Bearer <user-token>"),
     "",
+    mulerouterRoutingMarkdown(),
     "## Supported Models",
     "",
     supportedModelTable,
@@ -33392,12 +33580,13 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
   }
 
   const advancedSections = [
-    { title: "Wan 3.0 Video", example: external.wan30Example, fields: wan30VideoParameterFields },
+    { title: "W3.0 (w3.0-video)", example: external.wan30Example, fields: () => wan30VideoParameterFields("w3.0-video") },
+    { title: "W3.0-Pro (w3.0-video-pro)", example: external.wan30ProExample, fields: () => wan30VideoParameterFields("w3.0-video-pro") },
+    { title: "W3.0-Prime (w3.0-video-prime)", example: external.wan30PrimeExample, fields: () => wan30VideoParameterFields("w3.0-video-prime") },
+    { title: "W3.0-VSR-Prime (w3.0-video-prime-pro)", example: external.wan30PrimeProExample, fields: () => wan30VideoParameterFields("w3.0-video-prime-pro") },
     { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
     { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
-    { title: "Wan2.7 Video", example: external.wan27Example, fields: wan27VideoParameterFields },
-    { title: "HappyHorse Video", example: external.happyhorseExample, fields: happyhorseVideoParameterFields },
-    { title: "Wan Animate", example: external.wanAnimateExample, fields: wanAnimateVideoParameterFields },
+    { title: "Wan 2.7 spicy I2V (wan2.7-i2v-spicy)", example: external.wan27Example, fields: wan27VideoParameterFields },
   ];
   for (const section of advancedSections) {
     if (!section.example) continue;
@@ -33433,21 +33622,26 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     );
   }
 
-  if (external.wan27ImageExample) {
+  const imageSections = [
+    { title: "Z-Image Spicy Pro", example: external.zImageSpicyProExample, fields: zImageSpicyProParameterFields },
+    { title: "Qwen Image Edit Spicy", example: external.qwenImageEditSpicyExample, fields: qwenImageEditSpicyParameterFields },
+  ];
+  for (const section of imageSections) {
+    if (!section.example) continue;
     lines.push(
-      "## Wan2.7 Image Generation and Edit",
+      `## ${section.title}`,
       "",
       markdownCodeBlock("http", [
         `POST ${route(external.endpoints?.wan27ImageEdit, "/api/wan27/image-edit")}`,
         "Authorization: Bearer <user-token>",
         "Content-Type: application/json",
         "",
-        JSON.stringify(external.wan27ImageExample.body || {}, null, 2),
+        JSON.stringify(section.example.body || {}, null, 2),
       ].join("\n")),
       "",
       "**Request fields and limits**",
       "",
-      docsParameterMarkdown(wan27ImageParameterFields()),
+      docsParameterMarkdown(section.fields()),
       "",
     );
   }
@@ -33508,8 +33702,6 @@ function advancedConstraintsMarkdown(doc = {}) {
   const seedance25 = constraints.seedance25 || {};
   const seedanceNsfw = constraints.seedanceNsfw || {};
   const wan27 = constraints.wan27 || {};
-  const happyhorse = constraints.happyhorse || {};
-  const wanAnimate = constraints.wanAnimate || {};
   const wan27Image = constraints.wan27Image || {};
   const seedream5Image = constraints.seedream5Image || {};
   const qwenImage3 = constraints.qwenImage3 || {};
@@ -33554,10 +33746,17 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     "Wan 3.0 video:",
     "",
-    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability\` set to \`wan30-video\` or \`wan30-video-prime\`.`,
+    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability\`: \`w3.0-video\`, \`w3.0-video-pro\`, \`w3.0-video-prime\`, or \`w3.0-video-prime-pro\`.`,
     `- \`mediaMode\`: ${(wan30.mediaMode || ["multimodal", "first_last_frame"]).map((item) => `\`${item}\``).join(", ")}. First/last frames cannot be mixed with reference media.`,
     `- \`duration\`: integer ${wan30.durationSeconds?.min ?? 2}-${wan30.durationSeconds?.max ?? 30} seconds, or \`-1\` for adaptive duration.`,
-    `- \`resolution\`: ${(wan30.resolution || ["480p", "720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}. \`ratio\`: ${(wan30.ratio || ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
+    "- `videoCapability`: `w3.0-video`, `w3.0-video-pro`, `w3.0-video-prime`, or `w3.0-video-prime-pro`.",
+    ...Object.entries(wan30.resolutionsByCapability || {
+      "w3.0-video": ["480p", "720p", "1080p"],
+      "w3.0-video-pro": ["1080p", "2k", "4k"],
+      "w3.0-video-prime": ["480p", "720p", "1080p"],
+      "w3.0-video-prime-pro": ["1080p", "2k", "4k"],
+    }).map(([capability, resolutions]) => `- \`${capability}\` resolution: ${resolutions.map((item) => `\`${item}\``).join(", ")}.`),
+    `- \`ratio\`: ${(wan30.ratio || ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- References: max ${wan30.referenceLimits?.images ?? 10} images, ${wan30.referenceLimits?.videos ?? 5} videos, and ${wan30.referenceLimits?.audios ?? 5} audios.`,
     "- Images: JPG/JPEG/PNG/BMP/WebP, max 20MB, width/height 240-8000px, aspect ratio at most 8:1; transparent PNG is not supported.",
     "- Videos: MP4/MOV, smaller than 100MB, width/height 240-4096px, aspect ratio at most 8:1, each 1-15 seconds, total video references at most 15 seconds.",
@@ -33582,38 +33781,29 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- References: max ${seedanceNsfw.referenceLimits?.images ?? 30} images, ${seedanceNsfw.referenceLimits?.videos ?? 10} videos, ${seedanceNsfw.referenceLimits?.audios ?? 10} audios, and ${seedanceNsfw.referenceLimits?.total ?? 50} assets total. Audio-only reference generation is supported.`,
     "- `generateAudio`/`generate_audio`: boolean, default `true`. First/last frame mode cannot be mixed with reference media; edit and extend require exactly one source video.",
     "",
-    "Wan2.7 video:",
+    "Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`):",
     "",
-    `- Endpoint: \`${wan27.route || "/api/advanced/generate"}\` with \`provider: "wan27"\`.`,
-    `- \`videoCapability\`: ${(wan27.capabilities || ["wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`mediaMode\`: ${(wan27.mediaMode || Array.from(WAN27_MEDIA_MODE)).map((item) => `\`${item}\``).join(", ")}.`,
-    `- Valid media combinations: ${(wan27.mediaCombinations || []).join("; ")}.`,
-    `- \`duration\`: integer ${wan27.durationSeconds?.min ?? advancedDurationBounds("wan27").min}-${wan27.durationSeconds?.max ?? advancedDurationBounds("wan27").max} seconds.`,
+    `- Endpoint: \`${wan27.route || "/api/advanced/generate"}\` with \`provider: "wan27"\` and \`videoCapability: "wan2.7-i2v-spicy"\`.`,
+    "- One input image is required. Send it as `firstFrameUrl`, `firstFrameDataUrl`, or `firstFrameAssetId`.",
+    "- Optional `drivingAudioUrl` / `drivingAudioDataUrl` / `drivingAudioAssetId` supplies driving audio.",
+    `- \`duration\`: integer ${Math.max(2, wan27.durationSeconds?.min ?? advancedDurationBounds("wan27").min)}-${Math.min(15, wan27.durationSeconds?.max ?? advancedDurationBounds("wan27").max)} seconds.`,
     `- \`resolution\`: ${(wan27.resolution || ["720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Video/audio uploads max ${Math.round((wan27.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
+    `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio uploads max ${Math.round((wan27.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
+    "- Optional `negative_prompt` / `negativePrompt` and `seed` are passed to the Mulerouter node.",
     "- Media inputs can use public URLs, supported data URLs, or uploaded asset ids.",
-    "- Reference-to-video requires 1-5 reference images/videos; with a reference video, output duration is limited to 2-10 seconds. Video edit requires one source video and accepts up to 4 reference images.",
     "",
-    "HappyHorse video:",
+    "Z-Image Spicy Pro (text-to-image):",
     "",
-    `- Endpoint: \`${happyhorse.route || "/api/advanced/generate"}\` with \`provider: "happyhorse"\`.`,
-    `- \`videoCapability\`: ${(happyhorse.capabilities || ["happyhorse-t2v", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`duration\`: integer ${happyhorse.durationSeconds?.min ?? 3}-${happyhorse.durationSeconds?.max ?? 15} seconds. \`resolution\`: ${(happyhorse.resolution || ["720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}.`,
-    "- Text-to-video accepts no media. Image-to-video requires one first frame. Reference-to-video requires 1-9 images. Video edit requires one video and accepts up to 5 reference images.",
+    "- Endpoint: `/api/wan27/image-edit` with no input image.",
+    "- `resolution`: `1K` or `2K`. `ratio`: `1:1`, `3:4`, `4:3`, `9:16`, or `16:9`.",
+    "- `size` accepts an explicit `width*height`; width and height must each stay within 256-2560px.",
+    "- Single-image output only. Image inputs on this engine are treated as an image edit instead.",
     "",
-    "Wan Animate:",
+    "Qwen Image Edit Spicy (image edit):",
     "",
-    `- Endpoint: \`${wanAnimate.route || "/api/advanced/generate"}\` with \`provider: "wan27"\`.`,
-    `- \`videoCapability\`: ${(wanAnimate.capabilities || ["wan-animate-move", "wan-animate-mix"]).map((item) => `\`${item}\``).join(", ")}.`,
-    "- Requires exactly one image and one source video. Omit duration; output duration follows the 2-30 second source video.",
-    `- \`parameters.mode\`: ${(wanAnimate.modes || ["wan-std", "wan-pro"]).map((item) => `\`${item}\``).join(", ")}.`,
-    "",
-    "Wan image generation/edit:",
-    "",
-    `- Endpoint: \`${wan27Image.route || "/api/wan27/image-edit"}\`.`,
-    `- Reference images: ${wan27Image.referenceImages?.min ?? 0}-${wan27Image.referenceImages?.max ?? 9} images. Send no images for text-to-image, or images for image edit/reference generation.`,
-    `- \`resolution\`: text-to-image supports ${(wan27Image.resolution?.textToImage || ["1K", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")}; reference-image generation supports ${(wan27Image.resolution?.referenceImage || ["1K", "2K"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`ratio\`: ${(wan27Image.ratio || ["1:1", "3:4", "4:3", "9:16", "16:9"]).map((item) => `\`${item}\``).join(", ")}.`,
+    "- Endpoint: `/api/wan27/image-edit` with 1-3 input images.",
+    "- The first image is the picture being edited; the remaining ones are optional references.",
+    "- `resolution`: `1K` or `2K`. `ratio`: `1:1`, `3:4`, `4:3`, `9:16`, or `16:9`.",
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27Image.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
     "",
   ].join("\n");
@@ -33734,20 +33924,31 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     docsParameterMarkdown(advancedAssetParameterFields()),
     "",
-    "**Wan 3.0 video**",
-    "",
-    markdownCodeBlock("http", [
-      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
-      "Authorization: Bearer <user-token>",
-      "Content-Type: application/json",
-      "",
-      JSON.stringify(doc.wan30Example?.body || {}, null, 2),
-    ].join("\n")),
-    "",
-    "**Wan 3.0 fields**",
-    "",
-    docsParameterMarkdown(wan30VideoParameterFields()),
-    "",
+    ...["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro"].flatMap((capability) => {
+      const names = {
+        "w3.0-video": ["W3.0", "wan30Example"],
+        "w3.0-video-pro": ["W3.0-Pro", "wan30ProExample"],
+        "w3.0-video-prime": ["W3.0-Prime", "wan30PrimeExample"],
+        "w3.0-video-prime-pro": ["W3.0-VSR-Prime", "wan30PrimeProExample"],
+      };
+      const [name, exampleKey] = names[capability];
+      return [
+        `**${name} (\`${capability}\`)**`,
+        "",
+        markdownCodeBlock("http", [
+          `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+          "Authorization: Bearer <user-token>",
+          "Content-Type: application/json",
+          "",
+          JSON.stringify(doc[exampleKey]?.body || {}, null, 2),
+        ].join("\n")),
+        "",
+        `**${name} fields**`,
+        "",
+        docsParameterMarkdown(wan30VideoParameterFields(capability)),
+        "",
+      ];
+    }),
     "**Seedance 2.5 video**",
     "",
     markdownCodeBlock("http", [
@@ -33776,7 +33977,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
     "",
-    "**Wan2.7 video**",
+    "**Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)**",
     "",
     markdownCodeBlock("http", [
       `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
@@ -33786,62 +33987,50 @@ function externalAdvancedApiMarkdown(doc = {}) {
       JSON.stringify(doc.wan27Example?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Wan2.7 video fields**",
+    "**Wan 2.7 spicy I2V fields**",
     "",
     docsParameterMarkdown(wan27VideoParameterFields()),
     "",
-    "**HappyHorse video**",
-    "",
-    markdownCodeBlock("http", [
-      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
-      "Authorization: Bearer <user-token>",
-      "Content-Type: application/json",
-      "",
-      JSON.stringify(doc.happyhorseExample?.body || {}, null, 2),
-    ].join("\n")),
-    "",
-    "**HappyHorse fields**",
-    "",
-    docsParameterMarkdown(happyhorseVideoParameterFields()),
-    "",
-    "**Wan Animate**",
-    "",
-    markdownCodeBlock("http", [
-      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
-      "Authorization: Bearer <user-token>",
-      "Content-Type: application/json",
-      "",
-      JSON.stringify(doc.wanAnimateExample?.body || {}, null, 2),
-    ].join("\n")),
-    "",
-    "**Wan Animate fields**",
-    "",
-    docsParameterMarkdown(wanAnimateVideoParameterFields()),
-    "",
     "**Advanced task polling**",
     "",
-    "Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
+    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "**Wan image generation/edit**",
+    "**Z-Image Spicy Pro**",
     "",
-    "Wan image generation and image edit keep the Wan image endpoint.",
+    "Text-to-image engine on the dedicated image endpoint. Send no input image.",
     "",
     markdownCodeBlock("http", [
       `POST ${route(endpoints.wan27ImageEdit, "/api/wan27/image-edit")}`,
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
-      JSON.stringify(doc.wan27ImageExample?.body || {}, null, 2),
+      JSON.stringify(doc.zImageSpicyProExample?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Wan image fields**",
+    "**Z-Image Spicy Pro fields**",
     "",
-    docsParameterMarkdown(wan27ImageParameterFields()),
+    docsParameterMarkdown(zImageSpicyProParameterFields()),
+    "",
+    "**Qwen Image Edit Spicy**",
+    "",
+    "Reference-image editing engine on the same dedicated image endpoint.",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.wan27ImageEdit, "/api/wan27/image-edit")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.qwenImageEditSpicyExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Qwen Image Edit Spicy fields**",
+    "",
+    docsParameterMarkdown(qwenImageEditSpicyParameterFields()),
     "",
     "**BytePlus-compatible asset upload**",
     "",
@@ -33884,6 +34073,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     markdownCodeBlock("http", "Authorization: Bearer <user-token>"),
     "",
+    mulerouterRoutingMarkdown(),
     externalAdvancedApiMarkdown(docs.advancedExternalApi),
     "",
     "## Quick Start",
@@ -33892,8 +34082,8 @@ function buildModelDocsMarkdown(docs) {
     "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
-    "6. Create or edit Wan2.7 images with `/api/wan27/image-edit`.",
+    "5. Create W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, or Wan 2.7 spicy I2V tasks with `/api/advanced/generate` and the documented provider plus Mulerouter node name in `videoCapability`.",
+    "6. Create Z-Image Spicy Pro text-to-image tasks or Qwen Image Edit Spicy image-edit tasks with `/api/wan27/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
@@ -42616,6 +42806,12 @@ const ADVANCED_PRICING_ROWS = [
   { key: "wan30-prime-480p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-prime-720p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-prime-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-pro-1080p", provider: "wan30", providerLabel: "Wan 3.0 Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-pro-2k", provider: "wan30", providerLabel: "Wan 3.0 Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-pro-4k", provider: "wan30", providerLabel: "Wan 3.0 Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-pro-1080p", provider: "wan30", providerLabel: "Wan 3.0 VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-pro-2k", provider: "wan30", providerLabel: "Wan 3.0 VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-pro-4k", provider: "wan30", providerLabel: "Wan 3.0 VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
@@ -42670,7 +42866,6 @@ const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => 
 function publicAdvancedPricingRowVisible(row = {}) {
   const key = String(row.key || "").trim().toLowerCase();
   const provider = String(row.provider || "").trim().toLowerCase();
-  if (key.startsWith("wan30-prime-")) return false;
   if (provider === "happyhorse") return false;
   if (provider === "wan30") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED;
   if (provider === "wan27" || provider === "wan27-image") {
@@ -42866,6 +43061,10 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.seedanceNsfwVideoCreditsPerSecondByResolution
     : normalizedProvider === SEEDANCE25_DIRECT_PROVIDER
     ? normalized.seedanceNsfwCreditsPerSecondByResolution
+    : normalizedProvider === "wan30" && capability === "wan30-video-prime-pro"
+    ? normalized.wan30PrimeProCreditsPerSecondByResolution
+    : normalizedProvider === "wan30" && capability === "wan30-video-pro"
+    ? normalized.wan30ProCreditsPerSecondByResolution
     : normalizedProvider === "wan30" && (capability === "wan30-video-prime" || normalizedModel === ALIYUN_WAN30_PRIME_MODEL.toLowerCase())
     ? normalized.wan30PrimeCreditsPerSecondByResolution
     : normalizedProvider === "wan30"
@@ -43086,17 +43285,20 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
   if (normalizedProvider === "wan30") {
-    const prime = capability === "wan30-video-prime" || String(model || "").trim().toLowerCase() === ALIYUN_WAN30_PRIME_MODEL.toLowerCase();
+    const normalizedModel = String(model || "").trim().toLowerCase();
+    const pro = capability === "wan30-video-pro" || normalizedModel === ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro").toLowerCase();
+    const prime = capability === "wan30-video-prime" || capability === "wan30-video-prime-pro" || normalizedModel === ALIYUN_WAN30_PRIME_MODEL.toLowerCase() || normalizedModel === ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro").toLowerCase();
     const baseCnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[publicResolution] ?? null;
-    const cnyPerSecond = baseCnyPerSecond === null ? null : pricingNumber(baseCnyPerSecond * (prime ? ALIYUN_WAN30_PRIME_PRICE_FACTOR : 1), 0, 0, 6);
+    const multiplier = (prime ? ALIYUN_WAN30_PRIME_PRICE_FACTOR : 1) * (pro ? 1 : 1);
+    const cnyPerSecond = baseCnyPerSecond === null ? null : pricingNumber(baseCnyPerSecond * multiplier, 0, 0, 6);
     const usdPerSecond = cnyPerSecond === null ? null : pricingNumber(cnyPerSecond / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8);
     return {
       creditsPerSecond: usdPerSecond === null ? null : pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       usdPerSecond,
-      source: "aliyun_official_model_pricing",
+      source: "mulerouter_model_pricing",
       message: cnyPerSecond === null
-        ? "Alibaba Cloud Model Studio official price is unavailable for this resolution."
-        : `Alibaba Cloud Model Studio Wan 3.0${prime ? " Prime" : ""} price: ${cnyPerSecond} CNY/second${prime ? ` (${ALIYUN_WAN30_PRIME_PRICE_FACTOR}x Wan 3.0)` : ""}, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
+        ? "Mulerouter purchase price is unavailable for this resolution."
+        : `Mulerouter Wan 3.0${pro ? " Pro" : prime ? " Prime" : ""} purchase price is not configured for off-peak purchase estimation. The sale price is editable in Advanced Pricing.`,
     };
   }
   if (normalizedProvider === SEEDANCE25_DIRECT_PROVIDER) {
@@ -43497,6 +43699,12 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "wan30-prime-480p") next.wan30PrimeCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "wan30-prime-720p") next.wan30PrimeCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan30-prime-1080p") next.wan30PrimeCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "wan30-pro-1080p") next.wan30ProCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "wan30-pro-2k") next.wan30ProCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "wan30-pro-4k") next.wan30ProCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "wan30-prime-pro-1080p") next.wan30PrimeProCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "wan30-prime-pro-2k") next.wan30PrimeProCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "wan30-prime-pro-4k") next.wan30PrimeProCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;

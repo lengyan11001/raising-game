@@ -2044,7 +2044,7 @@ Authorization: Bearer <user-token>
 
 When status is succeeded, read content.image_url, content.image_urls, or data[].url.`;
 
-const ADVANCED_VIDEO_ACCESS_COPY = `Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced endpoint.
+const ADVANCED_VIDEO_ACCESS_COPY = `W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V use the asynchronous Advanced endpoint.
 
 Optional reusable asset upload:
 POST ${apiUrl("/api/user-assets")}
@@ -2055,12 +2055,15 @@ Content-Type: application/json
 
 The response returns asset.id. Use that id in Advanced request fields such as firstFrameAssetId, videoAssetId, or referenceImages[].assetId. Do not add the asset:// prefix for this endpoint.
 
-Wan 3.0 multimodal example:
+W3.0 video examples:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-{"provider":"wan30","videoCapability":"wan30-video","mediaMode":"multimodal","prompt":"Use Image 1 as the character and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
+{"provider":"wan30","videoCapability":"w3.0-video","mediaMode":"multimodal","prompt":"Use Image 1 as the character and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
+{"provider":"wan30","videoCapability":"w3.0-video-pro","mediaMode":"multimodal","prompt":"Create a high-detail cinematic product shot.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"ratio":"16:9","resolution":"2k","duration":5,"generateAudio":true}
+{"provider":"wan30","videoCapability":"w3.0-video-prime","mediaMode":"multimodal","prompt":"Create a cinematic character performance with natural motion.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"ratio":"9:16","resolution":"1080p","duration":5,"generateAudio":true}
+{"provider":"wan30","videoCapability":"w3.0-video-prime-pro","mediaMode":"multimodal","prompt":"Create a premium cinematic shot with precise identity and motion.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"ratio":"16:9","resolution":"2k","duration":5,"generateAudio":true}
 
 Seedance 2.5 reference example (provider seedance25):
 {"provider":"seedance25","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
@@ -2068,14 +2071,8 @@ Seedance 2.5 reference example (provider seedance25):
 Seedance 2.5 reference example (provider seedance-nsfw):
 {"provider":"seedance-nsfw","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
 
-Wan2.7 reference example:
-{"provider":"wan27","videoCapability":"wan27-r2v","prompt":"Use Image 1 as the subject and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"resolution":"720p","duration":5}
-
-HappyHorse video-edit example:
-{"provider":"happyhorse","videoCapability":"happyhorse-video-edit","prompt":"Keep the source timing and replace the subject using Image 1.","videoAssetId":"uploaded-video-asset-id","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"resolution":"720p","duration":5}
-
-Wan Animate character-replacement example:
-{"provider":"wan27","videoCapability":"wan-animate-mix","prompt":"Replace the source-video character with the person in the image.","firstFrameAssetId":"uploaded-image-asset-id","videoAssetId":"uploaded-video-asset-id","parameters":{"mode":"wan-pro"}}
+Wan 2.7 spicy I2V example:
+{"provider":"wan27","videoCapability":"wan2.7-i2v-spicy","prompt":"Create a cinematic shot that follows the first-frame image and the driving audio.","firstFrameAssetId":"uploaded-image-asset-id","drivingAudioAssetId":"uploaded-audio-asset-id","resolution":"720p","duration":5,"prompt_extend":true,"watermark":false}
 
 The create response returns taskId. Poll:
 GET ${apiUrl("/api/generation-records/<taskId>")}
@@ -2112,15 +2109,31 @@ When status is succeeded, read content.image_url.
 3) Create and poll a Qwen Image 3.0 task:
 ${QWEN_IMAGE3_ACCESS_COPY}
 
-4) Create and poll Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate video tasks:
+4) Create and poll W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, or Wan 2.7 spicy I2V tasks:
 ${ADVANCED_VIDEO_ACCESS_COPY}
 
-5) Create or edit a Wan2.7 image:
+5) Create an image with Z-Image Spicy Pro or Qwen Image Edit Spicy:
 POST ${apiUrl("/api/wan27/image-edit")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-{"prompt":"Edit the reference image into a cinematic portrait while preserving identity.","imageAssetIds":["uploaded-image-asset-id"],"ratio":"9:16","resolution":"2K","async":true,"watermark":false}
+Z-Image Spicy Pro (text-to-image, send no input image):
+{"prompt":"Create a cinematic portrait.","ratio":"9:16","resolution":"2K","async":true,"watermark":false}
+
+Qwen Image Edit Spicy (image edit, send at least one input image):
+{"prompt":"Edit the reference image into a cinematic portrait while preserving identity.","imageUrls":["https://example.com/reference.png"],"ratio":"9:16","resolution":"2K","async":true,"watermark":false}
+
+Mulerouter routing (generation requests are fulfilled by Mulerouter; keep sending only your Vipeak AI token):
+| Platform provider / capability | Mulerouter model |
+|--------------------------------|------------------|
+| wan30 / w3.0-video | w3.0-video |
+| wan30 / w3.0-video-pro | w3.0-video-pro |
+| wan30 / w3.0-video-prime | w3.0-video-prime |
+| wan30 / w3.0-video-prime-pro | w3.0-video-prime-pro |
+| wan27 / wan2.7-i2v-spicy | wan2.7-i2v-spicy |
+| text-to-image with no input image | z-image-spicy-pro |
+| image edit with an input image | qwen-image-edit-spicy |
+Provider names, videoCapability values, and model ids from earlier releases are still accepted and mapped internally, so existing integrations keep working without changes.
 
 6) Optional BytePlus-compatible asset upload for reusable V3 files:
 POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
@@ -2488,21 +2501,21 @@ Content-Type: application/json
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
   wan27Params: {
-    title: "Wan2.7 Video Parameters",
-    summary: "Use /api/advanced/generate with provider=wan27. Seedance still uses V3; this endpoint is for Wan2.7 video.",
+    title: "Wan 2.7 spicy I2V Parameters",
+    summary: "Use /api/advanced/generate with provider=wan27 and videoCapability=wan2.7-i2v-spicy.",
     request: [
-      { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Wan2.7 video generation endpoint.", default: "-" },
+      { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan 2.7 spicy image-to-video task.", default: "-" },
       { name: "provider", type: "string", required: "Yes", description: "Use wan27.", default: "wan27" },
+      { name: "videoCapability", type: "string", required: "Yes", description: "Use the Mulerouter node wan2.7-i2v-spicy.", default: "wan2.7-i2v-spicy" },
       { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
-      { name: "mediaMode", type: "enum", required: "No", description: "first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, or first_clip_last_frame.", default: "first_frame" },
-      { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes", description: "First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
-      { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For last-frame modes", description: "Last-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
-      { name: "firstClipUrl / firstClipDataUrl / firstClipAssetId", type: "string", required: "For first_clip modes", description: "Source video clip. Use public URL, supported data URL, or uploaded asset id. Uploaded video max 30MB.", default: "-" },
-      { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "For audio modes", description: "Driving audio. Use public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB.", default: "-" },
+      { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "Yes", description: "First-frame image. Use a public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
+      { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "No", description: "Optional driving audio. Use a public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB.", default: "-" },
+      { name: "negative_prompt / negativePrompt", type: "string", required: "No", description: "Optional negative prompt passed to the Mulerouter node.", default: "-" },
       { name: "resolution", type: "string", required: "No", description: "720p or 1080p.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds, integer 2-15.", default: "5" },
+      { name: "generateAudio / generate_audio / audio", type: "boolean", required: "No", description: "Whether the output should include an audio track when supported.", default: "true" },
       { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported by the model.", default: "-" },
-      { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "false" },
+      { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "true" },
       { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
     ],
     response: [
@@ -2516,12 +2529,13 @@ Content-Type: application/json
 
 {
   "provider": "wan27",
-  "prompt": "Create a 5 second cinematic shot from the first frame.",
-  "mediaMode": "first_frame",
-  "firstFrameUrl": "https://example.com/first-frame.png",
+  "videoCapability": "wan2.7-i2v-spicy",
+  "prompt": "Create a cinematic shot that follows the first-frame image and the driving audio.",
+  "firstFrameAssetId": "uploaded-image-asset-id",
+  "drivingAudioAssetId": "uploaded-audio-asset-id",
   "resolution": "720p",
   "duration": 5,
-  "prompt_extend": false,
+  "prompt_extend": true,
   "watermark": false
 }`,
   },
@@ -2549,16 +2563,19 @@ Content-Type: application/json
     example: SEEDREAM5_IMAGE_ACCESS_COPY,
   },
   wanImageParams: {
-    title: "Wan Image Parameters",
-    summary: "Use /api/wan27/image-edit for Wan text-to-image and image edit/reference generation.",
+    title: "Image Parameters",
+    summary: "Use /api/wan27/image-edit for Z-Image Spicy Pro text-to-image and Qwen Image Edit Spicy image editing. The platform picks the engine from the request shape.",
     request: [
-      { name: "/api/wan27/image-edit", type: "endpoint", required: "Yes", description: "Wan2.7 image generation/edit endpoint.", default: "-" },
+      { name: "/api/wan27/image-edit", type: "endpoint", required: "Yes", description: "Dedicated image endpoint for Z-Image Spicy Pro and Qwen Image Edit Spicy.", default: "-" },
       { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
-      { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: "0-9 reference images. Use public image URLs or uploaded image asset ids. Images max 20MB.", default: "[]" },
-      { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Single reference image URL or uploaded image asset id.", default: "-" },
+      { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: "Send none for Z-Image Spicy Pro text-to-image; send 1-3 images for Qwen Image Edit Spicy. The first image is the picture being edited.", default: "[]" },
+      { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Single image URL or uploaded image asset id. Same engine selection rule as imageUrls.", default: "-" },
       { name: "ratio", type: "string", required: "No", description: "1:1, 3:4, 4:3, 9:16, or 16:9.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "1K, 2K, or 4K. 4K is text-to-image only; reference-image generation supports 1K or 2K.", default: "2K" },
-      { name: "model", type: "string", required: "No", description: "Wan image model id when explicitly supplied.", default: "wan2.7-image-pro" },
+      { name: "resolution", type: "string", required: "No", description: "1K or 2K.", default: "2K" },
+      { name: "size", type: "string", required: "No", description: "Explicit output size as width*height. Z-Image Spicy Pro allows 256-2560px per side.", default: "derived from resolution + ratio" },
+      { name: "n", type: "integer", required: "No", description: "Keep at 1; single-image output is the supported shape.", default: "1" },
+      { name: "prompt_extend", type: "boolean", required: "No", description: "Whether to expand the prompt before generation.", default: "true" },
+      { name: "seed", type: "integer", required: "No", description: "Integer 0-2147483647.", default: "random" },
       { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
       { name: "async / asyncResponse / returnImmediately", type: "boolean", required: "No", description: "Return immediately with task info instead of waiting for the image result.", default: "false" },
     ],
@@ -2571,13 +2588,11 @@ Content-Type: application/json
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-{
-  "prompt": "Edit the reference image into a cinematic portrait while preserving identity.",
-  "imageUrls": ["https://example.com/reference.png"],
-  "ratio": "9:16",
-  "resolution": "2K",
-  "watermark": false
-}`,
+// Z-Image Spicy Pro (text-to-image, no input image)
+{"prompt":"Create a cinematic portrait.","ratio":"9:16","resolution":"2K","async":true,"watermark":false}
+
+// Qwen Image Edit Spicy (image edit, at least one input image)
+{"prompt":"Edit the reference image into a cinematic portrait while preserving identity.","imageUrls":["https://example.com/reference.png"],"ratio":"9:16","resolution":"2K","async":true,"watermark":false}`,
   },
   samples: {
     title: "Ready-made Clients",
@@ -2682,9 +2697,9 @@ ACCESS_PARAM_GUIDES = [
   {
     id: "wan27-params",
     docs: "wan27Params",
-    title: "Wan2.7 Params",
+    title: "Wan 2.7 spicy I2V Params",
     subtitle: "Video",
-    desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
+    desc: "Parameter table for Wan 2.7 spicy I2V generation through /api/advanced/generate.",
     copy: ACCESS_DOCS.wan27Params.example,
   },
   {
@@ -2698,9 +2713,9 @@ ACCESS_PARAM_GUIDES = [
   {
     id: "wan-image-params",
     docs: "wanImageParams",
-    title: "Wan Image Params",
+    title: "Image Params",
     subtitle: "Image",
-    desc: "Parameter table for Wan image generation/edit through /api/wan27/image-edit.",
+    desc: "Parameter table for Z-Image Spicy Pro text-to-image and Qwen Image Edit Spicy image editing through /api/wan27/image-edit.",
     copy: ACCESS_DOCS.wanImageParams.example,
   },
 ];

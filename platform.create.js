@@ -74,7 +74,7 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
 }
 
 function advancedAliyunReferenceImageLimit(capability = currentAdvancedVideoCapability()) {
-  if (["wan30-video", "wan30-video-prime"].includes(capability)) return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
+  if (["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(capability)) return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
   if (capability === "wan27-i2v") return 2;
   if (capability === "wan27-r2v") return 5;
   if (capability === "wan27-video-edit") return 4;
@@ -88,7 +88,9 @@ function advancedAliyunReferenceImageLimit(capability = currentAdvancedVideoCapa
 function advancedAliyunUsesSharedReferenceUpload(capability = currentAdvancedVideoCapability()) {
   return [
     "wan30-video",
+    "wan30-video-pro",
     "wan30-video-prime",
+    "wan30-video-prime-pro",
     "wan27-i2v",
     "wan27-r2v",
     "wan27-video-edit",
@@ -1648,10 +1650,10 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction || simpleEdit || !isQwenImage;
   });
   document.querySelectorAll(".advanced-wan-prompt-extend-option").forEach((item) => {
-    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
+    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(capability);
   });
   document.querySelectorAll(".advanced-wan-prompt-optimize-option").forEach((item) => {
-    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-prime"].includes(capability);
+    item.hidden = simpleAction || simpleEdit || !["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(capability);
   });
   document.querySelectorAll(".advanced-qwen37-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenText;
@@ -1937,9 +1939,9 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = params.preprocessReference === true;
-  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
-  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(restoredCapability)
     && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   state.advancedSourceImageAssetId = "";
@@ -2640,7 +2642,7 @@ async function submitAdvancedGenerate() {
     const aliyunPrimaryCapabilities = new Set(["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"]);
     const usesAliyunPrimaryImage = aliyunPrimaryCapabilities.has(videoCapability)
       || (videoCapability === "wan-legacy" && !/t2v|r2v|vace/.test(legacyWanModel));
-    const aliyunReferenceCapabilities = new Set(["wan30-video", "wan30-video-prime", "wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"]);
+    const aliyunReferenceCapabilities = new Set(["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro", "wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"]);
     const aliyunReferenceImages = aliyunReferenceCapabilities.has(videoCapability)
       ? referenceImages.map(seedanceImageRefPayload)
       : undefined;
@@ -3272,9 +3274,9 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedResolution) els.advancedResolution.value = resolution;
   if (els.advancedDuration) els.advancedDuration.value = duration;
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || params.parameters?.seed || "";
-  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+  if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
-  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-prime"].includes(restoredCapability)
+  if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(restoredCapability)
     && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedSeedanceTier) {
     const model = String(record.model || params.model || "").toLowerCase();

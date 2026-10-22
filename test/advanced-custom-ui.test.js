@@ -36,20 +36,11 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
   assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.advanced-workspace\.is-create-custom \{ grid-template-columns: 1fr; \}/);
 });
 
-test("Wan3.0 launch banner opens Custom with Wan3.0 selected and can be dismissed", () => {
-  assert.match(html, /id="wan30LaunchBanner"[^>]*hidden[^>]*display:none!important/);
-  assert.match(main, /if \(els\.wan30LaunchBanner\?\.hidden\) \{[\s\S]*?syncWan30LaunchVisibility\(false\)/);
-  assert.match(css, /\.launch-banner\[hidden\] \+ \.site-head \{ margin-top: 0 !important; \}/);
+test("Wan3.0 controls are available from Custom without a launch banner", () => {
   assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw"/);
-  assert.match(html, /id="wan30LaunchBanner"/);
-  assert.match(html, /id="wan30LaunchBtn"/);
-  assert.match(html, /Wan3\.0 上新，欢迎体验/);
-  assert.match(html, /id="wan30LaunchClose"/);
-  assert.match(main, /setTab\("#custom"\)/);
-  assert.match(main, /els\.advancedProvider\.value = "wan30"/);
-  assert.match(main, /WAN30_LAUNCH_DISMISSED_KEY/);
-  assert.match(css, /\.launch-banner \{/);
-  assert.match(css, /body\.wan30-launch-visible \.site-head/);
+  assert.match(html, /value="wan30">W3\.0<\/option>/);
+  assert.match(html, /value="wan30-prime">W3\.0-Prime<\/option>/);
+  assert.doesNotMatch(html, /id="wan30LaunchBanner"/);
 });
 
 test("Advanced hides the asset panel without removing it from Custom", () => {
@@ -74,8 +65,8 @@ test("Advanced results use a compact multi-column card grid", () => {
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
-  assert.match(engine, /value="wan30"(?: selected)?>Wan 3\.0 Video/);
-  assert.match(engine, /value="wan30-prime">Wan 3\.0 Video Prime/);
+  assert.match(engine, /value="wan30"(?: selected)?>W3\.0<\/option>/);
+  assert.match(engine, /value="wan30-prime">W3\.0-Prime<\/option>/);
   assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="seedance-nsfw" selected>Seedance 2\.5<\/option>/);
   assert.match(engine, /value="wan27">Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
@@ -141,9 +132,11 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
 });
 
 test("Wan3.0 Prime shares controls and applies the 1.5 pricing factor", () => {
-  assert.match(create, /\["wan30-video", "wan30-video-prime"\]\.includes\(capability\)/);
-  assert.match(create, /new Set\(\["wan30-video", "wan30-video-prime"/);
-  assert.match(ui, /capability === "wan30-video-prime" \? "Wan 3\.0 Prime" : "Wan 3\.0"/);
+  assert.match(create, /\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"\]\.includes\(capability\)/);
+  assert.match(create, /new Set\(\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"/);
+  assert.match(ui, /"wan30-video-pro": "W3\.0-Pro"/);
+  assert.match(ui, /"wan30-video-prime": "W3\.0-Prime"/);
+  assert.match(ui, /"wan30-video-prime-pro": "W3\.0-VSR-Prime"/);
   assert.match(ui, /wan30PrimeCreditsPerSecondByResolution/);
   assert.match(server, /ALIYUN_WAN30_PRIME_MODEL = process\.env\.ALIYUN_WAN30_PRIME_MODEL \|\| "wan3\.0-video-prime"/);
   assert.match(server, /ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1\.5/);
@@ -196,11 +189,11 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
-test("Wan3.0 prompt extension is an opt-in control for both Wan capabilities", () => {
+test("Wan3.0 prompt extension is an opt-in control for all Wan capabilities", () => {
   assert.match(html, /class="field advanced-wan-prompt-extend-option" hidden/);
   assert.match(html, /id="advancedWanPromptExtend" type="checkbox" \/>/);
   assert.doesNotMatch(html, /id="advancedWanPromptExtend"[^>]*checked/);
-  assert.match(create, /\["wan30-video", "wan30-video-prime"\]\.includes\(capability\)/);
+  assert.match(create, /\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"\]\.includes\(capability\)/);
   assert.match(create, /const promptExtend = provider === "wan30" && Boolean\(els\.advancedWanPromptExtend\?\.checked\)/);
   assert.match(create, /prompt_extend: provider === "wan30" \? promptExtend : undefined/);
   assert.match(create, /\(provider === "wan30" \? \{ prompt_extend: promptExtend \} : \{\}\)/);

@@ -12,8 +12,10 @@ const FORCED_USERNAMES = new Set(
 );
 
 const MAPPED = Object.freeze([
-  { from: "wan30-video", to: "w3.0-video", note: "字段与官方一致；2k/4k、不支持的比例、关键帧和参考混用仍走阿里" },
-  { from: "wan30-video-prime", to: "w3.0-video-prime", note: "只接 480p/720p/1080p，不改写成 prime-pro" },
+  { from: "wan30-video", to: "w3.0-video", note: "480p/720p/1080p；参数不兼容时明确报错" },
+  { from: "wan30-video-pro", to: "w3.0-video-pro", note: "1080p/2k/4k；Mulerouter-only，不回退阿里" },
+  { from: "wan30-video-prime", to: "w3.0-video-prime", note: "480p/720p/1080p；参数不兼容时明确报错" },
+  { from: "wan30-video-prime-pro", to: "w3.0-video-prime-pro", note: "1080p/2k/4k；Mulerouter-only，不回退阿里" },
   { from: "wan27-i2v", to: "wan2.7-i2v-spicy", note: "仅首帧，可选驱动音频和反向提示词；尾帧或首段视频仍走阿里" },
   { from: "wan-animate-move", to: "wan-animate", note: "mode=animate，分辨率只接受 480p/720p" },
   { from: "wan-animate-mix", to: "wan-animate", note: "角色替换走官方 mode=replace；wan-pro 仍走阿里" },
@@ -68,6 +70,10 @@ function routeActive(user = null) {
   return userForced(user) || readRouteConfig().enabled === true;
 }
 
+function mulerouterOnlyCapability(capability = "") {
+  return ["wan30-video-pro", "wan30-video-prime-pro"].includes(String(capability || "").trim());
+}
+
 function publicStatus() {
   const config = readRouteConfig();
   return {
@@ -110,8 +116,8 @@ function mediaOf(media = [], type) {
   return (Array.isArray(media) ? media : []).filter((item) => item && item.type === type && item.url);
 }
 
-function cannot(reason) {
-  return { use: false, reason };
+function cannot(reason, mappingMissing = false) {
+  return { use: false, reason, mappingMissing };
 }
 
 function textOrEmpty(value) {
@@ -121,12 +127,13 @@ function textOrEmpty(value) {
 function decideVideo({ user = null, capability = "", media = [], parameters = {}, prompt = "" } = {}) {
   if (!routeActive(user)) return cannot("aliyun-default");
   const params = parameters && typeof parameters === "object" ? parameters : {};
-  if (params.prompt_extend_text || params.audio_setting === "origin") return cannot("aliyun-only-parameter");
+  const mulerouterOnly = capability === "wan30-video-pro" || capability === "wan30-video-prime-pro";
+  if (!mulerouterOnly && (params.prompt_extend_text || params.audio_setting === "origin")) return cannot("aliyun-only-parameter");
   if (params.watermark === true) return cannot("watermark-not-supported");
   const seed = seedOrFallback(params.seed);
   if (!seed.ok) return cannot("seed-out-of-range");
 
-  if (capability === "wan30-video" || capability === "wan30-video-prime") {
+  if (capability === "wan30-video" || capability === "wan30-video-pro" || capability === "wan30-video-prime" || capability === "wan30-video-prime-pro") {
     const frames = [...mediaOf(media, "first_frame"), ...mediaOf(media, "last_frame")];
     const linkItems = mediaOf(media, "link");
     const link = textOrEmpty(linkItems[0]?.url || params.link || params.reference_link || params.referenceLink);
@@ -143,8 +150,20 @@ function decideVideo({ user = null, capability = "", media = [], parameters = {}
     if (file.length && link) return cannot("file-link-exclusive");
     const duration = integerOrNull(params.duration);
     if (duration !== null && duration !== -1 && (duration < 2 || duration > 30)) return cannot("duration-out-of-range");
-    const slug = capability === "wan30-video-prime" ? "w3.0-video-prime" : "w3.0-video";
-    const resolution = choiceOrFallback(params.resolution, ["480p", "720p", "1080p"]);
+    const slugByCapability = {
+      "wan30-video": "w3.0-video",
+      "wan30-video-pro": "w3.0-video-pro",
+      "wan30-video-prime": "w3.0-video-prime",
+      "wan30-video-prime-pro": "w3.0-video-prime-pro",
+    };
+    const resolutionsByCapability = {
+      "wan30-video": ["480p", "720p", "1080p"],
+      "wan30-video-pro": ["1080p", "2k", "4k"],
+      "wan30-video-prime": ["480p", "720p", "1080p"],
+      "wan30-video-prime-pro": ["1080p", "2k", "4k"],
+    };
+    const slug = slugByCapability[capability];
+    const resolution = choiceOrFallback(params.resolution, resolutionsByCapability[capability]);
     if (!resolution.ok) return cannot("resolution-not-supported");
     const ratio = choiceOrFallback(params.ratio, W30_RATIOS);
     if (!ratio.ok) return cannot("ratio-not-supported");
@@ -226,7 +245,7 @@ function decideVideo({ user = null, capability = "", media = [], parameters = {}
     return { use: true, vendor: "carrothub", slug: "wan-animate", body, kind: "video" };
   }
 
-  return cannot("no-mulerouter-equivalent");
+  return cannot("no-mulerouter-equivalent", mulerouterOnly);
 }
 
 function decideImageEdit({ user = null, imageUrls = [], prompt = "", parameters = {} } = {}) {
@@ -430,6 +449,7 @@ module.exports = {
   encodeRef,
   hasKey,
   missingKeyError,
+  mulerouterOnlyCapability,
   parseRef,
   publicStatus,
   query,

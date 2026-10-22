@@ -71,7 +71,7 @@ test("Wan3.0 uses configured per-second billing", () => {
   assert.match(pricingSource, /wan30PrimeCreditsPerSecondByResolution/);
   assert.match(pricingSource, /billing: "output"/);
   assert.match(pricingSource, /billingDuration/);
-  assert.match(pricingSource, /"configured_wan30_prime_output_duration_rate" : "configured_wan30_output_duration_rate"/);
+  assert.match(pricingSource, /source: `configured_\$\{capability\.replace\(\/-\/g, "_"\)\}_output_duration_rate`/);
   assert.doesNotMatch(pricingSource, /wan30_invitation_free/);
 });
 
@@ -81,8 +81,9 @@ test("Wan3.0 Prime defaults to 1.5x standard pricing", () => {
   assert.match(server, /"720p": 0\.6,/);
   assert.match(server, /"1080p": 1\.2,/);
   assert.match(server, /wan30PrimeCreditsPerSecondByResolution:[\s\S]*defaultWan30SaleCreditsPerSecond\("480p"\) \* 1\.5/);
-  assert.match(server, /baseCnyPerSecond \* \(prime \? ALIYUN_WAN30_PRIME_PRICE_FACTOR : 1\)/);
-  assert.match(server, /source: "aliyun_official_model_pricing"/);
+  assert.match(server, /const multiplier = \(prime \? ALIYUN_WAN30_PRIME_PRICE_FACTOR : 1\)/);
+  assert.match(server, /baseCnyPerSecond \* multiplier/);
+  assert.match(server, /source: "mulerouter_model_pricing"/);
 });
 
 test("Wan3.0 adaptive duration pre-deducts the maximum and settles from the output video", () => {

@@ -22,6 +22,26 @@ const CAPABILITIES = Object.freeze({
     resolutions: ["480P", "720P", "1080P"],
     billing: "output",
   }),
+  "wan30-video-pro": Object.freeze({
+    provider: "wan30",
+    model: "wan3.0-video-pro",
+    endpoint: VIDEO_SYNTHESIS_PATH,
+    mediaKind: "wan30",
+    duration: [2, 30],
+    resolutions: ["1080P", "2K", "4K"],
+    billing: "output",
+    mulerouterOnly: true,
+  }),
+  "wan30-video-prime-pro": Object.freeze({
+    provider: "wan30",
+    model: "wan3.0-video-prime-pro",
+    endpoint: VIDEO_SYNTHESIS_PATH,
+    mediaKind: "wan30",
+    duration: [2, 30],
+    resolutions: ["1080P", "2K", "4K"],
+    billing: "output",
+    mulerouterOnly: true,
+  }),
   "wan27-t2v": Object.freeze({
     provider: "wan27",
     model: "wan2.7-t2v-2026-06-12",
@@ -124,6 +144,12 @@ const CAPABILITIES = Object.freeze({
 });
 
 const CAPABILITY_ALIASES = Object.freeze({
+  // Mulerouter node names are the primary caller-facing values. Legacy capability ids remain aliases.
+  "w3.0-video": "wan30-video",
+  "w3.0-video-pro": "wan30-video-pro",
+  "w3.0-video-prime": "wan30-video-prime",
+  "w3.0-video-prime-pro": "wan30-video-prime-pro",
+  "wan2.7-i2v-spicy": "wan27-i2v",
   "wan30": "wan30-video",
   "wan3": "wan30-video",
   "wan3-video": "wan30-video",
@@ -133,6 +159,8 @@ const CAPABILITY_ALIASES = Object.freeze({
   "wan3-prime": "wan30-video-prime",
   "wan3.0-prime": "wan30-video-prime",
   "wan3.0-video-prime": "wan30-video-prime",
+  "wan3.0-video-pro": "wan30-video-pro",
+  "wan3.0-video-prime-pro": "wan30-video-prime-pro",
   "wan-t2v": "wan27-t2v",
   "wan-text-to-video": "wan27-t2v",
   "text-to-video": "wan27-t2v",
@@ -290,9 +318,10 @@ function normalizeCapability(value = "", { provider = "wan27", model = "", media
   return "wan27-t2v";
 }
 
-function normalizeResolution(value = "720P") {
+function normalizeResolution(value = "720P", allowed = null) {
   const normalized = String(value || "720P").trim().toUpperCase();
-  return normalized === "1080P" || normalized === "480P" ? normalized : "720P";
+  const resolutions = Array.isArray(allowed) && allowed.length ? allowed : ["480P", "720P", "1080P", "2K", "4K"];
+  return resolutions.includes(normalized) ? normalized : (resolutions.includes("720P") ? "720P" : resolutions[0]);
 }
 
 function normalizeMode(value = "wan-std") {
@@ -464,7 +493,10 @@ function buildAliyunVideoRequest(options = {}) {
     };
   }
 
-  const resolution = normalizeResolution(sourceParameters.resolution || options.resolution || (definition.mediaKind === "wan30" ? "1080P" : "720P"));
+  const resolution = normalizeResolution(
+    sourceParameters.resolution || options.resolution || (definition.mediaKind === "wan30" ? "1080P" : "720P"),
+    definition.resolutions,
+  );
   if (!definition.resolutions.includes(resolution)) {
     throw requestError("INVALID_RESOLUTION", `${capability} supports ${definition.resolutions.join(", ")}.`, { resolution });
   }
@@ -551,8 +583,8 @@ function officialSingaporePurchaseDetails(capability, {
   audio = true,
 } = {}) {
   const normalizedCapability = normalizeCapability(capability, { model });
-  const normalizedResolution = normalizeResolution(resolution);
   let table = OFFICIAL_SINGAPORE_USD_PER_SECOND[normalizedCapability] || null;
+  const normalizedResolution = normalizeResolution(resolution, CAPABILITIES[normalizedCapability]?.resolutions || null);
   let rateKey = normalizedCapability === "wan-animate-move" || normalizedCapability === "wan-animate-mix"
     ? normalizeMode(mode)
     : normalizedResolution;

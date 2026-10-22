@@ -1,8 +1,13 @@
-# Vipeak AI Aliyun Model Guide
+# Vipeak AI Model Guide
 
 Base URL: `https://123vips.com`
 
-This guide covers the Aliyun (Alibaba Cloud) models available through the Vipeak AI platform. It includes video generation models (Wan 3.0, Wan2.7, HappyHorse, Wan Animate) and image models (Qwen Image 3.0, Wan2.7 Image).
+This guide covers the video and image generation APIs exposed by the Vipeak AI platform.
+
+- Video: W3.0 (`w3.0-video`), W3.0-Pro (`w3.0-video-pro`), W3.0-Prime (`w3.0-video-prime`), W3.0-VSR-Prime (`w3.0-video-prime-pro`), Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)
+- Image: Z-Image Spicy Pro, Qwen Image Edit Spicy, Qwen Image 3.0
+
+Model serving is handled by the platform and routed to Mulerouter. Callers authenticate only with their Vipeak AI token and never need third-party credentials; the platform maps each request to the matching Mulerouter model on the server side.
 
 ## Authentication
 
@@ -12,17 +17,32 @@ All API requests require a Bearer token from your account page:
 Authorization: Bearer <user-token>
 ```
 
+## Mulerouter Routing
+
+Generation requests are fulfilled by Mulerouter. The platform keeps a stable public API surface and maps every request to the matching Mulerouter model slug, so callers only ever send their Vipeak AI token.
+
+| Platform provider | `videoCapability` / Mulerouter node | Resolution | Result type |
+|-------------------|-----------------------------------|------------|-------------|
+| `wan30` | `w3.0-video` | `480p`, `720p`, `1080p` | W3.0 video |
+| `wan30` | `w3.0-video-pro` | `1080p`, `2k`, `4k` | W3.0-Pro video |
+| `wan30` | `w3.0-video-prime` | `480p`, `720p`, `1080p` | W3.0-Prime video |
+| `wan30` | `w3.0-video-prime-pro` | `1080p`, `2k`, `4k` | W3.0-VSR-Prime video |
+| `wan27` | `wan2.7-i2v-spicy` | `720p`, `1080p` | Wan 2.7 spicy image-to-video |
+| — | `z-image-spicy-pro` | `1K`, `2K` | text-to-image |
+| — | `qwen-image-edit-spicy` | `1K`, `2K` | image edit |
+
 ## Supported Models
 
-| Model | Provider | Capability | Create | Result |
-|-------|----------|------------|--------|--------|
-| Wan 3.0 Video | wan30 | wan30-video | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
-| Wan 3.0 Video Prime | wan30 | wan30-video-prime | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
-| Wan2.7 Video | wan27 | wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
-| HappyHorse Video | happyhorse | happyhorse-t2v / happyhorse-i2v / happyhorse-r2v / happyhorse-video-edit | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
-| Wan Animate | wan27 | wan-animate-move / wan-animate-mix | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
-| Qwen Image 3.0 | qwen-image3 | qwen-image-3.0-pro / qwen-image-3.0 | POST /api/v3/images/generations | GET /api/v3/contents/generations/tasks/<taskId> |
-| Wan2.7 Image | wan27-image | wan2.7-image-pro | POST /api/wan27/image-edit | GET /api/generation-records/<taskId> |
+| Model | Provider | Capability | Mulerouter slug | Create | Result |
+|-------|----------|------------|-----------------|--------|--------|
+| W3.0 | wan30 | w3.0-video | w3.0-video | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
+| W3.0-Pro | wan30 | w3.0-video-pro | w3.0-video-pro | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
+| W3.0-Prime | wan30 | w3.0-video-prime | w3.0-video-prime | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
+| W3.0-VSR-Prime | wan30 | w3.0-video-prime-pro | w3.0-video-prime-pro | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
+| Wan 2.7 spicy I2V | wan27 | wan2.7-i2v-spicy | wan2.7-i2v-spicy | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
+| Z-Image Spicy Pro | z-image-spicy-pro | text-to-image | z-image-spicy-pro | POST /api/wan27/image-edit | GET /api/generation-records/<taskId> |
+| Qwen Image Edit Spicy | qwen-image-edit-spicy | image-edit | qwen-image-edit-spicy | POST /api/wan27/image-edit | GET /api/generation-records/<taskId> |
+| Qwen Image 3.0 | qwen-image3 | qwen-image-3.0-pro / qwen-image-3.0 | platform compatibility route | POST /api/v3/images/generations | GET /api/v3/contents/generations/tasks/<taskId> |
 
 ## Quick Start
 
@@ -32,7 +52,7 @@ Authorization: Bearer <user-token>
 
 ---
 
-## Wan 3.0 Video
+## W3.0 (`w3.0-video`)
 
 ```http
 POST /api/advanced/generate
@@ -41,7 +61,7 @@ Content-Type: application/json
 
 {
   "provider": "wan30",
-  "videoCapability": "wan30-video",
+  "videoCapability": "w3.0-video",
   "mediaMode": "multimodal",
   "prompt": "Use Image 1 as the character and Video 1 as the motion reference.",
   "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
@@ -58,7 +78,7 @@ Content-Type: application/json
 | Parameter | Type | Required | Description | Default |
 |-----------|------|----------|-------------|---------|
 | provider | string | Yes | Use `wan30`. | `wan30` |
-| videoCapability | enum | No | `wan30-video` or `wan30-video-prime`. | `wan30-video` |
+| videoCapability | string | No | Use `w3.0-video`. | `w3.0-video` |
 | prompt | string | Unless media is supplied | Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc. | - |
 | mediaMode | enum | No | `multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed. | `multimodal` |
 | referenceImages | array | For image references | 0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName. | [] |
@@ -85,7 +105,166 @@ Content-Type: application/json
 
 ---
 
-## Wan2.7 Video
+## W3.0-Pro (`w3.0-video-pro`)
+
+```http
+POST /api/advanced/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan30",
+  "videoCapability": "w3.0-video-pro",
+  "mediaMode": "multimodal",
+  "prompt": "Create a high-detail cinematic product shot.",
+  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
+  "referenceVideos": [{"assetId": "uploaded-video-asset-id"}],
+  "ratio": "16:9",
+  "resolution": "2k",
+  "duration": 8,
+  "generateAudio": true
+}
+```
+
+**Request fields and limits**
+
+| Parameter | Type | Required | Description | Default |
+|-----------|------|----------|-------------|---------|
+| provider | string | Yes | Use `wan30`. | `wan30` |
+| videoCapability | string | No | Use `w3.0-video-pro`. | `w3.0-video-pro` |
+| prompt | string | Unless media is supplied | Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc. | - |
+| mediaMode | enum | No | `multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed. | `multimodal` |
+| referenceImages | array | For image references | 0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName. | [] |
+| referenceVideos | array | For video references | 0-5 videos. Each item accepts assetId, url/videoUrl, or dataUrl plus optional fileName. | [] |
+| referenceAudios | array | For audio references | 0-5 audios. Each item accepts assetId, url/audioUrl, or dataUrl plus optional fileName. | [] |
+| referenceFileAssetId / referenceFile | string/object | For document input | One PDF, Word, Excel, PowerPoint, TXT, or Markdown document, up to 100MB. It cannot be combined with other media inputs. | - |
+| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | For first_last_frame | First-frame image. | - |
+| lastFrameUrl / lastFrameDataUrl / lastFrameAssetId | string | For first_last_frame | Last-frame image. Both frame images are required. | - |
+| resolution | enum | No | `1080p`, `2k`, or `4k`. | `1080p` |
+| ratio | enum | No | `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, or `adaptive`. | `adaptive` |
+| duration | integer | No | Output duration from 2-30 seconds. Use `-1` for adaptive output duration. | `5` |
+| generateAudio / generate_audio | boolean | No | Whether the output should include generated audio. | `true` |
+| prompt_extend | boolean | No | Whether to rewrite and expand the prompt before generation. Disable it for strict professional prompt adherence; it is enabled by default. | `true` |
+| seed | integer | No | Integer from 0 to 2147483647. | - |
+| watermark | boolean | No | Whether to add a watermark. | `false` |
+
+**Image input limits**: JPG/JPEG, PNG, BMP, or WebP; max 20MB; width and height 240-8000px; aspect ratio no wider than 8:1. PNG transparency is not supported.
+
+**Video input limits**: MP4 or MOV; smaller than 100MB; width and height 240-4096px; aspect ratio no wider than 8:1; each video 1-15 seconds; all reference videos together at most 15 seconds.
+
+**Audio input limits**: MP3 or WAV; smaller than 15MB; each audio 1-15 seconds; all reference audios together at most 15 seconds.
+
+**Duration combination**: If duration is not `-1`, total input-video seconds plus output duration must not exceed 30 seconds.
+
+---
+
+## W3.0-Prime (`w3.0-video-prime`)
+
+```http
+POST /api/advanced/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan30",
+  "videoCapability": "w3.0-video-prime",
+  "mediaMode": "multimodal",
+  "prompt": "Create a cinematic character performance with natural motion.",
+  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
+  "referenceVideos": [{"assetId": "uploaded-video-asset-id"}],
+  "ratio": "9:16",
+  "resolution": "1080p",
+  "duration": 8,
+  "generateAudio": true
+}
+```
+
+**Request fields and limits**
+
+| Parameter | Type | Required | Description | Default |
+|-----------|------|----------|-------------|---------|
+| provider | string | Yes | Use `wan30`. | `wan30` |
+| videoCapability | string | No | Use `w3.0-video-prime`. | `w3.0-video-prime` |
+| prompt | string | Unless media is supplied | Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc. | - |
+| mediaMode | enum | No | `multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed. | `multimodal` |
+| referenceImages | array | For image references | 0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName. | [] |
+| referenceVideos | array | For video references | 0-5 videos. Each item accepts assetId, url/videoUrl, or dataUrl plus optional fileName. | [] |
+| referenceAudios | array | For audio references | 0-5 audios. Each item accepts assetId, url/audioUrl, or dataUrl plus optional fileName. | [] |
+| referenceFileAssetId / referenceFile | string/object | For document input | One PDF, Word, Excel, PowerPoint, TXT, or Markdown document, up to 100MB. It cannot be combined with other media inputs. | - |
+| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | For first_last_frame | First-frame image. | - |
+| lastFrameUrl / lastFrameDataUrl / lastFrameAssetId | string | For first_last_frame | Last-frame image. Both frame images are required. | - |
+| resolution | enum | No | `480p`, `720p`, or `1080p`. | `1080p` |
+| ratio | enum | No | `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, or `adaptive`. | `adaptive` |
+| duration | integer | No | Output duration from 2-30 seconds. Use `-1` for adaptive output duration. | `5` |
+| generateAudio / generate_audio | boolean | No | Whether the output should include generated audio. | `true` |
+| prompt_extend | boolean | No | Whether to rewrite and expand the prompt before generation. Disable it for strict professional prompt adherence; it is enabled by default. | `true` |
+| seed | integer | No | Integer from 0 to 2147483647. | - |
+| watermark | boolean | No | Whether to add a watermark. | `false` |
+
+**Image input limits**: JPG/JPEG, PNG, BMP, or WebP; max 20MB; width and height 240-8000px; aspect ratio no wider than 8:1. PNG transparency is not supported.
+
+**Video input limits**: MP4 or MOV; smaller than 100MB; width and height 240-4096px; aspect ratio no wider than 8:1; each video 1-15 seconds; all reference videos together at most 15 seconds.
+
+**Audio input limits**: MP3 or WAV; smaller than 15MB; each audio 1-15 seconds; all reference audios together at most 15 seconds.
+
+**Duration combination**: If duration is not `-1`, total input-video seconds plus output duration must not exceed 30 seconds.
+
+---
+
+## W3.0-VSR-Prime (`w3.0-video-prime-pro`)
+
+```http
+POST /api/advanced/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan30",
+  "videoCapability": "w3.0-video-prime-pro",
+  "mediaMode": "multimodal",
+  "prompt": "Create a premium cinematic shot with precise identity and motion.",
+  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
+  "referenceVideos": [{"assetId": "uploaded-video-asset-id"}],
+  "ratio": "16:9",
+  "resolution": "2k",
+  "duration": 8,
+  "generateAudio": true
+}
+```
+
+**Request fields and limits**
+
+| Parameter | Type | Required | Description | Default |
+|-----------|------|----------|-------------|---------|
+| provider | string | Yes | Use `wan30`. | `wan30` |
+| videoCapability | string | No | Use `w3.0-video-prime-pro`. | `w3.0-video-prime-pro` |
+| prompt | string | Unless media is supplied | Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc. | - |
+| mediaMode | enum | No | `multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed. | `multimodal` |
+| referenceImages | array | For image references | 0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName. | [] |
+| referenceVideos | array | For video references | 0-5 videos. Each item accepts assetId, url/videoUrl, or dataUrl plus optional fileName. | [] |
+| referenceAudios | array | For audio references | 0-5 audios. Each item accepts assetId, url/audioUrl, or dataUrl plus optional fileName. | [] |
+| referenceFileAssetId / referenceFile | string/object | For document input | One PDF, Word, Excel, PowerPoint, TXT, or Markdown document, up to 100MB. It cannot be combined with other media inputs. | - |
+| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | For first_last_frame | First-frame image. | - |
+| lastFrameUrl / lastFrameDataUrl / lastFrameAssetId | string | For first_last_frame | Last-frame image. Both frame images are required. | - |
+| resolution | enum | No | `1080p`, `2k`, or `4k`. | `1080p` |
+| ratio | enum | No | `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, or `adaptive`. | `adaptive` |
+| duration | integer | No | Output duration from 2-30 seconds. Use `-1` for adaptive output duration. | `5` |
+| generateAudio / generate_audio | boolean | No | Whether the output should include generated audio. | `true` |
+| prompt_extend | boolean | No | Whether to rewrite and expand the prompt before generation. Disable it for strict professional prompt adherence; it is enabled by default. | `true` |
+| seed | integer | No | Integer from 0 to 2147483647. | - |
+| watermark | boolean | No | Whether to add a watermark. | `false` |
+
+**Image input limits**: JPG/JPEG, PNG, BMP, or WebP; max 20MB; width and height 240-8000px; aspect ratio no wider than 8:1. PNG transparency is not supported.
+
+**Video input limits**: MP4 or MOV; smaller than 100MB; width and height 240-4096px; aspect ratio no wider than 8:1; each video 1-15 seconds; all reference videos together at most 15 seconds.
+
+**Audio input limits**: MP3 or WAV; smaller than 15MB; each audio 1-15 seconds; all reference audios together at most 15 seconds.
+
+**Duration combination**: If duration is not `-1`, total input-video seconds plus output duration must not exceed 30 seconds.
+
+---
+
+## Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)
 
 ```http
 POST /api/advanced/generate
@@ -94,13 +273,13 @@ Content-Type: application/json
 
 {
   "provider": "wan27",
-  "videoCapability": "wan27-r2v",
-  "prompt": "Use Image 1 as the subject and Video 1 as the motion reference.",
-  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
-  "referenceVideos": [{"assetId": "uploaded-video-asset-id"}],
+  "videoCapability": "wan2.7-i2v-spicy",
+  "prompt": "Create a cinematic shot that follows the first-frame image and the driving audio.",
+  "firstFrameAssetId": "uploaded-image-asset-id",
+  "drivingAudioAssetId": "uploaded-audio-asset-id",
   "resolution": "720p",
   "duration": 5,
-  "prompt_extend": false,
+  "prompt_extend": true,
   "watermark": false
 }
 ```
@@ -110,40 +289,39 @@ Content-Type: application/json
 | Parameter | Type | Required | Description | Default |
 |-----------|------|----------|-------------|---------|
 | provider | string | Yes | Use `wan27`. | `wan27` |
-| videoCapability | enum | Yes | `wan27-t2v`, `wan27-i2v`, `wan27-r2v`, or `wan27-video-edit`. | `wan27-i2v` |
-| prompt | string | Yes | Non-empty video prompt or edit instruction. | - |
-| mediaMode | enum | For wan27-i2v | `first_frame`, `first_last_frame`, `first_frame_audio`, `first_last_frame_audio`, `first_clip`, or `first_clip_last_frame`. | `first_frame` |
-| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | For first-frame modes; optional for r2v | First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB. | - |
-| lastFrameUrl / lastFrameDataUrl / lastFrameAssetId | string | For last-frame modes | Last-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB. | - |
-| firstClipUrl / firstClipDataUrl / firstClipAssetId | string | For first_clip modes | Source video clip. Use public URL, supported data URL, or uploaded asset id. Uploaded video max 30MB. | - |
-| drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId | string | For audio modes | Driving audio. Use public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB. | - |
-| referenceImages / referenceVideos | array | For wan27-r2v | Reference generation requires 1-5 reference images/videos in total. Each item accepts assetId, URL, or dataUrl. One optional first frame may also be supplied. | [] |
-| videoUrl / videoDataUrl / videoAssetId | string | For wan27-video-edit | Exactly one source video. Video edit also accepts 0-4 reference images. | - |
-| resolution | string | No | Supported values: `720p`, `1080p`. | `720p` |
-| duration | integer | No | Video duration in seconds, integer 2-15. Reference generation with a video and video edit are limited to 2-10 seconds. | `5` |
-| followInputDuration | boolean | No | For wan27-video-edit, set true to use the source-video duration, capped at 10 seconds. | `false` |
-| generateAudio / generate_audio | boolean | No | Whether generated audio should be requested when supported by the selected capability. | `true` |
-| seed | integer | No | Optional deterministic seed when supported by the model. | - |
-| prompt_extend / promptExtend | boolean | No | Whether to enable prompt extension. | `false` |
+| videoCapability | string | Yes | Use the Mulerouter node `wan2.7-i2v-spicy`. | `wan2.7-i2v-spicy` |
+| prompt | string | Yes | Non-empty video prompt. | - |
+| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | Yes | First-frame image. Use a public URL, supported data URL, or uploaded asset id. Images max 20MB. | - |
+| drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId | string | No | Optional driving audio. Use a public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB. | - |
+| negative_prompt / negativePrompt | string | No | Optional negative prompt passed to the Mulerouter node. | - |
+| resolution | string | No | `720p` or `1080p`. | `720p` |
+| duration | integer | No | Output duration in seconds, integer 2-15. | `5` |
+| generateAudio / generate_audio / audio | boolean | No | Whether the output should include an audio track when supported. | `true` |
+| seed | integer | No | Integer from 0 to 2147483647. | - |
+| prompt_extend / promptExtend | boolean | No | Whether to enable prompt extension. | `true` |
 | watermark | boolean | No | Whether to add a watermark. | `false` |
+
+**Notes**: One input image is required. Optional driving audio can be supplied with the first frame.
 
 ---
 
-## HappyHorse Video
+## Z-Image Spicy Pro
+
+Text-to-image engine. It shares the dedicated image endpoint with Qwen Image Edit Spicy; send no input image to request text-to-image output.
 
 ```http
-POST /api/advanced/generate
+POST /api/wan27/image-edit
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "provider": "happyhorse",
-  "videoCapability": "happyhorse-video-edit",
-  "prompt": "Keep the source timing and replace the subject using Image 1.",
-  "videoAssetId": "uploaded-video-asset-id",
-  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
-  "resolution": "720p",
-  "duration": 5
+  "prompt": "A cinematic portrait of a traveler in a rain-soaked neon city, ultra detailed.",
+  "ratio": "9:16",
+  "resolution": "2K",
+  "prompt_extend": true,
+  "seed": 123456,
+  "watermark": false,
+  "async": true
 }
 ```
 
@@ -151,36 +329,48 @@ Content-Type: application/json
 
 | Parameter | Type | Required | Description | Default |
 |-----------|------|----------|-------------|---------|
-| provider | string | Yes | Use `happyhorse`. | `happyhorse` |
-| videoCapability | enum | Yes | `happyhorse-t2v`, `happyhorse-i2v`, `happyhorse-r2v`, or `happyhorse-video-edit`. | `happyhorse-i2v` |
-| prompt | string | Yes | Non-empty video prompt or edit instruction. | - |
-| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | For happyhorse-i2v | Exactly one first-frame image. | - |
-| referenceImages | array | For happyhorse-r2v | Reference generation requires 1-9 images. Video edit accepts 0-5 reference images. Each item accepts assetId, url/imageUrl, or dataUrl. | [] |
-| videoUrl / videoDataUrl / videoAssetId | string | For happyhorse-video-edit | Exactly one source video. | - |
-| resolution | enum | No | `720p` or `1080p`. | `720p` |
-| duration | integer | No | Integer 3-15 seconds. | `5` |
-| seed | integer | No | Optional deterministic seed when supported. | - |
-| prompt_extend / promptExtend | boolean | No | Whether to enable prompt extension. | `false` |
+| /api/wan27/image-edit | endpoint | Yes | Create a Z-Image Spicy Pro text-to-image task. | - |
+| prompt | string | Yes | Non-empty image prompt. | - |
+| imageUrls / imageAssetIds | array | No | Leave empty for text-to-image. Supplying one or more images switches the request to image editing; use `qwen-image-edit-spicy` for that. | [] |
+| imageUrl / imageAssetId | string | No | Leave empty for text-to-image. | - |
+| ratio | string | No | `1:1`, `3:4`, `4:3`, `9:16`, or `16:9`. | `9:16` |
+| resolution | string | No | `1K` or `2K`. | `2K` |
+| size | string | No | Explicit output size as `width*height`, for example `1440*2560`. When omitted, the platform derives it from `resolution` and `ratio`. | derived from resolution + ratio |
+| model | string | No | Optional explicit model id. The platform normally chooses the serving model from the request shape, so most callers omit this field. | - |
+| n | integer | No | Number of output images. Keep it at `1`; single-image output is the supported shape for this engine. | `1` |
+| prompt_extend | boolean | No | Whether to expand the prompt before generation. Pass it explicitly to control prompt rewriting. | `true` |
+| seed | integer | No | Integer from 0 to 2147483647. | random |
 | watermark | boolean | No | Whether to add a watermark. | `false` |
+| async / asyncResponse / returnImmediately | boolean | No | Return immediately with task info instead of waiting for the image result. | `false` |
+
+**Resolution presets**
+
+| Resolution / ratio | 1:1 | 3:4 | 4:3 | 9:16 | 16:9 |
+|--------------------|-----|-----|-----|------|------|
+| `1K` | 1024*1024 | 768*1024 | 1024*768 | 720*1280 | 1280*720 |
+| `2K` | 2048*2048 | 1536*2048 | 2048*1536 | 1440*2560 | 2560*1440 |
+
+**Notes**: Width and height must each stay within 256-2560px, which is why `2K` is the practical upper tier for this engine. Only single-image output is supported.
 
 ---
 
-## Wan Animate
+## Qwen Image Edit Spicy
+
+Reference-image editing engine. It shares the dedicated image endpoint with Z-Image Spicy Pro.
 
 ```http
-POST /api/advanced/generate
+POST /api/wan27/image-edit
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "provider": "wan27",
-  "videoCapability": "wan-animate-mix",
-  "prompt": "Replace the source-video character with the person in the image.",
-  "firstFrameAssetId": "uploaded-image-asset-id",
-  "videoAssetId": "uploaded-video-asset-id",
-  "parameters": {
-    "mode": "wan-pro"
-  }
+  "prompt": "Turn the subject into a cinematic portrait while preserving identity.",
+  "imageUrls": ["https://example.com/reference.png"],
+  "ratio": "9:16",
+  "resolution": "2K",
+  "seed": 42,
+  "watermark": false,
+  "async": true
 }
 ```
 
@@ -188,14 +378,20 @@ Content-Type: application/json
 
 | Parameter | Type | Required | Description | Default |
 |-----------|------|----------|-------------|---------|
-| provider | string | Yes | Use `wan27`. | `wan27` |
-| videoCapability | enum | Yes | `wan-animate-move` for image animation or `wan-animate-mix` for character replacement. | `wan-animate-move` |
-| prompt | string | Yes | Non-empty animation or replacement instruction. | - |
-| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | Yes | Exactly one source/reference image. | - |
-| videoUrl / videoDataUrl / videoAssetId | string | Yes | Exactly one motion/source video. | - |
-| parameters.mode | enum | No | `wan-std` or `wan-pro`. | `wan-std` |
-| duration | integer | No | Omit this field. Output duration follows the source video; supported source duration is 2-30 seconds. | source video duration |
+| /api/wan27/image-edit | endpoint | Yes | Create a Qwen Image Edit Spicy image-editing task. | - |
+| prompt | string | Yes | Non-empty edit instruction. | - |
+| imageUrls / imageAssetIds | array | Yes | 1-3 images. The first image is the picture being edited; the remaining ones are optional references. Use public image URLs or uploaded image asset ids. Images max 20MB. | [] |
+| imageUrl / imageAssetId | string | Yes | Single input image URL or uploaded image asset id. | - |
+| ratio | string | No | `1:1`, `3:4`, `4:3`, `9:16`, or `16:9`. The output size also follows the input image. | `9:16` |
+| resolution | string | No | `1K` or `2K`. | `2K` |
+| size | string | No | Explicit output size as `width*height`. When omitted, the platform derives it from `resolution` and `ratio`. | derived from resolution + ratio |
+| model | string | No | Optional explicit model id. The platform normally chooses the serving model from the request shape, so most callers omit this field. | - |
+| n | integer | No | Number of output images. Keep it at `1`; single-image output is the supported shape for this engine. | `1` |
+| seed | integer | No | Integer from 0 to 2147483647. | random |
 | watermark | boolean | No | Whether to add a watermark. | `false` |
+| async / asyncResponse / returnImmediately | boolean | No | Return immediately with task info instead of waiting for the image result. | `false` |
+
+**Notes**: At least one input image is required, and at most three images may be supplied per request (the picture being edited plus up to two references). Supported image uploads are JPG/JPEG, PNG, BMP, or WebP up to 20MB.
 
 ---
 
@@ -238,41 +434,9 @@ Content-Type: application/json
 
 ---
 
-## Wan2.7 Image Generation and Edit
-
-```http
-POST /api/wan27/image-edit
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "prompt": "Edit the reference image into a cinematic portrait while preserving identity.",
-  "imageUrls": ["https://example.com/reference.png"],
-  "ratio": "9:16",
-  "resolution": "2K",
-  "watermark": false
-}
-```
-
-**Request fields and limits**
-
-| Parameter | Type | Required | Description | Default |
-|-----------|------|----------|-------------|---------|
-| /api/wan27/image-edit | endpoint | Yes | Wan2.7 image generation/edit endpoint. | - |
-| prompt | string | Yes | Non-empty image prompt or edit instruction. | - |
-| imageUrls / imageAssetIds | array | No | 0-9 reference images. Use public image URLs or uploaded image asset ids. Images max 20MB. | [] |
-| imageUrl / imageAssetId | string | No | Single reference image URL or uploaded image asset id. | - |
-| ratio | string | No | `1:1`, `3:4`, `4:3`, `9:16`, or `16:9`. | `9:16` |
-| resolution | string | No | `1K`, `2K`, or `4K`. 4K is text-to-image only; reference-image generation supports `1K` or `2K`. | `2K` |
-| model | string | No | Wan image model id when explicitly supplied. | `wan2.7-image-pro` |
-| watermark | boolean | No | Pass-through watermark flag. | `false` |
-| async / asyncResponse / returnImmediately | boolean | No | Return immediately with task info instead of waiting for the image result. | `false` |
-
----
-
 ## Advanced Task Polling
 
-Advanced video tasks return `taskId`. Poll the generation record until its status is `succeeded` or `failed`.
+Advanced video tasks and the image engines on `/api/wan27/image-edit` return `taskId`. Poll the generation record until its status is `succeeded` or `failed`.
 
 ```http
 GET /api/generation-records/<taskId>
