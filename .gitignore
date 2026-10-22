@@ -44,3 +44,6 @@ scripts/fyshark_*
 scripts/deploy_to_fyshark.py
 scripts/__pycache__/
 .env.deploy
+mobile/live-android/build/
+downloads/vipeak-live*.apk
+downloads/vipeak-live*.mobileconfig

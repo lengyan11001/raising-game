@@ -1,0 +1,2384 @@
+/*
+ * Chat live — 在线聊天（Vidu S2-Avatar 实时数字人）
+ * 123 主站 chat 面板与 chat.5vips.com 共用这一个客户端。
+ * 单向：只上传麦克风；数字人出视频；支持语音与文字输入。
+ */
+(() => {
+  const state = {
+    config: null,
+    engine: null,
+    ws: null,
+    session: null,
+    character: null,
+    connId: "",
+    seqId: 1,
+    overlay: null,
+    remoteVideo: null,
+    heartbeat: 0,
+    lastPresenceAt: 0,
+    startedAt: 0,
+    billableStartedAt: 0,
+    ended: false,
+    micOn: false,
+    listening: false,
+    recognition: null,
+    unbindViewport: null,
+    remoteUserId: "",
+    lastFrameAt: 0,
+    lastPictureAt: 0,
+    lastVideoTime: -1,
+    seenPicture: false,
+    seenBright: false,
+    placeholderOn: true,
+    videoFixes: 0,
+    videoFixTotal: 0,
+    boundUserId: "",
+    remoteBoundOnce: false,
+    rtcRecoveries: 0,
+    frameWatch: 0,
+    frameCallback: 0,
+    rtcRecoverTimer: 0,
+    controlReady: false,
+    controlReconnectAttempted: false,
+    lookBusy: false,
+    lookWait: null,
+    lookStack: [],
+    rtcClock: null,
+    rtcClockStart: null,
+    visibilityRecoveryTimer: 0,
+    visibilityReturnedAt: 0,
+    lookVideoRecoveryTimer: 0,
+    videoRecoveryPending: false,
+    forceFreshRtc: false,
+    overlayControlsBound: false,
+    unloadGuardBound: false,
+    lookSwitching: false,
+  };
+
+  const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
+  const TOKEN_KEYS = ["raisingGameToken", "vipsChatToken"];
+
+  function authToken() {
+    try {
+      if (typeof getRaisingToken === "function") {
+        const value = getRaisingToken();
+        if (value) return value;
+      }
+    } catch {}
+    try {
+      for (const key of TOKEN_KEYS) {
+        const value = localStorage.getItem(key);
+        if (value) return value;
+      }
+    } catch {}
+    return "";
+  }
+
+  async function apiFetch(url, options = {}) {
+    const headers = { "content-type": "application/json", ...(options.headers || {}) };
+    const token = authToken();
+    if (token) headers.authorization = `Bearer ${token}`;
+    const response = await fetch(url, { ...options, headers });
+    const raw = await response.text();
+    let payload = {};
+    try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
+    if (!response.ok) {
+      let message = payload?.message || payload?.error?.message || "";
+      if (!message) {
+        const videoUp = Boolean(state.billableStartedAt) || state.placeholderOn === false;
+        message = response.status === 409
+          ? "还在接通，请稍后再发。"
+          : (response.status === 502 || response.status === 504 || response.status === 424) && videoUp
+          ? "这句话没发出去，请再发一次。"
+          : response.status === 502 || response.status === 504
+          ? "暂时没有接通，请稍后再联系。"
+          : `请求失败（${response.status}）`;
+      }
+      const error = new Error(message);
+      Object.assign(error, payload, { status: response.status });
+      throw error;
+    }
+    return payload;
+  }
+
+  async function loadConfig(force = false) {
+    if (state.config && !force) return state.config;
+    const payload = await apiFetch("/api/chat-live/characters");
+    state.config = payload || null;
+    return state.config;
+  }
+
+  function saleCreditsPerMinute() {
+    return Number(state.config?.pricing?.saleCreditsPerMinute || 0) || 0;
+  }
+
+  function characters() {
+    return Array.isArray(state.config?.characters) ? state.config.characters : [];
+  }
+
+  function characterById(id) {
+    return characters().find((item) => String(item.id) === String(id)) || null;
+  }
+
+  /* 入口是否可用：后台开启 + 至少一个角色 + 已经定价 */
+  function available() {
+    return Boolean(state.config && state.config.enabled !== false && characters().length && saleCreditsPerMinute() > 0);
+  }
+
+  function injectStyles() {
+  /* 镜头微动效果 */
+  const breatheStyle = document.createElement('style');
+  breatheStyle.textContent = `
+    @keyframes chatLiveBreathe {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-2px, -1px) scale(1.008); }
+    }
+    .chat-live-stage video {
+      animation: chatLiveBreathe 8s ease-in-out infinite;
+    }
+    @media (max-width: 880px) {
+      .chat-live-stage video { animation: none; }
+    }
+  `;
+  document.head.appendChild(breatheStyle);
+    if (document.getElementById("chatLiveStyles")) return;
+    const style = document.createElement("style");
+    style.id = "chatLiveStyles";
+    style.textContent = `
+.chat-live-entry { display:inline-flex; align-items:center; gap:6px; }
+.chat-live-overlay { position:fixed; inset:0; z-index:400; display:flex; align-items:center; justify-content:center; background:rgba(5,6,10,.96); -webkit-backdrop-filter:none; backdrop-filter:none; }
+.chat-live-shell { position:relative; width:min(980px,100%); height:min(92vh,760px); display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr); gap:0; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:18px; background:#0b0d12; color:#f8fafc; }
+.chat-live-stage { position:relative; background:#05060a; display:flex; align-items:center; justify-content:center; }
+.chat-live-stage video { width:100%; height:100%; object-fit:cover; background:#05060a; }
+.chat-live-placeholder { position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#94a3b8; text-align:center; padding:20px; background:#05060a; }
+.chat-live-call-avatar { position:relative; width:148px; height:148px; display:grid; place-items:center; }
+.chat-live-call-avatar img { width:112px; height:112px; border-radius:50%; object-fit:cover; position:relative; z-index:1; border:3px solid rgba(255,255,255,.92); box-shadow:0 10px 28px rgba(0,0,0,.35); }
+.chat-live-rings { position:absolute; inset:0; pointer-events:none; }
+.chat-live-rings i { position:absolute; inset:8px; border-radius:50%; border:2px solid rgba(125,211,252,.8); animation:chatLiveRing 1.8s ease-out infinite; }
+.chat-live-rings i:nth-child(2) { animation-delay:.45s; }
+.chat-live-rings i:nth-child(3) { animation-delay:.9s; }
+@keyframes chatLiveRing { 0% { transform:scale(.62); opacity:.8; } 100% { transform:scale(1.28); opacity:0; } }
+.chat-live-call-label { margin-top:14px; font-size:20px; font-weight:700; color:#f8fafc; letter-spacing:.12em; }
+.chat-live-call-detail { font-style:normal; max-width:280px; font-size:14px; line-height:1.45; color:#94a3b8; }
+.chat-live-placeholder.is-failed .chat-live-rings i { animation:none; opacity:0; }
+.chat-live-placeholder.is-failed .chat-live-call-label { color:#f87171; letter-spacing:0; }
+.chat-live-confirm { position:absolute; z-index:40; }\n.chat-live-fail-exit { display:none; margin-top:14px; min-width:108px; height:40px; padding:0 18px; border:0; border-radius:6px; background:#ff2d6f; color:#fff; font-size:15px; font-weight:700; }
+.chat-live-placeholder.is-failed .chat-live-fail-exit, .chat-live-fail-exit.is-visible { display:inline-flex !important; align-items:center; justify-content:center; }
+.chat-live-badge { position:absolute; top:14px; left:14px; z-index:4; display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; background:rgba(0,0,0,.55); font-size:12px; }
+.chat-live-timer { position:absolute; top:14px; right:14px; z-index:4; padding:6px 12px; border-radius:6px; background:rgba(0,0,0,.55); font-size:12px; font-variant-numeric:tabular-nums; }
+.chat-live-side { display:flex; flex-direction:column; min-height:0; border-left:1px solid rgba(255,255,255,.08); background:#0e1118; }
+.chat-live-head { padding:16px 18px; border-bottom:1px solid rgba(255,255,255,.08); }
+.chat-live-head h3 { margin:0; font-size:16px; }
+.chat-live-head p { margin:6px 0 0; color:#94a3b8; font-size:12px; }
+.chat-live-log { flex:1; min-height:0; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
+.chat-live-line { padding:9px 11px; border-radius:6px; line-height:1.5; max-width:92%; }
+.chat-live-line.is-user { align-self:flex-end; background:#1d4ed8; }
+.chat-live-line.is-bot { align-self:flex-start; background:rgba(255,255,255,.08); }
+.chat-live-line.is-sys { align-self:center; background:transparent; color:#94a3b8; font-size:12px; }
+.chat-live-actions { padding:12px 14px; border-top:1px solid rgba(255,255,255,.08); display:flex; flex-direction:column; gap:10px; }
+.chat-live-input { display:flex; gap:8px; }
+.chat-live-input input { flex:1; height:40px; padding:0 12px; border-radius:6px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); color:#fff; }
+.chat-live-btn { height:40px; padding:0 14px; border:0; border-radius:6px; font-weight:600; cursor:pointer; }
+.chat-live-btn.is-primary { background:#fff; color:#0b0d12; }
+.chat-live-btn.is-danger { background:#dc2626; color:#fff; }
+.chat-live-btn.is-ghost { background:rgba(255,255,255,.08); color:#fff; }
+.chat-live-btn[disabled] { opacity:.5; cursor:not-allowed; }
+.chat-live-row { display:flex; gap:8px; }
+.chat-live-row .chat-live-btn { flex:1; }
+.chat-live-cost { color:#94a3b8; font-size:12px; text-align:center; }
+.chat-live-voice { display:none; }
+.chat-live-close { position:absolute; z-index:8; top:calc(14px + env(safe-area-inset-top)); left:14px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; }
+.chat-live-badge { left:58px; }
+.chat-live-rate { display:none !important; }
+.chat-live-voice { min-width:52px; height:42px; padding:0 10px; border:0; border-radius:6px; background:rgba(255,255,255,.14); color:#fff; font-size:13px; font-weight:700; flex:0 0 auto; }
+.chat-live-voice.is-on { background:#ef4444; }
+.chat-live-voice { touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+.chat-live-input .chat-live-gift-btn, .chat-live-input .chat-live-voice { width:44px; height:44px; min-width:44px; min-height:44px; padding:0; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; }
+.chat-live-input .chat-live-gift-btn span:last-child, .chat-live-dock .chat-live-gift-btn span:last-child { display:none; }
+.chat-live-input .chat-live-voice, .chat-live-dock .chat-live-voice { font-size:0; }
+.chat-live-input .chat-live-voice::before, .chat-live-dock .chat-live-voice::before { content:"🎤"; font-size:18px; }
+.chat-live-dock .chat-live-gift-btn, .chat-live-dock .chat-live-voice { width:44px; height:44px; min-height:44px; border-radius:50%; }
+.chat-live-close { width:36px; height:36px; border:0; border-radius:999px; background:rgba(0,0,0,.45); color:#fff; font-size:22px; line-height:1; }
+.chat-live-listen { display:none; position:absolute; left:50%; bottom:108px; transform:translateX(-50%); padding:10px 16px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; font-size:13px; }
+.chat-live-listen.is-on { display:block; }
+.chat-live-look-toggle { position:absolute; z-index:9; left:14px; right:auto; top:calc(58px + env(safe-area-inset-top)); height:34px; padding:0 12px; border:0; border-radius:999px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; font-weight:700; cursor:pointer; }
+.chat-live-look-toggle.is-on { background:rgba(255,255,255,.22); }
+.chat-live-looks { position:absolute; z-index:8; left:14px; right:auto; top:calc(100px + env(safe-area-inset-top)); transform:none; max-height:min(280px, calc(100% - 280px)); overflow:auto; display:flex; flex-direction:column; gap:8px; padding:8px; border-radius:8px; background:rgba(8,10,16,.72); border:1px solid rgba(255,255,255,.16); box-shadow:0 12px 32px rgba(0,0,0,.28); }
+.chat-live-looks[hidden], .chat-live-look-toggle[hidden] { display:none !important; }
+.chat-live-toast { position:absolute; left:16px; right:84px; bottom:168px; z-index:5; max-height:44px; overflow:hidden; color:#fff; font-size:14px; line-height:1.4; text-shadow:0 1px 2px rgba(0,0,0,.85); opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.chat-live-toast.is-on { opacity:1; }
+.chat-live-look-btn { width:58px; min-height:58px; padding:6px 4px; border:0; border-radius:6px; background:rgba(255,255,255,.08); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:10px; font-weight:700; line-height:1.1; cursor:pointer; }
+.chat-live-look-icon { width:22px; height:22px; display:block; }
+.chat-live-look-icon svg { width:22px; height:22px; display:block; }
+.chat-live-look-btn[disabled] { opacity:.38; cursor:not-allowed; }
+.chat-live-look-btn.is-on { background:rgba(255,255,255,.24); box-shadow:inset 0 0 0 1px rgba(255,255,255,.55); }
+.chat-live-picker { position:absolute; inset:0; z-index:8; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.62); padding:16px; }
+.chat-live-picker-card { width:min(460px,100%); max-height:min(70vh,560px); display:flex; flex-direction:column; gap:12px; padding:14px; border-radius:8px; background:#12151c; color:#fff; }
+.chat-live-picker-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.chat-live-picker-head strong { font-size:15px; }
+.chat-live-picker-x { width:32px; height:32px; border:0; border-radius:999px; background:rgba(255,255,255,.12); color:#fff; font-size:20px; line-height:1; cursor:pointer; }
+.chat-live-picker-grid { overflow:auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.chat-live-pick { display:flex; flex-direction:column; gap:6px; min-width:0; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,.14); background:transparent; color:#fff; cursor:pointer; text-align:left; }
+.chat-live-pick img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#000; pointer-events:none; user-select:none; }
+.chat-live-pick span { font-size:12px; line-height:1.3; }
+.chat-live-pick.is-on { border-color:#fff; }
+.chat-live-pick[disabled] { opacity:.5; cursor:not-allowed; }
+.chat-live-picker-empty { grid-column:1 / -1; margin:8px 0; color:#94a3b8; font-size:13px; }
+.chat-live-picker-undo { width:100%; }
+.chat-live-overlay { align-items:stretch; background:#000; }
+.chat-live-shell { width:100%; height:100%; max-height:none; border:0; border-radius:0; display:block; }
+.chat-live-stage { position:absolute; inset:0; width:100%; height:100%; }
+.chat-live-rate { position:absolute; z-index:5; top:calc(14px + env(safe-area-inset-top)); left:14px; padding:6px 10px; border-radius:6px; background:rgba(0,0,0,.45); font-size:12px; }
+.chat-live-caption { display:none; }
+.chat-live-side { position:absolute; left:0; right:0; bottom:0; border:0; background:linear-gradient(transparent, rgba(0,0,0,.72) 28%); pointer-events:none; }
+.chat-live-head, .chat-live-row, .chat-live-cost { display:none; }
+.chat-live-dock { display:none !important; }
+.chat-live-log { pointer-events:none; max-height:22vh; background:transparent; padding:0 92px 8px 16px; }
+.chat-live-actions { pointer-events:none; border:0; background:transparent; padding:0 0 calc(10px + env(safe-area-inset-bottom)); }
+.chat-live-dock, .chat-live-input, .chat-live-picker, .chat-live-confirm { pointer-events:auto; }
+.chat-live-dock { display:flex; justify-content:center; align-items:center; gap:22px; padding:8px 0 10px; }
+.chat-live-dock .chat-live-gift-btn, .chat-live-dock .chat-live-voice, .chat-live-dock .chat-live-btn.is-danger { width:56px; height:56px; min-height:56px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+.chat-live-dock .chat-live-gift-btn { background:rgba(255,255,255,.16); font-size:22px; }
+.chat-live-dock .chat-live-gift-btn span:last-child { display:none; }
+.chat-live-dock .chat-live-voice { font-size:0; }
+.chat-live-dock .chat-live-voice::before { content:"🎤"; font-size:20px; }
+.chat-live-dock .chat-live-btn.is-danger { background:#ff2d6f; font-size:0; box-shadow:0 4px 16px rgba(255,45,111,.45); }
+.chat-live-dock .chat-live-btn.is-danger::before { content:"📞"; font-size:18px; display:inline-block; transform:rotate(135deg); }
+.chat-live-voice { display:flex; }
+.chat-live-input { margin:0 16px; padding:6px 6px 6px 12px; border-radius:6px; background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.1); }
+.chat-live-input input { border:0; background:transparent; height:36px; }
+.chat-live-picker.is-sheet { align-items:flex-end; background:rgba(0,0,0,.55); }
+.chat-live-picker.is-sheet .chat-live-picker-card { width:100%; max-width:none; border-radius:8px 8px 0 0; }
+.chat-live-balance { margin-left:auto; color:rgba(255,255,255,.45); font-size:12px; }
+.chat-live-topup { display:grid; gap:8px; padding:12px; }
+.chat-live-pay-marks { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 4px; color:rgba(255,255,255,.86); font-size:12px; }
+.chat-live-pay-marks span { display:inline-flex; align-items:center; gap:4px; height:26px; padding:0 8px; border:1px solid rgba(255,255,255,.14); border-radius:3px; background:#27272b; }
+.chat-live-pay-marks img { width:16px; height:16px; object-fit:cover; border-radius:3px; }
+.chat-live-topup-option, .chat-live-topup-link, .chat-live-sheet-cancel { width:calc(100% - 24px); margin:0 12px 10px; min-height:44px; border:0; border-radius:6px; }
+.chat-live-topup-option { display:flex; justify-content:space-between; padding:0 14px; background:rgba(255,255,255,.06); color:#fff; }
+.chat-live-topup-link { background:transparent; color:#ff5c8a; }
+.chat-live-sheet-cancel { background:rgba(255,255,255,.08); color:rgba(255,255,255,.75); }
+.chat-live-low-credit{position:absolute;left:16px;right:16px;bottom:92px;z-index:28;height:40px;border:0;border-radius:6px;background:#ff2d6f;color:#fff;font-weight:700}.chat-live-confirm { position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:28px; background:rgba(0,0,0,.6); }
+.chat-live-confirm-box { width:min(320px,100%); padding:22px 18px; border-radius:8px; background:#1b1b24; text-align:center; }
+.chat-live-confirm-box p { margin:0; font-weight:700; }
+.chat-live-confirm-actions { display:flex; justify-content:center; gap:10px; margin-top:16px; }
+.chat-live-confirm-actions button { min-width:84px; height:36px; border:0; border-radius:6px; background:rgba(255,255,255,.08); color:#fff; }
+.chat-live-confirm-actions .is-danger { background:#ff2d6f; }
+.chat-live-gift-btn { width:58px; min-height:58px; padding:6px 4px; border:0; border-radius:6px; background:rgba(255,255,255,.08); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:10px; font-weight:700; cursor:pointer; }
+.chat-live-gift-btn span:first-child { font-size:22px; line-height:1; }
+.chat-live-gift-card img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#000; }
+.chat-live-gift-card small { color:#fbbf24; font-size:11px; }
+.chat-live-gift-burst { position:absolute !important; inset:0 !important; z-index:9999 !important; display:flex !important; align-items:center; justify-content:center; pointer-events:none; overflow:hidden; animation:chatLiveGiftFade 2.8s ease both; }
+.chat-live-gift-burst::before { content:""; position:absolute; width:min(420px,90vw); height:min(420px,90vw); border-radius:50%; background:radial-gradient(circle,rgba(255,210,115,.3),rgba(255,210,115,0) 67%); animation:chatLiveGiftHalo 2.2s ease both; }
+.chat-live-gift-burst::after { content:"✦  ✧  ✦  ✧  ✦"; position:absolute; color:#ffe7a3; font-size:28px; letter-spacing:18px; white-space:nowrap; animation:chatLiveGiftSparkle 2.2s ease both; }
+.chat-live-gift-burst img { position:relative; z-index:1; width:min(210px,48vw); height:min(210px,48vw); object-fit:contain; filter:drop-shadow(0 16px 34px rgba(255,196,85,.7)); animation:chatLiveGiftPop 1.2s cubic-bezier(.2,1.4,.4,1) both; }
+.chat-live-gift-burst span { position:absolute; z-index:2; top:64%; padding:9px 16px; border:1px solid rgba(255,238,185,.45); border-radius:999px; background:rgba(8,10,16,.78); color:#fff8e3; font-size:14px; font-weight:700; box-shadow:0 8px 28px rgba(0,0,0,.4); }
+.chat-live-gift-burst .gift-fallback { position:relative; z-index:1; display:none; font-size:min(110px,25vw); line-height:1; filter:drop-shadow(0 16px 34px rgba(255,196,85,.7)); animation:chatLiveGiftPop 1.2s cubic-bezier(.2,1.4,.4,1) both; }
+@keyframes chatLiveGiftPop { 0% { transform:scale(.2) rotate(-12deg); opacity:0; } 45% { transform:scale(1.12) rotate(5deg); opacity:1; } 100% { transform:scale(1) rotate(0); opacity:1; } }
+@keyframes chatLiveGiftHalo { 0% { transform:scale(.2); opacity:0; } 35% { transform:scale(1); opacity:1; } 100% { transform:scale(1.35); opacity:0; } }
+@keyframes chatLiveGiftSparkle { 0% { transform:scale(.4) rotate(-12deg); opacity:0; } 35% { transform:scale(1.1) rotate(4deg); opacity:1; } 100% { transform:scale(1.4) rotate(12deg); opacity:0; } }
+@keyframes chatLiveGiftFade { 0%,68% { opacity:1; } 100% { opacity:0; } }
+@media (max-width:880px) {
+  .chat-live-overlay { align-items:stretch; background:#000; overflow:hidden; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  .chat-live-shell { width:100%; height:100%; border:0; border-radius:0; display:block; }
+  .chat-live-stage { position:absolute; inset:0; width:100%; height:100%; transform:none; }
+  .chat-live-stage video { width:100%; height:100%; object-fit:cover; transform:none; }
+  .chat-live-badge, .chat-live-timer, .chat-live-rate { top:calc(18px + env(safe-area-inset-top)); }
+  .chat-live-timer { right:16px; }
+  .chat-live-side { position:absolute; left:0; right:0; bottom:0; top:auto; border:0; background:linear-gradient(transparent, rgba(0,0,0,.78) 24%); pointer-events:none; display:flex; flex-direction:column; justify-content:flex-end; }
+  .chat-live-head, .chat-live-row, .chat-live-cost { display:none !important; }
+  .chat-live-close { display:flex !important; top:calc(14px + env(safe-area-inset-top)); left:14px; }
+  .chat-live-badge { left:58px; }
+  .chat-live-dock { display:none !important; }
+  .chat-live-input { display:flex; align-items:center; gap:8px; margin:0 12px calc(8px + env(safe-area-inset-bottom)); padding:6px; }
+  .chat-live-input .chat-live-gift-btn, .chat-live-input .chat-live-voice { width:40px; height:40px; min-height:40px; padding:0; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.16); }
+  .chat-live-input .chat-live-gift-btn span:last-child { display:none; }
+  .chat-live-input .chat-live-gift-btn span:first-child { font-size:18px; }
+  .chat-live-input .chat-live-voice { font-size:0; }
+  .chat-live-input .chat-live-voice::before { content:"🎤"; font-size:18px; }
+  .chat-live-input input { flex:1; min-width:0; }
+  .chat-live-toast { bottom:calc(78px + env(safe-area-inset-bottom)); }
+  .chat-live-log { pointer-events:none; flex:0 1 auto; max-height:22vh; background:transparent; padding:0 92px 6px 16px; gap:4px; -webkit-mask-image:linear-gradient(to bottom, transparent, #000 18%); mask-image:linear-gradient(to bottom, transparent, #000 18%); }
+  .chat-live-line { background:transparent !important; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); border-radius:0; padding:2px 0; max-width:86%; font-size:15px; align-self:flex-start; }
+  .chat-live-line.is-user::before, .chat-live-line.is-bot::before { content:attr(data-who) "："; color:#7dd3fc; margin-right:4px; }
+  .chat-live-line.is-sys { align-self:center; font-size:12px; color:rgba(255,255,255,.78); }
+  .chat-live-actions { pointer-events:none; border:0; background:transparent; padding:0 0 calc(12px + env(safe-area-inset-bottom)); }
+  .chat-live-caption { bottom:168px; }
+  .chat-live-input { margin:0 16px 4px; }
+  .chat-live-input input { height:36px; border:0; border-radius:0; background:transparent; }
+  .chat-live-input .chat-live-btn { width:auto; min-width:52px; height:32px; padding:0 12px; border-radius:6px; background:#ff2d6f; color:#fff; }
+  .chat-live-dock .chat-live-voice { display:flex; }
+  .chat-live-listen { bottom:calc(150px + env(safe-area-inset-bottom)); pointer-events:none; }
+  .chat-live-log { display:none !important; }
+  .chat-live-look-toggle { top:calc(58px + env(safe-area-inset-top)); left:14px; right:auto; }
+  .chat-live-looks { top:calc(100px + env(safe-area-inset-top)); bottom:auto; left:14px; right:auto; transform:none; flex-direction:column; max-height:min(240px, calc(100% - 280px)); overflow:auto; background:rgba(8,10,16,.72); border:1px solid rgba(255,255,255,.16); box-shadow:0 12px 32px rgba(0,0,0,.28); padding:8px; }
+  .chat-live-input .chat-live-gift-btn, .chat-live-input .chat-live-voice { width:44px; height:44px; min-width:44px; min-height:44px; border-radius:50%; }
+  .chat-live-toast { right:16px; bottom:calc(148px + env(safe-area-inset-bottom)); text-align:center; }\n  .chat-live-overlay.is-room [data-look-kind=\"undress\"] { display:none !important; }
+  .chat-live-picker { align-items:flex-end; padding:0; }
+  .chat-live-picker-card { width:100%; max-height:68%; border-radius:8px 8px 0 0; padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
+}
+`;
+    document.head.appendChild(style);
+  }
+
+  /* 不同 SDK 版本方法名不一致，逐个尝试存在的方法（模块作用域，供 joinRtc 使用） */
+  async function callIfPresent(engine, names, ...args) {
+    for (const name of names) {
+      if (typeof engine?.[name] === "function") {
+        try { await engine[name](...args); return true; } catch { /* 试下一个 */ }
+      }
+    }
+    return false;
+  }
+
+  /* 阿里云 SDK 的 Clock 单例一创建就每 30 秒请求 time.akamai.com，destroy 不会停。
+     包一层，挂断时停表，下次进房再开。 */
+  function hookRtcClock() {
+    const rtc = window.AliRTS;
+    const Clock = rtc && rtc.Clock;
+    if (!Clock || Clock.__chatLiveWrapped || typeof Clock.prototype?.startSyncClock !== "function") return;
+    const origStart = Clock.prototype.startSyncClock;
+    Clock.prototype.startSyncClock = function startSyncClock() {
+      if (this.__chatLiveHold) return;
+      return origStart.call(this);
+    };
+    function WrappedClock(...args) {
+      const instance = new Clock(...args);
+      state.rtcClock = instance;
+      return instance;
+    }
+    WrappedClock.__chatLiveWrapped = true;
+    WrappedClock.prototype = Clock.prototype;
+    rtc.Clock = WrappedClock;
+    state.rtcClockStart = origStart;
+  }
+
+  function pauseRtcClock() {
+    const clock = state.rtcClock;
+    if (!clock) return;
+    clock.__chatLiveHold = true;
+    try { clock.stopSyncClock(); } catch {}
+  }
+
+  function resumeRtcClock() {
+    const clock = state.rtcClock;
+    if (!clock || !clock.__chatLiveHold) return;
+    clock.__chatLiveHold = false;
+    try { state.rtcClockStart?.call(clock); } catch {}
+  }
+
+  function rtcStep(value, ms = 2500) {
+    return Promise.race([
+      Promise.resolve(value).catch(() => {}),
+      new Promise((resolve) => window.setTimeout(resolve, ms)),
+    ]);
+  }
+
+  async function releaseRtc() {
+    pauseRtcClock();
+    const engine = state.engine;
+    state.engine = null;
+    if (!engine) return;
+    try { await rtcStep(engine.leaveChannel?.(), 2500); } catch {}
+    try { await rtcStep(engine.destroy?.(), 2500); } catch {}
+    /* ARTC destroy is asynchronous even when the Web SDK method returns void.
+       Do not immediately reuse the singleton: a switch must get a genuinely
+       released engine, otherwise the new session can stop at subscribe 0->2. */
+    await new Promise((resolve) => window.setTimeout(resolve, 450));
+  }
+
+  async function freshRtcEngine() {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        const create = window.AliRtcEngine?.createInstance;
+        if (typeof create === "function") {
+          const created = await create.call(window.AliRtcEngine);
+          if (created) return created;
+        }
+        const engine = window.AliRtcEngine?.getInstance?.();
+        if (engine) return engine;
+      } catch {}
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    }
+    throw new Error("实时音视频组件仍在释放，请稍后重试。");
+  }
+
+  function loadRtcSdk() {
+    if (window.AliRtcEngine) {
+      hookRtcClock();
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = RTC_SDK_URL;
+      script.async = true;
+      script.onload = () => {
+        hookRtcClock();
+        resolve();
+      };
+      script.onerror = () => reject(new Error("实时音视频组件加载失败，请检查网络后重试。"));
+      document.head.appendChild(script);
+    });
+  }
+
+  function el(tag, className = "", text = "") {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function buildOverlay(character) {
+    injectStyles();
+    const pricing = state.config?.pricing || {};
+    const overlay = el("div", "chat-live-overlay");
+    const shell = el("div", "chat-live-shell");
+    const stage = el("div", "chat-live-stage");
+    const video = document.createElement("video");
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true;
+    video.setAttribute("playsinline", "true");
+    video.setAttribute("webkit-playsinline", "true");
+    const placeholder = el("div", "chat-live-placeholder is-calling");
+    const avatarWrap = el("div", "chat-live-call-avatar");
+    const rings = el("div", "chat-live-rings");
+    rings.append(el("i"), el("i"), el("i"));
+    const avatar = document.createElement("img");
+    avatar.src = character.portraitUrl || character.avatarUrl || "";
+    avatar.alt = "";
+    avatarWrap.append(rings, avatar);
+    const callLabel = el("strong", "chat-live-call-label", "正在呼叫");
+    const callDetail = el("em", "chat-live-call-detail", character.name || "");
+    const failExit = el("button", "chat-live-fail-exit", "关闭");
+    failExit.type = "button";
+    failExit.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      forceLeaveCall("user_end");
+    };
+    placeholder.append(avatarWrap, callLabel, callDetail, failExit);
+    const badge = el("span", "chat-live-badge", "");
+    badge.hidden = true;
+    const timer = el("span", "chat-live-timer", "--:--");
+    const lookToggle = el("button", "chat-live-look-toggle", "动作");
+    lookToggle.type = "button";
+    lookToggle.hidden = true;
+    lookToggle.setAttribute("aria-expanded", "false");
+    lookToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.lookMenuOpen = !state.lookMenuOpen;
+      syncLookRail();
+    });
+    const lookRail = el("div", "chat-live-looks");
+    lookRail.hidden = true;
+    lookRail.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        state.lookMenuOpen = false;
+        window.setTimeout(syncLookRail, 0);
+      }
+    });
+    const lookIcons = {
+      garment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M8 7 12 4l4 3 3 2-2 2v9H7v-9L5 9l3-2z"/></svg>',
+      object: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M8 11V7a4 4 0 0 1 8 0v4"/><path d="M6 11h12v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-8z"/></svg>',
+      background: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="m8 15 2.5-3 2 2.2L16 10l4 5"/></svg>',
+    };
+    [["garment", "换装"], ["object", "拿物"], ["background", "背景"]].forEach(([kind, label]) => {
+      const button = el("button", "chat-live-look-btn");
+      button.type = "button";
+      button.dataset.lookKind = kind;
+      button.disabled = true;
+      const icon = el("span", "chat-live-look-icon");
+      icon.innerHTML = lookIcons[kind];
+      button.append(icon, el("span", "", label));
+      lookRail.appendChild(button);
+    });
+    const undressBtn = el("button", "chat-live-look-btn");
+    undressBtn.type = "button";
+    undressBtn.dataset.lookKind = "undress";
+    undressBtn.disabled = true;
+    undressBtn.hidden = !String(character.undressImageUrl || "");
+    undressBtn.setAttribute("aria-pressed", "false");
+    const undressIcon = el("span", "chat-live-look-icon");
+    undressIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3v3"/><path d="m7 6 2 2"/><path d="m17 6-2 2"/><circle cx="12" cy="14" r="5"/></svg>';
+    undressBtn.append(undressIcon, el("span", "", "私密"));
+    lookRail.appendChild(undressBtn);
+    const giftBtn = el("button", "chat-live-gift-btn");
+    giftBtn.type = "button";
+    giftBtn.dataset.giftAction = "true";
+    giftBtn.innerHTML = "<span>🎁</span><span>打赏</span>";
+    giftBtn.disabled = true;
+    lookRail.appendChild(giftBtn);
+    const perMin = saleCreditsPerMinute();
+    const perSec = perMin / 60;
+    const perSecText = perMin ? (Number.isInteger(perSec) ? String(perSec) : perSec.toFixed(1).replace(/\.0$/, "")) : "按配置";
+    const rate = el("span", "chat-live-rate", `1080P · ${perSecText} 积分/秒`);
+    const caption = el("div", "chat-live-caption", `与${character.name || "TA"}视频通话中`);
+    const toast = el("div", "chat-live-toast");
+    stage.append(video, placeholder, rate, badge, timer, caption, lookToggle, lookRail, toast);
+
+    const side = el("div", "chat-live-side");
+    const head = el("div", "chat-live-head");
+    const title = el("h3", "", character.name || "在线聊天");
+    const subtitle = el("p", "", "直接说话，或在下面打字。");
+    const closeBtn = el("button", "chat-live-close", "×");
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "挂断");
+    head.append(title, subtitle);
+
+    const log = el("div", "chat-live-log");
+    const actions = el("div", "chat-live-actions");
+    const inputRow = el("div", "chat-live-input");
+    const voiceBtn = el("button", "chat-live-voice", "语音");
+    voiceBtn.type = "button";
+    voiceBtn.setAttribute("aria-pressed", "false");
+    const input = document.createElement("input");
+    input.placeholder = "说点什么…";
+    input.enterKeyHint = "send";
+    const sendBtn = el("button", "chat-live-btn is-primary", "发送");
+    sendBtn.type = "button";
+    inputRow.append(giftBtn, input, sendBtn, voiceBtn);
+    const listen = el("div", "chat-live-listen", "正在听…");
+    const row = el("div", "chat-live-row");
+    const muteBtn = el("button", "chat-live-btn is-ghost", "静音");
+    muteBtn.type = "button";
+    const hangBtn = el("button", "chat-live-btn is-danger", "挂断");
+    hangBtn.type = "button";
+    row.append(muteBtn, hangBtn);
+    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 画面显示后计时 · 最长 ${pricing.maxMinutes || 10} 分钟`);
+    const dock = el("div", "chat-live-dock");
+    dock.append(hangBtn);
+    input.placeholder = "说点什么…";
+    actions.append(dock, inputRow, row, cost);
+    side.append(head, log, actions, listen);
+    shell.append(stage, side, closeBtn);
+    overlay.appendChild(shell);
+    document.body.appendChild(overlay);
+
+    state.overlay = { root: overlay, video, placeholder, callLabel, callDetail, badge, timer, rate, caption, log, input, sendBtn, muteBtn, hangBtn, cost, voiceBtn, closeBtn, failExit, listen, lookRail, lookToggle, toast, giftBtn, picker: null };
+    overlay.addEventListener("click", (event) => {
+      if (!state.lookMenuOpen) return;
+      if (event.target.closest(".chat-live-looks, .chat-live-look-toggle")) return;
+      state.lookMenuOpen = false;
+      syncLookRail();
+    });
+    state.unbindViewport = bindViewport(overlay);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    state.overlay.restoreOverflow = previousOverflow;
+    return state.overlay;
+  }
+
+  function appendLine(kind, text, who = "") {
+    if (!state.overlay || !text) return;
+    if (kind === "bot") return;
+    const line = el("div", `chat-live-line is-${kind}`, text);
+    if (kind === "user") line.dataset.who = who || "我";
+    else if (who) line.dataset.who = who;
+    state.overlay.log.appendChild(line);
+    while (state.overlay.log.children.length > 30) state.overlay.log.firstChild.remove();
+    state.overlay.log.scrollTop = state.overlay.log.scrollHeight;
+    const toast = state.overlay.toast;
+    if (toast && (kind === "user" || kind === "sys")) {
+      toast.textContent = kind === "user" ? text : text;
+      toast.classList.add("is-on");
+      window.clearTimeout(state.toastTimer);
+      state.toastTimer = window.setTimeout(() => toast.classList.remove("is-on"), kind === "sys" ? 2600 : 1800);
+    }
+  }
+
+  function isPhoneLayout() {
+    return window.matchMedia("(max-width: 880px)").matches;
+  }
+
+  function bindViewport(overlay) {
+    const vv = window.visualViewport;
+    if (!vv) return () => {};
+    const side = overlay.querySelector(".chat-live-side");
+    const sync = () => {
+      overlay.style.height = "";
+      overlay.style.top = "";
+      overlay.style.bottom = "";
+      if (!side) return;
+      if (!isPhoneLayout()) {
+        side.style.paddingBottom = "";
+        return;
+      }
+      /* 键盘只抬输入栏。不要改视频舞台尺寸，iOS 上缩放 WebRTC video 会把画面打成黑屏，计时器还在走。 */
+      const lift = Math.max(0, Math.round(window.innerHeight - (vv.offsetTop + vv.height)));
+      side.style.paddingBottom = lift > 8 ? `${lift}px` : "";
+    };
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    window.addEventListener("orientationchange", sync);
+    sync();
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+      window.removeEventListener("orientationchange", sync);
+    };
+  }
+
+  function setVoiceUi(on) {
+    state.listening = !!on;
+    const button = state.overlay?.voiceBtn;
+    if (!button) return;
+    button.classList.toggle("is-on", !!on || state.micOn);
+    button.textContent = on ? "聆听" : (state.micOn ? "开麦" : "语音");
+    button.setAttribute("aria-pressed", (on || state.micOn) ? "true" : "false");
+    state.overlay.listen?.classList.toggle("is-on", !!on);
+  }
+
+  async function setMicPublished(on) {
+    if (!state.engine || typeof state.engine.publishLocalAudioStream !== "function") return false;
+    try {
+      await state.engine.publishLocalAudioStream(!!on);
+      state.micOn = !!on;
+      if (state.overlay?.muteBtn) state.overlay.muteBtn.textContent = state.micOn ? "静音" : "开麦";
+      setVoiceUi(state.listening);
+      return true;
+    } catch {
+      state.micOn = false;
+      setVoiceUi(false);
+      return false;
+    }
+  }
+
+  function stopRecognition() {
+    const rec = state.recognition;
+    state.recognition = null;
+    if (rec) {
+      try { rec.onresult = null; rec.onerror = null; rec.onend = null; rec.stop(); } catch {}
+    }
+    if (state.voiceTimer) window.clearTimeout(state.voiceTimer);
+    state.voiceTimer = 0;
+    const recorder = state.voiceRecorder;
+    state.voiceRecorder = null;
+    if (recorder && recorder.state !== "inactive") {
+      try { recorder.stop(); } catch {}
+    }
+    state.voiceStream?.getTracks?.().forEach((track) => { try { track.stop(); } catch {} });
+    state.voiceStream = null;
+    setVoiceUi(false);
+    if (state.overlay?.listen) state.overlay.listen.textContent = "正在听…";
+  }
+
+  function voiceFailText(error) {
+    const name = String(error?.name || "");
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") return "麦克风没有权限。请允许后重试，或改用文字。";
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") return "没有找到麦克风，请改用文字。";
+    return "语音没有打开，请允许麦克风或改用文字。";
+  }
+
+  async function finishVoiceRecording() {
+    const recorder = state.voiceRecorder;
+    const chunks = state.voiceChunks || [];
+    const sessionId = state.session?.id || "";
+    if (state.voiceTimer) window.clearTimeout(state.voiceTimer);
+    state.voiceTimer = 0;
+    if (!recorder) {
+      setVoiceUi(false);
+      return;
+    }
+    const stopped = new Promise((resolve) => { recorder.onstop = () => resolve(); });
+    state.voiceRecorder = null;
+    try { if (recorder.state !== "inactive") recorder.stop(); else resolve(); } catch { resolve(); }
+    await stopped;
+    state.voiceStream?.getTracks?.().forEach((track) => { try { track.stop(); } catch {} });
+    state.voiceStream = null;
+    setVoiceUi(false);
+    if (state.overlay?.listen) state.overlay.listen.textContent = "正在听…";
+    const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+    if (!sessionId || state.ended) return;
+    if (blob.size < 800 || Date.now() - (state.voiceStartedAt || 0) < 350) {
+      appendLine("sys", "按住说话，松手后发送。");
+      return;
+    }
+    if (state.overlay?.listen) {
+      state.overlay.listen.textContent = "正在识别…";
+      state.overlay.listen.classList.add("is-on");
+    }
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("语音没有读出来"));
+        reader.readAsDataURL(blob);
+      });
+      const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/voice`, {
+        method: "POST",
+        body: JSON.stringify({ audioBase64: dataUrl, mime: blob.type || "audio/webm" }),
+      });
+      const heard = String(payload?.text || "").trim();
+      if (heard && !state.roomId) appendLine("user", heard);
+    } catch (error) {
+      appendLine("sys", error?.message || "语音没有识别出来，请再说一次或改用文字。");
+    } finally {
+      if (state.overlay?.listen) {
+        state.overlay.listen.classList.remove("is-on");
+        state.overlay.listen.textContent = "正在听…";
+      }
+    }
+  }
+
+  async function toggleComponentVoice() {
+    if (state.voiceRecorder) {
+      await finishVoiceRecording();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      appendLine("sys", "这个浏览器不能直接发语音，请用文字。");
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (error) {
+      setVoiceUi(false);
+      appendLine("sys", voiceFailText(error));
+      return;
+    }
+    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((item) => MediaRecorder.isTypeSupported?.(item)) || "";
+    let recorder;
+    try {
+      recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch {
+      stream.getTracks().forEach((track) => track.stop());
+      appendLine("sys", "这个浏览器不能录音，请改用文字。");
+      return;
+    }
+    const chunks = [];
+    recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
+    recorder.onerror = () => {
+      stopRecognition();
+      appendLine("sys", "语音没有录上，请再试一次或改用文字。");
+    };
+    state.voiceRecorder = recorder;
+    state.voiceStream = stream;
+    state.voiceChunks = chunks;
+    setVoiceUi(true);
+    if (state.overlay?.listen) state.overlay.listen.textContent = "松开发送";
+    try {
+      recorder.start();
+      state.voiceStartedAt = Date.now();
+      state.voiceTimer = window.setTimeout(() => { finishVoiceRecording(); }, 60000);
+      if (!state.voiceHold) finishVoiceRecording();
+    } catch {
+      stopRecognition();
+      appendLine("sys", "语音没有打开，请允许麦克风或改用文字。");
+    }
+  }
+
+  function bindVoiceHold(button) {
+    if (!button || button.dataset.holdBound === "1") return;
+    button.dataset.holdBound = "1";
+    button.addEventListener("contextmenu", (event) => event.preventDefault());
+    const release = async (event) => {
+      if (state.voicePointer != null && event.pointerId !== state.voicePointer) return;
+      state.voicePointer = null;
+      state.voiceHold = false;
+      if ((state.session?.mode || "") !== "component") {
+        await setMicPublished(false);
+        setVoiceUi(false);
+        if (state.overlay?.listen) state.overlay.listen.textContent = "正在听…";
+        return;
+      }
+      if (state.voiceRecorder) await finishVoiceRecording();
+    };
+    button.addEventListener("pointerdown", async (event) => {
+      if (state.ended || event.button > 0) return;
+      event.preventDefault();
+      state.voicePointer = event.pointerId;
+      state.voiceHold = true;
+      try { button.setPointerCapture(event.pointerId); } catch {}
+      if ((state.session?.mode || "") !== "component") {
+        const ok = await setMicPublished(true);
+        if (!state.voiceHold) {
+          await setMicPublished(false);
+          return;
+        }
+        if (!ok) appendLine("sys", "麦克风没打开。请允许浏览器使用麦克风，或改用文字。");
+        else if (state.overlay?.listen) {
+          state.overlay.listen.textContent = "松开发送";
+          state.overlay.listen.classList.add("is-on");
+        }
+        return;
+      }
+      await toggleComponentVoice();
+    });
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+  }
+
+  function setStageStatus(text, tone = "", detail = "") {
+    if (!state.overlay) return;
+    if (tone === "error") {
+      state.overlay.placeholder?.classList.add("is-failed");
+      state.overlay.placeholder?.classList.remove("is-calling");
+      if (state.overlay.callLabel) state.overlay.callLabel.textContent = text || "创建失败";
+      if (detail && state.overlay.callDetail) state.overlay.callDetail.textContent = detail;
+      state.overlay.badge.hidden = false;
+      state.overlay.badge.textContent = `● ${text}`;
+      state.overlay.badge.style.color = "#f87171";
+      state.overlay.failExit?.classList.add("is-visible");
+      return;
+    }
+    state.overlay.badge.hidden = true;
+    state.overlay.badge.textContent = "";
+  }
+
+  function startTimer() {
+    state.startedAt = Date.now();
+    state.billableStartedAt = 0;
+    state.lastPresenceAt = 0;
+    state.heartbeat = window.setInterval(() => {
+      if (!state.overlay) return;
+      if (Date.now() - state.lastPresenceAt >= 10000) {
+        state.lastPresenceAt = Date.now();
+        reportChatLiveOperation({ id: `presence-${Date.now().toString(36)}`, action: "presence", phase: "heartbeat", success: true, message: "active connection" });
+      }
+      if (!state.creditWatchAt || Date.now() - state.creditWatchAt >= 3000) {
+        state.creditWatchAt = Date.now();
+        const sessionId = state.session?.id;
+        if (sessionId && !state.ended) {
+          apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}`).then((payload) => {
+            const reason = String(payload?.session?.endReason || "");
+            if (!state.ended && reason === "insufficient_credits") finishSession("insufficient_credits", "积分不够，请充值");
+            const left = Number(payload?.session?.affordableSeconds);
+            if (!state.ended && Number.isFinite(left)) {
+              if (left <= 0) finishSession("insufficient_credits", "积分不够，请充值");
+              else if (left <= 30) showLowCreditWarning(left);
+            }
+          }).catch(() => {});
+        }
+      }
+      const seconds = state.billableStartedAt ? Math.floor((Date.now() - state.billableStartedAt) / 1000) : 0;
+      const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+      const ss = String(seconds % 60).padStart(2, "0");
+      state.overlay.timer.textContent = state.billableStartedAt ? `${mm}:${ss}` : "--:--";
+      const maxSeconds = Number(state.config?.pricing?.maxMinutes || 10) * 60;
+      if (state.billableStartedAt && seconds >= maxSeconds) finishSession("client_timeout", "达到单次最长时长");
+    }, 1000);
+  }
+
+  async function reportChatLiveOperation(operation = {}) {
+    const sessionId = state.session?.id;
+    if (!sessionId) return false;
+    const path = `/api/chat-live/sessions/${encodeURIComponent(sessionId)}/operations`;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await apiFetch(path, { method: "POST", body: JSON.stringify(operation) });
+        return true;
+      } catch {
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+    return false;
+  }
+
+  function markBillableStart() {
+    if (state.billableStartedAt || state.ended || !state.session?.id) return;
+    state.billableStartedAt = Date.now();
+    reportChatLiveOperation({ action: "video_ready", phase: "client", success: true, message: "首个有效画面已显示" });
+    apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/ready`, { method: "POST", body: "{}" }).catch(() => {});
+  }
+
+  function wsUrl(session) {
+    const url = new URL(session.wsPath || `/api/chat-live/ws?session=${encodeURIComponent(session.id)}`, window.location.href);
+    url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    url.searchParams.set("token", authToken());
+    url.searchParams.set("conn", state.connId);
+    return url.toString();
+  }
+
+  function sendSignal(payload) {
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return false;
+    state.ws.send(JSON.stringify(payload));
+    return true;
+  }
+
+  function buildSignal(type, payload = {}) {
+    return { type, live_id: String(state.session?.liveId || ""), conn_id: state.connId, seq_id: state.seqId++, payload };
+  }
+
+  function handleSignal(raw) {
+    let message;
+    try {
+      message = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const type = Number(message?.type || 0);
+    const payload = message?.payload || {};
+    if (type === 2) {
+      const ack = payload.conn_init_ack || {};
+      if (ack.success === true) {
+        state.controlReady = true;
+        setStageStatus("已连接", "ok");
+        syncLookRail();
+        /* 控制通道连上不等于画面出来了，占位头像留到第一帧再关 */
+      } else {
+        setStageStatus("准备中", "");
+        window.setTimeout(() => sendSignal(buildSignal(1, { conn_init: { version: 1 } })), 2000);
+      }
+      return;
+    }
+    if (type === 12) {
+      const ack = payload.prompt_operation_ack || {};
+      const operation = state.lookOperation || {};
+      const safeAck = JSON.stringify({ success: ack?.success === true, error_code: ack?.error_code || "", status: ack?.status || "", message: ack?.message || "", keys: Object.keys(ack || {}).slice(0, 20) }).slice(0, 700);
+      reportChatLiveOperation({ id: operation.id || "", action: operation.action || "switch_look", phase: "upstream_ack", success: ack?.success === true, code: ack?.error_code || "", kind: operation.kind || "", message: "Vidu type=12 ACK " + safeAck });
+      state.lookWait?.settle(ack);
+      return;
+    }
+    if (type === 9) {
+      const text = payload.transcription?.text || payload.text || "";
+      if (text) appendLine("user", text);
+      return;
+    }
+    if (type === 10) {
+      const text = payload.transcription?.text || payload.text || "";
+      if (text) { /* 生成文案不进对话 */ }
+      return;
+    }
+    if (type === 6) {
+      const raw = String(payload.hangup?.hangup_reason || "").replace(/[A-Za-z0-9_-]{24,}/g, "[redacted]").replace(/\s+/g, " ").trim().slice(0, 80);
+      const safe = raw.replace(/[^a-z0-9_.-]/gi, "").slice(0, 48) || "upstream_hangup";
+      failLookWait("会话已经结束。");
+      finishFromServer(safe, raw || "服务端结束");
+    }
+  }
+
+  function connectSignaling(session) {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(wsUrl(session));
+      state.ws = socket;
+      let opened = false;
+      socket.addEventListener("open", () => {
+        opened = true;
+        state.controlReady = false;
+        syncLookRail();
+        socket.send(JSON.stringify(buildSignal(1, { conn_init: { version: 1 } })));
+        resolve();
+      });
+      socket.addEventListener("message", (event) => handleSignal(event.data));
+      socket.addEventListener("error", () => {
+        setStageStatus("控制通道异常", "error");
+        reportSessionIssue("socket_error", "控制通道异常");
+      });
+      socket.addEventListener("close", () => {
+        state.controlReady = false;
+        syncLookRail();
+        if (!opened) reject(new Error("控制通道连接失败。"));
+        if (state.ended) return;
+        const sessionId = state.session?.id;
+        if (sessionId) finishFromServer("socket_closed", "控制通道断开");
+        if (state.lookBusy) {
+          failLookWait("画面切换时控制通道断开。");
+          const operation = state.lookOperation || {};
+          reportChatLiveOperation({ id: operation.id, action: operation.action || "switch_look", phase: "transport", success: false, code: "socket_closed", kind: operation.kind || "", message: "画面切换时控制通道断开" });
+        }
+        if (state.seenPicture && !state.controlReconnectAttempted) {
+          state.controlReconnectAttempted = true;
+          reportSessionIssue("socket_closed", "控制通道断开，正在重连");
+          setStageStatus("通道重连中", "error");
+          window.setTimeout(async () => {
+            if (state.ended) return;
+            try {
+              await connectSignaling(state.session);
+              state.controlReconnectAttempted = false;
+              setStageStatus("已连接", "ok");
+            } catch {
+              finishSession("socket_closed", "控制通道重连失败");
+            }
+          }, 1000);
+          return;
+        }
+        finishFromServer("socket_closed", "控制通道断开");
+      });
+    });
+  }
+
+
+  function showPlaceholder() {
+    const overlay = state.overlay;
+    if (!overlay || state.lookSwitching) return;
+    state.placeholderOn = true;
+    overlay.placeholder.style.display = "flex";
+  }
+
+  function hidePlaceholder() {
+    const overlay = state.overlay;
+    if (!overlay) return;
+    state.placeholderOn = false;
+    overlay.placeholder.style.display = "none";
+  }
+
+  function sampleBrightness(video) {
+    if (!video || video.readyState < 2 || !video.videoWidth) return null;
+    try {
+      const canvas = sampleBrightness.canvas || (sampleBrightness.canvas = document.createElement("canvas"));
+      canvas.width = 8;
+      canvas.height = 8;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, 8, 8);
+      const data = ctx.getImageData(0, 0, 8, 8).data;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2];
+      return sum;
+    } catch {
+      return null;
+    }
+  }
+
+  function bindRemoteVideo(userId, force = false) {
+    const engine = state.engine;
+    const video = state.overlay?.video;
+    const uid = userId || state.remoteUserId;
+    if (!engine || !video || !uid || state.ended) return;
+    state.remoteUserId = uid;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "true");
+    video.setAttribute("webkit-playsinline", "true");
+    /* 已经绑上时只 play。setRemoteViewConfig 会 load() 重绑，正常画面会被刷黑。 */
+    if (!force && state.boundUserId === uid && video.srcObject) {
+      video.play().catch(() => {});
+      return;
+    }
+    state.boundUserId = uid;
+    try { engine.setRemoteViewConfig(video, uid, 1); } catch {}
+    video.play().catch(() => {});
+  }
+
+  async function resubscribeVideo() {
+    const engine = state.engine;
+    if (!engine || state.ended) return;
+    const userId = state.remoteUserId;
+    if (userId && typeof engine.subscribeRemoteMediaStream === "function") {
+      try {
+        await engine.subscribeRemoteMediaStream(userId, 1, true, true);
+        /* Vidu can briefly report unsubscribe while applying a look.  A forced
+           setRemoteViewConfig/load here clears the element and leaves it black. */
+        bindRemoteVideo(userId);
+        return;
+      } catch {}
+    }
+    await callIfPresent(engine, ["subscribeAllRemoteVideoStreams", "setDefaultSubscribeAllRemoteVideoStreams"], true);
+    bindRemoteVideo(userId);
+  }
+
+  function reportSessionIssue(code, message) {
+    const sessionId = state.session?.id;
+    if (!sessionId) return Promise.resolve(false);
+    const cleanCode = String(code || "").replace(/[^a-z0-9_.-]/gi, "").slice(0, 48);
+    const cleanMessage = String(message || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    if (!cleanCode && !cleanMessage) return Promise.resolve(false);
+    const key = `${cleanCode}|${cleanMessage}`;
+    if (!state.reportedIssues) state.reportedIssues = new Set();
+    if (state.reportedIssues.has(key)) return Promise.resolve(false);
+    state.reportedIssues.add(key);
+    return apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/issues`, {
+      method: "POST",
+      body: JSON.stringify({ code: cleanCode, message: cleanMessage }),
+    }).then(() => true).catch(() => false);
+  }
+
+  function reportVideoDiagnostic(event, success, code, details = {}) {
+    const operation = state.lookOperation || {};
+    return reportChatLiveOperation({
+      id: `video-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      action: event,
+      phase: "client_watch",
+      success,
+      code,
+      kind: operation.kind || "",
+      message: event === "first_frame_timeout" ? "首帧等待超时前的客户端状态" : "首帧/视频恢复后的客户端状态",
+      details,
+    });
+  }
+
+  function videoDiagnosticDetails(extra = {}) {
+    const video = state.overlay?.video;
+    return {
+      visibility: document.visibilityState,
+      readyState: Number(video?.readyState || 0),
+      videoWidth: Number(video?.videoWidth || 0),
+      videoHeight: Number(video?.videoHeight || 0),
+      currentTime: Number.isFinite(video?.currentTime) ? Number(video.currentTime.toFixed(3)) : -1,
+      remoteUserId: String(state.remoteUserId || "").slice(0, 80),
+      lastFrameAgeMs: state.lastFrameAt ? Math.max(0, Date.now() - state.lastFrameAt) : -1,
+      lastPictureAgeMs: state.lastPictureAt ? Math.max(0, Date.now() - state.lastPictureAt) : -1,
+      remoteBoundOnce: state.remoteBoundOnce === true,
+      rtcRecoveries: state.rtcRecoveries,
+      ...extra,
+    };
+  }
+
+  function videoIssue(reason) {
+    if (reason === "black") return { code: "video_black", message: "画面变黑" };
+    if (reason === "offline") return { code: "video_offline", message: "画面断开" };
+    if (reason === "unsubscribe") return { code: "video_unsubscribe", message: "视频订阅中断" };
+    return { code: "video_stall", message: "画面卡住，时间还在走" };
+  }
+
+  function recoverVideoOnce(reason) {
+    if (state.ended) return;
+    if (state.videoFixes >= 1 || state.videoFixTotal >= 2) return;
+    state.videoFixes += 1;
+    state.videoFixTotal += 1;
+    state.videoRecoveryPending = true;
+    state.boundUserId = "";
+    const now = Date.now();
+    state.lastFrameAt = now;
+    state.lastPictureAt = now;
+    showPlaceholder();
+    const issue = videoIssue(reason);
+    reportSessionIssue(issue.code, issue.message);
+    reportVideoDiagnostic("video_recovery_start", null, issue.code, videoDiagnosticDetails({ reason }));
+    appendLine("sys", reason === "offline" ? "画面断开，正在重新连接…" : "画面卡住了，正在重新拉取…");
+    resubscribeVideo()
+      .then(() => reportVideoDiagnostic("video_recovery_request", null, "rebind_requested", videoDiagnosticDetails({ reason })))
+      .catch((error) => {
+        state.videoRecoveryPending = false;
+        reportVideoDiagnostic("video_recovery_request", false, "recovery_failed", videoDiagnosticDetails({ reason, error: String(error?.message || error || "").slice(0, 120) }));
+      });
+  }
+
+  function scheduleRtcRecover(reason, code) {
+    if (state.ended) return;
+    const byeCode = code == null || typeof code === "object" ? "" : String(code).replace(/[^a-z0-9_.-]/gi, "").slice(0, 24);
+    const issueCode = reason === "bye" ? "rtc_bye" : "remote_offline";
+    reportSessionIssue(issueCode, byeCode ? `RTC 断开 ${byeCode}` : (reason === "bye" ? "RTC 连接断开" : "远端离线"));
+    if (state.rtcRecoveries >= 1) {
+      appendLine("sys", "画面恢复失败，已结束通话，避免继续计费。");
+      finishSession(issueCode, byeCode ? `RTC 断开 ${byeCode}` : "画面恢复失败");
+      return;
+    }
+    state.rtcRecoveries += 1;
+    showPlaceholder();
+    state.lastFrameAt = Date.now();
+    state.lastPictureAt = Date.now();
+    appendLine("sys", `画面断了（${code ?? reason}），正在重连…`);
+    if (state.rtcRecoverTimer) window.clearTimeout(state.rtcRecoverTimer);
+    state.rtcRecoverTimer = window.setTimeout(async () => {
+      state.rtcRecoverTimer = 0;
+      if (state.ended) return;
+      const session = state.session;
+      const engine = state.engine;
+      if (!session?.rtc?.token || !engine) {
+        finishSession("rtc_bye", "缺少重连凭证");
+        return;
+      }
+      try {
+        await engine.joinChannel(session.rtc.token, session.rtc.user_id);
+        await callIfPresent(engine, ["setDefaultSubscribeAllRemoteVideoStreams", "subscribeAllRemoteVideoStreams"], true);
+        await resubscribeVideo();
+      } catch {
+        finishSession("rtc_bye", "重连失败");
+      }
+    }, 800);
+  }
+
+  function noteHealthyPicture(now) {
+    state.lastPictureAt = now;
+    if (state.visibilityRecoveryTimer) {
+      window.clearTimeout(state.visibilityRecoveryTimer);
+      state.visibilityRecoveryTimer = 0;
+      state.visibilityReturnedAt = 0;
+      appendLine("sys", "画面已恢复。");
+      setStageStatus("通话中", "");
+    }
+    state.lastFrameAt = now;
+    state.videoFixes = 0;
+    state.seenPicture = true;
+    if (state.lookSwitching && state.handoverReadyAt && now >= state.handoverReadyAt) {
+      state.lookSwitching = false;
+      finishLookSwitchingUi();
+      const oldId = String(state.handoverFromSession || "");
+      state.handoverFromSession = "";
+      if (oldId && oldId !== state.session?.id) {
+        endSessionRequest(oldId, "look_reconnect", "私密画面已就绪").catch(() => {});
+      }
+      appendLine("sys", "已切换到私密画面。");
+    }
+    if (state.videoRecoveryPending) {
+      state.videoRecoveryPending = false;
+      reportVideoDiagnostic("video_recovery_frame", true, "recovered", videoDiagnosticDetails({ recoveredAt: now }));
+    }
+    markBillableStart();
+    hidePlaceholder();
+  }
+
+  function stopVideoWatch() {
+    if (state.visibilityRecoveryTimer) window.clearTimeout(state.visibilityRecoveryTimer);
+    state.visibilityRecoveryTimer = 0;
+    state.visibilityReturnedAt = 0;
+    if (state.frameWatch) window.clearInterval(state.frameWatch);
+    state.frameWatch = 0;
+    if (state.rtcRecoverTimer) window.clearTimeout(state.rtcRecoverTimer);
+    state.rtcRecoverTimer = 0;
+    if (state.lookVideoRecoveryTimer) window.clearTimeout(state.lookVideoRecoveryTimer);
+    state.lookVideoRecoveryTimer = 0;
+    const video = state.overlay?.video;
+    if (video && state.frameCallback && typeof video.cancelVideoFrameCallback === "function") {
+      try { video.cancelVideoFrameCallback(state.frameCallback); } catch {}
+    }
+    state.frameCallback = 0;
+  }
+
+  function startVideoWatch() {
+    if (state.frameWatch || state.ended) return;
+    const arm = () => {
+      const video = state.overlay?.video;
+      if (!video || state.ended || typeof video.requestVideoFrameCallback !== "function") return;
+      state.frameCallback = video.requestVideoFrameCallback(() => {
+        if (!state.ended && document.visibilityState !== "hidden") state.lastFrameAt = Date.now();
+        arm();
+      });
+    };
+    arm();
+    state.frameWatch = window.setInterval(() => {
+      if (state.ended || !state.overlay) return;
+      if (document.visibilityState === "hidden") {
+        const nowHidden = Date.now();
+        state.lastFrameAt = nowHidden;
+        state.lastPictureAt = nowHidden;
+        return;
+      }
+      const video = state.overlay.video;
+      const now = Date.now();
+      let frameMoved = false;
+      if (video && video.readyState >= 2 && video.currentTime > state.lastVideoTime + 0.01) {
+        state.lastVideoTime = video.currentTime;
+        state.lastFrameAt = now;
+        frameMoved = true;
+      }
+      const bright = video ? sampleBrightness(video) : null;
+      const pictureOk = bright != null && bright >= 400;
+      if (pictureOk) {
+        state.seenBright = true;
+        noteHealthyPicture(now);
+      } else if (bright == null && frameMoved && video && video.videoWidth > 0) {
+        noteHealthyPicture(now);
+      } else if (!state.seenBright && frameMoved && video && video.videoWidth > 0) {
+        /* 采样失败或首帧偏暗时先把画面放出来，不能一直挡在头像后面 */
+        noteHealthyPicture(now);
+      }
+      const sinceStart = state.startedAt ? now - state.startedAt : 0;
+      const noFrameFor = state.lastFrameAt ? now - state.lastFrameAt : sinceStart;
+      const noPictureFor = state.lastPictureAt ? now - state.lastPictureAt : sinceStart;
+      const frameLimit = state.lastFrameAt ? 12000 : 25000;
+      const pictureBlack = state.seenBright && bright != null && bright < 400 && noPictureFor >= 12000;
+      const framesDead = noFrameFor >= frameLimit;
+      if (!framesDead && !pictureBlack) return;
+      reportVideoDiagnostic("first_frame_timeout", false, pictureBlack ? "video_black" : "video_stalled", videoDiagnosticDetails({
+        reason: pictureBlack ? "black" : "stall",
+        frameLimitMs: frameLimit,
+        noFrameForMs: noFrameFor,
+        noPictureForMs: noPictureFor,
+      }));
+      if (state.videoFixes < 1 && state.videoFixTotal < 2) {
+        recoverVideoOnce(pictureBlack ? "black" : "stall");
+        return;
+      }
+      appendLine("sys", "画面中断，已结束通话，避免继续计费。");
+      finishSession(pictureBlack ? "video_black" : "video_stalled", pictureBlack ? "画面黑屏超过 12 秒" : "画面卡住后未能恢复");
+    }, 1000);
+  }
+
+  async function joinRtc(session, attempt = 0) {
+    await loadRtcSdk();
+    const supported = await window.AliRtcEngine.isSupported();
+    if (!supported?.support) throw new Error(`当前浏览器不支持实时通话（${supported?.reason || "unknown"}）`);
+    window.AliRtcEngine.setLogLevel(0);
+    const engine = state.forceFreshRtc ? await freshRtcEngine() : window.AliRtcEngine.getInstance();
+    state.forceFreshRtc = false;
+    state.engine = engine;
+    resumeRtcClock();
+    engine.on("bye", (code) => scheduleRtcRecover("bye", code));
+    engine.on("remoteUserOffLineNotify", (userId) => {
+      if (userId) state.remoteUserId = userId;
+      showPlaceholder();
+      setStageStatus("画面中断", "error");
+      recoverVideoOnce("offline");
+    });
+    engine.on("videoSubscribeStateChanged", (userId, oldState, newState) => {
+      if (userId) state.remoteUserId = userId;
+      const operation = state.lookOperation || {};
+      reportChatLiveOperation({ id: operation.id || ("rtc-" + Date.now().toString(36)), action: operation.action || "rtc", phase: "rtc_subscribe", success: newState === 3, code: "state_" + oldState + "_to_" + newState, kind: operation.kind || "", message: "RTC videoSubscribeStateChanged user=" + String(userId || "").slice(0, 64) + " old=" + oldState + " new=" + newState + " frameAgeMs=" + (state.lastFrameAt ? Date.now() - state.lastFrameAt : -1) });
+      /* 0 idle, 1 not subscribed, 2 subscribing, 3 subscribed */
+      if (newState === 3) {
+        state.remoteBoundOnce = true;
+        bindRemoteVideo(userId);
+        return;
+      }
+      /* 开播前就会先报未订阅，这时重拉会把恢复机会提前用掉 */
+      if (newState === 1 && (state.seenPicture || state.remoteBoundOnce)) {
+        /* During an Undress/look operation Vidu normally tears down the old
+           stream before publishing the new one. Do not treat that transition
+           as a dead video or force-load the element. Only recover if no new
+           subscribed state/frame arrives after a short grace period. */
+        if (state.lookVideoRecoveryTimer) window.clearTimeout(state.lookVideoRecoveryTimer);
+        state.lookVideoRecoveryTimer = window.setTimeout(() => {
+          state.lookVideoRecoveryTimer = 0;
+          if (state.ended || state.remoteBoundOnce === false) return;
+          if (state.lookBusy || state.lookOperation) {
+            state.lookVideoRecoveryTimer = window.setTimeout(() => {
+              state.lookVideoRecoveryTimer = 0;
+              if (!state.ended && state.lookBusy && state.lastFrameAt && Date.now() - state.lastFrameAt >= 8000) recoverVideoOnce("unsubscribe");
+            }, 8000);
+            return;
+          }
+          if (state.lastFrameAt && Date.now() - state.lastFrameAt < 5000) return;
+          recoverVideoOnce("unsubscribe");
+        }, 5000);
+      }
+    });
+    engine.on("userVideoMuted", (userId, muted) => {
+      if (userId) state.remoteUserId = userId;
+      if (muted) showPlaceholder();
+      else bindRemoteVideo(userId || state.remoteUserId);
+    });
+    engine.on("remoteVideoAutoPlayFail", () => {
+      state.overlay?.video?.play?.().catch(() => {});
+    });
+    engine.on("authInfoWillExpire", () => appendLine("sys", "凭证即将过期，请尽快结束本轮对话。"));
+    const video = state.overlay?.video;
+    if (video) {
+      video.addEventListener("pause", () => {
+        if (state.ended || document.visibilityState === "hidden") return;
+        video.play().catch(() => {});
+      });
+    }
+    /* SDK 版本之间方法名不一致：存在才调，避免 "is not a function" 直接中断接入 */
+    await callIfPresent(engine, ["setChannelProfile"], "communication");
+    await callIfPresent(engine, ["setDefaultPublishLocalAudioStream", "publishLocalAudioStreamEnabled"], true);
+    await callIfPresent(engine, ["setDefaultPublishLocalVideoStream", "publishLocalVideoStreamEnabled"], false); /* 单向：不推摄像头 */
+    await callIfPresent(engine, ["setDefaultSubscribeAllRemoteAudioStreams", "subscribeAllRemoteAudioStreams"], true);
+    await callIfPresent(engine, ["setDefaultSubscribeAllRemoteVideoStreams", "subscribeAllRemoteVideoStreams"], true);
+    try {
+      await engine.joinChannel(session.rtc.token, session.rtc.user_id);
+    } catch (error) {
+      const message = String(error?.message || error || "");
+      if (attempt < 1 && /already joined/i.test(message)) {
+        state.forceFreshRtc = true;
+        await releaseRtc();
+        return joinRtc(session, attempt + 1);
+      }
+      throw error;
+    }
+    try {
+      await engine.publishLocalAudioStream(true);
+      state.micOn = true;
+      setVoiceUi(false);
+    } catch (error) {
+      state.micOn = false;
+      setVoiceUi(false);
+      appendLine("sys", "麦克风未授权，你可以先用文字聊天。");
+      setStageStatus("无麦克风权限", "error");
+    }
+    setStageStatus("连线中", "");
+  }
+
+  async function endSessionRequest(sessionId, reason = "", note = "") {
+    try {
+      const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/end`, {
+        method: "POST",
+        body: JSON.stringify({ reason: String(reason || ""), note: String(note || "").slice(0, 180) }),
+      });
+      return payload?.session || null;
+    } catch {
+      return null;
+    }
+  }
+
+
+  async function rememberLiveContact(character) {
+    const id = String(character?.id || "");
+    if (!id) return;
+    try {
+      const listed = await apiFetch("/api/chat/conversations");
+      const existing = (listed.conversations || []).find((item) => String(item.characterId || item.character?.id || "") === id);
+      if (existing?.id) {
+        await apiFetch(`/api/chat/conversations/${encodeURIComponent(existing.id)}`, { method: "PATCH", body: JSON.stringify({ lastMessage: "视频聊天" }) }).catch(() => {});
+        return;
+      }
+    } catch {}
+    try {
+      await apiFetch("/api/chat/conversations", { method: "POST", body: JSON.stringify({ characterId: id, language: "zh" }) });
+    } catch {}
+  }
+
+  async function finishFromServer(fallbackReason = "upstream_hangup", fallbackNote = "") {
+    const sessionId = state.session?.id;
+    if (!sessionId) return finishSession(fallbackReason, fallbackNote);
+    try {
+      const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}`);
+      const reason = String(payload?.session?.endReason || "");
+      const note = String(payload?.session?.chargeError || payload?.session?.clientEndNote || "");
+      if (reason === "insufficient_credits" || /积分/.test(note)) {
+        return finishSession("insufficient_credits", "积分不够，请充值");
+      }
+    } catch {}
+    return finishSession(fallbackReason, fallbackNote);
+  }
+
+  async function finishSession(reason = "user_end", note = "", options = {}) {
+    const creditEnd = reason === "insufficient_credits" || /积分不够|积分不足/.test(String(note || ""));
+    if (state.ended) {
+      if (creditEnd) showCreditGuide();
+      return;
+    }
+    state.ended = true;
+    pauseRtcClock();
+    failLookWait("会话已经结束。");
+    state.lookBusy = false;
+    closeLookPicker();
+    syncLookRail();
+    stopVideoWatch();
+    if (state.heartbeat) window.clearInterval(state.heartbeat);
+    state.heartbeat = 0;
+    const sessionId = state.session?.id;
+    const diagnosticNote = String(note || "").slice(0, 180);
+    if (sessionId && /^(video_|rtc_bye$|remote_offline$|join_failed$|socket_closed$|socket_error$|upstream_hangup$|idle_timeout$|client_reconnect_timeout$)/.test(String(reason || ""))) {
+      await reportSessionIssue(reason, diagnosticNote);
+    }
+    try {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify(buildSignal(5, { hangup: { hangup_reason: reason } })));
+        state.ws.close();
+      }
+    } catch {}
+    state.ws = null;
+    await releaseRtc();
+    const settled = sessionId ? await endSessionRequest(sessionId, reason, diagnosticNote) : null;
+    window.dispatchEvent(new CustomEvent("vipeak-live-thread"));
+    if (state.overlay && options.keepOverlay !== true) {
+      setStageStatus(reason === "join_failed" ? "接入失败" : "已结束", reason === "join_failed" ? "error" : "");
+      state.overlay.failExit?.classList.add("is-visible");
+      if (settled) {
+        const seconds = Number(settled.billedSeconds || 0);
+        const charged = Number(settled.chargedCredits || 0);
+        appendLine("sys", `本次通话 ${seconds} 秒，扣费 ${charged} 积分。`);
+      }
+      state.overlay.cost.textContent = "已结束，可以关闭窗口。";
+      state.overlay.sendBtn.disabled = true;
+      state.overlay.input.disabled = true;
+      state.overlay.muteBtn.disabled = true;
+      if (state.overlay.voiceBtn) state.overlay.voiceBtn.disabled = true;
+      stopRecognition();
+      state.overlay.hangBtn.textContent = reason === "insufficient_credits" ? "去充值" : "关闭";
+      state.overlay.hangBtn.onclick = () => {
+        if (reason === "insufficient_credits") { leaveForBilling("recharge"); return; }
+        closeOverlay();
+      };
+      if (creditEnd) showCreditGuide();
+    }
+  }
+
+  /* 浏览器被直接关掉 / 切走 / 崩溃：立刻通知服务端结算，别留下僵尸会话 */
+  function bindUnloadGuard() {
+    const endNow = (reason) => {
+      const sessionId = state.session?.id;
+      if (!sessionId || state.ended) return;
+      state.ended = true;
+      failLookWait("会话已经结束。");
+      state.lookBusy = false;
+      closeLookPicker();
+      syncLookRail();
+      stopVideoWatch();
+      try {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          state.ws.send(JSON.stringify({ type: 5, live_id: String(state.session?.liveId || ""), conn_id: state.connId, seq_id: state.seqId++, payload: { hangup: { hangup_reason: reason } } }));
+        }
+      } catch {}
+      try {
+        const url = `/api/chat-live/sessions/${encodeURIComponent(sessionId)}/end`;
+        if (navigator.sendBeacon) navigator.sendBeacon(url, new Blob([JSON.stringify({ reason })], { type: "application/json" }));
+        else fetch(url, { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
+      } catch {}
+      pauseRtcClock();
+      try { state.engine?.leaveChannel?.(); state.engine?.destroy?.(); } catch {}
+      state.engine = null;
+    };
+    window.addEventListener("pagehide", () => endNow("page_hidden"));
+    window.addEventListener("beforeunload", () => endNow("before_unload"));
+    /* 切到后台不立刻挂断（手机常见），但超过 60 秒没回来就结束，避免静默计费 */
+    let hiddenTimer = 0;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        if (hiddenTimer) window.clearTimeout(hiddenTimer);
+        hiddenTimer = window.setTimeout(() => endNow("tab_hidden"), 60000);
+        return;
+      }
+      if (hiddenTimer) { window.clearTimeout(hiddenTimer); hiddenTimer = 0; }
+      const returnedAt = Date.now();
+      state.visibilityReturnedAt = returnedAt;
+      state.lastFrameAt = returnedAt;
+      state.lastPictureAt = returnedAt;
+      state.overlay?.video?.play?.().catch(() => {});
+      const hadPicture = Number(state.lastPictureAt || 0) > 0 && Number(state.lastVideoTime || 0) > 0.2;
+      if (!hadPicture) return;
+      appendLine("sys", "已切回页面，正在检查画面是否恢复…");
+      setStageStatus("检查画面", "warning");
+      if (state.visibilityRecoveryTimer) window.clearTimeout(state.visibilityRecoveryTimer);
+      state.visibilityRecoveryTimer = window.setTimeout(() => {
+        state.visibilityRecoveryTimer = 0;
+        if (state.ended || document.visibilityState === "hidden") return;
+        if (!(Number(state.lastPictureAt || 0) > 0)) return;
+        const video = state.overlay?.video;
+        const pictureRecovered = Boolean(video && video.readyState >= 2 && video.videoWidth > 0 && video.currentTime > state.lastVideoTime + 0.05);
+        if (pictureRecovered) {
+          noteHealthyPicture(Date.now());
+          return;
+        }
+        appendLine("sys", "切回页面后画面没有恢复，已结束通话，避免继续计费。");
+        setStageStatus("画面未恢复，通话已结束", "error");
+        finishSession("video_black", "切回页面后画面未恢复");
+      }, 15000);
+    });
+  }
+
+  function forceLeaveCall(reason = "user_end") {
+    const sessionId = state.session?.id;
+    const engine = state.engine;
+    const ws = state.ws;
+    const alreadyEnded = state.ended === true;
+    state.ended = true;
+    state.engine = null;
+    state.ws = null;
+    try { closeOverlay(); } catch (error) {
+      document.querySelectorAll(".chat-live-overlay, .chat-live-confirm").forEach((node) => node.remove());
+      document.body.style.overflow = "";
+    }
+    (async () => {
+      try { if (ws && ws.readyState === 1) ws.close(); } catch {}
+      try { await rtcStep(engine?.leaveChannel?.(), 2500); } catch {}
+      try { await rtcStep(engine?.destroy?.(), 2500); } catch {}
+      if (sessionId && !alreadyEnded) {
+        try { await rtcStep(endSessionRequest(sessionId, reason, "用户关闭失败页"), 5000); } catch {}
+      }
+    })();
+  }
+
+  function closeOverlay() {
+    const root = state.overlay?.root || null;
+    const restoreOverflow = state.overlay?.restoreOverflow;
+    try { stopRoomFeed(); } catch {}
+    try { stopVideoWatch(); } catch {}
+    try { failLookWait("会话已经结束。"); } catch {}
+    try { closeLookPicker(); } catch {}
+    try { if (state.heartbeat) window.clearInterval(state.heartbeat); } catch {}
+    try { stopRecognition(); } catch {}
+    try { state.unbindViewport?.(); } catch {}
+    state.unbindViewport = null;
+    try { if (restoreOverflow !== undefined) document.body.style.overflow = restoreOverflow; } catch {}
+    try { root?.remove(); } catch {}
+    document.querySelectorAll(".chat-live-overlay, .chat-live-confirm").forEach((node) => { try { node.remove(); } catch {} });
+    state.overlay = null;
+    /* 停止环境音乐 */
+    if (state.ambientAudio) {
+      try { state.ambientAudio.pause(); } catch {}
+      state.ambientAudio = null;
+    }
+    state.overlayControlsBound = false;
+    state.session = null;
+    state.character = null;
+    state.ended = false;
+    state.micOn = false;
+    state.seqId = 1;
+    state.sendUserText = null;
+    state.controlReady = false;
+    state.lookBusy = false;
+    state.lookStack = [];
+  }
+
+  const LOOK_TEXT = {
+    garment: "穿上参考图里的衣服。",
+    object: "拿着参考图里的物品。",
+    background: "换成参考图里的背景。",
+  };
+  const UNDRESS_LOOK_TEXT = "按照参考图改变衣着，呈现参考图中的状态。";
+  const LOOK_TITLE = { garment: "换装", object: "手里拿东西", background: "换背景" };
+
+  function lookFailureMessage(code) {
+    return ({
+      PROMPT_OP_PARAM_INVALID: "素材参数不对，换不了。",
+      PROMPT_OP_MODEL_NOT_SUPPORTED: "当前通话不支持换画面。",
+      PROMPT_OP_LIVE_NOT_ACTIVE: "会话还没开始或已经结束。",
+      PROMPT_OP_IMAGE_TRANSFER_FAILED: "这张图暂时用不了，请换一张再试。",
+      PROMPT_OP_SIP_NOT_CONNECTED: "画面还在准备，请几秒后再试。",
+      PROMPT_OP_FAILED: "画面切换失败，请再试一次。",
+    })[String(code || "")] || "画面切换失败，请再试一次。";
+  }
+
+  function looksSupported() {
+    const model = String(state.session?.model || state.config?.pricing?.model || "");
+    const callMode = String(state.session?.callMode || state.config?.pricing?.callMode || "video");
+    if (callMode === "audio") return false;
+    if (model && model !== "vidu-s2") return false;
+    return true;
+  }
+
+  function lookChannelReady() {
+    if (state.ended || !state.session) return false;
+    if (state.session.mode === "component") return true;
+    return state.controlReady === true;
+  }
+
+  async function ensureLookChannelReady() {
+    if (state.ended || !state.session) return false;
+    if (state.session.mode === "component") return true;
+    if (state.controlReady === true) return true;
+    try {
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) await connectSignaling(state.session);
+      else state.ws.send(JSON.stringify(buildSignal(1, { conn_init: { version: 1 } })));
+    } catch { return false; }
+    const deadline = Date.now() + 3500;
+    while (!state.ended && Date.now() < deadline) {
+      if (state.controlReady === true) return true;
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+    return state.controlReady === true;
+  }
+
+  function syncLookRail() {
+    const rail = state.overlay?.lookRail;
+    if (!rail) return;
+    const available = Boolean(state.session) && !state.ended && (looksSupported() || giftsOf().length);
+    if (!available) state.lookMenuOpen = false;
+    const toggle = state.overlay.lookToggle;
+    if (toggle) {
+      toggle.hidden = !available;
+      toggle.textContent = state.lookMenuOpen ? "收起" : "动作";
+      toggle.classList.toggle("is-on", Boolean(state.lookMenuOpen));
+      toggle.setAttribute("aria-expanded", state.lookMenuOpen ? "true" : "false");
+    }
+    rail.hidden = !available || !state.lookMenuOpen;
+    rail.style.display = rail.hidden ? "none" : "flex";
+    const ready = lookChannelReady() && !state.lookBusy;
+    const undressOn = state.lookStack[state.lookStack.length - 1] === "undress";
+    rail.querySelectorAll("button").forEach((button) => {
+      if (button.dataset.giftAction === "true") {
+        button.hidden = false;
+        button.disabled = state.session?.mode === "component" ? (state.ended || !giftsOf().length) : (!state.controlReady || state.ended || !giftsOf().length);
+        return;
+      }
+      if (!looksSupported()) {
+        button.hidden = true;
+        button.disabled = true;
+        return;
+      }
+      if (button.dataset.lookKind !== "undress") button.hidden = false;
+      if (button.dataset.lookKind === "undress") {
+        button.hidden = state.inRoom === true || !String(state.character?.undressImageUrl || "");
+        button.classList.toggle("is-on", undressOn && !button.hidden);
+        button.setAttribute("aria-pressed", undressOn && !button.hidden ? "true" : "false");
+      }
+      button.disabled = !ready;
+    });
+    if (state.overlay.giftBtn) state.overlay.giftBtn.disabled = state.session?.mode === "component" ? (state.ended || !giftsOf().length) : (!state.controlReady || state.ended || !giftsOf().length);
+    state.overlay.picker?.querySelectorAll("button").forEach((button) => {
+      if (button.classList.contains("chat-live-picker-x")) return;
+      button.disabled = state.lookBusy || state.ended;
+    });
+  }
+
+  function failLookWait(message) {
+    const wait = state.lookWait;
+    state.lookWait = null;
+    if (!wait) return;
+    window.clearTimeout(wait.timer);
+    wait.reject(new Error(message || "画面切换失败，请再试一次。"));
+  }
+
+  function beginLookWait() {
+    failLookWait("画面切换已取消。");
+    return new Promise((resolve, reject) => {
+      const wait = {
+        resolve,
+        reject,
+        timer: window.setTimeout(() => {
+          if (state.lookWait !== wait) return;
+          state.lookWait = null;
+          reject(new Error("画面切换超时，请再试一次。"));
+        }, 30000),
+        settle(ack) {
+          if (state.lookWait !== wait) return;
+          window.clearTimeout(wait.timer);
+          state.lookWait = null;
+          if (ack?.success === true) resolve(ack);
+          else {
+            const error = new Error(lookFailureMessage(ack?.error_code));
+            error.code = ack?.error_code || "PROMPT_OP_FAILED";
+            reject(error);
+          }
+        },
+      };
+      state.lookWait = wait;
+    });
+  }
+
+  function closeLookPicker() {
+    state.overlay?.picker?.remove();
+    if (state.overlay) state.overlay.picker = null;
+  }
+
+  function giftsOf() { return Array.isArray(state.config?.gifts) ? state.config.gifts.filter((item) => item && item.id && item.credits > 0) : []; }
+  function showGiftEffect(gift, reaction = "") {
+    const root = state.overlay?.root;
+    if (!root) return;
+    root.querySelectorAll(".chat-live-gift-burst").forEach((node) => node.remove());
+    const burst = el("div", "chat-live-gift-burst");
+    const img = document.createElement("img"); img.src = gift?.imageUrl || ""; img.alt = gift?.name || "礼物";
+    const fallback = el("div", "gift-fallback", gift?.emoji || "🎁");
+    img.addEventListener("error", () => { img.style.display = "none"; fallback.style.display = "block"; }, { once: true });
+    const label = el("span", "", reaction || `${gift?.name || "礼物"} 已送到`);
+    burst.append(img, fallback, label); root.appendChild(burst);
+    window.setTimeout(() => burst.remove(), 2400);
+  }
+
+
+  function showLowCreditWarning(secondsLeft) {
+    if (state.lowCreditShown || state.ended) return;
+    state.lowCreditShown = true;
+    showCreditGuide({ warning: true, secondsLeft });
+  }
+
+  function showCreditGuide(options = {}) {
+    document.querySelector(".chat-live-credit-guide")?.remove();
+    const warning = options.warning === true && state.ended !== true;
+    const ask = el("div", "chat-live-confirm chat-live-credit-guide");
+    ask.style.cssText = "position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.72);";
+    const box = el("div", "chat-live-confirm-box");
+    box.append(el("strong", "", warning ? "积分即将用完" : "积分不够，通话已中断"));
+    box.append(el("p", "", warning
+      ? `大约还能继续 ${Math.max(1, Math.ceil(Number(options.secondsLeft) || 30))} 秒。现在充值可以接着聊，不充值视频会马上中断。`
+      : "余额不够继续计费，视频已停止。请先充值，充值完成后再重新拨打。"));
+    const buttons = el("div", "chat-live-confirm-actions");
+    const pay = el("button", "is-danger", "去充值"); pay.type = "button";
+    const again = el("button", "", warning ? "先继续" : "重新拨打"); again.type = "button";
+    pay.onclick = () => { ask.remove(); leaveForBilling("recharge"); };
+    again.onclick = () => {
+      if (warning) { ask.remove(); return; }
+      const character = state.character;
+      const roomId = state.roomId;
+      const shared = state.inRoom === true;
+      ask.remove();
+      closeOverlay();
+      const options = roomId ? { roomId, sharedRoom: true } : (shared ? { sharedRoom: true } : {});
+      Promise.resolve(open(character?.id || character, options)).catch(() => {});
+    };
+    buttons.append(pay, again);
+    box.appendChild(buttons);
+    ask.appendChild(box);
+    document.body.appendChild(ask);
+  }
+
+  async function openTopupSheet() {
+    if (!state.overlay) return;
+    closeLookPicker();
+    const picker = el("div", "chat-live-picker is-sheet");
+    const card = el("div", "chat-live-picker-card");
+    const head = el("div", "chat-live-picker-head");
+    head.append(el("strong", "", "充值"));
+    const close = el("button", "chat-live-picker-x", "×"); close.type = "button"; head.append(close);
+    const body = el("div", "chat-live-topup");
+    body.appendChild(el("p", "", "正在读取充值档位…"));
+    card.append(head, body); picker.appendChild(card);
+    picker.addEventListener("click", (event) => { if (event.target === picker) closeLookPicker(); });
+    close.addEventListener("click", closeLookPicker);
+    state.overlay.root.appendChild(picker); state.overlay.picker = picker;
+    try {
+      const payload = await apiFetch("/api/billing/summary");
+      const packages = payload?.billing?.topupPackages || [];
+      body.replaceChildren();
+      const marks = el("p", "chat-live-pay-marks");
+      marks.innerHTML = `<span><img src="/assets/brand/wechat-logo.png?v=2" alt="" />微信</span><span><img src="/assets/brand/alipay-logo.svg?v=1" alt="" />支付宝</span><span>银行卡</span>`;
+      body.appendChild(marks);
+      if (!packages.length) body.appendChild(el("p", "", "当前没有可购买的充值档位。"));
+      packages.forEach((item) => {
+        const button = el("button", "chat-live-topup-option"); button.type = "button";
+        const bonus = Math.max(0, Number(item.credits || 0) - Math.round(Number(item.amount || 0) * 100));
+        button.append(el("strong", "", bonus ? `$${item.amount} · 送 ${bonus.toLocaleString("zh-CN")}` : `$${item.amount}`), el("b", "", `${Number(item.credits || 0).toLocaleString("zh-CN")} 积分`));
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const result = await apiFetch("/api/pay/airwallex/checkout-sessions", { method: "POST", body: JSON.stringify({ packageId: item.id }) });
+            if (result.checkoutUrl) { location.href = result.checkoutUrl; return; }
+            appendLine("sys", "收银台地址没有返回。");
+          } catch (error) {
+            appendLine("sys", error.message || "暂时无法创建充值订单。");
+          } finally { button.disabled = false; }
+        });
+        body.appendChild(button);
+      });
+    } catch (error) {
+      body.replaceChildren(el("p", "", error.message || "充值档位加载失败。"));
+    }
+  }
+  function openGiftPicker() {
+    if (!state.overlay || state.ended) return;
+    closeLookPicker();
+    const picker = el("div", "chat-live-picker");
+    const card = el("div", "chat-live-picker-card");
+    const head = el("div", "chat-live-picker-head");
+    head.append(el("strong", "", "礼物打赏"));
+    const balance = el("span", "chat-live-balance", "");
+    head.append(balance);
+    apiFetch("/api/auth/me").then((payload) => {
+      const credits = Number(payload?.user?.credits || 0);
+      balance.textContent = `余额 ${credits.toLocaleString("zh-CN")} 积分`;
+    }).catch(() => {});
+    const close = el("button", "chat-live-picker-x", "×"); close.type = "button"; head.append(close);
+    const grid = el("div", "chat-live-picker-grid");
+    const gifts = giftsOf();
+    if (!gifts.length) grid.appendChild(el("p", "chat-live-picker-empty", "礼物还没有准备好。"));
+    gifts.forEach((gift) => {
+      const button = el("button", "chat-live-pick chat-live-gift-card"); button.type = "button";
+      const img = document.createElement("img"); img.src = gift.imageUrl || ""; img.alt = gift.name || "礼物"; img.draggable = false;
+      button.append(img, el("span", "", gift.name || "礼物"), el("small", "", `${gift.credits} 积分`));
+      button.addEventListener("click", async () => {
+        closeLookPicker();
+        const confirmed = window.confirm(`要送出「${gift.name}」，消耗 ${gift.credits} 积分吗？`);
+        if (!confirmed) return;
+        button.disabled = true;
+        try {
+          const eventId = `gift-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          const payload = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/gift`, { method: "POST", body: JSON.stringify({ giftId: gift.id, eventId }) });
+          showGiftEffect(payload?.gift || gift, payload?.reaction || payload?.gift?.reaction || "");
+          appendLine("sys", payload?.reaction || `${gift.name} 已经送到了。`);
+          if (payload?.needsRealtimeSignal && payload.text) {
+            const sent = sendSignal(buildSignal(99, { text_msg: { msg_id: eventId, content: payload.text, timestamp: Date.now() } }));
+            if (!sent) appendLine("sys", "她已经收到礼物了，稍后会回应你。");
+          }
+          /* 礼物回应只出声音，不把文案写进对话 */
+        } catch (error) {
+          appendLine("sys", error.code === "INSUFFICIENT_CREDITS" ? "积分不够了，请先充值。" : (error.message || "礼物暂时没有送出。"));
+          if (error.code === "INSUFFICIENT_CREDITS" || error.status === 402) openTopupSheet();
+        }
+      });
+      grid.appendChild(button);
+    });
+    const more = el("button", "chat-live-topup-link", "去充值更多积分"); more.type = "button";
+    more.addEventListener("click", () => openTopupSheet());
+    const cancelGift = el("button", "chat-live-sheet-cancel", "取消"); cancelGift.type = "button";
+    cancelGift.addEventListener("click", closeLookPicker);
+    card.append(head, grid, more, cancelGift); picker.classList.add("is-sheet"); picker.appendChild(card); picker.addEventListener("click", (event) => { if (event.target === picker) closeLookPicker(); }); close.addEventListener("click", closeLookPicker);
+    state.overlay.root.appendChild(picker); state.overlay.picker = picker;
+  }
+
+  function looksOf(kind) {
+    const own = Array.isArray(state.character?.looks) ? state.character.looks : null;
+    const source = own || (Array.isArray(state.config?.looks) ? state.config.looks : []);
+    return source.filter((item) => item && item.kind === kind && item.imageUrl);
+  }
+
+  async function sendLookOperation({ look = null, remove = false, undress = false } = {}) {
+    if (state.lookBusy) throw new Error("上一次切换还在处理。");
+    const channelReady = await ensureLookChannelReady();
+    if (!channelReady) {
+      const error = new Error("画面控制通道没有完成连接，请稍后再试。");
+      error.code = "CONTROL_CHANNEL_NOT_READY";
+      await reportChatLiveOperation({ action: undress ? "undress" : (remove ? "remove_look" : "switch_look"), phase: "transport", success: false, code: error.code, kind: undress ? "garment" : (look?.kind || ""), message: error.message });
+      throw error;
+    }
+    state.lookBusy = true;
+    const operationId = `look-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const action = remove ? "remove_look" : (undress ? "undress" : "switch_look");
+    const operationKind = undress ? "garment" : (look?.kind || "");
+    state.lookOperation = { id: operationId, action, kind: operationKind };
+    const componentSession = state.session?.mode === "component";
+    if (!componentSession) await reportChatLiveOperation({ id: operationId, action, phase: "started", success: null, kind: operationKind, message: "已发送画面切换请求" });
+    syncLookRail();
+    try {
+      if (componentSession) {
+        const body = remove ? { op: "remove" } : undress ? { op: "undress" } : { lookId: look?.id || "" };
+        body.id = operationId;
+        await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/look`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        return;
+      }
+      const pending = beginLookWait();
+      const prompt = remove
+        ? { op_type: "remove" }
+        : {
+            op_type: "switch",
+            images: [{
+              image_uri: String(look?.imageUrl || ""),
+              image_id: `${undress ? "ud" : "lk"}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.slice(0, 128),
+              kind: undress ? "garment" : look.kind,
+              user_text: String(undress ? UNDRESS_LOOK_TEXT : (look.userText || LOOK_TEXT[look.kind] || "")).slice(0, 200),
+            }],
+          };
+      const signal = buildSignal(11, { prompt_operation: prompt });
+      const sent = sendSignal(signal);
+      await reportChatLiveOperation({ id: operationId, action, phase: "signal_sent", success: sent, code: sent ? "" : "CONTROL_CHANNEL_NOT_OPEN", kind: operationKind, message: JSON.stringify({ type: signal.type, seq_id: signal.seq_id, op_type: prompt.op_type, image_uri: prompt.images?.[0]?.image_uri || "", image_id: prompt.images?.[0]?.image_id || "", image_kind: prompt.images?.[0]?.kind || "", user_text: prompt.images?.[0]?.user_text || "" }).slice(0, 900) });
+      if (!sent) failLookWait("画面通道不可用，请稍后再试。");
+      await pending;
+      await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: true, kind: operationKind, message: `Vidu 已确认画面切换（${undress ? "undress" : remove ? "remove" : "look"}；图片已发送）` });
+    } catch (error) {
+      if (!error?.operationId) await reportChatLiveOperation({ id: operationId, action, phase: "ack", success: false, code: error?.code || "LOOK_FAILED", kind: operationKind, message: `${error?.message || "画面切换失败"}（请求${undress ? "undress" : remove ? "remove" : "look"}；图片${undress ? "已发送" : "不适用"}）` });
+      throw error;
+    } finally {
+      state.lookBusy = false;
+      state.lookOperation = null;
+      syncLookRail();
+    }
+  }
+
+  async function chooseLook(look) {
+    try {
+      await sendLookOperation({ look });
+      state.lookStack.push(look.id);
+      syncLookRail();
+      appendLine("sys", `已切换：${look.name || LOOK_TITLE[look.kind] || "素材"}`);
+      closeLookPicker();
+    } catch (error) {
+      if (state.ended) return;
+      appendLine("sys", error.message || "画面切换失败，请再试一次。");
+    }
+  }
+
+  async function undoLook() {
+    try {
+      await sendLookOperation({ remove: true });
+      state.lookStack.pop();
+      syncLookRail();
+      appendLine("sys", "已撤销上一次画面。");
+      closeLookPicker();
+    } catch (error) {
+      if (state.ended) return;
+      appendLine("sys", error.message || "撤销失败，请再试一次。");
+    }
+  }
+
+  function openLookPicker(kind) {
+    if (!state.overlay || state.ended) return;
+    if (!lookChannelReady()) {
+      appendLine("sys", "画面还在准备，请几秒后再试。");
+      return;
+    }
+    closeLookPicker();
+    const looks = looksOf(kind);
+    const activeId = state.lookStack[state.lookStack.length - 1] || "";
+    const picker = el("div", "chat-live-picker");
+    const card = el("div", "chat-live-picker-card");
+    const head = el("div", "chat-live-picker-head");
+    head.append(el("strong", "", LOOK_TITLE[kind] || "画面素材"));
+    const close = el("button", "chat-live-picker-x", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "关闭");
+    head.appendChild(close);
+    const grid = el("div", "chat-live-picker-grid");
+    if (!looks.length) grid.appendChild(el("p", "chat-live-picker-empty", "这类素材还没配置。"));
+    looks.forEach((look) => {
+      const button = el("button", `chat-live-pick${look.id === activeId ? " is-on" : ""}`);
+      button.type = "button";
+      const img = document.createElement("img");
+      img.src = look.imageUrl;
+      img.alt = look.name || "";
+      img.draggable = false;
+      button.append(img, el("span", "", look.name || LOOK_TITLE[kind] || "素材"));
+      button.addEventListener("click", () => chooseLook(look));
+      grid.appendChild(button);
+    });
+    const undo = el("button", "chat-live-btn is-ghost chat-live-picker-undo", "撤销上一次");
+    undo.type = "button";
+    undo.addEventListener("click", () => undoLook());
+    card.append(head, grid, undo);
+    picker.appendChild(card);
+    picker.addEventListener("click", (event) => { if (event.target === picker) closeLookPicker(); });
+    close.addEventListener("click", () => closeLookPicker());
+    state.overlay.root.appendChild(picker);
+    state.overlay.picker = picker;
+  }
+
+  const LOOK_SWITCHING_MESSAGE = "你等我一下哦，我去准备一下。";
+  function setLookSwitchingUi(text = LOOK_SWITCHING_MESSAGE) {
+    const overlay = state.overlay;
+    if (!overlay) return;
+    overlay.badge.hidden = true;
+    overlay.badge.textContent = "";
+    overlay.placeholder.classList.add("is-calling");
+    overlay.placeholder.style.display = "flex";
+    overlay.callLabel.textContent = text;
+    overlay.callDetail.textContent = state.character?.name || "";
+    overlay.lookRail?.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    overlay.sendBtn.disabled = true;
+    overlay.muteBtn.disabled = true;
+    overlay.voiceBtn.disabled = true;
+    overlay.hangBtn.disabled = true;
+  }
+
+  function finishLookSwitchingUi() {
+    const overlay = state.overlay;
+    if (!overlay) return;
+    overlay.badge.hidden = true;
+    overlay.badge.textContent = "";
+    overlay.sendBtn.disabled = false;
+    overlay.muteBtn.disabled = false;
+    overlay.voiceBtn.disabled = false;
+    overlay.hangBtn.disabled = false;
+    syncLookRail();
+  }
+
+
+  async function membershipActive() {
+    try { await loadConfig(true); } catch {}
+    if (state.config?.membership?.active === true) return true;
+    try {
+      const payload = await apiFetch("/api/billing/summary");
+      return String(payload?.billing?.subscription?.status || "").toLowerCase() === "active";
+    } catch {
+      return false;
+    }
+  }
+
+  function showMembershipGuide() {
+    document.querySelector(".chat-live-credit-guide")?.remove();
+    const ask = el("div", "chat-live-confirm chat-live-credit-guide");
+    ask.style.cssText = "position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.72);";
+    const box = el("div", "chat-live-confirm-box");
+    box.append(el("strong", "", "私密画面需要会员"));
+    box.append(el("p", "", "还不是会员，不会另开房间。开通后重新进入即可切换私密画面。"));
+    const buttons = el("div", "chat-live-confirm-actions");
+    const go = el("button", "is-danger", "去开通"); go.type = "button";
+    const stay = el("button", "", "先继续"); stay.type = "button";
+    go.onclick = () => { ask.remove(); leaveForBilling("vip"); };
+    stay.onclick = () => ask.remove();
+    buttons.append(stay, go);
+    box.appendChild(buttons);
+    ask.appendChild(box);
+    (state.overlay?.root || document.body).appendChild(ask);
+  }
+
+  async function leaveForBilling(page) {
+    document.querySelector(".chat-live-credit-guide")?.remove();
+    document.querySelector(".chat-live-confirm")?.remove();
+    const target = page === "vip" ? "vip" : "recharge";
+    try {
+      if (!state.ended) await finishSession(target === "vip" ? "leave_for_vip" : "insufficient_credits", target === "vip" ? "前往开通会员" : "前往充值");
+    } catch {}
+    closeOverlay();
+    window.dispatchEvent(new CustomEvent("vipeak-live-leave", { detail: { page: target } }));
+  }
+
+  async function toggleUndress() {
+    if (!state.overlay || state.ended || state.lookBusy) return;
+    const imageUrl = String(state.character?.undressImageUrl || "");
+    if (!imageUrl) return;
+    if (!lookChannelReady()) {
+      appendLine("sys", "画面还在准备，请几秒后再试。");
+      return;
+    }
+    const active = state.lookStack[state.lookStack.length - 1] === "undress";
+    if (!active && !(await membershipActive())) {
+      showMembershipGuide();
+      return;
+    }
+    try {
+      if (active) {
+        await sendLookOperation({ remove: true });
+        state.lookStack.pop();
+        syncLookRail();
+        appendLine("sys", "已恢复上一个画面。");
+        return;
+      }
+      const oldSessionId = state.session?.id || "";
+      state.lookSwitching = true;
+      state.handoverFromSession = oldSessionId;
+      state.handoverReadyAt = 0;
+      state.lookMenuOpen = false;
+      syncLookRail();
+      await reportChatLiveOperation({ id: `look-${Date.now().toString(36)}`, action: "undress", phase: "reconnect_start", success: null, kind: "garment", message: "先建立新画面，就绪后再关闭旧连接" });
+      const requested = { ...(state.character || {}), id: state.character?.id || "" };
+      state.forceFreshRtc = true;
+      const switched = await open(requested, { avatarMode: "undress", replaceSessionId: oldSessionId, preserveOverlay: true, freshRtc: true, handover: true });
+      if (!switched || !state.engine) throw new Error("新的画面连接没有建立，请再试一次。");
+      state.handoverReadyAt = Date.now();
+      state.lookStack = ["undress"];
+      appendLine("sys", "新画面已接通，正在等第一帧，旧画面先保持。");
+    } catch (error) {
+      state.lookSwitching = false;
+      state.handoverFromSession = "";
+      finishLookSwitchingUi();
+      if (state.ended) return;
+      const membership = error.code === "CHAT_LIVE_MEMBERSHIP_REQUIRED";
+      appendLine("sys", membership ? "私密画面需要先开通会员。" : (error.message || "画面切换失败，请再试一次。"));
+    }
+  }
+
+
+  function stopRoomFeed() {
+    if (state.roomFeedTimer) window.clearInterval(state.roomFeedTimer);
+    state.roomFeedTimer = 0;
+  }
+
+  async function pullRoomFeed() {
+    if (!state.roomId || state.ended) return;
+    try {
+      const payload = await apiFetch(`/api/chat-live/rooms/${encodeURIComponent(state.roomId)}/messages`);
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      if (!state.seenRoomMessages) state.seenRoomMessages = new Set();
+      messages.forEach((message) => {
+        const id = String(message?.id || "");
+        if (!id || state.seenRoomMessages.has(id)) return;
+        state.seenRoomMessages.add(id);
+        if (message.role === "user") appendLine("user", message.content, message.payload?.name || "有人");
+        else appendLine("sys", message.content);
+      });
+    } catch {}
+  }
+
+  function startRoomFeed() {
+    stopRoomFeed();
+    if (!state.roomId) return;
+    state.seenRoomMessages = new Set();
+    pullRoomFeed();
+    state.roomFeedTimer = window.setInterval(pullRoomFeed, 2000);
+  }
+
+  async function open(characterId, openOptions = {}) {
+    try { await loadConfig(true); } catch {}
+    const requested = typeof characterId === "object" ? characterId : null;
+    const preserveOverlay = openOptions.preserveOverlay === true && Boolean(state.overlay);
+    const character = characterById(requested?.id || characterId) || requested;
+    if (!character) throw new Error("角色不存在。");
+    if (!authToken()) throw new Error("请先登录再开始在线聊天。");
+    state.character = character;
+    state.inRoom = Boolean(openOptions.roomId || openOptions.sharedRoom === true);
+    state.roomId = String(openOptions.roomId || "");
+    state.ended = false;
+    state.seqId = 1;
+    state.remoteUserId = "";
+    state.lastFrameAt = 0;
+    state.lastPictureAt = 0;
+    state.lastVideoTime = -1;
+    state.seenPicture = false;
+    state.seenBright = false;
+    state.placeholderOn = openOptions.handover === true ? state.placeholderOn : true;
+    state.videoFixes = 0;
+    state.videoFixTotal = 0;
+    state.reportedIssues = new Set();
+    state.boundUserId = "";
+    state.remoteBoundOnce = false;
+    state.rtcRecoveries = 0;
+    state.controlReady = false;
+    state.controlReconnectAttempted = false;
+    state.lookBusy = false;
+    state.lookOperation = null;
+    state.billableStartedAt = 0;
+    state.lookStack = [];
+    state.forceFreshRtc = openOptions.freshRtc === true || state.forceFreshRtc === true;
+    state.connId = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    if (!preserveOverlay) buildOverlay(character);
+    const overlay = state.overlay;
+    if (!state.overlayControlsBound) {
+    state.overlay.lookRail?.querySelectorAll("[data-look-kind]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const kind = button.dataset.lookKind || "";
+        if (kind === "undress") {
+          toggleUndress();
+          return;
+        }
+        openLookPicker(kind);
+      });
+    });
+    syncLookRail();
+    overlay.hangBtn.onclick = () => {
+      if (state.ended) { closeOverlay(); return; }
+      document.querySelector(".chat-live-confirm")?.remove();
+      const ask = el("div", "chat-live-confirm");
+      const box = el("div", "chat-live-confirm-box");
+      box.append(el("p", "", "确定要挂断视频通话吗？"));
+      const buttons = el("div", "chat-live-confirm-actions");
+      const cancel = el("button", "", "取消"); cancel.type = "button";
+      const ok = el("button", "is-danger", "确定挂断"); ok.type = "button";
+      cancel.onclick = () => ask.remove();
+      ok.onclick = () => { ask.remove(); forceLeaveCall("user_end"); };
+      buttons.append(cancel, ok); box.appendChild(buttons); ask.appendChild(box);
+      overlay.root.appendChild(ask);
+    };
+    overlay.closeBtn.onclick = () => {
+      if (state.overlay?.placeholder?.classList.contains("is-failed") || state.ended) {
+        forceLeaveCall("user_end");
+        return;
+      }
+      if (typeof overlay.hangBtn.onclick === "function") overlay.hangBtn.onclick();
+    };
+    overlay.voiceBtn.onclick = (event) => event.preventDefault();
+    bindVoiceHold(overlay.voiceBtn);
+    overlay.giftBtn.onclick = () => openGiftPicker();
+    async function sendUserText(text) {
+      const value = String(text || "").trim();
+      if (!value || state.ended) return;
+      if (!state.roomId) appendLine("user", value);
+      if (state.session?.mode === "component") {
+        overlay.sendBtn.disabled = true;
+        const sessionId = state.session.id;
+        try {
+          let last = null;
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            if (state.ended || state.session?.id !== sessionId) return;
+            try {
+              await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/say`, { method: "POST", body: JSON.stringify({ text: value }) });
+              last = null;
+              break;
+            } catch (error) {
+              last = error;
+              const videoUp = Boolean(state.billableStartedAt) || state.placeholderOn === false;
+              const waiting = !videoUp && (error.status === 409 || error.code === "CHAT_LIVE_NOT_READY" || /还在接通|还在准备|没有接通/.test(String(error.message || "")));
+              if (!waiting || attempt === 3) break;
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+            }
+          }
+          if (last) {
+            const videoUp = Boolean(state.billableStartedAt) || state.placeholderOn === false;
+            const waiting = !videoUp && (last.status === 409 || last.code === "CHAT_LIVE_NOT_READY" || /还在接通|还在准备|没有接通/.test(String(last.message || "")));
+            appendLine("sys", waiting ? "还在接通，这句话没发出去，接通后再发一次。" : (videoUp ? (last.message || "这句话没发出去，请再发一次。") : (last.message || "回复没有发出去，请再试一次。")));
+          }
+        } finally {
+          overlay.sendBtn.disabled = false;
+        }
+        return;
+      }
+      sendSignal(buildSignal(99, { text_msg: { msg_id: `c-${Date.now()}`, content: value, timestamp: Date.now() } }));
+    }
+    state.sendUserText = sendUserText;
+    overlay.sendBtn.onclick = async () => {
+      const text = overlay.input.value.trim();
+      if (!text) return;
+      overlay.input.value = "";
+      await sendUserText(text);
+    };
+    overlay.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        overlay.sendBtn.click();
+      }
+    });
+    overlay.muteBtn.onclick = async () => {
+      const ok = await setMicPublished(!state.micOn);
+      if (!ok) appendLine("sys", "麦克风没打开。请允许浏览器使用麦克风，或改用文字。");
+    };
+    state.overlayControlsBound = true;
+    }
+
+    if (preserveOverlay) {
+      overlay.placeholder.classList.remove("is-failed");
+      overlay.callLabel.textContent = LOOK_SWITCHING_MESSAGE;
+      overlay.callDetail.textContent = character.name || "";
+      overlay.badge.hidden = true;
+      overlay.badge.textContent = "";
+    }
+
+    let payload;
+    try {
+      if (openOptions.roomId) {
+        try {
+          payload = await apiFetch(`/api/chat-live/rooms/${encodeURIComponent(openOptions.roomId)}/join`, { method: "POST", body: "{}" });
+        } catch (error) {
+          if (error.code !== "CHAT_LIVE_ROOM_EMPTY") throw error;
+          payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({
+            characterId: character.id,
+            roomId: openOptions.roomId,
+            sharedRoom: true,
+            avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
+            replaceSessionId: String(openOptions.replaceSessionId || ""),
+          }) });
+        }
+      } else if (openOptions.sharedRoom === true) {
+        payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({
+          characterId: character.id,
+          sharedRoom: true,
+          avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
+          replaceSessionId: String(openOptions.replaceSessionId || ""),
+        }) });
+      } else {
+        payload = await apiFetch("/api/chat-live/sessions", { method: "POST", body: JSON.stringify({
+          characterId: character.id,
+          sharedRoom: false,
+          avatarMode: openOptions.avatarMode === "undress" ? "undress" : "default",
+          replaceSessionId: String(openOptions.replaceSessionId || ""),
+        }) });
+      }
+    } catch (error) {
+      const message = error.message || "创建会话失败。";
+      const membership = error.code === "CHAT_LIVE_MEMBERSHIP_REQUIRED";
+      const noCredits = !membership && (error.status === 402 || String(error.code || "").includes("CREDIT"));
+      if (openOptions.handover === true) {
+        state.lookSwitching = false;
+        appendLine("sys", membership ? "私密画面需要先开通会员，当前通话还在。" : (noCredits ? "积分不够，当前通话还在。" : (message + " 当前通话还在。")));
+        if (membership) showMembershipGuide();
+        if (noCredits) showCreditGuide();
+        return;
+      }
+      setStageStatus(membership ? "需要会员" : (noCredits ? "积分不足" : "创建失败"), "error", membership ? "私密画面需要先开通会员。" : message);
+      appendLine("sys", membership ? "私密画面需要先开通会员。" : (noCredits ? "积分不够，请先充值后再拨打。" : message + " 可以点关闭离开。"));
+      if (membership) showMembershipGuide();
+      overlay.sendBtn.disabled = true;
+      if (noCredits) showCreditGuide();
+      return;
+    }
+    state.session = payload.session;
+    rememberLiveContact(character).finally(() => window.dispatchEvent(new CustomEvent("vipeak-live-thread")));
+    state.roomId = String(payload.room?.id || state.roomId || openOptions.roomId || "");
+    state.inRoom = Boolean(state.roomId || openOptions.sharedRoom === true);
+    if (state.overlay?.root) state.overlay.root.classList.toggle("is-room", state.inRoom === true);
+    syncLookRail();
+    startRoomFeed();
+    if (payload.character) {
+      state.character = {
+        ...(state.character || {}),
+        undressImageUrl: payload.character.undressImageUrl || "",
+      };
+    }
+    syncLookRail();
+    if (!state.unloadGuardBound) { bindUnloadGuard(); state.unloadGuardBound = true; }
+    startTimer();
+    startVideoWatch();
+    /* 环境音乐 */
+    const ambientMusicUrl = state.character?.ambientMusicUrl;
+    if (ambientMusicUrl) {
+      let ambientAudio = null;
+      try {
+        ambientAudio = new Audio(ambientMusicUrl);
+        ambientAudio.loop = true;
+        ambientAudio.volume = 0.15;
+        ambientAudio.play().catch(() => {});
+        state.ambientAudio = ambientAudio;
+      } catch (e) { console.warn('ambient music failed', e); }
+    }
+    try {
+      if (payload.session.mode === "component") {
+        /* 组件版：服务端负责 LLM/TTS/推流，浏览器只进我们自己的 RTC 频道 */
+        await joinRtc(payload.session);
+        if (openOptions.handover === true) state.handoverReadyAt = Date.now();
+        if (openOptions.handover !== true) appendLine("sys", "正在通话中，请直接说话或打字。");
+      } else {
+        await Promise.all([connectSignaling(payload.session), joinRtc(payload.session)]);
+        if (!state.ended) appendLine("sys", "正在通话中，请直接说话或打字。");
+      }
+    } catch (error) {
+      const message = String(error?.message || "接入实时音视频失败").replace(/\s+/g, " ").trim().slice(0, 160);
+      setStageStatus("接入失败", "error", message || "接入实时音视频失败。");
+      appendLine("sys", message || "接入实时音视频失败。可以点关闭离开。");
+      reportSessionIssue("join_failed", message || "接入实时音视频失败");
+      Promise.resolve(finishSession("join_failed", message || "接入实时音视频失败")).catch(() => {});
+    }
+    return state.session;
+  }
+
+  window.ChatLive = {
+    loadConfig,
+    available,
+    characters,
+    characterById,
+    open,
+    close: closeOverlay,
+    saleCreditsPerMinute,
+  };
+})();

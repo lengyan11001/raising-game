@@ -1,0 +1,119 @@
+diff --git a/.gitignore b/.gitignore
+index f524f20..6e988b1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -44,3 +44,6 @@ scripts/fyshark_*
+ scripts/deploy_to_fyshark.py
+ scripts/__pycache__/
+ .env.deploy
++mobile/live-android/build/
++downloads/vipeak-live*.apk
++downloads/vipeak-live*.mobileconfig
+diff --git a/db.js b/db.js
+index f0aa182..1ac8b84 100644
+--- a/db.js
++++ b/db.js
+@@ -575,6 +575,27 @@ async function ensureSchemaInner() {
+     CREATE INDEX IF NOT EXISTS app_web_vitals_dimensions_idx
+       ON app_web_vitals (hostname, page_path, device, metric, created_at DESC);
+   `);
++  await query(`
++    CREATE TABLE IF NOT EXISTS app_activity_events (
++      event_id TEXT PRIMARY KEY,
++      visitor_id TEXT NOT NULL,
++      user_id TEXT NOT NULL DEFAULT '',
++      hostname TEXT NOT NULL,
++      tenant_id TEXT NOT NULL DEFAULT 'main',
++      tool_id TEXT NOT NULL DEFAULT '',
++      page_path TEXT NOT NULL,
++      event_name TEXT NOT NULL DEFAULT 'page_view',
++      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
++    );
++  `);
++  await query(`
++    CREATE INDEX IF NOT EXISTS app_activity_events_created_idx
++      ON app_activity_events (created_at DESC);
++  `);
++  await query(`
++    CREATE INDEX IF NOT EXISTS app_activity_events_dimensions_idx
++      ON app_activity_events (hostname, tenant_id, tool_id, created_at DESC);
++  `);
+   await query(`
+     CREATE TABLE IF NOT EXISTS app_api_subtokens (
+       id TEXT PRIMARY KEY,
+@@ -3125,6 +3146,55 @@ async function getWebVitalsSummaryFromDb({ days = 28 } = {}) {
+   };
+ }
+ 
++function activityRow(row = {}) {
++  return {
++    hostname: String(row.hostname || ''),
++    tenantId: String(row.tenant_id || row.tenantId || ''),
++    toolId: String(row.tool_id || row.toolId || ''),
++    activeUsers: Number(row.active_users || row.activeUsers || 0),
++    pageViews: Number(row.page_views || row.pageViews || 0),
++    lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : '',
++  };
++}
++
++async function insertActivityEventInDb(event = {}) {
++  if (!dbEnabled() || !event.eventId || !event.visitorId) return false;
++  await ensureSchema();
++  const result = await query(`
++    INSERT INTO app_activity_events(event_id, visitor_id, user_id, hostname, tenant_id, tool_id, page_path, event_name, created_at)
++    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
++    ON CONFLICT (event_id) DO NOTHING
++  `, [
++    String(event.eventId), String(event.visitorId), String(event.userId || ''),
++    String(event.hostname || 'unknown'), String(event.tenantId || 'main'), String(event.toolId || ''),
++    String(event.pagePath || '/'), String(event.eventName || 'page_view'),
++  ]);
++  return Number(result.rowCount || 0) > 0;
++}
++
++async function getActivitySummaryFromDb({ day = true, days = 1 } = {}) {
++  if (!dbEnabled()) return { days: 1, activeUsers: 0, pageViews: 0, bySite: [] };
++  await ensureSchema();
++  const periodDays = day ? 1 : Math.max(1, Math.min(90, Math.trunc(Number(days || 1)) || 1));
++  const where = `created_at >= NOW() - ($1::int * INTERVAL '1 day')`;
++  const [overall, sites] = await Promise.all([
++    query(`SELECT COUNT(DISTINCT visitor_id)::int AS active_users, COUNT(*)::int AS page_views FROM app_activity_events WHERE ${where}`, [periodDays]),
++    query(`
++      SELECT hostname, tenant_id, tool_id, COUNT(DISTINCT visitor_id)::int AS active_users, COUNT(*)::int AS page_views, MAX(created_at) AS last_seen
++      FROM app_activity_events WHERE ${where}
++      GROUP BY hostname, tenant_id, tool_id
++      ORDER BY active_users DESC, page_views DESC, hostname, tenant_id, tool_id
++      LIMIT 100
++    `, [periodDays]),
++  ]);
++  return {
++    days: periodDays,
++    activeUsers: Number(overall.rows[0]?.active_users || 0),
++    pageViews: Number(overall.rows[0]?.page_views || 0),
++    bySite: sites.rows.map(activityRow),
++  };
++}
++
+ async function listApiSubtokensFromDb(parentUserId = "") {
+   if (!dbEnabled()) {
+     const records = await getKv("api_subtokens", []);
+@@ -3599,4 +3669,6 @@ module.exports = {
+   patchGenerationRecordsInDb,
+   insertWebVitalSamplesInDb,
+   getWebVitalsSummaryFromDb,
++  insertActivityEventInDb,
++  getActivitySummaryFromDb,
+ };
+diff --git a/server.js b/server.js
+index 3ca45f6..88a77a1 100644
+--- a/server.js
++++ b/server.js
+@@ -193,6 +193,8 @@ const {
+   patchGenerationRecordsInDb,
+   insertWebVitalSamplesInDb,
+   getWebVitalsSummaryFromDb,
++  insertActivityEventInDb,
++  getActivitySummaryFromDb,
+ } = require("./db");
+ const {
+   buildSitemapXml: buildStableSitemapXml,
