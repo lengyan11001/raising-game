@@ -4810,7 +4810,7 @@ function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
     "## API",
     "- Seedance 2.0 video: POST /api/v3/contents/generations/tasks",
     "- Seedream 5.0 Pro and Qwen Image 3.0: POST /api/v3/images/generations",
-    "- W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V: POST /api/advanced/generate",
+    "- W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5: POST /api/advanced/generate",
     "- Z-Image Spicy Pro and Qwen Image Edit Spicy: POST /api/wan27/image-edit",
     "- Query V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
     "- Query Advanced tasks: GET /api/generation-records/<taskId>",
@@ -32390,7 +32390,6 @@ function mulerouterRoutingMarkdown() {
     "| W3.0-Pro | `wan30` | `w3.0-video-pro` | video |",
     "| W3.0-Prime | `wan30` | `w3.0-video-prime` | video |",
     "| W3.0-VSR-Prime | `wan30` | `w3.0-video-prime-pro` | video |",
-    "| Wan 2.7 spicy I2V | `wan27` | `wan2.7-i2v-spicy` | image-to-video |",
     "| Z-Image Spicy Pro | — | `z-image-spicy-pro` | text-to-image |",
     "| Qwen Image Edit Spicy | — | `qwen-image-edit-spicy` | image edit |",
     "",
@@ -32826,7 +32825,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5 use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -32838,7 +32837,6 @@ function externalAdvancedApiDoc(origin) {
       { name: "W3.0-VSR-Prime", provider: "wan30", capability: "w3.0-video-prime-pro", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Wan 2.7 spicy I2V", provider: "wan27", capability: "wan2.7-i2v-spicy", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Z-Image Spicy Pro", model: "z-image-spicy-pro", capability: "text-to-image", create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
@@ -33431,7 +33429,6 @@ function publicModelDocsView(docs = {}) {
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
     ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
-    ...(PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED ? ["Wan2.7 uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
   ];
   external.summary = `${publicModelFamilies.join(" ")} Other temporarily unavailable model families are omitted from this public guide.`;
@@ -33440,7 +33437,7 @@ function publicModelDocsView(docs = {}) {
   if (external.constraints && typeof external.constraints === "object") {
     const restrictedConstraintKeys = [];
     if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan30");
-    if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan27");
+    restrictedConstraintKeys.push("wan27");
     if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) restrictedConstraintKeys.push("qwenImage3");
     restrictedConstraintKeys.forEach((key) => delete external.constraints[key]);
   }
@@ -33448,9 +33445,7 @@ function publicModelDocsView(docs = {}) {
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3ResponseShape", "qwenImage3Example"].forEach((key) => delete external[key]);
   if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) ["wan30Example", "wan30ProExample", "wan30PrimeExample", "wan30PrimeProExample"].forEach((key) => delete external[key]);
   if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete external.happyhorseExample;
-  if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
-    ["wan27Example", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
-  }
+  ["wan27Example", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
   view.advancedExternalApi = external;
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3Generate", "qwenImage3TaskDetail"].forEach((key) => delete view.endpoints?.[key]);
   if (view.advanced && Array.isArray(view.advanced.cases)) {
@@ -33586,7 +33581,6 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     { title: "W3.0-VSR-Prime (w3.0-video-prime-pro)", example: external.wan30PrimeProExample, fields: () => wan30VideoParameterFields("w3.0-video-prime-pro") },
     { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
     { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
-    { title: "Wan 2.7 spicy I2V (wan2.7-i2v-spicy)", example: external.wan27Example, fields: wan27VideoParameterFields },
   ];
   for (const section of advancedSections) {
     if (!section.example) continue;
@@ -33781,17 +33775,6 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- References: max ${seedanceNsfw.referenceLimits?.images ?? 30} images, ${seedanceNsfw.referenceLimits?.videos ?? 10} videos, ${seedanceNsfw.referenceLimits?.audios ?? 10} audios, and ${seedanceNsfw.referenceLimits?.total ?? 50} assets total. Audio-only reference generation is supported.`,
     "- `generateAudio`/`generate_audio`: boolean, default `true`. First/last frame mode cannot be mixed with reference media; edit and extend require exactly one source video.",
     "",
-    "Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`):",
-    "",
-    `- Endpoint: \`${wan27.route || "/api/advanced/generate"}\` with \`provider: "wan27"\` and \`videoCapability: "wan2.7-i2v-spicy"\`.`,
-    "- One input image is required. Send it as `firstFrameUrl`, `firstFrameDataUrl`, or `firstFrameAssetId`.",
-    "- Optional `drivingAudioUrl` / `drivingAudioDataUrl` / `drivingAudioAssetId` supplies driving audio.",
-    `- \`duration\`: integer ${Math.max(2, wan27.durationSeconds?.min ?? advancedDurationBounds("wan27").min)}-${Math.min(15, wan27.durationSeconds?.max ?? advancedDurationBounds("wan27").max)} seconds.`,
-    `- \`resolution\`: ${(wan27.resolution || ["720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio uploads max ${Math.round((wan27.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
-    "- Optional `negative_prompt` / `negativePrompt` and `seed` are passed to the Mulerouter node.",
-    "- Media inputs can use public URLs, supported data URLs, or uploaded asset ids.",
-    "",
     "Z-Image Spicy Pro (text-to-image):",
     "",
     "- Endpoint: `/api/wan27/image-edit` with no input image.",
@@ -33977,23 +33960,9 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
     "",
-    "**Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)**",
-    "",
-    markdownCodeBlock("http", [
-      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
-      "Authorization: Bearer <user-token>",
-      "Content-Type: application/json",
-      "",
-      JSON.stringify(doc.wan27Example?.body || {}, null, 2),
-    ].join("\n")),
-    "",
-    "**Wan 2.7 spicy I2V fields**",
-    "",
-    docsParameterMarkdown(wan27VideoParameterFields()),
-    "",
     "**Advanced task polling**",
     "",
-    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V return `taskId`. Poll the generation record until its status is terminal.",
+    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5 return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -34082,7 +34051,7 @@ function buildModelDocsMarkdown(docs) {
     "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, or Wan 2.7 spicy I2V tasks with `/api/advanced/generate` and the documented provider plus Mulerouter node name in `videoCapability`.",
+    "5. Create W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, or Seedance 2.5 tasks with `/api/advanced/generate` and the documented provider plus Mulerouter node name in `videoCapability`.",
     "6. Create Z-Image Spicy Pro text-to-image tasks or Qwen Image Edit Spicy image-edit tasks with `/api/wan27/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",

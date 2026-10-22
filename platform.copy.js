@@ -2044,7 +2044,7 @@ Authorization: Bearer <user-token>
 
 When status is succeeded, read content.image_url, content.image_urls, or data[].url.`;
 
-const ADVANCED_VIDEO_ACCESS_COPY = `W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Wan 2.7 spicy I2V use the asynchronous Advanced endpoint.
+const ADVANCED_VIDEO_ACCESS_COPY = `W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5 use the asynchronous Advanced endpoint.
 
 Optional reusable asset upload:
 POST ${apiUrl("/api/user-assets")}
@@ -2070,9 +2070,6 @@ Seedance 2.5 reference example (provider seedance25):
 
 Seedance 2.5 reference example (provider seedance-nsfw):
 {"provider":"seedance-nsfw","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
-
-Wan 2.7 spicy I2V example:
-{"provider":"wan27","videoCapability":"wan2.7-i2v-spicy","prompt":"Create a cinematic shot that follows the first-frame image and the driving audio.","firstFrameAssetId":"uploaded-image-asset-id","drivingAudioAssetId":"uploaded-audio-asset-id","resolution":"720p","duration":5,"prompt_extend":true,"watermark":false}
 
 The create response returns taskId. Poll:
 GET ${apiUrl("/api/generation-records/<taskId>")}
@@ -2109,7 +2106,7 @@ When status is succeeded, read content.image_url.
 3) Create and poll a Qwen Image 3.0 task:
 ${QWEN_IMAGE3_ACCESS_COPY}
 
-4) Create and poll W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, or Wan 2.7 spicy I2V tasks:
+4) Create and poll W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, or Seedance 2.5 tasks:
 ${ADVANCED_VIDEO_ACCESS_COPY}
 
 5) Create an image with Z-Image Spicy Pro or Qwen Image Edit Spicy:
@@ -2130,7 +2127,6 @@ Mulerouter routing (generation requests are fulfilled by Mulerouter; keep sendin
 | wan30 / w3.0-video-pro | w3.0-video-pro |
 | wan30 / w3.0-video-prime | w3.0-video-prime |
 | wan30 / w3.0-video-prime-pro | w3.0-video-prime-pro |
-| wan27 / wan2.7-i2v-spicy | wan2.7-i2v-spicy |
 | text-to-image with no input image | z-image-spicy-pro |
 | image edit with an input image | qwen-image-edit-spicy |
 Provider names, videoCapability values, and model ids from earlier releases are still accepted and mapped internally, so existing integrations keep working without changes.
@@ -2500,23 +2496,31 @@ Content-Type: application/json
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
-  wan27Params: {
-    title: "Wan 2.7 spicy I2V Parameters",
-    summary: "Use /api/advanced/generate with provider=wan27 and videoCapability=wan2.7-i2v-spicy.",
+  wan30Params: {
+    title: "W3.0 Video Parameters",
+    summary: "Use /api/advanced/generate with provider=wan30. Select the Mulerouter node in videoCapability.",
     request: [
-      { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan 2.7 spicy image-to-video task.", default: "-" },
-      { name: "provider", type: "string", required: "Yes", description: "Use wan27.", default: "wan27" },
-      { name: "videoCapability", type: "string", required: "Yes", description: "Use the Mulerouter node wan2.7-i2v-spicy.", default: "wan2.7-i2v-spicy" },
-      { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
-      { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "Yes", description: "First-frame image. Use a public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
-      { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "No", description: "Optional driving audio. Use a public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB.", default: "-" },
-      { name: "negative_prompt / negativePrompt", type: "string", required: "No", description: "Optional negative prompt passed to the Mulerouter node.", default: "-" },
-      { name: "resolution", type: "string", required: "No", description: "720p or 1080p.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds, integer 2-15.", default: "5" },
-      { name: "generateAudio / generate_audio / audio", type: "boolean", required: "No", description: "Whether the output should include an audio track when supported.", default: "true" },
-      { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported by the model.", default: "-" },
-      { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "true" },
-      { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+      { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous W3.0 video task.", default: "-" },
+      { name: "provider", type: "string", required: "Yes", description: "Use wan30.", default: "wan30" },
+      { name: "videoCapability", type: "enum", required: "Yes", description: "Use w3.0-video, w3.0-video-pro, w3.0-video-prime, or w3.0-video-prime-pro.", default: "w3.0-video" },
+      { name: "prompt", type: "string", required: "Unless media is supplied", description: "Video prompt, up to 5000 characters. Refer to inputs in request order as Image 1, Video 1, Audio 1, etc.", default: "-" },
+      { name: "mediaMode", type: "enum", required: "No", description: "multimodal for reference media or first_last_frame for explicit first and last frames. Modes cannot be mixed.", default: "multimodal" },
+      { name: "referenceImages", type: "array", required: "For image references", description: "0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
+      { name: "referenceVideos", type: "array", required: "For video references", description: "0-5 videos. Each item accepts assetId, url/videoUrl, or dataUrl plus optional fileName.", default: "[]" },
+      { name: "referenceAudios", type: "array", required: "For audio references", description: "0-5 audios. Each item accepts assetId, url/audioUrl, or dataUrl plus optional fileName.", default: "[]" },
+      { name: "referenceFileAssetId / referenceFile", type: "string/object", required: "For document input", description: "One PDF, Word, Excel, PowerPoint, TXT, or Markdown document, up to 100MB. It cannot be combined with other media inputs.", default: "-" },
+      { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image. Both frame images are required in first_last_frame mode.", default: "-" },
+      { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frame images are required in first_last_frame mode.", default: "-" },
+      { name: "resolution", type: "enum", required: "No", description: "w3.0-video and w3.0-video-prime support 480p, 720p, 1080p. w3.0-video-pro and w3.0-video-prime-pro support 1080p, 2k, 4k.", default: "1080p" },
+      { name: "ratio", type: "enum", required: "No", description: "16:9, 4:3, 1:1, 3:4, 9:16, or adaptive.", default: "adaptive" },
+      { name: "duration", type: "integer", required: "No", description: "Output duration from 2-30 seconds. Use -1 for adaptive output duration.", default: "5" },
+      { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether the output should include generated audio.", default: "true" },
+      { name: "prompt_extend", type: "boolean", required: "No", description: "Whether to rewrite and expand the prompt before generation.", default: "true" },
+      { name: "seed", type: "integer", required: "No", description: "Integer from 0 to 2147483647.", default: "-" },
+      { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
+      { name: "video limits", type: "rule", required: "For video", description: "MP4 or MOV; smaller than 100MB; width and height 240-4096px; aspect ratio no wider than 8:1; each video 1-15 seconds; all reference videos together at most 15 seconds.", default: "-" },
+      { name: "audio limits", type: "rule", required: "For audio", description: "MP3 or WAV; smaller than 15MB; each audio 1-15 seconds; all reference audios together at most 15 seconds.", default: "-" },
+      { name: "duration combination", type: "rule", required: "When video references are used", description: "If duration is not -1, total input-video seconds plus output duration must not exceed 30 seconds.", default: "-" },
     ],
     response: [
       { name: "taskId", type: "string", required: "Yes", description: "Local generation record id.", default: "-" },
@@ -2528,15 +2532,16 @@ Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "provider": "wan27",
-  "videoCapability": "wan2.7-i2v-spicy",
-  "prompt": "Create a cinematic shot that follows the first-frame image and the driving audio.",
-  "firstFrameAssetId": "uploaded-image-asset-id",
-  "drivingAudioAssetId": "uploaded-audio-asset-id",
+  "provider": "wan30",
+  "videoCapability": "w3.0-video",
+  "mediaMode": "multimodal",
+  "prompt": "Use Image 1 as the character and Video 1 as the motion reference.",
+  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
+  "referenceVideos": [{"assetId": "uploaded-video-asset-id"}],
+  "ratio": "9:16",
   "resolution": "720p",
-  "duration": 5,
-  "prompt_extend": true,
-  "watermark": false
+  "duration": 8,
+  "generateAudio": true
 }`,
   },
   seedream5ImageParams: {
@@ -2695,12 +2700,12 @@ ACCESS_PARAM_GUIDES = [
     copy: SEEDANCE_PARAM_ACCESS_COPY,
   },
   {
-    id: "wan27-params",
-    docs: "wan27Params",
-    title: "Wan 2.7 spicy I2V Params",
+    id: "wan30-params",
+    docs: "wan30Params",
+    title: "W3.0 Video Params",
     subtitle: "Video",
-    desc: "Parameter table for Wan 2.7 spicy I2V generation through /api/advanced/generate.",
-    copy: ACCESS_DOCS.wan27Params.example,
+    desc: "Parameter table for W3.0, W3.0-Pro, W3.0-Prime, and W3.0-VSR-Prime generation through /api/advanced/generate.",
+    copy: ACCESS_DOCS.wan30Params.example,
   },
   {
     id: "seedream5-image-params",

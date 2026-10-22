@@ -4,7 +4,7 @@ Base URL: `https://123vips.com`
 
 This guide covers the video and image generation APIs exposed by the Vipeak AI platform.
 
-- Video: W3.0 (`w3.0-video`), W3.0-Pro (`w3.0-video-pro`), W3.0-Prime (`w3.0-video-prime`), W3.0-VSR-Prime (`w3.0-video-prime-pro`), Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)
+- Video: W3.0 (`w3.0-video`), W3.0-Pro (`w3.0-video-pro`), W3.0-Prime (`w3.0-video-prime`), W3.0-VSR-Prime (`w3.0-video-prime-pro`)
 - Image: Z-Image Spicy Pro, Qwen Image Edit Spicy, Qwen Image 3.0
 
 Model serving is handled by the platform and routed to Mulerouter. Callers authenticate only with their Vipeak AI token and never need third-party credentials; the platform maps each request to the matching Mulerouter model on the server side.
@@ -27,7 +27,6 @@ Generation requests are fulfilled by Mulerouter. The platform keeps a stable pub
 | `wan30` | `w3.0-video-pro` | `1080p`, `2k`, `4k` | W3.0-Pro video |
 | `wan30` | `w3.0-video-prime` | `480p`, `720p`, `1080p` | W3.0-Prime video |
 | `wan30` | `w3.0-video-prime-pro` | `1080p`, `2k`, `4k` | W3.0-VSR-Prime video |
-| `wan27` | `wan2.7-i2v-spicy` | `720p`, `1080p` | Wan 2.7 spicy image-to-video |
 | — | `z-image-spicy-pro` | `1K`, `2K` | text-to-image |
 | — | `qwen-image-edit-spicy` | `1K`, `2K` | image edit |
 
@@ -39,7 +38,6 @@ Generation requests are fulfilled by Mulerouter. The platform keeps a stable pub
 | W3.0-Pro | wan30 | w3.0-video-pro | w3.0-video-pro | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
 | W3.0-Prime | wan30 | w3.0-video-prime | w3.0-video-prime | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
 | W3.0-VSR-Prime | wan30 | w3.0-video-prime-pro | w3.0-video-prime-pro | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
-| Wan 2.7 spicy I2V | wan27 | wan2.7-i2v-spicy | wan2.7-i2v-spicy | POST /api/advanced/generate | GET /api/generation-records/<taskId> |
 | Z-Image Spicy Pro | z-image-spicy-pro | text-to-image | z-image-spicy-pro | POST /api/wan27/image-edit | GET /api/generation-records/<taskId> |
 | Qwen Image Edit Spicy | qwen-image-edit-spicy | image-edit | qwen-image-edit-spicy | POST /api/wan27/image-edit | GET /api/generation-records/<taskId> |
 | Qwen Image 3.0 | qwen-image3 | qwen-image-3.0-pro / qwen-image-3.0 | platform compatibility route | POST /api/v3/images/generations | GET /api/v3/contents/generations/tasks/<taskId> |
@@ -261,47 +259,6 @@ Content-Type: application/json
 **Audio input limits**: MP3 or WAV; smaller than 15MB; each audio 1-15 seconds; all reference audios together at most 15 seconds.
 
 **Duration combination**: If duration is not `-1`, total input-video seconds plus output duration must not exceed 30 seconds.
-
----
-
-## Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)
-
-```http
-POST /api/advanced/generate
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "wan27",
-  "videoCapability": "wan2.7-i2v-spicy",
-  "prompt": "Create a cinematic shot that follows the first-frame image and the driving audio.",
-  "firstFrameAssetId": "uploaded-image-asset-id",
-  "drivingAudioAssetId": "uploaded-audio-asset-id",
-  "resolution": "720p",
-  "duration": 5,
-  "prompt_extend": true,
-  "watermark": false
-}
-```
-
-**Request fields and limits**
-
-| Parameter | Type | Required | Description | Default |
-|-----------|------|----------|-------------|---------|
-| provider | string | Yes | Use `wan27`. | `wan27` |
-| videoCapability | string | Yes | Use the Mulerouter node `wan2.7-i2v-spicy`. | `wan2.7-i2v-spicy` |
-| prompt | string | Yes | Non-empty video prompt. | - |
-| firstFrameUrl / firstFrameDataUrl / firstFrameAssetId | string | Yes | First-frame image. Use a public URL, supported data URL, or uploaded asset id. Images max 20MB. | - |
-| drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId | string | No | Optional driving audio. Use a public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB. | - |
-| negative_prompt / negativePrompt | string | No | Optional negative prompt passed to the Mulerouter node. | - |
-| resolution | string | No | `720p` or `1080p`. | `720p` |
-| duration | integer | No | Output duration in seconds, integer 2-15. | `5` |
-| generateAudio / generate_audio / audio | boolean | No | Whether the output should include an audio track when supported. | `true` |
-| seed | integer | No | Integer from 0 to 2147483647. | - |
-| prompt_extend / promptExtend | boolean | No | Whether to enable prompt extension. | `true` |
-| watermark | boolean | No | Whether to add a watermark. | `false` |
-
-**Notes**: One input image is required. Optional driving audio can be supplied with the first frame.
 
 ---
 

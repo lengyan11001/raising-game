@@ -13,7 +13,6 @@ const aliyunVideoSource = fs.readFileSync(path.join(__dirname, "..", "aliyun-vid
 const providersSource = fs.readFileSync(path.join(__dirname, "..", "lib-providers.js"), "utf8");
 const publicMarkdownSource = [
   serverSource.slice(serverSource.indexOf("function mulerouterRoutingMarkdown"), serverSource.indexOf("function seedream5ImageParameterFields")),
-  serverSource.slice(serverSource.indexOf("function wan27VideoParameterFields"), serverSource.indexOf("function wan27ImageParameterFields")),
   serverSource.slice(serverSource.indexOf("function wan30VideoParameterFields"), serverSource.indexOf("function seedance25VideoParameterFields")),
   serverSource.slice(serverSource.indexOf("function zImageSpicyProParameterFields"), serverSource.indexOf("function qwenImage3ParameterFields")),
   serverSource.slice(serverSource.indexOf("function advancedConstraintsMarkdown"), serverSource.indexOf("function externalAdvancedApiMarkdown")),
@@ -29,12 +28,10 @@ test("external model docs list every currently supported model family", () => {
     "W3.0-VSR-Prime",
     "Seedance 2.5",
     "Seedance 2.5 Video (seedance-nsfw)",
-    "Wan 2.7 spicy I2V",
     "w3.0-video",
     "w3.0-video-pro",
     "w3.0-video-prime",
     "w3.0-video-prime-pro",
-    "wan2.7-i2v-spicy",
     "Seedream 5.0 Pro",
     "Qwen Image 3.0",
     "Z-Image Spicy Pro",
@@ -50,7 +47,6 @@ test("external docs cover advanced request fields and polling without internal c
     "wan30VideoParameterFields",
     "seedance25VideoParameterFields",
     "seedanceNsfwVideoParameterFields",
-    "wan27VideoParameterFields",
     "zImageSpicyProParameterFields",
     "qwenImageEditSpicyParameterFields",
     "mulerouterRoutingMarkdown",
@@ -75,7 +71,6 @@ test("selective model exposure still produces complete and valid Markdown", () =
     "wan30VideoParameterFields",
     "seedance25VideoParameterFields",
     "seedanceNsfwVideoParameterFields",
-    "wan27VideoParameterFields",
     "zImageSpicyProParameterFields",
     "qwenImageEditSpicyParameterFields",
     "mulerouterRoutingMarkdown()",
@@ -87,24 +82,25 @@ test("selective model exposure still produces complete and valid Markdown", () =
 
 test("Copy token plus docs advertises all model routes and loads the live markdown source", () => {
   assert.match(copySource, /const ADVANCED_VIDEO_ACCESS_COPY/);
-  assert.match(copySource, /W3\.0, W3\.0-Pro, W3\.0-Prime, W3\.0-VSR-Prime, Seedance 2\.5, and Wan 2\.7 spicy I2V use the asynchronous Advanced endpoint/);
+  assert.match(copySource, /W3\.0, W3\.0-Pro, W3\.0-Prime, W3\.0-VSR-Prime, and Seedance 2\.5 use the asynchronous Advanced endpoint/);
   // Retired models stay out of the caller-facing copy while their routes keep working internally.
+  assert.doesNotMatch(copySource, /Wan 2\.7|wan2\.7-i2v-spicy/);
   assert.doesNotMatch(copySource, /HappyHorse/);
   assert.doesNotMatch(copySource, /Wan Animate/);
   assert.match(copySource, /Mulerouter routing/);
   assert.match(copySource, /z-image-spicy-pro/);
   assert.match(copySource, /qwen-image-edit-spicy/);
-  for (const node of ["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro", "wan2.7-i2v-spicy"]) {
+  for (const node of ["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro"]) {
     assert.match(copySource, new RegExp(node.replace(/\./g, "\\.")));
     assert.match(serverSource, new RegExp(node.replace(/\./g, "\\.")));
   }
   assert.doesNotMatch(copySource, /"videoCapability":"wan30-video"/);
   assert.doesNotMatch(copySource, /"videoCapability":"wan27-(?:t2v|r2v|video-edit)"/);
-  const wan27Docs = copySource.slice(copySource.indexOf("wan27Params:"), copySource.indexOf("seedream5ImageParams:"));
-  assert.doesNotMatch(wan27Docs, /lastFrame|firstClip|referenceImages|videoUrl/);
-  assert.match(wan27Docs, /firstFrameUrl/);
-  assert.match(wan27Docs, /drivingAudioUrl/);
-  assert.match(wan27Docs, /negative_prompt/);
+  const wan30Docs = copySource.slice(copySource.indexOf("wan30Params:"), copySource.indexOf("seedream5ImageParams:"));
+  for (const marker of ["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro", "referenceImages", "referenceVideos", "referenceAudios", "firstFrameUrl", "lastFrameUrl", "duration combination"]) {
+    assert.match(wan30Docs, new RegExp(marker));
+  }
+  assert.doesNotMatch(wan30Docs, /Wan 2\.7|wan2\.7-i2v-spicy|drivingAudioUrl|negative_prompt/);
   // The public docs name the model, never the old NSFW wording.
   assert.doesNotMatch(copySource, /\(NSFW\)/);
   assert.doesNotMatch(publicMarkdownSource, /\(NSFW\)/);
@@ -119,19 +115,26 @@ test("Copy token plus docs advertises all model routes and loads the live markdo
   assert.match(uiSource, /\/api\/generation-records\/<taskId>/);
 });
 
+test("public docs always suppress Wan 2.7 even when its compatibility flag is enabled", () => {
+  const start = serverSource.indexOf("function publicModelDocsView");
+  const end = serverSource.indexOf("function buildRestrictedModelDocsMarkdown", start);
+  const source = serverSource.slice(start, end);
+  assert.doesNotMatch(source, /Wan2\.7 uses the Advanced route/);
+  assert.doesNotMatch(source, /if \(!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED\)/);
+  assert.match(source, /restrictedConstraintKeys\.push\("wan27"\)/);
+  assert.match(source, /\["wan27Example", "wanAnimateExample", "wan27ImageExample"\]\.forEach\(\(key\) => delete external\[key\]\)/);
+});
+
 test("public Wan docs use only current Mulerouter nodes while legacy aliases stay internal", () => {
   const publicSources = [copySource, markdownSource, publicMarkdownSource];
   for (const source of publicSources) {
-    for (const node of ["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro", "wan2.7-i2v-spicy", "z-image-spicy-pro", "qwen-image-edit-spicy"]) {
+    for (const node of ["w3.0-video", "w3.0-video-pro", "w3.0-video-prime", "w3.0-video-prime-pro", "z-image-spicy-pro", "qwen-image-edit-spicy"]) {
       assert.match(source, new RegExp(node.replace(/\./g, "\\.")));
     }
-    for (const retired of ["Wan2.7 Video", "wan27-t2v", "wan27-r2v", "wan27-video-edit", "wan30-video", "wan27-i2v", "HappyHorse", "Wan Animate", "Vidu"]) {
+    for (const retired of ["Wan 2.7", "wan2.7-i2v-spicy", "wan2.7-i2v", "wan27-i2v", "wan27-t2v", "wan27-r2v", "wan27-video-edit", "wan30-video", "HappyHorse", "Wan Animate", "Vidu"]) {
       assert.doesNotMatch(source, new RegExp(retired.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
   }
-  const wan27Docs = markdownSource.slice(markdownSource.indexOf("## Wan 2.7 spicy I2V"), markdownSource.indexOf("## Z-Image Spicy Pro"));
-  assert.doesNotMatch(wan27Docs, /lastFrame|firstClip|referenceImages|referenceVideos|videoUrl/);
-  assert.match(wan27Docs, /prompt_extend[^\n]*`true`|"prompt_extend": true/);
   for (const mapping of [
     '"w3.0-video": "wan30-video"',
     '"w3.0-video-pro": "wan30-video-pro"',

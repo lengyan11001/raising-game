@@ -42,7 +42,6 @@ const checks = [
   { section: 'W3.0-Pro (`w3.0-video-pro`)', fields: ['provider', 'videoCapability', 'w3.0-video-pro', 'prompt', 'referenceImages', 'referenceVideos', 'referenceAudios', 'resolution', 'ratio', 'duration', 'generateAudio', 'watermark'] },
   { section: 'W3.0-Prime (`w3.0-video-prime`)', fields: ['provider', 'videoCapability', 'w3.0-video-prime', 'prompt', 'referenceImages', 'referenceVideos', 'referenceAudios', 'resolution', 'ratio', 'duration', 'generateAudio', 'watermark'] },
   { section: 'W3.0-VSR-Prime (`w3.0-video-prime-pro`)', fields: ['provider', 'videoCapability', 'w3.0-video-prime-pro', 'prompt', 'referenceImages', 'referenceVideos', 'referenceAudios', 'resolution', 'ratio', 'duration', 'generateAudio', 'watermark'] },
-  { section: 'Wan 2.7 spicy I2V (`wan2.7-i2v-spicy`)', fields: ['provider', 'videoCapability', 'wan2.7-i2v-spicy', 'prompt', 'firstFrameUrl', 'drivingAudioUrl', 'negative_prompt', 'resolution', 'duration', 'generateAudio', 'seed', 'prompt_extend', 'watermark'] },
   { section: 'Z-Image Spicy Pro', fields: ['/api/wan27/image-edit', 'prompt', 'imageUrls', 'ratio', 'resolution', 'model', 'n', 'prompt_extend', 'seed', 'watermark'] },
   { section: 'Qwen Image Edit Spicy', fields: ['/api/wan27/image-edit', 'prompt', 'imageUrls', 'ratio', 'resolution', 'model', 'n', 'seed', 'watermark'] },
   { section: 'Qwen Image 3.0', fields: ['model', 'prompt', 'image', 'size', 'n', 'negative_prompt', 'prompt_extend', 'watermark'] },
@@ -65,7 +64,7 @@ for (const check of checks) {
 }
 
 // Check no internal info or retired public model names leaked.
-const forbidden = ['ep-2026', 'sk-', 'AKIA', 'maas.aliyuncs', 'api_key', 'API_KEY', 'api-key', 'upstream', 'dashscope-intl', 'Wan2.7 Video', 'wan27-t2v', 'wan27-r2v', 'wan27-video-edit', 'wan30-video', 'wan27-i2v', 'HappyHorse', 'Wan Animate', 'Vidu'];
+const forbidden = ['ep-2026', 'sk-', 'AKIA', 'maas.aliyuncs', 'api_key', 'API_KEY', 'api-key', 'upstream', 'dashscope-intl', 'Wan 2.7 spicy I2V', 'wan2.7-i2v-spicy', 'Wan2.7 Video', 'wan27-t2v', 'wan27-r2v', 'wan27-video-edit', 'wan30-video', 'wan27-i2v', 'HappyHorse', 'Wan Animate', 'Vidu'];
 for (const word of forbidden) {
   if (md.toLowerCase().includes(word.toLowerCase())) {
     console.log('POTENTIAL LEAK:', word);
