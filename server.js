@@ -339,6 +339,21 @@ function loadLocalEnv(filePath) {
 }
 
 loadLocalEnv(path.join(ROOT, ".env.local"));
+const {
+  PLATFORM_SITE_PROFILE,
+  normalizeHostname,
+  parseCsvList,
+  toolVideoDefaultCapability,
+  hostnameFromOrigin,
+  requestHostname,
+  tenantDescriptorFromOrigin,
+  requestTenantDescriptor,
+  requestTenantOptions,
+  requestTenantId,
+  recordTenantId,
+  recordBelongsToTenant,
+  pageOriginFromRequest,
+} = require("./lib-tenants");
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
@@ -361,169 +376,10 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 const CANONICAL_HOST_ALIASES = String(process.env.CANONICAL_HOST_ALIASES || "").trim();
 const GOOGLE_SITE_VERIFICATION = String(process.env.GOOGLE_SITE_VERIFICATION || "").trim();
 const GOOGLE_SITE_VERIFICATION_BY_HOST = String(process.env.GOOGLE_SITE_VERIFICATION_BY_HOST || "").trim();
-const PRIMARY_PLATFORM_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_HOSTS || "123vips.com,www.123vips.com"));
-const PRIMARY_PLATFORM_ROOT_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_ROOT_HOSTS || "123vips.com"));
-const PUBLIC_TENANT_ROOT_HOSTS = new Set(parseCsvList(process.env.PUBLIC_TENANT_ROOT_HOSTS || "cloudtoken.ai,667zui.video"));
 const PAYMENT_HOSTS = new Set(parseCsvList(process.env.PAYMENT_HOSTS || "pay.seed2.io"));
-const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
-  undress: "undress",
-  video: "video",
-  videos: "video",
-  image: "image",
-  images: "image",
-  anime: "anime",
-  animation: "anime",
-  character: "characters",
-  characters: "characters",
-  role: "characters",
-  roles: "characters",
-  create: "advanced",
-  advanced: "advanced",
-  tool: "advanced",
-});
-const TOOL_VIDEO_DEFAULT_PROVIDER = "seedance";
 const TOOL_VIDEO_SEEDANCE_MODEL = "ep-20260429142513-zg667";
 const VIDEO_REPLACE_PROMPT = "将视频1中的人物替换成图片1中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 
-function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
-  const normalizedProvider = String(provider || "").trim().toLowerCase();
-  if (normalizedProvider === "wan30") return "wan30-video";
-  if (normalizedProvider === "wan27") return "wan27-video-edit";
-  if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
-  return "";
-}
-
-const TOOL_VIDEO_PROVIDER = ["wan30", "wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
-  ? String(process.env.TOOL_VIDEO_PROVIDER).trim().toLowerCase()
-  : TOOL_VIDEO_DEFAULT_PROVIDER;
-const TOOL_TENANT_SPECS = Object.freeze({
-  undress: {
-    id: "undress",
-    tenantId: "tool-undress-14vips",
-    brand: "Undress",
-    title: "Undress",
-    description: "Private AI image and video editing.",
-    defaultTab: "gallery",
-    defaultGalleryMode: "characters",
-    allowedTabs: ["gallery", "history", "topups", "spending", "referral"],
-    allowedGalleryModes: ["characters"],
-    disabledTabs: ["access", "assets", "workflow", "characters", "advanced"],
-    assetLibrary: false,
-  },
-  video: {
-    id: "video",
-    tenantId: "tool-video-123tops",
-    brand: "123Tops Video",
-    title: "123Tops Video",
-    description: "AI video creation workspace.",
-    defaultTab: "gallery",
-    defaultGalleryMode: "playflux-video",
-    allowedTabs: ["gallery", "history", "topups", "spending", "pricing", "referral"],
-    allowedGalleryModes: ["playflux-video"],
-    disabledTabs: ["access", "assets", "workflow"],
-    assetLibrary: false,
-    videoProvider: TOOL_VIDEO_PROVIDER,
-  },
-  image: {
-    id: "image",
-    tenantId: "tool-image",
-    defaultTab: "gallery",
-    defaultGalleryMode: "playflux-image",
-    allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
-    allowedGalleryModes: ["playflux-image"],
-    disabledTabs: ["access", "assets", "workflow", "referral"],
-    assetLibrary: false,
-  },
-  anime: {
-    id: "anime",
-    tenantId: "tool-anime",
-    defaultTab: "gallery",
-    defaultGalleryMode: "playflux-anime",
-    allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
-    allowedGalleryModes: ["playflux-anime"],
-    disabledTabs: ["access", "assets", "workflow", "referral"],
-    assetLibrary: false,
-  },
-  characters: {
-    id: "characters",
-    tenantId: "tool-characters",
-    defaultTab: "characters",
-    allowedTabs: ["characters", "history", "topups", "spending", "pricing"],
-    allowedGalleryModes: ["characters"],
-    disabledTabs: ["access", "assets", "workflow", "referral"],
-    assetLibrary: false,
-  },
-  chat: {
-    id: "chat",
-    tenantId: "tool-chat-5vips",
-    brand: "5VIPS Chat",
-    title: "5VIPS Chat",
-    description: "Guided character conversations with your favorite AI roles.",
-    defaultTab: "gallery",
-    defaultGalleryMode: "characters",
-    allowedTabs: ["gallery", "chat", "topups", "spending", "pricing"],
-    allowedGalleryModes: ["characters"],
-    disabledTabs: ["access", "assets", "workflow", "characters", "advanced", "referral"],
-    assetLibrary: false,
-  },
-  live: {
-    id: "live",
-    tenantId: "tool-chat-5vips",
-    brand: "Vipeak Live",
-    title: "Vipeak Live",
-    description: "Live conversations with AI characters.",
-    defaultTab: "home",
-    allowedTabs: ["home", "rooms", "messages", "account"],
-    allowedGalleryModes: ["characters"],
-    disabledTabs: ["access", "assets", "workflow", "advanced"],
-    assetLibrary: false,
-  },
-  advanced: {
-    id: "advanced",
-    tenantId: "tool-advanced",
-    defaultTab: "advanced",
-    allowedTabs: ["advanced", "characters", "history", "topups", "spending", "pricing"],
-    disabledTabs: ["access", "assets", "workflow", "referral"],
-    assetLibrary: false,
-  },
-});
-const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video,undress.14vips.com=undress,chat.5vips.com=chat,live.123vipeak.com=live";
-const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
-
-// Platform (non-tool) hosts that ship their own site profile. They keep the main
-// platform user pool and billing (tenantId stays DEFAULT_TENANT_ID, toolOnly is
-// false) but land on a different default tab and expose a reduced tab set.
-const DEFAULT_PLATFORM_SITE_HOSTS = "123vip.fans";
-const PLATFORM_SITE_HOSTS = new Set(parseCsvList(process.env.PLATFORM_SITE_HOSTS || DEFAULT_PLATFORM_SITE_HOSTS));
-const PLATFORM_SITE_PROFILE = Object.freeze({
-  id: "custom-workflow",
-  // The profile lands on its own welcome page and enters the 自定义 workspace
-  // from there, so defaultRoute stays empty (no forced in-app route).
-  defaultTab: String(process.env.PLATFORM_SITE_DEFAULT_TAB || "home").trim() || "home",
-  // In-app route the profile lands on (setTab accepts the raw "custom" route,
-  // which opens the 自定义 workspace in custom mode).
-  defaultRoute: String(process.env.PLATFORM_SITE_DEFAULT_ROUTE || "").trim(),
-  // Nav entries to hide without disabling the underlying tab/panel.
-  hiddenNavTabs: parseCsvList(process.env.PLATFORM_SITE_HIDDEN_NAV_TABS || "advanced"),
-  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"),
-  disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat"),
-  // Show a "home" entry in the side rail so the workspace can return to the
-  // profile's welcome page.
-  navHome: true,
-  bodyClass: "site-custom-workflow",
-  stylesheet: "site-123vipfans.css",
-  logo: "/assets/brand/123vipfans-logo.png",
-  favicon: "/assets/brand/123vipfans-favicon.png",
-});
-
-function platformSiteProfileForHostname(hostname = "") {
-  const host = normalizeHostname(hostname);
-  if (!host) return null;
-  // The www host is the same site as the apex, so it must land on the same
-  // profile instead of falling back to the plain platform app.
-  const bareHost = host.replace(/^www\./, "");
-  return PLATFORM_SITE_HOSTS.has(host) || PLATFORM_SITE_HOSTS.has(bareHost) ? PLATFORM_SITE_PROFILE : null;
-}
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
@@ -638,7 +494,6 @@ function chatLiveVoiceRegionError(provider = "") {
   }
   return "";
 }
-
 
 const SEEDANCE_QUALITY_ENDPOINT_ID = "ep-20260429142513-zg667";
 const SEEDANCE_FAST_ENDPOINT_ID = "ep-20260429142538-fkm9d";
@@ -1682,60 +1537,6 @@ function sendMainlandBlocked(req, res, url) {
   return res.end("Service is not available in this region.");
 }
 
-function pageOriginFromRequest(req) {
-  const tenant = requestTenantDescriptor(req);
-  const origin = tenant.toolOnly ? requestOriginFromHeaders(req) : publicOriginFromRequest(req);
-  return canonicalizeOrigin(origin, CANONICAL_HOST_ALIASES);
-}
-
-function parseCsvList(value = "") {
-  return String(value || "")
-    .split(/[,\n;]/)
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function normalizeHostname(value = "") {
-  const text = String(value || "").trim().toLowerCase();
-  if (!text) return "";
-  try {
-    return new URL(text.includes("://") ? text : `https://${text}`).hostname.toLowerCase();
-  } catch {
-    return text.replace(/:\d+$/, "").replace(/^\.+|\.+$/g, "").toLowerCase();
-  }
-}
-
-function parseToolTenantDomainMap(value = "") {
-  const map = new Map();
-  String(value || "")
-    .split(/[,\n;]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .forEach((entry) => {
-      const separator = entry.includes("=") ? "=" : entry.includes("|") ? "|" : "";
-      if (!separator) return;
-      const [rawHost, rawTool] = entry.split(separator);
-      const host = normalizeHostname(rawHost);
-      const tool = String(rawTool || "").trim().toLowerCase();
-      if (host && TOOL_TENANT_SPECS[tool]) map.set(host, tool);
-    });
-  return map;
-}
-
-function hostnameFromOrigin(origin = "") {
-  return normalizeHostname(origin);
-}
-
-function requestHostname(req) {
-  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
-  if (!host) return "";
-  try {
-    return new URL(`http://${host}`).hostname.toLowerCase();
-  } catch {
-    return host.replace(/:\d+$/, "").toLowerCase();
-  }
-}
-
 function isCmsHostRequest(req) {
   return requestHostname(req).startsWith("cms.");
 }
@@ -1889,103 +1690,9 @@ function sendHttpsRedirect(req, res, url) {
   return true;
 }
 
-function hostnameMatchesRoot(hostname = "", root = "") {
-  const host = normalizeHostname(hostname);
-  const base = normalizeHostname(root);
-  return Boolean(host && base && (host === base || host.endsWith(`.${base}`)));
-}
-
-function isPrimaryPlatformHostname(hostname = "") {
-  const host = normalizeHostname(hostname);
-  return Boolean(host && PRIMARY_PLATFORM_HOSTS.has(host));
-}
-
-function isPublicTenantHostname(hostname = "") {
-  const host = normalizeHostname(hostname);
-  if (!host || isPrimaryPlatformHostname(host)) return false;
-  if (Array.from(PRIMARY_PLATFORM_ROOT_HOSTS).some((root) => hostnameMatchesRoot(host, root))) return true;
-  return Array.from(PUBLIC_TENANT_ROOT_HOSTS).some((root) => hostnameMatchesRoot(host, root));
-}
-
-function toolTenantIdForHostname(hostname = "") {
-  const host = normalizeHostname(hostname);
-  if (!host || isPrimaryPlatformHostname(host)) return "";
-  const configured = TOOL_TENANT_DOMAIN_MAP.get(host);
-  if (configured && TOOL_TENANT_SPECS[configured]) return configured;
-  const firstLabel = host.split(".")[0] || "";
-  return TOOL_TENANT_SUBDOMAIN_ALIASES[firstLabel] || "";
-}
-
-function tenantDescriptorFromHostname(hostname = "") {
-  const host = normalizeHostname(hostname);
-  const toolId = toolTenantIdForHostname(host);
-  const tool = TOOL_TENANT_SPECS[toolId] || null;
-  const siteProfile = tool ? null : platformSiteProfileForHostname(host);
-  const tenantPublic = Boolean(tool || isPublicTenantHostname(host));
-  const apiAccess = !tool;
-  return {
-    tenantPublic,
-    tenantMode: tool ? "tool" : "platform",
-    host,
-    tenantId: normalizeTenantId(tool?.tenantId || DEFAULT_TENANT_ID),
-    toolOnly: Boolean(tool),
-    toolId: tool?.id || "",
-    brand: tool?.brand || "",
-    title: tool?.title || "",
-    description: tool?.description || "",
-    defaultTab: tool?.defaultTab || siteProfile?.defaultTab || "gallery",
-    defaultGalleryMode: tool?.defaultGalleryMode || "characters",
-    allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : (siteProfile?.allowedTabs || []),
-    allowedGalleryModes: Array.isArray(tool?.allowedGalleryModes) ? tool.allowedGalleryModes : [],
-    hiddenNavTabs: Array.isArray(siteProfile?.hiddenNavTabs) ? siteProfile.hiddenNavTabs : [],
-    defaultRoute: siteProfile?.defaultRoute || "",
-    navHome: Boolean(siteProfile?.navHome),
-    disabledTabs: Array.from(new Set([
-      ...(tool?.disabledTabs || siteProfile?.disabledTabs || []),
-      ...(apiAccess ? [] : ["access"]),
-    ])),
-    apiAccess,
-    assetLibrary: tool?.assetLibrary ?? true,
-    accountMenu: true,
-    subscriptions: Boolean(tool),
-    membershipProgram: !tool,
-    videoProvider: tool?.videoProvider || "",
-    siteProfile: siteProfile?.id || "",
-  };
-}
-
-function tenantDescriptorFromOrigin(origin = "") {
-  return tenantDescriptorFromHostname(hostnameFromOrigin(origin));
-}
-
-function requestTenantDescriptor(req) {
-  return tenantDescriptorFromHostname(requestHostname(req) || hostnameFromOrigin(publicOriginFromRequest(req)));
-}
-
-function requestTenantOptions(req) {
-  const tenant = requestTenantDescriptor(req);
-  return { ...tenant, tenant };
-}
-
-function requestTenantId(req) {
-  return normalizeTenantId(requestTenantDescriptor(req).tenantId || DEFAULT_TENANT_ID);
-}
-
-function recordTenantId(record = null) {
-  return normalizeTenantId(record?.tenantId || record?.tenant_id || DEFAULT_TENANT_ID);
-}
-
-function recordBelongsToTenant(record = null, tenantId = DEFAULT_TENANT_ID) {
-  return Boolean(record) && recordTenantId(record) === normalizeTenantId(tenantId);
-}
-
 function isLocalPublicAssetUrl(value = "") {
   const baseUrl = configuredPublicBaseUrl();
   return Boolean(baseUrl && String(value || "").startsWith(`${baseUrl}/assets/`));
-}
-
-function isTenantPublicOrigin(origin = "") {
-  return tenantDescriptorFromOrigin(origin).tenantPublic;
 }
 
 async function readDb() {
@@ -6015,7 +5722,6 @@ function normalizeChatLiveConfig(raw = {}) {
   };
 }
 
-
 function chatLiveSharedRoomSaleCredits(live = {}) {
   const shared = Number(live.sharedRoomSaleCreditsPerMinute || 0) || 0;
   if (shared > 0) return shared;
@@ -6338,7 +6044,6 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   };
 }
 
-
 function isManagedChatLiveAssetUrl(url = "") {
   try {
     const parsed = new URL(String(url || "").trim());
@@ -6558,7 +6263,6 @@ function inferChatLiveProfile(character = {}) {
   return { age: age >= 18 && age <= 80 ? Math.round(age) : 0, gender, companionStyle };
 }
 
-
 function chatLiveAlbumItems(character = {}) {
   if (Array.isArray(character.album) && character.album.length) return character.album;
   return (Array.isArray(character.privateResources) ? character.privateResources : []).map((item) => ({ ...item, locked: true }));
@@ -6582,7 +6286,6 @@ function publicChatLiveAlbum(character = {}, hasMembership = false) {
     };
   });
 }
-
 
 async function loadChatCharacterMemory(userId = "", characterId = "") {
   const cleanUserId = String(userId || "").trim();
@@ -6715,9 +6418,6 @@ function chatLiveEngagementGuide(character = {}, gifts = [], memory = null) {
     chatLiveGiftHint(gifts),
   ].join("\n");
 }
-
-
-
 
 function chatLiveLegacyPrompt(character = {}, { language = "zh", memory = null, user = null, latest = "" } = {}) {
   return chatSystemPrompt({
@@ -6994,7 +6694,6 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
   return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(room, character), session: { id: viewer.id, mode: viewer.mode, liveId: viewer.liveId, status: viewer.status, rtc: viewer.rtc, saleCreditsPerMinute: 0, costCreditsPerMinute: 0, maxMinutes: viewer.maxMinutes, freeSeconds: viewer.freeSeconds, model: viewer.model, avatarMode: "default" }, character: publicChatLiveCharacter(character), messages });
 }
 
-
 async function handleListChatLiveRoomMessages(req, res, roomId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -7081,7 +6780,6 @@ async function handleAdminDeleteChatLiveGift(req, res, giftId = "") {
   return sendJson(res, 200, { ok: true });
 }
 
-
 async function handleAdminUploadChatLiveAsset(req, res, options = {}) {
   const auth = options.auth || await requireAdmin(req, res);
   if (!auth) return;
@@ -7147,7 +6845,6 @@ async function handleAdminChatLiveCharacters(req, res) {
     },
   });
 }
-
 
 function creatorOwnsChatLiveCharacter(character, user) {
   return Boolean(character) && String(character.createdByUserId || "") === String(user?.id || "");
@@ -7296,7 +6993,6 @@ async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
   const saved = await upsertChatLiveCharacterInDb(character);
   return sendJson(res, 200, { ok: true, character: saved });
 }
-
 
 async function handleAdminShelfChatLiveCharacter(req, res, characterId = "") {
   const auth = await requireAdmin(req, res);
@@ -7575,7 +7271,6 @@ async function handleAdminDeleteChatLiveLook(req, res, lookId = "") {
   return sendJson(res, 200, { ok: true });
 }
 
-
 function chatLiveSessionIdentity(req, auth, character) {
   const referer = String(req?.headers?.referer || req?.headers?.referrer || "").trim();
   let refererOrigin = "";
@@ -7594,7 +7289,6 @@ function chatLiveSessionIdentity(req, auth, character) {
     sourceHost: hostnameFromOrigin(sourceOrigin),
   };
 }
-
 
 async function resolveChatLiveRoomId(session = {}) {
   const direct = String(session?.roomId || "").trim();
@@ -7634,7 +7328,6 @@ async function linkChatLiveSessionToRoom(roomId = "", session = {}) {
   });
 }
 
-
 async function handleListChatLiveContacts(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -7656,7 +7349,6 @@ async function handleListChatLiveContacts(req, res) {
   }
   return sendJson(res, 200, { ok: true, contacts });
 }
-
 
 async function releaseChatLiveForReconnect(session = {}) {
   if (!session?.id) return;
@@ -7872,7 +7564,6 @@ async function handleCreateChatLiveSession(req, res) {
       character: publicChatLiveCharacter(character),
     });
   }
-
 
   const avatar = {
     persona: character.persona,
@@ -9625,7 +9316,6 @@ function findUserUnlock(db, userId, itemId, sceneId, sceneEntryId = "default") {
 
 const UNLOCK_STREAM_TTL_MS = 6 * 60 * 60 * 1000;
 
-
 const EMBED_LIVE_TICKET_TTL_MS = 10 * 60 * 1000;
 const EMBED_LIVE_BROWSER_TTL_MS = 6 * 60 * 60 * 1000;
 const embedLiveUsedTickets = new Map();
@@ -9725,7 +9415,6 @@ async function resolveEmbedLiveVoice(input = {}) {
   }
   return found;
 }
-
 
 function normalizeEmbedLiveLooks(raw) {
   if (raw == null || raw === "") return [];
@@ -13224,7 +12913,6 @@ async function scanTelegramPaymentNotifications() {
   }
 }
 
-
 const DOUBLE_TOPUP_PROMO = Object.freeze({
   id: "double-topup-20261015",
   startsAt: Date.parse("2026-10-15T00:00:00+07:00"),
@@ -13286,7 +12974,6 @@ function doubleTopupView(state = {}, now = Date.now()) {
     campaignEndsAt: new Date(DOUBLE_TOPUP_PROMO.endsAt).toISOString(),
   };
 }
-
 
 async function reserveDoubleTopupPending(user, orderId, replacePendingId = "") {
   const expected = String(replacePendingId || "");
@@ -17167,7 +16854,6 @@ async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) 
   }
   throw lastError || Object.assign(new Error("Qwen3.7 Flash request failed."), { statusCode: 502 });
 }
-
 
 function papayaPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
   const pricing = normalizeAdvancedPricing(advancedPricing);
@@ -30764,7 +30450,6 @@ async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
   });
 }
 
-
 async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
@@ -31032,7 +30717,6 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
     });
   }
 }
-
 
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
@@ -34902,7 +34586,6 @@ function getDemoTask(taskId) {
   };
 }
 
-
 function landingFieldsFromBody(body = {}) {
   const clean = (value, maxLength = 160) => String(value || "")
     .normalize("NFKC")
@@ -36915,7 +36598,6 @@ async function handleBillingSummary(req, res) {
   return sendJson(res, 200, { ok: true, billing, user: userView(auth.user) });
 }
 
-
 function airwallexEnabled() {
   return Boolean(AIRWALLEX_CLIENT_ID && AIRWALLEX_API_KEY && AIRWALLEX_WEBHOOK_SECRET);
 }
@@ -36974,7 +36656,6 @@ async function airwallexRequest(pathname, body) {
   }
   return payload;
 }
-
 
 function airwallexCashierReturnUrl(order, billing) {
   const url = new URL(`${AIRWALLEX_CHECKOUT_BASE_URL}/`);
@@ -37111,7 +36792,6 @@ async function handleStartAirwallexCheckoutSession(req, res, orderId) {
     return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "AIRWALLEX_CHECKOUT_FAILED", message: "Airwallex checkout could not be created." });
   }
 }
-
 
 const mulerouterWebhookDeliveries = new Set();
 
@@ -38990,7 +38670,6 @@ async function handleListTopupRecords(req, res, url) {
     user: userView(auth.user),
   });
 }
-
 
 function groupChatLiveSpendingEntries(entries = []) {
   const others = [];

@@ -7,6 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
+const tenants = fs.readFileSync(path.resolve(__dirname, "..", "lib-tenants.js"), "utf8");
 
 function functionSource(name) {
   const start = server.indexOf(`function ${name}(`);
@@ -77,6 +78,6 @@ test("the templates endpoint filters by tenant instead of returning nothing", ()
 });
 
 test("the video tool still exposes the playflux video gallery", () => {
-  assert.match(server, /defaultGalleryMode: "playflux-video"/);
-  assert.match(server, /allowedGalleryModes: \["playflux-video"\]/);
+  assert.match(tenants, /defaultGalleryMode: "playflux-video"/);
+  assert.match(tenants, /allowedGalleryModes: \["playflux-video"\]/);
 });

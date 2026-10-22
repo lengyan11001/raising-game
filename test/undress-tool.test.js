@@ -8,6 +8,7 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const server = read("server.js");
+const tenants = read("lib-tenants.js");
 const db = read("db.js");
 const loader = read("platform.js");
 const html = read("platform.html");
@@ -19,10 +20,10 @@ const css = read("tool-undress.css");
 const videoTools = read("video-tools.js");
 
 test("undress.14vips.com is an isolated tenant without API or asset-library access", () => {
-  assert.match(server, /undress\.14vips\.com=undress/);
-  assert.match(server, /tenantId: "tool-undress-14vips"/);
-  assert.match(server, /allowedTabs: \["gallery", "history", "topups", "spending", "referral"\]/);
-  assert.match(server, /assetLibrary: false/);
+  assert.match(tenants, /undress\.14vips\.com=undress/);
+  assert.match(tenants, /tenantId: "tool-undress-14vips"/);
+  assert.match(tenants, /allowedTabs: \["gallery", "history", "topups", "spending", "referral"\]/);
+  assert.match(tenants, /assetLibrary: false/);
   assert.match(db, /'tool-undress-14vips'/);
   assert.match(server, /function undressToolApiPathAllowed/);
   assert.match(server, /undressToolRequestAllowed\(req\) && url\.pathname\.startsWith\("\/api\/"\)/);

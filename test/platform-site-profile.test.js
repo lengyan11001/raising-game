@@ -6,6 +6,8 @@ const path = require("node:path");
 const test = require("node:test");
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
+const tenants = fs.readFileSync(path.resolve(__dirname, "..", "lib-tenants.js"), "utf8");
+const tenantRuntime = require(path.resolve(__dirname, "..", "lib-tenants.js"));
 const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
 const ui = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
@@ -31,40 +33,31 @@ function extractFunction(source, name) {
 }
 
 test("the www host serves the same site profile as the apex", () => {
-  const factory = new Function(
-    "PLATFORM_SITE_HOSTS",
-    "PLATFORM_SITE_PROFILE",
-    [
-      extractFunction(server, "normalizeHostname"),
-      extractFunction(server, "platformSiteProfileForHostname"),
-      "return platformSiteProfileForHostname;",
-    ].join("\n"),
-  );
-  const profile = { id: "custom-workflow" };
-  const lookup = factory(new Set(["123vip.fans"]), profile);
+  const lookup = tenantRuntime.platformSiteProfileForHostname;
+  const profile = tenantRuntime.PLATFORM_SITE_PROFILE;
   assert.equal(lookup("123vip.fans"), profile);
   assert.equal(lookup("www.123vip.fans"), profile);
   assert.equal(lookup("123vip.fans:443"), profile);
   assert.equal(lookup("https://WWW.123vip.fans/landing"), profile);
   assert.equal(lookup("123vips.com"), null);
   assert.equal(lookup(""), null);
-  assert.match(server, /const bareHost = host\.replace\(\/\^www\\\.\/, ""\);/);
+  assert.match(tenants, /const bareHost = host\.replace\(\/\^www\\\.\/, ""\);/);
 });
 
 test("123vip.fans is a platform site profile, not a tool tenant", () => {
-  assert.match(server, /const DEFAULT_PLATFORM_SITE_HOSTS = "123vip\.fans"/);
-  assert.match(server, /id: "custom-workflow"/);
-  assert.match(server, /defaultTab: String\(process\.env\.PLATFORM_SITE_DEFAULT_TAB \|\| "home"\)/);
-  assert.match(server, /defaultRoute: String\(process\.env\.PLATFORM_SITE_DEFAULT_ROUTE \|\| ""\)/);
-  assert.match(server, /hiddenNavTabs: parseCsvList\(process\.env\.PLATFORM_SITE_HIDDEN_NAV_TABS \|\| "advanced"\)/);
-  assert.match(server, /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"\)/);
-  assert.match(server, /disabledTabs: parseCsvList\(process\.env\.PLATFORM_SITE_DISABLED_TABS \|\| "gallery,characters,chat"\)/);
+  assert.match(tenants, /const DEFAULT_PLATFORM_SITE_HOSTS = "123vip\.fans"/);
+  assert.match(tenants, /id: "custom-workflow"/);
+  assert.match(tenants, /defaultTab: String\(process\.env\.PLATFORM_SITE_DEFAULT_TAB \|\| "home"\)/);
+  assert.match(tenants, /defaultRoute: String\(process\.env\.PLATFORM_SITE_DEFAULT_ROUTE \|\| ""\)/);
+  assert.match(tenants, /hiddenNavTabs: parseCsvList\(process\.env\.PLATFORM_SITE_HIDDEN_NAV_TABS \|\| "advanced"\)/);
+  assert.match(tenants, /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"\)/);
+  assert.match(tenants, /disabledTabs: parseCsvList\(process\.env\.PLATFORM_SITE_DISABLED_TABS \|\| "gallery,characters,chat"\)/);
 });
 
 test("the profile keeps the shared platform tenant while changing the default tab", () => {
-  const descriptor = server.slice(
-    server.indexOf("function tenantDescriptorFromHostname("),
-    server.indexOf("function tenantDescriptorFromOrigin("),
+  const descriptor = tenants.slice(
+    tenants.indexOf("function tenantDescriptorFromHostname("),
+    tenants.indexOf("function tenantDescriptorFromOrigin("),
   );
   assert.match(descriptor, /const siteProfile = tool \? null : platformSiteProfileForHostname\(host\)/);
   assert.match(descriptor, /defaultTab: tool\?\.defaultTab \|\| siteProfile\?\.defaultTab \|\| "gallery"/);
@@ -123,10 +116,10 @@ test("the profile ships its own welcome page, brand and stylesheet", () => {
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero.svg")), "own hero illustration should exist");
   assert.ok(!fs.existsSync(path.resolve(__dirname, "..", "assets", "brand", "123vipfans-hero.png")), "the copied reference hero must not ship");
   assert.ok(fs.existsSync(path.resolve(__dirname, "..", "site-123vipfans.css")), "profile stylesheet should exist");
-  assert.match(server, /stylesheet: "site-123vipfans\.css"/);
-  assert.match(server, /logo: "\/assets\/brand\/123vipfans-logo\.png"/);
-  assert.match(server, /favicon: "\/assets\/brand\/123vipfans-favicon\.png"/);
-  assert.match(server, /bodyClass: "site-custom-workflow"/);
+  assert.match(tenants, /stylesheet: "site-123vipfans\.css"/);
+  assert.match(tenants, /logo: "\/assets\/brand\/123vipfans-logo\.png"/);
+  assert.match(tenants, /favicon: "\/assets\/brand\/123vipfans-favicon\.png"/);
+  assert.match(tenants, /bodyClass: "site-custom-workflow"/);
   assert.match(server, /\(<a class="brand" href="\)\[\^"\]\*\("\)/);
 });
 
@@ -155,7 +148,7 @@ test("the profile paints the welcome page first instead of the workspace navigat
 test("the workspace can return to the welcome page", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
   assert.match(html, /<button class="top-tab" data-tab="home" type="button" hidden>/);
-  assert.match(server, /navHome: true/);
+  assert.match(tenants, /navHome: true/);
   assert.match(server, /if \(tenant\.navHome\) \{/);
   assert.ok(
     server.includes("withTenantShell.replace(\n        /<button\\b[^>]*data-tab=\"home\"[^>]*>/i"),

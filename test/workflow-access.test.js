@@ -9,14 +9,14 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 test("main old and new2 sites expose Workflow to every user while tool tenants keep it disabled", () => {
   const config = read("platform.config.js");
   const ui = read("platform.ui.js");
-  const server = read("server.js");
+  const tenants = read("lib-tenants.js");
 
   assert.match(config, /function canUseWorkflow\(\) \{[\s\S]*?return tenantFeature\("workflow", true\);[\s\S]*?\}/);
   assert.match(config, /if \(candidate === "workflow" && !canUseWorkflow\(\)\) continue;/);
   assert.match(config, /if \(normalized === "workflow"\) return canUseWorkflow\(\);/);
   assert.match(ui, /const workflowEnabled = canUseWorkflow\(\);/);
-  assert.match(server, /tenantId: "tool-undress-14vips"[\s\S]*?disabledTabs: \[[^\]]*"workflow"/);
-  assert.match(server, /tenantId: "tool-video-123tops"[\s\S]*?disabledTabs: \[[^\]]*"workflow"/);
+  assert.match(tenants, /tenantId: "tool-undress-14vips"[\s\S]*?disabledTabs: \[[^\]]*"workflow"/);
+  assert.match(tenants, /tenantId: "tool-video-123tops"[\s\S]*?disabledTabs: \[[^\]]*"workflow"/);
   assert.match(config, /function canUseAnimeTemplates\(\) \{[\s\S]*?return isWorkflowTester\(\);/);
 });
 

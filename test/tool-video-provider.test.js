@@ -7,12 +7,13 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const tenants = fs.readFileSync(path.join(root, "lib-tenants.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const config = fs.readFileSync(path.join(root, "platform.config.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 
 test("Video template surfaces use the Seedance replacement route", () => {
-  assert.match(server, /const TOOL_VIDEO_DEFAULT_PROVIDER = "seedance";/);
+  assert.match(tenants, /const TOOL_VIDEO_DEFAULT_PROVIDER = "seedance";/);
   assert.match(server, /const TOOL_VIDEO_SEEDANCE_MODEL = "ep-20260429142513-zg667";/);
   assert.match(server, /const isVideoReplacementRequest = isToolVideoTemplateRequest/);
   assert.match(server, /isVideoReplacementRequest \? "seedance"/);
