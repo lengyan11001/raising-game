@@ -8,8 +8,11 @@
   const params = new URLSearchParams(window.location.search || "");
   const sessionId = String(params.get("sid") || "").trim();
   const stripeSessionId = String(params.get("stripe_sid") || "").trim();
-  const isStripe = Boolean(stripeSessionId);
-  const activeId = stripeSessionId || sessionId;
+  const airwallexSessionId = String(params.get("aw_sid") || "").trim();
+  const isAirwallex = Boolean(airwallexSessionId) || location.hostname === "pay.storycut.club";
+  const isStripe = Boolean(stripeSessionId) && !isAirwallex;
+  const activeId = isAirwallex ? airwallexSessionId : (stripeSessionId || sessionId);
+  const providerName = isAirwallex ? "Airwallex" : (isStripe ? "Stripe" : "PayPal");
   let activeSession = null;
 
   function setStatus(message = "", tone = "") {
@@ -54,25 +57,25 @@
       els.summary.innerHTML = `
         <span>Payment amount</span>
         <strong>${amount ? `$${String(amount).replace(/^\$/, "")}` : "--"} ${currency}</strong>
-        <small>${formatCredits(credits)} credits will be added after ${isStripe ? "Stripe" : "PayPal"} confirms the payment.</small>
+        <small>${formatCredits(credits)} credits will be added after ${providerName} confirms the payment.</small>
       `;
     }
     if (els.returnLink && session?.returnUrl) els.returnLink.href = session.returnUrl;
     if (els.button) {
       els.button.disabled = paid || expired;
-      els.button.textContent = paid ? "Payment completed" : expired ? "Session expired" : failed ? "Try PayPal again" : (isStripe ? "Continue to Stripe" : "Continue to PayPal");
-      if (failed && isStripe) els.button.textContent = "Try Stripe again";
-    }
+      els.button.textContent = paid ? "Payment completed" : expired ? "Session expired" : failed ? `Try ${providerName} again` : `Continue to ${providerName}`;
+          }
     if (paid) setStatus("Payment completed. Credits have been added to your account.", "success");
     else if (expired) setStatus("This payment session has expired. Please create a new top-up order.", "error");
     else if (failed) {
       const reference = String(session?.debugId || "").trim();
-      const message = session?.errorMessage || `${isStripe ? "Stripe" : "PayPal"} could not create this payment. Please try again.`;
+      const message = session?.errorMessage || `${providerName} could not create this payment. Please try again.`;
       setStatus(reference ? `${message} Payment reference: ${reference}` : message, "error");
     }
-    else if (params.get("status") === "cancelled") setStatus("Payment was cancelled. You can try again or return to the site.", "");
+    else if (params.get("billing") === "success") setStatus("Payment received. Confirming credits on this page...", "");
+    else if (params.get("billing") === "cancel" || params.get("status") === "cancelled") setStatus("Payment was cancelled. You can try again or return to the site.", "");
     else if (params.get("status") === "error") setStatus("PayPal did not complete this payment. Please try again.", "error");
-    else setStatus("Review the amount, then continue to PayPal to complete payment.", "");
+    else setStatus(`Review the amount, then continue to ${providerName} to complete payment.`, "");
   }
 
   async function loadSession() {
@@ -83,7 +86,7 @@
       return;
     }
     try {
-      const providerPath = isStripe ? "stripe" : "paypal";
+      const providerPath = isAirwallex ? "airwallex" : (isStripe ? "stripe" : "paypal");
       const payload = await requestJson(`/api/pay/${providerPath}/checkout-sessions/${encodeURIComponent(activeId)}`);
       renderSession(payload.session);
     } catch (error) {
@@ -96,13 +99,36 @@
   async function startPayment() {
     if (!activeId || !els.button) return;
     els.button.disabled = true;
-    setStatus(`Opening ${isStripe ? "Stripe" : "PayPal"} checkout...`, "");
+    setStatus(`Opening ${providerName} checkout...`, "");
     try {
-      const providerPath = isStripe ? "stripe" : "paypal";
+      const providerPath = isAirwallex ? "airwallex" : (isStripe ? "stripe" : "paypal");
       const payload = await requestJson(`/api/pay/${providerPath}/checkout-sessions/${encodeURIComponent(activeId)}/start`, {
         method: "POST",
         body: {},
       });
+      if (isAirwallex) {
+        await new Promise((resolve, reject) => {
+          if (window.Airwallex) return resolve();
+          const script = document.createElement("script");
+          script.src = "https://checkout.airwallex.com/assets/elements.bundle.min.js";
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Airwallex checkout could not be loaded."));
+          document.head.appendChild(script);
+        });
+        const sdk = window.Airwallex;
+        if (sdk.init) sdk.init({ env: payload.env || "prod", origin: window.location.origin });
+        sdk.redirectToCheckout({
+          env: payload.env || "prod",
+          mode: "payment",
+          intent_id: payload.intentId,
+          client_secret: payload.clientSecret,
+          currency: payload.currency || "USD",
+          country_code: payload.countryCode || "HK",
+          successUrl: payload.successUrl,
+          failUrl: payload.cancelUrl,
+        });
+        return;
+      }
       if (payload.session) renderSession(payload.session);
       const approvalUrl = String(payload.checkoutUrl || payload.approvalUrl || payload.session?.checkoutUrl || payload.session?.approvalUrl || "").trim();
       if (approvalUrl) {
@@ -113,7 +139,7 @@
         setStatus("Payment completed. Credits have been added to your account.", "success");
         return;
       }
-      throw new Error(`${isStripe ? "Stripe" : "PayPal"} checkout link was not returned.`);
+      throw new Error(`${providerName} checkout link was not returned.`);
     } catch (error) {
       els.button.disabled = false;
       setStatus(error.message || String(error), "error");
@@ -121,5 +147,19 @@
   }
 
   if (els.button) els.button.addEventListener("click", startPayment);
-  loadSession();
+  const billingResult = params.get("billing");
+  async function waitForPaidSession() {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await loadSession();
+      const status = String(activeSession?.order?.status || activeSession?.status || "").toLowerCase();
+      if (status === "paid") return;
+    }
+    setStatus("Payment is still confirming. Refresh this page in a moment. Do not pay again.", "");
+  }
+  loadSession().then(() => {
+    if (billingResult === "success") return waitForPaidSession();
+    if (billingResult === "cancel") return;
+    if (isAirwallex && activeId && els.button && !els.button.disabled) return startPayment();
+  }).catch(() => {});
 })();

@@ -4623,11 +4623,21 @@ async function renderStripeCheckout() {
         <i data-lucide="external-link"></i>
         <span>${escapeHtml(t("topup.stripeContinue", {}, "Continue to Stripe"))}</span>
       </button>
-      <p class="stripe-payment-method-note" role="note" aria-label="${escapeHtml(t("topup.stripeMethods", {}, "Payment methods"))}">
-        <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>${escapeHtml(t("topup.wechatPay", {}, "WeChat Pay"))}</span></span>
-        <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>${escapeHtml(t("topup.creditCard", {}, "Credit card"))}</span></span>
-      </p>
       <p class="paypal-redirect-note">${escapeHtml(t("topup.stripeRedirectNote", {}, "You will continue on the secure payment page."))}</p>
+    `;
+    let methods = els.stripeBox.querySelector("[data-stripe-methods]");
+    if (!methods) {
+      methods = document.createElement("div");
+      methods.className = "stripe-payment-methods";
+      methods.dataset.stripeMethods = "1";
+      methods.setAttribute("role", "note");
+      els.stripeBox.appendChild(methods);
+    }
+    methods.setAttribute("aria-label", t("topup.stripeMethods", {}, "Payment methods"));
+    methods.innerHTML = `
+      <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>${escapeHtml(t("topup.wechatPay", {}, "WeChat Pay"))}</span></span>
+      <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-alipay" src="./assets/brand/alipay-logo.svg?v=2" alt="" aria-hidden="true" /><span>${escapeHtml(t("topup.alipay", {}, "Alipay"))}</span></span>
+      <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>${escapeHtml(t("topup.creditCard", {}, "Credit card"))}</span></span>
     `;
     els.stripeButtons.hidden = false;
     const button = els.stripeButtons.querySelector("[data-stripe-start]");

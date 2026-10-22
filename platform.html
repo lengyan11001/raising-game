@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=generation-expiry-placeholder-1" />
+    <link rel="stylesheet" href="./platform.css?v=pay-marks-1" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -107,7 +107,7 @@
         </button>
         <button class="top-tab" data-tab="custom" type="button">
           <i data-lucide="sliders-horizontal"></i>
-          <span data-i18n="advanced.modeCustom">Custom</span>
+          <span data-i18n="advanced.modeCustom">Generate</span>
         </button>
         <button class="top-tab" data-tab="workflow" type="button" hidden>
           <i data-lucide="workflow"></i>
@@ -165,17 +165,12 @@
       </div>
     </aside>
 
-    <aside class="launch-banner tenant-main-only" id="wan30LaunchBanner" role="status" hidden style="display:none!important">
-      <button class="launch-banner-content" id="wan30LaunchBtn" type="button">
-        <span class="launch-banner-spark" aria-hidden="true">✦</span>
-        <span>Wan3.0 上新，欢迎体验</span>
-        <span class="launch-banner-cta">立即体验</span>
-      </button>
-      <button class="launch-banner-close" id="wan30LaunchClose" type="button" aria-label="关闭通知">×</button>
-    </aside>
-
     <header class="site-head">
-      <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
+      <button id="doubleTopupBanner" class="double-topup-banner" type="button" hidden>
+        <span class="double-topup-banner-copy">活动期间，指定充值，多赠送50%，仅限一次！</span>
+        <span id="doubleTopupCountdown" class="double-topup-countdown">3天 00:00:00</span>
+      </button>
+        <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
         <details class="history-expiry-info history-expiry-info-desktop" data-history-expiry-info hidden>
           <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
           <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
@@ -232,6 +227,29 @@
     </header>
 
     <main>
+
+      
+      <dialog id="doubleTopupDialog" class="double-topup-dialog">
+        <form method="dialog">
+          <button class="double-topup-close" value="cancel" type="submit" aria-label="关闭">×</button>
+          <span class="double-topup-kicker">限时一次</span>
+          <h2>指定充值</h2>
+          <p>活动期间，指定充值，多赠送50%，仅限一次！充值 $30，面额 3000 积分，加赠 1500，本次到账 4500 积分。</p>
+          <div class="double-topup-offer">
+            <div><span>支付</span><strong>$30</strong></div>
+            <div><span>面额</span><strong>3000</strong></div>
+            <div><span>到账</span><strong>4500</strong></div>
+          </div>
+          <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>WeChat Pay</span></span>
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-alipay" src="./assets/brand/alipay-logo.svg?v=1" alt="" aria-hidden="true" /><span>Alipay</span></span>
+            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
+          </p>
+          <div class="double-topup-timer"><span>剩余时间</span><strong id="doubleTopupDialogCountdown">--</strong></div>
+          <button id="doubleTopupPayBtn" class="double-topup-pay" type="button">去充值</button>
+          <small>重复下单不会再次赠送，多出的订单按原来的充值比例到账。</small>
+        </form>
+      </dialog>
       <section class="home-panel" data-panel="home" hidden>
         <div class="w-bg" aria-hidden="true">
           <span class="w-page-glow"></span>
@@ -259,6 +277,10 @@
             <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
           </nav>
           <div class="w-nav-actions">
+            <button class="double-topup-banner double-topup-banner-home" type="button" hidden>
+              <span class="double-topup-banner-copy">活动期间，指定充值，多赠送50%，仅限一次！</span>
+              <span class="double-topup-countdown">3天 00:00:00</span>
+            </button>
             <button class="w-btn ghost sm" type="button" data-home-action="login" data-i18n="home.login">登录</button>
             <button class="w-btn primary sm" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
             <button class="w-btn primary sm" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
@@ -560,12 +582,14 @@
                   <option value="seedance">Seedance 2.0</option>
                 </optgroup>
                 <optgroup label="Image">
-                  <option value="wan27-image-edit">Wan 2.7 Image</option>
+                  <option value="z-image-spicy-pro">Z-Image Spicy Pro</option>
+                  <option value="qwen-image-edit-spicy">Qwen Image Edit Spicy</option>
                   <option value="seedream5-image">Seedream 5.0 Image</option>
                   <option value="qwen-image3">Qwen Image 3.0</option>
                 </optgroup>
                 <optgroup label="Language">
                   <option value="byteplus-language">BytePlus Language</option>
+                  <option value="papaya">Papaya 1.0</option>
                 </optgroup>
               </select></label>
               <label class="field advanced-video-capability-field" hidden><span>Mode</span><select id="advancedVideoCapability"></select></label>
@@ -584,7 +608,7 @@
               <label class="field advanced-wan-prompt-extend-option" hidden><span>Prompt extend</span><div class="advanced-checkbox-control"><input id="advancedWanPromptExtend" type="checkbox" /><span>On</span></div></label>
               <label class="field advanced-wan-prompt-optimize-option" hidden><span data-i18n="advanced.wanPromptOptimize">Wan3 prompt optimization</span><div class="advanced-checkbox-control"><input id="advancedWanPromptOptimize" type="checkbox" /><span data-i18n="common.on">On</span></div></label>
               <label class="field advanced-qwen37-option" hidden><span>Thinking</span><select id="advancedQwen37Thinking"><option value="false" selected>Off</option><option value="true">On</option></select></label>
-              <label class="field advanced-qwen37-option" hidden><span>Max output</span><select id="advancedQwen37MaxTokens"><option value="512">512</option><option value="1024" selected>1024</option><option value="2048">2048</option><option value="4096">4096</option><option value="8192">8192</option></select></label>
+              <label class="field advanced-qwen37-option"><span>Max output</span><select id="advancedQwen37MaxTokens"><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option><option value="8192" selected>8192</option></select></label>
               <label class="field advanced-qwen37-option" hidden><span>Temperature</span><select id="advancedQwen37Temperature"><option value="0">0</option><option value="0.3">0.3</option><option value="0.7" selected>0.7</option><option value="1">1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
@@ -638,7 +662,13 @@
                   <p class="eyebrow">Result</p>
                   <h2>Generation result</h2>
                 </div>
-                <button class="ghost-button" id="refreshAdvancedResultBtn" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+                <div class="advanced-result-head-actions">
+                  <details class="history-expiry-info" data-custom-result-expiry>
+                    <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+                    <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+                  </details>
+                  <button class="ghost-button" id="refreshAdvancedResultBtn" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+                </div>
               </div>
               <div class="advanced-result-kind-tabs" id="advancedResultKindTabs" role="tablist" aria-label="Filter results by type">
                 <button class="advanced-create-kind is-active" type="button" data-advanced-result-kind="video" role="tab" aria-selected="true"><i data-lucide="clapperboard"></i><span data-i18n="advanced.createKindVideo">视频生成</span></button>
@@ -1068,7 +1098,14 @@
             <div class="topup-stage topup-payment-stage" id="topupPaymentStage" hidden>
               <div class="topup-selected-package">
                 <span data-i18n="topup.selectedPackage">Selected package</span>
-                <strong id="topupSelectedPackage">0 credits</strong>
+                <div class="topup-selected-amount">
+                  <strong id="topupSelectedPackage">0 credits</strong>
+                  <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>WeChat Pay</span></span>
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-alipay" src="./assets/brand/alipay-logo.svg?v=1" alt="" aria-hidden="true" /><span>Alipay</span></span>
+            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
+          </p>
+                </div>
               </div>
               <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
                 <button class="topup-method-tab is-active" type="button" data-topup-method="stripe" role="tab" aria-selected="true">
@@ -1319,6 +1356,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=generation-expiry-placeholder-1"></script>
+    <script src="./platform.js?v=promo-click-1"></script>
   </body>
 </html>

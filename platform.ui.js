@@ -732,7 +732,8 @@ function allParameterDocsMarkdown({ revealToken = false } = {}) {
   const markdown = ACCESS_PARAM_GUIDES
     .map((guide) => accessDocMarkdown(accessDoc(guide)))
     .join("\n\n---\n\n");
-  return revealToken ? markdown.replaceAll("<user-token>", token) : markdown;
+  const withEmbed = `${markdown}\n\n---\n\n${EMBED_LIVE_ACCESS_MARKDOWN.trim()}\n`;
+  return revealToken ? withEmbed.replaceAll("<user-token>", token) : withEmbed;
 }
 
 async function fetchLatestModelDocsMarkdown({ revealToken = false } = {}) {
@@ -753,6 +754,91 @@ async function fetchLatestModelDocsMarkdown({ revealToken = false } = {}) {
   return allParameterDocsMarkdown({ revealToken });
 }
 
+const EMBED_LIVE_ACCESS_MARKDOWN = `## Embedded Live Chat
+
+Put a live character inside another website. Keep the merchant API token on the merchant server. The browser only receives a one-time ticket. The same merchant token serves every downstream user. \`externalUserId\` separates those users. Calls are billed to the merchant wallet, and the credit record includes \`externalUserId\`.
+
+Do not sign the merchant into the iframe. A normal site login is single-session and would disconnect the merchant's other sessions.
+
+### Create a ticket
+
+\`\`\`http
+POST ${apiUrl("/api/embed/live/tickets")}
+Authorization: Bearer <merchant-api-token>
+Content-Type: application/json
+
+{
+  "externalUserId": "user-10001",
+  "user": { "name": "小王", "avatarUrl": "https://example.com/user.png" },
+  "origin": "https://merchant.example",
+  "character": {
+    "name": "林夏",
+    "intro": "晚间电台主播，说话轻、会接话。",
+    "persona": "你是林夏，语气温柔，回答短一些。",
+    "script": "可选。传了就原样交给实时供应商，不再套用站内引导。",
+    "greeting": "可选开场。",
+    "imageUrl": "https://example.com/character.png",
+    "voiceType": "Cindy",
+    "voiceProvider": "qwen_omni",
+    "looks": [
+      { "kind": "garment", "name": "红裙", "imageUrl": "https://example.com/dress.png" },
+      { "kind": "object", "name": "花束", "imageUrl": "https://example.com/flower.png" },
+      { "kind": "background", "name": "夜景", "imageUrl": "https://example.com/night.png" }
+    ]
+  }
+}
+\`\`\`
+
+The response contains \`ticket\`, \`expiresAt\`, and \`embedUrl\`. A ticket lasts 10 minutes and can be redeemed once.
+
+Open \`embedUrl\` on https://live.123vipeak.com:
+
+\`\`\`html
+<iframe src="EMBED_URL" allow="microphone; camera; autoplay" allowfullscreen style="width:100%;height:100%;border:0"></iframe>
+\`\`\`
+
+If \`origin\` is set, the parent page origin must match it. Leave \`origin\` empty to allow any parent.
+
+### Fields
+
+- \`externalUserId\` (required): stable downstream user id, unique for this merchant. Letters, numbers, and \`_. : @ -\` only, up to 120 characters.
+- \`user.name\`, \`user.avatarUrl\`: display name and avatar for that user.
+- \`character.name\` (required).
+- \`character.intro\` or \`character.persona\`: conversation guidance. One of \`intro\`, \`persona\`, or \`script\` is required. If \`script\` is omitted, the server adds its own live-chat guidance around \`persona\`.
+- \`character.script\`: optional exact instruction sent to the live provider. When this is present, it replaces \`persona\` and the server does not append its own guidance.
+- \`character.greeting\`: optional opening instruction.
+- \`character.imageUrl\` (required): public https image. It is sent to the live provider as the character image.
+- \`character.voiceType\`: optional. Pass a \`voiceType\` from the voice list. Defaults to \`Cindy\`.
+- \`character.voiceProvider\`: optional. Use it with \`voiceType\` when the same id exists for more than one provider. Current values are \`qwen_omni\` and the Doubao provider for the active region.
+- \`character.looks\`: optional, at most 12 items. \`kind\` is \`garment\` (换衣服), \`object\` (手里拿东西), or \`background\` (换背景). Each item needs a public https \`imageUrl\`. These appear in the iframe picker. If omitted, the embed call does not use the platform look catalog.
+- \`origin\`: optional parent origin, such as \`https://merchant.example\`.
+
+### Gifts
+
+The iframe has the platform gift button. Gift names, pictures, and prices are the live site catalog. A gift is charged to the merchant wallet and the credit record includes \`externalUserId\`. Do not pass gift prices in the ticket. Insufficient balance returns 402.
+
+### Voice list
+
+The voice catalog is long and depends on the current live region. Query it with the merchant token. Do not expect the full list inside this copied package.
+
+\`\`\`http
+GET ${apiUrl("/api/embed/live/voices")}?provider=qwen_omni&q=Tina&limit=50&offset=0
+Authorization: Bearer <merchant-api-token>
+\`\`\`
+
+The response includes \`viduRegion\`, \`providers\`, \`total\`, and \`voices[]\` with \`name\`, \`voiceType\`, \`provider\`, \`desc\`, and \`languages\`. Use \`voiceType\` as \`character.voiceType\`. \`limit\` defaults to 50 and cannot exceed 200.
+
+### Billing and errors
+
+Price, free preview, and prepaid blocks follow the live site. The merchant balance is checked before the call and again about every 10 seconds. If the next block cannot be reserved, the call is hung up. One \`externalUserId\` can have only one active call. Other downstream users of the same merchant are not blocked.
+
+- 401: merchant token or ticket is missing, invalid, or expired.
+- 403: parent origin does not match \`origin\`.
+- 409: this ticket was already used, or this downstream user already has an active call.
+- 422: user id, character name, intro/persona/script, https image, or voice is invalid.
+- 402: the merchant balance cannot cover the next prepaid block.
+`;
+
 async function tokenAccessPackageMarkdown() {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const baseUrl = API_ORIGIN || window.location.origin || "";
@@ -772,8 +858,16 @@ async function tokenAccessPackageMarkdown() {
     "",
     "This package includes the production token plus the core docs a client needs to integrate without extra clarification.",
     "",
+    "## Embedded Live Chat",
+    "",
+    "This section is part of the stable copied access package. Search for Embedded Live Chat or /api/embed/live/tickets.",
+    "",
+    EMBED_LIVE_ACCESS_MARKDOWN.trim(),
+    "",
     "## Supported Endpoints",
     "",
+    `- Embedded live ticket: ${apiUrl("/api/embed/live/tickets")}`,
+    `- Embedded live voices: ${apiUrl("/api/embed/live/voices")}`,
     `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
     `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
     `- Qwen Image 3.0 generate: ${seedreamImageUrl}`,
@@ -1526,7 +1620,17 @@ function formatDurationSeconds(value) {
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function templateCostLabel(templateId) {
@@ -1567,12 +1671,15 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
+  if (["papaya", "papaya10", "carrothubpapaya10"].includes(normalized) || normalized.includes("carrothubpapaya")) return "papaya";
   if (["bytepluslanguage", "arklanguage", "ep202608271225548fsgw"].includes(normalized)) return "byteplus-language";
   if (["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized) || normalized.includes("qwen37flash") || normalized.includes("qwen3.7flash")) return "qwen37-flash";
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
+  if (["zimagespicypro", "zimagespicy", "zimage", "zimagepro", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
+  if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicypro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";
   if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (normalized.includes("happyhorse") || normalized === "horse" || normalized === "hh") return "happyhorse";
@@ -1585,10 +1692,13 @@ function normalizeAdvancedProvider(value = "") {
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
   const capability = currentAdvancedVideoCapability(provider);
+  if (normalized === "papaya") return "Papaya 1.0";
   if (normalized === "byteplus-language") return "BytePlus Language";
   if (normalized === "qwen37-flash") return "Qwen3.7 Flash";
   if (normalized === "qwen-image3") return "Qwen Image 3.0";
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
+  if (normalized === "z-image-spicy-pro") return "Z-Image Spicy Pro";
+  if (normalized === "qwen-image-edit-spicy") return "Qwen Image Edit Spicy";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   if (normalized === "wan30") return capability === "wan30-video-prime" ? "Wan 3.0 Prime" : "Wan 3.0";
   if (normalized === "seedance-nsfw") return "Seedance 2.5";
@@ -1674,7 +1784,7 @@ function advancedEngineValueResolved(provider = els.advancedProvider?.value || "
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1799,7 +1909,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
-  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan30") return raw === "480p" ? "480p" : raw === "720p" ? "720p" : "1080p";
   if (["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider))) return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
@@ -1809,10 +1919,10 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
 
 function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
-  if (["qwen37-flash", "byteplus-language"].includes(normalized)) return { min: 1, max: 1, fallback: 1 };
+  if (["qwen37-flash", "byteplus-language", "papaya"].includes(normalized)) return { min: 1, max: 1, fallback: 1 };
   if (normalized === "qwen-image3") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
-  if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
+  if (normalized === "wan27-image-edit" || normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
   if (["seedance25", "seedance-nsfw"].includes(normalized)) return { min: 4, max: 30, fallback: 4 };
   const resolvedCapability = capability || (
@@ -1925,11 +2035,31 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
+  if (normalizedProvider === "papaya") {
+    const configPricing = state.config?.platform?.advancedPricing || {};
+    const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
+    const inputTokens = Math.max(1, Math.min(256000, Math.floor(Number(options.inputTokens || 1) || 1)));
+    const outputTokens = Math.max(0, Math.min(8192, Math.floor(Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 8192) || 0)));
+    const usd = (inputTokens * 0.15 + outputTokens * 0.45) / 1000000;
+    const originalCredits = creditsAmount(usd * creditsPerUsd);
+    const multiplier = userPricingMultiplier();
+    return {
+      provider: "papaya",
+      model: "carrothub-papaya-1.0",
+      inputTokens,
+      outputTokens,
+      inputUsdPerMillionTokens: 0.15,
+      outputUsdPerMillionTokens: 0.45,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      source: "mulerouter_papaya_token_pricing",
+    };
+  }
+  if (["qwen37-flash", "byteplus-language", "papaya"].includes(normalizedProvider)) {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const qwenPricing = configPricing.qwen37Flash || {};
     const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || 1) || 1)));
-    const outputTokens = Math.max(0, Math.min(8192, Math.floor(Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 1024) || 0)));
+    const outputTokens = Math.max(0, Math.min(8192, Math.floor(Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 8192) || 0)));
     const inputRate = Number(qwenPricing.inputCnyPerMillionTokens ?? 0.225);
     const outputRate = Number(qwenPricing.outputCnyPerMillionTokens ?? 0.974);
     const creditsPerCny = Number(configPricing.creditsPerCny || 20) || 20;
@@ -2060,10 +2190,10 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       userPricingMultiplier: multiplier,
     };
   }
-  if (normalizedProvider === "wan27-image-edit") {
+  if (normalizedProvider === "wan27-image-edit" || normalizedProvider === "z-image-spicy-pro" || normalizedProvider === "qwen-image-edit-spicy") {
     const credits = assetImageModifyCostCredits();
     return {
-      provider: "wan27-image-edit",
+      provider: normalizedProvider,
       duration: 1,
       resolution: normalizeAdvancedResolution(resolution, normalizedProvider),
       ratio: normalizeVideoRatio(ratio),
@@ -2274,7 +2404,7 @@ function currentAdvancedResolution() {
 
 function advancedVideoSettingsVisible() {
   return state.advancedCreateKind === "video"
-    && !["qwen37-flash", "byteplus-language"].includes(currentAdvancedProvider())
+    && !["qwen37-flash", "byteplus-language", "papaya"].includes(currentAdvancedProvider())
     && !advancedCreateModeIsSimpleEdit()
     && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability())
     && !advancedVideoEditUsesSourceDuration()
@@ -2341,10 +2471,13 @@ function syncAdvancedVideoSettingsControls() {
 }
 
 function imageCreateHasReferences() {
-  return selectedAdvancedReferenceImages("wan27-image-edit").length > 0;
+  const provider = currentAdvancedProvider();
+  return selectedAdvancedReferenceImages(["z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider) ? provider : "wan27-image-edit").length > 0;
 }
 
 function imageCreateResolutionOptions() {
+  const provider = currentAdvancedProvider();
+  if (["z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) return ["1K", "2K"];
   return imageCreateHasReferences() ? ["1K", "2K"] : ["1K", "2K", "4K"];
 }
 
@@ -2500,7 +2633,7 @@ function clearAdvancedCharacterPresetReference() {
   if (!nextRefs.length) {
     state.advancedFirstFrameAssetId = "";
     state.advancedSourceImageAssetId = "";
-  } else if (currentAdvancedProvider() === "wan27-image-edit") {
+  } else if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(currentAdvancedProvider())) {
     state.advancedSourceImageAssetId = nextRefs[0]?.assetId || "";
     state.advancedFirstFrameAssetId = "";
   } else {
@@ -2900,7 +3033,7 @@ function applyAdvancedCharacterPreset(preset = {}) {
   };
   const ref = typeof stampAdvancedReferenceOrder === "function" ? stampAdvancedReferenceOrder(rawRef) : rawRef;
   const provider = currentAdvancedProvider();
-  if (provider === "wan27-image-edit") {
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) {
     state.advancedSourceImageAssetId = "";
     state.advancedFirstFrameAssetId = "";
     state.advancedReferenceImages = [ref];
@@ -3045,7 +3178,7 @@ function hasAdvancedCharacterImage() {
     state.advancedFirstFrameAssetId ||
     state.advancedSourceImageAssetId ||
     selectedAdvancedReferenceImages("seedance").length ||
-    selectedAdvancedReferenceImages("wan27-image-edit").length
+    selectedAdvancedReferenceImages(["z-image-spicy-pro", "qwen-image-edit-spicy"].includes(currentAdvancedProvider()) ? currentAdvancedProvider() : "wan27-image-edit").length
   );
 }
 
@@ -3297,7 +3430,7 @@ function advancedCostLabel(duration, provider = "seedance", resolution = "720p",
       : advancedPricing(duration, provider, resolution, ratio, options);
     return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - Pro ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
   }
-  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") {
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) {
     return `${assetImageModifyCostLabel()} - ${normalizeAdvancedResolution(resolution, provider)}`;
   }
   const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
@@ -3504,12 +3637,18 @@ function renderPricing() {
     ...seedanceResolutions.map((resolution) => videoInputRow(resolution, "standard")),
     ...seedanceFastResolutions.map((resolution) => videoInputRow(resolution, "fast")),
     {
-      category: "图片生成/编辑",
-      model: "Wan2.7 Image",
-      spec: "1K / 2K / 4K",
+      category: "图片生成",
+      model: "Z-Image Spicy Pro",
+      spec: "1K / 2K",
       unit: `${publicCredits(assetImageModifyCostCredits())}/张`,
       common: `单张 ${publicCredits(assetImageModifyCostCredits())}`,
-      note: "4K 仅文生图",
+    },
+    {
+      category: "图片编辑",
+      model: "Qwen Image Edit Spicy",
+      spec: "1K / 2K",
+      unit: `${publicCredits(assetImageModifyCostCredits())}/张`,
+      common: `单张 ${publicCredits(assetImageModifyCostCredits())}`,
     },
     {
       category: "图片生成",
@@ -3579,7 +3718,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
   if (state.advancedCreateKind === "custom") return fullLabel;
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return fullLabel;
-  if (normalizedProvider === "wan27-image-edit") return assetImageModifyCostLabel();
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizedProvider)) return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
     ? state.advancedEstimate
     : advancedPricing(duration, provider, resolution, ratio, options);
@@ -3588,11 +3727,11 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
+  if (["qwen37-flash", "byteplus-language", "papaya"].includes(normalizedProvider)) {
     return [
       normalizedProvider,
       Math.max(1, Number(options.inputTokens || 1) || 1),
-      Math.max(1, Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 1024) || 1024),
+      Math.max(1, Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 8192) || 1024),
       String(options.enableThinking ?? els.advancedQwen37Thinking?.value ?? "false"),
       String(options.temperature ?? els.advancedQwen37Temperature?.value ?? "0.7"),
       Number(state.user?.pricingMultiplier || 1),
@@ -3618,7 +3757,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
       Number(state.user?.pricingMultiplier || 1),
     ].join("|");
   }
-  if (normalizedProvider === "wan27-image-edit") {
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizedProvider)) {
     return [
       normalizedProvider,
       normalizeAdvancedResolution(resolution, normalizedProvider),
@@ -3654,7 +3793,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
 
 function requestAdvancedEstimate(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   if (tenantFeature("toolOnly", false)) return;
-  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return;
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) return;
   const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   if (!state.user || state.advancedEstimateKey === key) return;
   window.clearTimeout(state.advancedEstimateTimer);
@@ -3715,7 +3854,7 @@ function updateAdvancedButtonCost() {
     refreshIcons();
     return;
   }
-  if (provider === "wan27-image-edit") {
+  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) {
     els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
     refreshIcons();
     return;
@@ -3730,10 +3869,10 @@ function updateAdvancedButtonCost() {
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
-    inputTokens: ["qwen37-flash", "byteplus-language"].includes(provider) ? Math.max(1, new TextEncoder().encode(String(els.advancedPrompt?.value || "")).length + 64) : undefined,
-    outputTokens: ["qwen37-flash", "byteplus-language"].includes(provider) ? Number(els.advancedQwen37MaxTokens?.value || 1024) : undefined,
-    enableThinking: ["qwen37-flash", "byteplus-language"].includes(provider) ? els.advancedQwen37Thinking?.value === "true" : undefined,
-    temperature: ["qwen37-flash", "byteplus-language"].includes(provider) ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
+    inputTokens: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Math.max(1, Math.ceil(new TextEncoder().encode(String(els.advancedPrompt?.value || "")).length / 2) + 32) : undefined,
+    outputTokens: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37MaxTokens?.value || 8192) : undefined,
+    enableThinking: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? els.advancedQwen37Thinking?.value === "true" : undefined,
+    temperature: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
     referenceImageCount: ["seedream5-image", "qwen-image3"].includes(provider) ? selectedAdvancedReferenceImages(provider).length : 0,
     videoCapability,
     model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
@@ -5635,7 +5774,7 @@ function workflowImageGenerationBody(node = {}) {
   } else if (model.id === "seedream5-image") {
     body.seedreamTier = node.data?.seedreamTier || model.defaultTier || "pro";
   }
-  if (model.id === "wan27-image-edit") {
+  if (model.id === "qwen-image-edit-spicy") {
     const first = workflowMediaBodyValue(references[0] || "");
     return { ...body, dataUrl: first.dataUrl || undefined, imageUrl: first.url || undefined, imageAssetId: "" };
   }
@@ -5716,12 +5855,12 @@ function workflowVideoGenerationBody(node = {}) {
 async function runWorkflowImageNode(node = {}) {
   const model = workflowImageModelById(node.data?.modelId);
   const references = workflowNodeImageInputs(node);
-  if (model.id === "wan27-image-edit" && !references.length) throw new Error("Wan 2.7 Image requires an input image.");
+  if (model.id === "qwen-image-edit-spicy" && !references.length) throw new Error("Qwen Image Edit Spicy requires an input image.");
   state.workflowMessage = `Running ${model.label}...`;
   workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultImageUrl: "", resultImageUrls: [], resultVideoUrl: "" });
   workflowLog(`Submitting ${model.label}.`);
   let payload;
-  if (model.id === "wan27-image-edit") {
+  if (model.id === "qwen-image-edit-spicy") {
     const source = await workflowEnsureImageEditSources(references, `${node.id}-image`, "Workflow image input");
     payload = await requestJson("/api/wan27/image-edit", {
       method: "POST",
@@ -6694,3 +6833,81 @@ function handleWorkflowInput(event) {
     updateWorkflowNodeFromControl(target);
   }
 }
+
+
+function setupDoubleTopupPromo() {
+  const banners = Array.from(document.querySelectorAll(".double-topup-banner"));
+  const dialog = document.querySelector("#doubleTopupDialog");
+  const payBtn = document.querySelector("#doubleTopupPayBtn");
+  if (!banners.length || !dialog || !payBtn || dialog.dataset.bound === "1") return;
+  dialog.dataset.bound = "1";
+  const storageKey = "double-topup-20261015-window";
+  let promo = null;
+  let timer = 0;
+  let paying = false;
+  const readWindow = () => { try { return localStorage.getItem(storageKey) || ""; } catch (error) { return ""; } };
+  const writeWindow = (value) => { try { localStorage.setItem(storageKey, value); } catch (error) {} };
+  const pad = (value) => String(value).padStart(2, "0");
+  const formatLeft = (endsAt) => {
+    const left = Math.max(0, Date.parse(endsAt || "") - Date.now());
+    const total = Math.floor(left / 1000);
+    const days = Math.floor(total / 86400);
+    const clock = `${pad(Math.floor(total % 86400 / 3600))}:${pad(Math.floor(total % 3600 / 60))}:${pad(total % 60)}`;
+    return `${days}天 ${clock}`;
+  };
+  const paint = () => {
+    const text = promo && promo.visible ? formatLeft(promo.endsAt) : "";
+    banners.forEach((banner) => { banner.hidden = !promo || !promo.visible; });
+    const nodes = Array.from(document.querySelectorAll(".double-topup-countdown, #doubleTopupDialogCountdown"));
+    nodes.forEach((node) => { if (node) node.textContent = text; });
+  };
+  const refresh = async () => {
+    const hinted = readWindow();
+    const query = hinted ? `?windowStartedAt=${encodeURIComponent(hinted)}` : "";
+    const payload = await requestJson(`/api/promo/double-topup${query}`);
+    promo = payload.promo || { visible: false };
+    if (promo.visible && promo.endsAt) {
+      const start = Date.parse(promo.endsAt) - 3 * 24 * 60 * 60 * 1000;
+      if (Number.isFinite(start)) writeWindow(new Date(start).toISOString());
+    }
+    paint();
+  };
+  banners.forEach((banner) => banner.addEventListener("click", () => {
+    refresh().then(() => {
+      if (promo && promo.visible && typeof dialog.showModal === "function") dialog.showModal();
+    }).catch(() => {});
+  }));
+  payBtn.addEventListener("click", async () => {
+    if (paying) return;
+    if (!state.token || !state.user) {
+      dialog.close();
+      if (typeof openLogin === "function") openLogin();
+      return;
+    }
+    paying = true;
+    payBtn.disabled = true;
+    try {
+      const payload = await requestJson("/api/promo/double-topup/checkout", { method: "POST", body: {} });
+      if (payload.checkoutUrl) window.location.assign(payload.checkoutUrl);
+    } catch (error) {
+      if (error.code === "PROMO_ALREADY_USED") {
+        promo = { visible: false, claimed: true };
+        paint();
+        dialog.close();
+      } else if (error.statusCode === 401 && typeof openLogin === "function") {
+        dialog.close();
+        openLogin();
+      } else {
+        window.alert(error.message || "暂时不能发起充值");
+      }
+    } finally {
+      paying = false;
+      payBtn.disabled = false;
+    }
+  });
+  refresh().catch(() => {});
+  timer = window.setInterval(() => { paint(); }, 1000);
+  window.addEventListener("pagehide", () => window.clearInterval(timer), { once: true });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setupDoubleTopupPromo);
+else setupDoubleTopupPromo();

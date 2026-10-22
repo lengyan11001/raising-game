@@ -187,7 +187,7 @@
         <button class="solid-button" type="button" data-live-start="${esc(item.id)}">在线聊天</button>
         </div>
       </article>`).join("");
-    return `<section class="models-page" data-chat-live-section style="padding-bottom:0"><div class="models-intro"><span class="eyebrow">LIVE</span><h1>在线聊天</h1><p>数字人实时视频对话：你说话，她回应（单向视频，支持语音与文字）。</p></div><div class="model-grid">${cards}</div></section>`;
+    return `<section class="models-page" data-chat-live-section style="padding-bottom:0"><div class="models-intro"><span class="eyebrow">LIVE</span><h1>在线聊天</h1><p>实时视频对话：你说话，她回应（单向视频，支持语音与文字）。</p></div><div class="model-grid">${cards}</div></section>`;
   }
   function injectChatLiveSection() {
     if (document.querySelector("[data-chat-live-section]")) return;

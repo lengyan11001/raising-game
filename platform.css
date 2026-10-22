@@ -1183,10 +1183,14 @@ body.tenant-tool-shell .launch-banner + .site-head {
   box-shadow: 0 4px 14px rgba(20, 52, 150, 0.24);
 }
 .launch-banner-content {
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 10px;
+  max-width: 100%;
+  text-align: center;
   min-height: 34px;
   border: 0;
   color: inherit;
@@ -10969,4 +10973,133 @@ select:focus,
   .chat-onboarding-rail-item i, .chat-onboarding-rail-item img { justify-self: center !important; }
   .chat-onboarding-image-options { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
   .chat-onboarding-results { grid-template-columns: 1fr !important; max-width: 280px !important; }
+}
+
+.advanced-result-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.launch-banner, #wan30LaunchBanner { display: none !important; }
+
+body.wan30-launch-visible .site-head { top: 0; }
+
+
+/* stripe methods row */
+.stripe-checkout { grid-template-columns: minmax(0, 1fr); }
+.stripe-checkout .paypal-buttons { max-width: none; }
+.stripe-payment-methods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+}
+.stripe-payment-methods .stripe-payment-method-item {
+  display: inline-flex !important;
+  width: auto;
+  min-width: 0;
+  height: 40px;
+}
+.paypal-checkout .stripe-payment-methods span,
+.paypal-checkout .stripe-payment-methods .stripe-payment-method-item > span {
+  display: inline;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+
+.double-topup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: auto;
+  max-width: min(520px, 48vw);
+  margin: 0;
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 79, 163, .42);
+  border-radius: 12px;
+  color: #fff;
+  background:
+    linear-gradient(90deg, rgba(255, 79, 163, .22), rgba(255, 122, 193, .08) 42%, rgba(23, 23, 26, .92)),
+    #17171a;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .22);
+  cursor: pointer;
+  text-align: left;
+}
+.double-topup-banner[hidden] { display: none; }
+.site-head .double-topup-banner-copy {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .site-head .double-topup-banner {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    left: 10px;
+    z-index: 3;
+    max-width: none;
+    width: auto;
+  }
+}
+
+.double-topup-banner-copy { font-size: .92rem; font-weight: 800; }
+.double-topup-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: #ff7ac1;
+  white-space: nowrap;
+}
+.double-topup-dialog {
+  width: min(420px, calc(100vw - 28px));
+  padding: 0;
+  border: 1px solid rgba(255, 79, 163, .28);
+  border-radius: 18px;
+  background: #17171a;
+  color: #f7f7fb;
+}
+.double-topup-dialog::backdrop { background: rgba(0, 0, 0, .62); }
+.double-topup-dialog form { position: relative; display: grid; gap: 12px; padding: 22px 20px 18px; }
+.double-topup-dialog h2 { margin: 0; font-size: 1.45rem; }
+.double-topup-dialog p, .double-topup-dialog small { margin: 0; color: #a3a3ad; line-height: 1.45; }
+.double-topup-kicker { color: #ff4fa3; font-size: .75rem; font-weight: 800; letter-spacing: .08em; }
+.double-topup-close { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border: 0; border-radius: 999px; color: #fff; background: rgba(255,255,255,.08); cursor: pointer; }
+.double-topup-offer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.double-topup-offer div { padding: 10px 8px; border-radius: 12px; background: #1b1b1f; border: 1px solid rgba(255,255,255,.08); text-align: center; }
+.double-topup-offer span { display: block; color: #a3a3ad; font-size: .72rem; }
+.double-topup-offer strong { font-size: 1.15rem; }
+.double-topup-offer div:last-child { border-color: rgba(255, 79, 163, .45); }
+.double-topup-offer div:last-child strong { color: #ff7ac1; }
+.double-topup-timer { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 12px; background: rgba(255, 79, 163, .08); }
+.double-topup-timer strong { color: #ff7ac1; font-variant-numeric: tabular-nums; }
+.double-topup-pay { height: 44px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(90deg, #ff4fa3, #ff7ac1); font-weight: 900; cursor: pointer; }
+.double-topup-pay:disabled { opacity: .6; cursor: wait; }
+
+
+.topup-selected-amount {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.topup-selected-amount .pay-channel-marks,
+.double-topup-dialog .pay-channel-marks {
+  width: auto;
+  margin: 0;
+  justify-content: flex-end;
+}
+.pay-channel-marks .stripe-payment-method-item {
+  width: auto;
+  height: 28px;
+  padding: 3px 8px;
 }

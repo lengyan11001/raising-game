@@ -1,3 +1,4 @@
+/* holiday-referral-nav */
 async function startPlatform() {
   const allowed = await ensureAgeGate();
   if (!allowed) return;
@@ -35,19 +36,22 @@ document.addEventListener("click", (event) => {
   if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });
-const WAN30_LAUNCH_DISMISSED_KEY = "vipeakWan30LaunchDismissed";
+const WAN30_LAUNCH_DISMISSED_KEY = "vipeakHolidayInviteDismissed";
 function syncWan30LaunchVisibility(visible) {
   document.body.classList.toggle("wan30-launch-visible", visible);
   document.body.classList.toggle("wan30-launch-dismissed", !visible);
 }
-function openWan30Launch() {
-  if (typeof setTab !== "function") return;
-  setTab("#custom");
-  requestAnimationFrame(() => {
-    if (!els.advancedProvider) return;
-    els.advancedProvider.value = "wan30";
-    els.advancedProvider.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+function openWan30Launch(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const host = String(window.location.hostname || "").replace(/^www\./, "");
+  if (host === "123vips.com" && typeof setTab === "function") {
+    setTab("referral");
+    return;
+  }
+  window.location.href = "https://123vips.com/#referral";
 }
 els.wan30LaunchBtn?.addEventListener("click", openWan30Launch);
 els.wan30LaunchClose?.addEventListener("click", () => {
@@ -55,16 +59,7 @@ els.wan30LaunchClose?.addEventListener("click", () => {
   if (els.wan30LaunchBanner) els.wan30LaunchBanner.hidden = true;
   syncWan30LaunchVisibility(false);
 });
-try {
-  if (els.wan30LaunchBanner?.hidden) {
-    syncWan30LaunchVisibility(false);
-  } else if (localStorage.getItem(WAN30_LAUNCH_DISMISSED_KEY) === "1" && els.wan30LaunchBanner) {
-    els.wan30LaunchBanner.hidden = true;
-    syncWan30LaunchVisibility(false);
-  } else {
-    syncWan30LaunchVisibility(true);
-  }
-} catch (error) { syncWan30LaunchVisibility(false); }
+syncWan30LaunchVisibility(false);
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
 els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
 window.addEventListener("hashchange", () => setTab(window.location.hash));

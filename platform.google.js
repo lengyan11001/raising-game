@@ -62,6 +62,7 @@ async function handleGoogleCredential(response = {}) {
       body: {
         credential,
         referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "",
+        attribution: (() => { try { return JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {}; } catch { return {}; } })(),
       },
     });
     await completeLogin(payload);

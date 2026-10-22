@@ -123,7 +123,8 @@ const WORKFLOW_DEFAULT_EDGES = [];
 const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "qwen-image3", label: "Qwen Image 3.0", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro", "standard"], defaultTier: "pro", outputCounts: [1, 2, 3, 4, 5, 6], promptExtend: true, watermark: false, referenceLimit: 3 }),
   Object.freeze({ id: "seedream5-image", label: "Seedream 5.0 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro"], defaultTier: "pro", referenceLimit: 9 }),
-  Object.freeze({ id: "wan27-image-edit", label: "Wan 2.7 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K", "4K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 1 }),
+  Object.freeze({ id: "z-image-spicy-pro", label: "Z-Image Spicy Pro", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 0 }),
+  Object.freeze({ id: "qwen-image-edit-spicy", label: "Qwen Image Edit Spicy", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 3 }),
 ]);
 const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
@@ -432,8 +433,8 @@ const ADVANCED_CUSTOM_MODE = { id: "custom", labelKey: "advanced.modeCustom", ic
 const VIDEO_REPLACE_PROMPT = "将视频1中的人物替换成图片1中的人物。保持图片中人物的身份、脸部、发型、体型、肤色和服装特征，严格参考原视频的动作顺序、姿态变化、节奏、运镜、构图、场景、光线、剪辑、音频和时长。除人物身份替换外，不改变原视频内容，不添加文字、字幕、标志、水印或其他人物。";
 const ADVANCED_CREATE_MODES = {
   image: [
-    { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", activeSlots: ["character", "pose", "outfit", "scene"], placeholderKey: "advanced.promptImageCreate" },
-    { id: "image-edit", labelKey: "advanced.modeImageEdit", icon: "wand-sparkles", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageEdit" },
+    { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "z-image-spicy-pro", assetTarget: "sourceImages", activeSlots: ["character", "pose", "outfit", "scene"], placeholderKey: "advanced.promptImageCreate" },
+    { id: "image-edit", labelKey: "advanced.modeImageEdit", icon: "wand-sparkles", provider: "qwen-image-edit-spicy", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageEdit" },
   ],
   video: [
     { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "wan30", videoCapability: "wan30-video", seedanceMode: "reference_video", assetTarget: "referenceImages", activeSlots: ["character", "action", "outfit", "scene"], placeholderKey: "advanced.promptVideoText" },
@@ -530,7 +531,7 @@ function currentAdvancedSeedanceUploadMode() {
 
 function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
   const provider = currentAdvancedProvider();
-  if (provider === "seedream5-image") return false;
+  if (provider === "seedream5-image" || provider === "z-image-spicy-pro" || provider === "qwen-image-edit-spicy") return false;
   if (provider === "seedance" || provider === "wan30") return false;
   return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
 }
@@ -556,7 +557,7 @@ function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
 }
 
 function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
-  if (currentAdvancedProvider() === "seedream5-image") return "image/*";
+  if (["seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(currentAdvancedProvider())) return "image/*";
   if (["seedance", "wan27", "wan30"].includes(currentAdvancedProvider())) {
     return `${currentAdvancedProvider() === "wan30" ? "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" : "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*"}`;
   }
@@ -564,10 +565,23 @@ function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   return "image/*";
 }
 
-function uploadedFileMime(file = {}) {
-  const declared = String(file.type || "").trim().toLowerCase();
-  if (declared) return declared;
-  const extension = String(file.name || "").trim().toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+function mediaNameForMime(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const queryName = raw.match(/[?&](?:filename|file|name)=([^&#]+)/i);
+  if (queryName) {
+    try { return decodeURIComponent(queryName[1]); } catch { return queryName[1]; }
+  }
+  try {
+    const parsed = new URL(raw, "https://local.invalid");
+    return decodeURIComponent(parsed.pathname || raw);
+  } catch {
+    return raw.split("?")[0].split("#")[0];
+  }
+}
+
+function mimeFromMediaName(value = "") {
+  const extension = mediaNameForMime(value).trim().toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
   const known = {
     jpg: "image/jpeg",
     jpeg: "image/jpeg",
@@ -576,6 +590,7 @@ function uploadedFileMime(file = {}) {
     bmp: "image/bmp",
     gif: "image/gif",
     mp4: "video/mp4",
+    m4v: "video/mp4",
     mov: "video/quicktime",
     webm: "video/webm",
     mp3: "audio/mpeg",
@@ -585,6 +600,23 @@ function uploadedFileMime(file = {}) {
     ogg: "audio/ogg",
   };
   return known[extension] || "";
+}
+
+function uploadedFileMime(file = {}) {
+  const declared = String(file.type || file.mime || "").trim().toLowerCase().split(";")[0];
+  const generic = !declared || declared === "application/octet-stream" || declared === "binary/octet-stream" || declared === "application/mp4";
+  const hinted = [
+    file.name,
+    file.fileName,
+    file.url,
+    file.publicUrl,
+    file.cdnUrl,
+    file.localUrl,
+  ].filter(Boolean).join(" ");
+  const inferred = mimeFromMediaName(hinted);
+  if (generic) return inferred || (declared === "application/mp4" ? "video/mp4" : "");
+  if (inferred && (declared === "text/plain" || declared === "application/force-download")) return inferred;
+  return declared;
 }
 
 const CHARACTER_ROUTE_PARAM_NAMES = ["characterId", "character", "itemId", "id"];

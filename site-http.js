@@ -5,8 +5,8 @@ const CONTENT_SECURITY_POLICY = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://oauth.telegram.org https://accounts.google.com https://g.alicdn.com",
-  "frame-src 'self' https://accounts.google.com",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://oauth.telegram.org https://accounts.google.com https://g.alicdn.com https://checkout.airwallex.com https://checkout-demo.airwallex.com https://static.airwallex.com",
+  "frame-src 'self' https://accounts.google.com https://checkout.airwallex.com https://checkout-demo.airwallex.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data: blob:",
   "media-src 'self' https: blob:",
@@ -53,7 +53,15 @@ function httpsRedirectLocation(req = {}, url = {}) {
 }
 
 function applyPublicSecurityHeaders(req, res) {
-  Object.entries(PUBLIC_SECURITY_HEADERS).forEach(([name, value]) => {
+  const pathname = String(req?.url || "").split("?")[0];
+  const embed = pathname === "/embed" || pathname.startsWith("/embed/");
+  const headers = embed ? {
+    ...PUBLIC_SECURITY_HEADERS,
+    "content-security-policy": CONTENT_SECURITY_POLICY.replace("frame-ancestors 'none'", "frame-ancestors https:"),
+    "permissions-policy": "camera=*, geolocation=(), microphone=*, browsing-topics=()",
+  } : PUBLIC_SECURITY_HEADERS;
+  Object.entries(headers).forEach(([name, value]) => {
+    if (embed && name === "x-frame-options") return;
     if (!res.hasHeader(name)) res.setHeader(name, value);
   });
   if (requestProtocol(req) === "https" && !res.hasHeader("strict-transport-security")) {

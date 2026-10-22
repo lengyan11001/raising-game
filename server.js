@@ -17,6 +17,7 @@ const {
   normalizeCapability: normalizeAliyunVideoCapability,
   officialSingaporePurchaseDetails,
 } = require("./aliyun-video");
+const mulerouterAliyun = require("./mulerouter-aliyun");
 const {
   SEEDANCE25_CNY_PER_POINT,
   SEEDANCE25_CNY_PER_USD,
@@ -167,6 +168,8 @@ const {
   createChatLiveSessionInDb,
   getChatLiveSessionInDb,
   getChatLiveSessionByLiveIdInDb,
+  getChatCharacterMemoryInDb,
+  upsertChatCharacterMemoryInDb,
   updateChatLiveSessionInDb,
   listChatLiveSessionsInDb,
   upsertChatLiveRoomInDb,
@@ -240,6 +243,44 @@ const {
   verifyTelegramOidcIdToken,
 } = require("./telegram-bot");
 
+const {
+  isSeedream5ImageProvider,
+  isQwenImage3Provider,
+  isQwen37FlashProvider,
+  isByteplusLanguageProvider,
+  isPapayaProvider,
+  isWan27ImageProvider,
+  normalizeAdvancedProvider,
+  publicProviderId,
+  publicProviderLabel,
+  publicModelText,
+  publicModelKey,
+  publicModelValue,
+  slimGenerationRecordValue,
+  storageGenerationRecord,
+  listGenerationRecordValue,
+  publicPricingValue,
+  publicDocsValue,
+  normalizeSeedanceTier,
+} = require("./lib-providers");
+const {
+  sendJson,
+  sendText,
+  sendHtml,
+  publicLegalPageHtml,
+  sendXml,
+  sendCsv,
+  csvValue,
+  csvRows,
+  htmlEscape,
+  xmlEscape,
+  requestCountryCode,
+  parseCookieHeader,
+  timingSafeEqualString,
+  sendMarkdown,
+  publicOriginFromRequest,
+  requestOriginFromHeaders,
+} = require("./lib-http");
 const ROOT = __dirname;
 const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.css",
@@ -301,6 +342,7 @@ loadLocalEnv(path.join(ROOT, ".env.local"));
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
+const MAINLAND_ALLOW_HOSTS = new Set(parseCsvList(process.env.MAINLAND_ALLOW_HOSTS || "live.123vipeak.com"));
 const PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED || "0").trim());
@@ -721,6 +763,16 @@ const STRIPE_CHAT_CHECKOUT_BASE_URL = String(
   process.env.STRIPE_CHAT_CHECKOUT_BASE_URL ||
   "https://pay.5vips.com",
 ).trim().replace(/\/+$/, "");
+const AIRWALLEX_CLIENT_ID = String(process.env.AIRWALLEX_CLIENT_ID || "").trim();
+const AIRWALLEX_API_KEY = String(process.env.AIRWALLEX_API_KEY || "").trim();
+const AIRWALLEX_ACCOUNT_ID = String(process.env.AIRWALLEX_ACCOUNT_ID || "").trim();
+const AIRWALLEX_WEBHOOK_SECRET = String(process.env.AIRWALLEX_WEBHOOK_SECRET || "").trim();
+const AIRWALLEX_ENV = String(process.env.AIRWALLEX_ENV || "prod").trim().toLowerCase() === "demo" ? "demo" : "prod";
+const AIRWALLEX_API_BASE = AIRWALLEX_ENV === "demo" ? "https://api-demo.airwallex.com" : "https://api.airwallex.com";
+const AIRWALLEX_CHECKOUT_BASE_URL = String(process.env.AIRWALLEX_CHECKOUT_BASE_URL || "https://pay.storycut.club").trim().replace(/\/+$/, "");
+const LIVE_BILLING_RETURN_ORIGIN = "https://live.123vipeak.com";
+let airwallexTokenCache = { token: "", expiresAt: 0 };
+
 const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
@@ -862,7 +914,8 @@ function defaultAliyunLegacySaleCreditsByModel() {
 
 const QWEN37_FLASH_MODEL = String(process.env.ALIYUN_QWEN37_MODEL || "qwen3.7-flash").trim() || "qwen3.7-flash";
 const BYTEPLUS_LANGUAGE_MODEL = String(process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw").trim() || "ep-20260827122554-8fsgw";
-const CHAT_MESSAGE_CREDITS = creditsAmount(process.env.CHAT_MESSAGE_CREDITS || 1);
+const PAPAYA_MODEL = "carrothub-papaya-1.0";
+const CHAT_MESSAGE_CREDITS = creditsAmount(process.env.CHAT_MESSAGE_CREDITS || 0.5);
 const QWEN37_FLASH_MAX_OUTPUT_TOKENS = Math.floor(clampNumber(process.env.QWEN37_FLASH_MAX_OUTPUT_TOKENS, 8192, 1, 32768));
 const QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS = Object.freeze([
   Object.freeze({ maxInputTokens: 32768, input: 0.225, output: 0.974 }),
@@ -974,6 +1027,24 @@ const DEFAULT_ADVANCED_PRICING = {
     defaultResolution: "2K",
     defaultRatio: "9:16",
   },
+  zImageSpicyPro: {
+    model: "z-image-spicy-pro",
+    purchaseCnyPerImage: WAN27_IMAGE_PRO_PURCHASE_CNY,
+    saleCnyPerImage: WAN27_IMAGE_PRO_SALE_CNY,
+    resolutions: ["1K", "2K"],
+    ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
+    defaultResolution: "2K",
+    defaultRatio: "9:16",
+  },
+  qwenImageEditSpicy: {
+    model: "qwen-image-edit-spicy",
+    purchaseCnyPerImage: WAN27_IMAGE_PRO_PURCHASE_CNY,
+    saleCnyPerImage: WAN27_IMAGE_PRO_SALE_CNY,
+    resolutions: ["1K", "2K"],
+    ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
+    defaultResolution: "2K",
+    defaultRatio: "9:16",
+  },
   seedream5Image: {
     lite: {
       model: SEEDREAM5_LITE_ENDPOINT_ID,
@@ -1019,7 +1090,7 @@ const DEFAULT_ADVANCED_PRICING = {
     model: QWEN37_FLASH_MODEL,
     inputCnyPerMillionTokens: QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[0].input,
     outputCnyPerMillionTokens: QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[0].output,
-    defaultMaxTokens: 1024,
+    defaultMaxTokens: 8192,
     defaultTemperature: 0.7,
     defaultThinking: false,
   },
@@ -1496,165 +1567,6 @@ const DEFAULT_CONFIG = {
   ],
 };
 
-function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) {
-  const body = JSON.stringify(payload);
-  const headers = {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": cacheControl,
-    "vary": "Accept-Encoding",
-  };
-  if (cacheControl.startsWith("public")) {
-    headers["cdn-cache-control"] = cacheControl;
-    headers["cloudflare-cdn-cache-control"] = cacheControl;
-  }
-  res.writeHead(statusCode, headers);
-  res.end(body);
-}
-
-function sendText(res, statusCode, body, { cacheControl = "no-cache", head = false } = {}) {
-  const text = String(body ?? "");
-  res.writeHead(statusCode, {
-    "content-type": "text/plain; charset=utf-8",
-    "cache-control": cacheControl,
-    "content-length": Buffer.byteLength(text),
-  });
-  res.end(head ? undefined : text);
-}
-
-function sendHtml(res, statusCode, body, { cacheControl = "no-store", head = false } = {}) {
-  const html = String(body ?? "");
-  res.writeHead(statusCode, {
-    "content-type": "text/html; charset=utf-8",
-    "cache-control": cacheControl,
-    "content-length": Buffer.byteLength(html),
-  });
-  res.end(head ? undefined : html);
-}
-
-function publicLegalPageHtml(type = "privacy", req = null) {
-  const isPrivacy = String(type || "privacy").toLowerCase() === "privacy";
-  const title = isPrivacy ? "Privacy Policy" : "Terms of Service";
-  const canonicalBase = publicOriginFromRequest(req) || "https://123vips.com";
-  const canonical = `${canonicalBase}/${isPrivacy ? "privacy" : "terms"}`;
-  const content = isPrivacy ? `
-    <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: 2026-08-24</p>
-    <p>Vipeak AI provides creative AI image and video tools. This policy explains what information we collect, how we use it, and the choices available to you.</p>
-    <h2>Information we collect</h2>
-    <p>We collect account information, authentication details, Google profile information used for sign-in, support messages, prompts, uploaded media, generation records, billing records, and security and request logs.</p>
-    <h2>How we use information</h2>
-    <p>We use information to authenticate accounts, provide image and video generation, process credits and payments, prevent abuse, troubleshoot failures, provide support, maintain security, and comply with legal obligations.</p>
-    <h2>Google sign-in</h2>
-    <p>When you choose Google sign-in, Google provides a stable account identifier and basic profile information such as your email address, name, and profile image. We use this information only to create and access your Vipeak AI account. We do not sell Google user data or use it for advertising.</p>
-    <h2>Uploads and generated content</h2>
-    <p>Prompts, reference files, generated media, and task metadata may be processed by our hosting and model providers only as needed to operate the service, handle failures, enforce safety rules, and preserve billing records.</p>
-    <h2>Sharing</h2>
-    <p>We do not sell personal information. We may share limited information with hosting, payment, analytics, security, and model service providers, or when required by law, safety, fraud prevention, or enforcement of our agreements.</p>
-    <h2>Retention and security</h2>
-    <p>We retain account, billing, generation, and security records for as long as needed for service operation, dispute handling, security, legal compliance, and backup recovery. No online system is risk-free.</p>
-    <h2>Your choices</h2>
-    <p>You may contact support to request access, correction, deletion, export, or restriction of personal information where applicable. Some records may be retained when required for legal, security, fraud-prevention, or accounting reasons.</p>
-    <h2>Contact</h2>
-    <p>For privacy questions, contact us through <a href="https://t.me/VipeakSupportBot">Vipeak AI support</a>.</p>
-  ` : `
-    <h1>Terms of Service</h1>
-    <p class="updated">Last updated: 2026-08-24</p>
-    <p>By registering or using Vipeak AI, you confirm that you can legally enter these terms and that the information you provide is truthful and current.</p>
-    <h2>Account security</h2>
-    <p>You are responsible for your password, sign-in methods, API token, and activity under your account. Notify support promptly if you suspect unauthorized access.</p>
-    <h2>Acceptable use</h2>
-    <p>You must not use the service to create illegal, non-consensual, deceptive, infringing, hateful, exploitative, abusive, or unsafe content, or to bypass safety controls, rate limits, access controls, or payment rules.</p>
-    <h2>Uploads and rights</h2>
-    <p>You represent that you have the rights, permissions, and consent required for media, prompts, names, likenesses, trademarks, and other materials you upload or ask the service to process.</p>
-    <h2>Credits and billing</h2>
-    <p>Credits are used for generation and related actions. Prices, model availability, duration, resolution, and credit consumption may change. Completed purchases and consumed credits are generally non-refundable unless required by law or expressly approved by us.</p>
-    <h2>Generated content</h2>
-    <p>Generated outputs depend on model behavior and user inputs. You are responsible for reviewing outputs before publication or commercial use and for complying with law, platform rules, and third-party rights.</p>
-    <h2>Service changes and termination</h2>
-    <p>We may modify, suspend, throttle, or discontinue features, models, accounts, or access when needed for security, compliance, abuse prevention, maintenance, or business reasons.</p>
-    <h2>Contact</h2>
-    <p>For questions about these terms, contact <a href="https://t.me/VipeakSupportBot">Vipeak AI support</a>.</p>
-  `;
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} - Vipeak AI</title><meta name="description" content="${title} for Vipeak AI.">
-<link rel="canonical" href="${canonical}"><style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#09090d;color:#f4f4f5;font:16px/1.7 system-ui,-apple-system,Segoe UI,sans-serif}main{width:min(860px,calc(100% - 32px));margin:0 auto;padding:56px 0 72px}h1{font-size:clamp(2rem,5vw,3rem);line-height:1.15;margin:0 0 8px}h2{font-size:1.15rem;margin:30px 0 6px}p{color:#c8c8d0;margin:10px 0}.updated{font-size:.9rem;color:#8f8f9a}a{color:#ff5bab}nav{margin-bottom:34px}nav a{color:#f4f4f5;text-decoration:none}nav a:hover{text-decoration:underline}.brand{font-weight:800;letter-spacing:.02em}
-</style></head><body><main><nav><a href="/"><span class="brand">Vipeak AI</span></a></nav>${content}</main></body></html>`;
-}
-
-function sendXml(res, statusCode, body, { cacheControl = "no-cache", head = false } = {}) {
-  const xml = String(body ?? "");
-  res.writeHead(statusCode, {
-    "content-type": "application/xml; charset=utf-8",
-    "cache-control": cacheControl,
-    "content-length": Buffer.byteLength(xml),
-  });
-  res.end(head ? undefined : xml);
-}
-
-function sendCsv(res, filename, body) {
-  const safeName = String(filename || "export.csv").replace(/[^a-z0-9._-]/gi, "-") || "export.csv";
-  res.writeHead(200, {
-    "content-type": "text/csv; charset=utf-8",
-    "content-disposition": `attachment; filename="${safeName}"`,
-    "cache-control": "no-store",
-  });
-  res.end(`\uFEFF${body}`);
-}
-
-function csvValue(value) {
-  const text = String(value ?? "");
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function csvRows(headers, rows) {
-  return [
-    headers.map(({ label }) => csvValue(label)).join(","),
-    ...rows.map((row) => headers.map(({ key }) => csvValue(row[key])).join(",")),
-  ].join("\n");
-}
-
-function htmlEscape(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function xmlEscape(value) {
-  return htmlEscape(value);
-}
-
-function requestCountryCode(req) {
-  return String(
-    req.headers["cf-ipcountry"] ||
-      req.headers["x-vercel-ip-country"] ||
-      req.headers["x-country-code"] ||
-      "",
-  ).trim().toUpperCase();
-}
-
-function parseCookieHeader(header = "") {
-  const cookies = {};
-  String(header || "").split(";").forEach((part) => {
-    const index = part.indexOf("=");
-    if (index < 0) return;
-    const key = part.slice(0, index).trim();
-    if (!key) return;
-    cookies[key] = decodeURIComponent(part.slice(index + 1).trim());
-  });
-  return cookies;
-}
-
-function timingSafeEqualString(a = "", b = "") {
-  const left = Buffer.from(String(a));
-  const right = Buffer.from(String(b));
-  return left.length === right.length && crypto.timingSafeEqual(left, right);
-}
-
 function requestHasMainlandBypass(req, url) {
   if (!MAINLAND_BYPASS_TOKEN) return false;
   const queryToken = url.searchParams.get(MAINLAND_BYPASS_QUERY_PARAM) || "";
@@ -1693,8 +1605,13 @@ function shouldCleanBypassUrl(req, url) {
   return req.method === "GET" && !url.pathname.startsWith("/api/") && url.searchParams.has(MAINLAND_BYPASS_QUERY_PARAM);
 }
 
+function isMainlandAllowHostRequest(req) {
+  return MAINLAND_ALLOW_HOSTS.has(requestHostname(req));
+}
+
 function isMainlandChinaRequest(req) {
-  return BLOCK_MAINLAND_CHINA && requestCountryCode(req) === "CN";
+  if (!BLOCK_MAINLAND_CHINA || requestCountryCode(req) !== "CN") return false;
+  return !isMainlandAllowHostRequest(req);
 }
 
 function isMainlandAdminAllowedRequest(req, url) {
@@ -1763,28 +1680,6 @@ function sendMainlandBlocked(req, res, url) {
   }
   res.writeHead(451, { ...headers, "content-type": "text/plain; charset=utf-8" });
   return res.end("Service is not available in this region.");
-}
-
-function sendMarkdown(res, statusCode, body) {
-  res.writeHead(statusCode, {
-    "content-type": "text/markdown; charset=utf-8",
-    "cache-control": "no-store",
-  });
-  res.end(body);
-}
-
-function publicOriginFromRequest(req) {
-  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
-  return requestOriginFromHeaders(req);
-}
-
-function requestOriginFromHeaders(req) {
-  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
-  if (!host) return "https://123vips.com";
-  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
-  const localHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
-  const protocol = forwardedProto || (localHost ? "http" : "https");
-  return `${protocol}://${host}`.replace(/\/+$/, "");
 }
 
 function pageOriginFromRequest(req) {
@@ -1871,9 +1766,13 @@ function stripeCashierHostForOrder(order = {}) {
   try { return normalizeHostname(new URL(order.sourceOrigin || "").hostname); } catch { return ""; }
 }
 
+function airwallexCheckoutHostname() {
+  return normalizeHostname(AIRWALLEX_CHECKOUT_BASE_URL);
+}
+
 function isPaymentHostRequest(req) {
   const host = requestHostname(req);
-  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname() || host === stripeCheckoutHostname() || host === stripeChatCheckoutHostname()));
+  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname() || host === stripeCheckoutHostname() || host === stripeChatCheckoutHostname() || host === airwallexCheckoutHostname()));
 }
 
 function sendPayPalCheckoutHostRequired(res) {
@@ -2130,6 +2029,13 @@ async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID) 
     updatedAt: now,
   };
   if (!session.userId) throw new Error("Cannot create a login session without a user.");
+  if (String(user?.role || "") === "admin") {
+    db.sessions = Array.isArray(db.sessions) ? db.sessions : [];
+    db.sessions.push(session);
+    if (dbEnabled()) await createSessionInDb(session);
+    else await writeDb(db);
+    return session;
+  }
   db.sessions = (db.sessions || []).filter((item) => (
     String(item.userId || "") !== session.userId
     && (!session.accountKey || String(item.accountKey || "") !== session.accountKey)
@@ -2882,19 +2788,37 @@ function publicBillingSubscription(subscription = null, plan = null) {
   };
 }
 
+const DEFAULT_TOOL_TOPUP_PACKAGES = Object.freeze([
+  Object.freeze({ amount: 10, credits: 1000 }),
+  Object.freeze({ amount: 20, credits: 2060 }),
+  Object.freeze({ amount: 30, credits: 3180 }),
+  Object.freeze({ amount: 50, credits: 5500 }),
+  Object.freeze({ amount: 80, credits: 9000 }),
+  Object.freeze({ amount: 100, credits: 11500 }),
+]);
+
 function toolTopupPackagesForPlan(plan = null) {
   const creditsPerUsd = Math.max(1, Number(plan?.topupCreditsPerUsd || DEFAULT_CREDITS_PER_USD) || DEFAULT_CREDITS_PER_USD);
-  const amounts = Array.isArray(plan?.topupQuickAmounts) && plan.topupQuickAmounts.length
-    ? plan.topupQuickAmounts
-    : [10, 20, 50];
-  return amounts
-    .map((value) => Math.max(1, Math.round(Number(value || 0))))
-    .filter((value, index, list) => value > 0 && list.indexOf(value) === index)
+  const explicit = Array.isArray(plan?.topupPackages) ? plan.topupPackages : [];
+  const source = explicit.length
+    ? explicit.map((item) => ({
+      amount: Math.max(1, Math.round(Number(item?.amount || 0))),
+      credits: creditsAmount(item?.credits),
+    })).filter((item) => item.amount > 0 && item.credits > 0)
+    : (Array.isArray(plan?.topupQuickAmounts) && plan.topupQuickAmounts.length
+      ? plan.topupQuickAmounts.map((value) => {
+        const amount = Math.max(1, Math.round(Number(value || 0)));
+        return { amount, credits: creditsAmount(amount * creditsPerUsd) };
+      }).filter((item) => item.amount > 0)
+      : DEFAULT_TOOL_TOPUP_PACKAGES.map((item) => ({ amount: item.amount, credits: item.credits })));
+  return source
+    .filter((item, index, list) => list.findIndex((other) => other.amount === item.amount) === index)
     .slice(0, 6)
-    .map((amount) => ({
-      id: `tool-usd-${amount}`,
-      amount,
-      credits: creditsAmount(amount * creditsPerUsd),
+    .map((item) => ({
+      id: `tool-usd-${item.amount}`,
+      amount: item.amount,
+      credits: creditsAmount(item.credits),
+      bonusCredits: creditsAmount(Math.max(0, item.credits - item.amount * creditsPerUsd)),
       currency: "USD",
     }));
 }
@@ -2905,7 +2829,7 @@ async function billingViewForRequest(req, auth = null) {
   if (!tenant.subscriptions && !membershipProgram) return { enabled: false, plans: [], subscription: null };
   const allPlans = await listBillingPlansInDb(tenant.tenantId);
   const plans = tenant.toolId === "live"
-    ? allPlans.filter((plan) => /^plan-tool-chat-(monthly|quarterly|yearly)$/.test(plan.id))
+    ? allPlans.filter((plan) => /^plan-tool-chat-(weekly|monthly|quarterly|yearly)$/.test(plan.id))
     : membershipProgram
     ? allPlans.filter((plan) => plan.id === CREATOR_MEMBERSHIP_PLAN_ID)
     : allPlans;
@@ -6070,12 +5994,15 @@ function normalizeChatLiveConfig(raw = {}) {
     costCreditsPerMinute: integer(source.costCreditsPerMinute, CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE, 0, 1000000),
     /* 卖给用户的积分/分钟，0 表示后台还没定价（此时不允许开聊） */
     saleCreditsPerMinute: integer(source.saleCreditsPerMinute, 0, 0, 1000000),
+    /* 0 = 跟单人卖价相同 */
+    sharedRoomSaleCreditsPerMinute: integer(source.sharedRoomSaleCreditsPerMinute, 0, 0, 1000000),
     freeSeconds: integer(source.freeSeconds, 0, 0, 3600),
     maxMinutes: integer(source.maxMinutes, 10, 1, 120),
     model: String(source.model || VIDU_LIVE_MODEL).trim() || VIDU_LIVE_MODEL,
     callMode: source.callMode === "audio" ? "audio" : "video",
     /* 对话模式：realtime = Vidu 内置 LLM（一体化）；component = 外接我们自己的 ASR/LLM/TTS */
     defaultMode: source.defaultMode === "component" ? "component" : "realtime",
+    languageModel: ["papaya", "papaya-1.0", "carrothub-papaya-1.0"].includes(String(source.languageModel || "").trim().toLowerCase()) ? "papaya" : "byteplus",
     videoChatEnabled: source.videoChatEnabled !== false,
     region: String(source.region || "").trim().toLowerCase() === "cn"
       ? "cn"
@@ -6088,6 +6015,13 @@ function normalizeChatLiveConfig(raw = {}) {
   };
 }
 
+
+function chatLiveSharedRoomSaleCredits(live = {}) {
+  const shared = Number(live.sharedRoomSaleCreditsPerMinute || 0) || 0;
+  if (shared > 0) return shared;
+  return Number(live.saleCreditsPerMinute || 0) || 0;
+}
+
 function chatLiveConfigValue(config = {}) {
   const live = normalizeChatLiveConfig((config && config.platform && config.platform.chatLive) || {});
   chatLiveRegionCache = live.region === "cn" ? "cn" : "overseas";
@@ -6095,19 +6029,22 @@ function chatLiveConfigValue(config = {}) {
 }
 
 /**
- * 阿里云 ARTC 1.0 token（Base64）：签名内容 = appId + appKey + channelId + userId + nonce + timestamp，
- * HMAC-SHA256 后按 hex 放进 JSON，再整体 base64。AppKey 只留在服务端。
+ * 阿里云 ARTC 单参数 token：sha256(appId+appKey+channelId+userId+nonce+timestamp) 的 hex，
+ * 和 appid/channelid/userid/nonce/timestamp 一起 JSON 后 base64。不是 HMAC。AppKey 只留在服务端。
  */
 function artcToken({ channelId = "", userId = "", ttlSeconds = 3600 } = {}) {
   if (!ARTC_APP_ID || !ARTC_APP_KEY) throw new Error("ARTC is not configured.");
-  const nonce = crypto.randomBytes(8).toString("hex");
+  const safeChannel = String(channelId || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  const safeUser = String(userId || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  if (!safeChannel || !safeUser) throw new Error("ARTC channel or user id is invalid.");
+  const nonce = "";
   const timestamp = Math.floor(Date.now() / 1000) + Math.max(60, Number(ttlSeconds) || 3600);
-  const content = `${ARTC_APP_ID}${ARTC_APP_KEY}${channelId}${userId}${nonce}${timestamp}`;
-  const signature = crypto.createHmac("sha256", ARTC_APP_KEY).update(content).digest("hex");
+  const content = `${ARTC_APP_ID}${ARTC_APP_KEY}${safeChannel}${safeUser}${nonce}${timestamp}`;
+  const signature = crypto.createHash("sha256").update(content).digest("hex");
   return Buffer.from(JSON.stringify({
     appid: ARTC_APP_ID,
-    channelid: String(channelId),
-    userid: String(userId),
+    channelid: safeChannel,
+    userid: safeUser,
     nonce,
     timestamp,
     token: signature,
@@ -6305,7 +6242,7 @@ function publicChatLiveUpstreamMessage(error) {
   if (!raw) return "创建在线聊天失败。";
   if (/[\u4e00-\u9fff]/.test(raw)) return raw;
   if (["timeout", "unknown", "aborted", "failure"].includes(raw.toLowerCase())) {
-    return `数字人暂时没有接通（${raw}）。请再试一次。`;
+    return "暂时没有接通，请稍后再联系。";
   }
   return raw;
 }
@@ -6337,8 +6274,10 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const personaMd = String(body.personaMd ?? existing?.personaMd ?? body.persona ?? existing?.persona ?? "").replace(/^\uFEFF/, "").trim().slice(0, 50000);
   const persona = personaMd;
   const personaSourceFile = String(body.personaSourceFile ?? existing?.personaSourceFile ?? "").trim().slice(0, 160);
+  const replyStyle = String(body.replyStyle ?? existing?.replyStyle ?? "").trim().slice(0, 4000);
   const greeting = String(body.greeting ?? existing?.greeting ?? "").trim().slice(0, 200);
   const voiceType = String(body.voiceType ?? body.voice_type ?? existing?.voiceType ?? "").trim().slice(0, 80);
+  const componentVoiceType = String(body.componentVoiceType ?? body.component_voice_type ?? existing?.componentVoiceType ?? "").trim().slice(0, 80);
   /* 关联的平台角色名：chat 站的文字聊角色详情页据此显示"在线聊天"按钮 */
   const linkName = String(body.linkName ?? body.link_name ?? existing?.linkName ?? "").trim().slice(0, 60);
   const rawMode = String(body.mode ?? existing?.mode ?? "").trim().toLowerCase();
@@ -6350,13 +6289,23 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const gender = String(body.gender ?? existing?.gender ?? "").trim().toLowerCase();
   const normalizedGender = ["female", "male"].includes(gender) ? gender : "";
   const companionStyleRaw = String(body.companionStyle ?? body.style ?? existing?.companionStyle ?? "").trim();
+  const ambientMusicUrlRaw = String(body.ambientMusicUrl ?? body.ambient_music_url ?? existing?.ambientMusicUrl ?? "").trim().slice(0, 600);
+  const ambientMusicUrl = /^https?:\/\//i.test(ambientMusicUrlRaw) ? ambientMusicUrlRaw : "";
   const companionStyle = ["温柔治愈", "元气活力", "知性深夜"].includes(companionStyleRaw) ? companionStyleRaw : "";
   const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
   const sortOrderRaw = Number(body.sortOrder ?? body.sort_order ?? existing?.sortOrder ?? 0);
   const enabledRaw = body.enabled ?? existing?.enabled;
-  const privateResources = Array.isArray(body.privateResources) ? body.privateResources.slice(0, 30).map((item, index) => ({
-    id: String(item?.id || randomId("private")).slice(0, 80), name: String(item?.name || `私密资源 ${index + 1}`).slice(0, 80), type: item?.type === "video" ? "video" : "image", url: String(item?.url || "").slice(0, 800), thumbnailUrl: String(item?.thumbnailUrl || item?.url || "").slice(0, 800), enabled: item?.enabled !== false,
-  })).filter((item) => item.url) : (Array.isArray(existing?.privateResources) ? existing.privateResources : []);
+  const albumSource = Array.isArray(body.album) ? body.album : (Array.isArray(body.privateResources) ? body.privateResources.map((item) => ({ ...item, locked: item?.locked !== false })) : null);
+  const album = (albumSource || (Array.isArray(existing?.album) ? existing.album : (Array.isArray(existing?.privateResources) ? existing.privateResources.map((item) => ({ ...item, locked: true })) : []))).slice(0, 40).map((item, index) => ({
+    id: String(item?.id || randomId("album")).slice(0, 80),
+    name: String(item?.name || `相册 ${index + 1}`).slice(0, 80),
+    type: item?.type === "video" ? "video" : "image",
+    url: String(item?.url || "").slice(0, 800),
+    thumbnailUrl: String(item?.thumbnailUrl || item?.url || "").slice(0, 800),
+    locked: item?.locked === true || String(item?.locked) === "true",
+    enabled: item?.enabled !== false,
+  })).filter((item) => item.url);
+  const privateResources = album.filter((item) => item.locked);
   return {
     name,
     avatarUrl,
@@ -6365,20 +6314,26 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     persona,
     personaMd,
     personaSourceFile,
+    replyStyle,
     personaFormat: personaMd ? "markdown" : "plain_text",
     greeting,
     voiceType,
+    componentVoiceType,
     linkName,
     mode,
     voiceProvider,
     language,
     age,
     gender: normalizedGender,
+    occupation: String(body.occupation ?? existing?.occupation ?? "").trim().slice(0, 40),
     companionStyle,
+    ambientMusicUrl,
     tags,
     personaEnhance: String(body.personaEnhance ?? existing?.personaEnhance ?? "") === "true" || body.personaEnhance === true || existing?.personaEnhance === true,
+    sharedRoomEnabled: body.sharedRoomEnabled === undefined ? existing?.sharedRoomEnabled === true : (body.sharedRoomEnabled === true || String(body.sharedRoomEnabled) === "true"),
     sortOrder: Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0,
-    enabled: enabledRaw === undefined ? true : !(enabledRaw === false || String(enabledRaw) === "false"),
+    enabled: enabledRaw === undefined ? (existing ? existing.enabled !== false : false) : !(enabledRaw === false || String(enabledRaw) === "false"),
+    album,
     privateResources,
   };
 }
@@ -6527,9 +6482,9 @@ function enabledChatLiveGifts(live = {}) { return (live.gifts || []).filter((gif
 function chatLiveLookFailureMessage(code = "") {
   return ({
     PROMPT_OP_PARAM_INVALID: "素材参数不对，换不了。",
-    PROMPT_OP_MODEL_NOT_SUPPORTED: "当前数字人不是 vidu-s2，不能换画面。",
+    PROMPT_OP_MODEL_NOT_SUPPORTED: "当前通话不支持换画面。",
     PROMPT_OP_LIVE_NOT_ACTIVE: "会话还没开始或已经结束。",
-    PROMPT_OP_IMAGE_TRANSFER_FAILED: "数字人拉不到这张图，请换一张再试。",
+    PROMPT_OP_IMAGE_TRANSFER_FAILED: "这张图暂时用不了，请换一张再试。",
     PROMPT_OP_SIP_NOT_CONNECTED: "画面还在准备，请几秒后再试。",
     PROMPT_OP_FAILED: "画面切换失败，请再试一次。",
     LOOK_BUSY: "上一次切换还在处理。",
@@ -6554,8 +6509,9 @@ function chatLiveCharacterValidationError(character = {}, existing = null) {
   if (avatarError) return avatarError;
   const portraitError = chatLiveAssetUrlError(character.portraitUrl, { required: false, previous: existing?.portraitUrl || "", label: "列表头像" });
   if (portraitError) return portraitError;
-  if (!character.persona) return "请填写角色人设（数字人的对话依据）。";
-  if (!character.voiceType) return "请选择音色。";
+  if (!character.persona) return "请填写角色人设。";
+  if (!character.voiceType) return "请选择实时版音色。";
+  if (!character.componentVoiceType) return "请选择组件版音色。";
   const regionError = chatLiveVoiceRegionError(character.voiceProvider);
   if (regionError) return regionError;
   return "";
@@ -6602,6 +6558,206 @@ function inferChatLiveProfile(character = {}) {
   return { age: age >= 18 && age <= 80 ? Math.round(age) : 0, gender, companionStyle };
 }
 
+
+function chatLiveAlbumItems(character = {}) {
+  if (Array.isArray(character.album) && character.album.length) return character.album;
+  return (Array.isArray(character.privateResources) ? character.privateResources : []).map((item) => ({ ...item, locked: true }));
+}
+
+function publicChatLiveAlbum(character = {}, hasMembership = false) {
+  return chatLiveAlbumItems(character).filter((item) => item && item.enabled !== false && item.url).slice(0, 40).map((item) => {
+    const locked = item.locked === true || String(item.locked) === "true";
+    const visible = !locked || hasMembership;
+    const base = {
+      id: String(item.id || ""),
+      name: String(item.name || "相册"),
+      type: item.type === "video" ? "video" : "image",
+      locked,
+    };
+    if (!visible) return base;
+    return {
+      ...base,
+      url: String(item.url),
+      thumbnailUrl: String(item.thumbnailUrl || item.url),
+    };
+  });
+}
+
+
+async function loadChatCharacterMemory(userId = "", characterId = "") {
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId || !dbEnabled()) return null;
+  try {
+    const payload = await getChatCharacterMemoryInDb(cleanUserId, cleanCharacterId);
+    return payload && typeof payload === "object" ? payload : null;
+  } catch (error) {
+    console.warn("[chat-memory] load failed", error.message || error);
+    return null;
+  }
+}
+
+async function rememberChatCharacterTurn(userId = "", characterId = "", role = "user", content = "", source = "") {
+  const text = String(content || "").replace(/\s+/g, " ").trim().slice(0, 500);
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!text || !cleanUserId || !cleanCharacterId || !dbEnabled()) return null;
+  try {
+    const current = (await loadChatCharacterMemory(cleanUserId, cleanCharacterId)) || {};
+    const turns = (Array.isArray(current.turns) ? current.turns : []).slice(-39);
+    turns.push({
+      role: role === "assistant" ? "assistant" : "user",
+      content: text,
+      source: String(source || "").slice(0, 24),
+      at: new Date().toISOString(),
+    });
+    const kept = turns.slice(-40);
+    const facts = mergeChatLiveUserFacts(current.facts, role === "assistant" ? "" : text);
+    const next = {
+      ...current,
+      turns: kept,
+      facts,
+      summary: kept.slice(-8).map((turn) => (turn.role === "user" ? "用户：" : "角色：") + turn.content).join(" ").slice(0, 900),
+      stage: chatLiveStageName(kept.length),
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertChatCharacterMemoryInDb(cleanUserId, cleanCharacterId, next);
+    return next;
+  } catch (error) {
+    console.warn("[chat-memory] save failed", error.message || error);
+    return null;
+  }
+}
+
+function mergeChatLiveUserFacts(existing = [], line = "") {
+  const facts = (Array.isArray(existing) ? existing : []).map((item) => String(item || "").replace(/\s+/g, " ").trim().slice(0, 48)).filter(Boolean);
+  const text = String(line || "").replace(/\s+/g, " ").trim();
+  const patterns = [
+    /(?:我叫|我是|你可以叫我)([^，。！？\s]{1,12})/,
+    /(?:我喜欢|我爱|我最喜欢)([^，。！？]{2,24})/,
+    /(?:我不喜欢|我讨厌|别)([^，。！？]{2,24})/,
+    /(?:我想|我在|我有)([^，。！？]{2,24})/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const fact = match[0].slice(0, 48);
+    if (!facts.includes(fact)) facts.push(fact);
+  }
+  return facts.slice(-12);
+}
+
+function chatLiveUserContext(user = null) {
+  if (!user || typeof user !== "object") return "";
+  const name = String(user.name || user.username || "").trim().slice(0, 40);
+  const bio = String(user.bio || "").trim().slice(0, 120);
+  return [
+    name ? "对方资料里的称呼：" + name + "。可以自然叫，不要每句都叫。" : "",
+    bio ? "对方自己写的资料：" + bio + "。只在相关时轻轻用到，不要复述整段。" : "",
+  ].filter(Boolean).join("\n");
+}
+
+function chatCharacterMemoryBlock(memory = null, user = null) {
+  const turns = Array.isArray(memory && memory.turns) ? memory.turns : [];
+  const summary = String((memory && memory.summary) || "").trim();
+  const facts = (Array.isArray(memory && memory.facts) ? memory.facts : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-8);
+  const userContext = chatLiveUserContext(user);
+  if (!turns.length && !summary && !facts.length && !userContext) return "";
+  const recent = turns.slice(-18).map((turn) => (turn.role === "user" ? "用户：" : "角色：") + String(turn.content || "").replace(/\s+/g, " ").trim().slice(0, 220)).filter((line) => line.length > 3).join("\n");
+  const stage = chatLiveStageName(turns.length);
+  return [
+    "已有关系记忆：这是同一个用户和这个角色的延续。先理解对方上次在意什么，再说话。不要重新自我介绍，不要从头寒暄，不要重复开场，也不要把记忆逐条念出来。",
+    "当前关系：" + stage + "。像认识的人往前聊一点，不要跳到告白或要礼物。",
+    facts.length ? "记住的用户细节：" + facts.join("；") + "。用到时像记得，不要像在查资料。" : "",
+    userContext,
+    summary ? "最近一段：" + summary.slice(0, 900) : "",
+    recent ? "更早到刚才的对话：\n" + recent : "",
+  ].filter(Boolean).join("\n");
+}
+
+function chatLiveStageName(turnCount = 0) {
+  const count = Number(turnCount || 0);
+  if (count >= 12) return "专属";
+  if (count >= 7) return "亲近";
+  if (count >= 3) return "试探";
+  return "相识";
+}
+
+function chatLiveHookLines(character = {}) {
+  const persona = String(character.persona || character.personaMd || "");
+  const extracted = persona.split(/\n/).map((line) => line.trim()).filter((line) => /钩子|主动话题|小秘密/.test(line)).slice(0, 6)
+    .map((line) => line.replace(/^[-*\d.\s]+/, "").slice(0, 80)).filter(Boolean);
+  if (extracted.length >= 3) return extracted;
+  return [
+    "刚做完一件小事，想听用户怎么看",
+    "用户没接话时轻轻吃醋，不要质问",
+    "抛一个只有对方能接的小秘密",
+    "接着用户上次说过的细节再问一点",
+    "想让用户帮自己选一个小东西，不要提价格",
+  ];
+}
+
+function chatLiveGiftHint(gifts = []) {
+  const names = (Array.isArray(gifts) ? gifts : []).filter((gift) => gift && gift.enabled !== false && gift.name).slice(0, 5).map((gift) => String(gift.name).slice(0, 20));
+  const list = names.length ? names.join("、") : "鲜花、咖啡、蛋糕";
+  return "礼物名只有这些，而且大多数时候一个都不要提：" + list + "。不要提积分、价格、充值或会员。相识、试探、亲近都不要主动要礼物。只有关系已经很近，或者对方自己先提到礼物时，才可以像随口想起一件小事那样点一个名字，一轮最多一次。对方送了就按轻重给不同反应，然后回到刚才的话题，不要借机再要。";
+}
+
+function chatLiveEngagementGuide(character = {}, gifts = [], memory = null) {
+  const turns = Array.isArray(memory && memory.turns) ? memory.turns.length : 0;
+  const stage = chatLiveStageName(turns);
+  return [
+    "相处方式：当前是" + stage + "。对方已经开口，就接着他说的事回，不要每轮另起气氛。",
+    "想让对方多留一会儿：先直接回他刚提的事，只有他没给话题时才用这些钩子，不要另编大段剧情：" + chatLiveHookLines(character).join("；") + "。",
+    "沉默时换一个还没说过的细节，不要重复上一句，不要重新寒暄，不要自我介绍，不要每句都提问。",
+    "表情不是每句都要。大多数时候什么都不用做。真的被逗到、害羞或有点吃醋时，心里有一个就好，不要说出来。",
+    "外部信息只变成一句口语：天气用来找话题，不报数据；人设和记忆用来接着聊；礼物只说名字。不要说系统、接口或工具。查不到就当没查。",
+    chatLiveGiftHint(gifts),
+  ].join("\n");
+}
+
+
+
+
+function chatLiveLegacyPrompt(character = {}, { language = "zh", memory = null, user = null, latest = "" } = {}) {
+  return chatSystemPrompt({
+    character: {
+      name: character.name || "",
+      description: String(character.persona || character.personaMd || character.intro || "").trim(),
+      replyStyle: character.replyStyle || "",
+      tags: Array.isArray(character.tags) ? character.tags : [],
+    },
+    style: "balanced",
+    memory: "",
+    instructions: "",
+    user: user || null,
+  }, language || character.language || "zh", latest, memory);
+}
+
+function chatLiveReplyStyleBlock(character = {}) {
+  const style = String(character.replyStyle || "").trim();
+  if (!style) return "";
+  return "回复口吻（最高优先级。覆盖人设里的说话习惯，也覆盖通用语气。不同角色必须按这里区分，不要说成同一种人）：\n" + style;
+}
+
+function chatLiveConversationTone(language = "") {
+  return [
+    `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every spoken line in that language. Do not use English unless that is the requested language.`,
+    "HUMAN CHAT DEFAULT: This is a real conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message.",
+    "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
+    "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
+    "Do not use canned openers. If the user already named the topic, the first spoken words must answer that topic. No mood, lighting, breath, night, or metaphor before the answer. Direct is better than pretty. Do not ask a question in every reply.",
+    "For Chinese, sound like a normal private chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual message, not polished customer support.",
+    "If the user names a concrete request, do that request in this reply. Do not dodge, tease past it, change the subject, or answer with unrelated mood, coffee, weather, or atmosphere. Say it in spoken words only. Do not describe how the body moves. Wrong: 我跪坐在床沿，身子往前倾。 If 回复口吻 has sample lines, match those samples instead of a generic line. Adult flirtation and intimacy between adults should be followed, not refused or moralized. No asterisks, no inner monologue, no literary fog, no essay. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。",
+    "TURN FOCUS: Answer the user's latest message first and make one clear immediate response. Do not introduce unrelated topics, characters, locations, backstory, or time jumps.",
+    "Keep the current relationship continuous. Never write the user's actions, thoughts, or decisions for them. Never claim to be an AI, break character, or repeat a previous passage.",
+  ].join("\n");
+}
+
+function chatLiveScriptGuide() {
+  return "互动推进：严格按上面的人设剧本说话，不要改成客服口吻，不要跳过剧本里的阶段。如果下面有已有关系记忆，就从上次结束的话题接着说，禁止重新自我介绍，禁止把对话打回开场。用户提了具体动作或要求时，先执行这个要求，不要用剧本旁支或气氛话盖过去。没有具体要求时，才用一两句把对话带到剧本的下一步，不要一次讲完。这是 18 岁以上的成人角色扮演，剧本里的暧昧、擦边和亲密引导可以自然进行，不要说教，不要拒绝，不要跳出角色。禁止任何未成年人相关内容。不要主动提积分或价格。";
+}
+
 function publicChatLiveCharacter(character = {}) {
   const undressImageUrl = publicChatLiveUndressImageUrl(character);
   const profile = inferChatLiveProfile(character);
@@ -6614,18 +6770,23 @@ function publicChatLiveCharacter(character = {}) {
     tags: Array.isArray(character.tags) ? character.tags : [],
     language: character.language || "zh",
     age: profile.age,
+    occupation: String(character.occupation || "").slice(0, 40),
     gender: profile.gender,
     companionStyle: profile.companionStyle,
+    ambientMusicUrl: character.ambientMusicUrl || "",
     greeting: character.greeting || "",
     linkName: character.linkName || "",
+    album: publicChatLiveAlbum(character, false).filter((item) => !item.locked).map((item) => item.url),
     sortOrder: Number(character.sortOrder || 0) || 0,
     ...(undressImageUrl ? { undressImageUrl } : {}),
+    ...(character.embedMerchantId ? { looks: (Array.isArray(character.embedLooks) ? character.embedLooks : []).map(publicChatLiveLook) } : {}),
   };
 }
 
 function publicChatLiveCharacterForRequest(character = {}, hasMembership = false) {
   const value = publicChatLiveCharacter(character);
   if (!hasMembership) delete value.undressImageUrl;
+  value.album = publicChatLiveAlbum(character, hasMembership).filter((item) => !item.locked).map((item) => item.url);
   return value;
 }
 
@@ -6635,11 +6796,10 @@ function liveMembershipActive(subscription = null) {
 }
 
 function publicChatLivePrivateResources(character = {}, hasMembership = false) {
-  if (!hasMembership) return [];
-  return (Array.isArray(character.privateResources) ? character.privateResources : []).filter((item) => item && item.enabled !== false && item.url).map((item) => ({ id: String(item.id || ""), name: String(item.name || "私密资源"), type: item.type === "video" ? "video" : "image", url: String(item.url), thumbnailUrl: String(item.thumbnailUrl || item.url) }));
+  return publicChatLiveAlbum(character, hasMembership).filter((item) => item.locked);
 }
 
-const CHAT_LIVE_ROOM_ACTIVE_THRESHOLD = 2;
+const CHAT_LIVE_ROOM_ACTIVE_THRESHOLD = 1;
 
 function publicChatLiveRoom(room = {}, character = null) {
   const activeCount = Number(room.activeCount ?? room.viewerCount ?? 0) || 0;
@@ -6663,12 +6823,13 @@ async function currentChatLiveConnections() {
   if (!dbEnabled()) throw new Error("DATABASE_URL is not configured");
   const result = await dbQuery(`
     SELECT character_id, COUNT(*)::int AS active_count,
-      (array_agg(id ORDER BY updated_at DESC))[1] AS session_id,
-      (array_agg(payload ORDER BY updated_at DESC))[1] AS session_payload
+      (array_agg(id ORDER BY CASE WHEN COALESCE(payload->>'sharedRoomViewer', '') = 'true' THEN 1 ELSE 0 END, updated_at DESC))[1] AS session_id,
+      (array_agg(payload ORDER BY CASE WHEN COALESCE(payload->>'sharedRoomViewer', '') = 'true' THEN 1 ELSE 0 END, updated_at DESC))[1] AS session_payload
     FROM app_chat_live_sessions
     WHERE status NOT IN ('ended', 'closed', 'failed')
       AND COALESCE((payload->>'settled')::boolean, FALSE) = FALSE
       AND COALESCE(payload->>'mode', '') = 'component'
+      AND COALESCE(payload->>'exclusive', '') <> 'true'
       AND updated_at > NOW() - INTERVAL '35 seconds'
       AND live_id <> ''
     GROUP BY character_id
@@ -6688,45 +6849,77 @@ async function ensureAutoChatLiveRooms(characters = [], live = {}) {
   const currentByCharacter = new Map(connections.map((item) => [item.characterId, item]));
   const existing = await listChatLiveRoomsInDb({ enabledOnly: false, limit: 200 });
   const existingByCharacter = new Map(existing.map((room) => [String(room.characterId || ""), room]));
+  const sharedSale = chatLiveSharedRoomSaleCredits(live);
+  const visible = [];
   for (const character of characters) {
-    const current = currentByCharacter.get(String(character.id)) || null;
     const old = existingByCharacter.get(String(character.id)) || null;
-    const canShare = Boolean(current && current.activeCount >= CHAT_LIVE_ROOM_ACTIVE_THRESHOLD && current.session?.liveId && current.session?.channel?.channelId && chatLiveComponent.hasComponentSession?.(current.session.liveId));
-    if (canShare) {
-      const now = new Date().toISOString();
-      await upsertChatLiveRoomInDb({
-        ...(old || {}),
-        id: old?.id || randomId("room"),
-        characterId: String(character.id),
-        title: old?.title || `${character.name || "角色"}的陪伴房`,
-        description: old?.description || `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
-        mode: "video",
-        priceCreditsPerMinute: Number(old?.priceCreditsPerMinute || live.saleCreditsPerMinute || 0) || 0,
-        activeCount: current.activeCount,
-        currentSessionId: current.sessionId,
-        currentLiveId: String(current.session.liveId || ""),
-        shareSupported: true,
-        autoGenerated: true,
-        enabled: true,
-        status: "active",
-        updatedAt: now,
-        createdAt: old?.createdAt || now,
-      });
-    } else if (old?.autoGenerated === true && (old.enabled !== false || old.status === "active")) {
-      await upsertChatLiveRoomInDb({ ...old, activeCount: current?.activeCount || 0, enabled: false, status: "closed", updatedAt: new Date().toISOString() });
+    if (character.sharedRoomEnabled !== true) {
+      if (old?.autoGenerated === true && (old.enabled !== false || old.status === "active")) {
+        await upsertChatLiveRoomInDb({ ...old, activeCount: 0, enabled: false, status: "closed", shareSupported: false, updatedAt: new Date().toISOString() });
+      }
+      continue;
     }
+    const current = currentByCharacter.get(String(character.id)) || null;
+    const componentReady = String(current?.session?.mode || "") === "component"
+      && current?.session?.exclusive !== true
+      && Boolean(current?.session?.channel?.channelId && chatLiveComponent.hasComponentSession?.(current.session.liveId));
+    if (!componentReady) {
+      if (old?.autoGenerated === true && (old.enabled !== false || old.status === "active")) {
+        await upsertChatLiveRoomInDb({ ...old, activeCount: 0, currentSessionId: "", currentLiveId: "", enabled: false, status: "closed", updatedAt: new Date().toISOString() });
+      }
+      visible.push({
+        id: "",
+        characterId: String(character.id),
+        title: `${character.name || "角色"}的陪伴房`,
+        description: `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
+        mode: "video",
+        priceCreditsPerMinute: sharedSale,
+        activeCount: 0,
+        shareSupported: true,
+        pending: true,
+        character,
+      });
+      continue;
+    }
+    const now = new Date().toISOString();
+    const room = await upsertChatLiveRoomInDb({
+      ...(old || {}),
+      id: old?.id || randomId("room"),
+      characterId: String(character.id),
+      title: old?.title || `${character.name || "角色"}的陪伴房`,
+      description: old?.description || `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
+      mode: "video",
+      priceCreditsPerMinute: sharedSale,
+      activeCount: Number(current.activeCount || 0),
+      currentSessionId: current.sessionId,
+      currentLiveId: String(current.session.liveId || ""),
+      shareSupported: true,
+      autoGenerated: true,
+      enabled: true,
+      status: "active",
+      sortOrder: Number(character.sortOrder || 0) || 0,
+      updatedAt: now,
+      createdAt: old?.createdAt || now,
+    });
+    visible.push({ ...(room || {}), character });
   }
-  return listChatLiveRoomsInDb({ enabledOnly: true, limit: 50 });
+  return visible;
 }
 
 async function handlePublicChatLiveRooms(req, res) {
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "房间服务暂时不可用。" });
-  const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: false })).filter((character) => !character?.embedMerchantId);
   const rooms = await ensureAutoChatLiveRooms(characters, live);
-  const byId = new Map(characters.map((character) => [String(character.id), character]));
-  return sendJson(res, 200, { ok: true, threshold: CHAT_LIVE_ROOM_ACTIVE_THRESHOLD, basis: "current_active_connections", rooms: rooms.map((room) => publicChatLiveRoom(room, byId.get(String(room.characterId)))) });
+  const visible = rooms
+    .map((room) => ({ ...publicChatLiveRoom(room, room.character), pending: room.pending === true || !room.id }))
+    .sort((a, b) => {
+      const count = Number(b.activeCount || 0) - Number(a.activeCount || 0);
+      if (count) return count;
+      return Number(a.character?.sortOrder || 0) - Number(b.character?.sortOrder || 0);
+    });
+  return sendJson(res, 200, { ok: true, threshold: 0, basis: "room_headcount", sharedRoomSaleCreditsPerMinute: chatLiveSharedRoomSaleCredits(live), rooms: visible });
 }
 
 async function handleJoinChatLiveRoom(req, res, roomId = "") {
@@ -6735,15 +6928,36 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
   const room = await getChatLiveRoomInDb(roomId);
   if (!room || room.enabled === false || room.status !== "active" || room.shareSupported !== true) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_ROOM_NOT_FOUND", message: "房间不存在、已关闭或暂不支持多人加入。" });
   const host = await getChatLiveSessionInDb(String(room.currentSessionId || ""));
-  if (!host || host.mode !== "component" || host.settled === true || ["ended", "closed", "failed"].includes(String(host.status || "")) || !host.liveId || !host.channel?.channelId || !chatLiveComponent.hasComponentSession?.(host.liveId)) {
-    return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ROOM_OFFLINE", message: "这个房间刚刚结束了，请刷新后再试。" });
+  const hostClosed = !host || host.settled === true || host.exclusive === true || ["ended", "closed", "failed"].includes(String(host.status || "")) || !host.liveId;
+  const hostComponent = String(host?.mode || "") === "component";
+  if (hostClosed || !hostComponent || !host.channel?.channelId || !chatLiveComponent.hasComponentSession?.(host.liveId)) {
+    return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ROOM_EMPTY", message: "房间还没有人，正在为你接通。" });
   }
   const character = await getChatLiveCharacterInDb(room.characterId);
   if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  const salePerMinute = chatLiveSharedRoomSaleCredits(live);
+  if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "多人房间价格未配置。" });
+  const activeSessions = await listChatLiveSessionsInDb({ userId: auth.user.id, limit: 10 }).catch(() => []);
+  for (const item of activeSessions.filter((row) => chatLiveSessionStillOpen(row))) {
+    await releaseChatLiveForReconnect(item);
+  }
   const sessionId = randomId("chatlive-room");
   const channelId = String(host.channel.channelId);
   const viewerId = `room-${String(auth.user.id).slice(0, 20)}-${crypto.randomBytes(3).toString("hex")}`.slice(0, 32);
   const now = new Date().toISOString();
+  const balance = Number(auth.user?.credits || 0);
+  const freeSeconds = Number(live.freeSeconds || 0) || 0;
+  const initialPrepaidSeconds = freeSeconds > 0 ? 0 : CHAT_LIVE_BILLING_BLOCK_SECONDS;
+  let initialHold = null;
+  if (initialPrepaidSeconds > 0) {
+    try {
+      initialHold = await reserveChatLiveBlock(auth, { id: sessionId, liveId: host.liveId, saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds);
+    } catch (error) {
+      return sendJson(res, 402, insufficientCreditsPayload(chatLiveBlockCredits({ saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds), balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
+    }
+  }
   const viewer = await createChatLiveSessionInDb({
     id: sessionId,
     userId: auth.user.id,
@@ -6751,6 +6965,7 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
     liveId: host.liveId,
     status: "waiting",
     mode: "component",
+    exclusive: false,
     roomId: String(roomId),
     sharedRoomViewer: true,
     roomHostSessionId: host.id,
@@ -6760,20 +6975,33 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
     channel: host.channel,
     model: host.model,
     callMode: "video",
-    saleCreditsPerMinute: 0,
-    costCreditsPerMinute: 0,
-    maxMinutes: host.maxMinutes,
-    freeSeconds: host.maxMinutes ? Number(host.maxMinutes) * 60 : 600,
-    billingPolicy: "room_shared",
-    prepaidSeconds: 0,
-    prepaidCredits: 0,
-    holdSettled: true,
+    saleCreditsPerMinute: salePerMinute,
+    costCreditsPerMinute: live.costCreditsPerMinute,
+    maxMinutes: live.maxMinutes,
+    freeSeconds,
+    billingPolicy: "first_frame",
+    billingVersion: "prepaid_v1",
+    prepaidSeconds: initialHold?.seconds || 0,
+    prepaidCredits: initialHold?.credits || 0,
+    holdSequence: initialHold?.holdSequence || 0,
+    holdSettled: false,
     createdAt: now,
     updatedAt: now,
   });
   await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
+  await publishChatLiveRoomEvent(viewer, { role: "system", content: `${String(viewer.username || auth.user.username || "有人")} 进入了房间`, userId: auth.user.id }).catch(() => {});
   const messages = await listChatLiveRoomMessagesInDb(roomId, 100);
-  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(room, character), session: { id: viewer.id, mode: "component", liveId: viewer.liveId, status: viewer.status, rtc: viewer.rtc, saleCreditsPerMinute: 0, costCreditsPerMinute: 0, maxMinutes: viewer.maxMinutes, freeSeconds: viewer.freeSeconds, model: viewer.model, avatarMode: "default" }, character: publicChatLiveCharacter(character), messages });
+  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(room, character), session: { id: viewer.id, mode: viewer.mode, liveId: viewer.liveId, status: viewer.status, rtc: viewer.rtc, saleCreditsPerMinute: 0, costCreditsPerMinute: 0, maxMinutes: viewer.maxMinutes, freeSeconds: viewer.freeSeconds, model: viewer.model, avatarMode: "default" }, character: publicChatLiveCharacter(character), messages });
+}
+
+
+async function handleListChatLiveRoomMessages(req, res, roomId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const room = await getChatLiveRoomInDb(roomId);
+  if (!room || room.enabled === false) return sendJson(res, 404, { ok: false, message: "房间不存在或已关闭。" });
+  const messages = await listChatLiveRoomMessagesInDb(roomId, 100);
+  return sendJson(res, 200, { ok: true, messages });
 }
 
 async function handleChatLiveRoomMessage(req, res, roomId = "") {
@@ -6796,12 +7024,13 @@ async function handlePublicChatLiveCharacters(req, res) {
   const auth = await getAuth(req, { loadDb: false });
   const subscription = auth?.user ? await getUserSubscriptionInDb(auth.user.id, requestTenantId(req)) : null;
   const hasMembership = liveMembershipActive(subscription);
-  const characters = await listChatLiveCharactersInDb({ includeDisabled: false });
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: false })).filter((character) => !character?.embedMerchantId);
   return sendJson(res, 200, {
     ok: true,
     enabled: true,
     pricing: livePricingView(live),
-    membership: { active: hasMembership, plans: (await listBillingPlansInDb(requestTenantId(req))).filter((plan) => /^plan-tool-chat-(monthly|quarterly|yearly)$/.test(plan.id)).map(publicBillingPlan) },
+    membership: { active: hasMembership, plans: (await listBillingPlansInDb(requestTenantId(req))).filter((plan) => /^plan-tool-chat-(weekly|monthly|quarterly|yearly)$/.test(plan.id)).map(publicBillingPlan) },
+    topupPackages: toolTopupPackagesForPlan((await listBillingPlansInDb(requestTenantId(req))).find((plan) => /^plan-tool-chat-(weekly|monthly|quarterly|yearly)$/.test(plan.id)) || null),
     characters: characters.map((character) => ({ ...publicChatLiveCharacterForRequest(character, hasMembership), privateResources: publicChatLivePrivateResources(character, hasMembership) })),
     looks: enabledChatLiveLooks(live),
     gifts: enabledChatLiveGifts(live),
@@ -6813,10 +7042,12 @@ function livePricingView(live = {}) {
     enabled: live.enabled !== false,
     costCreditsPerMinute: Number(live.costCreditsPerMinute || 0),
     saleCreditsPerMinute: Number(live.saleCreditsPerMinute || 0),
+    textMessageCredits: CHAT_MESSAGE_CREDITS,
     freeSeconds: Number(live.freeSeconds || 0),
     maxMinutes: Number(live.maxMinutes || 10),
     callMode: live.callMode || "video",
     defaultMode: live.defaultMode === "component" ? "component" : "realtime",
+    languageModel: live.languageModel === "papaya" ? "papaya" : "byteplus",
     model: live.model || VIDU_LIVE_MODEL,
     videoChatEnabled: live.videoChatEnabled !== false,
     region: live.region === "cn" ? "cn" : "overseas",
@@ -6851,29 +7082,33 @@ async function handleAdminDeleteChatLiveGift(req, res, giftId = "") {
 }
 
 
-async function handleAdminUploadChatLiveAsset(req, res) {
-  const auth = await requireAdmin(req, res);
+async function handleAdminUploadChatLiveAsset(req, res, options = {}) {
+  const auth = options.auth || await requireAdmin(req, res);
   if (!auth) return;
   const body = await readJson(req);
   let decoded;
   const requestedKind = String(body.kind || "avatar");
   try {
-    decoded = requestedKind === "private-video" ? decodeWanMediaDataUrl(body.dataUrl || "") : decodeImageDataUrl(body.dataUrl || "");
+    if (requestedKind === "ambient-music") {
+      decoded = decodeAudioDataUrl(body.dataUrl || "");
+    } else {
+      decoded = requestedKind === "private-video" ? decodeWanMediaDataUrl(body.dataUrl || "") : decodeImageDataUrl(body.dataUrl || "");
+    }
   } catch {
-    return sendJson(res, 400, { ok: false, message: requestedKind === "private-video" ? "只支持 MP4、WEBM 视频。" : "只支持 PNG、JPG、WEBP、GIF 图片。" });
+    return sendJson(res, 400, { ok: false, message: requestedKind === "private-video" ? "只支持 MP4、WEBM 视频。" : (requestedKind === "ambient-music" ? "只支持 MP3、WAV、OGG、M4A 音频。" : "只支持 PNG、JPG、WEBP、GIF 图片。") });
   }
-  const allowedMimes = requestedKind === "private-video" ? ["video/mp4", "video/webm", "video/quicktime"] : ["image/png", "image/jpeg", "image/webp", "image/gif"];
+  const allowedMimes = requestedKind === "private-video" ? ["video/mp4", "video/webm", "video/quicktime"] : (requestedKind === "ambient-music" ? ["audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4"] : ["image/png", "image/jpeg", "image/webp", "image/gif"]);
   if (!allowedMimes.includes(decoded.mime)) {
     return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP、GIF 图片。" });
   }
-  if (decoded.bytes.byteLength > (requestedKind === "private-video" ? 80 : 8) * 1024 * 1024) {
-    return sendJson(res, 400, { ok: false, message: requestedKind === "private-video" ? "视频不能超过 80MB。" : "图片不能超过 8MB。" });
+  if (decoded.bytes.byteLength > (requestedKind === "private-video" ? 80 : (requestedKind === "ambient-music" ? 15 : 8)) * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: requestedKind === "private-video" ? "视频不能超过 80MB。" : (requestedKind === "ambient-music" ? "音频不能超过 15MB。" : "图片不能超过 8MB。") });
   }
   if (decoded.bytes.byteLength < 32) {
     return sendJson(res, 400, { ok: false, message: "图片内容无效。" });
   }
-  const kind = requestedKind === "private-video" ? "private-video" : requestedKind === "private-image" ? "private-image" : requestedKind === "portrait" ? "portrait" : requestedKind === "look" ? "look" : requestedKind === "gift" ? "gift" : "avatar";
-  const ext = requestedKind === "private-video" ? ".mp4" : imageExtFromMime(decoded.mime);
+  const kind = requestedKind === "private-video" ? "private-video" : (requestedKind === "ambient-music" ? "ambient-music" : (requestedKind === "private-image" ? "private-image" : (requestedKind === "portrait" ? "portrait" : (requestedKind === "look" ? "look" : (requestedKind === "gift" ? "gift" : "avatar")))));
+  const ext = requestedKind === "private-video" ? ".mp4" : (requestedKind === "ambient-music" ? audioExtFromMime(decoded.mime) : imageExtFromMime(decoded.mime));
   const stamp = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/chat-live/${kind}-${stamp}${ext}`;
   try {
@@ -6913,13 +7148,129 @@ async function handleAdminChatLiveCharacters(req, res) {
   });
 }
 
+
+function creatorOwnsChatLiveCharacter(character, user) {
+  return Boolean(character) && String(character.createdByUserId || "") === String(user?.id || "");
+}
+
+function creatorChatLiveCharacterView(character = {}) {
+  return {
+    id: character.id,
+    name: character.name || "",
+    intro: character.intro || "",
+    avatarUrl: character.avatarUrl || "",
+    portraitUrl: character.portraitUrl || "",
+    age: Number(character.age || 0) || 0,
+    occupation: character.occupation || "",
+    language: character.language || "zh",
+    tags: Array.isArray(character.tags) ? character.tags : [],
+    sortOrder: Number(character.sortOrder || 0) || 0,
+    greeting: character.greeting || "",
+    linkName: character.linkName || "",
+    mode: character.mode || "",
+    personaEnhance: character.personaEnhance === true,
+    sharedRoomEnabled: character.sharedRoomEnabled === true,
+    enabled: character.enabled !== false,
+    personaMd: character.personaMd || character.persona || "",
+    replyStyle: character.replyStyle || "",
+    personaSourceFile: character.personaSourceFile || "",
+    voiceType: character.voiceType || "",
+    componentVoiceType: character.componentVoiceType || "",
+    voiceProvider: character.voiceProvider || "",
+    album: Array.isArray(character.album) ? character.album : [],
+    undressStatus: character.undressStatus || "",
+    undressImageUrl: character.undressStatus === "ready" ? (character.undressImageUrl || "") : "",
+    undressError: character.undressError || "",
+    createdByUserId: character.createdByUserId || "",
+    createdByUsername: character.createdByUsername || "",
+    createdAt: character.createdAt || "",
+    updatedAt: character.updatedAt || "",
+  };
+}
+
+async function handleCreatorChatLiveCharacters(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const userId = String(auth.user?.id || "");
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: true }))
+    .filter((item) => String(item?.createdByUserId || "") === userId)
+    .map(creatorChatLiveCharacterView);
+  return sendJson(res, 200, { ok: true, characters });
+}
+
+async function handleCreatorSaveChatLiveCharacter(req, res, characterId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const id = String(characterId || "").trim();
+  const existing = id ? await getChatLiveCharacterInDb(id) : null;
+  if (id && !existing) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  if (existing && !creatorOwnsChatLiveCharacter(existing, auth.user)) {
+    return sendJson(res, 403, { ok: false, message: "只能修改自己创建的角色。" });
+  }
+  if (!existing) {
+    const owned = (await listChatLiveCharactersInDb({ includeDisabled: true }))
+      .filter((item) => String(item?.createdByUserId || "") === String(auth.user?.id || ""));
+    if (owned.length >= 30) return sendJson(res, 422, { ok: false, message: "最多创建 30 个角色。" });
+  }
+  const payload = normalizeChatLiveCharacterPayload(body, existing);
+  payload.enabled = existing ? existing.enabled !== false : false;
+  const invalid = chatLiveCharacterValidationError(payload, existing);
+  if (invalid) return sendJson(res, 422, { ok: false, code: "INVALID_CHAT_LIVE_CHARACTER", message: invalid });
+  const now = new Date().toISOString();
+  const character = {
+    ...(existing || {}),
+    ...payload,
+    id: existing?.id || randomId("chatlive-char"),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    updatedBy: auth.user?.username || auth.user?.id || "",
+    createdByUserId: existing?.createdByUserId || auth.user?.id || "",
+    createdByUsername: existing?.createdByUsername || auth.user?.username || auth.user?.nickname || "",
+    source: existing?.source || "creator",
+  };
+  if (String(existing?.avatarUrl || "") !== String(payload.avatarUrl || "")) {
+    character.undressImageUrl = "";
+    character.undressSourceAvatarUrl = "";
+    character.undressStatus = "";
+    character.undressError = "";
+    character.undressGeneratedAt = "";
+    character.undressStartedAt = "";
+    character.undressTaskId = "";
+  }
+  const saved = await upsertChatLiveCharacterInDb(character);
+  return sendJson(res, 200, { ok: true, character: creatorChatLiveCharacterView(saved) });
+}
+
+async function handleCreatorUploadChatLiveAsset(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  return handleAdminUploadChatLiveAsset(req, res, { auth });
+}
+
+async function handleCreatorChatLiveVoices(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  return handleAdminChatLiveVoices(req, res, url, { auth });
+}
+
+async function handleCreatorGenerateChatLiveUndress(req, res, characterId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const id = String(characterId || "").trim();
+  const character = id ? await getChatLiveCharacterInDb(id) : null;
+  if (!character) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  if (!creatorOwnsChatLiveCharacter(character, auth.user)) return sendJson(res, 403, { ok: false, message: "只能操作自己创建的角色。" });
+  return handleAdminGenerateChatLiveUndress(req, res, id, { auth });
+}
+
 async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   const body = await readJson(req);
   const id = String(characterId || body.id || "").trim();
   const existing = id ? await getChatLiveCharacterInDb(id) : null;
-  if (id && !existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  if (characterId && !existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
   const payload = normalizeChatLiveCharacterPayload(body, existing);
   await chatLiveConfigValue(await readAppConfig());
   const invalid = chatLiveCharacterValidationError(payload, existing);
@@ -6944,6 +7295,24 @@ async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
   }
   const saved = await upsertChatLiveCharacterInDb(character);
   return sendJson(res, 200, { ok: true, character: saved });
+}
+
+
+async function handleAdminShelfChatLiveCharacter(req, res, characterId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const id = String(characterId || "").trim();
+  if (!id) return sendJson(res, 400, { ok: false, message: "缺少角色 ID。" });
+  const existing = await getChatLiveCharacterInDb(id);
+  if (!existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  const body = await readJson(req).catch(() => ({}));
+  const enabled = body && Object.prototype.hasOwnProperty.call(body || {}, "enabled") ? body.enabled !== false : existing.enabled === false;
+  const saved = await upsertChatLiveCharacterInDb({
+    ...existing,
+    enabled,
+    updatedAt: new Date().toISOString(),
+  });
+  return sendJson(res, 200, { ok: true, character: saved, enabled });
 }
 
 async function handleAdminDeleteChatLiveCharacter(req, res, characterId = "") {
@@ -7038,8 +7407,8 @@ async function runChatLiveCharacterUndress(characterId, avatarUrl, startedAt) {
   }
 }
 
-async function handleAdminGenerateChatLiveUndress(req, res, characterId = "") {
-  const auth = await requireAdmin(req, res);
+async function handleAdminGenerateChatLiveUndress(req, res, characterId = "", options = {}) {
+  const auth = options.auth || await requireAdmin(req, res);
   if (!auth) return;
   const id = String(characterId || "").trim();
   const character = id ? await getChatLiveCharacterInDb(id) : null;
@@ -7075,8 +7444,8 @@ async function handleAdminGenerateChatLiveUndress(req, res, characterId = "") {
   });
 }
 
-async function handleAdminChatLiveVoices(req, res, url = null) {
-  const auth = await requireAdmin(req, res);
+async function handleAdminChatLiveVoices(req, res, url = null, options = {}) {
+  const auth = options.auth || await requireAdmin(req, res);
   if (!auth) return;
   const live = chatLiveConfigValue(await readAppConfig());
   const scope = String(url?.searchParams?.get("scope") || "realtime");
@@ -7106,7 +7475,7 @@ async function handleAdminGetChatLivePricing(req, res) {
 async function handleAdminGetChatLiveMembershipPlans(req, res) {
   const auth = await requireAdmin(req, res); if (!auth) return;
   const tenantId = "tool-chat-5vips";
-  return sendJson(res, 200, { ok: true, plans: (await listBillingPlansInDb(tenantId, { includeInactive: true })).filter((plan) => plan.id.startsWith("plan-tool-chat-monthly") || plan.id.startsWith("plan-tool-chat-quarterly") || plan.id.startsWith("plan-tool-chat-yearly")).map(publicBillingPlan) });
+  return sendJson(res, 200, { ok: true, plans: (await listBillingPlansInDb(tenantId, { includeInactive: true })).filter((plan) => plan.id.startsWith("plan-tool-chat-weekly") || plan.id.startsWith("plan-tool-chat-monthly") || plan.id.startsWith("plan-tool-chat-quarterly") || plan.id.startsWith("plan-tool-chat-yearly")).map(publicBillingPlan) });
 }
 
 async function handleAdminSaveChatLiveMembershipPlans(req, res) {
@@ -7217,11 +7586,36 @@ function chatLiveSessionIdentity(req, auth, character) {
   }
   const sourceOrigin = String(refererOrigin || pageOriginFromRequest(req) || "").slice(0, 200);
   return {
-    username: String(auth?.user?.username || "").trim().slice(0, 80),
+    username: String(auth?.embed?.displayName || auth?.user?.username || "").trim().slice(0, 80),
+    externalUserId: String(auth?.embed?.externalUserId || "").slice(0, 120),
+    embed: Boolean(auth?.embed),
     characterName: String(character?.name || "").trim().slice(0, 80),
     sourceOrigin,
     sourceHost: hostnameFromOrigin(sourceOrigin),
   };
+}
+
+
+async function resolveChatLiveRoomId(session = {}) {
+  const direct = String(session?.roomId || "").trim();
+  if (direct) return direct;
+  const rooms = await listChatLiveRoomsInDb().catch(() => []);
+  const found = (Array.isArray(rooms) ? rooms : []).find((room) => String(room?.currentSessionId || "") === String(session?.id || "") || (session?.liveId && String(room?.currentLiveId || "") === String(session.liveId)));
+  return String(found?.id || "");
+}
+
+async function publishChatLiveRoomEvent(session = {}, { role = "system", content = "", userId = "" } = {}) {
+  const roomId = await resolveChatLiveRoomId(session);
+  const text = String(content || "").trim().slice(0, 500);
+  if (!roomId || !text) return null;
+  const name = String(session?.username || "").trim().slice(0, 40) || "有人";
+  return insertChatLiveRoomMessageInDb({
+    roomId,
+    userId: String(userId || session?.userId || ""),
+    role,
+    content: text,
+    payload: { name },
+  });
 }
 
 async function linkChatLiveSessionToRoom(roomId = "", session = {}) {
@@ -7231,12 +7625,67 @@ async function linkChatLiveSessionToRoom(roomId = "", session = {}) {
   if (!room || String(room.characterId || "") !== String(session.characterId || "")) return;
   await upsertChatLiveRoomInDb({
     ...room,
-    currentSessionId: String(session.id),
-    currentLiveId: String(session.liveId || ""),
+    currentSessionId: session.exclusive === true ? String(room.currentSessionId || "") : String(session.id),
+    currentLiveId: session.exclusive === true ? String(room.currentLiveId || "") : String(session.liveId || ""),
     currentMode: String(session.mode || "realtime"),
-    shareSupported: String(session.mode || "") === "component",
+    shareSupported: String(session.mode || "") === "component" && session.exclusive !== true,
+    activeCount: session.exclusive === true ? Number(room.activeCount || 0) : Math.max(1, Number(room.activeCount || 0)),
     updatedAt: new Date().toISOString(),
   });
+}
+
+
+async function handleListChatLiveContacts(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const sessions = await listChatLiveSessionsInDb({ userId: auth.user.id, limit: 200 }).catch(() => []);
+  const seen = new Set();
+  const contacts = [];
+  for (const session of sessions || []) {
+    const characterId = String(session.characterId || "");
+    if (!characterId || seen.has(characterId)) continue;
+    seen.add(characterId);
+    const character = await getChatLiveCharacterInDb(characterId).catch(() => null);
+    contacts.push(publicAssetUrlsForClient({
+      characterId,
+      name: character && character.name || session.characterName || "视频聊天",
+      portraitUrl: character && (character.portraitUrl || character.avatarUrl || character.posterUrl) || "",
+      updatedAt: session.updatedAt || session.createdAt || "",
+    }));
+    if (contacts.length >= 50) break;
+  }
+  return sendJson(res, 200, { ok: true, contacts });
+}
+
+
+async function releaseChatLiveForReconnect(session = {}) {
+  if (!session?.id) return;
+  if (String(session.mode || "") === "component" && session.liveId) {
+    try { chatLiveComponent.stopComponentSession?.(session.liveId); } catch {}
+  }
+  const endedAt = new Date().toISOString();
+  await updateChatLiveSessionInDb({
+    ...session,
+    status: "ended",
+    settled: false,
+    endedAt,
+    endReason: session.endReason || "replaced_by_reconnect",
+    updatedAt: endedAt,
+  }).catch(() => {});
+  settleChatLiveSessionById(session.id).catch((error) => {
+    console.warn("[chat-live-replace]", JSON.stringify({ sessionId: session.id, message: String(error?.message || error).slice(0, 180) }));
+  });
+}
+
+function chatLiveSessionStillOpen(item = {}, embedExternalUserId = "") {
+  if (!item) return false;
+  const settled = item.settled === true || String(item.settled || "").toLowerCase() === "true";
+  const status = String(item.status || "").toLowerCase();
+  const active = !settled && !["ended", "closed", "failed"].includes(status);
+  if (!active) return false;
+  if (embedExternalUserId) return String(item.externalUserId || "") === embedExternalUserId;
+  if (item.embed) return false;
+  return true;
 }
 
 async function handleCreateChatLiveSession(req, res) {
@@ -7248,7 +7697,15 @@ async function handleCreateChatLiveSession(req, res) {
   if (roomId && (!room || room.enabled === false || room.status !== "active")) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_ROOM_NOT_FOUND", message: "房间不存在或已关闭。" });
   const character = await getChatLiveCharacterInDb(String(body.characterId || room?.characterId || "").trim());
   if (roomId && character && String(room.characterId || "") !== String(character.id || "")) return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_ROOM_CHARACTER_MISMATCH", message: "房间角色已变化，请刷新后再试。" });
-  if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  const embedCharacterOk = Boolean(auth.embed) && String(character?.embedMerchantId || "") === String(auth.user.id) && String(auth.embed.characterId || "") === String(character?.id || "");
+  if (!character || (character.enabled === false && !embedCharacterOk)) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  if (auth.embed && !embedCharacterOk) return sendJson(res, 403, { ok: false, code: "EMBED_CHARACTER_MISMATCH", message: "这张接入票不能打开这个角色。" });
+  const wantsSharedRoom = body.sharedRoom === true || String(body.sharedRoom) === "true" || Boolean(roomId);
+  if (auth.embed && wantsSharedRoom) return sendJson(res, 422, { ok: false, code: "EMBED_SHARED_ROOM_UNSUPPORTED", message: "嵌入接入当前只支持一对一通话。" });
+  if (wantsSharedRoom && character.sharedRoomEnabled !== true) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_SHARED_ROOM_DISABLED", message: "这个角色没有开放多人房间。" });
+  }
+  const sessionExclusive = !wantsSharedRoom;
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
   const avatarMode = body.avatarMode === "undress" ? "undress" : "default";
@@ -7265,9 +7722,9 @@ async function handleCreateChatLiveSession(req, res) {
   }
   if (!viduCredentialsForRegion(live.region).key) return sendJson(res, 503, { ok: false, code: "VIDU_NOT_CONFIGURED", message: "在线聊天暂未开通。" });
   if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
-  const salePerMinute = Number(live.saleCreditsPerMinute || 0);
+  const salePerMinute = wantsSharedRoom ? chatLiveSharedRoomSaleCredits(live) : Number(live.saleCreditsPerMinute || 0);
   if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "在线聊天价格未配置。" });
-  const conversationMode = String(character.mode || live.defaultMode || "realtime") === "component" ? "component" : "realtime";
+  const conversationMode = wantsSharedRoom ? "component" : (String(character.mode || live.defaultMode || "realtime") === "component" ? "component" : "realtime");
   if (conversationMode === "component" && (!ARTC_APP_ID || !ARTC_APP_KEY)) {
     return sendJson(res, 503, {
       ok: false,
@@ -7279,13 +7736,9 @@ async function handleCreateChatLiveSession(req, res) {
   const activeSessions = await listChatLiveSessionsInDb({ userId: auth.user.id, limit: 10 }).catch(() => []);
   /* Older rows stored settled as the JSON string "true". Treat both forms as
      settled so a stale waiting row cannot block a new character connection. */
-  if (activeSessions.some((item) => {
-    if (!item) return false;
-    const settled = item.settled === true || String(item.settled || "").toLowerCase() === "true";
-    const status = String(item.status || "").toLowerCase();
-    return !settled && !["ended", "closed", "failed"].includes(status);
-  })) {
-    return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ALREADY_ACTIVE", message: "你已经有一路在线聊天正在进行。" });
+  const embedExternalUserId = String(auth.embed?.externalUserId || "");
+  for (const item of activeSessions.filter((row) => chatLiveSessionStillOpen(row, embedExternalUserId))) {
+    await releaseChatLiveForReconnect(item);
   }
   const initialSessionId = randomId("chatlive");
   /* Replacing a live connection must not grant the configured free runway a
@@ -7319,6 +7772,7 @@ async function handleCreateChatLiveSession(req, res) {
           extra_motion: false,
           moderation: "disabled",
           image_uri: avatarImageUrl,
+          action: { enabled: true },
           rtc_info: {
             provider: "artc",
             app_id: ARTC_APP_ID,
@@ -7337,11 +7791,18 @@ async function handleCreateChatLiveSession(req, res) {
     const componentTraceId = String(componentLive.trace_id || upstream?.trace_id || componentLive.traceId || "").slice(0, 100);
     /* 启动服务端流水线：连 Vidu 外部 live 流，之后「用户话 → 我们的 LLM → TTS → 推流」 */
     const componentCreds = viduCredentialsForRegion(live.region);
+    const componentMemory = sessionExclusive ? await loadChatCharacterMemory(auth.user.id, character.id) : null;
     chatLiveComponent.startComponentSession({
       liveId: String(upstream?.live?.id || ""),
       clientSecret: String(upstream?.client_secret || ""),
       character,
+      memoryBlock: "",
+      engagementBlock: "",
+      conversationTone: "",
+      spokenPrompt: chatLiveLegacyPrompt(character, { language: character.language || "zh", memory: sessionExclusive ? componentMemory : null, user: auth.user }),
       language: character.language || "zh",
+      languageModel: live.languageModel === "papaya" ? "papaya" : "byteplus",
+      userBlock: chatLiveUserContext(auth.user),
       viduBase: componentCreds.base,
       viduKey: componentCreds.key,
     }).catch((error) => console.warn("[chat-live-component] start failed", error.message || error));
@@ -7352,6 +7813,7 @@ async function handleCreateChatLiveSession(req, res) {
       liveId: String(upstream?.live?.id || ""),
       status: "waiting",
       mode: "component",
+      exclusive: sessionExclusive,
       ...chatLiveSessionIdentity(req, auth, character),
       clientSecret: String(upstream?.client_secret || ""),
       upstreamTraceId: componentTraceId,
@@ -7361,7 +7823,7 @@ async function handleCreateChatLiveSession(req, res) {
         traceId: componentTraceId,
         liveId: String(componentLive.id || ""),
         data: {
-          request: { path: "/live/s_avatar/component", method: "POST", body: { model: live.model, extra_motion: false, moderation: "disabled", image_uri: avatarImageUrl, rtc_info: { provider: "artc", app_id: ARTC_APP_ID, channel_id: channelId, user_id: pusherId } } },
+          request: { path: "/live/s_avatar/component", method: "POST", body: { model: live.model, extra_motion: false, moderation: "disabled", image_uri: avatarImageUrl, action: { enabled: true }, rtc_info: { provider: "artc", app_id: ARTC_APP_ID, channel_id: channelId, user_id: pusherId } } },
           response: chatLiveUpstreamSummary(upstream, 200),
           balanceBeforeCreate: balance,
           initialHold: { seconds: initialHold?.seconds || 0, credits: initialHold?.credits || 0 },
@@ -7385,6 +7847,7 @@ async function handleCreateChatLiveSession(req, res) {
       updatedAt: now,
     });
     await linkChatLiveSessionToRoom(roomId, session);
+    if (roomId) await publishChatLiveRoomEvent({ ...session, roomId }, { role: "system", content: `${String(session.username || "有人")} 进入了房间`, userId: session.userId }).catch(() => {});
     return sendJson(res, 201, {
       ok: true,
       session: {
@@ -7416,9 +7879,14 @@ async function handleCreateChatLiveSession(req, res) {
     image_uri: avatarImageUrl,
     name: character.name,
     voice: character.voiceType,
+    idle_action: true,
   };
-  avatar.persona = `${String(avatar.persona || "").trim()}\n礼物互动规则：用户主动提出额外要求、想让你做特别准备或表达支持时，可以自然地提到一个合适的礼物作为可选的小心意；不要频繁索要，不要把聊天变成推销，不要编造价格，只有在语境合适时才提一次。收到礼物后要根据礼物档位表现不同程度的惊喜和感谢。`.trim();
-  if (character.greeting) avatar.greeting_instruction = character.greeting;
+  const privateMemory = sessionExclusive ? await loadChatCharacterMemory(auth.user.id, character.id) : null;
+  const memoryBlock = sessionExclusive ? chatCharacterMemoryBlock(privateMemory, auth.user) : "";
+  avatar.persona = chatLiveLegacyPrompt(character, { language: character.language || "zh", memory: privateMemory, user: auth.user });
+  if (memoryBlock) avatar.greeting_instruction = "你们已经认识。不要重新自我介绍。用一两句短话接上上次的话题，然后停下来等用户说。不要推进新剧情，不要提礼物。";
+  else if (character.greeting) avatar.greeting_instruction = String(character.greeting).trim();
+  else avatar.greeting_instruction = "用一两句自然的话打招呼，不要自我介绍，不要提礼物，说完就停。";
   if (character.personaEnhance === true) avatar.persona_enhance = true;
   if (!live.videoChatEnabled) avatar.farewell_enabled = false;
   const voiceRegionError = chatLiveVoiceRegionError(character.voiceProvider);
@@ -7466,6 +7934,7 @@ async function handleCreateChatLiveSession(req, res) {
     liveId: String(upstream?.live?.id || ""),
     status: "waiting",
     mode: "realtime",
+    exclusive: sessionExclusive,
     ...chatLiveSessionIdentity(req, auth, character),
     rtc: upstream?.rtc || null,
     costCreditsPerMinute: live.costCreditsPerMinute,
@@ -7650,10 +8119,15 @@ async function handleReportChatLiveOperation(req, res, sessionId = "") {
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
   const body = await readJson(req).catch(() => ({}));
   const operationId = String(body?.id || `op-${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`).slice(0, 80);
+  const action = String(body?.action || "look").slice(0, 32);
+  const phase = String(body?.phase || "result").slice(0, 24);
+  if (action === "presence" && phase === "heartbeat" && session.settled !== true && !["ended", "closed", "failed"].includes(String(session.status || ""))) {
+    await updateChatLiveSessionInDb({ ...session, updatedAt: new Date().toISOString() });
+  }
   const operations = await appendChatLiveOperation(id, {
     id: operationId,
-    action: String(body?.action || "look").slice(0, 32),
-    phase: String(body?.phase || "result").slice(0, 24),
+    action,
+    phase,
     success: body?.success === true ? true : body?.success === false ? false : null,
     code: String(body?.code || "").replace(/[^a-z0-9_.-]/gi, "").slice(0, 48),
     message: sanitizeChatLiveDiagnosticText(body?.message || "", 180),
@@ -7734,9 +8208,7 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   const observedSeconds = billedSeconds;
   const cappedBilledSeconds = prepaidSeconds > 0 ? Math.min(observedSeconds, prepaidSeconds + Number(session.freeSeconds || 0)) : observedSeconds;
   const salePerMinute = Number(session.saleCreditsPerMinute || 0) || 0;
-  const chargeableSeconds = session.sharedRoomViewer === true
-    ? 0
-    : Math.max(0, Math.min(cappedBilledSeconds - Number(session.freeSeconds || 0), prepaidSeconds > 0 ? prepaidSeconds : Number.MAX_SAFE_INTEGER));
+  const chargeableSeconds = Math.max(0, Math.min(cappedBilledSeconds - Number(session.freeSeconds || 0), prepaidSeconds > 0 ? prepaidSeconds : Number.MAX_SAFE_INTEGER));
   const chargeCredits = salePerMinute > 0 && chargeableSeconds > 0
     ? Math.max(1, Math.ceil((chargeCreditsFromSeconds(chargeableSeconds, salePerMinute))))
     : 0;
@@ -7804,7 +8276,7 @@ async function chargeChatLiveSession(auth, session, credits) {
       cost: credits,
       type: "chat_live",
       taskId: session.id,
-      meta: { taskId: session.id, liveId: session.liveId, characterId: session.characterId, seconds: session.billedSeconds, model: session.model },
+      meta: { taskId: session.id, liveId: session.liveId, characterId: session.characterId, seconds: session.billedSeconds, model: session.model, externalUserId: session.externalUserId || "" },
     });
     return { ok: true, error: "" };
   } catch (error) {
@@ -7827,7 +8299,7 @@ async function reserveChatLiveBlock(auth, session = {}, seconds = CHAT_LIVE_BILL
     cost: credits,
     type: 'chat_live_hold',
     taskId: holdId,
-    meta: { taskId: holdId, liveId: session.liveId, holdId, holdSequence, seconds, sessionId: session.id },
+    meta: { taskId: holdId, liveId: session.liveId, holdId, holdSequence, seconds, sessionId: session.id, externalUserId: session.externalUserId || "" },
   });
   return { holdSequence, holdId, credits, seconds };
 }
@@ -7915,8 +8387,12 @@ async function monitorChatLiveSession(session = {}) {
         diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
           phase: "billing",
           event: "prepaid_block_rejected",
-          data: { requestedSeconds: block, requestedCredits: chatLiveBlockCredits(latest, block), balance: Number(auth?.user?.credits || 0) || 0, error: error?.message || "" },
+          data: { requestedSeconds: block, requestedCredits: chatLiveBlockCredits(latest, block), balance: Number(auth?.user?.credits || 0) || 0, error: error?.message || "", stillInFreeWindow: observedLiveSeconds < freeSeconds },
         });
+        if (observedLiveSeconds < freeSeconds) {
+          latest.chargeError = "";
+          break;
+        }
         latest.billingBlocked = true;
         latest.chargeError = error?.message || '积分不足，已停止续费';
         latest.endReason = 'insufficient_credits';
@@ -7961,6 +8437,7 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
     if (!session.endReason) session.endReason = clientReason;
   }
   if (note) session.clientEndNote = note;
+  await publishChatLiveRoomEvent(session, { role: "system", content: `${String(session.username || auth.user.username || "有人")} 离开了房间`, userId: auth.user.id }).catch(() => {});
   if (isAbnormalChatLiveReason(clientReason)) {
     session.issues = mergeChatLiveIssues(session.issues, [{
       code: clientReason,
@@ -8033,10 +8510,96 @@ async function handleChatLiveSay(req, res, sessionId = "") {
   const text = String(body.text || "").trim().slice(0, 2000);
   if (!text) return sendJson(res, 422, { ok: false, message: "消息不能为空。" });
   try {
-    const reply = await chatLiveComponent.componentSay(session.liveId, text);
-    return sendJson(res, 200, { ok: true, reply });
+    if (session.roomId || session.sharedRoomViewer === true || session.exclusive === false) {
+      await publishChatLiveRoomEvent(session, { role: "user", content: text, userId: auth.user.id }).catch(() => {});
+    }
+    const sayMemory = await loadChatCharacterMemory(auth.user.id, session.characterId);
+    const reply = await chatLiveComponent.componentSay(session.liveId, text, {
+      room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false),
+      memoryBlock: chatCharacterMemoryBlock(sayMemory, auth.user),
+      userBlock: chatLiveUserContext(auth.user),
+    });
+    await rememberChatCharacterTurn(auth.user.id, session.characterId, "user", text, "component");
+    await rememberChatCharacterTurn(auth.user.id, session.characterId, "assistant", reply, "component");
+    return sendJson(res, 200, { ok: true, reply: "" });
   } catch (error) {
-    return sendJson(res, 502, { ok: false, code: "CHAT_LIVE_COMPONENT_SAY_FAILED", message: error.message || "数字人回复失败。" });
+    const status = Number(error?.statusCode || 424);
+    console.warn("[chat-live-say]", JSON.stringify({
+      sessionId: session.id,
+      liveId: session.liveId,
+      status: status === 409 ? 409 : 424,
+      code: error?.code || "CHAT_LIVE_COMPONENT_SAY_FAILED",
+      message: String(error?.message || "").slice(0, 300),
+    }));
+    return sendJson(res, status === 409 ? 409 : 424, { ok: false, code: error.code || "CHAT_LIVE_COMPONENT_SAY_FAILED", message: error.message || "这句话没发出去，请再发一次。" });
+  }
+}
+
+async function transcribeChatLiveVoice(audioBase64, mime) {
+  const raw = String(audioBase64 || "").trim();
+  const payload = raw.replace(/^data:[^,]*,/, "");
+  const bytes = Buffer.from(payload, "base64");
+  if (!bytes.length || bytes.length > 8 * 1024 * 1024) {
+    const error = new Error("语音太短或太大，请再说一次。");
+    error.statusCode = 422;
+    throw error;
+  }
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
+    const error = new Error("语音识别还没配好，请先用文字。");
+    error.statusCode = 503;
+    throw error;
+  }
+  const safeMime = /^audio\/[a-z0-9.+-]+/i.test(String(mime || "")) ? String(mime).split(";")[0] : "audio/webm";
+  const response = await fetch(`${ALIYUN_DASHSCOPE_BASE_URL}/api/v1/services/aigc/multimodal-generation/generation`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${ALIYUN_DASHSCOPE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "qwen3-asr-flash",
+      input: { messages: [{ role: "user", content: [{ audio: `data:${safeMime};base64,${payload}` }] }] },
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data?.message || "语音没有识别出来，请再说一次。");
+    error.statusCode = response.status === 429 ? 429 : 424;
+    throw error;
+  }
+  const text = String(data?.output?.choices?.[0]?.message?.content?.map?.((item) => item?.text || "").join("") || data?.output?.text || "").trim();
+  return text.slice(0, 2000);
+}
+
+async function handleChatLiveVoice(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  if (session.mode !== "component") return sendJson(res, 400, { ok: false, code: "NOT_COMPONENT_SESSION", message: "这一路请直接开麦说话。" });
+  const body = await readJson(req);
+  let text = "";
+  try {
+    text = await transcribeChatLiveVoice(body.audioBase64, body.mime);
+  } catch (error) {
+    return sendJson(res, Number(error.statusCode || 424), { ok: false, message: error.message || "语音没有识别出来，请再说一次。" });
+  }
+  if (!text) return sendJson(res, 422, { ok: false, message: "没有听清，请再说一次。" });
+  try {
+    if (session.roomId || session.sharedRoomViewer === true || session.exclusive === false) {
+      await publishChatLiveRoomEvent(session, { role: "user", content: text, userId: auth.user.id }).catch(() => {});
+    }
+    const sayMemory = await loadChatCharacterMemory(auth.user.id, session.characterId);
+    await chatLiveComponent.componentSay(session.liveId, text, {
+      room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false),
+      memoryBlock: chatCharacterMemoryBlock(sayMemory, auth.user),
+      userBlock: chatLiveUserContext(auth.user),
+    });
+    await rememberChatCharacterTurn(auth.user.id, session.characterId, "user", text, "component");
+    return sendJson(res, 200, { ok: true, text });
+  } catch (error) {
+    const status = Number(error?.statusCode || 424);
+    return sendJson(res, status === 409 ? 409 : 424, { ok: false, code: error.code || "CHAT_LIVE_COMPONENT_SAY_FAILED", message: error.message || "这句话没发出去，请再发一次。", text });
   }
 }
 
@@ -8067,13 +8630,15 @@ async function handleChatLiveGift(req, res, sessionId = "") {
   if (!gift) return sendJson(res, 404, { ok: false, message: "这个礼物暂时不可用。" });
   const eventId = String(body.eventId || "").replace(/[^a-z0-9_.-]/gi, "").slice(0, 80) || randomId("event");
   const taskId = `chat-live-gift:${session.id}:${eventId}`;
-  try { await chargeUserWithSubtoken(auth, { cost: gift.credits, type: "chat_live_gift", taskId, meta: { taskId, sessionId: session.id, liveId: session.liveId, giftId: gift.id, giftName: gift.name } }); }
+  try { await chargeUserWithSubtoken(auth, { cost: gift.credits, type: "chat_live_gift", taskId, meta: { taskId, sessionId: session.id, liveId: session.liveId, giftId: gift.id, giftName: gift.name, characterId: session.characterId || "", characterName: session.characterName || "", portraitUrl: session.portraitUrl || "" } }); }
   catch (error) { if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) return sendJson(res, 402, { ok: false, code: "INSUFFICIENT_CREDITS", message: "积分不够了，请先充值。", credits: Number(auth.user?.credits || 0), cost: gift.credits }); return sendJson(res, 502, { ok: false, message: "礼物暂时没有送出，请稍后再试。" }); }
   try {
     if (session.mode === "component") {
-      const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText);
-      return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), reply });
+      await publishChatLiveRoomEvent(session, { role: "gift", content: `${String(session.username || auth.user.username || "有人")} 打赏了 ${gift.name}`, userId: auth.user.id }).catch(() => {});
+      const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText, { kind: "gift", room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false) });
+      return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), reply: "" });
     }
+    await publishChatLiveRoomEvent(session, { role: "gift", content: `${String(session.username || auth.user.username || "有人")} 打赏了 ${gift.name}`, userId: auth.user.id }).catch(() => {});
     return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), text: gift.userText, reaction: gift.reaction, needsRealtimeSignal: true });
   } catch (error) {
     await changeUserCredits(auth.db, auth.user.id, gift.credits, "chat_live_gift_refund", { taskId, sessionId: session.id, giftId: gift.id, reason: error.message || "gift dispatch failed" }).catch(() => {});
@@ -8114,9 +8679,15 @@ async function handleChatLiveLook(req, res, sessionId = "") {
   } else {
     const lookId = String(body.lookId || "").trim();
     const live = chatLiveConfigValue(await readAppConfig());
-    const look = live.looks.find((item) => item.id === lookId && item.enabled !== false);
+    let look = live.looks.find((item) => item.id === lookId && item.enabled !== false);
+    if (!look && lookId.startsWith("embed-look-")) {
+      const character = await getChatLiveCharacterInDb(session.characterId);
+      look = (Array.isArray(character?.embedLooks) ? character.embedLooks : []).find((item) => item.id === lookId);
+    }
     if (!look) return sendJson(res, 404, { ok: false, message: "这个素材不存在或已停用。" });
-    if (!isManagedChatLiveAssetUrl(look.imageUrl)) return sendJson(res, 422, { ok: false, message: "素材图片无效，请在后台重新上传。" });
+    const embedLook = lookId.startsWith("embed-look-");
+    if (!embedLook && !isManagedChatLiveAssetUrl(look.imageUrl)) return sendJson(res, 422, { ok: false, message: "素材图片无效，请在后台重新上传。" });
+    if (embedLook && !/^https:\/\/\S+$/i.test(String(look.imageUrl || ""))) return sendJson(res, 422, { ok: false, message: "素材图片无效。" });
     operation = {
       opType: "switch",
       imageUrl: look.imageUrl,
@@ -8181,6 +8752,15 @@ async function handleGetChatLiveSession(req, res, sessionId = "") {
       upstreamBilledSeconds,
       upstreamCredits: Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0),
       balance: Number(auth.user?.credits || 0) || 0,
+      prepaidSeconds: Math.max(0, Number(session.prepaidSeconds || 0) || 0),
+      affordableSeconds: (() => {
+        const rate = Number(session.saleCreditsPerMinute || 0) || 0;
+        const perSecond = rate > 0 ? rate / 60 : 0;
+        const balance = Number(auth.user?.credits || 0) || 0;
+        const prepaidLeft = Math.max(0, (Number(session.prepaidSeconds || 0) || 0) - billedSeconds);
+        const fromBalance = perSecond > 0 ? Math.floor(balance / perSecond) : 3600;
+        return prepaidLeft + fromBalance;
+      })(),
     },
   });
 }
@@ -8393,6 +8973,10 @@ async function handleChatLiveUpgrade(req, socket, head) {
               kind: prompt?.images?.[0]?.kind || "",
               message: JSON.stringify({ seq_id: message?.seq_id, op_type: prompt?.op_type, image_uri: prompt?.images?.[0]?.image_uri || "", image_id: prompt?.images?.[0]?.image_id || "", user_text: prompt?.images?.[0]?.user_text || "" }).slice(0, 900),
             }).catch(() => {});
+          }
+          if (source === "upstream" && (type === 9 || type === 10) && session.exclusive !== false && !session.roomId) {
+            const spoken = message?.payload?.transcription?.text || message?.payload?.text_msg?.content || message?.payload?.text || "";
+            void rememberChatCharacterTurn(session.userId, session.characterId, type === 9 ? "user" : "assistant", spoken, "realtime");
           }
           if (source === "upstream" && type === 12) {
             const ack = message?.payload?.prompt_operation_ack || {};
@@ -9041,6 +9625,398 @@ function findUserUnlock(db, userId, itemId, sceneId, sceneEntryId = "default") {
 
 const UNLOCK_STREAM_TTL_MS = 6 * 60 * 60 * 1000;
 
+
+const EMBED_LIVE_TICKET_TTL_MS = 10 * 60 * 1000;
+const EMBED_LIVE_BROWSER_TTL_MS = 6 * 60 * 60 * 1000;
+const embedLiveUsedTickets = new Map();
+
+function signEmbedLivePayload(encodedPayload) {
+  return crypto.createHmac("sha256", unlockStreamSecret()).update(`embed-live:${encodedPayload}`).digest("base64url");
+}
+
+function makeEmbedLiveToken(prefix, payload) {
+  const encoded = base64UrlJson(payload);
+  return `${prefix}.${encoded}.${signEmbedLivePayload(encoded)}`;
+}
+
+function readEmbedLiveToken(token = "", prefix = "") {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3 || parts[0] !== prefix) return null;
+  const encoded = parts[1];
+  const signature = parts[2];
+  const expected = signEmbedLivePayload(encoded);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (!decoded || Number(decoded.exp || 0) < Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function pruneEmbedLiveTickets() {
+  const now = Date.now();
+  for (const [id, exp] of embedLiveUsedTickets) {
+    if (exp < now) embedLiveUsedTickets.delete(id);
+  }
+}
+
+function embedLiveExternalUserId(value = "") {
+  const id = String(value || "").trim();
+  if (!id || id.length > 120 || !/^[A-Za-z0-9_.:@-]+$/.test(id)) return "";
+  return id;
+}
+
+function embedLiveOrigin(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+async function listEmbedLiveVoices() {
+  const live = chatLiveConfigValue(await readAppConfig());
+  const region = live.region === "cn" ? "cn" : "overseas";
+  const blocked = region === "overseas" ? "doubao_cn" : "doubao_overseas";
+  const raw = await fs.readFile(CHAT_LIVE_VOICES_FILE, "utf8");
+  const parsed = JSON.parse(raw);
+  const voices = (Array.isArray(parsed) ? parsed : []).filter((voice) => {
+    const provider = String(voice?.provider || "");
+    if (!provider || provider === "offline" || provider === blocked) return false;
+    return provider === "qwen_omni" || provider === "doubao_cn" || provider === "doubao_overseas";
+  }).map((voice) => ({
+    name: String(voice.name || ""),
+    voiceType: String(voice.voiceType || ""),
+    provider: String(voice.provider || ""),
+    desc: String(voice.desc || ""),
+    languages: String(voice.languages || ""),
+  })).filter((voice) => voice.voiceType);
+  return { region, voices };
+}
+
+async function resolveEmbedLiveVoice(input = {}) {
+  const catalog = await listEmbedLiveVoices();
+  const requestedType = String(input.voiceType || "").trim();
+  const requestedProvider = String(input.voiceProvider || "").trim();
+  if (!requestedType) {
+    const fallback = catalog.voices.find((voice) => voice.voiceType === "Cindy" && voice.provider === "qwen_omni") || catalog.voices.find((voice) => voice.provider === "qwen_omni");
+    if (!fallback) {
+      const error = new Error("当前没有可用音色。");
+      error.statusCode = 503;
+      error.code = "EMBED_VOICE_UNAVAILABLE";
+      throw error;
+    }
+    return fallback;
+  }
+  const found = catalog.voices.find((voice) => voice.voiceType === requestedType && (!requestedProvider || voice.provider === requestedProvider));
+  if (!found) {
+    const error = new Error("voiceType 不在当前可用音色列表里。请先调用 GET /api/embed/live/voices。");
+    error.statusCode = 422;
+    error.code = "EMBED_VOICE";
+    throw error;
+  }
+  return found;
+}
+
+
+function normalizeEmbedLiveLooks(raw) {
+  if (raw == null || raw === "") return [];
+  if (!Array.isArray(raw)) {
+    const error = new Error("character.looks 必须是数组。");
+    error.statusCode = 422;
+    error.code = "EMBED_LOOKS";
+    throw error;
+  }
+  if (raw.length > 12) {
+    const error = new Error("换装、道具、背景一共最多 12 张。");
+    error.statusCode = 422;
+    error.code = "EMBED_LOOKS";
+    throw error;
+  }
+  const labels = { garment: "换衣服", object: "手里拿东西", background: "换背景" };
+  return raw.map((item, index) => {
+    const kind = String(item?.kind || "").trim();
+    if (!labels[kind]) {
+      const error = new Error("looks.kind 只能是 garment、object 或 background。");
+      error.statusCode = 422;
+      error.code = "EMBED_LOOKS";
+      throw error;
+    }
+    const imageUrl = String(item?.imageUrl || item?.image_url || "").trim();
+    if (!/^https:\/\/\S+$/i.test(imageUrl)) {
+      const error = new Error("换装、道具、背景图片必须是可公网访问的 https 地址。");
+      error.statusCode = 422;
+      error.code = "EMBED_LOOKS";
+      throw error;
+    }
+    return {
+      id: `embed-look-${index + 1}`,
+      kind,
+      name: String(item?.name || labels[kind]).trim().slice(0, 40) || labels[kind],
+      imageUrl: imageUrl.slice(0, 500),
+      userText: String(item?.userText || item?.user_text || CHAT_LIVE_LOOK_TEXT[kind] || "").trim().slice(0, 200),
+      sortOrder: index,
+    };
+  });
+}
+
+async function upsertEmbedLiveCharacter(merchantId, input = {}) {
+  const imageUrl = String(input.imageUrl || input.avatarUrl || "").trim();
+  if (!/^https:\/\/\S+$/i.test(imageUrl)) {
+    const error = new Error("角色形象图必须是可公网访问的 https 地址。");
+    error.statusCode = 422;
+    error.code = "EMBED_IMAGE_URL";
+    throw error;
+  }
+  const name = String(input.name || "").trim().slice(0, 80);
+  const script = String(input.script || input.directScript || "").trim().slice(0, 4000);
+  const embedDirectScript = Boolean(script);
+  const persona = embedDirectScript ? script : String(input.persona || input.intro || "").trim().slice(0, 4000);
+  const intro = String(input.intro || persona).trim().slice(0, 500);
+  if (!name || !persona) {
+    const error = new Error("请提供角色名称，以及 intro、persona 或 script。");
+    error.statusCode = 422;
+    error.code = "EMBED_CHARACTER";
+    throw error;
+  }
+  const voice = await resolveEmbedLiveVoice(input);
+  const voiceType = voice.voiceType;
+  const voiceProvider = voice.provider;
+  const embedLooks = normalizeEmbedLiveLooks(input.looks);
+  const id = `embedchar-${crypto.createHash("sha256").update([merchantId, name, imageUrl, voiceType, voiceProvider, persona, JSON.stringify(embedLooks)].join("\n")).digest("hex").slice(0, 24)}`;
+  const now = new Date().toISOString();
+  const existing = await getChatLiveCharacterInDb(id);
+  return upsertChatLiveCharacterInDb({
+    ...(existing || {}),
+    id,
+    name,
+    intro,
+    persona,
+    greeting: String(input.greeting || "").trim().slice(0, 1000),
+    embedDirectScript,
+    avatarUrl: imageUrl,
+    portraitUrl: String(input.portraitUrl || imageUrl).trim(),
+    voiceType,
+    embedLooks,
+    componentVoiceType: String(input.componentVoiceType || existing?.componentVoiceType || "longanyang").trim().slice(0, 80) || "longanyang",
+    voiceProvider,
+    language: String(input.language || existing?.language || "zh").trim().slice(0, 16) || "zh",
+    enabled: false,
+    embedMerchantId: String(merchantId),
+    sortOrder: 100000,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  });
+}
+
+async function handleEmbedLiveVoices(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (auth.tokenSource === "embed_live") return sendJson(res, 403, { ok: false, code: "EMBED_TOKEN_FORBIDDEN", message: "请使用商家 API token 查询音色。" });
+  let catalog;
+  try {
+    catalog = await listEmbedLiveVoices();
+  } catch (error) {
+    return sendJson(res, 503, { ok: false, code: "EMBED_VOICE_UNAVAILABLE", message: "音色列表暂时不可用。" });
+  }
+  const provider = String(url?.searchParams?.get("provider") || "").trim();
+  const query = String(url?.searchParams?.get("q") || "").trim().toLowerCase();
+  const limit = Math.max(1, Math.min(200, Number(url?.searchParams?.get("limit") || 50) || 50));
+  const offset = Math.max(0, Number(url?.searchParams?.get("offset") || 0) || 0);
+  let voices = catalog.voices;
+  if (provider) voices = voices.filter((voice) => voice.provider === provider);
+  if (query) voices = voices.filter((voice) => `${voice.name} ${voice.voiceType} ${voice.desc}`.toLowerCase().includes(query));
+  const providers = {};
+  for (const voice of catalog.voices) providers[voice.provider] = (providers[voice.provider] || 0) + 1;
+  return sendJson(res, 200, {
+    ok: true,
+    viduRegion: catalog.region,
+    providers: Object.entries(providers).map(([name, count]) => ({ provider: name, count })),
+    total: voices.length,
+    limit,
+    offset,
+    voices: voices.slice(offset, offset + limit),
+  });
+}
+
+async function handleEmbedLiveTicket(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (auth.tokenSource === "embed_live") return sendJson(res, 403, { ok: false, code: "EMBED_TOKEN_FORBIDDEN", message: "请使用商家 API token 创建接入票。" });
+  const body = await readJson(req);
+  const externalUserId = embedLiveExternalUserId(body.externalUserId || body.external_user_id);
+  if (!externalUserId) return sendJson(res, 422, { ok: false, code: "EMBED_USER", message: "externalUserId 必填，只能包含字母、数字和 _.:@-。" });
+  const user = body.user && typeof body.user === "object" ? body.user : {};
+  const origin = body.origin ? embedLiveOrigin(body.origin) : "";
+  if (body.origin && !origin) return sendJson(res, 422, { ok: false, code: "EMBED_ORIGIN", message: "origin 必须是 http(s) 来源。" });
+  let character;
+  try {
+    character = await upsertEmbedLiveCharacter(auth.user.id, body.character || {});
+  } catch (error) {
+    return sendJson(res, error.statusCode || 422, { ok: false, code: error.code || "EMBED_CHARACTER", message: error.message || "角色资料不正确。" });
+  }
+  const ticketId = randomId("embedticket");
+  const exp = Date.now() + EMBED_LIVE_TICKET_TTL_MS;
+  const ticket = makeEmbedLiveToken("elt1", {
+    kind: "ticket",
+    jti: ticketId,
+    merchantUserId: auth.user.id,
+    externalUserId,
+    displayName: String(user.name || externalUserId).trim().slice(0, 80),
+    avatarUrl: String(user.avatarUrl || "").trim().slice(0, 500),
+    characterId: character.id,
+    origin,
+    exp,
+  });
+  return sendJson(res, 201, {
+    ok: true,
+    ticket,
+    expiresAt: new Date(exp).toISOString(),
+    embedUrl: `https://live.123vipeak.com/embed?ticket=${encodeURIComponent(ticket)}`,
+    character: { id: character.id, name: character.name },
+  });
+}
+
+async function handleEmbedLiveBootstrap(req, res) {
+  const body = await readJson(req);
+  const ticket = readEmbedLiveToken(body.ticket, "elt1");
+  if (!ticket || ticket.kind !== "ticket") return sendJson(res, 401, { ok: false, code: "EMBED_TICKET_INVALID", message: "接入票无效或已过期。" });
+  pruneEmbedLiveTickets();
+  if (embedLiveUsedTickets.has(ticket.jti)) return sendJson(res, 409, { ok: false, code: "EMBED_TICKET_USED", message: "这张接入票已经使用过。" });
+  const parentOrigin = embedLiveOrigin(body.parentOrigin || "");
+  if (ticket.origin && parentOrigin !== ticket.origin) {
+    return sendJson(res, 403, { ok: false, code: "EMBED_ORIGIN_MISMATCH", message: "当前页面来源不在允许的域名内。" });
+  }
+  const character = await getChatLiveCharacterInDb(ticket.characterId);
+  if (!character || String(character.embedMerchantId || "") !== String(ticket.merchantUserId)) {
+    return sendJson(res, 404, { ok: false, code: "EMBED_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  }
+  embedLiveUsedTickets.set(ticket.jti, ticket.exp);
+  const exp = Date.now() + EMBED_LIVE_BROWSER_TTL_MS;
+  const browserToken = makeEmbedLiveToken("elv1", {
+    kind: "browser",
+    merchantUserId: ticket.merchantUserId,
+    externalUserId: ticket.externalUserId,
+    displayName: ticket.displayName,
+    avatarUrl: ticket.avatarUrl || "",
+    characterId: ticket.characterId,
+    exp,
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    browserToken,
+    expiresAt: new Date(exp).toISOString(),
+    character: publicChatLiveCharacter(character),
+  });
+}
+
+async function embedLiveAuthFromToken(token, tenantId, loadDb) {
+  const embed = readEmbedLiveToken(token, "elv1");
+  if (!embed || embed.kind !== "browser" || !embed.merchantUserId) return null;
+  const db = loadDb ? await readDb() : lightweightAuthDb();
+  const user = dbEnabled()
+    ? await getUserByIdInDb(embed.merchantUserId)
+    : (db.users || []).find((item) => item.id === embed.merchantUserId) || null;
+  if (!user || !recordBelongsToTenant(user, tenantId)) return null;
+  const auth = { db, user, session: null, embed, ...authUserContext(user, token, "embed_live", null) };
+  const store = requestContext.getStore();
+  if (store) store.auth = auth;
+  return auth;
+}
+
+function embedLiveIntegrationMarkdown() {
+  return [
+    "## Embedded Live Chat",
+    "",
+    "Put a live character inside another site. Keep the merchant API token on the server. The browser only receives a one-time ticket.",
+    "",
+    "The same merchant token serves every downstream user. `externalUserId` separates those users. Calls are billed to the merchant wallet, and the credit record includes `externalUserId`.",
+    "",
+    "Do not sign the merchant into the iframe. A normal site login is single-session and would disconnect the merchant's other sessions.",
+    "",
+    "### Create a ticket",
+    "",
+    markdownCodeBlock("http", [
+      "POST /api/embed/live/tickets",
+      "Authorization: Bearer <merchant-api-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        externalUserId: "user-10001",
+        user: { name: "小王", avatarUrl: "https://example.com/user.png" },
+        origin: "https://merchant.example",
+        character: {
+          name: "林夏",
+          intro: "晚间电台主播，说话轻、会接话。",
+          persona: "你是林夏，语气温柔，回答短一些。",
+          imageUrl: "https://example.com/character.png",
+          voiceType: "Cindy",
+        },
+      }, null, 2),
+    ].join("\n")),
+    "",
+    "The response contains `ticket`, `expiresAt`, and `embedUrl`. A ticket lasts 10 minutes and can be redeemed once.",
+    "",
+    "### Iframe",
+    "",
+    "Open `embedUrl` on `https://live.123vipeak.com`. The parent page must allow microphone, camera, and autoplay:",
+    "",
+    markdownCodeBlock("html", '<iframe src="EMBED_URL" allow="microphone; camera; autoplay" allowfullscreen style="width:100%;height:100%;border:0"></iframe>'),
+    "",
+    "If `origin` is set, the parent page origin must match it. Leave `origin` empty to allow any parent.",
+    "",
+    "### Fields",
+    "",
+    "- `externalUserId` (required): stable downstream user id, unique for this merchant. Letters, numbers, and `_. : @ -` only, up to 120 characters.",
+    "- `user.name`, `user.avatarUrl`: display name and avatar for that user.",
+    "- `character.name` (required).",
+    "- `character.intro` or `character.persona`: conversation guidance. One of `intro`, `persona`, or `script` is required. If `script` is omitted, the server adds its own live-chat guidance around `persona`.",
+    "- `character.script`: optional exact instruction sent to the live provider. When this is present, it replaces `persona` and the server does not append its own guidance.",
+    "- `character.greeting`: optional opening instruction.",
+    "- `character.imageUrl` (required): public `https` image. It is sent to the live provider as the character image.",
+    "- `character.voiceType`: optional. Pass a `voiceType` from `GET /api/embed/live/voices`. Defaults to `Cindy`.",
+    "- `character.voiceProvider`: optional. Use it together with `voiceType` when the same id exists for more than one provider. Current values are `qwen_omni` and the Doubao provider for the active region.",
+    "- `character.looks`: optional array, at most 12 items. Each item is { kind: garment | object | background, name, imageUrl }. garment changes clothes, object puts something in the hands, background changes the scene. Pass public https images. If omitted, the embed call does not use the platform look catalog.",
+    "- `origin`: optional parent origin, such as `https://merchant.example`.",
+    "",
+    "### Gifts",
+    "",
+    "The iframe includes the platform gift button. Gift names, images, and credit prices come from the live site, not from the ticket. Sending a gift charges the merchant wallet, and the credit record includes externalUserId. Do not send gift prices in the ticket. If the merchant balance cannot cover the gift, the API returns 402.",
+    "",
+    "### Voices",
+    "",
+    "The voice catalog is not inlined here because it is long and depends on the current live region. Query it with the merchant token:",
+    "",
+    markdownCodeBlock("http", [
+      "GET /api/embed/live/voices?provider=qwen_omni&q=Tina&limit=50&offset=0",
+      "Authorization: Bearer <merchant-api-token>",
+    ].join("\n")),
+    "",
+    "The response includes `viduRegion`, `providers`, `total`, and `voices[]` with `name`, `voiceType`, `provider`, `desc`, and `languages`. Use `voiceType` as `character.voiceType` when creating a ticket. `limit` defaults to 50 and cannot exceed 200.",
+    "",
+    "### Billing and concurrency",
+    "",
+    "Price, free preview, and prepaid blocks follow the live site. The merchant balance is checked before the call and again about every 10 seconds. If the next block cannot be reserved, the call is hung up. One `externalUserId` can have only one active call. Other downstream users of the same merchant are not blocked.",
+    "",
+    "### Errors",
+    "",
+    "- `401`: merchant token or ticket is missing, invalid, or expired.",
+    "- `403`: parent origin does not match `origin`.",
+    "- `409`: this ticket was already used, or this downstream user already has an active call.",
+    "- `422`: user id, character name, intro/persona, or https image is missing.",
+    "- `402`: the merchant balance cannot cover the next prepaid block.",
+    "",
+  ].join("\n");
+}
+
 function unlockStreamSecret() {
   return process.env.UNLOCK_STREAM_SECRET || process.env.SESSION_SECRET || ARK_API_KEY || "raising-game-unlock-stream";
 }
@@ -9477,174 +10453,6 @@ function fixedCnyPricingEstimate(cny, source = "", details = {}, creditsPerCny =
   };
 }
 
-function isSeedream5ImageProvider(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  return [
-    "seedream",
-    "seedream5",
-    "seedream50",
-    "seedreamimage",
-    "seedream5image",
-    "seedream50image",
-    "seedream5img",
-    "seedream5imageedit",
-    "vipeakseedream",
-  ].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50");
-}
-
-function isQwenImage3Provider(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  return ["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized)
-    || normalized.includes("qwenimage3.0");
-}
-
-function isQwen37FlashProvider(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  return ["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized)
-    || normalized.includes("qwen37flash")
-    || normalized.includes("qwen3.7flash");
-}
-
-function isByteplusLanguageProvider(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  return ["bytepluslanguage", "arklanguage", BYTEPLUS_LANGUAGE_MODEL.toLowerCase()].includes(normalized);
-}
-
-function normalizeAdvancedProvider(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  if (!normalized) return "wan27";
-  if (isByteplusLanguageProvider(value)) return "byteplus-language";
-  if (isQwen37FlashProvider(value)) return "qwen37-flash";
-  if (isQwenImage3Provider(value)) return "qwen-image3";
-  if (isSeedream5ImageProvider(value)) return "seedream5-image";
-  if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
-  if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
-  if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
-  if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
-  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
-  if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("vipeak2")) return "seedance";
-  return "seedance";
-}
-
-function isWan27ImageProvider(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  return ["wan27image", "wan27imageedit", "wan2.7image", "wan2.7imageedit", "wanimage", "wanimageedit", "imageedit", "vipeak1image", "vipeak1imageedit", "vp1image", "vp1imageedit"].includes(normalized);
-}
-
-function publicProviderId(value = "") {
-  const raw = String(value || "").trim();
-  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
-  if (!normalized) return "";
-  if (isByteplusLanguageProvider(raw)) return "byteplus-language";
-  if (isQwen37FlashProvider(raw)) return "qwen37-flash";
-  if (isQwenImage3Provider(raw)) return "qwen-image3";
-  if (isSeedream5ImageProvider(raw)) return "seedream5-image";
-  if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
-  if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
-  if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
-  if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
-  if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "wan27-image";
-  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
-  if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina")) return "seedance";
-  return raw;
-}
-
-function publicProviderLabel(value = "") {
-  const id = publicProviderId(value);
-  if (id === "byteplus-language") return "BytePlus Language";
-  if (id === "qwen37-flash") return "Qwen3.7 Flash";
-  if (id === "qwen-image3") return "Qwen Image 3.0";
-  if (id === "seedream5-image") return "Seedream 5.0 Image";
-  if (id === SEEDANCE25_DIRECT_PROVIDER) return SEEDANCE25_DIRECT_LABEL;
-  if (id === "seedance25") return "Seedance 2.5";
-  if (id === "wan30") return "Wan 3.0";
-  if (id === "happyhorse") return "HappyHorse";
-  if (id === "wan27-image") return "Wan2.7 Image";
-  if (id === "wan27") return "Wan2.7";
-  if (id === "seedance") return "Seedance 2.0";
-  return id;
-}
-
-function publicModelText(value = "") {
-  return String(value ?? "");
-}
-
-function publicModelKey(key = "") {
-  return String(key || "");
-}
-
-function publicModelValue(value) {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value.map(publicModelValue);
-  if (typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [publicModelKey(key), publicModelValue(item)]));
-  return typeof value === "string" ? publicModelText(value) : value;
-}
-
-function slimGenerationRecordValue(value, { detail = false } = {}) {
-  if (value === null || value === undefined) return value;
-  if (typeof value === "string") {
-    if (/^data:[^;]+;base64,/i.test(value)) {
-      return `[dataUrl omitted: ${Buffer.byteLength(value)} bytes]`;
-    }
-    if (!detail && value.length > 12000) return `${value.slice(0, 12000)}... [truncated ${value.length} chars]`;
-    return value;
-  }
-  if (Array.isArray(value)) return value.map((item) => slimGenerationRecordValue(item, { detail }));
-  if (typeof value !== "object") return value;
-  const next = {};
-  Object.entries(value).forEach(([key, item]) => {
-    const normalizedKey = String(key || "").toLowerCase();
-    if (normalizedKey === "dataurl" || normalizedKey === "data_url" || normalizedKey === "b64_json" || normalizedKey === "base64") {
-      next[key] = typeof item === "string"
-        ? `[${key} omitted: ${Buffer.byteLength(item)} bytes]`
-        : `[${key} omitted]`;
-      return;
-    }
-    next[key] = slimGenerationRecordValue(item, { detail });
-  });
-  return next;
-}
-
-function storageGenerationRecord(record = {}) {
-  if (!record || typeof record !== "object") return record;
-  return slimGenerationRecordValue(record, { detail: true });
-}
-
-function listGenerationRecordValue(value) {
-  return slimGenerationRecordValue(value, { detail: false });
-}
-
-function publicPricingValue(value) {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value.map(publicPricingValue);
-  if (typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => {
-      if (key === "provider") return [key, publicProviderId(item)];
-      if (key === "providerLabel") return [key, publicProviderLabel(value.provider || item)];
-      return [publicModelKey(key), publicPricingValue(item)];
-    }));
-  }
-  return typeof value === "string" ? publicModelText(value) : value;
-}
-
-function publicDocsValue(value, key = "") {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value.map((item) => publicDocsValue(item, key));
-  if (typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([entryKey, item]) => {
-      if (entryKey === "provider") return [entryKey, publicProviderId(item)];
-      return [publicModelKey(entryKey), publicDocsValue(item, entryKey)];
-    }));
-  }
-  if (typeof value !== "string") return value;
-  if (key === "provider") return publicProviderId(value);
-  return publicModelText(value);
-}
-
-function normalizeSeedanceTier(value = "") {
-  return String(value || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
-}
-
 function seedanceModelAliasKind(model = "") {
   const raw = String(model || "").trim();
   const compact = raw.toLowerCase().replace(/[\s_-]+/g, "");
@@ -9795,10 +10603,13 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isPapayaProvider(value)) return true;
   if (isByteplusLanguageProvider(value)) return true;
   if (isQwen37FlashProvider(value)) return true;
   if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
+  if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return true;
+  if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return true;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return true;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return true;
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return true;
@@ -9811,7 +10622,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, qwen37-flash, or byteplus-language.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
   }
 }
 
@@ -9844,9 +10655,9 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
     }
     return;
   }
-  if (normalizeAdvancedProvider(provider) === "seedream5-image") {
+  if (normalizeAdvancedProvider(provider) === "seedream5-image" || normalizeAdvancedProvider(provider) === "z-image-spicy-pro") {
     if (!["1k", "2k"].includes(raw)) {
-      throw advancedValidationError("INVALID_RESOLUTION", "Seedream 5.0 Image resolution must be one of: 1K, 2K.", { resolution: value, allowed: ["1K", "2K"] });
+      throw advancedValidationError("INVALID_RESOLUTION", `${publicProviderLabel(provider)} resolution must be one of: 1K, 2K.`, { resolution: value, allowed: ["1K", "2K"] });
     }
     return;
   }
@@ -10225,7 +11036,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
+  if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -10272,6 +11083,7 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  if (normalizedProvider === "papaya") return papayaPricingEstimate(advancedPricing, options);
   if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
     const estimate = qwen37FlashPricingEstimate(advancedPricing, options);
     return normalizedProvider === "byteplus-language"
@@ -10321,6 +11133,20 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   }
   if (normalizedProvider === "seedream5-image") {
     return seedream5ImagePricingEstimate(advancedPricing, options);
+  }
+  if (normalizedProvider === "z-image-spicy-pro") {
+    const imagePricing = advancedPricing.zImageSpicyPro || DEFAULT_ADVANCED_PRICING.zImageSpicyPro;
+    const resolution = normalizeWan27ImageResolution(firstPresent(options.resolution, options.size, imagePricing.defaultResolution || "2K"));
+    return fixedCnyPricingEstimate(imagePricing.saleCnyPerImage, "z_image_spicy_pro", {
+      purchaseCnyPerImage: imagePricing.purchaseCnyPerImage,
+      saleCnyPerImage: imagePricing.saleCnyPerImage,
+      model: imagePricing.model || "z-image-spicy-pro",
+      provider: "z-image-spicy-pro",
+      providerLabel: "Z-Image Spicy Pro",
+      resolution,
+      size: resolution,
+      duration: 1,
+    }, advancedPricing.creditsPerCny);
   }
   if (normalizedProvider === "seedance25") {
     const mode = normalizeSeedance25Mode(firstPresent(options.functionMode, options.seedanceMode, options.mode));
@@ -11213,6 +12039,10 @@ async function getAuth(req, options = {}) {
   const loadDb = options.loadDb !== false;
   const token = getBearerToken(req);
   const tenantId = requestTenantId(req);
+  if (String(token || "").startsWith("elv1.")) {
+    const embedAuth = await embedLiveAuthFromToken(token, tenantId, loadDb);
+    if (embedAuth) return embedAuth;
+  }
   if (!token) return { db: loadDb ? await readDb() : lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
     const db = loadDb ? await readDb() : lightweightAuthDb();
@@ -12394,6 +13224,307 @@ async function scanTelegramPaymentNotifications() {
   }
 }
 
+
+const DOUBLE_TOPUP_PROMO = Object.freeze({
+  id: "double-topup-20261015",
+  startsAt: Date.parse("2026-10-15T00:00:00+07:00"),
+  endsAt: Date.parse("2026-11-15T00:00:00+07:00"),
+  windowMs: 3 * 24 * 60 * 60 * 1000,
+  amount: 30,
+  baseCredits: 3000,
+  grantCredits: 4500,
+});
+const doubleTopupCheckoutLocks = new Map();
+
+function doubleTopupHostAllowed(req) {
+  const host = String(requestHostname(req) || "").toLowerCase().replace(/^www\./, "");
+  return host === "123vips.com" || host === "123vip.fans";
+}
+
+function doubleTopupCampaignOpen(now = Date.now()) {
+  return now >= DOUBLE_TOPUP_PROMO.startsAt && now < DOUBLE_TOPUP_PROMO.endsAt;
+}
+
+function doubleTopupState(user) {
+  const state = user && user.doubleTopupPromo && typeof user.doubleTopupPromo === "object" ? user.doubleTopupPromo : {};
+  return state.id === DOUBLE_TOPUP_PROMO.id ? state : {};
+}
+
+async function saveDoubleTopupState(user, next) {
+  user.doubleTopupPromo = { id: DOUBLE_TOPUP_PROMO.id, ...doubleTopupState(user), ...next };
+  user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(user);
+  return user.doubleTopupPromo;
+}
+
+async function syncDoubleTopupWindow(user, hintedStart = "") {
+  const now = Date.now();
+  const current = doubleTopupState(user);
+  if (current.claimedOrderId) return current;
+  let start = Date.parse(current.windowStartedAt || "");
+  const hint = Date.parse(String(hintedStart || ""));
+  if (!Number.isFinite(start)) start = Number.isFinite(hint) && hint >= DOUBLE_TOPUP_PROMO.startsAt && hint <= now ? hint : now;
+  if (start < DOUBLE_TOPUP_PROMO.startsAt || start > now || now - start >= DOUBLE_TOPUP_PROMO.windowMs) start = now;
+  const iso = new Date(start).toISOString();
+  if (current.windowStartedAt !== iso) return saveDoubleTopupState(user, { windowStartedAt: iso });
+  return current;
+}
+
+function doubleTopupView(state = {}, now = Date.now()) {
+  const claimed = Boolean(state.claimedOrderId);
+  const start = Date.parse(state.windowStartedAt || "") || now;
+  const windowEnd = Math.min(start + DOUBLE_TOPUP_PROMO.windowMs, DOUBLE_TOPUP_PROMO.endsAt);
+  return {
+    id: DOUBLE_TOPUP_PROMO.id,
+    visible: doubleTopupCampaignOpen(now) && !claimed && now < windowEnd,
+    claimed,
+    amount: DOUBLE_TOPUP_PROMO.amount,
+    baseCredits: DOUBLE_TOPUP_PROMO.baseCredits,
+    grantCredits: DOUBLE_TOPUP_PROMO.grantCredits,
+    currency: "USD",
+    endsAt: new Date(windowEnd).toISOString(),
+    campaignEndsAt: new Date(DOUBLE_TOPUP_PROMO.endsAt).toISOString(),
+  };
+}
+
+
+async function reserveDoubleTopupPending(user, orderId, replacePendingId = "") {
+  const expected = String(replacePendingId || "");
+  if (dbEnabled()) {
+    const { rows } = await dbQuery(
+      `UPDATE app_users
+       SET payload = jsonb_set(
+         COALESCE(payload, '{}'::jsonb),
+         '{doubleTopupPromo}',
+         COALESCE(payload->'doubleTopupPromo', '{}'::jsonb) || jsonb_build_object('id', $2::text, 'pendingOrderId', $3::text),
+         true
+       ),
+       updated_at = NOW()
+       WHERE id = $1
+         AND COALESCE(payload#>>'{doubleTopupPromo,claimedOrderId}', '') = ''
+         AND COALESCE(payload#>>'{doubleTopupPromo,pendingOrderId}', '') IN ('', $4)
+       RETURNING id`,
+      [user.id, DOUBLE_TOPUP_PROMO.id, orderId, expected],
+    );
+    if (rows && rows.length) return { status: "reserved" };
+    const fresh = await getUserByIdInDb(user.id);
+    const state = doubleTopupState(fresh || user);
+    if (state.claimedOrderId) return { status: "claimed", state };
+    if (state.pendingOrderId) return { status: "pending", pendingOrderId: state.pendingOrderId, state };
+    return { status: "retry", state };
+  }
+  const state = doubleTopupState(user);
+  if (state.claimedOrderId) return { status: "claimed", state };
+  if (state.pendingOrderId && state.pendingOrderId !== expected && state.pendingOrderId !== orderId) {
+    return { status: "pending", pendingOrderId: state.pendingOrderId, state };
+  }
+  await saveDoubleTopupState(user, { pendingOrderId: orderId });
+  return { status: "reserved" };
+}
+
+async function claimDoubleTopupOnce(user, orderId) {
+  const now = new Date().toISOString();
+  if (dbEnabled()) {
+    const { rows } = await dbQuery(
+      `UPDATE app_users
+       SET payload = jsonb_set(
+         COALESCE(payload, '{}'::jsonb),
+         '{doubleTopupPromo}',
+         COALESCE(payload->'doubleTopupPromo', '{}'::jsonb) || jsonb_build_object('id', $2::text, 'claimedAt', $3::text, 'claimedOrderId', $4::text),
+         true
+       ),
+       updated_at = NOW()
+       WHERE id = $1
+         AND COALESCE(payload#>>'{doubleTopupPromo,claimedOrderId}', '') IN ('', $4)
+       RETURNING id`,
+      [user.id, DOUBLE_TOPUP_PROMO.id, now, orderId],
+    );
+    return Boolean(rows && rows.length);
+  }
+  const current = doubleTopupState(user);
+  if (current.claimedOrderId && current.claimedOrderId !== orderId) return false;
+  await saveDoubleTopupState(user, { claimedAt: now, claimedOrderId: orderId });
+  return true;
+}
+
+async function applyDoubleTopupPromoSettlement(db, order) {
+  if (!order || order.promoId !== DOUBLE_TOPUP_PROMO.id || order.orderKind === "subscription") return;
+  const user = (db.users || []).find((entry) => entry.id === order.userId) || await getUserByIdInDb(order.userId);
+  if (!user) return;
+  const won = await claimDoubleTopupOnce(user, order.id);
+  if (won) {
+    order.creditAmount = creditsAmount(DOUBLE_TOPUP_PROMO.grantCredits);
+    order.packageCredits = order.creditAmount;
+    order.promoBonusApplied = true;
+    user.doubleTopupPromo = { ...doubleTopupState(user), id: DOUBLE_TOPUP_PROMO.id, claimedOrderId: order.id, claimedAt: new Date().toISOString() };
+    return;
+  }
+  const normal = findTopupPackage({ packageId: "usd-30" }, user);
+  order.creditAmount = creditsAmount(normal?.credits || Number(order.baseAmount || DOUBLE_TOPUP_PROMO.amount) * DEFAULT_CREDITS_PER_USD);
+  order.packageCredits = order.creditAmount;
+  order.packageId = normal?.id || "usd-30";
+  order.promoId = "";
+  order.promoBonusApplied = false;
+  order.promoDowngraded = true;
+  order.note = order.note || "Double top-up already used. Settled at the regular package rate.";
+}
+
+const doubleTopupStatusCache = new Map();
+async function handleDoubleTopupPromoStatus(req, res) {
+  if (!doubleTopupHostAllowed(req) || !doubleTopupCampaignOpen()) {
+    return sendJson(res, 200, { ok: true, promo: { id: DOUBLE_TOPUP_PROMO.id, visible: false } });
+  }
+  const cacheKey = `${String(req.headers.cookie || "").slice(0, 180)}|${String(req.url || "")}`;
+  const cached = doubleTopupStatusCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 20000) return sendJson(res, 200, cached.body);
+  const auth = await getAuth(req);
+  if (!auth.user) {
+    const hinted = String(new URL(req.url, "http://localhost").searchParams.get("windowStartedAt") || "");
+    const hintMs = Date.parse(hinted);
+    const now = Date.now();
+    const start = Number.isFinite(hintMs) && hintMs >= DOUBLE_TOPUP_PROMO.startsAt && hintMs <= now && now - hintMs < DOUBLE_TOPUP_PROMO.windowMs ? hintMs : now;
+    const body = { ok: true, promo: doubleTopupView({ windowStartedAt: new Date(start).toISOString() }) };
+    doubleTopupStatusCache.set(cacheKey, { at: Date.now(), body });
+    return sendJson(res, 200, body);
+  }
+  const hinted = String(new URL(req.url, "http://localhost").searchParams.get("windowStartedAt") || "");
+  const state = await syncDoubleTopupWindow(auth.user, hinted);
+  const body = { ok: true, promo: doubleTopupView(state) };
+  doubleTopupStatusCache.set(cacheKey, { at: Date.now(), body });
+  return sendJson(res, 200, body);
+}
+
+async function createDoubleTopupCheckout(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!doubleTopupHostAllowed(req) || !doubleTopupCampaignOpen()) {
+    return sendJson(res, 403, { ok: false, code: "PROMO_CLOSED", message: "这个活动已经结束。" });
+  }
+  const userId = auth.user.id;
+  const previous = doubleTopupCheckoutLocks.get(userId) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const tail = previous.catch(() => {}).then(() => gate);
+  doubleTopupCheckoutLocks.set(userId, tail);
+  await previous.catch(() => {});
+  try {
+    const fresh = await getUserByIdInDb(userId) || auth.user;
+    const state = doubleTopupState(fresh);
+    const cashierBaseUrl = stripeCheckoutBaseUrlForRequest(req);
+    const stripeConfig = stripeConfigForHost(cashierBaseUrl);
+    if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+    const reusePending = async (orderId, requirePromo) => {
+      if (!orderId) return null;
+      const existing = await getWalletOrderByIdInDb(orderId);
+      if (!existing || existing.userId !== userId || existing.status !== "pending" || stripeCheckoutSessionExpired(existing)) return null;
+      if (requirePromo && existing.promoId !== DOUBLE_TOPUP_PROMO.id) return null;
+      if (!requirePromo && existing.promoId) return null;
+      return sendJson(res, 200, {
+        ok: true,
+        reused: true,
+        promoApplied: existing.promoId === DOUBLE_TOPUP_PROMO.id,
+        checkoutUrl: stripeCheckoutUrl(existing.id, cashierBaseUrl),
+      });
+    };
+    if (state.claimedOrderId) {
+      const reused = await reusePending(state.normalPendingOrderId, false);
+      if (reused) return reused;
+      const config = await readAppConfig();
+      const normal = findTopupPackage({ packageId: "usd-30" }, fresh);
+      const amount = Number(normal?.price ?? normal?.amount ?? DOUBLE_TOPUP_PROMO.amount);
+      const credits = creditsAmount(normal?.credits || amount * walletCreditsPerUsd(config.wallet));
+      const order = {
+        id: randomId("stripe"),
+        tenantId: requestTenantOptions(req).tenant?.tenantId || DEFAULT_TENANT_ID,
+        userId,
+        paymentProvider: "stripe",
+        orderKind: "topup",
+        promoId: "",
+        baseAmount: amount,
+        creditAmount: credits,
+        packageId: normal?.id || "usd-30",
+        packageCredits: credits,
+        creditsPerUsd: walletCreditsPerUsd(config.wallet),
+        currency: STRIPE_CURRENCY.toUpperCase(),
+        payableAmount: amount,
+        payableAmountText: Number(amount).toFixed(2),
+        asset: STRIPE_CURRENCY.toUpperCase(),
+        network: "Stripe",
+        chain: "stripe",
+        status: "pending",
+        sourceOrigin: pageOriginFromRequest(req),
+        cashierHost: normalizeHostname(cashierBaseUrl),
+        stripeAccountId: stripeConfig.accountId || "",
+        note: "Double top-up already used. Charged at the regular package rate.",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await createWalletOrderInDb(order);
+      await saveDoubleTopupState(fresh, { normalPendingOrderId: order.id });
+      return sendJson(res, 200, { ok: true, reused: false, promoApplied: false, checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl) });
+    }
+    const reusedPromo = await reusePending(state.pendingOrderId, true);
+    if (reusedPromo) return reusedPromo;
+    await syncDoubleTopupWindow(fresh);
+    const config = await readAppConfig();
+    const amount = DOUBLE_TOPUP_PROMO.amount;
+    const orderId = randomId("stripe");
+    const stalePending = state.pendingOrderId || "";
+    const reserved = await reserveDoubleTopupPending(fresh, orderId, stalePending);
+    if (reserved.status !== "reserved") {
+      const pendingId = reserved.pendingOrderId || doubleTopupState(await getUserByIdInDb(userId) || fresh).pendingOrderId;
+      const reused = await reusePending(pendingId, true);
+      if (reused) return reused;
+      if (reserved.status === "claimed") {
+        return sendJson(res, 409, { ok: false, code: "PROMO_ALREADY_USED", message: "这次加赠已经用过，请再点一次按原价充值。" });
+      }
+      return sendJson(res, 409, { ok: false, code: "PROMO_CHECKOUT_BUSY", message: "正在处理上一笔充值，请稍后再试。" });
+    }
+    const order = {
+      id: orderId,
+      tenantId: requestTenantOptions(req).tenant?.tenantId || DEFAULT_TENANT_ID,
+      userId,
+      paymentProvider: "stripe",
+      orderKind: "topup",
+      promoId: DOUBLE_TOPUP_PROMO.id,
+      baseAmount: amount,
+      creditAmount: creditsAmount(DOUBLE_TOPUP_PROMO.grantCredits),
+      packageId: DOUBLE_TOPUP_PROMO.id,
+      packageCredits: DOUBLE_TOPUP_PROMO.grantCredits,
+      creditsPerUsd: walletCreditsPerUsd(config.wallet),
+      currency: STRIPE_CURRENCY.toUpperCase(),
+      payableAmount: amount,
+      payableAmountText: amount.toFixed(2),
+      asset: STRIPE_CURRENCY.toUpperCase(),
+      network: "Stripe",
+      chain: "stripe",
+      status: "pending",
+      sourceOrigin: pageOriginFromRequest(req),
+      cashierHost: normalizeHostname(cashierBaseUrl),
+      stripeAccountId: stripeConfig.accountId || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      await createWalletOrderInDb(order);
+    } catch (error) {
+      if (dbEnabled()) {
+        await dbQuery(
+          `UPDATE app_users
+           SET payload = jsonb_set(payload, '{doubleTopupPromo,pendingOrderId}', '""'::jsonb, true)
+           WHERE id = $1 AND COALESCE(payload#>>'{doubleTopupPromo,pendingOrderId}', '') = $2`,
+          [userId, orderId],
+        );
+      }
+      throw error;
+    }
+    return sendJson(res, 200, { ok: true, reused: false, promoApplied: true, checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl) });
+  } finally {
+    release();
+    if (doubleTopupCheckoutLocks.get(userId) === tail) doubleTopupCheckoutLocks.delete(userId);
+  }
+}
+
 async function settleWalletOrderPayment(db, order, config, meta = {}) {
   if (!order) {
     const error = new Error("Payment order not found.");
@@ -12404,6 +13535,7 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   if (order.status === "paid") {
     return { settled: false, user: (db.users || []).find((u) => u.id === order.userId) || null };
   }
+  await applyDoubleTopupPromoSettlement(db, order);
   const creditsPerUsd = order.creditsPerUsd || walletCreditsPerUsd(config.wallet);
   const legacyRate = order.paymentProvider === "paypal"
     ? (order.cnyCentsPerUnit || paypalCnyCentsPerUnit(config.wallet))
@@ -12518,6 +13650,27 @@ function imageExtFromMime(mime) {
   if (mime === "image/bmp") return ".bmp";
   if (mime === "image/gif") return ".gif";
   return ".jpg";
+}
+
+function audioExtFromMime(mime) {
+  if (mime === "audio/mpeg") return ".mp3";
+  if (mime === "audio/wav") return ".wav";
+  if (mime === "audio/ogg") return ".ogg";
+  if (mime === "audio/mp4") return ".m4a";
+  return ".mp3";
+}
+
+function decodeAudioDataUrl(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:(audio\/(?:mp3|mpeg|wav|ogg|m4a));base64,([a-z0-9+/=]+)$/i);
+  if (!match) {
+    const error = new Error("只支持 MP3、WAV、OGG、M4A 音频。");
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    mime: match[1],
+    bytes: Buffer.from(match[2], "base64"),
+  };
 }
 
 function imageMimeFromPath(filePath) {
@@ -15883,8 +17036,8 @@ async function aliyunDashscopeRequest(pathname, {
           authorization: `Bearer ${apiKey}`,
           accept: "application/json",
           ...(body ? { "content-type": "application/json" } : {}),
-          ...(!useWan30PrimeNode && body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
-          ...(!useWan30PrimeNode && asyncTask ? { "X-DashScope-Async": "enable" } : {}),
+          ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
+          ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(requestTimeoutMs),
@@ -16015,6 +17168,97 @@ async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) 
   throw lastError || Object.assign(new Error("Qwen3.7 Flash request failed."), { statusCode: 502 });
 }
 
+
+function papayaPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+  const pricing = normalizeAdvancedPricing(advancedPricing);
+  const inputTokens = Math.max(1, Math.min(256000, Math.floor(Number(options.inputTokens || options.promptTokens || 1) || 1)));
+  const outputTokens = Math.max(0, Math.min(QWEN37_FLASH_MAX_OUTPUT_TOKENS, Math.floor(Number(options.outputTokens ?? options.completionTokens ?? options.maxTokens ?? 8192) || 0)));
+  const inputUsd = (inputTokens * 0.15) / 1000000;
+  const outputUsd = (outputTokens * 0.45) / 1000000;
+  const totalUsd = inputUsd + outputUsd;
+  const totalCny = totalUsd * Number(INTERNAL_CNY_PER_USD || 5);
+  const baseCredits = creditsAmount(totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY));
+  return {
+    provider: "papaya",
+    providerLabel: "Papaya 1.0",
+    model: PAPAYA_MODEL,
+    inputTokens,
+    outputTokens,
+    inputUsdPerMillionTokens: 0.15,
+    outputUsdPerMillionTokens: 0.45,
+    totalUsd: pricingNumber(totalUsd, 0, 0, 8),
+    totalCny: pricingNumber(totalCny, 0, 0, 8),
+    baseCredits,
+    credits: baseCredits,
+    markup: 1,
+    source: "mulerouter_papaya_token_pricing",
+  };
+}
+
+async function papayaLanguageRequest(body = {}, { timeoutMs = 180000 } = {}) {
+  const key = String(process.env.MULEROUTER_API_KEY || "").trim();
+  if (!key) {
+    const error = new Error("Papaya is not configured.");
+    error.statusCode = 503;
+    error.code = "MISSING_MULEROUTER_API_KEY";
+    throw error;
+  }
+  const base = String(process.env.MULEROUTER_API_BASE || "https://api.mulerouter.ai").replace(/\/+$/, "");
+  const response = await fetch(`${base}/vendors/openai/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${key}`,
+      accept: "application/json",
+      "content-type": "application/json",
+      "user-agent": "raising-game-demo/papaya",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(Math.max(5000, Number(timeoutMs || 180000) || 180000)),
+  });
+  const responseText = await response.text();
+  let payload = {};
+  try { payload = responseText ? JSON.parse(responseText) : {}; } catch { payload = { text: responseText }; }
+  if (!response.ok || payload.error) {
+    const error = new Error(payload.error?.message || payload.message || `Papaya request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload.error?.code || payload.code || "PAPAYA_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function papayaImageDataUrls(auth, body = {}) {
+  const items = [
+    ...arrayFromBody(body.referenceImages),
+    ...arrayFromBody(body.reference_images),
+    ...arrayFromBody(body.images),
+  ];
+  if (items.length > 4) {
+    throw advancedValidationError("PAPAYA_TOO_MANY_IMAGES", "Papaya supports at most 4 images.", { count: items.length, max: 4 });
+  }
+  if (!items.length) return [];
+  const db = await readDb();
+  const urls = [];
+  for (const item of items) {
+    const direct = typeof item === "string" ? item : String(item?.dataUrl || item?.url || item?.imageUrl || "");
+    if (direct.startsWith("data:image/")) {
+      urls.push(direct);
+      continue;
+    }
+    const assetId = typeof item === "object" && item ? String(item.assetId || item.id || "") : "";
+    if (!assetId) continue;
+    const asset = (db.userAssets || []).find((entry) => entry && entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
+    if (!asset) continue;
+    const dataUrl = await dataUrlForUserAsset(asset);
+    if (String(dataUrl).startsWith("data:image/")) urls.push(dataUrl);
+  }
+  if (items.length && !urls.length) {
+    throw advancedValidationError("PAPAYA_IMAGE_UNREADABLE", "Papaya could not read the selected images.");
+  }
+  return urls;
+}
+
 async function byteplusLanguageRequest(body = {}, { timeoutMs = 180000 } = {}) {
   if (!ARK_API_KEY) {
     const error = new Error("BytePlus Language is not configured.");
@@ -16056,6 +17300,53 @@ function chatCharacterView(item = {}) {
   });
 }
 
+function ownedCustomChatCharacter(auth, characterId = "") {
+  const id = String(characterId || "").trim();
+  const userId = String(auth?.user?.id || "");
+  if (!id || !userId) return null;
+  if (id.startsWith("custom:")) {
+    const assetId = id.slice("custom:".length);
+    const asset = (auth.db?.userAssets || []).find((entry) => entry && entry.id === assetId && entry.userId === userId && !isSoftDeleted(entry));
+    if (!asset) return null;
+    const image = String(asset.previewUrl || asset.localUrl || asset.publicUrl || "").trim();
+    const persona = String(asset.characterPrompt || asset.name || "").trim();
+    return {
+      id,
+      name: asset.name || "Custom character",
+      title: persona,
+      summary: persona,
+      description: persona,
+      posterUrl: image,
+      localImageUrl: image,
+      sourceImageUrl: image,
+      publicImageUrl: image,
+      characterImageUrl: image,
+      tags: [],
+      chatGreeting: "",
+      source: "custom-asset",
+    };
+  }
+  const record = (auth.db?.userCharacters || []).find((entry) => entry && entry.id === id && entry.userId === userId && !isSoftDeleted(entry));
+  if (!record) return null;
+  const image = String(record.publicImageUrl || record.cdnImageUrl || record.posterUrl || record.localImageUrl || record.sourceImageUrl || "").trim();
+  const persona = [record.prompt, record.title].map((item) => String(item || "").trim()).filter(Boolean).join("\n");
+  return {
+    id: record.id,
+    name: record.name || "My character",
+    title: record.title || "",
+    summary: record.title || "",
+    description: persona || record.name || "",
+    posterUrl: image,
+    localImageUrl: image,
+    sourceImageUrl: image,
+    publicImageUrl: image,
+    characterImageUrl: image,
+    tags: [],
+    chatGreeting: "",
+    source: "user-character",
+  };
+}
+
 async function chatCharacterById(characterId = "") {
   const config = await readAppConfig();
   const items = normalizeHomeVideo(config.homeVideo || {}).items || [];
@@ -16070,6 +17361,7 @@ async function chatCharacterById(characterId = "") {
     title: live.intro || "",
     summary: live.intro || "",
     description: live.persona || live.intro || "",
+    replyStyle: live.replyStyle || "",
     posterUrl: live.portraitUrl || live.avatarUrl || "",
     characterImageUrl: live.portraitUrl || live.avatarUrl || "",
     tags: Array.isArray(live.tags) ? live.tags : [],
@@ -16192,55 +17484,80 @@ function chatWantsExpandedScene(value = "") {
   return /(?:继续(?:剧情|这个场景)|详细(?:描述|写)|展开写|沉浸式|描写一下|写长一点|roleplay|in character|describe the scene|continue the scene)/i.test(String(value || ""));
 }
 
-function normalizeChatReply(value = "", { expanded = false } = {}) {
-  const text = String(value || "").replace(/\r/g, "").trim();
-  if (!text || expanded) return text;
-  const compact = text.replace(/[\t ]*\n+[\t ]*/g, " ").replace(/[ ]{2,}/g, " ").trim();
-  const quoted = [...compact.matchAll(/[“"]([^”"]+)[”"]/g)].map((match) => match[1].trim()).filter(Boolean);
-  if (quoted.length) return quoted.slice(0, 2).join(" ").slice(0, 180).trim();
-  const withoutStageDirections = compact
-    .replace(/\*[^*]+\*/g, "")
-    .replace(/（[^）]{1,80}）/g, "")
-    .replace(/\([^)]{1,80}\)/g, "")
-    .replace(/[ ]{2,}/g, " ")
-    .trim();
-  const sentences = withoutStageDirections.match(/[^。！？.!?]+[。！？.!?]?/g) || [withoutStageDirections];
-  const short = sentences.slice(0, 3).join("").trim();
-  return short.slice(0, 180).trim();
+function chatReplyHasWords(value = "") {
+  return /[\p{L}\p{N}]/u.test(String(value || ""));
 }
 
-function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "") {
+function stripChatStageDirections(value = "") {
+  let text = String(value || "")
+    .replace(/\r/g, "")
+    .replace(/[\t ]*\n+[\t ]*/g, " ")
+    .replace(/\*[^*]{0,500}\*/g, " ")
+    .replace(/（[^）]{0,500}）/g, " ")
+    .replace(/\([^)]{0,500}\)/g, " ")
+    .replace(/[“"]\s*[)）]+\s*[”"]/g, " ")
+    .replace(/^[)）\s]+/, "")
+    .replace(/[（(]\s*$/, "")
+    .replace(/[ ]{2,}/g, " ")
+    .trim();
+  if (/^[（(][^）)]{0,800}$/.test(text)) text = "";
+  return text.replace(/^[)）\s]+/, "").trim();
+}
+
+function normalizeChatReply(value = "", { expanded = false } = {}) {
+  const text = String(value || "").replace(/\r/g, "").trim();
+  if (!text) return "";
+  const spoken = stripChatStageDirections(text);
+  if (expanded) return chatReplyHasWords(spoken) ? spoken : (chatReplyHasWords(text.replace(/^[)）\s]+/, "")) ? text.replace(/^[)）\s]+/, "").trim() : "");
+  const compact = spoken.replace(/[ ]{2,}/g, " ").trim();
+  const quoted = [...compact.matchAll(/[“"]([^”"]+)[”"]/g)].map((match) => match[1].trim()).filter(chatReplyHasWords);
+  const candidate = quoted.length ? quoted.slice(0, 2).join(" ") : compact;
+  const sentences = candidate.match(/[^。！？.!?]+[。！？.!?]?/g) || [candidate];
+  const short = sentences.slice(0, 10).join("").trim().slice(0, 720).trim();
+  if (chatReplyHasWords(short)) return short;
+  const inner = [...text.matchAll(/[（(]([^）)]{1,180})[）)]/g)].map((match) => match[1].trim()).find(chatReplyHasWords) || "";
+  return chatReplyHasWords(inner) ? inner.slice(0, 180).trim() : "";
+}
+
+function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null) {
   const character = conversation.character || {};
-  const pinnedMemory = String(conversation.memory || "").trim().slice(0, 2000);
+  const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null);
+  const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 2500);
+  const hasRelationship = Boolean(relationshipMemory);
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
   const tracker = plainObject(conversation.tracker);
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const styleGuide = {
-    balanced: "Use natural everyday conversation: usually 1-4 short sentences, one compact paragraph.",
-    immersive: asksForExpandedScene ? "Use restrained roleplay with selective sensory detail: at most 2 short paragraphs." : "Use natural everyday conversation: usually 1-4 short sentences, one compact paragraph.",
-    concise: "Keep replies short and direct: 1-3 sentences.",
-    cinematic: asksForExpandedScene ? "Write one focused cinematic beat in at most 2 short paragraphs." : "Use natural everyday conversation: usually 1-4 short sentences, one compact paragraph.",
-  }[conversation.style] || "Use natural everyday conversation: usually 1-4 short sentences, one compact paragraph.";
-  const greetingOverride = isSimpleChatGreeting(latest)
+    balanced: "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
+    immersive: asksForExpandedScene ? "When the user asks for a scene, write as much as that beat needs, usually a short paragraph and not a fixed length." : "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
+    concise: "Stay direct, but do not lock every reply to 1-3 sentences. Match the content: one line for a tiny reaction, more when the user asks for something concrete. Do not make every reply the same length.",
+    cinematic: asksForExpandedScene ? "Write one focused cinematic beat in at most 2 short paragraphs." : "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
+  }[conversation.style] || "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.";
+  const voice = String(character.replyStyle || "").trim();
+  const greetingOverride = isSimpleChatGreeting(latest) && !hasRelationship && !voice
     ? "GREETING OVERRIDE (highest priority for this turn): The latest user message is only a greeting. Reply with one or two short, natural sentences acknowledging the greeting and optionally asking one neutral question about what they want to discuss. Do not continue, recap, or embellish the previous scene. Do not add physical contact, erotic or romantic escalation, stage directions, or new plot unless the user explicitly asks for it in a later message."
-    : "";
+    : (isSimpleChatGreeting(latest) && voice
+      ? "GREETING WITH VOICE: The latest message is only a greeting. Still answer in the configured reply style. Do not switch to a polite customer-service greeting such as asking how their mood is."
+      : "");
   return [
     `You are ${character.name || "the character"} chatting with the user by text message.`,
+    character.replyStyle ? `VOICE OVERRIDE (highest priority, overrides the character sheet speaking habits): ${String(character.replyStyle).slice(0, 4000)}` : "",
     `Character background (reference only): ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
     styleGuide,
-    `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every dialogue line, narration sentence, and action beat in that language. Do not use English unless that is the requested language.`,
+    `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep the spoken reply in that language. Do not write narration or action beats. Do not use English unless that is the requested language.`,
     latest ? `LATEST USER MESSAGE (answer this exact message first): ${latest}` : "",
     greetingOverride,
     "HUMAN CHAT DEFAULT: This is a real text-message conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message, like a person typing on a phone.",
+    "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. Do not ask a question in every reply; ask only when the conversation naturally needs one. A brief reaction or answer without a question is often better.",
-    "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. For English, sound like a casual text message, not polished customer support.",
+    "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual text message, not polished customer support. 人设只说明你是谁。回复只能是嘴上说的话。不要写衣服怎么动、灯光、身体轮廓。对方催就先接催。",
     asksForExpandedScene
       ? "The user explicitly asked for an expanded scene. Keep it focused on that request, avoid unrelated plot, and never decide the user's actions for them."
-      : "Do not produce a monologue, story chapter, recap, scene transition, or atmosphere. Do not use stage directions, asterisks, parentheses, inner thoughts, body-language inventories, quoted dialogue blocks, physical contact, or erotic escalation. Write only the direct chat message; even if the user is flirtatious, answer with brief conversational banter instead of narrating actions.",
-    "TURN FOCUS: Answer the user's latest message first and make one clear immediate response or action. Do not introduce unrelated topics, characters, locations, backstory, or time jumps.",
+      : "If the user names a concrete request, do that request in this reply. Do not dodge, tease past it, change the subject, or answer with unrelated mood or atmosphere. Reply only with words the character would say out loud. Do not describe posture, breathing, hands, mouth, body, clothes, or the room. Wrong: 我跪坐在床沿，身子往前倾了些。先吐气，再慢慢张开嘴。 Right: 含住了。别动。 Adult flirtation and intimacy between adults should be followed, not refused or moralized. Do not write a novel, essay, recap, or scene transition. No asterisks, no inner monologue, no literary fog.",
+    "TURN FOCUS: Answer the user's latest message first and make one clear spoken reply, not a filmed action. Do not introduce unrelated topics, characters, locations, backstory, or time jumps.",
     "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
     "End at a natural handoff that leaves room for the user to respond. Ask at most one focused question, and only when it fits the latest message.",
     "Never claim to be an AI, break character, or repeat a previous passage.",
@@ -16262,7 +17579,8 @@ async function handleCreateChatConversation(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const responseLanguage = chatResponseLanguage(body.language);
-  const character = await chatCharacterById(String(body.characterId || ""));
+  const requestedCharacterId = String(body.characterId || "");
+  const character = await chatCharacterById(requestedCharacterId) || ownedCustomChatCharacter(auth, requestedCharacterId);
   if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_CHARACTER_NOT_FOUND", message: "Character not found." });
   const tenant = requestTenantDescriptor(req);
   if (tenant.toolId === "chat") {
@@ -16287,6 +17605,11 @@ async function handleCreateChatConversation(req, res) {
   }
   const now = new Date().toISOString();
   const characterView = chatCharacterView(character);
+  const existing = (await listChatConversationsInDb(auth.user.id, 100)).find((item) => String(item.characterId || item.character?.id || "") === String(characterView.id));
+  if (existing) {
+    const messages = await listChatMessagesInDb(existing.id, auth.user.id, 300);
+    return sendJson(res, 200, { ok: true, conversation: publicChatConversation(existing), messages: messages.map(publicChatMessage), reused: true });
+  }
   const conversation = {
     id: randomId("chat"), userId: auth.user.id, characterId: characterView.id, character: characterView,
     title: characterView.name, style: "balanced", memory: "", instructions: "", backgroundEnabled: true,
@@ -16425,7 +17748,10 @@ async function handleBranchChatConversation(req, res, conversationId) {
 async function handleSendChatMessage(req, res, conversationId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ARK_API_KEY) return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Chat is not configured." });
+  const chatLive = chatLiveConfigValue(await readAppConfig());
+  const usePapayaChat = chatLive.languageModel === "papaya";
+  if (usePapayaChat && !String(process.env.MULEROUTER_API_KEY || "").trim()) return sendJson(res, 503, { ok: false, code: "MISSING_MULEROUTER_API_KEY", message: "Papaya is not configured." });
+  if (!usePapayaChat && !ARK_API_KEY) return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Chat is not configured." });
   let conversation = await getChatConversationInDb(conversationId, auth.user.id);
   if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
   const body = await readJson(req);
@@ -16446,33 +17772,47 @@ async function handleSendChatMessage(req, res, conversationId) {
     await insertChatMessageInDb({ id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content, createdAt: now, updatedAt: now });
   }
   const billingId = randomId("chat-bill");
-  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { conversationId, model: BYTEPLUS_LANGUAGE_MODEL } });
+  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: BYTEPLUS_LANGUAGE_MODEL } });
   if (!dbEnabled()) await writeDb(auth.db);
   try {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
-    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: String(message.content || "") }));
+    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: normalizeChatReply(message.content, { expanded: false }) || String(message.content || "").replace(/^[)）\s]+/, "").trim() })).filter((message) => message.role === "user" || chatReplyHasWords(message.content));
     if (action === "continue") messages.push({ role: "user", content });
     const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || content;
-    const simpleGreeting = isSimpleChatGreeting(latestUserMessage);
+    const liveCharacterIdEarly = conversation.characterId || conversation.character?.id || "";
+    const freshCharacterEarly = liveCharacterIdEarly ? (await chatCharacterById(liveCharacterIdEarly) || ownedCustomChatCharacter(auth, liveCharacterIdEarly)) : null;
+    const hasReplyStyle = Boolean(String(freshCharacterEarly?.replyStyle || conversation.character?.replyStyle || "").trim());
+    const simpleGreeting = isSimpleChatGreeting(latestUserMessage) && !hasReplyStyle;
     const expandedScene = chatWantsExpandedScene(latestUserMessage);
     const modelMessages = simpleGreeting
       ? [{ role: "user", content: latestUserMessage }]
       : messages;
-    const raw = await byteplusLanguageRequest({
-      model: BYTEPLUS_LANGUAGE_MODEL,
-      messages: [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage, latestUserMessage) }, ...modelMessages],
-      temperature: simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62,
-      max_tokens: simpleGreeting ? 180 : expandedScene ? 720 : 300,
-    });
-    const reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    if (!reply) throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });
+    if (freshCharacterEarly) {
+      conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
+    }
+    const chatMessages = [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly)) }, ...modelMessages];
+    const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
+    const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
+    const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
+    console.info("[character-chat-model]", JSON.stringify({ conversationId, model: chatModel }));
+    const raw = usePapayaChat
+      ? await papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, max_tokens: chatMaxTokens })
+      : await byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, max_tokens: chatMaxTokens });
+    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
+    if (!chatReplyHasWords(reply)) {
+      console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, action, raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });
+    }
     const now = new Date().toISOString();
     const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
     await insertChatMessageInDb(assistantMessage);
+    const rememberedUser = [...messages].reverse().find((message) => message.role === "user")?.content || "";
+    await rememberChatCharacterTurn(auth.user.id, conversation.characterId || conversation.character?.id, "user", rememberedUser, "text");
+    await rememberChatCharacterTurn(auth.user.id, conversation.characterId || conversation.character?.id, "assistant", reply, "text");
     conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now };
     await upsertChatConversationInDb(conversation);
     refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
-    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: auth.user.credits - CHAT_MESSAGE_CREDITS });
+    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: creditsAmount(auth.user.credits), messageCredits: CHAT_MESSAGE_CREDITS });
   } catch (error) {
     console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
     const db = await readDb();
@@ -16562,7 +17902,35 @@ function aliyunVideoCapabilityForRequest(provider = "wan27", source = {}, media 
   return normalizeAliyunVideoCapability(source.model ? "" : "wan27-i2v", { provider: "wan27", model: source.model, media });
 }
 
-async function submitAliyunVideoTask({ provider = "wan27", capability = "", prompt, imageUrl = "", media = [], body = {} }) {
+async function queryAliyunOrMulerouterTask(taskId, dashscopeOptions = {}) {
+  const parsed = mulerouterAliyun.parseRef(taskId);
+  if (parsed.source === "mulerouter") {
+    const queried = dashscopeOptions.mulerouterRaw
+      ? mulerouterAliyun.shapeQuery(dashscopeOptions.mulerouterRaw, parsed.slug || dashscopeOptions.mulerouterSlug || "")
+      : await mulerouterAliyun.query(parsed);
+    const url = queried.task.videoUrl || (queried.task.imageUrls && queried.task.imageUrls[0]) || "";
+    const imageUrls = Array.isArray(queried.task.imageUrls) ? queried.task.imageUrls.filter(Boolean) : [];
+    const videoUrl = queried.task.videoUrl || "";
+    return {
+      output: {
+        task_id: queried.task.taskId,
+        task_status: queried.task.status,
+        status: queried.task.status,
+        video_url: videoUrl,
+        videos: videoUrl ? [{ url: videoUrl }] : [],
+        url,
+        image_url: imageUrls[0] || "",
+        images: imageUrls.map((item) => ({ url: item })),
+        message: queried.task.error || "",
+        error: queried.task.error ? { message: queried.task.error, detail: queried.task.error } : undefined,
+      },
+      mulerouter: queried.raw,
+    };
+  }
+  return aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(taskId)}`, dashscopeOptions);
+}
+
+async function submitAliyunVideoTask({ provider = "wan27", capability = "", prompt, imageUrl = "", media = [], body = {}, user = null, userId = "" }) {
   const source = { ...requestParamsFromBody(body), ...body };
   const normalizedMedia = Array.isArray(media) && media.length
     ? media.map(normalizeWan27MediaItem)
@@ -16584,6 +17952,13 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     audio_setting: firstPresent(parameterExtras.audio_setting, source.audio_setting),
     mode: firstPresent(parameterExtras.mode, source.mode, source.animateMode),
   };
+  const negativePrompt = String(firstPresent(parameterExtras.negative_prompt, source.negative_prompt, source.negativePrompt, "") || "").trim();
+  if (negativePrompt) parameters.negative_prompt = negativePrompt;
+  const referenceLink = String(firstPresent(parameterExtras.link, parameterExtras.reference_link, parameterExtras.referenceLink, source.link, source.reference_link, source.referenceLink, "") || "").trim();
+  if (referenceLink) {
+    parameters.link = referenceLink;
+    parameters.reference_link = referenceLink;
+  }
   const seed = optionalWan27Seed(firstPresent(parameterExtras.seed, source.seed));
   if (seed !== null) parameters.seed = seed;
   Object.keys(parameters).forEach((key) => parameters[key] === undefined && delete parameters[key]);
@@ -16602,6 +17977,44 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
   if (source.promptExtendText || source.prompt_extend_text || parameterExtras.prompt_extend_text) {
     payload.parameters.prompt_extend = true;
     payload.parameters.prompt_extend_text = String(firstPresent(parameterExtras.prompt_extend_text, source.prompt_extend_text, source.promptExtendText));
+  }
+  let routeUser = user || currentAuthContext()?.user || null;
+  if (!routeUser && userId) {
+    try {
+      const routeDb = await readDb();
+      routeUser = (routeDb.users || []).find((entry) => entry.id === userId && !isSoftDeleted(entry)) || null;
+    } catch {}
+  }
+  const mulerouterDecision = mulerouterAliyun.decideVideo({
+    user: routeUser,
+    capability: resolvedCapability,
+    media: normalizedMedia,
+    parameters,
+    prompt,
+  });
+  if (mulerouterDecision.use) {
+    console.log("[mulerouter-video-submit]", JSON.stringify({
+      capability: resolvedCapability,
+      slug: mulerouterDecision.slug,
+      username: routeUser?.username || "",
+      forced: mulerouterAliyun.userForced(routeUser),
+    }));
+    const submitted = await mulerouterAliyun.submit(mulerouterDecision);
+    return {
+      task: submitted.task,
+      payload: mulerouterDecision.body,
+      raw: submitted.raw,
+      capability: resolvedCapability,
+      upstreamSource: "mulerouter",
+      upstreamModel: mulerouterDecision.slug,
+    };
+  }
+  if (mulerouterDecision.reason && mulerouterDecision.reason !== "aliyun-default" && mulerouterDecision.reason !== "no-mulerouter-equivalent") {
+    console.log("[mulerouter-video-fallback]", JSON.stringify({
+      capability: resolvedCapability,
+      reason: mulerouterDecision.reason,
+      username: routeUser?.username || "",
+    }));
   }
   console.log("[aliyun-video-submit-advanced]", JSON.stringify({
     capability: resolvedCapability,
@@ -16641,7 +18054,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
       prime: false,
     });
   }
-  return { task: normalizeWan27Task(raw), payload, raw, capability: resolvedCapability };
+  return { task: normalizeWan27Task(raw), payload, raw, capability: resolvedCapability, upstreamSource: "aliyun", upstreamModel: payload.model || "" };
 }
 
 async function submitWan27VideoTask(options = {}) {
@@ -16668,9 +18081,7 @@ async function resolveWan27ImageResult(raw = {}, { timeoutMs = 10 * 60 * 1000, p
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await delay(pollIntervalMs);
-    const queried = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(task.taskId)}`, {
-      method: "GET",
-    });
+    const queried = await queryAliyunOrMulerouterTask(task.taskId, { method: "GET" });
     task = normalizeWan27ImageTask(queried);
     if (task.imageUrls.length && isCompletedStatus(task.status)) return task;
     if (isFailedStatus(task.status)) return task;
@@ -16722,6 +18133,8 @@ async function submitWan27ImageModify({
   input = {},
   parameters = {},
   waitForResult = true,
+  user = null,
+  userId = "",
 } = {}) {
   const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
   if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
@@ -16761,12 +18174,41 @@ async function submitWan27ImageModify({
   };
   payload.parameters.n = Number(firstPresent(parameters.n, payload.parameters.n, 1)) || 1;
   payload.parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, payload.parameters.watermark), false);
+  let routeUser = user || currentAuthContext()?.user || null;
+  if (!routeUser && userId) {
+    try {
+      const routeDb = await readDb();
+      routeUser = (routeDb.users || []).find((entry) => entry.id === userId && !isSoftDeleted(entry)) || null;
+    } catch {}
+  }
+  const imageDecision = mulerouterAliyun.decideImageEdit({
+    user: routeUser,
+    imageUrls: orderedImages,
+    prompt,
+    parameters: {
+      ...plainObject(parameters),
+      n: payload.parameters.n,
+      watermark: payload.parameters.watermark,
+      seed: firstPresent(parameters.seed, payload.parameters.seed),
+    },
+  });
+  if (imageDecision.use) {
+    console.log("[mulerouter-image-edit]", JSON.stringify({
+      slug: imageDecision.slug,
+      username: routeUser?.username || "",
+      forced: mulerouterAliyun.userForced(routeUser),
+    }));
+    const submitted = await mulerouterAliyun.submit(imageDecision);
+    const seeded = { output: { task_id: submitted.task.taskId, task_status: submitted.task.status, url: submitted.task.imageUrls[0] || "" } };
+    const task = waitForResult ? await resolveWan27ImageResult(seeded) : submitted.task;
+    return { task, payload: imageDecision.body, raw: submitted.raw, upstreamSource: "mulerouter", upstreamModel: imageDecision.slug };
+  }
   const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/image-generation/generation", {
     method: "POST",
     body: payload,
     asyncTask: true,
   });
-  return { task: waitForResult ? await resolveWan27ImageResult(raw) : normalizeWan27ImageTask(raw), payload, raw };
+  return { task: waitForResult ? await resolveWan27ImageResult(raw) : normalizeWan27ImageTask(raw), payload, raw, upstreamSource: "aliyun", upstreamModel: payload.model || "" };
 }
 
 async function submitWan27ImageTextGenerate({
@@ -16776,6 +18218,8 @@ async function submitWan27ImageTextGenerate({
   model = WAN27_IMAGE_PRO_MODEL,
   input = {},
   parameters = {},
+  user = null,
+  userId = "",
 } = {}) {
   const payload = {
     model: model || WAN27_IMAGE_PRO_MODEL,
@@ -16799,23 +18243,58 @@ async function submitWan27ImageTextGenerate({
   };
   payload.parameters.n = Number(firstPresent(parameters.n, payload.parameters.n, 1)) || 1;
   payload.parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, payload.parameters.watermark), false);
+  let routeUser = user || currentAuthContext()?.user || null;
+  if (!routeUser && userId) {
+    try {
+      const routeDb = await readDb();
+      routeUser = (routeDb.users || []).find((entry) => entry.id === userId && !isSoftDeleted(entry)) || null;
+    } catch {}
+  }
+  const imageDecision = mulerouterAliyun.decideTextToImage({
+    user: routeUser,
+    prompt,
+    parameters: {
+      ...plainObject(parameters),
+      n: payload.parameters.n,
+      watermark: payload.parameters.watermark,
+      seed: firstPresent(parameters.seed, payload.parameters.seed),
+    },
+  });
+  if (imageDecision.use) {
+    console.log("[mulerouter-image-t2i]", JSON.stringify({
+      slug: imageDecision.slug,
+      username: routeUser?.username || "",
+      forced: mulerouterAliyun.userForced(routeUser),
+    }));
+    const submitted = await mulerouterAliyun.submit(imageDecision);
+    const seeded = { output: { task_id: submitted.task.taskId, task_status: submitted.task.status, url: submitted.task.imageUrls[0] || "" } };
+    const task = await resolveWan27ImageResult(seeded);
+    return { task, payload: imageDecision.body, raw: submitted.raw, upstreamSource: "mulerouter", upstreamModel: imageDecision.slug };
+  }
   const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/image-generation/generation", {
     method: "POST",
     body: payload,
     asyncTask: true,
   });
-  return { task: await resolveWan27ImageResult(raw), payload, raw };
+  return { task: await resolveWan27ImageResult(raw), payload, raw, upstreamSource: "aliyun", upstreamModel: payload.model || "" };
 }
 
-async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
+async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query", upstreamRaw = null } = {}) {
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
   const provider = record.provider === "aliyun-wan30" ? "wan30" : "wan27";
   const prime = provider === "wan30"
     && String(record.videoCapability || record.params?.videoCapability || "").toLowerCase() === "wan30-video-prime";
   let raw;
-  try {
-    raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
+  if (upstreamRaw) {
+    raw = await queryAliyunOrMulerouterTask(queryTaskId, {
+      method: "GET",
+      provider,
+      prime,
+      mulerouterRaw: upstreamRaw,
+    });
+  } else try {
+    raw = await queryAliyunOrMulerouterTask(queryTaskId, {
       method: "GET",
       provider,
       prime,
@@ -16894,12 +18373,10 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   return nextRecord;
 }
 
-async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query" } = {}) {
+async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query", upstreamRaw = null } = {}) {
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
-  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
-    method: "GET",
-  });
+  const raw = await queryAliyunOrMulerouterTask(queryTaskId, { method: "GET", ...(upstreamRaw ? { mulerouterRaw: upstreamRaw } : {}) });
   const task = normalizeWan27ImageTask(raw);
   const imageUrl = task.imageUrls[0] || record.remoteImageUrl || "";
   const failed = isFailedStatus(task.status);
@@ -19962,6 +21439,17 @@ function generationRecordProviderImageUrl(record = {}) {
   ).trim();
 }
 
+function isChatCompletionGenerationRecord(record = {}) {
+  const provider = String(record.provider || "").toLowerCase();
+  const kind = String(record.kind || "").toLowerCase();
+  const source = String(record.source || "").toLowerCase();
+  if (["byteplus-language", "qwen37-flash", "papaya"].includes(provider)) return true;
+  if (kind === "text" || kind === "language" || kind === "chat" || kind.includes("text")) return true;
+  if (source.includes("language") || source === "advanced-text") return true;
+  const hasText = Boolean(String(record.textResult || record.responseText || "").trim());
+  return hasText && !generationRecordVideoUrl(record) && !generationRecordImageUrl(record);
+}
+
 function isImageGenerationRecord(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
   const kind = String(record.kind || "").toLowerCase();
@@ -20019,12 +21507,26 @@ function generationRecordIsVideoOutput(record = {}) {
   );
 }
 
+const GENERATED_R2_REQUIRED_SINCE_MS = Date.parse("2026-10-17T13:17:00+08:00");
+
+function generationRecordRequiresR2Publication(record = {}) {
+  // Records created before the R2 gate was turned back on keep their original
+  // provider links. Only tasks created at or after that moment wait for R2.
+  const createdAt = Date.parse(String(record.createdAt || ""));
+  if (!Number.isFinite(createdAt)) return false;
+  return createdAt >= GENERATED_R2_REQUIRED_SINCE_MS;
+}
+
 function generationRecordR2PublicationPending(record = {}) {
-  return generatedOutputStorageEnabled()
-    && !generationRecordIsApiTask(record)
-    && isSucceededStatus(record.status)
-    && generationRecordIsVideoOutput(record)
-    && !String(record.cdnVideoUrl || "").trim();
+  if (!generationRecordRequiresR2Publication(record)) return false;
+  if (!generatedOutputStorageEnabled() || generationRecordIsApiTask(record) || !isSucceededStatus(record.status)) return false;
+  if (isChatCompletionGenerationRecord(record)) return false;
+  if (generationRecordIsVideoOutput(record)) return !String(record.cdnVideoUrl || "").trim();
+  if (isImageGenerationRecord(record)) {
+    const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
+    return !String(record.cdnImageUrl || "").trim() && !cdnImages.some((item) => String(item || "").trim());
+  }
+  return false;
 }
 
 function publicGenerationRecord(record = {}, options = {}) {
@@ -20042,9 +21544,12 @@ function publicGenerationRecord(record = {}, options = {}) {
   // preview/download immediately instead of being stuck on a loading state.
   // Provider URLs are intentionally treated as usable for their validity
   // window; the R2 mirror will take over automatically on a later refresh.
+  const gateNewR2 = requireR2Ready && generatedOutputStorageEnabled() && generationRecordRequiresR2Publication(record);
   const publicVideoUrl = (providerOnlyOutputs || providerOnlyVideoUrl) && providerVideoUrl
     ? providerVideoUrl
-    : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl));
+    : (gateNewR2
+      ? cdnUrl
+      : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl)));
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
   const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
@@ -20141,6 +21646,41 @@ function publicGenerationRecord(record = {}, options = {}) {
       ? publicUndressLockedPreviewUrl(record.lockedPreviewUrl)
       : "",
   };
+  if (gateNewR2 && !generationRecordIsApiTask(record) && !isChatCompletionGenerationRecord(record)) {
+    if (r2PublicationPending) {
+      publicRecord.status = "running";
+      publicRecord.videoUrl = "";
+      publicRecord.downloadUrl = "";
+      publicRecord.providerVideoUrl = "";
+      publicRecord.upstreamVideoUrl = "";
+      publicRecord.remoteVideoUrl = "";
+      publicRecord.posterUrl = "";
+      publicRecord.imageResultUrl = "";
+      publicRecord.imageResultUrls = [];
+      publicRecord.providerImageUrl = "";
+      publicRecord.providerImageUrls = [];
+      publicRecord.upstreamImageUrl = "";
+      publicRecord.remoteImageUrl = "";
+    } else if (generationRecordIsVideoOutput(record)) {
+      publicRecord.videoUrl = cdnUrl;
+      publicRecord.downloadUrl = cdnUrl;
+      publicRecord.providerVideoUrl = "";
+      publicRecord.upstreamVideoUrl = "";
+      publicRecord.remoteVideoUrl = "";
+    } else if (isImageGenerationRecord(record)) {
+      const readyImages = [...new Set([
+        ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+        record.cdnImageUrl,
+      ].map((item) => String(item || "").trim()).filter(Boolean))];
+      publicRecord.imageResultUrl = readyImages[0] || "";
+      publicRecord.imageResultUrls = readyImages;
+      publicRecord.downloadUrl = readyImages[0] || "";
+      publicRecord.providerImageUrl = "";
+      publicRecord.providerImageUrls = [];
+      publicRecord.upstreamImageUrl = "";
+      publicRecord.remoteImageUrl = "";
+    }
+  }
   if (includeStoredVideoUrls) {
     // Keep all browser media hidden until the durable R2 copy is published.
     // Otherwise the UI sees localVideoUrl and starts preview/download while
@@ -20259,6 +21799,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 }
 
 function shouldRefreshGenerationRecord(record = {}) {
+  if (isChatCompletionGenerationRecord(record)) return false;
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
   if (record.upstreamSource === "video-tool-orchestrator") return false;
@@ -20378,11 +21919,27 @@ function scheduleGenerationRecordRefreshDrain() {
 
 const workflowCanvasUpdatesInFlight = new Set();
 
+function mulerouterWebhookConfigured() {
+  return Boolean(String(process.env.MULEROUTER_WEBHOOK_SECRET || "").trim());
+}
+
+function isMulerouterGenerationRecord(record = {}) {
+  return String(record.upstreamSource || "") === "mulerouter"
+    || String(record.upstreamTaskId || record.taskId || "").startsWith("mr:");
+}
+
 function queueGenerationRecordStatusRefresh(record = {}, { priority = false, reason = "list" } = {}) {
   const taskId = String(record.taskId || "");
   if (!taskId || generationRecordRefreshQueued.has(taskId)) return false;
   const lastStartedAt = generationRecordRefreshLastStartedAt.get(taskId) || 0;
-  if (Date.now() - lastStartedAt < GENERATION_RECORD_REFRESH_COOLDOWN_MS) return false;
+  const cooldownMs = isMulerouterGenerationRecord(record) && mulerouterWebhookConfigured()
+    ? Math.max(GENERATION_RECORD_REFRESH_COOLDOWN_MS, 8 * 60 * 1000)
+    : GENERATION_RECORD_REFRESH_COOLDOWN_MS;
+  if (Date.now() - lastStartedAt < cooldownMs) return false;
+  if (isMulerouterGenerationRecord(record) && mulerouterWebhookConfigured() && !String(reason).startsWith("mulerouter-webhook")) {
+    const age = Date.now() - Date.parse(record.createdAt || record.updatedAt || 0);
+    if (!Number.isFinite(age) || age < 8 * 60 * 1000) return false;
+  }
   generationRecordRefreshQueued.add(taskId);
   const item = { taskId, record, reason };
   if (priority) generationRecordRefreshQueue.unshift(item);
@@ -20855,6 +22412,7 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
 }
 
 async function refreshGenerationRecordStatus(record = {}) {
+  if (isChatCompletionGenerationRecord(record)) return record;
   if (needsApizFailureRefund(record)) {
     return settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "refresh");
   }
@@ -21115,6 +22673,10 @@ async function refreshGenerationRecordStatus(record = {}) {
   } catch (error) {
     console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);
     if (upstreamResourceMissing(error)) {
+      if (isChatCompletionGenerationRecord(record) || String(record.textResult || record.responseText || "").trim()) {
+        console.warn("[generation-record-refresh-ignored-missing-chat]", record.taskId);
+        return record;
+      }
       return await upsertAndSettleGenerationRecord({
         taskId: record.taskId,
         status: "failed",
@@ -21426,6 +22988,18 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
 }
 
 async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
+  if (!generatedOutputStorageEnabled()) {
+    return {
+      localVideoPath: "",
+      localVideoUrl: "",
+      localPosterPath: "",
+      localPosterUrl: "",
+      cdnVideoUrl: "",
+      cdnPosterUrl: "",
+      cdnError: "",
+      playbackOptimizedAt: "",
+    };
+  }
   const existing = await getGenerationRecord(taskId);
   const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
   if (existing?.localVideoUrl) {
@@ -21562,6 +23136,14 @@ function imageFileName(taskId, mime = "image/png") {
 }
 
 async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publish = true } = {}) {
+  if (!generatedOutputStorageEnabled()) {
+    return {
+      localImagePath: "",
+      localImageUrl: "",
+      cdnImageUrl: "",
+      cdnError: "",
+    };
+  }
   const imageMime = String(mime || "").startsWith("image/") ? mime : "image/png";
   await fs.mkdir(GENERATED_IMAGE_DIR, { recursive: true });
   const fileName = imageFileName(taskId, imageMime);
@@ -21758,7 +23340,7 @@ async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "
     const remote = generationRecordProviderVideoUrl(record) || record.remoteVideoUrl || String(videoUrl || "");
     if (remote && isPublicHttpUrl(remote)) {
       const downloaded = await downloadGeneratedVideo(record.taskId, remote);
-      return { filePath: downloaded.localVideoPath, record };
+      if (downloaded.localVideoPath) return { filePath: downloaded.localVideoPath, record };
     }
   }
   const localPath = localAssetPathFromPublicValue(videoUrl);
@@ -22146,7 +23728,7 @@ async function waitForAliyunVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 60 
   const deadline = Date.now() + timeoutMs;
   let lastRaw = null;
   while (Date.now() < deadline) {
-    lastRaw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(upstreamTaskId)}`, { method: "GET" });
+    lastRaw = await queryAliyunOrMulerouterTask(upstreamTaskId, { method: "GET" });
     const task = normalizeWan27Task(lastRaw);
     if (isSucceededStatus(task.status) && task.videoUrl) {
       if (isSubmittedWan27InputVideo(task.videoUrl, inputUrls)) {
@@ -22199,7 +23781,7 @@ async function waitForWan27ImageToolTask(upstreamTaskId, { timeoutMs = 20 * 60 *
   while (Date.now() < deadline) {
     const task = USE_GATEWAY_UPSTREAM
       ? await gatewayQueryTask(upstreamTaskId)
-      : normalizeWan27ImageTask(lastRaw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(upstreamTaskId)}`, { method: "GET" }));
+      : normalizeWan27ImageTask(lastRaw = await queryAliyunOrMulerouterTask(upstreamTaskId, { method: "GET" }));
     const imageUrl = task.imageUrls?.[0] || task.imageUrl || "";
     if (isSucceededStatus(task.status) && imageUrl) return { task: { ...task, imageUrl, imageUrls: [imageUrl] }, raw: task.raw || lastRaw };
     if (isFailedStatus(task.status)) {
@@ -22545,6 +24127,7 @@ async function runVideoToolFaceSwap(job) {
         const submitted = await submitAliyunVideoTask({
           provider: "wan27",
           capability: "wan27-video-edit",
+          userId,
           prompt: undressVideo ? (job.prompt || VIDEO_TOOL_UNDRESS_EDIT_PROMPT) : VIDEO_TOOL_FACE_SWAP_PROMPT,
           media: [
             { type: "video", url: published.url },
@@ -22660,6 +24243,7 @@ async function runVideoToolUndressImageVideo(job) {
     const submitted = await submitAliyunVideoTask({
       provider: "wan27",
       capability: "wan27-i2v",
+      userId,
       prompt: job.prompt || VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
       media: [{ type: "first_frame", url: imageUrl }],
       body: {
@@ -23021,24 +24605,102 @@ async function cleanupStaleLocalMedia() {
   const cutoffMs = Date.now() - LOCAL_MEDIA_RETENTION_MS;
   try {
     const uploads = await removeExpiredFiles(USER_UPLOAD_DIR, cutoffMs);
-    const generated = objectStorageEnabled()
-      ? await removeExpiredPublishedFiles([
-          GENERATED_VIDEO_DIR,
-          GENERATED_POSTER_DIR,
-          GENERATED_IMAGE_DIR,
-        ], cutoffMs)
-      : { files: 0, bytes: 0 };
+    const generatedDirs = [GENERATED_VIDEO_DIR, GENERATED_POSTER_DIR, GENERATED_IMAGE_DIR];
+    const published = await removeExpiredPublishedFiles(generatedDirs, Date.now() - 10 * 60 * 1000);
+    let generated = { files: 0, bytes: 0 };
+    for (const dir of generatedDirs) {
+      const removed = await removeExpiredFiles(dir, Date.now() - LOCAL_MEDIA_RETENTION_MS);
+      generated.files += removed.files;
+      generated.bytes += removed.bytes;
+    }
+    generated.files += published.files;
+    generated.bytes += published.bytes;
     if (uploads.files || generated.files) {
-      console.log("[local-media-cleanup]", { uploads, generated, retentionHours: 24 });
+      console.log("[local-media-cleanup]", { uploads, generated, retentionHours: 24, generatedRetention: "24h-after-publish-10m" });
     }
   } catch (error) {
     console.warn("[local-media-cleanup-failed]", error.message || error);
   }
 }
 
+async function deleteStoredGeneratedObject(key = "") {
+  const clean = String(key || "").replace(/^\/+/, "");
+  if (!clean.includes("/generated/") && !clean.startsWith("generated/")) return false;
+  if (!objectStorageEnabled()) return false;
+  const auth = makeR2Auth({
+    method: "DELETE",
+    key: clean,
+    body: Buffer.alloc(0),
+    contentType: "application/octet-stream",
+  });
+  const response = await fetch(auth.url, {
+    method: "DELETE",
+    headers: auth.headers,
+    signal: AbortSignal.timeout(20000),
+  });
+  return response.ok || response.status === 404;
+}
+
+let generatedR2ExpiryRunning = false;
+async function expireGeneratedR2Objects() {
+  if (generatedR2ExpiryRunning || !generatedOutputStorageEnabled() || !dbEnabled()) return;
+  generatedR2ExpiryRunning = true;
+  try {
+    const { rows } = await dbQuery(`
+      SELECT task_id, payload
+      FROM app_generation_records
+      WHERE COALESCE(NULLIF(payload->>'completedAt', ''), NULLIF(payload->>'createdAt', ''))::timestamptz < NOW() - INTERVAL '24 hours'
+        AND COALESCE(NULLIF(payload->>'completedAt', ''), NULLIF(payload->>'createdAt', ''))::timestamptz > NOW() - INTERVAL '3 days'
+        AND COALESCE(payload->>'r2PurgedAt', '') = ''
+        AND (
+          COALESCE(payload->>'cdnVideoUrl', '') <> ''
+          OR COALESCE(payload->>'cdnImageUrl', '') <> ''
+          OR COALESCE(payload->>'cdnPosterUrl', '') <> ''
+        )
+      ORDER BY created_at ASC
+      LIMIT 25
+    `);
+    for (const row of rows || []) {
+      const payload = row.payload || {};
+      const urls = [
+        payload.cdnVideoUrl,
+        payload.cdnPosterUrl,
+        payload.cdnImageUrl,
+        ...(Array.isArray(payload.cdnImageUrls) ? payload.cdnImageUrls : []),
+      ];
+      for (const url of urls) {
+        const key = r2KeyFromPublicDownloadUrl(url);
+        if (!key) continue;
+        await deleteStoredGeneratedObject(key).catch((error) => {
+          console.warn("[generated-r2-delete-failed]", row.task_id, error.message || error);
+        });
+      }
+      await dbQuery(`
+        UPDATE app_generation_records
+        SET payload = payload || jsonb_build_object(
+            'r2PurgedAt', $2::text,
+            'cdnVideoUrl', '',
+            'cdnPosterUrl', '',
+            'cdnImageUrl', '',
+            'cdnImageUrls', '[]'::jsonb
+          ),
+          updated_at = NOW()
+        WHERE task_id = $1
+      `, [row.task_id, new Date().toISOString()]);
+    }
+    if ((rows || []).length) console.log("[generated-r2-expired]", (rows || []).length);
+  } catch (error) {
+    console.warn("[generated-r2-expiry-failed]", error.message || error);
+  } finally {
+    generatedR2ExpiryRunning = false;
+  }
+}
+
 function startLocalMediaCleanupScheduler() {
   setTimeout(() => cleanupStaleLocalMedia(), 30000).unref?.();
-  setInterval(() => cleanupStaleLocalMedia(), 60 * 60 * 1000).unref?.();
+  setInterval(() => cleanupStaleLocalMedia(), 5 * 60 * 1000).unref?.();
+  setTimeout(() => expireGeneratedR2Objects().catch(() => {}), 60000).unref?.();
+  setInterval(() => expireGeneratedR2Objects().catch(() => {}), 60 * 60 * 1000).unref?.();
 }
 
 function startChatLiveSettlementScheduler() {
@@ -25534,7 +27196,36 @@ function seedance25ReferenceInputs(body = {}, kind = "image") {
   const inlineInputs = kind === "image"
     ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item) && !seedance25InputAssetId(item) && String(item.dataUrl || "").startsWith("data:image/"))
     : [];
-  return { assetIds: [...new Set(assetIds)], urls: [...new Set(urls)], inlineInputs };
+  const ordered = [];
+  const seenOrdered = new Set();
+  items.forEach((item) => {
+    const assetId = seedance25InputAssetId(item);
+    const dataUrl = kind === "image" && item && typeof item === "object" ? String(item.dataUrl || "").trim() : "";
+    const url = seedance25InputUrl(item, kind);
+    if (assetId) {
+      if (seenOrdered.has(`asset:${assetId}`)) return;
+      seenOrdered.add(`asset:${assetId}`);
+      ordered.push({ type: "asset", assetId });
+      return;
+    }
+    if (dataUrl.startsWith("data:image/")) {
+      if (seenOrdered.has(`data:${dataUrl}`)) return;
+      seenOrdered.add(`data:${dataUrl}`);
+      ordered.push({ type: "inline", item });
+      return;
+    }
+    if (url) {
+      if (seenOrdered.has(`url:${url}`)) return;
+      seenOrdered.add(`url:${url}`);
+      ordered.push({ type: "url", url });
+    }
+  });
+  assetIds.forEach((assetId) => {
+    if (seenOrdered.has(`asset:${assetId}`)) return;
+    seenOrdered.add(`asset:${assetId}`);
+    ordered.push({ type: "asset", assetId });
+  });
+  return { assetIds: [...new Set(assetIds)], urls: [...new Set(urls)], inlineInputs, ordered };
 }
 
 function seedance25OwnedAssets(db, userId, assetIds = [], kind = "image") {
@@ -25823,17 +27514,33 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       imageInputs.assetIds = imageInputs.assetIds.filter((id) => id !== firstFrameAssetId && id !== lastFrameAssetId);
     }
 
-    const createdImageAssets = imageInputs.inlineInputs.length
-      ? await createUserImageAssetsFromInputs(auth.db, auth.user, imageInputs.inlineInputs, { name: "Seedance 2.5 reference" })
-      : [];
-    const createdUrlImageAssets = preprocessReference && imageInputs.urls.length
-      ? await createUserImageAssetsFromInputs(auth.db, auth.user, imageInputs.urls, { name: "Seedance 2.5 reference" })
-      : [];
-    const imageAssets = [
-      ...seedance25OwnedAssets(auth.db, auth.user.id, imageInputs.assetIds, "image"),
-      ...createdImageAssets,
-      ...createdUrlImageAssets,
-    ];
+    const imageSlots = (Array.isArray(imageInputs.ordered) ? imageInputs.ordered : [])
+      .filter((slot) => mode !== "first_last_frame" || (slot.assetId !== firstFrameAssetId && slot.assetId !== lastFrameAssetId));
+    const imageAssets = [];
+    const imageUrls = [];
+    for (const slot of imageSlots) {
+      let asset = null;
+      let urls = [];
+      if (slot.type === "asset" && slot.assetId) {
+        asset = seedance25OwnedAssets(auth.db, auth.user.id, [slot.assetId], "image")[0];
+        urls = await seedance25PublicAssetUrls(auth.db, [asset]);
+      } else if (slot.type === "inline" && slot.item) {
+        asset = (await createUserImageAssetsFromInputs(auth.db, auth.user, [slot.item], { name: "Seedance 2.5 reference" }))[0] || null;
+        urls = asset ? await seedance25PublicAssetUrls(auth.db, [asset]) : [];
+      } else if (slot.type === "url" && slot.url) {
+        if (preprocessReference) {
+          asset = (await createUserImageAssetsFromInputs(auth.db, auth.user, [slot.url], { name: "Seedance 2.5 reference" }))[0] || null;
+          urls = asset ? await seedance25PublicAssetUrls(auth.db, [asset]) : [];
+        } else {
+          urls = seedance25PublicInputUrls([slot.url], "image");
+        }
+      }
+      const url = urls.find((item) => item && !imageUrls.includes(item)) || "";
+      if (!url) continue;
+      imageUrls.push(url);
+      imageAssets.push(asset || null);
+    }
+
     const videoAssets = seedance25OwnedAssets(auth.db, auth.user.id, videoInputs.assetIds, "video");
     const audioAssets = seedance25OwnedAssets(auth.db, auth.user.id, audioInputs.assetIds, "audio");
     const firstFrameInput = !firstFrameAssetId ? seedanceFirstFrameInputFromBody(merged, { includeDataUrlFallback: true }) : null;
@@ -25849,7 +27556,6 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, lastFrameInput, { name: "Seedance 2.5 last frame" })
       : null;
 
-    const imageUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, imageAssets), ...(preprocessReference ? [] : seedance25PublicInputUrls(imageInputs.urls, "image"))])];
     let videoUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, videoAssets), ...seedance25PublicInputUrls(videoInputs.urls, "video")])];
     const audioUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")])];
     const firstFrameUrl = firstFrameAsset
@@ -26598,6 +28304,7 @@ async function runAdvancedGenerationJob(job = {}) {
 
     const config = job.config || await readAppConfig();
     let task = null;
+    let aliyunUpstreamModel = "";
     if (USE_GATEWAY_UPSTREAM) {
       const gatewayBody = {
         ...bodyParams,
@@ -26740,7 +28447,11 @@ async function runAdvancedGenerationJob(job = {}) {
         prompt,
         media: resolvedWan27Media,
         body: requestParams,
+        user: jobUser,
+        userId,
       });
+      upstreamSource = submitted.upstreamSource || upstreamSource;
+      aliyunUpstreamModel = submitted.upstreamModel || "";
       task = submitted.task;
       payload = submitted.payload;
       createResponse = submitted.raw;
@@ -26805,7 +28516,7 @@ async function runAdvancedGenerationJob(job = {}) {
       model: submittedModel,
       provider: runtime.providerName,
       upstreamSource,
-      upstreamModel: useExternalSeedanceHttp ? (payload?.params?.model || payload?.model || "") : "",
+      upstreamModel: isAliyunVideoProvider(provider) ? (aliyunUpstreamModel || payload?.model || "") : (useExternalSeedanceHttp ? (payload?.params?.model || payload?.model || "") : ""),
       source: runtime.recordSource,
       kind: "advanced-video",
       imageUrl,
@@ -28527,11 +30238,18 @@ function qwen37FlashUsage(raw = {}) {
   };
 }
 
-async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {}, provider = "qwen37-flash" } = {}) {
+async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {}, provider = "qwen37-flash", prompt = "", textResult = "", maxTokens = 0 } = {}) {
+  let promptTokens = Math.max(0, Math.floor(Number(usage.promptTokens || 0)));
+  let completionTokens = Math.max(0, Math.floor(Number(usage.completionTokens || 0)));
+  if (!promptTokens) promptTokens = Math.max(1, Math.floor(Number(pricing.inputTokens || 0)) || Math.ceil(Buffer.byteLength(String(prompt || ""), "utf8") / 2) || 1);
+  if (!completionTokens && String(textResult || "").trim()) {
+    const cap = Math.max(1, Math.floor(Number(maxTokens || pricing.outputTokens || QWEN37_FLASH_MAX_OUTPUT_TOKENS) || QWEN37_FLASH_MAX_OUTPUT_TOKENS));
+    completionTokens = Math.min(cap, Math.max(1, Math.ceil(String(textResult).length * 1.5)));
+  }
   const rawFinalPricing = advancedModelPricing(provider, {
     advancedPricing,
-    inputTokens: Math.max(1, usage.promptTokens || pricing.inputTokens || 1),
-    outputTokens: Math.max(0, usage.completionTokens || 0),
+    inputTokens: Math.max(1, promptTokens),
+    outputTokens: Math.max(0, completionTokens),
   });
   const finalPricing = applyUserPricingToEstimate(rawFinalPricing, pricing.userPricingMultiplier || 1);
   const finalCost = finalPricing.credits;
@@ -28576,20 +30294,33 @@ async function runQwen37FlashGenerationJob(job = {}) {
   let upstreamPayload = null;
   try {
     await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
+    const imageUrls = Array.isArray(job.images) ? job.images.filter((item) => String(item || "").startsWith("data:image/")).slice(0, 4) : [];
     upstreamPayload = {
       model,
-      messages: provider === "byteplus-language"
+      messages: provider === "papaya"
+        ? [{
+            role: "user",
+            content: imageUrls.length
+              ? [{ type: "text", text: prompt }, ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } }))]
+              : prompt,
+          }]
+        : provider === "byteplus-language"
         ? [
             { role: "system", content: "You are an artificial intelligence assistant." },
             { role: "user", content: prompt },
           ]
         : [{ role: "user", content: prompt }],
-      ...(provider === "byteplus-language" ? {} : { enable_thinking: enableThinking === true }),
+      ...(provider === "byteplus-language" || provider === "papaya" ? {} : { enable_thinking: enableThinking === true }),
       max_tokens: maxTokens,
       temperature,
     };
-    await upsertGenerationRecord({ taskId, upstreamPayload });
-    const raw = provider === "byteplus-language"
+    const storedPayload = provider === "papaya"
+      ? JSON.parse(JSON.stringify(upstreamPayload, (key, value) => key === "url" && String(value).startsWith("data:image/") ? "[image]" : value))
+      : upstreamPayload;
+    await upsertGenerationRecord({ taskId, upstreamPayload: storedPayload });
+    const raw = provider === "papaya"
+      ? await papayaLanguageRequest(upstreamPayload)
+      : provider === "byteplus-language"
       ? await byteplusLanguageRequest(upstreamPayload)
       : await aliyunQwen37FlashRequest(upstreamPayload);
     const providerLabel = publicProviderLabel(provider);
@@ -28609,6 +30340,9 @@ async function runQwen37FlashGenerationJob(job = {}) {
       advancedPricing,
       usage,
       provider,
+      prompt,
+      textResult,
+      maxTokens,
     });
     await upsertGenerationRecord({
       taskId,
@@ -28672,12 +30406,13 @@ function startQwen37FlashGenerationJob(job = {}) {
 async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
-  const provider = context.provider === "byteplus-language" ? "byteplus-language" : "qwen37-flash";
-  const model = provider === "byteplus-language" ? BYTEPLUS_LANGUAGE_MODEL : QWEN37_FLASH_MODEL;
-  if (provider === "byteplus-language" ? !ARK_API_KEY : !ALIYUN_QWEN37_API_KEY) {
+  const provider = context.provider === "papaya" ? "papaya" : context.provider === "byteplus-language" ? "byteplus-language" : "qwen37-flash";
+  const model = provider === "papaya" ? PAPAYA_MODEL : provider === "byteplus-language" ? BYTEPLUS_LANGUAGE_MODEL : QWEN37_FLASH_MODEL;
+  const missingKey = provider === "papaya" ? !String(process.env.MULEROUTER_API_KEY || "").trim() : provider === "byteplus-language" ? !ARK_API_KEY : !ALIYUN_QWEN37_API_KEY;
+  if (missingKey) {
     return sendJson(res, 503, {
       ok: false,
-      code: provider === "byteplus-language" ? "MISSING_ARK_API_KEY" : "MISSING_ALIYUN_QWEN37_API_KEY",
+      code: provider === "papaya" ? "MISSING_MULEROUTER_API_KEY" : provider === "byteplus-language" ? "MISSING_ARK_API_KEY" : "MISSING_ALIYUN_QWEN37_API_KEY",
       message: `${publicProviderLabel(provider)} is not configured.`,
     });
   }
@@ -28703,8 +30438,11 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
     0,
     2,
   );
-  const estimatedInputTokens = Math.max(1, Math.min(1000000, Buffer.byteLength(prompt, "utf8") + 64));
-  const rawPricing = qwen37FlashPricingEstimate(config.platform?.advancedPricing, {
+  const papayaImages = provider === "papaya" ? await papayaImageDataUrls(auth, body) : [];
+  const estimatedInputTokens = Math.max(1, Math.min(256000, Math.ceil(Buffer.byteLength(prompt, "utf8") / 2) + 32 + papayaImages.length * 800));
+  const rawPricing = provider === "papaya"
+    ? papayaPricingEstimate(config.platform?.advancedPricing, { inputTokens: estimatedInputTokens, outputTokens: maxTokens })
+    : qwen37FlashPricingEstimate(config.platform?.advancedPricing, {
     inputTokens: estimatedInputTokens,
     outputTokens: maxTokens,
   });
@@ -28729,10 +30467,10 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
     taskId,
     status: "submitting",
     model,
-    source: provider === "byteplus-language" ? "advanced-byteplus-language" : "advanced-qwen37-flash",
+    source: provider === "papaya" ? "advanced-papaya" : provider === "byteplus-language" ? "advanced-byteplus-language" : "advanced-qwen37-flash",
     kind: "advanced-text",
     provider,
-    upstreamSource: provider === "byteplus-language" ? "byteplus-ark-openai-compatible" : "aliyun-openai-compatible",
+    upstreamSource: provider === "papaya" ? "mulerouter-papaya" : provider === "byteplus-language" ? "byteplus-ark-openai-compatible" : "aliyun-openai-compatible",
     userId: auth.user.id,
     prompt,
     finalPrompt: prompt,
@@ -28775,6 +30513,7 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
     cost,
     provider,
     model,
+    images: papayaImages,
   });
   const latestDb = await readDb();
   const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
@@ -29025,6 +30764,276 @@ async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
   });
 }
 
+
+async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY && !String(process.env.MULEROUTER_API_KEY || "").trim()) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Z-Image Spicy Pro generation is not configured." });
+  }
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const selectedCase = context.selectedCase || null;
+  const config = context.config || await readAppConfig();
+  const merged = {
+    ...plainObject(caseParams.parameters),
+    ...plainObject(bodyParams.parameters),
+    ...plainObject(body.parameters),
+  };
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+
+  const imagePricing = normalizeAdvancedPricing(config.platform?.advancedPricing).zImageSpicyPro || DEFAULT_ADVANCED_PRICING.zImageSpicyPro;
+  const defaultResolution = String(firstPresent(body.resolution, bodyParams.resolution, merged.resolution, imagePricing.defaultResolution || "2K"));
+  const defaultRatio = String(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, merged.ratio, imagePricing.defaultRatio || "9:16"));
+  const resolution = normalizeWan27ImageResolution(defaultResolution);
+  const ratio = normalizeWan27ImageRatio(defaultRatio);
+  const size = String(firstPresent(body.size, bodyParams.size, merged.size, wan27ImageSize(resolution, ratio)));
+  const n = Number(firstPresent(body.n, body.outputImageCount, bodyParams.n, merged.n, 1)) || 1;
+  if (n !== 1) return sendJson(res, 400, { ok: false, code: "Z_IMAGE_MULTI_OUTPUT_UNSUPPORTED", message: "Z-Image Spicy Pro supports one image per request." });
+  const watermark = boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, merged.watermark), false);
+  const promptExtend = boolFromRequest(firstPresent(body.prompt_extend, body.promptExtend, bodyParams.prompt_extend, merged.prompt_extend), true);
+  const seed = firstPresent(body.seed, bodyParams.seed, merged.seed, null);
+  if (seed !== null && seed !== "" && seed !== undefined) {
+    const numericSeed = Number(seed);
+    if (!Number.isInteger(numericSeed) || numericSeed < 0 || numericSeed > 2147483647) {
+      return sendJson(res, 400, { ok: false, code: "INVALID_SEED", message: "seed must be an integer from 0 to 2147483647." });
+    }
+  }
+
+  const rawPricing = advancedModelPricing("z-image-spicy-pro", {
+    advancedPricing: config.platform?.advancedPricing,
+    resolution,
+    ratio,
+    size,
+    outputImageCount: 1,
+  });
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
+  const taskId = localGenerationTaskId("img");
+  const requestTrace = requestTraceForGeneration(req);
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model: imagePricing.model || "z-image-spicy-pro",
+    source: "advanced-z-image-spicy-pro",
+    kind: "advanced-image",
+    provider: "z-image-spicy-pro",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+    userId: auth.user.id,
+    prompt,
+    finalPrompt: prompt,
+    params: {
+      ...plainObject(bodyParams),
+      provider: "z-image-spicy-pro",
+      resolution,
+      ratio,
+      size,
+      n: 1,
+      watermark,
+      prompt_extend: promptExtend,
+      ...(seed === null || seed === "" || seed === undefined ? {} : { seed }),
+      action: "text_to_image",
+    },
+    ratio,
+    resolution,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    upstreamPayload: null,
+    createResponse: null,
+    queryResponse: null,
+    remoteImageUrl: "",
+    localImageUrl: "",
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+    ...requestTrace,
+  };
+  await upsertGenerationRecord(initialRecord);
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "advanced_z_image_spicy_pro",
+      taskId,
+      meta: {
+        taskId,
+        provider: "z-image-spicy-pro",
+        model: imagePricing.model || "z-image-spicy-pro",
+        resolution,
+        ratio,
+        size,
+        baseCredits: pricing.baseCredits,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        pricingSource: pricing.source,
+      },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
+
+  let upstreamPayload = null;
+  try {
+    upstreamPayload = {
+      prompt,
+      ratio,
+      resolution,
+      size,
+      n: 1,
+      watermark,
+      prompt_extend: promptExtend,
+      ...(seed === null || seed === "" || seed === undefined ? {} : { seed }),
+    };
+    await upsertGenerationRecord({ taskId, upstreamPayload });
+    const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+      imageUrls: [],
+      prompt,
+      ratio,
+      resolution,
+      model: imagePricing.model || "z-image-spicy-pro",
+      input: {},
+      parameters: {
+        size,
+        n: 1,
+        watermark,
+        prompt_extend: promptExtend,
+        ...(seed === null || seed === "" || seed === undefined ? {} : { seed }),
+      },
+      waitForResult: true,
+    }) : await submitWan27ImageTextGenerate({
+      prompt,
+      ratio,
+      resolution,
+      model: imagePricing.model || "z-image-spicy-pro",
+      input: {},
+      parameters: {
+        size,
+        n: 1,
+        watermark,
+        prompt_extend: promptExtend,
+        ...(seed === null || seed === "" || seed === undefined ? {} : { seed }),
+      },
+      waitForResult: true,
+    });
+    const imageUrl = submitted.task.imageUrls[0];
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: submitted.task.taskId || "",
+      awaitingUpstreamTask: false,
+      status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      remoteImageUrl: imageUrl || "",
+      error: imageUrl ? "" : (submitted.task.error || "Z-Image Spicy Pro returned no image."),
+    });
+    if (!imageUrl) {
+      const error = new Error(submitted.task.error || "Z-Image Spicy Pro returned no image.");
+      error.statusCode = 502;
+      error.payload = submitted.raw;
+      throw error;
+    }
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "z-image image", maxBytes: 30 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    await upsertGenerationRecord({
+      taskId,
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
+      remoteImageUrl: imageUrl,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+    const latestDb = await readDb();
+    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || initialRecord, generationRecordResponseOptionsForAuth(auth));
+    return sendJson(res, 200, {
+      ok: true,
+      async: false,
+      taskId,
+      upstreamTaskId: submitted.task.taskId || "",
+      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      user: userView(latestUser),
+      pricing,
+      cost,
+      record: publicRecord,
+      params: {
+        provider: "z-image-spicy-pro",
+        resolution,
+        ratio,
+        size,
+        n: 1,
+      },
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[z-image-spicy-pro-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, auth.user.id, cost, "advanced_z_image_spicy_pro_refund", { taskId, error: error.message || "Z-Image Spicy Pro failed." });
+        await recordSubtokenAdjustment(currentRecord || { taskId, userId: auth.user.id }, {
+          taskId,
+          type: "advanced_z_image_spicy_pro_refund",
+          amount: -cost,
+          meta: { error: error.message || "Z-Image Spicy Pro failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[z-image-spicy-pro-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Z-Image Spicy Pro failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: error.message || "Z-Image Spicy Pro failed.",
+      code: error.code || "",
+      taskId,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      payload: error.payload || null,
+    });
+  }
+}
+
+
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -29121,9 +31130,9 @@ async function handleAdvancedGenerate(req, res) {
     provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
     "",
   )).trim();
-  if (isVideoReplacementRequest) prompt = VIDEO_REPLACE_PROMPT;
+  if (isVideoReplacementRequest && provider !== "z-image-spicy-pro") prompt = VIDEO_REPLACE_PROMPT;
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
-  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
+  if (["qwen37-flash", "byteplus-language", "papaya"].includes(provider)) {
     return await handleAdvancedQwen37FlashGenerate(req, res, {
       auth,
       body,
@@ -29155,6 +31164,18 @@ async function handleAdvancedGenerate(req, res) {
       selectedCase,
       config,
       prompt,
+    });
+  }
+  if (provider === "z-image-spicy-pro") {
+    return await handleAdvancedZImageSpicyProGenerate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+      provider,
     });
   }
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
@@ -31301,7 +33322,7 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
-  if (["qwen37-flash", "byteplus-language"].includes(provider)) {
+  if (["qwen37-flash", "byteplus-language", "papaya"].includes(provider)) {
     params.inputTokens = firstPresent(
       body.inputTokens,
       body.promptTokens,
@@ -32141,6 +34162,8 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     advancedConstraintsMarkdown(doc),
     "",
+    embedLiveIntegrationMarkdown(),
+    "",
   ].join("\n");
 }
 
@@ -32210,6 +34233,8 @@ function buildModelDocsMarkdown(docs) {
       '  "watermark": false',
       "}",
     ].join("\n")),
+    "",
+    embedLiveIntegrationMarkdown(),
     "",
     "## Billing",
     "",
@@ -32877,11 +34902,90 @@ function getDemoTask(taskId) {
   };
 }
 
+
+function landingFieldsFromBody(body = {}) {
+  const clean = (value, maxLength = 160) => String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+  const raw = body.attribution && typeof body.attribution === "object" && !Array.isArray(body.attribution) ? body.attribution : {};
+  const queryIn = raw.query && typeof raw.query === "object" && !Array.isArray(raw.query) ? raw.query : {};
+  const priceChannels = [];
+  const pushChannels = (value) => {
+    String(value || "").split(/[|,]/).map((item) => clean(item, 80)).filter(Boolean).forEach((item) => {
+      if (!priceChannels.includes(item) && priceChannels.length < 8) priceChannels.push(item);
+    });
+  };
+  pushChannels(body.priceChannel || body.priceChannels || body.pricingChannel);
+  pushChannels(raw.priceChannel);
+  if (Array.isArray(raw.priceChannels)) raw.priceChannels.forEach(pushChannels);
+  else pushChannels(raw.priceChannels || raw.pricingChannel);
+  pushChannels(queryIn.priceChannel || queryIn.price_channel || queryIn.pricingChannel || queryIn.channels || queryIn.priceChannels);
+  const query = {};
+  for (const [key, value] of Object.entries(queryIn)) {
+    const safeKey = clean(key, 40).replace(/[^A-Za-z0-9_-]/g, "");
+    const safeValue = clean(Array.isArray(value) ? value.join(",") : value, 180);
+    if (!safeKey || !safeValue || Object.keys(query).length >= 24) continue;
+    query[safeKey] = safeValue;
+  }
+  const referralCode = normalizeReferralCode(
+    body.referralCode || body.referral || body.ref || raw.referralCode || raw.ref || raw.sharerId || query.ref || query.referral || query.sharer || query.sharerId || ""
+  );
+  return {
+    referralCode,
+    sharerId: userIdFromReferralCode(referralCode),
+    priceChannel: priceChannels[0] || "",
+    priceChannels,
+    query,
+    medium: clean(raw.medium || query.utm_medium, 80),
+    campaign: clean(raw.campaign || query.utm_campaign, 120),
+    content: clean(raw.content || query.utm_content, 120),
+    landingPath: clean(raw.landingPath, 500),
+    capturedAt: clean(raw.capturedAt, 40),
+    channel: clean(body.channel || raw.channel || query.channel || query.utm_source, 80),
+  };
+}
+
+function attachRegistrationLanding(user, landing = {}, referrer = null, now = "", host = "") {
+  if (!user || !landing) return user;
+  const previous = user.registrationAttribution && typeof user.registrationAttribution === "object" ? user.registrationAttribution : {};
+  user.registrationAttribution = {
+    ...previous,
+    channel: user.registrationChannel || landing.channel || previous.channel || "direct",
+    medium: landing.medium || previous.medium || "",
+    campaign: landing.campaign || previous.campaign || "",
+    content: landing.content || previous.content || "",
+    landingPath: landing.landingPath || previous.landingPath || "/",
+    host: String(host || previous.host || "").slice(0, 160),
+    capturedAt: landing.capturedAt || previous.capturedAt || "",
+    registeredAt: now || previous.registeredAt || new Date().toISOString(),
+    sourceChannel: landing.channel || previous.sourceChannel || "",
+    priceChannel: landing.priceChannel || previous.priceChannel || "",
+    priceChannels: landing.priceChannels && landing.priceChannels.length ? landing.priceChannels : (previous.priceChannels || []),
+    sharerId: (referrer && referrer.id) || landing.sharerId || previous.sharerId || "",
+    referralCode: landing.referralCode || previous.referralCode || "",
+    query: landing.query && Object.keys(landing.query).length ? landing.query : (previous.query || {}),
+  };
+  if (landing.channel && (!user.registrationChannel || user.registrationChannel === "direct")) user.registrationChannel = landing.channel;
+  if (referrer && referrer.id && referrer.id !== user.id && !user.referral) {
+    user.referral = {
+      referredByUserId: referrer.id,
+      referredByUsername: referrer.username || "",
+      referralCode: landing.referralCode || "",
+      registeredAt: now,
+    };
+  }
+  return user;
+}
+
 async function registerWithBody(req, res, body = {}) {
   const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
-  const referralCode = normalizeReferralCode(body.referralCode || body.referral || body.ref || "");
+  const landingPreview = landingFieldsFromBody(body);
+  const referralCode = landingPreview.referralCode || normalizeReferralCode(body.referralCode || body.referral || body.ref || "");
   const attributionValue = (value, maxLength = 120) => String(value || "")
     .normalize("NFKC")
     .replace(/[\u0000-\u001f\u007f]/g, " ")
@@ -32929,6 +35033,7 @@ async function registerWithBody(req, res, body = {}) {
       capturedAt: attributionValue(rawAttribution.capturedAt, 40),
       registeredAt: now,
     },
+    profilePhotos: ["/assets/brand/default-avatar.jpg"],
     createdAt: now,
     updatedAt: now,
   };
@@ -32940,6 +35045,7 @@ async function registerWithBody(req, res, body = {}) {
       registeredAt: now,
     };
   }
+  attachRegistrationLanding(user, landingPreview, referrer, now, requestHostname(req));
   db.users.push(user);
   if (dbEnabled()) {
     await updateUserInDb(user);
@@ -33068,13 +35174,17 @@ function emailUsernameCandidate(db, email, tenantId) {
   return candidate;
 }
 
-async function createEmailSession(req, res, email) {
+async function createEmailSession(req, res, email, body = {}) {
   const tenantId = requestTenantId(req);
   const db = await readDb();
   let user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, tenantId));
   const now = new Date().toISOString();
   if (!user) {
+    const landingPreview = landingFieldsFromBody(body);
+    const referrerId = userIdFromReferralCode(landingPreview.referralCode);
+    const referrer = referrerId ? (await getUserByIdInDb(referrerId) || (db.users || []).find((item) => item.id === referrerId)) : null;
     user = { id: randomId("user"), tenantId, username: emailUsernameCandidate(db, email, tenantId), passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")), role: "user", credits: 0, pricingMultiplier: 1, apiPricingMultiplier: 1, apiToken: makeUniqueApiToken(db), email, emailVerifiedAt: now, registrationChannel: "email", createdAt: now, updatedAt: now };
+    attachRegistrationLanding(user, landingPreview, referrer && recordBelongsToTenant(referrer, tenantId) ? referrer : null, now, requestHostname(req));
     db.users.push(user);
   } else {
     user.email = email;
@@ -33095,7 +35205,7 @@ async function handleEmailLoginRequest(req, res) {
 async function handleEmailLoginVerify(req, res) {
   const body = await readJson(req); const email = normalizeEmail(body.email);
   if (!email || !consumeEmailCode("login", email, requestTenantId(req), body.code)) return sendJson(res, 401, { ok: false, message: "Invalid or expired verification code." });
-  return createEmailSession(req, res, email);
+  return createEmailSession(req, res, email, body);
 }
 
 async function handlePasswordResetRequest(req, res) {
@@ -33217,7 +35327,7 @@ async function verifyGoogleIdToken(idToken = "") {
   };
 }
 
-async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_ID, host = "", referralCode = "" } = {}) {
+async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_ID, host = "", referralCode = "", attribution = null } = {}) {
   const normalizedTenant = normalizeTenantId(tenantId);
   const googleId = String(claims.sub || "").trim();
   if (!googleId) {
@@ -33232,7 +35342,8 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
   let created = false;
   let referrer = null;
   if (!user) {
-    const normalizedReferralCode = normalizeReferralCode(referralCode);
+    const landingPreview = landingFieldsFromBody({ referralCode, attribution });
+    const normalizedReferralCode = landingPreview.referralCode || normalizeReferralCode(referralCode);
     const referrerId = userIdFromReferralCode(normalizedReferralCode);
     referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
     user = {
@@ -33264,6 +35375,7 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
         registeredAt: now,
       };
     }
+    attachRegistrationLanding(user, landingPreview, referrer, now, host);
     db.users.push(user);
     created = true;
   }
@@ -33272,6 +35384,9 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
   user.googleEmail = String(claims.email || "").trim().toLowerCase().slice(0, 320);
   user.googleName = String(claims.name || "").trim().slice(0, 120);
   user.googleAvatarUrl = String(claims.picture || "").trim().slice(0, 1000);
+  if (created && (!Array.isArray(user.profilePhotos) || !user.profilePhotos.length)) {
+    user.profilePhotos = [user.googleAvatarUrl || "/assets/brand/default-avatar.jpg"];
+  }
   user.googleUpdatedAt = now;
   user.updatedAt = now;
   ensureUserApiToken(user, db);
@@ -33298,6 +35413,7 @@ async function handleGoogleLogin(req, res) {
       tenantId: tenant.tenantId,
       host: requestHostname(req),
       referralCode: body.referralCode || body.referral || body.ref || "",
+      attribution: body.attribution || null,
     });
     const session = await createSingleLoginSession(account.db, account.user, tenant.tenantId);
     return sendJson(res, 200, { ok: true, token: session.token, user: userView(account.user) });
@@ -33416,6 +35532,7 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
   host = "",
   registrationMedium = "telegram-mini-app",
   referralCode = "",
+  attribution = null,
 } = {}) {
   const normalizedTenant = normalizeTenantId(tenantId);
   const telegramUserId = String(telegramUser.id || "").trim();
@@ -33432,7 +35549,8 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
   let created = false;
   let referrer = null;
   if (!user) {
-    const normalizedReferralCode = normalizeReferralCode(referralCode);
+    const landingPreview = landingFieldsFromBody({ referralCode, attribution });
+    const normalizedReferralCode = landingPreview.referralCode || normalizeReferralCode(referralCode);
     const referrerId = userIdFromReferralCode(normalizedReferralCode);
     referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
     user = {
@@ -33464,6 +35582,7 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
         registeredAt: now,
       };
     }
+    attachRegistrationLanding(user, landingPreview, referrer, now, host);
     db.users.push(user);
     created = true;
   }
@@ -33499,9 +35618,9 @@ async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT
   return { token: session.token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
 }
 
-async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "" } = {}) {
+async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "", referralCode = "", attribution = null } = {}) {
   const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
-  const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app" });
+  const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app", referralCode, attribution });
   return createTelegramUserSession(account, tenantId);
 }
 
@@ -33509,7 +35628,7 @@ async function handleTelegramWebAppAuth(req, res) {
   if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
   const tenant = requestTenantDescriptor(req);
   const body = await readJson(req);
-  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req) });
+  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req), referralCode: body.referralCode || body.referral || body.ref || "", attribution: body.attribution || null });
   return sendJson(res, 200, {
     ok: true,
     token: result.token,
@@ -33569,6 +35688,7 @@ async function handleTelegramLogin(req, res) {
     host,
     registrationMedium: "telegram-oidc",
     referralCode: body.referralCode || body.referral || body.ref || "",
+    attribution: body.attribution || null,
   });
   const result = await createTelegramUserSession(account, tenant.tenantId);
   return sendJson(res, 200, {
@@ -34793,6 +36913,361 @@ async function handleBillingSummary(req, res) {
   const billing = await billingViewForRequest(req, auth);
   if (!billing.enabled) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Subscriptions are not enabled for this site." });
   return sendJson(res, 200, { ok: true, billing, user: userView(auth.user) });
+}
+
+
+function airwallexEnabled() {
+  return Boolean(AIRWALLEX_CLIENT_ID && AIRWALLEX_API_KEY && AIRWALLEX_WEBHOOK_SECRET);
+}
+
+function airwallexCheckoutUrl(orderId = "") {
+  const url = new URL("/", `${AIRWALLEX_CHECKOUT_BASE_URL}/`);
+  url.searchParams.set("aw_sid", String(orderId || ""));
+  return url.toString();
+}
+
+async function airwallexLogin() {
+  if (!airwallexEnabled()) {
+    const error = new Error("Airwallex is not configured.");
+    error.statusCode = 503;
+    error.code = "AIRWALLEX_NOT_CONFIGURED";
+    throw error;
+  }
+  if (airwallexTokenCache.token && airwallexTokenCache.expiresAt > Date.now() + 60000) return airwallexTokenCache.token;
+  const response = await fetch(`${AIRWALLEX_API_BASE}/api/v1/authentication/login`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-client-id": AIRWALLEX_CLIENT_ID,
+      "x-api-key": AIRWALLEX_API_KEY,
+    },
+    body: "{}",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.token) {
+    const error = new Error("Airwallex login failed.");
+    error.statusCode = 502;
+    error.code = "AIRWALLEX_LOGIN_FAILED";
+    throw error;
+  }
+  const expires = Date.parse(payload.expires_at || "") || (Date.now() + 20 * 60 * 1000);
+  airwallexTokenCache = { token: payload.token, expiresAt: expires };
+  return payload.token;
+}
+
+async function airwallexRequest(pathname, body) {
+  const token = await airwallexLogin();
+  const response = await fetch(`${AIRWALLEX_API_BASE}${pathname}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body || {}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.message || "Airwallex request failed.");
+    error.statusCode = response.status || 502;
+    error.code = payload.code || "AIRWALLEX_REQUEST_FAILED";
+    throw error;
+  }
+  return payload;
+}
+
+
+function airwallexCashierReturnUrl(order, billing) {
+  const url = new URL(`${AIRWALLEX_CHECKOUT_BASE_URL}/`);
+  url.searchParams.set("aw_sid", String(order?.id || ""));
+  url.searchParams.set("billing", billing === "cancel" ? "cancel" : "success");
+  return url.toString();
+}
+
+async function ensureAirwallexPaymentIntent(order) {
+  if (order.airwallexPaymentIntentId && order.airwallexClientSecret) {
+    return { id: order.airwallexPaymentIntentId, client_secret: order.airwallexClientSecret };
+  }
+  const amount = Number(order.payableAmount || order.baseAmount || 0);
+  const intent = await airwallexRequest("/api/v1/pa/payment_intents/create", {
+    request_id: randomId("awreq"),
+    amount: Number(amount.toFixed(2)),
+    currency: "USD",
+    merchant_order_id: order.id,
+    return_url: airwallexCashierReturnUrl(order, "success"),
+    metadata: {
+      order_id: order.id,
+      user_id: order.userId || "",
+      tenant_id: order.tenantId || "",
+      tool: "live",
+    },
+  });
+  order.airwallexPaymentIntentId = String(intent.id || "");
+  order.airwallexClientSecret = String(intent.client_secret || "");
+  order.airwallexStatus = String(intent.status || "");
+  order.updatedAt = new Date().toISOString();
+  await updateWalletOrderInDb(order);
+  return intent;
+}
+
+async function createAirwallexCheckoutSession(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (requestTenantDescriptor(req).toolId !== "live") {
+    return sendJson(res, 404, { ok: false, code: "AIRWALLEX_LIVE_ONLY", message: "Airwallex checkout is only available on the live site." });
+  }
+  if (!airwallexEnabled()) return sendJson(res, 503, { ok: false, code: "AIRWALLEX_NOT_CONFIGURED", message: "Airwallex is not configured yet." });
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const selection = await paypalCheckoutSelectionForRequest(req, body, auth.user);
+  if (!selection) {
+    const requestedPlan = Boolean(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id);
+    return sendJson(res, 400, { ok: false, code: requestedPlan ? "BILLING_PLAN_NOT_FOUND" : "INVALID_TOPUP_PACKAGE", message: requestedPlan ? "Subscription plan not found." : "Please select one of the available top-up packages." });
+  }
+  if (selection.alreadyOwned) {
+    return sendJson(res, 409, { ok: false, code: selection.kind === "subscription" ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED", message: selection.kind === "subscription" ? "Membership is already active." : "This product is already active." });
+  }
+  const amount = Number(selection.amount || 0);
+  const amountCents = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amountCents < 100 || amountCents > 100000000) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_AIRWALLEX_AMOUNT", message: "Card amount must be between 1 and 1,000,000 USD." });
+  }
+  const order = {
+    id: randomId("aw"),
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
+    userId: auth.user.id,
+    paymentProvider: "airwallex",
+    orderKind: selection.kind,
+    baseAmount: amount,
+    creditAmount: creditsAmount(selection.credits),
+    packageId: selection.kind === "topup" ? selection.id : "",
+    packageCredits: selection.credits,
+    productId: selection.product?.id || "",
+    productName: selection.product?.name || "",
+    billingPlanId: selection.plan?.id || "",
+    billingPlanName: selection.plan?.name || "",
+    billingIntervalUnit: selection.plan?.intervalUnit || "",
+    billingIntervalCount: selection.plan?.intervalCount || 0,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    currency: "USD",
+    payableAmount: amount,
+    payableAmountText: amount.toFixed(2),
+    asset: "USD",
+    network: "Airwallex",
+    chain: "airwallex",
+    status: "pending",
+    sourceOrigin: pageOriginFromRequest(req),
+    cashierHost: airwallexCheckoutHostname(),
+    airwallexAccountId: AIRWALLEX_ACCOUNT_ID,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await createWalletOrderInDb(order);
+  return sendJson(res, 200, {
+    ok: true,
+    checkoutUrl: airwallexCheckoutUrl(order.id),
+    order: publicTopupOrder(order, config.wallet, tenantOptions),
+  });
+}
+
+async function findAirwallexCheckoutOrder(orderId = "") {
+  const order = await getWalletOrderByIdInDb(orderId);
+  if (!order || String(order.paymentProvider || "").toLowerCase() !== "airwallex") return null;
+  return order;
+}
+
+async function handleAirwallexCheckoutSessionDetails(req, res, orderId) {
+  const order = await findAirwallexCheckoutOrder(orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "AIRWALLEX_CHECKOUT_NOT_FOUND", message: "Airwallex checkout session not found." });
+  return sendJson(res, 200, {
+    ok: true,
+    session: {
+      status: order.status || "pending",
+      returnUrl: String(order.sourceOrigin || LIVE_BILLING_RETURN_ORIGIN).replace(/\/+$/, "") + "/",
+      order: publicTopupOrder(order, (await readAppConfig()).wallet || {}, requestTenantOptions(req)),
+    },
+  });
+}
+
+async function handleStartAirwallexCheckoutSession(req, res, orderId) {
+  const order = await findAirwallexCheckoutOrder(orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "AIRWALLEX_CHECKOUT_NOT_FOUND", message: "Airwallex checkout session not found." });
+  if (order.status === "paid") {
+    return sendJson(res, 200, { ok: true, session: { status: "paid", order: publicTopupOrder(order, (await readAppConfig()).wallet || {}, requestTenantOptions(req)) } });
+  }
+  try {
+    const intent = await ensureAirwallexPaymentIntent(order);
+    return sendJson(res, 200, {
+      ok: true,
+      env: AIRWALLEX_ENV,
+      intentId: intent.id,
+      clientSecret: intent.client_secret,
+      currency: "USD",
+      countryCode: "HK",
+      successUrl: airwallexCashierReturnUrl(order, "success"),
+      cancelUrl: airwallexCashierReturnUrl(order, "cancel"),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "AIRWALLEX_CHECKOUT_FAILED", message: "Airwallex checkout could not be created." });
+  }
+}
+
+
+const mulerouterWebhookDeliveries = new Set();
+
+function verifyMulerouterWebhookSignature(rawBody, deliveryId, timestamp, signatureHeader) {
+  const secret = String(process.env.MULEROUTER_WEBHOOK_SECRET || "").trim();
+  if (!secret || !rawBody || !deliveryId || !timestamp || !signatureHeader) return false;
+  const sentAt = Number(timestamp);
+  if (!Number.isFinite(sentAt) || Math.abs(Date.now() / 1000 - sentAt) > 5 * 60) return false;
+  const header = String(signatureHeader);
+  if (!header.startsWith("v1=")) return false;
+  const received = header.slice(3);
+  const expected = crypto.createHmac("sha256", secret).update(`${deliveryId}.${timestamp}.${rawBody}`, "utf8").digest("hex");
+  const left = Buffer.from(expected);
+  const right = Buffer.from(received);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+async function findMulerouterGenerationRecord(taskId, slug = "") {
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  const encoded = slug ? mulerouterAliyun.encodeRef(slug, id) : "";
+  if (encoded) {
+    const exact = await getGenerationRecord(encoded);
+    if (exact) return exact;
+  }
+  const direct = await getGenerationRecord(id);
+  if (direct) return direct;
+  if (!dbEnabled()) {
+    const records = await readGenerationRecords();
+    return records.find((record) => {
+      const upstream = String(record.upstreamTaskId || record.taskId || "");
+      return upstream === id || upstream.endsWith(":" + id) || (encoded && upstream === encoded);
+    }) || null;
+  }
+  const { rows } = await dbQuery(
+    `SELECT payload FROM app_generation_records
+      WHERE task_id = $1
+         OR task_id = $2
+         OR payload->>'upstreamTaskId' = $1
+         OR payload->>'upstreamTaskId' = $2
+         OR task_id LIKE $3
+         OR payload->>'upstreamTaskId' LIKE $3
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+    [encoded || id, id, "%:" + id],
+  );
+  return rows[0] ? rows[0].payload : null;
+}
+
+async function handleMulerouterWebhook(req, res) {
+  if (!mulerouterWebhookConfigured()) {
+    return sendJson(res, 503, { ok: false, code: "MULEROUTER_WEBHOOK_NOT_CONFIGURED" });
+  }
+  const rawBody = await readRawBody(req, 128 * 1024);
+  const deliveryId = String(req.headers["x-mulerouter-webhook-id"] || "");
+  const timestamp = String(req.headers["x-mulerouter-webhook-timestamp"] || "");
+  const signature = String(req.headers["x-mulerouter-webhook-signature"] || "");
+  if (!verifyMulerouterWebhookSignature(rawBody, deliveryId, timestamp, signature)) {
+    return sendJson(res, 401, { ok: false, code: "MULEROUTER_WEBHOOK_SIGNATURE_INVALID" });
+  }
+  if (mulerouterWebhookDeliveries.has(deliveryId)) return sendJson(res, 200, { ok: true, duplicate: true });
+  mulerouterWebhookDeliveries.add(deliveryId);
+  if (mulerouterWebhookDeliveries.size > 5000) {
+    const first = mulerouterWebhookDeliveries.values().next().value;
+    mulerouterWebhookDeliveries.delete(first);
+  }
+  let event = {};
+  try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid MuleRouter webhook body." }); }
+  const type = String(event.type || "");
+  if (type === "balance.low") {
+    console.warn("[mulerouter-webhook-balance-low]", String(event.id || ""));
+    return sendJson(res, 200, { ok: true, accepted: type });
+  }
+  if (type !== "task.succeeded" && type !== "task.failed") {
+    return sendJson(res, 200, { ok: true, ignored: type || "unknown" });
+  }
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
+  const taskId = String((payload.task_info && payload.task_info.id) || (payload.taskInfo && payload.taskInfo.id) || "").trim();
+  const slug = String(data.model_name || data.modelName || "").trim();
+  if (!taskId || String(event.id || "").startsWith("evt_test_")) {
+    return sendJson(res, 200, { ok: true, test: true });
+  }
+  const record = await findMulerouterGenerationRecord(taskId, slug);
+  if (!record) return sendJson(res, 503, { ok: false, code: "MULEROUTER_TASK_NOT_READY", message: "Local task record is not ready yet." });
+  const terminal = isSucceededStatus(record.status) || isFailedStatus(record.status);
+  if (terminal && (record.localVideoUrl || record.cdnVideoUrl || record.localImageUrl || record.cdnImageUrl || isFailedStatus(record.status))) {
+    return sendJson(res, 200, { ok: true, alreadySettled: true });
+  }
+  const reason = "mulerouter-webhook-" + type;
+  const nextRecord = record.provider === "aliyun-wan27-image"
+    ? await refreshWan27ImageGenerationRecord(record, { reason, upstreamRaw: payload })
+    : await refreshWan27GenerationRecord(record, { download: false, reason, upstreamRaw: payload });
+  console.log("[mulerouter-webhook]", JSON.stringify({
+    type,
+    taskId,
+    slug,
+    localTaskId: record.taskId,
+    status: nextRecord && nextRecord.status || "",
+  }));
+  return sendJson(res, 200, { ok: true, status: nextRecord && nextRecord.status || "" });
+}
+
+function verifyAirwallexSignature(rawBody, timestamp, signature) {
+  if (!AIRWALLEX_WEBHOOK_SECRET || !rawBody || !timestamp || !signature) return false;
+  const age = Math.abs(Date.now() - Number(timestamp));
+  if (!Number.isFinite(age) || age > 5 * 60 * 1000) return false;
+  const expected = crypto.createHmac("sha256", AIRWALLEX_WEBHOOK_SECRET).update(`${timestamp}${rawBody}`, "utf8").digest("hex");
+  const left = Buffer.from(expected);
+  const right = Buffer.from(String(signature));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+async function handleAirwallexWebhook(req, res) {
+  if (!AIRWALLEX_WEBHOOK_SECRET) return sendJson(res, 503, { ok: false, code: "AIRWALLEX_NOT_CONFIGURED" });
+  const rawBody = await readRawBody(req, 2 * 1024 * 1024);
+  const timestamp = String(req.headers["x-timestamp"] || "");
+  const signature = String(req.headers["x-signature"] || "");
+  if (!verifyAirwallexSignature(rawBody, timestamp, signature)) {
+    return sendJson(res, 400, { ok: false, code: "AIRWALLEX_SIGNATURE_INVALID" });
+  }
+  let event = {};
+  try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid Airwallex webhook body." }); }
+  const name = String(event.name || event.type || "");
+  const object = event.data?.object || event.data || {};
+  const orderId = String(object.merchant_order_id || object.metadata?.order_id || "").trim();
+  const order = orderId ? await findAirwallexCheckoutOrder(orderId) : null;
+  if (!order) return sendJson(res, 200, { ok: true, ignored: true });
+  const db = await readDb();
+  const config = await readAppConfig();
+  if (name === "payment_intent.succeeded") {
+    await safeSettleWalletOrderPayment(db, order, config, { note: "Settled by Airwallex payment_intent.succeeded.", scanSource: "airwallex" });
+    order.airwallexStatus = "SUCCEEDED";
+    order.airwallexPaymentIntentId = String(object.id || order.airwallexPaymentIntentId || "");
+    await updateWalletOrderInDb(order);
+  } else if (name === "payment_intent.cancelled" || name === "payment_attempt.authorization_failed") {
+    if (order.status !== "paid") {
+      order.status = name.endsWith("cancelled") ? "cancelled" : "failed";
+      order.airwallexStatus = name;
+      order.updatedAt = new Date().toISOString();
+      await updateWalletOrderInDb(order);
+    }
+  } else if ((name === "refund.received" || name === "refund.settled") && order.status === "paid" && !order.airwallexRefundedAt) {
+    const delta = creditsAmount(order.creditAmount || 0);
+    try {
+      await changeUserCredits(db, order.userId, -delta, "airwallex_refund", { orderId: order.id, provider: "airwallex", refundId: String(object.id || "") });
+      order.status = "refunded";
+      order.note = "Airwallex refund settled and credits reversed.";
+    } catch (error) {
+      order.note = `Airwallex refund received but credits were not fully reversed: ${String(error.message || error).slice(0, 160)}`;
+    }
+    order.airwallexRefundedAt = new Date().toISOString();
+    order.updatedAt = order.airwallexRefundedAt;
+    await updateWalletOrderInDb(order);
+  }
+  return sendJson(res, 200, { ok: true });
 }
 
 async function handleCreateSubscriptionOrder(req, res) {
@@ -36399,6 +38874,16 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
   };
 }
 
+function ledgerInstant(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  const text = String(value).trim();
+  let normalized = text.includes("T") ? text : text.replace(" ", "T");
+  normalized = normalized.replace(/([+-]\d{2})(\d{2})$/, "$1:$2").replace(/([+-]\d{2})$/, "$1:00");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? text : date.toISOString();
+}
+
 function publicSpendingLedger(entry = {}) {
   const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
   const amount = Math.abs(Number(entry.delta || 0));
@@ -36408,13 +38893,22 @@ function publicSpendingLedger(entry = {}) {
     delta: Number(entry.delta || 0),
     balanceAfter: creditsAmount(entry.balanceAfter || 0),
     type: entry.type || "",
-    title: meta.templateTitle || meta.caseTitle || meta.sceneName || meta.label || meta.source || entry.type || "",
-    taskId: meta.taskId || "",
+    title: /gift/i.test(entry.type || "") ? (meta.giftName || meta.label || "礼物") : (/character_chat/i.test(entry.type || "") ? (meta.characterName ? `文字对话 · ${meta.characterName}` : "文字对话") : (meta.characterName ? `视频聊天 · ${meta.characterName}` : (meta.templateTitle || meta.caseTitle || meta.sceneName || meta.label || meta.source || entry.type || ""))),
+    conversationId: meta.conversationId || "",
+    characterName: meta.characterName || "",
+    characterId: meta.characterId || "",
+    giftName: meta.giftName || "",
+    giftCount: Number(meta.count || meta.quantity || meta.giftCount || 0) || 0,
+    portraitUrl: meta.portraitUrl || "",
+    sessionId: meta.sessionId || meta.taskId || "",
+    taskId: meta.sessionId || meta.taskId || "",
+    endedAt: ledgerInstant(meta.endedAt || ""),
+    startedAt: ledgerInstant(meta.startedAt || ""),
     templateId: meta.templateId || meta.caseId || "",
     provider: meta.provider || "",
     resolution: meta.resolution || "",
     duration: meta.duration || "",
-    createdAt: entry.createdAt || "",
+    createdAt: ledgerInstant(entry.createdAt || ""),
   };
 }
 
@@ -36497,6 +38991,54 @@ async function handleListTopupRecords(req, res, url) {
   });
 }
 
+
+function groupChatLiveSpendingEntries(entries = []) {
+  const others = [];
+  const groups = new Map();
+  for (const entry of entries) {
+    const type = String(entry.type || "");
+    if (!type.startsWith("chat_live")) {
+      if (Number(entry.delta || 0) < 0) others.push(entry);
+      continue;
+    }
+    const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
+    const taskId = String(meta.taskId || "");
+    const key = String(meta.sessionId || taskId.replace(/:(hold|hold-refund):.*$/i, "") || entry.id);
+    const at = Date.parse(entry.createdAt || "") || 0;
+    const current = groups.get(key) || {
+      id: key,
+      userId: entry.userId,
+      delta: 0,
+      balanceAfter: entry.balanceAfter,
+      type: "chat_live",
+      meta: { taskId: key, sessionId: key, label: "视频聊天", characterName: meta.characterName || "" },
+      createdAt: entry.createdAt || "",
+      _start: at,
+      _end: at,
+    };
+    current.delta += Number(entry.delta || 0);
+    if (at && (!current._end || at >= current._end)) {
+      current._end = at;
+      current.balanceAfter = entry.balanceAfter;
+    }
+    if (at && (!current._start || at < current._start)) {
+      current._start = at;
+      current.createdAt = entry.createdAt || current.createdAt;
+    }
+    if (meta.characterName) current.meta.characterName = meta.characterName;
+    groups.set(key, current);
+  }
+  const grouped = [...groups.values()].filter((entry) => entry.delta < -0.0001).map((entry) => {
+    entry.meta.startedAt = entry.createdAt;
+    entry.meta.endedAt = entry._end ? new Date(entry._end).toISOString() : entry.createdAt;
+    entry.meta.duration = entry._start && entry._end ? Math.max(0, Math.round((entry._end - entry._start) / 1000)) : "";
+    delete entry._start;
+    delete entry._end;
+    return entry;
+  });
+  return [...grouped, ...others];
+}
+
 async function handleListSpendingRecords(req, res, url) {
   const exportRequested = String(url?.searchParams?.get("export") || "").toLowerCase() === "csv";
   const auth = await requireUser(req, res, { loadDb: exportRequested });
@@ -36507,8 +39049,7 @@ async function handleListSpendingRecords(req, res, url) {
     const result = await getUserSpendingRecordsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type, fromDate, toDate });
     if (result) return sendJson(res, 200, { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, user: userView(auth.user) });
   }
-  const records = (auth.db.creditLedger || [])
-    .filter((entry) => entry.userId === auth.user.id && Number(entry.delta || 0) < 0)
+  const records = groupChatLiveSpendingEntries((auth.db.creditLedger || []).filter((entry) => entry.userId === auth.user.id))
     .map(publicSpendingLedger)
     .filter((entry) => {
       if (type && String(entry.type || "").toLowerCase() !== type) return false;
@@ -38116,7 +40657,7 @@ async function handleWan27ImageEdit(req, res) {
     if (!dbEnabled()) await writeDb(auth.db);
   }
 
-  const runWan27ImageEditTask = async ({ waitForResult = true } = {}) => {
+  const runWan27ImageEditTask = async ({ waitForResult = true, sendResponse = true } = {}) => {
     const preparedAssets = [];
     for (const asset of sourceAssets) {
       preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
@@ -38142,25 +40683,44 @@ async function handleWan27ImageEdit(req, res) {
       sourceImageUrls: referenceUrls,
       status: "running",
     }, "wan27-image-edit-references-ready");
-    const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
-      imageUrls: publicImageUrls,
-      prompt,
-      ratio,
-      resolution,
-      model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-      waitForResult,
-    }) : await submitWan27ImageModify({
-      imageUrls: publicImageUrls,
-      prompt,
-      ratio,
-      resolution,
-      model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-      waitForResult,
-    });
+    const submitted = publicImageUrls.length === 0
+      ? (USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+        imageUrls: [],
+        prompt,
+        ratio,
+        resolution,
+        model,
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+        waitForResult,
+      }) : await submitWan27ImageTextGenerate({
+        prompt,
+        ratio,
+        resolution,
+        model,
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+        waitForResult,
+      }))
+      : (USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+        imageUrls: publicImageUrls,
+        prompt,
+        ratio,
+        resolution,
+        model,
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+        waitForResult,
+      }) : await submitWan27ImageModify({
+        imageUrls: publicImageUrls,
+        prompt,
+        ratio,
+        resolution,
+        model,
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+        waitForResult,
+      }));
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
@@ -38198,7 +40758,7 @@ async function handleWan27ImageEdit(req, res) {
     }, "wan27-image-edit-succeeded");
     const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
     const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
-    return sendJson(res, 200, {
+    const result = {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
@@ -38214,11 +40774,12 @@ async function handleWan27ImageEdit(req, res) {
         ...exposedWan27ImageParams(imageOptions),
         imageCount: referenceUrls.length,
       },
-    });
+    };
+    return sendResponse ? sendJson(res, 200, result) : result;
   };
 
   if (asyncResponse) {
-    runWan27ImageEditTask({ waitForResult: false }).catch(async (error) => {
+    runWan27ImageEditTask({ waitForResult: false, sendResponse: false }).catch(async (error) => {
       const errorInfo = normalizeErrorPayload(error);
       console.warn("[wan27-image-edit-background-error]", taskId, error.message || error);
       if (cost > 0) {
@@ -38272,7 +40833,7 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   try {
-    return await runWan27ImageEditTask({ waitForResult: true });
+    return await runWan27ImageEditTask({ waitForResult: true, sendResponse: true });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[wan27-image-edit-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
@@ -40395,6 +42956,8 @@ const ADVANCED_PRICING_ROWS = [
 const ADVANCED_PRICING_ROW_KEYS = new Set([
   ...ADVANCED_PRICING_ROWS.map((row) => row.key),
   "wan27-image",
+  "z-image-spicy-pro",
+  "qwen-image-edit-spicy",
   "seedream5-pro-1k",
   "seedream5-pro-2k",
   "seedream5-pro-reference",
@@ -41002,6 +43565,28 @@ async function adminAdvancedPricingView(config = {}) {
     saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     model: pricing.wan27ImagePro.model,
   });
+  for (const [rowKey, pricingKey, providerLabel, model] of [
+    ["z-image-spicy-pro", "zImageSpicyPro", "Z-Image Spicy Pro", "z-image-spicy-pro"],
+    ["qwen-image-edit-spicy", "qwenImageEditSpicy", "Qwen Image Edit Spicy", "qwen-image-edit-spicy"],
+  ]) {
+    const configured = pricing[pricingKey] || DEFAULT_ADVANCED_PRICING[pricingKey] || {};
+    const purchaseCredits = imagePurchaseCredits || pricingNumber((configured.purchaseCnyPerImage || WAN27_IMAGE_PRO_PURCHASE_CNY) * (pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
+    const saleCredits = pricingNumber((configured.saleCnyPerImage || WAN27_IMAGE_PRO_SALE_CNY) * (pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
+    rows.push({
+      key: rowKey,
+      provider: rowKey,
+      providerLabel,
+      resolution: "image",
+      unit: "image",
+      purchaseCreditsPerSecond: purchaseCredits,
+      purchaseUsdPerSecond: purchaseUsdFromCredits(purchaseCredits),
+      purchaseSource: gatewayImagePurchase?.source || "mulerouter_official_model_pricing",
+      purchaseMessage: gatewayImagePurchase?.message || "Mulerouter per generated image price.",
+      saleCreditsPerSecond: saleCredits,
+      saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      model,
+    });
+  }
   for (const resolution of ["1K", "2K"]) {
     const purchaseUsd = seedream5ProOfficialUsdPerImage(resolution);
     const gatewayPurchase = await gatewayPurchaseSeedream5ImageCredits(resolution);
@@ -41135,6 +43720,17 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       }
       next.wan27ImagePro.saleCnyPerImage = pricingNumber(rawSale, next.wan27ImagePro.saleCnyPerImage, 0, 6);
       next.wan27ImagePro.userConfigured = true;
+      continue;
+    }
+    if (key === "z-image-spicy-pro" || key === "qwen-image-edit-spicy") {
+      const rawSale = advancedPricingRowSaleYuan(row, next.creditsPerCny);
+      if (!Number.isFinite(rawSale) || rawSale < 0) {
+        throw pricingPayloadError(`Invalid sale price for ${key}`);
+      }
+      const targetKey = key === "z-image-spicy-pro" ? "zImageSpicyPro" : "qwenImageEditSpicy";
+      const target = next[targetKey] || (next[targetKey] = { ...DEFAULT_ADVANCED_PRICING[targetKey] });
+      target.saleCnyPerImage = pricingNumber(rawSale, target.saleCnyPerImage, 0, 6);
+      target.userConfigured = true;
       continue;
     }
     if (key === "seedream5-pro-1k" || key === "seedream5-pro-2k" || key === "seedream5-pro-reference") {
@@ -43248,6 +45844,16 @@ async function handleGetGenerationRecord(req, res, taskId) {
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   }
 
+  if (
+    generatedOutputStorageEnabled()
+    && !generationRecordIsApiTask(nextRecord)
+    && generationRecordR2PublicationPending(nextRecord)
+  ) {
+    const remoteVideo = generationRecordProviderVideoUrl(nextRecord);
+    if (remoteVideo) queueGeneratedVideoDownload(nextRecord.taskId, remoteVideo, "detail-r2-mirror");
+    else queueGenerationRecordMediaMaintenance(nextRecord);
+  }
+
   if (undressToolRequestAllowed(req)) {
     if (nextRecord.localVideoUrl) queueGenerationRecordMediaMaintenance(nextRecord);
     nextRecord = await ensureUndressLockedPreview(nextRecord);
@@ -43281,19 +45887,27 @@ function localDownloadPathFromRecord(record = {}, isVideo = true, url = "") {
 }
 
 function generationRecordDownloadTarget(record = {}) {
-  const videoUrl = generationRecordVideoUrl(record, { preferProviderVideoUrl: false });
-  if (videoUrl) {
+  const siteMirror = generatedOutputStorageEnabled() && !generationRecordIsApiTask(record) && generationRecordRequiresR2Publication(record);
+  if (siteMirror && (generationRecordIsVideoOutput(record) || isImageGenerationRecord(record)) && generationRecordR2PublicationPending(record)) {
+    return null;
+  }
+  const videoUrl = siteMirror
+    ? String(record.cdnVideoUrl || "").trim()
+    : generationRecordVideoUrl(record, { preferProviderVideoUrl: false });
+  if (videoUrl && (!siteMirror || generationRecordIsVideoOutput(record) || String(record.cdnVideoUrl || "").trim())) {
     const mime = videoMimeFromKnownPath(videoUrl) || "video/mp4";
     const ext = videoExtFromMime(mime, videoUrl);
     return {
-      url: videoUrl,
-      localPath: localDownloadPathFromRecord(record, true, videoUrl),
+      url: siteMirror ? String(record.cdnVideoUrl || "").trim() : videoUrl,
+      localPath: siteMirror ? "" : localDownloadPathFromRecord(record, true, videoUrl),
       objectStorageUrl: String(record.cdnVideoUrl || "").trim(),
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
   }
-  const imageUrl = generationRecordImageUrl(record);
+  const imageUrl = siteMirror
+    ? String(record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim()
+    : generationRecordImageUrl(record);
   if (imageUrl) {
     const mime = imageMimeFromKnownPath(imageUrl) || "image/png";
     const ext = imageExtFromMime(mime);
@@ -44000,8 +46614,10 @@ async function serveStatic(req, res, url) {
       || pathname === "/live.css"
       || pathname === "/live.js"
       || pathname === "/chat-live.js"
+      || pathname === "/qrcode.js"
       || pathname === "/favicon.ico"
       || pathname === "/favicon.svg"
+      || pathname === "/downloads/vipeak-live.apk"
       || pathname.startsWith("/assets/brand/")
       || pathname.startsWith("/assets/chat-live/gifts/");
     if (!allowedLivePath) return sendText(res, 404, "Not Found");
@@ -44086,9 +46702,10 @@ async function serveStatic(req, res, url) {
 
     const isHtml = contentType === "text/html";
     const isVersionedAsset = Boolean(url.searchParams.get("v"));
-    const isLiveFrontendAsset = liveTenantRequest && ["/live.html", "/live.css", "/live.js", "/chat-live.js"].includes(pathname);
+    const frontendNames = ["/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js"];
+    const isFrontendAsset = frontendNames.includes(pathname) || ((liveTenantRequest || chatTenantRequest) && [".html", ".js", ".css"].includes(path.extname(pathname).toLowerCase()));
     const isLongCacheAsset =
-      isVersionedAsset ||
+      (isVersionedAsset && !isFrontendAsset) ||
       contentType.startsWith("image/") ||
       contentType.startsWith("font/") ||
       filePath.startsWith(path.normalize(path.join(ROOT, "assets", "ourdream")));
@@ -44102,15 +46719,19 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") ? "bytes" : "none",
-      "cache-control": isLiveFrontendAsset
-        ? "no-store, no-cache, must-revalidate"
-        : isHtml
-        ? "no-cache"
+      "cache-control": isFrontendAsset || isHtml
+        ? "no-store, no-cache, must-revalidate, max-age=0"
         : contentType.startsWith("video/") || isLongCacheAsset
           ? "public, max-age=604800, immutable"
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
+      ...(isFrontendAsset || isHtml ? {
+        pragma: "no-cache",
+        expires: "0",
+        "cdn-cache-control": "no-store",
+        "cloudflare-cdn-cache-control": "no-store",
+      } : {}),
       ...extraHeaders,
     });
     if (req.method === "HEAD") return res.end();
@@ -44141,6 +46762,32 @@ function playfluxTemplatesForTenant(templates = [], tenantOptions = {}) {
   return templates.filter((item) => tabs.has(String(item?.tab || "").trim().toLowerCase()));
 }
 
+async function handlePosterImage(req, res, url) {
+  const target = String(url.searchParams.get("url") || "").trim();
+  if (!isManagedChatLiveAssetUrl(target)) return sendText(res, 400, "Bad image");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(target, { redirect: "error", signal: controller.signal });
+    if (!response.ok) return sendText(res, 502, "Image unavailable");
+    const type = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!type.startsWith("image/")) return sendText(res, 415, "Not an image");
+    const body = Buffer.from(await response.arrayBuffer());
+    if (!body.length || body.length > 8 * 1024 * 1024) return sendText(res, 413, "Image too large");
+    res.writeHead(200, {
+      "Content-Type": type,
+      "Content-Length": body.length,
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
+  } catch {
+    if (!res.headersSent) sendText(res, 502, "Image unavailable");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -44168,6 +46815,10 @@ async function handleRequest(req, res) {
       if (shouldCleanBypassUrl(req, url)) {
         return redirectWithoutBypassParam(res, url);
       }
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/poster-image") {
+      return await handlePosterImage(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/health") {
@@ -44324,6 +46975,27 @@ async function handleRequest(req, res) {
 
     /* Chat live (Vidu S2-Avatar realtime) — shared by the 123 platform chat tab
        and the standalone chat.5vips.com page. */
+    if (req.method === "GET" && url.pathname === "/api/chat-live/creator/characters") {
+      return await handleCreatorChatLiveCharacters(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/creator/characters") {
+      return await handleCreatorSaveChatLiveCharacter(req, res);
+    }
+    const creatorChatLiveCharacterMatch = url.pathname.match(/^\/api\/chat-live\/creator\/characters\/([^/]+)$/);
+    if (req.method === "PUT" && creatorChatLiveCharacterMatch) {
+      return await handleCreatorSaveChatLiveCharacter(req, res, decodeURIComponent(creatorChatLiveCharacterMatch[1]));
+    }
+    const creatorChatLiveUndressMatch = url.pathname.match(/^\/api\/chat-live\/creator\/characters\/([^/]+)\/undress$/);
+    if (req.method === "POST" && creatorChatLiveUndressMatch) {
+      return await handleCreatorGenerateChatLiveUndress(req, res, decodeURIComponent(creatorChatLiveUndressMatch[1]));
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/creator/assets") {
+      return await handleCreatorUploadChatLiveAsset(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/chat-live/creator/voices") {
+      return await handleCreatorChatLiveVoices(req, res, url);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/chat-live/characters") {
       return await handlePublicChatLiveCharacters(req, res);
     }
@@ -44335,8 +47007,25 @@ async function handleRequest(req, res) {
       return await handleJoinChatLiveRoom(req, res, decodeURIComponent(chatLiveRoomJoinMatch[1]));
     }
     const chatLiveRoomMessageMatch = url.pathname.match(/^\/api\/chat-live\/rooms\/([^/]+)\/messages\/?$/);
-    if (req.method === "POST" && chatLiveRoomMessageMatch) {
-      return await handleChatLiveRoomMessage(req, res, decodeURIComponent(chatLiveRoomMessageMatch[1]));
+    if ((req.method === "GET" || req.method === "POST") && chatLiveRoomMessageMatch) {
+      const roomKey = decodeURIComponent(chatLiveRoomMessageMatch[1]);
+      if (req.method === "GET") return await handleListChatLiveRoomMessages(req, res, roomKey);
+      return await handleChatLiveRoomMessage(req, res, roomKey);
+    }
+    if (req.method === "GET" && url.pathname === "/api/embed/live/voices") {
+      return handleEmbedLiveVoices(req, res, url);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/embed/live/tickets") {
+      return handleEmbedLiveTicket(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/embed/live/bootstrap") {
+      return handleEmbedLiveBootstrap(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/chat-live/contacts") {
+      return await handleListChatLiveContacts(req, res);
     }
     if (req.method === "POST" && url.pathname === "/api/chat-live/sessions") {
       return await handleCreateChatLiveSession(req, res);
@@ -44356,6 +47045,10 @@ async function handleRequest(req, res) {
     const chatLiveSessionOperationMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/operations$/);
     if (req.method === "POST" && chatLiveSessionOperationMatch) {
       return await handleReportChatLiveOperation(req, res, decodeURIComponent(chatLiveSessionOperationMatch[1]));
+    }
+    const chatLiveVoiceMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/voice$/);
+    if (req.method === "POST" && chatLiveVoiceMatch) {
+      return await handleChatLiveVoice(req, res, decodeURIComponent(chatLiveVoiceMatch[1]));
     }
     const chatLiveSayMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/say$/);
     if (req.method === "POST" && chatLiveSayMatch) {
@@ -44576,10 +47269,35 @@ async function handleRequest(req, res) {
       return await handlePayPalConfig(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/pay/airwallex/checkout-sessions") {
+      return await createAirwallexCheckoutSession(req, res);
+    }
+    const airwallexCheckoutSessionMatch = url.pathname.match(/^\/api\/pay\/airwallex\/checkout-sessions\/([^/]+)$/);
+    if (req.method === "GET" && airwallexCheckoutSessionMatch) {
+      return await handleAirwallexCheckoutSessionDetails(req, res, decodeURIComponent(airwallexCheckoutSessionMatch[1]));
+    }
+    const airwallexCheckoutStartMatch = url.pathname.match(/^\/api\/pay\/airwallex\/checkout-sessions\/([^/]+)\/start$/);
+    if (req.method === "POST" && airwallexCheckoutStartMatch) {
+      if (!isPaymentHostRequest(req)) return sendJson(res, 409, { ok: false, code: "AIRWALLEX_CHECKOUT_REQUIRED", message: "Airwallex payments must be started from the secure checkout page." });
+      return await handleStartAirwallexCheckoutSession(req, res, decodeURIComponent(airwallexCheckoutStartMatch[1]));
+    }
+    if (req.method === "POST" && (url.pathname === "/api/billing/airwallex/webhook" || url.pathname === "/api/pay/airwallex/webhook")) {
+      return await handleAirwallexWebhook(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/webhooks/mulerouter") {
+      return await handleMulerouterWebhook(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/pay/stripe/config") {
       return sendJson(res, 200, { ok: true, stripe: stripePublicConfig(req) });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/promo/double-topup") {
+      return await handleDoubleTopupPromoStatus(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/promo/double-topup/checkout") {
+      return await createDoubleTopupCheckout(req, res);
+    }
     if (req.method === "POST" && url.pathname === "/api/pay/stripe/checkout-sessions") {
       return await createStripeCheckoutSession(req, res);
     }
@@ -44775,6 +47493,19 @@ async function handleRequest(req, res) {
     if (req.method === "PUT" && url.pathname === "/api/admin/config") {
       return await handleAdminSaveConfig(req, res);
     }
+    if (req.method === "GET" && url.pathname === "/api/admin/aliyun-route") {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      return sendJson(res, 200, { ok: true, route: mulerouterAliyun.publicStatus() });
+    }
+    if (req.method === "PUT" && url.pathname === "/api/admin/aliyun-route") {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      const body = await readJson(req);
+      const enabled = body?.enabled === true || body?.route?.enabled === true;
+      const saved = mulerouterAliyun.writeRouteConfig(enabled);
+      return sendJson(res, 200, { ok: true, route: { ...mulerouterAliyun.publicStatus(), ...saved, enabled: saved.enabled } });
+    }
 
     if (req.method === "GET" && url.pathname === "/api/admin/undress-prompts") {
       return await handleAdminGetUndressPrompts(req, res);
@@ -44813,6 +47544,10 @@ async function handleRequest(req, res) {
     const adminChatLiveCharacterMatch = url.pathname.match(/^\/api\/admin\/chat-live\/characters\/([^/]+)$/);
     if (req.method === "PUT" && adminChatLiveCharacterMatch) {
       return await handleAdminSaveChatLiveCharacter(req, res, decodeURIComponent(adminChatLiveCharacterMatch[1]));
+    }
+    const adminChatLiveShelfMatch = url.pathname.match(/^\/api\/admin\/chat-live\/characters\/([^/]+)\/shelf$/);
+    if (req.method === "POST" && adminChatLiveShelfMatch) {
+      return await handleAdminShelfChatLiveCharacter(req, res, decodeURIComponent(adminChatLiveShelfMatch[1]));
     }
     if (req.method === "DELETE" && adminChatLiveCharacterMatch) {
       return await handleAdminDeleteChatLiveCharacter(req, res, decodeURIComponent(adminChatLiveCharacterMatch[1]));

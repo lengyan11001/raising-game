@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Live</title>
+  <link rel="stylesheet" href="/live.css" />
+  <style>html,body{margin:0;height:100%;background:#05060a;color:#e2e8f0;font-family:sans-serif}#msg{padding:28px;line-height:1.5}</style>
+</head>
+<body>
+  <div id="msg">正在接通…</div>
+  <script src="/chat-live.js"></script>
+  <script>
+    (async () => {
+      const msg = document.getElementById("msg");
+      const ticket = new URLSearchParams(location.search).get("ticket") || "";
+      if (!ticket) { msg.textContent = "缺少接入票。"; return; }
+      let payload = {};
+      try {
+        const response = await fetch("/api/embed/live/bootstrap", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ticket, parentOrigin: document.referrer || "" }),
+        });
+        payload = await response.json();
+        if (!response.ok) throw new Error(payload.message || "接通失败。");
+      } catch (error) {
+        msg.textContent = error.message || "接通失败。";
+        return;
+      }
+      try { localStorage.setItem("raisingGameToken", payload.browserToken); } catch {}
+      msg.remove();
+      try {
+        await window.ChatLive.open(payload.character, {});
+      } catch (error) {
+        document.body.textContent = error.message || "接通失败。";
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -274,6 +274,7 @@ async function api(url, options = {}) {
       ...(options.headers || {}),
     },
   };
+  if (options.signal) opts.signal = options.signal;
   if (state.token) opts.headers.authorization = `Bearer ${state.token}`;
   if (options.body !== undefined && opts.method !== "GET") {
     opts.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
@@ -379,7 +380,16 @@ function showApp() {
 function hideAppLoading() {
   if (!els.appLoadingScreen) return;
   els.appLoadingScreen.classList.add("is-hidden");
-  setTimeout(() => { els.appLoadingScreen.style.display = "none"; }, 300);
+  els.appLoadingScreen.style.pointerEvents = "none";
+  els.appLoadingScreen.style.display = "none";
+}
+
+function releaseAdminClickBlockers() {
+  hideAppLoading();
+  if (els.dialog?.open) {
+    try { els.dialog.close(); } catch { /* already closing */ }
+  }
+  document.querySelectorAll(".chat-live-modal").forEach((node) => node.remove());
 }
 
 /* ============ routing ============ */
@@ -404,6 +414,7 @@ function applyAdminNavVisibility() {
 }
 
 function routeFromHash() {
+  releaseAdminClickBlockers();
   const hash = window.location.hash.replace(/^#\//, "").trim();
   const routes = visibleAdminRoutes();
   const route = routes.find((r) => r.id === hash) || routes[0] || ROUTES[0];
@@ -2021,6 +2032,8 @@ async function renderGenerationRecords() {
           <option value="seedance" ${provider === "seedance" ? "selected" : ""}>seedance</option>
           <option value="seedream5-image" ${provider === "seedream5-image" ? "selected" : ""}>seedream5-image</option>
           <option value="aliyun-wan27-image" ${provider === "aliyun-wan27-image" ? "selected" : ""}>wan27-image</option>
+          <option value="z-image-spicy-pro" ${provider === "z-image-spicy-pro" ? "selected" : ""}>z-image-spicy-pro</option>
+          <option value="qwen-image-edit-spicy" ${provider === "qwen-image-edit-spicy" ? "selected" : ""}>qwen-image-edit-spicy</option>
         </select>
         <select id="recordKind">
           <option value="">全部类型</option>
@@ -3747,7 +3760,7 @@ function fmtPriceRange(values = [], suffix = "") {
 function isImagePricingRow(row = {}) {
   const provider = String(row.provider || "").toLowerCase();
   const unit = String(row.unit || "").toLowerCase();
-  return provider === "wan27-image" || provider === "seedream5-image" || unit.includes("image");
+  return provider === "wan27-image" || provider === "seedream5-image" || provider === "z-image-spicy-pro" || provider === "qwen-image-edit-spicy" || unit.includes("image");
 }
 
 function rowPriceUnit(row = {}, credits = false) {
@@ -3858,6 +3871,7 @@ async function renderPricingLegacy() {
 
 let chatLiveVoicesCache = null;
 let chatLiveEditingId = "";
+let chatLiveEditorSession = 0;
 let chatLiveVoiceFilter = "";
 let chatLiveTab = "characters";
 let chatLiveSessionPage = 1;
@@ -3877,7 +3891,7 @@ async function loadChatLiveVoices() {
 }
 
 function chatLiveVoiceProviderLabel(provider) {
-  return ({ qwen_omni: "实时版（qwen_omni）", doubao_cn: "实时版（豆包·国内）", doubao_overseas: "实时版（豆包·国外）", offline: "非实时版" }[provider] || provider || "");
+  return ({ qwen_omni: "实时版（qwen_omni）", doubao_cn: "实时版（豆包·国内）", doubao_overseas: "实时版（豆包·国外）", offline: "非实时版", dashscope_cosyvoice: "组件版（CosyVoice）" }[provider] || provider || "");
 }
 
 function chatLiveVoiceOptions(voices, selectedValue = "", filter = "") {
@@ -3925,12 +3939,13 @@ function chatLiveCharacterRow(character = {}) {
         </div>
       </td>
       <td><span class="adm-mono">${escapeHtml(character.voiceType || "-")}</span><br/><small class="adm-muted">${escapeHtml(chatLiveVoiceProviderLabel(character.voiceProvider))}</small></td>
+      <td>${escapeHtml(character.createdByUsername || "平台")}</td>
       <td>${escapeHtml(String(character.sortOrder ?? 0))}</td>
       <td>${chatLiveUndressLabel(character)}</td>
-      <td><span class="adm-badge ${enabled ? "adm-badge-ok" : "adm-badge-muted"}">${enabled ? "启用" : "停用"}</span></td>
+      <td><span class="adm-badge ${enabled ? "adm-badge-ok" : "adm-badge-muted"}">${enabled ? "已上架" : "已下架"}</span></td>
       <td>
         <button class="adm-btn adm-btn-ghost" data-chat-live-edit="${escapeHtml(character.id)}" type="button">编辑</button>
-        <button class="adm-btn adm-btn-danger" data-chat-live-delete="${escapeHtml(character.id)}" type="button">删除</button>
+        <button class="adm-btn ${enabled ? "adm-btn-danger" : "adm-btn-ghost"}" data-chat-live-shelf="${escapeHtml(character.id)}" data-chat-live-enabled="${enabled ? "1" : "0"}" type="button">${enabled ? "下架" : "上架"}</button>
       </td>
     </tr>
   `;
@@ -3949,23 +3964,28 @@ function chatLiveVoiceProviders(defaults = {}, current = "") {
 
 
 function chatLiveAssetField({ id, label, url = "", hint = "", clearable = false, kind = "" } = {}) {
+  const isAudio = kind === "ambient-music";
   const preview = url
-    ? `<img src="${escapeHtml(url)}" alt="" draggable="false" />`
+    ? (isAudio
+      ? `<audio src="${escapeHtml(url)}" controls></audio>`
+      : `<img src="${escapeHtml(url)}" alt="" draggable="false" />`)
     : `<span>未上传</span>`;
+  const accept = isAudio ? "audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/*" : "image/png,image/jpeg,image/webp";
+  const acceptHint = isAudio ? "MP3、WAV、OGG、M4A，15MB 以内。" : hint;
   return `
-    <div class="adm-form-row">
-      <span>${escapeHtml(label)}</span>
-      <div class="chat-live-asset" data-asset-field="${escapeHtml(id)}" data-asset-kind="${escapeHtml(kind)}">
-        <input type="hidden" id="${escapeHtml(id)}" value="${escapeHtml(url)}" />
-        <div class="chat-live-asset-preview">${preview}</div>
+    <article class="chat-live-media-card" data-asset-field="${escapeHtml(id)}" data-asset-kind="${escapeHtml(kind)}">
+      <div class="chat-live-asset-preview${isAudio ? " chat-live-audio-preview" : ""}">${preview}</div>
+      <div class="chat-live-media-meta">
+        <strong>${escapeHtml(label)}</strong>
+        <small class="adm-muted">${escapeHtml(acceptHint)}</small>
         <div class="chat-live-asset-actions">
-          <button class="adm-btn adm-btn-ghost" type="button" data-asset-pick="${escapeHtml(id)}">上传图片</button>
+          <button class="adm-btn adm-btn-ghost" type="button" data-asset-pick="${escapeHtml(id)}">${url ? "更换" : "上传"}</button>
           ${clearable ? `<button class="adm-btn adm-btn-ghost" type="button" data-asset-clear="${escapeHtml(id)}">清除</button>` : ""}
-          <input type="file" accept="image/png,image/jpeg,image/webp" data-asset-file="${escapeHtml(id)}" hidden />
+          <input type="file" accept="${accept}" data-asset-file="${escapeHtml(id)}" hidden />
         </div>
-        <small class="adm-muted">${hint}</small>
       </div>
-    </div>`;
+      <input type="hidden" id="${escapeHtml(id)}" value="${escapeHtml(url)}" />
+    </article>`;
 }
 
 function readChatLiveAssetFile(file) {
@@ -3973,6 +3993,15 @@ function readChatLiveAssetFile(file) {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("读取图片失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readChatLiveAudioFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取音频失败。"));
     reader.readAsDataURL(file);
   });
 }
@@ -3996,7 +4025,9 @@ function bindChatLiveAssetUploads(root) {
   const setPreview = (id, url) => {
     const box = previewOf(id);
     if (!box) return;
-    box.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" draggable="false" />` : `<span>未上传</span>`;
+    const field = box.closest("[data-asset-field]");
+    const isAudio = field?.getAttribute("data-asset-kind") === "ambient-music";
+    box.innerHTML = url ? (isAudio ? `<audio src="${escapeHtml(url)}" controls></audio>` : `<img src="${escapeHtml(url)}" alt="" draggable="false" />`) : `<span>未上传</span>`;
   };
   root.querySelectorAll("[data-asset-pick]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -4021,13 +4052,26 @@ function bindChatLiveAssetUploads(root) {
       if (!file) return;
       const assetType = String(file.type || "").toLowerCase();
       const assetName = String(file.name || "").toLowerCase();
-      if (!["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"].includes(assetType) && !/\.(png|jpe?g|webp|gif)$/.test(assetName)) {
-        toast("只支持 PNG、JPG、WEBP、GIF。", "error");
-        return;
-      }
-      if (file.size > 8 * 1024 * 1024) {
-        toast("图片不能超过 8MB。", "error");
-        return;
+      const assetKind = input.closest("[data-asset-field]")?.getAttribute("data-asset-kind") || "";
+      const isAudio = assetKind === "ambient-music";
+      if (isAudio) {
+        if (!["audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/mp3"].includes(assetType) && !/\.(mp3|wav|ogg|m4a)$/.test(assetName)) {
+          toast("只支持 MP3、WAV、OGG、M4A 音频。", "error");
+          return;
+        }
+        if (file.size > 15 * 1024 * 1024) {
+          toast("音频不能超过 15MB。", "error");
+          return;
+        }
+      } else {
+        if (!["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"].includes(assetType) && !/\.(png|jpe?g|webp|gif)$/.test(assetName)) {
+          toast("只支持 PNG、JPG、WEBP、GIF。", "error");
+          return;
+        }
+        if (file.size > 8 * 1024 * 1024) {
+          toast("图片不能超过 8MB。", "error");
+          return;
+        }
       }
       const id = input.dataset.assetFile;
       const pick = root.querySelector(`[data-asset-pick="${id}"]`);
@@ -4035,8 +4079,8 @@ function bindChatLiveAssetUploads(root) {
       try {
         const localUrl = URL.createObjectURL(file);
         setPreview(id, localUrl);
-        const dataUrl = await readChatLiveAssetFile(file);
-        const explicitKind = input.closest(".chat-live-asset")?.getAttribute("data-asset-kind") || "";
+        const dataUrl = isAudio ? await readChatLiveAudioFile(file) : await readChatLiveAssetFile(file);
+        const explicitKind = input.closest("[data-asset-field]")?.getAttribute("data-asset-kind") || "";
         const kind = explicitKind || (id === "chatLivePortraitUrl" ? "portrait" : "avatar");
         const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind } });
         const hidden = root.querySelector(`#${id}`);
@@ -4045,7 +4089,7 @@ function bindChatLiveAssetUploads(root) {
           hidden.dispatchEvent(new Event("change"));
         }
         if (!result.url) throw new Error("上传成功但没有返回素材。");
-        toast("图片已上传。", "success");
+        toast(isAudio ? "音频已上传。" : "图片已上传。", "success");
       } catch (error) {
         const hidden = root.querySelector(`#${id}`);
         setPreview(id, hidden?.value || "");
@@ -4057,44 +4101,380 @@ function bindChatLiveAssetUploads(root) {
   });
 }
 
+
+function chatLiveAlbumCardHtml(item = {}, index = 0) {
+  const type = item.type === "video" ? "video" : "image";
+  const url = String(item.url || "");
+  const preview = item.previewUrl || url;
+  const media = preview
+    ? (type === "video"
+      ? `<video src="${escapeHtml(preview)}" muted playsinline></video>`
+      : `<img src="${escapeHtml(preview)}" alt="" draggable="false" />`)
+    : `<span>未上传</span>`;
+  return `
+    <article class="chat-live-album-card chat-live-private-row" data-private-id="${escapeHtml(item.id || `album-${Date.now()}-${index}`)}">
+      <div class="chat-live-album-thumb" data-private-preview>${media}</div>
+      <input type="hidden" data-private-url value="${escapeHtml(url)}" />
+      <input data-private-name value="${escapeHtml(item.name || `相册 ${index + 1}`)}" placeholder="名称" />
+      <div class="chat-live-album-tools">
+        <select data-private-type>
+          <option value="image" ${type === "video" ? "" : "selected"}>图片</option>
+          <option value="video" ${type === "video" ? "selected" : ""}>视频</option>
+        </select>
+        <label class="adm-check"><input data-private-locked type="checkbox" ${item.locked !== false ? "checked" : ""} />锁定</label>
+        <button class="adm-btn adm-btn-danger" type="button" data-private-remove>移除</button>
+      </div>
+      <input data-private-file type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" hidden />
+    </article>`;
+}
+
 function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const value = character || {};
-  const privateResources = Array.isArray(value.privateResources) ? value.privateResources : [];
-  const privateRows = privateResources.map((item, index) => `<div class="chat-live-private-row" data-private-index="${index}"><input data-private-name value="${escapeHtml(item.name || `私密资源 ${index + 1}`)}" placeholder="资源名称" /><select data-private-type><option value="image" ${item.type === "video" ? "" : "selected"}>图片</option><option value="video" ${item.type === "video" ? "selected" : ""}>视频</option></select><input data-private-url value="${escapeHtml(item.url || "")}" placeholder="上传后自动填写" readonly /><button class="adm-btn adm-btn-ghost" type="button" data-private-upload>上传</button><input data-private-file type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" hidden /><button class="adm-btn adm-btn-danger" type="button" data-private-remove>删除</button></div>`).join("");
+  const privateResources = Array.isArray(value.album) && value.album.length ? value.album : (Array.isArray(value.privateResources) ? value.privateResources.map((item) => ({ ...item, locked: true })) : []);
+  const privateRows = privateResources.map((item, index) => chatLiveAlbumCardHtml(item, index)).join("");
   return `
-    <div id="chatLiveCharacterForm" class="adm-form">
+    <div id="chatLiveCharacterForm" class="chat-live-editor">
       <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
-      <div class="adm-form-row"><span>角色名称</span><input id="chatLiveName" value="${escapeHtml(value.name || "")}" placeholder="例如：甜甜 Tina" /></div>
-      ${chatLiveAssetField({ id: "chatLiveAvatarUrl", label: "形象图", url: value.avatarUrl || "", hint: "上传单人正脸半身图（PNG / JPG / WEBP，8MB 以内）。图片存到 R2，页面上不显示地址。" })}
-      <div class="adm-form-row" id="chatLiveUndressRow">
-        <span>Undress</span>
-        <div class="chat-live-undress">
-          <div class="chat-live-asset-preview" id="chatLiveUndressPreview"><span>未生成</span></div>
-          <div class="chat-live-undress-meta">
-            <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveUndressBtn">生成 Undress</button>
-            <small class="adm-muted" id="chatLiveUndressStatus"></small>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>形象素材</h3><p class="adm-muted">只显示缩略图，不显示地址。素材上传到 R2。</p></div></div>
+        <div class="chat-live-media-grid">
+          ${chatLiveAssetField({ id: "chatLiveAvatarUrl", label: "形象图", url: value.avatarUrl || "", hint: "单人正脸半身图，PNG / JPG / WEBP，8MB 以内。", kind: "avatar" })}
+          <article class="chat-live-media-card" id="chatLiveUndressRow">
+            <div class="chat-live-asset-preview" id="chatLiveUndressPreview"><span>未生成</span></div>
+            <div class="chat-live-media-meta">
+              <strong>Undress</strong>
+              <small class="adm-muted" id="chatLiveUndressStatus">点一下就后台生成，不用在这个页面等。</small>
+              <div class="chat-live-asset-actions">
+                <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveUndressBtn">生成 Undress</button>
+              </div>
+            </div>
+          </article>
+          ${chatLiveAssetField({ id: "chatLivePortraitUrl", label: "列表头像", url: value.portraitUrl || "", hint: "前台卡片用。不传就用形象图。", clearable: true, kind: "portrait" })}
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>环境音效</h3><p class="adm-muted">角色专属背景音乐，会在视频聊天时循环播放。</p></div></div>
+        <div class="chat-live-media-grid">
+          ${chatLiveAssetField({ id: "chatLiveAmbientMusicUrl", label: "环境音乐", url: value.ambientMusicUrl || "", hint: "MP3、WAV、OGG、M4A，15MB 以内。", clearable: true, kind: "ambient-music" })}
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>基础资料</h3></div></div>
+        <div class="chat-live-field-grid">
+          <div class="adm-form-row"><span>角色名称</span><input id="chatLiveName" value="${escapeHtml(value.name || "")}" placeholder="例如：甜甜 Tina" /></div>
+          <div class="adm-form-row"><span>年龄</span><input id="chatLiveAge" type="number" min="18" max="80" value="${escapeHtml(value.age ? String(value.age) : "")}" placeholder="例如：23" /></div>
+          <div class="adm-form-row"><span>职业</span><input id="chatLiveOccupation" value="${escapeHtml(value.occupation || "")}" maxlength="40" placeholder="例如：插画师" /></div>
+          <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
+          <div class="adm-form-row"><span>标签</span><input id="chatLiveTags" value="${escapeHtml((value.tags || []).join(","))}" placeholder="温柔,御姐" /></div>
+          <div class="adm-form-row"><span>排序</span><input id="chatLiveSortOrder" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
+          <div class="adm-form-row chat-live-span-2"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
+          <div class="adm-form-row chat-live-span-2"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
+          <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
+          <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接 LLM/ASR/TTS</option></select></div>
+          <div class="adm-form-row"><span>人设增强</span><label class="adm-check"><input id="chatLivePersonaEnhance" type="checkbox" ${value.personaEnhance === true ? "checked" : ""} /> 让 Vidu 自动扩写人设</label></div>
+          <div class="adm-form-row"><span>多人房间</span><label class="adm-check"><input id="chatLiveSharedRoom" type="checkbox" ${value.sharedRoomEnabled === true ? "checked" : ""} /> 首页显示房间</label></div>
+          <div class="adm-form-row"><span>状态</span><label class="adm-check"><input id="chatLiveEnabled" type="checkbox" ${value.id && value.enabled !== false ? "checked" : ""} /> 上架（前台可见，新建默认下架）</label></div>
+        </div>
+      </section>
+      <section class="adm-card chat-live-voice-card">
+        <div class="adm-card-head"><div><h3>音色</h3><p class="adm-muted">点「选择」打开音色列表，可搜索、翻页。编辑页 v4。</p></div></div>
+        <div class="chat-live-voice-grid">
+          <div class="chat-live-voice-pane">
+            <span>实时版供应商</span>
+            <div class="chat-live-provider-picks">${chatLiveVoiceProviders(defaults, value.voiceProvider === "dashscope_cosyvoice" ? "qwen_omni" : (value.voiceProvider || "")).filter((p) => p !== "dashscope_cosyvoice").map((p) => `<button type="button" class="adm-btn adm-btn-ghost ${((value.voiceProvider === "dashscope_cosyvoice" ? "qwen_omni" : (value.voiceProvider || "qwen_omni")) === p) ? "is-on" : ""}" data-chat-live-provider="${escapeHtml(p)}">${escapeHtml(chatLiveVoiceProviderLabel(p))}</button>`).join("")}</div>
+            <input type="hidden" id="chatLiveVoiceProvider" value="${escapeHtml(value.voiceProvider === "dashscope_cosyvoice" ? "qwen_omni" : (value.voiceProvider || "qwen_omni"))}" />
+            <span>实时版音色</span>
+            <button type="button" class="adm-btn chat-live-voice-trigger" data-chat-live-open-voice="realtime"><b id="chatLiveVoiceSelected">${escapeHtml(value.voiceProvider === "dashscope_cosyvoice" ? "未选择" : (value.voiceType || "未选择"))}</b><span>选择</span></button>
+            <input type="hidden" id="chatLiveVoiceType" value="${escapeHtml(value.voiceProvider === "dashscope_cosyvoice" ? "" : (value.voiceType || ""))}" />
+          </div>
+          <div class="chat-live-voice-pane">
+            <span>组件版音色</span>
+            <small class="adm-muted">CosyVoice，和实时版不是同一套。</small>
+            <button type="button" class="adm-btn chat-live-voice-trigger" data-chat-live-open-voice="component"><b id="chatLiveComponentVoiceSelected">${escapeHtml(value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? (value.voiceType || "") : "") || "未选择")}</b><span>选择</span></button>
+            <input type="hidden" id="chatLiveComponentVoiceType" value="${escapeHtml(value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? (value.voiceType || "") : ""))}" />
           </div>
         </div>
-      </div>
-      ${chatLiveAssetField({ id: "chatLivePortraitUrl", label: "列表头像", url: value.portraitUrl || "", hint: "前台卡片用，可不传。不传就用形象图。", clearable: true })}
-      <div class="adm-form-row"><span>会员私密资源</span><div id="chatLivePrivateResources" class="chat-live-private-resources">${privateRows}<button class="adm-btn adm-btn-ghost" type="button" id="chatLivePrivateAdd">添加私密资源</button><small class="adm-muted">仅已订阅会员可见。图片 ≤8MB，视频 ≤80MB。</small></div></div>
-      <div class="adm-form-row"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
-      <div class="adm-form-row"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
-      <div class="adm-form-row"><span>人设 / 对话剧本</span><div class="chat-live-persona-editor"><textarea id="chatLivePersona" rows="12" placeholder="支持 Markdown：身份、性格、欢迎语、聊天节奏、安抚方式、礼物边界…">${escapeHtml(value.personaMd || value.persona || "")}</textarea><div class="chat-live-persona-actions"><label class="adm-btn adm-btn-ghost" for="chatLivePersonaMdFile">上传 Markdown</label><input id="chatLivePersonaMdFile" type="file" accept=".md,text/markdown,text/plain" hidden /><button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaTemplateBtn">插入模板</button><button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaDownloadBtn">导出 Markdown</button><span class="adm-muted" id="chatLivePersonaFileName">${escapeHtml(value.personaSourceFile || (value.personaMd ? "已保存 Markdown" : "未导入文件"))}</span></div></div><small class="adm-muted">每个角色单独保存一份人设。Markdown 会原样进入数字人的角色提示词；建议按“身份、性格、语言习惯、开场、安抚、礼物边界”分段，最多 50000 字。</small></div>
-      <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
-      <div class="adm-form-row"><span>音色</span><input id="chatLiveVoiceFilter" placeholder="搜索音色（名称 / voice_type）" value="${escapeHtml(chatLiveVoiceFilter)}" /><select id="chatLiveVoiceType">${chatLiveVoiceOptions(voices, value.voiceType || "", chatLiveVoiceFilter)}</select><small class="adm-muted">当前选中：<b id="chatLiveVoiceSelected">${escapeHtml(value.voiceType || "未选择")}</b>（共 ${voices.length} 个音色）</small></div>
-      <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM（一体化，1.5 积分/秒）</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接我们自己的 LLM/ASR/TTS（1 积分/秒）</option></select><small class="adm-muted">组件版需要服务器配置自建 RTC（ARTC_APP_ID / ARTC_APP_KEY）。</small></div>
-      <div class="adm-form-row"><span>音色供应商</span><select id="chatLiveVoiceProvider">${chatLiveVoiceProviders(defaults, value.voiceProvider || "").map((p) => `<option value="${p}" ${(value.voiceProvider || "qwen_omni") === p ? "selected" : ""}>${escapeHtml(chatLiveVoiceProviderLabel(p))}</option>`).join("")}</select></div>
-      <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
-      <div class="adm-form-row"><span>标签</span><input id="chatLiveTags" value="${escapeHtml((value.tags || []).join(","))}" placeholder="用逗号分隔，例如：温柔,御姐" /></div>
-      <div class="adm-form-row"><span>排序</span><input id="chatLiveSortOrder" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
-      <div class="adm-form-row"><span>人设增强</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLivePersonaEnhance" type="checkbox" ${value.personaEnhance === true ? "checked" : ""} /> 让 Vidu 自动扩写人设</label></div>
-      <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可见）</label></div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>人物相册</h3><p class="adm-muted">缩略图展示。锁定后，未订阅用户只能看到锁。</p></div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveAlbumBatchBtn">上传图片/视频</button>
+          <input id="chatLiveAlbumBatch" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" multiple hidden />
+        </div>
+        <div id="chatLivePrivateResources">
+          <div class="chat-live-album-grid" id="chatLiveAlbumGrid">${privateRows || `<p class="adm-muted chat-live-album-empty">还没有相册素材。</p>`}</div>
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>人设 / 对话剧本</h3><p class="adm-muted">Markdown 会进入角色提示词，最多 50000 字。</p></div></div>
+        <div class="chat-live-persona-editor">
+          <textarea id="chatLivePersona" rows="14" placeholder="身份、性格、欢迎语、聊天节奏、安抚方式、礼物边界…">${escapeHtml(value.personaMd || value.persona || "")}</textarea>
+          <div class="chat-live-persona-actions">
+            <label class="adm-btn adm-btn-ghost chat-live-persona-import">导入人设 Markdown<input id="chatLivePersonaMdFile" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" onchange="window.chatLiveImportPersona(this)" /></label>
+            <button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaTemplateBtn" onclick="window.chatLiveInsertPersonaTemplate()">插入模板</button>
+            <button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaDownloadBtn" onclick="window.chatLiveExportPersona()">导出 Markdown</button>
+            <span class="adm-muted" id="chatLivePersonaFileName">${escapeHtml(value.personaSourceFile || (value.personaMd ? "已有人设" : "未导入"))}</span>
+          </div>
+          <div class="chat-live-persona-status" id="chatLivePersonaStatus">${value.personaMd || value.persona ? "当前人设已在上面的文本框。导入新文件会替换它。" : "点「导入人设 Markdown」选择 .md 文件，内容会立刻出现在上面。"}</div>
+          <div class="adm-form-row" style="margin-top:14px"><span>回复口吻</span>
+            <textarea id="chatLiveReplyStyle" rows="6" placeholder="只写这个角色怎么说话。例如：不装纯，短句，对方试探就先顶回去，用对方一样直白的词。软的角色就写温柔、慢、少脏话。不同角色填不同内容。">${escapeHtml(value.replyStyle || "")}</textarea>
+            <small class="adm-muted">不写进人设 Markdown。这里优先级更高，文字聊天和视频聊天都用这段区分口吻。</small>
+          </div>
+        </div>
+      </section>
     </div>
   `;
 }
 
-function bindChatLiveUndress(box, getCharacter) {
+
+const chatLiveVoiceStore = { realtime: null, component: null };
+function chatLiveVoiceLabel(voice) {
+  if (!voice) return "未选择";
+  const name = voice.name || voice.voiceType || "";
+  const id = voice.voiceType || "";
+  return name && name !== id ? `${name} · ${id}` : (id || "未选择");
+}
+function chatLiveApplyVoice(scope, voice) {
+  const component = scope === "component";
+  const hidden = document.getElementById(component ? "chatLiveComponentVoiceType" : "chatLiveVoiceType");
+  const label = document.getElementById(component ? "chatLiveComponentVoiceSelected" : "chatLiveVoiceSelected");
+  const value = String(voice?.voiceType || "");
+  if (hidden) hidden.value = value;
+  if (label) label.textContent = chatLiveVoiceLabel(voice);
+}
+async function chatLiveLoadVoiceScope(scope) {
+  if (Array.isArray(chatLiveVoiceStore[scope])) return chatLiveVoiceStore[scope];
+  const payload = await api(`/api/admin/chat-live/voices?scope=${encodeURIComponent(scope)}`);
+  chatLiveVoiceStore[scope] = Array.isArray(payload.voices) ? payload.voices : [];
+  return chatLiveVoiceStore[scope];
+}
+window.chatLiveOpenVoicePicker = async (scope) => {
+  const component = scope === "component";
+  const hiddenId = component ? "chatLiveComponentVoiceType" : "chatLiveVoiceType";
+  const current = document.getElementById(hiddenId)?.value || "";
+  const provider = component ? "" : (document.getElementById("chatLiveVoiceProvider")?.value || "");
+  const pageSize = 20;
+  let page = 1;
+  let query = "";
+  let voices = [];
+  const root = document.createElement("div");
+  root.className = "chat-live-voice-picker";
+  root.innerHTML = `
+    <input class="chat-live-voice-search" placeholder="搜索名称或 voice_type" />
+    <div class="chat-live-voice-picker-meta">正在加载音色…</div>
+    <div class="chat-live-voice-picker-list"></div>
+    <div class="chat-live-voice-pager">
+      <button class="adm-btn adm-btn-ghost" type="button" data-voice-page="prev">上一页</button>
+      <span data-voice-page-label>第 1 页</span>
+      <button class="adm-btn adm-btn-ghost" type="button" data-voice-page="next">下一页</button>
+    </div>`;
+  const search = root.querySelector(".chat-live-voice-search");
+  const meta = root.querySelector(".chat-live-voice-picker-meta");
+  const list = root.querySelector(".chat-live-voice-picker-list");
+  const pageLabel = root.querySelector("[data-voice-page-label]");
+  const filtered = () => voices.filter((voice) => {
+    if (provider && voice.provider && voice.provider !== provider) return false;
+    const blob = `${voice.name || ""} ${voice.voiceType || ""} ${voice.desc || ""}`.toLowerCase();
+    return !query || blob.includes(query);
+  });
+  const paint = () => {
+    const rows = filtered();
+    const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+    page = Math.min(Math.max(1, page), pages);
+    const slice = rows.slice((page - 1) * pageSize, page * pageSize);
+    meta.textContent = rows.length ? `共 ${rows.length} 个，每页 ${pageSize} 个。点一项即选中。` : "没有匹配的音色。";
+    pageLabel.textContent = `第 ${page} / ${pages} 页`;
+    root.querySelector('[data-voice-page="prev"]').disabled = page <= 1;
+    root.querySelector('[data-voice-page="next"]').disabled = page >= pages;
+    list.innerHTML = slice.map((voice) => {
+      const value = String(voice.voiceType || "");
+      const on = value === current ? " is-on" : "";
+      const desc = String(voice.desc || "").replace(/\s+/g, " ").slice(0, 48);
+      return `<button type="button" class="chat-live-voice-pick${on}" data-voice-value="${escapeHtml(value)}"><b>${escapeHtml(voice.name || value)}</b><small>${escapeHtml(value)}${desc ? ` · ${escapeHtml(desc)}` : ""}</small></button>`;
+    }).join("") || `<div class="chat-live-voice-empty">这一页没有音色。</div>`;
+  };
+  root.addEventListener("input", (event) => {
+    if (event.target !== search) return;
+    query = String(search.value || "").trim().toLowerCase();
+    page = 1;
+    paint();
+  });
+  root.addEventListener("click", (event) => {
+    const pageBtn = event.target.closest("[data-voice-page]");
+    if (pageBtn) {
+      page += pageBtn.dataset.voicePage === "next" ? 1 : -1;
+      paint();
+      return;
+    }
+    const picked = event.target.closest("[data-voice-value]");
+    if (!picked) return;
+    const value = picked.dataset.voiceValue || "";
+    const voice = voices.find((item) => String(item.voiceType || "") === value) || { voiceType: value, name: value };
+    chatLiveApplyVoice(scope, voice);
+    document.getElementById("adminDialog")?.close();
+  });
+  openDialog({
+    title: component ? "选择组件版音色" : "选择实时版音色",
+    body: root,
+    hideConfirm: true,
+    cancelText: "关闭",
+    onOpen: async () => {
+      try {
+        voices = await chatLiveLoadVoiceScope(component ? "component" : "realtime");
+        const selected = voices.find((item) => String(item.voiceType || "") === current);
+        if (selected) chatLiveApplyVoice(scope, selected);
+        paint();
+      } catch (error) {
+        meta.textContent = error.message || "音色列表加载失败。";
+        list.innerHTML = "";
+      }
+    },
+  });
+};
+window.chatLiveToggleVoiceMenu = (_button, event) => {
+  event?.preventDefault();
+  const scope = _button?.dataset?.chatLiveVoiceMenu === "chatLiveComponentVoiceMenu" ? "component" : "realtime";
+  window.chatLiveOpenVoicePicker(scope);
+};
+
+function chatLivePersonaBox() {
+  return document.getElementById("chatLiveCharacterForm");
+}
+function chatLivePersonaStatus(message, state = "") {
+  const node = document.getElementById("chatLivePersonaStatus");
+  if (!node) return;
+  node.textContent = message;
+  node.dataset.state = state;
+}
+function chatLiveMarkPersona() {
+  const persona = document.getElementById("chatLivePersona");
+  if (!persona) return;
+  persona.classList.add("is-persona-flash");
+  persona.focus();
+  persona.scrollTop = persona.scrollHeight;
+  persona.setSelectionRange(persona.value.length, persona.value.length);
+  window.setTimeout(() => persona.classList.remove("is-persona-flash"), 1600);
+}
+window.chatLiveInsertPersonaTemplate = () => {
+  const persona = document.getElementById("chatLivePersona");
+  if (!persona) {
+    toast("人设输入框不存在。", "error");
+    return;
+  }
+  const name = document.getElementById("chatLiveName")?.value || "角色名";
+  const template = chatLivePersonaTemplate(name);
+  persona.value = persona.value.trim() ? `${persona.value.replace(/\s+$/, "")}\n\n${template}` : template;
+  const fileName = document.getElementById("chatLivePersonaFileName");
+  if (fileName) fileName.textContent = "已插入模板";
+  chatLiveMarkPersona();
+  chatLivePersonaStatus("模板已插入到文本框末尾，并已滚到那里。点右上角保存后才会写入角色。", "ok");
+  toast("模板已插入。", "success");
+};
+window.chatLiveExportPersona = () => {
+  const persona = document.getElementById("chatLivePersona");
+  if (!persona) {
+    toast("人设输入框不存在。", "error");
+    return;
+  }
+  const filename = `${(document.getElementById("chatLiveName")?.value || "角色人设").replace(/[^\w\u4e00-\u9fff-]+/g, "-")}.md`;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([persona.value || ""], { type: "text/markdown;charset=utf-8" }));
+  link.download = filename;
+  link.textContent = `下载 ${filename}`;
+  const status = document.getElementById("chatLivePersonaStatus");
+  if (status) {
+    status.dataset.state = "ok";
+    status.replaceChildren(document.createTextNode("导出链接已生成："), link);
+  }
+  link.click();
+  toast(`已导出 ${filename}`, "success");
+};
+window.chatLiveImportPersona = async (input) => {
+  const file = input?.files?.[0];
+  if (!file) {
+    chatLivePersonaStatus("没有选到文件。", "error");
+    return;
+  }
+  const name = String(file.name || "人设文件");
+  chatLivePersonaStatus(`已选中 ${name}，正在读取…`, "busy");
+  if (!/\.(md|markdown|txt)$/i.test(name) && !["text/markdown", "text/plain", ""].includes(String(file.type || ""))) {
+    chatLivePersonaStatus("只支持 .md / .txt。", "error");
+    toast("只支持 .md / .txt 人设文件。", "error");
+    input.value = "";
+    return;
+  }
+  try {
+    const text = await readChatLivePersonaMarkdown(file);
+    input.value = "";
+    if (!text.trim()) {
+      chatLivePersonaStatus("文件是空的。", "error");
+      return;
+    }
+    const persona = document.getElementById("chatLivePersona");
+    if (!persona) throw new Error("人设输入框不存在。");
+    persona.value = text;
+    const fileName = document.getElementById("chatLivePersonaFileName");
+    if (fileName) fileName.textContent = name;
+    input.dataset.loadedName = name.slice(0, 160);
+    chatLiveMarkPersona();
+    chatLivePersonaStatus(`已读入 ${name}，${text.length} 字。正在保存…`, "busy");
+    if (typeof window.__chatLiveSaveCharacter === "function") await window.__chatLiveSaveCharacter({ silent: true });
+    chatLivePersonaStatus(`已保存 ${name}（${text.length} 字）。`, "ok");
+    toast("人设已导入并保存。", "success");
+  } catch (error) {
+    input.value = "";
+    chatLivePersonaStatus(error.message || "读取 Markdown 失败。", "error");
+    toast(error.message || "读取 Markdown 失败。", "error");
+  }
+};
+if (!window.__chatLiveEditorControls) {
+  window.__chatLiveEditorControls = true;
+  document.addEventListener("click", (event) => {
+    const provider = event.target.closest("[data-chat-live-provider]");
+    if (provider && document.getElementById("chatLiveCharacterForm")) {
+      const input = document.getElementById("chatLiveVoiceProvider");
+      if (input) input.value = provider.dataset.chatLiveProvider || "";
+      document.querySelectorAll("[data-chat-live-provider]").forEach((button) => button.classList.toggle("is-on", button === provider));
+      window.chatLivePaintRealtime?.();
+      return;
+    }
+    const picked = event.target.closest("[data-chat-live-voice]");
+    if (picked && document.getElementById("chatLiveCharacterForm")) {
+      const scope = picked.dataset.chatLiveVoiceScope === "component" ? "component" : "realtime";
+      const value = picked.dataset.chatLiveVoice || "";
+      if (scope === "component") window.chatLivePaintComponent?.(value);
+      else window.chatLivePaintRealtime?.(value);
+      const menu = document.getElementById(scope === "component" ? "chatLiveComponentVoiceMenu" : "chatLiveVoiceMenu");
+      if (menu) menu.hidden = true;
+      return;
+    }
+    const opener = event.target.closest("[data-chat-live-open-voice]");
+    if (opener && document.getElementById("chatLiveCharacterForm")) {
+      event.preventDefault();
+      window.chatLiveOpenVoicePicker(opener.dataset.chatLiveOpenVoice === "component" ? "component" : "realtime");
+      return;
+    }
+    if (event.target.closest("#chatLivePersonaTemplateBtn")) {
+      window.chatLiveInsertPersonaTemplate();
+      return;
+    }
+    if (event.target.closest("#chatLivePersonaDownloadBtn")) {
+      window.chatLiveExportPersona();
+      return;
+    }
+    if (!event.target.closest(".chat-live-voice-menu")) {
+      document.querySelectorAll(".chat-live-voice-menu").forEach((node) => { node.hidden = true; });
+    }
+  });
+  document.addEventListener("change", (event) => {
+    if (event.target?.id === "chatLivePersonaMdFile") window.chatLiveImportPersona(event.target);
+  });
+  document.addEventListener("input", (event) => {
+    if (event.target?.id === "chatLiveVoiceFilter") window.chatLivePaintRealtime?.();
+    if (event.target?.id === "chatLiveComponentVoiceFilter") window.chatLivePaintComponent?.();
+  });
+}
+
+function bindChatLiveUndress(box, getCharacter, isAlive = () => true) {
   let timer = 0;
   const stop = () => {
     if (!timer) return;
@@ -4109,198 +4489,319 @@ function bindChatLiveUndress(box, getCharacter) {
     if (!preview || !button || !status) return;
     const savedAvatar = String(current?.avatarUrl || "");
     const formAvatar = String(root.querySelector("#chatLiveAvatarUrl")?.value || "");
-    const dirtyAvatar = Boolean(current?.id) && formAvatar !== savedAvatar;
+    const dirtyAvatar = Boolean(current?.id) && formAvatar && formAvatar !== savedAvatar;
     const generating = String(current?.undressStatus || "") === "generating";
     const ready = chatLiveUndressReady(current) && !dirtyAvatar;
     preview.innerHTML = ready
       ? `<img src="${escapeHtml(current.undressImageUrl)}" alt="" draggable="false" />`
       : `<span>${generating ? "生成中" : "未生成"}</span>`;
-    if (!current?.id) {
-      button.disabled = true;
+    button.disabled = false;
+    if (!savedAvatar && !formAvatar) {
       button.textContent = "生成 Undress";
-      status.textContent = "请先保存角色，再生成。";
-    } else if (!savedAvatar || !formAvatar) {
-      button.disabled = true;
-      button.textContent = "生成 Undress";
-      status.textContent = "请先上传并保存形象图。";
+      status.textContent = "先上传形象图。";
     } else if (dirtyAvatar) {
-      button.disabled = true;
       button.textContent = "生成 Undress";
-      status.textContent = "形象图已更换，请先保存。换图后需要重新生成。";
+      status.textContent = "形象图已更换，先保存再生成。";
     } else if (generating) {
-      button.disabled = true;
-      button.textContent = "生成中";
-      status.textContent = "正在按 Undress 提示词出图，生成好后通话里才能用。";
-    } else if (ready) {
-      button.disabled = false;
       button.textContent = "重新生成";
-      status.textContent = "已生成。通话中点 Undress 会切到这张图，不重开会话。";
+      status.textContent = "后台生成中。可以离开这个页面，生成好再进来会自动填上。";
+    } else if (ready) {
+      button.textContent = "重新生成";
+      status.textContent = "已生成。通话里点 Undress 会切到这张图。";
     } else if (String(current?.undressStatus || "") === "failed") {
-      button.disabled = false;
       button.textContent = "重试";
       status.textContent = current.undressError || "生成失败，可以重试。";
     } else {
-      button.disabled = false;
       button.textContent = "生成 Undress";
-      status.textContent = "用当前形象图生成一张 Undress 图。地址不会显示出来。";
+      status.textContent = "点一下就交给后台，不用在这里等。";
     }
-    if (generating && !timer) timer = window.setInterval(refresh, 3000);
+    if (generating && !timer) timer = window.setInterval(refresh, 4000);
     if (!generating) stop();
   };
   const refresh = async () => {
     const current = getCharacter() || {};
-    if (!els.dialog?.open || !current.id) {
+    if (!isAlive() || !current.id) {
       stop();
       return;
     }
     try {
       const payload = await api("/api/admin/chat-live/characters");
       const latest = (payload.characters || []).find((item) => item.id === current.id);
-      if (!latest || !els.dialog?.open) return;
+      if (!latest || !isAlive()) return;
       const wasGenerating = String(current.undressStatus || "") === "generating";
       Object.assign(current, latest);
       paint(current);
       if (wasGenerating && String(latest.undressStatus || "") === "ready") toast("Undress 图已生成。", "success");
       if (wasGenerating && String(latest.undressStatus || "") === "failed") toast(latest.undressError || "Undress 图生成失败。", "error");
     } catch (error) {
-      if (!els.dialog?.open) stop();
+      if (!isAlive()) stop();
     }
   };
   paint(getCharacter());
   box().querySelector("#chatLiveUndressBtn")?.addEventListener("click", async () => {
-    const current = getCharacter() || {};
-    const formAvatar = String(box().querySelector("#chatLiveAvatarUrl")?.value || "");
-    if (!current.id) {
-      toast("请先保存角色。", "error");
-      return;
-    }
-    if (!formAvatar || formAvatar !== String(current.avatarUrl || "")) {
-      toast("请先保存当前形象图。", "error");
-      return;
-    }
     const button = box().querySelector("#chatLiveUndressBtn");
     if (button) button.disabled = true;
     try {
+      const saved = await window.__chatLiveSaveCharacter?.({ silent: true });
+      const current = getCharacter() || {};
+      if (saved?.id) Object.assign(current, saved);
+      if (!current.id || !current.avatarUrl) {
+        toast("请先上传形象图并填写角色名。", "error");
+        paint(current);
+        return;
+      }
       const result = await api(`/api/admin/chat-live/characters/${encodeURIComponent(current.id)}/undress`, { method: "POST", body: {} });
       if (result.character) Object.assign(current, result.character);
       paint(current);
-      toast("已开始生成 Undress 图。", "success");
+      toast("已提交，后台生成，不用在这里等。", "success");
     } catch (error) {
-      paint(current);
+      paint(getCharacter());
       toast(error.message || "生成失败。", "error");
     }
   });
   box().querySelector("#chatLiveAvatarUrl")?.addEventListener("change", () => paint(getCharacter()));
-  els.dialog?.addEventListener("close", stop, { once: true });
 }
 
-async function openChatLiveCharacterDialog(character, defaults = {}, voices = []) {
-  const html = chatLiveCharacterForm(character, defaults, voices);
-  await openDialog({
-    title: character ? `编辑角色：${character.name || ""}` : "新增角色",
-    body: html,
-    confirmText: "保存",
-    onConfirm: async () => {
-      const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
-      const val = (id) => box().querySelector(`#${id}`)?.value ?? "";
-      const body = {
-        id: character?.id || undefined,
-        name: val("chatLiveName"),
-        avatarUrl: val("chatLiveAvatarUrl"),
-        portraitUrl: val("chatLivePortraitUrl"),
-        intro: val("chatLiveIntro"),
-        linkName: val("chatLiveLinkName"),
-        persona: val("chatLivePersona"),
-        personaMd: val("chatLivePersona"),
-        personaSourceFile: box().querySelector("#chatLivePersonaMdFile")?.dataset.loadedName || character?.personaSourceFile || "",
-        greeting: val("chatLiveGreeting"),
-        voiceType: val("chatLiveVoiceType"),
-        voiceProvider: val("chatLiveVoiceProvider"),
-        mode: val("chatLiveMode"),
-        language: val("chatLiveLanguage"),
-        tags: val("chatLiveTags"),
-        sortOrder: Number(val("chatLiveSortOrder") || 0),
-        personaEnhance: box().querySelector("#chatLivePersonaEnhance")?.checked === true,
-        enabled: box().querySelector("#chatLiveEnabled")?.checked !== false,
-        privateResources: Array.from(box().querySelectorAll(".chat-live-private-row")).map((row, index) => ({ id: row.dataset.privateId || `private-${Date.now()}-${index}`, name: row.querySelector("[data-private-name]")?.value || `私密资源 ${index + 1}`, type: row.querySelector("[data-private-type]")?.value === "video" ? "video" : "image", url: row.querySelector("[data-private-url]")?.value || "", enabled: true })).filter((item) => item.url),
-      };
-      const saved = await api(body.id ? `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}` : "/api/admin/chat-live/characters", { method: body.id ? "PUT" : "POST", body });
-      if (saved?.character?.id) character = saved.character;
-      return true;
-    },
-    onOpen: () => {
-      const box = () => els.dialogBody.querySelector("#chatLiveCharacterForm");
-      bindChatLiveAssetUploads(box());
-      const privateRoot = box().querySelector("#chatLivePrivateResources");
-      const bindPrivate = () => {
-        privateRoot?.querySelectorAll("[data-private-remove]").forEach((button) => button.onclick = () => { button.closest(".chat-live-private-row")?.remove(); });
-        privateRoot?.querySelectorAll("[data-private-upload]").forEach((button) => button.onclick = () => button.parentElement.querySelector("[data-private-file]")?.click());
-        privateRoot?.querySelectorAll("[data-private-file]").forEach((input) => input.onchange = async () => {
-          const file = input.files?.[0]; input.value = ""; if (!file) return;
-          const row = input.closest(".chat-live-private-row"); const type = row.querySelector("[data-private-type]").value === "video" ? "video" : "image";
-          const valid = type === "video" ? /^video\/(mp4|webm|quicktime)$/.test(file.type) && file.size <= 80 * 1024 * 1024 : /^image\/(png|jpeg|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024;
-          if (!valid) { toast(type === "video" ? "视频需为 MP4/WebM/MOV 且不超过 80MB。" : "图片需为 PNG/JPG/WEBP 且不超过 8MB。", "error"); return; }
-          try { const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl: await readChatLiveAssetFile(file), kind: type === "video" ? "private-video" : "private-image" } }); row.querySelector("[data-private-url]").value = result.url || ""; toast("私密资源已上传。", "success"); } catch (error) { toast(error.message || "上传失败。", "error"); }
-        });
-      };
-      privateRoot?.querySelector("#chatLivePrivateAdd")?.addEventListener("click", () => { const row = document.createElement("div"); row.className = "chat-live-private-row"; row.innerHTML = `<input data-private-name value="" placeholder="资源名称" /><select data-private-type><option value="image">图片</option><option value="video">视频</option></select><input data-private-url value="" placeholder="上传后自动填写" readonly /><button class="adm-btn adm-btn-ghost" type="button" data-private-upload>上传</button><input data-private-file type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" hidden /><button class="adm-btn adm-btn-danger" type="button" data-private-remove>删除</button>`; privateRoot.querySelector("#chatLivePrivateAdd").before(row); bindPrivate(); });
-      bindPrivate();
-      bindChatLiveUndress(box, () => character);
-      const persona = box().querySelector("#chatLivePersona");
-      const personaFile = box().querySelector("#chatLivePersonaMdFile");
-      const personaName = box().querySelector("#chatLivePersonaFileName");
-      personaFile?.addEventListener("change", async () => {
-        const file = personaFile.files?.[0];
-        personaFile.value = "";
-        if (!file) return;
-        if (!/\.md$/i.test(file.name) && file.type !== "text/markdown" && file.type !== "text/plain") { toast("请上传 Markdown（.md）文件。", "error"); return; }
-        if (file.size > 512 * 1024) { toast("Markdown 文件不能超过 512KB。", "error"); return; }
-        try {
-          const text = await readChatLivePersonaMarkdown(file);
-          if (!text.trim()) throw new Error("Markdown 文件是空的。");
-          if (text.length > 50000) throw new Error("人设内容不能超过 50000 字。");
-          persona.value = text;
-          personaFile.dataset.loadedName = file.name.slice(0, 160);
-          if (personaName) personaName.textContent = file.name;
-          toast("Markdown 人设已载入，点击保存后生效。", "success");
-        } catch (error) { toast(error.message || "读取 Markdown 失败。", "error"); }
-      });
-      box().querySelector("#chatLivePersonaTemplateBtn")?.addEventListener("click", () => {
-        if (persona.value.trim() && !window.confirm("用模板替换当前人设内容？")) return;
-        persona.value = chatLivePersonaTemplate(box().querySelector("#chatLiveName")?.value || "角色名");
-        if (personaName) personaName.textContent = "已插入模板";
-      });
-      box().querySelector("#chatLivePersonaDownloadBtn")?.addEventListener("click", () => {
-        const text = persona.value || "";
-        const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob); link.download = `${(box().querySelector("#chatLiveName")?.value || "角色人设").replace(/[^\w\u4e00-\u9fff-]+/g, "-")}.md`;
-        document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
-      });
-      box().querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
-        chatLiveVoiceFilter = event.target.value;
-        const select = box().querySelector("#chatLiveVoiceType");
-        if (select) select.innerHTML = chatLiveVoiceOptions(voices, select.value || character?.voiceType || "", chatLiveVoiceFilter);
-      });
-      box().querySelector("#chatLiveVoiceType")?.addEventListener("change", (event) => {
-        const label = box().querySelector("#chatLiveVoiceSelected");
-        if (label) label.textContent = event.target.value || "未选择";
-      });
-      box().querySelector("#chatLiveMode")?.addEventListener("change", async (event) => {
-        const scope = event.target.value === "component" ? "component" : "realtime";
-        try {
-          const payload = await api(`/api/admin/chat-live/voices?scope=${scope}`);
-          const list = Array.isArray(payload.voices) ? payload.voices : [];
-          const select = box().querySelector("#chatLiveVoiceType");
-          if (select) select.innerHTML = chatLiveVoiceOptions(list, "", "");
-        } catch (error) {
-          toast(error.message || String(error), "error");
-        }
-      });
-    },
+async function openChatLiveCharacterPage(character, defaults = {}, voices = []) {
+  releaseAdminClickBlockers();
+  const session = ++chatLiveEditorSession;
+  const alive = () => session === chatLiveEditorSession && Boolean(document.getElementById("chatLiveCharacterForm"));
+  let current = character ? { ...character } : null;
+  const box = () => document.getElementById("chatLiveCharacterForm");
+  const collectBody = () => {
+    const root = box();
+    const val = (id) => root.querySelector(`#${id}`)?.value ?? "";
+    return {
+      id: current?.id || root.querySelector("#chatLiveId")?.value || undefined,
+      name: val("chatLiveName"),
+      avatarUrl: val("chatLiveAvatarUrl"),
+      portraitUrl: val("chatLivePortraitUrl"),
+      ambientMusicUrl: val("chatLiveAmbientMusicUrl"),
+      intro: val("chatLiveIntro"),
+      age: Number(val("chatLiveAge") || 0),
+      occupation: val("chatLiveOccupation"),
+      linkName: val("chatLiveLinkName"),
+      persona: val("chatLivePersona"),
+      personaMd: val("chatLivePersona"),
+      replyStyle: val("chatLiveReplyStyle"),
+      personaSourceFile: root.querySelector("#chatLivePersonaMdFile")?.dataset.loadedName || current?.personaSourceFile || "",
+      greeting: val("chatLiveGreeting"),
+      voiceType: val("chatLiveVoiceType"),
+      voiceProvider: val("chatLiveVoiceProvider"),
+      componentVoiceType: val("chatLiveComponentVoiceType"),
+      mode: val("chatLiveMode"),
+      language: val("chatLiveLanguage"),
+      tags: val("chatLiveTags"),
+      sortOrder: Number(val("chatLiveSortOrder") || 0),
+      personaEnhance: root.querySelector("#chatLivePersonaEnhance")?.checked === true,
+      sharedRoomEnabled: root.querySelector("#chatLiveSharedRoom")?.checked === true,
+      enabled: root.querySelector("#chatLiveEnabled")?.checked !== false,
+      album: Array.from(root.querySelectorAll(".chat-live-private-row")).map((row, index) => ({
+        id: row.dataset.privateId || `album-${Date.now()}-${index}`,
+        name: row.querySelector("[data-private-name]")?.value || `相册 ${index + 1}`,
+        type: row.querySelector("[data-private-type]")?.value === "video" ? "video" : "image",
+        url: row.querySelector("[data-private-url]")?.value || "",
+        locked: row.querySelector("[data-private-locked]")?.checked === true,
+        enabled: true,
+      })).filter((item) => item.url),
+    };
+  };
+  let saveInFlight = null;
+  const saveCharacter = ({ silent = false } = {}) => {
+    if (saveInFlight) return saveInFlight;
+    saveInFlight = (async () => {
+      const root = box();
+      if (!current?.id) {
+        const minted = `chatlive-char-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        current = { ...(current || {}), id: minted };
+        const idInput = root?.querySelector("#chatLiveId");
+        if (idInput) idInput.value = minted;
+      }
+      const body = collectBody();
+      if (!String(body.name || "").trim()) throw new Error("请先填写角色名称。");
+      const creating = !root?.dataset.savedId;
+      const saved = await api(creating ? "/api/admin/chat-live/characters" : `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}`, { method: creating ? "POST" : "PUT", body });
+      if (saved?.character) {
+        current = saved.character;
+        if (root) root.dataset.savedId = current.id || "";
+        const idInput = root?.querySelector("#chatLiveId");
+        if (idInput) idInput.value = current.id || "";
+        const title = document.getElementById("chatLiveEditorTitle");
+        if (title) title.textContent = `编辑角色：${current.name || ""}`;
+      }
+      if (!silent) toast("角色已保存。", "success");
+      return current;
+    })().finally(() => { saveInFlight = null; });
+    return saveInFlight;
+  };
+  window.__chatLiveSaveCharacter = saveCharacter;
+  els.adminContent.innerHTML = `
+    <section class="adm-page chat-live-editor-page">
+      <div class="adm-page-head">
+        <div>
+          <button class="adm-btn adm-btn-ghost" id="chatLiveEditorBack" type="button">返回角色列表</button>
+          <h2 id="chatLiveEditorTitle">${current ? `编辑角色：${escapeHtml(current.name || "")}` : "新增角色"}</h2>
+          <p class="adm-muted">上传、Undress 和相册都在这一页处理。地址不会显示出来。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-primary" id="chatLiveEditorSave" type="button">保存</button>
+        </div>
+      </div>
+      ${chatLiveCharacterForm(current, defaults, voices)}
+    </section>`;
+  refreshIcons();
+  bindChatLiveAssetUploads(box());
+  if (current?.id && box()) box().dataset.savedId = current.id;
+  document.getElementById("chatLiveEditorBack")?.addEventListener("click", () => {
+    chatLiveEditorSession += 1;
+    window.__chatLiveSaveCharacter = null;
+    renderChatLive();
   });
-  if (isActiveRoute("chat-live")) renderChatLive();
+  document.getElementById("chatLiveEditorSave")?.addEventListener("click", async () => {
+    const button = document.getElementById("chatLiveEditorSave");
+    if (button?.disabled) return;
+    if (button) button.disabled = true;
+    try {
+      await saveCharacter();
+    } catch (error) {
+      toast(error.message || "保存失败。", "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+  const privateRoot = box().querySelector("#chatLivePrivateResources");
+  const albumGrid = () => box().querySelector("#chatLiveAlbumGrid");
+  const clearAlbumEmpty = () => albumGrid()?.querySelector(".chat-live-album-empty")?.remove();
+  const bindPrivate = () => {
+    privateRoot?.querySelectorAll("[data-private-remove]").forEach((button) => {
+      button.onclick = () => {
+        button.closest(".chat-live-private-row")?.remove();
+        if (!albumGrid()?.querySelector(".chat-live-private-row")) albumGrid().innerHTML = `<p class="adm-muted chat-live-album-empty">还没有相册素材。</p>`;
+      };
+    });
+  };
+  const insertAlbumCard = (item) => {
+    clearAlbumEmpty();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = chatLiveAlbumCardHtml(item, albumGrid().querySelectorAll(".chat-live-private-row").length).trim();
+    const row = wrap.firstElementChild;
+    albumGrid().appendChild(row);
+    bindPrivate();
+    return row;
+  };
+  const uploadAlbumFile = async (file) => {
+    const type = /^video\//.test(file.type) ? "video" : "image";
+    const valid = type === "video" ? /^video\/(mp4|webm|quicktime)$/.test(file.type) && file.size <= 80 * 1024 * 1024 : /^image\/(png|jpeg|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024;
+    if (!valid) {
+      toast(`${file.name} 格式或大小不符合要求。`, "error");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    const row = insertAlbumCard({ name: file.name.replace(/\.[^.]+$/, "").slice(0, 40), type, url: "", locked: false, previewUrl });
+    row.classList.add("is-uploading");
+    try {
+      const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl: await readChatLiveAssetFile(file), kind: type === "video" ? "private-video" : "private-image" } });
+      const hidden = row.querySelector("[data-private-url]");
+      if (hidden) hidden.value = result.url || "";
+      row.classList.remove("is-uploading");
+      if (!result.url) throw new Error("上传成功但没有返回地址。");
+    } catch (error) {
+      row.remove();
+      toast(error.message || `${file.name} 上传失败。`, "error");
+    }
+  };
+  box().querySelector("#chatLiveAlbumBatchBtn")?.addEventListener("click", () => box().querySelector("#chatLiveAlbumBatch")?.click());
+  box().querySelector("#chatLiveAlbumBatch")?.addEventListener("change", async (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = "";
+    for (const file of files) await uploadAlbumFile(file);
+    if (files.length) toast("上传完成。记得保存角色。", "success");
+  });
+  bindPrivate();
+  bindChatLiveUndress(box, () => current, alive);
+  const realtimeSaved = current?.voiceProvider === "dashscope_cosyvoice" ? "" : (current?.voiceType || "");
+  const componentSaved = current?.componentVoiceType || (current?.voiceProvider === "dashscope_cosyvoice" ? (current?.voiceType || "") : "");
+  let realtimeVoices = Array.isArray(voices) ? voices.slice() : [];
+  let componentVoices = [];
+  const voiceRows = (list, query, provider) => {
+    const source = (list || []).filter((voice) => !provider || !voice.provider || voice.provider === provider);
+    const q = String(query || "").trim().toLowerCase();
+    return source.filter((voice) => !q || `${voice.name || ""} ${voice.voiceType || ""} ${voice.desc || ""}`.toLowerCase().includes(q));
+  };
+  const paintVoiceSelect = ({ listId, hiddenId, labelId, countId, menuId, list, filterId, preferred, provider, scope }) => {
+    const root = box();
+    if (!root) return;
+    const source = (list || []).filter((voice) => !provider || !voice.provider || voice.provider === provider);
+    const hidden = root.querySelector(hiddenId);
+    const known = source.some((voice) => String(voice.voiceType || "") === preferred);
+    const next = known ? preferred : String((source[0] || {}).voiceType || "");
+    if (hidden) hidden.value = next;
+    const picked = source.find((voice) => String(voice.voiceType || "") === next);
+    const label = root.querySelector(labelId);
+    if (label) label.textContent = picked ? `${picked.name || next} · ${next}` : (next || "没有可选音色");
+    const count = root.querySelector(countId);
+    if (count) count.textContent = String(source.length);
+    const host = root.querySelector(listId);
+    if (!host) return;
+    const visible = voiceRows(list, root.querySelector(filterId)?.value || "", provider);
+    if (!source.length) {
+      host.innerHTML = `<div class="chat-live-voice-empty">音色清单没加载到。刷新页面后再点。</div>`;
+      return;
+    }
+    if (!visible.length) {
+      host.innerHTML = `<div class="chat-live-voice-empty">没有匹配项。</div>`;
+      return;
+    }
+    host.innerHTML = visible.slice(0, 240).map((voice) => {
+      const value = String(voice.voiceType || "");
+      const desc = String(voice.desc || "").replace(/\s+/g, " ").slice(0, 36);
+      return `<button type="button" class="chat-live-voice-item ${value === next ? "is-on" : ""}" data-chat-live-voice="${escapeHtml(value)}" data-chat-live-voice-scope="${scope}"><b>${escapeHtml(voice.name || value)}</b><small>${escapeHtml(value)}${desc ? ` · ${escapeHtml(desc)}` : ""}</small></button>`;
+    }).join("") + (visible.length > 240 ? `<div class="chat-live-voice-empty">还有 ${visible.length - 240} 个，继续筛选。</div>` : "");
+  };
+  window.chatLivePaintRealtime = (preferred) => paintVoiceSelect({
+    listId: "#chatLiveVoiceList",
+    hiddenId: "#chatLiveVoiceType",
+    labelId: "#chatLiveVoiceSelected",
+    countId: "#chatLiveVoiceCount",
+    menuId: "chatLiveVoiceMenu",
+    list: realtimeVoices,
+    filterId: "#chatLiveVoiceFilter",
+    provider: box().querySelector("#chatLiveVoiceProvider")?.value || "",
+    preferred: preferred ?? (box().querySelector("#chatLiveVoiceType")?.value || realtimeSaved),
+    scope: "realtime",
+  });
+  window.chatLivePaintComponent = (preferred) => paintVoiceSelect({
+    listId: "#chatLiveComponentVoiceList",
+    hiddenId: "#chatLiveComponentVoiceType",
+    labelId: "#chatLiveComponentVoiceSelected",
+    countId: "#chatLiveComponentVoiceCount",
+    menuId: "chatLiveComponentVoiceMenu",
+    list: componentVoices,
+    filterId: "#chatLiveComponentVoiceFilter",
+    preferred: preferred ?? (box().querySelector("#chatLiveComponentVoiceType")?.value || componentSaved),
+    scope: "component",
+  });
+  window.chatLivePaintRealtime(realtimeSaved);
+  window.chatLivePaintComponent(componentSaved);
+  try {
+    const voiceSignal = AbortSignal.timeout(12000);
+    const [realtimePayload, componentPayload] = await Promise.all([
+      api("/api/admin/chat-live/voices?scope=realtime", { signal: voiceSignal }),
+      api("/api/admin/chat-live/voices?scope=component", { signal: voiceSignal }),
+    ]);
+    if (!alive()) return;
+    realtimeVoices = Array.isArray(realtimePayload.voices) ? realtimePayload.voices : [];
+    componentVoices = Array.isArray(componentPayload.voices) ? componentPayload.voices : [];
+  } catch (error) {
+    toast(error.message || "音色列表加载失败。", "error");
+  }
+  if (!alive()) return;
+  window.chatLivePaintRealtime(realtimeSaved);
+  window.chatLivePaintComponent(componentSaved);
+
 }
+const openChatLiveCharacterDialog = openChatLiveCharacterPage;
+
 
 const CHAT_LIVE_LOOK_LABELS = {
   garment: "换衣服",
@@ -4351,7 +4852,7 @@ function chatLiveLookForm(look = null) {
         <option value="background" ${kind === "background" ? "selected" : ""}>换背景</option>
       </select></div>
       ${chatLiveAssetField({ id: "chatLiveLookImageUrl", label: "素材图", url: value.imageUrl || "", kind: "look", hint: "上传 PNG / JPG / WEBP，8MB 以内。图片存到 R2，这里不显示地址。" })}
-      <div class="adm-form-row"><span>发给数字人的说明</span><textarea id="chatLiveLookText" maxlength="200" placeholder="${escapeHtml(CHAT_LIVE_LOOK_TEXT[kind])}">${escapeHtml(value.userText || CHAT_LIVE_LOOK_TEXT[kind])}</textarea><small class="adm-muted">留空会用默认说明。用户看不到这段字，只用来告诉 Vidu 怎么改画面。</small></div>
+      <div class="adm-form-row"><span>发给角色的说明</span><textarea id="chatLiveLookText" maxlength="200" placeholder="${escapeHtml(CHAT_LIVE_LOOK_TEXT[kind])}">${escapeHtml(value.userText || CHAT_LIVE_LOOK_TEXT[kind])}</textarea><small class="adm-muted">留空会用默认说明。用户看不到这段字，只用来告诉 Vidu 怎么改画面。</small></div>
       <div class="adm-form-row"><span>排序</span><input id="chatLiveLookSort" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
       <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveLookEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可选）</label></div>
     </div>`;
@@ -4597,7 +5098,7 @@ function chatLiveGiftsHtml(gifts = []) {
       <input data-gift-name value="${escapeHtml(gift.name || "")}" placeholder="名称" />
       <input data-gift-credits type="number" min="1" value="${escapeHtml(String(gift.credits || 1))}" placeholder="积分" />
       <div style="display:flex;gap:6px;align-items:center"><input data-gift-image value="${escapeHtml(gift.imageUrl || "")}" placeholder="GIF 图片地址" /><input data-gift-file type="file" accept="image/gif,image/png,image/webp,image/jpeg" style="max-width:150px" /></div>
-      <input data-gift-text value="${escapeHtml(gift.userText || "")}" placeholder="发给数字人的文案" />
+      <input data-gift-text value="${escapeHtml(gift.userText || "")}" placeholder="发给角色的文案" />
       <label><input data-gift-enabled type="checkbox" ${gift.enabled === false ? "" : "checked"} />启用</label>
     </div></div>`).join("");
 }
@@ -4643,11 +5144,13 @@ async function renderChatLive() {
         <div class="adm-form" data-chat-live-pane="pricing" ${chatLiveTab === "pricing" ? "" : "hidden"}>
           <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
           <div class="adm-form-row"><span>卖价</span><input id="chatLiveSale" type="number" min="0" value="${escapeHtml(String(pricing.saleCreditsPerMinute ?? 0))}" /><small class="adm-muted">0 = 未定价，此时前台不允许开播。</small></div>
+          <div class="adm-form-row"><span>多人房间价</span><input id="chatLiveSharedSale" type="number" min="0" value="${escapeHtml(String(pricing.sharedRoomSaleCreditsPerMinute || ""))}" placeholder="留空则与单人卖价相同" /><small class="adm-muted">每个进入房间的人都按这个价格扣。留空或 0 = 跟单人卖价一样，当前生效 ${escapeHtml(String(Number(pricing.sharedRoomSaleCreditsPerMinute || 0) > 0 ? pricing.sharedRoomSaleCreditsPerMinute : (pricing.saleCreditsPerMinute || 0)))} 积分/分钟。</small></div>
           <div class="adm-form-row"><span>免费时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /></div>
           <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
-          <div class="adm-form-row"><span>数字人版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
+          <div class="adm-form-row"><span>模型版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
+          <div class="adm-form-row"><span>语言模型</span><select id="chatLiveLanguageModel"><option value="byteplus" ${(pricing.languageModel||"byteplus")!=="papaya"?"selected":""}>当前模型（BytePlus）</option><option value="papaya" ${(pricing.languageModel||"")==="papaya"?"selected":""}>Papaya 1.0</option></select><small class="adm-muted">只影响组件版视频对话。实时版仍走 Vidu 内置模型。改完后新开的通话生效。</small></div>
           <div class="adm-form-row"><span>默认对话模式</span><select id="chatLiveDefaultMode"><option value="realtime" ${(pricing.defaultMode||"realtime")!=="component"?"selected":""}>实时版（Vidu 内置 LLM）</option><option value="component" ${(pricing.defaultMode||"")==="component"?"selected":""}>组件版（外接我们自己的 LLM）</option></select></div>
-          <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（数字人出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
+          <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
           <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>
           <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSavePricingBtn" type="button"><i data-lucide="save"></i>保存计费</button></div>
           <div class="adm-form-row"><span>会员价格（USD）</span><div id="chatLiveMembershipPlans" class="chat-live-private-resources"><small class="adm-muted">正在加载会员套餐…</small></div></div>
@@ -4661,7 +5164,7 @@ async function renderChatLive() {
       </div>
 
       <div class="adm-card" id="chatLiveGiftsCard">
-        <div class="adm-card-head"><div><h3>打赏礼物（最多 5 个）</h3><p class="adm-muted">每个礼物配置名称、积分、动图地址和发给数字人的文案。图片请使用站内 GIF 素材地址。</p></div><button class="adm-btn adm-btn-primary" id="chatLiveSaveGiftsBtn" type="button">保存礼物</button></div>
+        <div class="adm-card-head"><div><h3>打赏礼物（最多 5 个）</h3><p class="adm-muted">每个礼物配置名称、积分、动图地址和发给角色的文案。图片请使用站内 GIF 素材地址。</p></div><button class="adm-btn adm-btn-primary" id="chatLiveSaveGiftsBtn" type="button">保存礼物</button></div>
         <div class="adm-card-body">${chatLiveGiftsHtml(gifts)}</div>
       </div>
 
@@ -4685,8 +5188,8 @@ async function renderChatLive() {
         <div class="adm-card-head"><div><h3>角色列表（${characters.length}）</h3></div></div>
         <div class="adm-table-wrap">
           <table class="adm-table">
-            <thead><tr><th>角色</th><th>音色</th><th>排序</th><th>Undress</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody>${characters.map(chatLiveCharacterRow).join("") || `<tr><td colspan="6" class="adm-muted">还没有角色</td></tr>`}</tbody>
+            <thead><tr><th>角色</th><th>音色</th><th>创建者</th><th>排序</th><th>Undress</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>${characters.map(chatLiveCharacterRow).join("") || `<tr><td colspan="7" class="adm-muted">还没有角色</td></tr>`}</tbody>
           </table>
         </div>
       </div>
@@ -4800,11 +5303,17 @@ async function renderChatLive() {
     chatLiveVoiceFilter = "";
     openChatLiveCharacterDialog(target, payload.defaults || {}, voices);
   }));
-  els.adminContent.querySelectorAll("[data-chat-live-delete]").forEach((button) => button.addEventListener("click", async () => {
-    if (!window.confirm("确定删除这个角色？")) return;
-    await api(`/api/admin/chat-live/characters/${encodeURIComponent(button.dataset.chatLiveDelete)}`, { method: "DELETE" });
-    if (chatLiveEditingId === button.dataset.chatLiveDelete) chatLiveEditingId = "";
-    renderChatLive();
+  els.adminContent.querySelectorAll("[data-chat-live-shelf]").forEach((button) => button.addEventListener("click", async () => {
+    const onShelf = button.dataset.chatLiveEnabled === "1";
+    if (!window.confirm(onShelf ? "确定下架这个角色？前台不再展示，角色和历史记录都会保留。" : "确定上架这个角色？上架后前台可以再次看到。")) return;
+    button.disabled = true;
+    try {
+      await api(`/api/admin/chat-live/characters/${encodeURIComponent(button.dataset.chatLiveShelf)}/shelf`, { method: "POST", body: { enabled: !onShelf } });
+      renderChatLive();
+    } catch (error) {
+      button.disabled = false;
+      window.alert(error.message || String(error));
+    }
   }));
   els.adminContent.querySelector("#chatLiveMode")?.addEventListener("change", async (event) => {
     /* 实时版用 Vidu 音色，组件版用我们自己的 TTS 音色 */
@@ -4823,7 +5332,8 @@ async function renderChatLive() {
   els.adminContent.querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
     chatLiveVoiceFilter = event.target.value;
     const select = els.adminContent.querySelector("#chatLiveVoiceType");
-    if (select) select.innerHTML = chatLiveVoiceOptions(voices, select.value || editing?.voiceType || "", chatLiveVoiceFilter);
+    const source = chatLiveVoicesCache || voices;
+    if (select) select.innerHTML = chatLiveVoiceOptions(source, select.value || editing?.voiceType || "", chatLiveVoiceFilter);
   });
   els.adminContent.querySelector("#chatLiveVoiceType")?.addEventListener("change", (event) => {
     const label = els.adminContent.querySelector("#chatLiveVoiceSelected");
@@ -4836,10 +5346,12 @@ async function renderChatLive() {
         body: {
           costCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveCost").value || 0),
           saleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSale").value || 0),
+          sharedRoomSaleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSharedSale").value || 0),
           freeSeconds: Number(els.adminContent.querySelector("#chatLiveFreeSeconds").value || 0),
           maxMinutes: Number(els.adminContent.querySelector("#chatLiveMaxMinutes").value || 10),
           model: els.adminContent.querySelector("#chatLiveModel").value,
           callMode: els.adminContent.querySelector("#chatLiveCallMode").value,
+          languageModel: els.adminContent.querySelector("#chatLiveLanguageModel").value,
           defaultMode: els.adminContent.querySelector("#chatLiveDefaultMode").value,
           enabled: els.adminContent.querySelector("#chatLiveEnabledSwitch").checked,
         },
@@ -5986,6 +6498,23 @@ async function renderConfig() {
           <button class="adm-btn adm-btn-primary" id="saveConfigBtn"><i data-lucide="save"></i>保存</button>
         </div>
       </div>
+      <div class="adm-card adm-mt" id="aliyunRouteCard">
+        <div class="adm-card-head">
+          <div>
+            <h3>阿里接口线路</h3>
+            <p class="adm-muted">全局默认走现有阿里节点。打开后，文档里有对应节点的能力改走 Mulerouter。没有对应节点的能力继续走阿里，不会丢字段。</p>
+          </div>
+          <button class="adm-btn adm-btn-primary" id="saveAliyunRouteBtn" type="button"><i data-lucide="save"></i>保存线路</button>
+        </div>
+        <div class="adm-card-body">
+          <label class="adm-check" style="display:flex;align-items:center;gap:8px;">
+            <input id="aliyunRouteEnabled" type="checkbox" />
+            <span>全站切换到 Mulerouter 平替节点</span>
+          </label>
+          <p class="adm-muted adm-mt" id="aliyunRouteStatus">正在读取线路状态…</p>
+          <p class="adm-muted">test01 不受这个开关影响，始终走新节点，用来先测一轮。密钥只存在服务器环境变量里，这里不显示。</p>
+        </div>
+      </div>
       <div class="adm-card adm-mt">
         <div class="adm-card-head">
           <div>
@@ -6015,6 +6544,43 @@ async function renderConfig() {
     state.config = null;
     renderConfig();
     toast("已重新拉取配置。", "success");
+  });
+  async function loadAliyunRoute() {
+    const status = byId("aliyunRouteStatus");
+    try {
+      const payload = await api("/api/admin/aliyun-route");
+      const route = payload.route || {};
+      const box = byId("aliyunRouteEnabled");
+      if (box) box.checked = route.enabled === true;
+      const mapped = (route.mapped || []).map((item) => `${item.from} → ${item.to}`).join("；");
+      const unmapped = (route.unmapped || []).join("、");
+      if (status) {
+        status.textContent = [
+          route.enabled ? "当前：全站新节点" : "当前：全站仍走阿里",
+          route.keyConfigured ? "密钥已配置" : "密钥未配置，新节点请求会失败而不是悄悄退回阿里",
+          mapped ? `会切换：${mapped}` : "",
+          unmapped ? `继续走阿里：${unmapped}` : "",
+          route.updatedAt ? `上次保存：${route.updatedAt}` : "",
+        ].filter(Boolean).join("。 ");
+      }
+    } catch (err) {
+      if (status) status.textContent = err.message || "线路状态读取失败";
+    }
+  }
+  loadAliyunRoute();
+  byId("saveAliyunRouteBtn")?.addEventListener("click", async () => {
+    const button = byId("saveAliyunRouteBtn");
+    if (button) button.disabled = true;
+    try {
+      const enabled = byId("aliyunRouteEnabled")?.checked === true;
+      await api("/api/admin/aliyun-route", { method: "PUT", body: { enabled } });
+      await loadAliyunRoute();
+      toast(enabled ? "已切换到 Mulerouter 平替节点。" : "已切回现有阿里节点。", "success");
+    } catch (err) {
+      toast(err.message || "保存失败", "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
   });
   byId("saveAnalyticsBtn")?.addEventListener("click", async () => {
     try {

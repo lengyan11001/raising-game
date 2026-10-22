@@ -11,7 +11,43 @@ const crypto = require("node:crypto");
 
 const PCM_SAMPLE_RATE = 24000;
 const FRAME_BYTES = 960; /* 20ms @24kHz s16le mono */
+const FRAME_MS = 20;
 const WS_PING_INTERVAL_MS = 15000;
+
+/* 不再推等待音。这段合成轻声会被 Vidu 当成正式口播，回复前先响一段杂音。等待时只靠动作匹配。 */
+function buildThinkingPcm() {
+  const seconds = 1.8;
+  const samples = PCM_SAMPLE_RATE * seconds;
+  const pcm = Buffer.alloc(samples * 2);
+  const hum = (t, start, end) => {
+    if (t < start || t > end) return 0;
+    const u = (t - start) / (end - start);
+    return Math.sin(Math.PI * u) ** 1.15;
+  };
+  for (let i = 0; i < samples; i += 1) {
+    const t = i / PCM_SAMPLE_RATE;
+    const env = Math.max(hum(t, 0.06, 0.38), hum(t, 0.62, 1.05), hum(t, 1.28, 1.62));
+    const f0 = 158 + 18 * Math.sin(2 * Math.PI * 2.4 * t);
+    const wave = Math.sin(2 * Math.PI * f0 * t) * 0.62
+      + Math.sin(2 * Math.PI * f0 * 2.02 * t) * 0.2
+      + Math.sin(2 * Math.PI * f0 * 3.05 * t) * 0.07;
+    const noise = ((i * 17) % 1000) / 1000 - 0.5;
+    const sample = Math.max(-1, Math.min(1, (wave + noise * 0.04) * env * 0.2));
+    pcm.writeInt16LE(sample * 32767, i * 2);
+  }
+  return pcm;
+}
+const THINKING_PCM = buildThinkingPcm();
+
+function stopThinking(session) {
+  if (!session) return;
+  if (session.thinkTimer) clearTimeout(session.thinkTimer);
+  session.thinkTimer = 0;
+}
+
+function startThinking(session, turn) {
+  stopThinking(session);
+}
 
 function log(...args) {
   console.log("[chat-live-component]", ...args);
@@ -19,12 +55,14 @@ function log(...args) {
 
 /* ---------------- 最小 WebSocket 客户端（只能发文本/二进制，收文本/心跳） ---------------- */
 class MiniWebSocket {
-  constructor(url, { headers = {}, onText, onClose, onOpen } = {}) {
+  constructor(url, { headers = {}, onText, onBinary, onClose, onOpen, ping = true } = {}) {
     this.url = new URL(url);
     this.headers = headers;
     this.onText = onText;
+    this.onBinary = onBinary;
     this.onClose = onClose;
     this.onOpen = onOpen;
+    this.allowPing = ping !== false;
     this.socket = null;
     this.buffer = Buffer.alloc(0);
     this.closed = false;
@@ -49,7 +87,7 @@ class MiniWebSocket {
     this.socket.on("data", (chunk) => this.handleData(chunk));
     this.socket.on("error", (error) => this.fail(error));
     this.socket.on("close", () => this.fail(new Error("socket closed")));
-    this.pingTimer = setInterval(() => this.ping(), WS_PING_INTERVAL_MS);
+    if (this.allowPing) this.pingTimer = setInterval(() => this.ping(), WS_PING_INTERVAL_MS);
   }
   handleData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
@@ -91,6 +129,7 @@ class MiniWebSocket {
       if (maskKey) for (let i = 0; i < payload.length; i += 1) payload[i] ^= maskKey[i % 4];
       this.buffer = this.buffer.slice(offset + length);
       if (opcode === 0x9) this.sendFrame(0xa, payload);           /* ping → pong */
+      else if (opcode === 0x2 || opcode === 0x0) this.onBinary?.(payload);
       else if (opcode === 0x1) this.onText?.(payload.toString("utf8"));
       else if (opcode === 0x8) this.fail(new Error("server closed websocket"));
     }
@@ -156,7 +195,7 @@ function buildSignal(type, liveId, connId, payload = {}) {
   return JSON.stringify({ type, live_id: String(liveId), conn_id: connId, seq_id: seq, payload });
 }
 
-async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "" } = {}) {
+async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "", memoryBlock = "", userBlock = "", conversationTone = "", engagementBlock = "", spokenPrompt = "", languageModel = "byteplus" } = {}) {
   const id = String(liveId);
   if (sessions.has(id)) return sessions.get(id);
   const connId = `srv-${crypto.randomBytes(4).toString("hex")}`;
@@ -167,6 +206,14 @@ async function startComponentSession({ liveId, clientSecret, character, language
     ready: false,
     speaking: false,
     history: [],
+    memoryBlock: String(memoryBlock || ""),
+    engagementBlock: String(engagementBlock || ""),
+    conversationTone: String(conversationTone || ""),
+    spokenPrompt: String(spokenPrompt || ""),
+    languageModel: String(languageModel || "byteplus").toLowerCase() === "papaya" ? "papaya" : "byteplus",
+    nudgeCount: 0,
+    nudgeTimer: 0,
+    userBlock: String(userBlock || ""),
     character,
     language,
     onEvent,
@@ -209,6 +256,7 @@ function handleServerSignal(session, text) {
       session.ready = true;
       session.onEvent?.({ type: "ready" });
       log("ready", session.liveId);
+      scheduleComponentNudge(session, 3000, true);
     } else {
       /* NOT_READY 属正常，稍后重试 conn_init */
       setTimeout(() => session.ws?.sendText(buildSignal(1, session.liveId, session.connId, { conn_init: { version: 1 } })), 2000);
@@ -225,101 +273,467 @@ function handleServerSignal(session, text) {
   }
 }
 
+function clearComponentNudge(session) {
+  if (!session) return;
+  if (session.nudgeTimer) clearTimeout(session.nudgeTimer);
+  session.nudgeTimer = 0;
+}
+
+function scheduleComponentNudge(session, delayMs = null, opening = false) {
+  clearComponentNudge(session);
+  if (!session) return;
+  if (!opening && (session.nudgeCount || 0) >= 4) return;
+  const wait = delayMs == null ? audioRemainingMs(session) + 5000 : delayMs;
+  session.nudgeTimer = setTimeout(() => {
+    session.nudgeTimer = 0;
+    if (!sessions.has(session.liveId) || !session.ready) return;
+    if (session.speaking || session.tts || audioRemainingMs(session) > 250) {
+      scheduleComponentNudge(session, audioRemainingMs(session) + 5000, opening);
+      return;
+    }
+    if (opening && session.history.length) return;
+    if (!opening) session.nudgeCount = (session.nudgeCount || 0) + 1;
+    log("nudge start", session.liveId, opening ? "opening" : "silence");
+    const userBlock = session.userBlock || "";
+    const userInfo = userBlock ? "\n对方资料：" + userBlock.replace(/\n/g, "；") : "";
+    const openingMsg = userInfo ? "你好呀！" + userInfo : "你好呀！有什么想聊的吗？";
+    componentSay(session.liveId, opening ? openingMsg : "用户沉默了几秒，没有新消息。", { proactive: true, opening }).catch((error) => log("nudge failed", session.liveId, error?.message || error));
+  }, Math.max(800, wait));
+}
+
 function stopComponentSession(liveId) {
   const session = sessions.get(String(liveId));
   if (!session) return false;
+  clearComponentNudge(session);
   try {
     session.lookPending?.({ success: false, error_code: "PROMPT_OP_LIVE_NOT_ACTIVE" });
   } catch {}
   try {
     session.ws?.sendText(buildSignal(5, session.liveId, session.connId, { hangup: { hangup_reason: "user_end" } }));
   } catch {}
+  stopThinking(session);
+  try { session.tts?.cancel?.(); } catch {}
+  session.tts = null;
+  session.audioUntil = Date.now();
+  session.speakTurn = (session.speakTurn || 0) + 1;
+  session.sayEpoch = (session.sayEpoch || 0) + 1;
+  session.pendingSays = 0;
+  session.sayChain = Promise.resolve();
   try { session.ws?.close(); } catch {}
   sessions.delete(String(liveId));
   return true;
 }
 
 /* ---------------- 我们自己的 LLM ---------------- */
-async function componentReply(session, userText) {
+const COSY_EMOTIONS = new Set(["neutral", "fearful", "angry", "sad", "surprised", "happy", "disgusted"]);
+const EMOTION_ALIAS = {
+  neutral: "neutral", calm: "neutral", 平静: "neutral", 中性: "neutral",
+  happy: "happy", 开心: "happy", 高兴: "happy", 温柔: "happy", 暧昧: "happy",
+  sad: "sad", 难过: "sad", 委屈: "sad",
+  angry: "angry", 生气: "angry",
+  fearful: "fearful", 害怕: "fearful",
+  surprised: "surprised", 惊讶: "surprised",
+  disgusted: "disgusted", 嫌弃: "disgusted",
+};
+
+function normalizeEmotion(value) {
+  const key = String(value || "").trim().toLowerCase();
+  if (COSY_EMOTIONS.has(key)) return key;
+  return EMOTION_ALIAS[key] || EMOTION_ALIAS[String(value || "").trim()] || "neutral";
+}
+
+function splitComponentSpeech(raw) {
+  const text = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  try {
+    const parsed = JSON.parse(text);
+    const say = String(parsed.say || parsed.reply || "").replace(/[（(][^）)]{0,40}[）)]/g, "").replace(/\*[^*]+\*/g, "").replace(/\s+/g, " ").trim();
+    const action = String(parsed.action || parsed.expression || "").replace(/[\r\n]+/g, " ").trim().slice(0, 24);
+    return {
+      say,
+      action,
+      emotion: normalizeEmotion(parsed.emotion || parsed.mood),
+      rate: clampNumber(parsed.rate, 0.5, 2, 1),
+      volume: clampNumber(parsed.volume, 0, 100, 50),
+      pitch: clampNumber(parsed.pitch, 0.5, 2, 1),
+    };
+  } catch {}
+  return { say: String(raw || "").replace(/\s+/g, " ").trim(), action: "", emotion: "neutral", rate: 1, volume: 50, pitch: 1 };
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function pcmDurationMs(bytes) {
+  const size = Number(bytes || 0);
+  if (!size) return 0;
+  return Math.ceil((size / (PCM_SAMPLE_RATE * 2)) * 1000);
+}
+
+function audioRemainingMs(session) {
+  return Math.max(0, (session?.audioUntil || 0) - Date.now());
+}
+
+function noteSpokenAudio(session, pcm) {
+  const ms = pcmDurationMs(pcm?.length) + 350;
+  const start = Math.max(Date.now(), session.audioUntil || 0);
+  session.audioUntil = start + ms;
+}
+
+function cancelComponentSpeech(session) {
+  if (!session) return;
+  try { session.tts?.cancel?.(); } catch {}
+  session.tts = null;
+  session.audioUntil = Date.now();
+  try { session.ws?.sendText(buildSignal(7, session.liveId, session.connId, {})); } catch {}
+}
+
+async function componentReply(session, userText, options = {}) {
   const persona = session.character?.persona || "";
   const name = session.character?.name || "Character";
+  const proactive = options.proactive === true;
+  const opening = options.opening === true;
+  const userBlock = session.userBlock || "";
+  const userInfo = userBlock ? "\n对方资料：" + userBlock.replace(/\n/g, "；") : "";
+  const cue = opening
+    ? "刚接通。用一两句自然的话根据对方资料打招呼，可以根据对方的名字称呼ta，不要自我介绍，不要提礼物，不要开新剧情，说完就停。" + userInfo
+    : proactive
+      ? "用户没接话。用一句短话接上次的话题，不要重复上一句，不要自我介绍，不要另起剧情。"
+      : "先回用户刚说的这句。不要铺气氛，不要改话题。";
+  const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
+  const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
-    { role: "system", content: `You are roleplaying as ${name}. Character: ${persona}\nGift interaction: if the user asks for extra preparation, a special action, or makes a request that naturally needs support, you may gently mention one suitable gift as an optional gesture. Do this sparingly, never in consecutive replies, never pressure the user, and never turn the chat into a sales pitch. React more warmly to larger gifts, but never mention prices or credits unless the user asks.\nReply ONLY in the user's language. Keep replies short (1-3 sentences), natural and in character. Never say you are an AI.` },
-    ...session.history.slice(-12),
-    { role: "user", content: userText },
+    { role: "system", content: `${basePrompt}\n${cue}\n${jsonTail}` },
+    ...session.history.slice(-40),
+    { role: "user", content: proactive ? "（对方没接话）" : userText },
   ];
-  const base = String(process.env.ARK_BASE_URL || "https://ark.ap-southeast.bytepluses.com/api/v3").replace(/\/+$/, "");
+  const usePapaya = session.languageModel === "papaya";
+  const base = usePapaya
+    ? String(process.env.MULEROUTER_API_BASE || "https://api.mulerouter.ai").replace(/\/+$/, "") + "/vendors/openai/v1"
+    : String(process.env.ARK_BASE_URL || "https://ark.ap-southeast.bytepluses.com/api/v3").replace(/\/+$/, "");
+  const key = usePapaya ? String(process.env.MULEROUTER_API_KEY || "").trim() : String(process.env.ARK_API_KEY || "");
+  if (!key) throw new Error(usePapaya ? "Papaya is not configured." : "BytePlus language model is not configured.");
   const response = await fetch(`${base}/chat/completions`, {
     method: "POST",
-    headers: { authorization: `Bearer ${process.env.ARK_API_KEY || ""}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw", messages, max_tokens: 220, temperature: 0.8 }),
+    headers: {
+      authorization: `Bearer ${key}`,
+      "content-type": "application/json",
+      accept: "application/json",
+      "user-agent": "raising-game-demo/chat-live",
+    },
+    body: JSON.stringify({
+      model: usePapaya ? "carrothub-papaya-1.0" : (process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw"),
+      messages,
+      max_tokens: 800,
+      temperature: 0.62,
+    }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload?.error?.message || `LLM HTTP ${response.status}`);
   const reply = payload?.choices?.[0]?.message?.content || payload?.choices?.[0]?.text || "";
-  session.history.push({ role: "user", content: userText }, { role: "assistant", content: reply });
-  return reply.trim();
+  const speech = splitComponentSpeech(reply);
+  if (!speech.say) speech.say = proactive ? "嗯。" : "你说。";
+  session.history.push({ role: "user", content: userText }, { role: "assistant", content: speech.say });
+  if (session.history.length > 36) session.history.splice(0, session.history.length - 36);
+  return speech;
 }
 
-/* ---------------- 我们的 TTS（DashScope CosyVoice → 24k PCM） ---------------- */
-async function componentSpeechPcm(text, voice) {
+/* ---------------- 组件 TTS：新加坡 CosyVoice v3 流式 PCM ---------------- */
+function dashscopeWorkspaceId() {
+  const explicit = String(process.env.CHAT_LIVE_TTS_WORKSPACE || "").trim();
+  if (explicit) return explicit;
+  try {
+    const host = new URL(String(process.env.ALIYUN_DASHSCOPE_BASE_URL || "")).hostname;
+    const id = host.split(".")[0];
+    if (id.startsWith("ws-")) return id;
+  } catch {}
+  return "ws-q23damt9qmyo1rd9";
+}
+
+function openCosyvoicePcmStream(voice, model, onPcm, options = {}) {
+  const key = process.env.ALIYUN_DASHSCOPE_API_KEY || "";
+  const workspace = dashscopeWorkspaceId();
+  const region = String(process.env.CHAT_LIVE_TTS_REGION || "ap-southeast-1").trim() || "ap-southeast-1";
+  const url = `wss://${workspace}.${region}.maas.aliyuncs.com/api-ws/v1/inference`;
+  const taskId = crypto.randomUUID();
+  const voiceName = String(voice || "longanyang").trim() || "longanyang";
+  const queue = [];
+  let started = false;
+  let finishedSent = false;
+  let finishRequested = false;
+  let cancelled = false;
+  let bytes = 0;
+  let settled = false;
+  let resolveDone;
+  let rejectDone;
+  const done = new Promise((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
+  const finish = (error) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    try { ws.close(); } catch {}
+    if (error && !cancelled) rejectDone(error);
+    else resolveDone(bytes);
+  };
+  const pump = () => {
+    if (!started || cancelled || settled) return;
+    while (queue.length) {
+      const text = queue.shift();
+      ws.sendText(JSON.stringify({
+        header: { action: "continue-task", task_id: taskId, streaming: "duplex" },
+        payload: { input: { text } },
+      }));
+    }
+    if (finishRequested && !finishedSent) {
+      finishedSent = true;
+      ws.sendText(JSON.stringify({
+        header: { action: "finish-task", task_id: taskId, streaming: "duplex" },
+        payload: { input: {} },
+      }));
+    }
+  };
+  const ws = new MiniWebSocket(url, {
+    ping: false,
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "X-DashScope-WorkSpace": workspace,
+    },
+    onText: (raw) => {
+      let message;
+      try { message = JSON.parse(raw); } catch { return; }
+      const header = message.header || {};
+      const event = header.event;
+      if (event === "task-started") {
+        started = true;
+        pump();
+      } else if (event === "task-finished") {
+        if (!bytes && !cancelled) finish(new Error("TTS 没有返回音频。"));
+        else finish(null);
+      } else if (event === "task-failed") {
+        finish(new Error(header.error_message || header.error_code || "TTS 失败。"));
+      }
+    },
+    onBinary: (chunk) => {
+      if (!chunk?.length || cancelled) return;
+      bytes += chunk.length;
+      try { onPcm(Buffer.from(chunk)); } catch (error) { log("pcm forward failed", error.message); }
+    },
+    onOpen: () => {
+      const sent = ws.sendText(JSON.stringify({
+        header: { action: "run-task", task_id: taskId, streaming: "duplex" },
+        payload: {
+          task_group: "audio",
+          task: "tts",
+          function: "SpeechSynthesizer",
+          model,
+          parameters: {
+            text_type: "PlainText",
+            voice: voiceName,
+            format: "pcm",
+            sample_rate: PCM_SAMPLE_RATE,
+            rate: Number(options.rate) > 0 ? Number(options.rate) : 0.94,
+            volume: Number.isFinite(Number(options.volume)) ? Number(options.volume) : 50,
+            pitch: Number(options.pitch) > 0 ? Number(options.pitch) : 1,
+            ...(options.instruction ? { instruction: options.instruction } : {}),
+          },
+          input: {},
+        },
+      }));
+      if (!sent) finish(new Error("TTS 连接失败。"));
+    },
+    onClose: (error) => {
+      if (!settled) finish(cancelled ? null : (error || new Error("TTS 连接中断。")));
+    },
+  });
+  const timer = setTimeout(() => finish(new Error("TTS 超时。")), 20000);
+  ws.connect();
+  return {
+    pushText(text) {
+      const chunk = String(text || "");
+      if (!chunk || cancelled) return;
+      queue.push(chunk);
+      pump();
+    },
+    finish() {
+      finishRequested = true;
+      pump();
+    },
+    cancel() {
+      cancelled = true;
+      finish(null);
+    },
+    done,
+    get bytes() { return bytes; },
+  };
+}
+
+function cosyvoiceWsPcm(text, voice, model, options = {}) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const stream = openCosyvoicePcmStream(voice, model, (chunk) => chunks.push(chunk), options);
+    options.onStream?.(stream);
+    stream.pushText(text);
+    stream.finish();
+    stream.done.then((bytes) => {
+      if (!bytes) reject(new Error("TTS 没有返回音频。"));
+      else resolve(Buffer.concat(chunks));
+    }).catch(reject);
+  });
+}
+
+function speechDelivery(speech = {}) {
+  const emotion = normalizeEmotion(speech.emotion);
+  return {
+    emotion,
+    rate: clampNumber(speech.rate, 0.5, 2, 1),
+    volume: Math.round(clampNumber(speech.volume, 0, 100, 50)),
+    pitch: clampNumber(speech.pitch, 0.5, 2, 1),
+    instruction: emotion === "neutral" ? "" : `你正在进行闲聊互动，你说话的情感是${emotion}。`,
+  };
+}
+
+async function componentSpeechPcm(text, voice, options = {}) {
   const key = process.env.ALIYUN_DASHSCOPE_API_KEY || process.env.ALIYUN_WAN30_API_KEY || "";
   if (!key) throw new Error("TTS 未配置（缺 ALIYUN_DASHSCOPE_API_KEY）。");
-  const base = String(process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
-  const model = String(process.env.CHAT_LIVE_TTS_MODEL || "cosyvoice-v1").trim();
-  const headers = { authorization: `Bearer ${key}`, "content-type": "application/json" };
-  /* 用后台角色里选的音色：CosyVoice 走 speech-synthesis，qwen-tts 走 multimodal-generation */
-  const payloads = model.startsWith("cosyvoice")
-    ? [{
-        url: `${base}/api/v1/services/aigc/text2speech/speech-synthesis`,
-        body: { model, input: { text, voice: voice || "longxiaochun" }, parameters: { format: "wav", sample_rate: PCM_SAMPLE_RATE } },
-      }]
-    : [
-        { url: `${base}/api/v1/services/aigc/multimodal-generation/generation`, body: { model, input: { text, voice: voice || "Cherry" } } },
-        { url: `${base}/api/v1/services/aigc/text2speech/speech-synthesis`, body: { model: "cosyvoice-v1", input: { text, voice: voice || "longxiaochun" }, parameters: { format: "wav", sample_rate: PCM_SAMPLE_RATE } } },
-      ];
-  let response = null;
-  let payload = {};
-  for (const attempt of payloads) {
-    response = await fetch(attempt.url, { method: "POST", headers, body: JSON.stringify(attempt.body) });
-    payload = await response.json().catch(() => ({}));
-    if (response.ok) break;
+  const model = "cosyvoice-v3-flash";
+  const requested = String(voice || "").trim() || "longanyang";
+  const delivery = speechDelivery(options);
+  const speak = (voiceName, withInstruction) => cosyvoiceWsPcm(text, voiceName, model, {
+    rate: delivery.rate,
+    volume: delivery.volume,
+    pitch: delivery.pitch,
+    instruction: withInstruction ? delivery.instruction : "",
+    onStream: options.onStream,
+  });
+  try {
+    return await speak(requested, Boolean(delivery.instruction));
+  } catch (error) {
+    if (delivery.instruction) {
+      log("tts instruction fallback", requested, delivery.emotion, error.message);
+      try { return await speak(requested, false); } catch (retryError) { error = retryError; }
+    }
+    log("tts voice failed", requested, error.message);
+    throw error;
   }
-  if (!response.ok) throw new Error(payload?.message || payload?.error?.message || `TTS HTTP ${response.status}`);
-  const audio = payload?.output?.audio;
-  const url = typeof audio === "string" ? audio : audio?.url || audio?.data;
-  if (!url) throw new Error("TTS 没有返回音频。");
-  if (/^https?:/i.test(url)) {
-    const file = await fetch(url);
-    const buffer = Buffer.from(await file.arrayBuffer());
-    /* wav 去掉 44 字节头；裸 pcm 直接用 */
-    return buffer.slice(0, 4).toString("latin1") === "RIFF" ? buffer.slice(44) : buffer;
-  }
-  return Buffer.from(String(url).replace(/^data:[^,]+,/, ""), "base64");
+}
+/* ---------------- 对外：一轮对话 ---------------- */
+function componentNotReady(message = "还在接通，这句话还没发出去。") {
+  const error = new Error(message);
+  error.code = "CHAT_LIVE_NOT_READY";
+  error.statusCode = 409;
+  return error;
 }
 
-/* ---------------- 对外：一轮对话 ---------------- */
-async function componentSay(liveId, userText) {
-  const session = sessions.get(String(liveId));
-  if (!session) throw new Error("会话已结束。");
-  if (!session.ready) throw new Error("数字人还在准备，请稍后再试。");
+async function waitComponentReady(liveId, timeoutMs = 15000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const session = sessions.get(String(liveId));
+    if (!session) throw new Error("会话已结束。");
+    if (session.ready) return session;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw componentNotReady();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+async function componentSay(liveId, userText, options = {}) {
+  const session = await waitComponentReady(liveId);
+  if (options.proactive === true) return runComponentSay(session, userText, options);
+  const epoch = session.sayEpoch || 0;
+  session.pendingSays = (session.pendingSays || 0) + 1;
+  const previous = session.sayChain || Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    try {
+      if ((session.sayEpoch || 0) !== epoch || !sessions.has(String(liveId))) return "";
+      return await runComponentSay(session, userText, options);
+    } finally {
+      session.pendingSays = Math.max(0, (session.pendingSays || 1) - 1);
+    }
+  });
+  session.sayChain = current.then(() => {}, () => {});
+  return current;
+}
+
+async function runComponentSay(session, userText, options = {}) {
+  const liveId = session.liveId;
+  const proactive = options.proactive === true;
+  if (!sessions.has(String(liveId))) return "";
+  clearComponentNudge(session);
+  if (proactive && (session.pendingSays || session.speaking || session.tts || audioRemainingMs(session) > 250)) {
+    scheduleComponentNudge(session, audioRemainingMs(session) + 5000, options.opening === true);
+    return "";
+  }
+  if (!proactive) session.nudgeCount = 0;
+  const turn = (session.speakTurn || 0) + 1;
+  session.speakTurn = turn;
   session.speaking = true;
-  session.ws?.sendText(buildSignal(7, session.liveId, session.connId, {}));            /* 打断上一轮 */
-  session.ws?.sendText(buildSignal(9, session.liveId, session.connId, { text_msg: { msg_id: `u-${Date.now()}`, content: userText, timestamp: Date.now() } }));
-  const reply = await componentReply(session, userText);
-  session.ws?.sendText(buildSignal(10, session.liveId, session.connId, { text_msg: { msg_id: `a-${Date.now()}`, content: reply, timestamp: Date.now() } }));
-  const pcm = await componentSpeechPcm(reply, session.character?.voiceType);
-  session.ws?.sendBinary(pcm);
-  session.speaking = false;
-  return reply;
+  stopThinking(session);
+  if (!proactive) {
+    session.ws?.sendText(buildSignal(9, session.liveId, session.connId, { text_msg: { msg_id: `u-${Date.now()}`, content: userText, timestamp: Date.now() } }));
+  }
+  startThinking(session, turn);
+  try {
+    if (options.memoryBlock) session.memoryBlock = String(options.memoryBlock);
+    if (options.userBlock) session.userBlock = String(options.userBlock);
+    if (options.engagementBlock) session.engagementBlock = String(options.engagementBlock);
+    const speech = await componentReply(session, userText, { proactive, opening: options.opening === true });
+    const reply = speech.say;
+    const action = speech.action;
+    if (session.speakTurn !== turn) return reply;
+    const componentVoice = session.character?.componentVoiceType || (session.character?.voiceProvider === "dashscope_cosyvoice" ? session.character?.voiceType : "") || "longanyang";
+    const pcm = await componentSpeechPcm(reply, componentVoice, {
+      emotion: speech.emotion,
+      rate: speech.rate,
+      volume: speech.volume,
+      pitch: speech.pitch,
+      onStream(stream) {
+        if (session.speakTurn !== turn) {
+          stream.cancel();
+          return;
+        }
+        session.tts = stream;
+      },
+    });
+    if (session.tts) session.tts = null;
+    if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
+    const remain = audioRemainingMs(session);
+    if (remain > 80) await sleep(remain);
+    if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
+    stopThinking(session);
+    /* 动作字段发给 Vidu（如果有的话）。组件版 type=10 的 text_msg 可以带 action。 */
+    if (action) {
+      log("action sent to Vidu", session.liveId, action);
+      session.ws?.sendText(buildSignal(10, session.liveId, session.connId, { text_msg: { msg_id: `a-${Date.now()}`, content: reply, timestamp: Date.now(), action: action } }));
+    }
+    if (!action) {
+      session.ws?.sendText(buildSignal(10, session.liveId, session.connId, { text_msg: { msg_id: `a-${Date.now()}`, content: reply, timestamp: Date.now() } }));
+    }
+    session.ws?.sendBinary(pcm);
+    noteSpokenAudio(session, pcm);
+    log("spoken", session.liveId, proactive ? "nudge" : "reply", speech.emotion || "neutral", speech.rate, speech.volume, speech.pitch, pcmDurationMs(pcm.length));
+    if (proactive) log("nudge spoken", session.liveId, String(reply || "").length);
+    return reply;
+  } finally {
+    if (session.speakTurn === turn) {
+      stopThinking(session);
+      session.speaking = false;
+      session.tts = null;
+      scheduleComponentNudge(session, audioRemainingMs(session) + 5000);
+    }
+  }
 }
 
 function componentLookError(code) {
   const message = ({
     PROMPT_OP_PARAM_INVALID: "素材参数不对，换不了。",
-    PROMPT_OP_MODEL_NOT_SUPPORTED: "当前数字人不是 vidu-s2，不能换画面。",
+    PROMPT_OP_MODEL_NOT_SUPPORTED: "当前通话不支持换画面。",
     PROMPT_OP_LIVE_NOT_ACTIVE: "会话还没开始或已经结束。",
-    PROMPT_OP_IMAGE_TRANSFER_FAILED: "数字人拉不到这张图，请换一张再试。",
+    PROMPT_OP_IMAGE_TRANSFER_FAILED: "这张图暂时用不了，请换一张再试。",
     PROMPT_OP_SIP_NOT_CONNECTED: "画面还在准备，请几秒后再试。",
     PROMPT_OP_FAILED: "画面切换失败，请再试一次。",
     LOOK_BUSY: "上一次切换还在处理。",

@@ -323,6 +323,13 @@ async function ensureSchemaInner() {
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
   `);
   await query(`
+    INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
+    VALUES ('plan-tool-chat-weekly', 'tool-chat-5vips', '周卡', 'active', 'USD', 9.9, 'week', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = 'active', currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
+  `);
+  await query(`UPDATE app_billing_plans SET status = 'inactive', updated_at = NOW() WHERE id = 'plan-tool-chat-quarterly' AND tenant_id = 'tool-chat-5vips';`);
+
+  await query(`
     INSERT INTO app_billing_plans (
       id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
     )
@@ -494,6 +501,16 @@ async function ensureSchemaInner() {
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_character_memories (
+      user_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, character_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_chat_live_rooms (
       id TEXT PRIMARY KEY,
@@ -1885,17 +1902,70 @@ async function getUserSpendingRecordsPageFromDb({ userId = "", page = 1, limit =
   const cleanType = String(type || "").trim().toLowerCase();
   const from = fromDate ? new Date(fromDate).toISOString() : null;
   const to = toDate ? new Date(toDate).toISOString() : null;
+  const groupLive = !cleanType || cleanType === "chat_live";
   const { rows } = await query(`
+    WITH live_rows AS (
+      SELECT
+        COALESCE(NULLIF(meta->>'sessionId', ''), NULLIF(regexp_replace(COALESCE(meta->>'taskId', ''), ':(hold|hold-refund):.*$', ''), ''), id) AS session_key,
+        delta,
+        balance_after,
+        created_at,
+        meta
+      FROM app_credit_ledger
+      WHERE $8::boolean
+        AND user_id = $1
+        AND type LIKE 'chat_live%' AND type NOT LIKE '%gift%'
+        AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+        AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+    ),
+    live_grouped AS (
+      SELECT
+        l.session_key AS id,
+        $1::text AS user_id,
+        SUM(l.delta) AS delta,
+        (ARRAY_AGG(l.balance_after ORDER BY l.created_at DESC))[1] AS balance_after,
+        'chat_live'::text AS type,
+        jsonb_build_object(
+          'taskId', l.session_key,
+          'sessionId', l.session_key,
+          'label', '视频聊天',
+          'characterName', COALESCE(s.payload->>'characterName', ''),
+          'duration', GREATEST(
+            COALESCE((s.payload->>'billedSeconds')::numeric, 0),
+            FLOOR(EXTRACT(EPOCH FROM (MAX(l.created_at) - MIN(l.created_at))))
+          ),
+          'endedAt', COALESCE(s.payload->>'endedAt', MAX(l.created_at)::text),
+          'startedAt', COALESCE(s.payload->>'createdAt', MIN(l.created_at)::text)
+        ) AS meta,
+        '{}'::jsonb AS payload,
+        COALESCE(NULLIF(s.payload->>'createdAt', '')::timestamptz, MIN(l.created_at)) AS created_at
+      FROM live_rows l
+      LEFT JOIN app_chat_live_sessions s ON s.id = l.session_key
+      GROUP BY l.session_key, s.payload
+      HAVING SUM(l.delta) < -0.0001
+    ),
+    others AS (
+      SELECT id, user_id, delta, balance_after, type, meta, COALESCE(payload, '{}'::jsonb) AS payload, created_at
+      FROM app_credit_ledger
+      WHERE user_id = $1
+        AND delta < 0
+        AND NOT ($8::boolean AND type LIKE 'chat_live%' AND type NOT LIKE '%gift%')
+        AND ($2 = '' OR LOWER(type) = $2)
+        AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+        AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+    ),
+    merged AS (
+      SELECT * FROM live_grouped
+      UNION ALL
+      SELECT * FROM others
+    )
     SELECT *, COUNT(*) OVER()::int AS total_count
-    FROM app_credit_ledger
-    WHERE user_id = $1 AND delta < 0
-      AND ($2 = '' OR LOWER(type) = $2)
-      AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
-      AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
-      AND ($5 = '' OR LOWER(CONCAT_WS(' ', id, type, meta->>'taskId', meta->>'templateId', meta->>'caseId', meta->>'provider', meta->>'resolution', meta->>'label')) LIKE '%' || $5 || '%')
+    FROM merged
+    WHERE ($5 = '' OR LOWER(CONCAT_WS(' ', id, type, meta->>'taskId', meta->>'sessionId', meta->>'characterName', meta->>'label', meta->>'templateId', meta->>'provider')) LIKE '%' || $5 || '%')
+      AND ($2 = '' OR LOWER(type) = $2 OR ($2 = 'chat_live' AND type = 'chat_live'))
     ORDER BY created_at DESC
     LIMIT $6 OFFSET $7
-  `, [cleanUserId, cleanType, from, to, q, safeLimit, safeOffset]);
+  `, [cleanUserId, cleanType, from, to, q, safeLimit, safeOffset, groupLive]);
   const total = Number(rows[0]?.total_count || 0);
   const totalPages = Math.max(1, Math.ceil(total / safeLimit));
   const typeRows = await query(`SELECT DISTINCT type FROM app_credit_ledger WHERE user_id = $1 AND delta < 0 AND type <> '' ORDER BY type`, [cleanUserId]);
@@ -3884,6 +3954,32 @@ function normalizeApiSubtokenUsageRecord(record = {}) {
   };
 }
 
+async function getChatCharacterMemoryInDb(userId = "", characterId = "") {
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return null;
+  const { rows } = await query(
+    `SELECT payload FROM app_chat_character_memories WHERE user_id = $1 AND character_id = $2`,
+    [cleanUserId, cleanCharacterId],
+  );
+  return rows[0]?.payload || null;
+}
+
+async function upsertChatCharacterMemoryInDb(userId = "", characterId = "", payload = {}) {
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return null;
+  await query(
+    `INSERT INTO app_chat_character_memories(user_id, character_id, payload, updated_at)
+     VALUES ($1, $2, $3::jsonb, NOW())
+     ON CONFLICT (user_id, character_id)
+     DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+    [cleanUserId, cleanCharacterId, JSON.stringify(payload || {})],
+  );
+  return payload;
+}
+
+
 module.exports = {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
@@ -3953,6 +4049,8 @@ module.exports = {
   createChatLiveSessionInDb,
   getChatLiveSessionInDb,
   getChatLiveSessionByLiveIdInDb,
+  getChatCharacterMemoryInDb,
+  upsertChatCharacterMemoryInDb,
   updateChatLiveSessionInDb,
   listChatLiveSessionsInDb,
   upsertChatLiveRoomInDb,

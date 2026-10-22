@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>After Dark Girlfriend Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=generation-expiry-placeholder-1" />
+    <link rel="stylesheet" href="./styles.css?v=pay-marks-1" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0"></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -424,10 +424,6 @@
           <button id="legacyUsdtTab" class="legacy-payment-tab" type="button" data-payment-method="usdt">USDT</button>
         </div>
         <div id="legacyStripePanel" class="legacy-payment-panel">
-          <p class="stripe-payment-method-note" role="note" aria-label="Stripe payment methods">
-            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>WeChat Pay</span></span>
-            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
-          </p>
           <p class="recharge-note">Continue to the secure Stripe payment page. Credits are added after Stripe confirms payment.</p>
         </div>
         <div id="legacyUsdtPanel" class="legacy-payment-panel" hidden>
@@ -442,7 +438,14 @@
           <p class="recharge-note">TRC20 USDT only — wrong token/network is lost. <strong>1 USDT = 1 credit.</strong> After you create an order, send the <strong>exact</strong> USDT amount shown (includes a match suffix).</p>
         </div>
         </div>
-        <label class="recharge-amount-label" for="rechargeAmount">Credits to buy</label>
+        <div class="recharge-amount-head">
+          <label class="recharge-amount-label" for="rechargeAmount">Credits to buy</label>
+          <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>WeChat Pay</span></span>
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-alipay" src="./assets/brand/alipay-logo.svg?v=1" alt="" aria-hidden="true" /><span>Alipay</span></span>
+            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
+          </p>
+        </div>
         <input id="rechargeAmount" type="number" min="1" step="1" value="100" />
         <div id="orderResult" class="order-result"></div>
         <div class="dialog-actions">

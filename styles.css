@@ -2820,3 +2820,7 @@ input[type="text"]:focus {
     box-shadow: 0 26px 80px rgba(41, 31, 43, 0.16);
   }
 }
+
+.recharge-amount-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.recharge-amount-head .pay-channel-marks { width:auto; margin:0; }
+.recharge-amount-head .stripe-payment-method-item { width:auto; height:28px; }

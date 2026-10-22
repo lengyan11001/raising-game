@@ -102,6 +102,7 @@ async function authorizeTelegramLogin() {
       body: {
         idToken,
         referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "",
+        attribution: (() => { try { return JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {}; } catch { return {}; } })(),
       },
     });
     await completeLogin(payload);
@@ -174,7 +175,7 @@ async function loadTelegramMiniAppAuth() {
   app.onEvent?.("themeChanged", applyTelegramTheme);
   const payload = await requestJson("/api/telegram/webapp-auth", {
     method: "POST",
-    body: { initData: String(app.initData || "") },
+    body: { initData: String(app.initData || ""), referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "", attribution: (() => { try { return JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {}; } catch { return {}; } })() },
   });
   state.token = String(payload.token || "");
   if (state.token) localStorage.setItem(TOKEN_KEY, state.token);
