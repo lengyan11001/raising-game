@@ -131,7 +131,7 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
   assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
 });
 
-test("Wan3.0 Prime shares controls and applies the 1.5 pricing factor", () => {
+test("Wan3.0 Prime shares controls and uses its configured rate table", () => {
   assert.match(create, /\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"\]\.includes\(capability\)/);
   assert.match(create, /new Set\(\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"/);
   assert.match(ui, /"wan30-video-pro": "W3\.0-Pro"/);
@@ -140,6 +140,7 @@ test("Wan3.0 Prime shares controls and applies the 1.5 pricing factor", () => {
   assert.match(ui, /wan30PrimeCreditsPerSecondByResolution/);
   assert.match(server, /ALIYUN_WAN30_PRIME_MODEL = process\.env\.ALIYUN_WAN30_PRIME_MODEL \|\| "wan3\.0-video-prime"/);
   assert.match(server, /ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1\.5/);
+  assert.match(server, /"wan30-video-prime": Object\.freeze\(\{ "480p": 10, "720p": 20, "1080p": 38 \}\)/);
   assert.match(server, /wan30PrimeCreditsPerSecondByResolution/);
   assert.match(server, /key: "wan30-prime-480p"/);
   assert.match(server, /key === "wan30-prime-1080p"/);
@@ -171,7 +172,10 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
 });
 
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
-  assert.match(create, /provider === "wan30"\s*\? \["480p", "720p", "1080p"\]/);
+  assert.match(create, /const videoOptions = advancedVideoResolutionOptions\(provider\)/);
+  assert.match(ui, /function advancedVideoResolutionOptions\(provider = currentAdvancedProvider\(\)\)/);
+  assert.match(ui, /capability === "wan30-video-pro" \|\| capability === "wan30-video-prime-pro"\) return \["1080p", "2k", "4k"\]/);
+  assert.match(create, /resolution: currentAdvancedResolution\(\)/);
   assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
   assert.match(create, /const fallbackRatio = provider === "seedance25" \? "16:9"/);
   assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);

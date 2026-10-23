@@ -710,6 +710,12 @@ const ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND = Object.freeze({
   "720p": 0.6,
   "1080p": 1.2,
 });
+const WAN30_DEFAULT_SALE_CREDITS_PER_SECOND = Object.freeze({
+  "wan30-video": Object.freeze({ "480p": 7, "720p": 15, "1080p": 30 }),
+  "wan30-video-pro": Object.freeze({ "1080p": 26.986507, "2k": 53.973014, "4k": 107.946028 }),
+  "wan30-video-prime": Object.freeze({ "480p": 10, "720p": 20, "1080p": 38 }),
+  "wan30-video-prime-pro": Object.freeze({ "1080p": 40.479761, "2k": 80.959521, "4k": 161.919042 }),
+});
 const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.7-image-pro";
 const WAN27_IMAGE_PRO_PURCHASE_USD = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_USD, 0.075, 0, 6);
 const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, WAN27_IMAGE_PRO_PURCHASE_USD * INTERNAL_CNY_PER_USD, 0, 6);
@@ -813,26 +819,10 @@ const DEFAULT_ADVANCED_PRICING = {
     "480p": ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND,
     "720p": ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND,
   },
-  wan30CreditsPerSecondByResolution: {
-    "480p": defaultWan30SaleCreditsPerSecond("480p"),
-    "720p": defaultWan30SaleCreditsPerSecond("720p"),
-    "1080p": defaultWan30SaleCreditsPerSecond("1080p"),
-  },
-  wan30PrimeCreditsPerSecondByResolution: {
-    "480p": pricingNumber(defaultWan30SaleCreditsPerSecond("480p") * 1.5, 0, 0, 6),
-    "720p": pricingNumber(defaultWan30SaleCreditsPerSecond("720p") * 1.5, 0, 0, 6),
-    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 1.5, 0, 0, 6),
-  },
-  wan30ProCreditsPerSecondByResolution: {
-    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p"), 0, 0, 6),
-    "2k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 2, 0, 0, 6),
-    "4k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 4, 0, 0, 6),
-  },
-  wan30PrimeProCreditsPerSecondByResolution: {
-    "1080p": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 1.5, 0, 0, 6),
-    "2k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 3, 0, 0, 6),
-    "4k": pricingNumber(defaultWan30SaleCreditsPerSecond("1080p") * 6, 0, 0, 6),
-  },
+  wan30CreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video"] },
+  wan30PrimeCreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video-prime"] },
+  wan30ProCreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video-pro"] },
+  wan30PrimeProCreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video-prime-pro"] },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
@@ -2140,9 +2130,9 @@ function normalizeAdvancedPricing(pricing = {}) {
       "1080p": normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6),
     },
     wan30PrimeCreditsPerSecondByResolution: {
-      "480p": normalizeStoredCredits(wan30Prime["480p"], pricingNumber(normalizeStoredCredits(wan30["480p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["480p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
-      "720p": normalizeStoredCredits(wan30Prime["720p"], pricingNumber(normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
-      "1080p": normalizeStoredCredits(wan30Prime["1080p"], pricingNumber(normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6) * ALIYUN_WAN30_PRIME_PRICE_FACTOR, 0, 0, 6), 6),
+      "480p": normalizeStoredCredits(wan30Prime["480p"], DEFAULT_ADVANCED_PRICING.wan30PrimeCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(wan30Prime["720p"], DEFAULT_ADVANCED_PRICING.wan30PrimeCreditsPerSecondByResolution["720p"], 6),
+      "1080p": normalizeStoredCredits(wan30Prime["1080p"], DEFAULT_ADVANCED_PRICING.wan30PrimeCreditsPerSecondByResolution["1080p"], 6),
     },
     wan30ProCreditsPerSecondByResolution: {
       "1080p": normalizeStoredCredits(wan30Pro["1080p"], DEFAULT_ADVANCED_PRICING.wan30ProCreditsPerSecondByResolution["1080p"], 6),
@@ -2330,7 +2320,6 @@ function publicAdvancedPricingView(pricing = {}) {
     if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete view.happyhorseCreditsPerSecondByResolution;
     if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) delete view.qwenImage3;
   }
-  delete view.wan30PrimeCreditsPerSecondByResolution;
   delete view.happyhorseCreditsPerSecondByResolution;
   return view;
 }
@@ -10821,8 +10810,9 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const adaptiveDuration = requestedDuration === -1;
     const duration = adaptiveDuration ? -1 : clampNumber(requestedDuration, 5, 2, 30);
     const billingDuration = adaptiveDuration ? 30 : duration;
-    const resolution = normalizeAdvancedResolution(options.resolution || "1080p");
     const capability = normalizeAliyunVideoCapability(firstPresent(options.videoCapability, options.capability, "wan30-video"), { provider: "wan30" });
+    assertAdvancedResolutionInput("wan30", options.resolution || "1080p", { videoCapability: capability });
+    const resolution = normalizeWan27Resolution(options.resolution || "1080p").toLowerCase();
     const rateTables = {
       "wan30-video": ["wan30CreditsPerSecondByResolution", "Wan 3.0", ALIYUN_WAN30_MODEL],
       "wan30-video-pro": ["wan30ProCreditsPerSecondByResolution", "Wan 3.0 Pro", ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro")],
@@ -10831,8 +10821,17 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     };
     const [tableKey, providerLabel, model] = rateTables[capability] || rateTables["wan30-video"];
     const configuredRates = advancedPricing[tableKey] || {};
-    const fallbackRates = DEFAULT_ADVANCED_PRICING[tableKey];
+    const fallbackRates = DEFAULT_ADVANCED_PRICING[tableKey] || {};
     const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
+    if (!(creditsPerSecond > 0)) {
+      const error = advancedValidationError(
+        "MODEL_PRICING_UNAVAILABLE",
+        `${providerLabel} ${resolution} pricing is not configured. Generation was not started.`,
+        { capability, resolution },
+      );
+      error.statusCode = 422;
+      throw error;
+    }
     const credits = creditsAmount(billingDuration * creditsPerSecond);
     return {
       provider: "wan30",
@@ -31088,6 +31087,16 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.videoCapability = isAliyunVideoProvider(provider)
     ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: provider === "wan30" ? "" : requestedModel })
     : "";
+  if (isAliyunVideoProvider(provider)) {
+    try {
+      assertAdvancedResolutionInput(provider, requestParams.resolution, {
+        seedanceTier: requestParams.seedanceTier,
+        videoCapability: requestParams.videoCapability,
+      });
+    } catch (error) {
+      return sendAdvancedValidationError(res, error, "Alibaba video resolution is invalid.");
+    }
+  }
   requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
     && boolFromRequest(firstPresent(body.followInputDuration, bodyParams.followInputDuration), false);
   requestParams.model = provider === "seedance"
@@ -33229,7 +33238,12 @@ async function handleAdvancedEstimate(req, res) {
     );
     params.outputTokens = firstPresent(params.outputTokens, params.max_tokens, params.maxTokens, 1024);
   }
-  const pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
+  let pricing;
+  try {
+    pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, "Model pricing is unavailable.");
+  }
   const publicPricing = tenantPublic
     ? {
       provider: publicProviderId(pricing.provider),
@@ -33317,6 +33331,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     duration: durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
+    videoCapability: params.videoCapability,
     advancedPricing: options.advancedPricing,
   }), user || 1, { channel: "api" });
   const pricingView = {

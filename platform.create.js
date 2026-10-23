@@ -1621,13 +1621,7 @@ function updateAdvancedModelControls() {
   if (els.advancedResolution) {
     const imageEditOptions = imageCreateResolutionOptions();
     const seedreamOptions = ["1K", "2K"];
-    const videoOptions = provider === "seedance"
-      ? ["480p", "720p", "1080p", "4k"]
-      : ["seedance25", "seedance-nsfw"].includes(provider)
-      ? ["480p", "720p"]
-      : provider === "wan30"
-      ? ["480p", "720p", "1080p"]
-      : ["720p", "1080p"];
+    const videoOptions = advancedVideoResolutionOptions(provider);
     const options = isStandaloneImage ? seedreamOptions : isImageEdit ? imageEditOptions : videoOptions;
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
@@ -2700,7 +2694,7 @@ async function submitAdvancedGenerate() {
         fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
         lastFrameFileName: wanLastFrameReference?.fileName || els.advancedWanLastFrame?.files?.[0]?.name || "",
         ratio: provider === "seedance-nsfw" && seedanceMode !== "omini" ? "adaptive" : els.advancedRatio?.value || (provider === "seedance25" ? "16:9" : provider === "wan30" ? "adaptive" : "9:16"),
-        resolution: els.advancedResolution?.value || (["seedance25", "seedance-nsfw"].includes(provider) ? "480p" : provider === "wan30" ? "1080p" : "720p"),
+        resolution: currentAdvancedResolution(),
         duration,
         preprocessReference,
         seed: els.advancedWanSeed?.value || "",
@@ -2744,7 +2738,7 @@ async function submitAdvancedGenerate() {
         ...(sharedReferenceProvider ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
       },
       ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
-      resolution: els.advancedResolution?.value || (provider === "wan30" ? "1080p" : "720p"),
+      resolution: currentAdvancedResolution(),
       duration,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

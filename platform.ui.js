@@ -1919,10 +1919,9 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan30") {
-    if (["480p", "720p", "1080p", "2k", "4k"].includes(raw)) return raw;
-    const capability = currentAdvancedVideoCapability(provider);
-    if (capability === "wan30-video-pro" || capability === "wan30-video-prime-pro") return "1080p";
-    return "720p";
+    const allowed = advancedVideoResolutionOptions(provider);
+    if (allowed.includes(raw)) return raw;
+    return allowed[0] || "1080p";
   }
   if (["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider))) return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
@@ -2098,7 +2097,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const adaptiveDuration = requestedDuration === -1;
     const billingDuration = adaptiveDuration ? 30 : Math.min(30, Math.max(2, Number.isFinite(requestedDuration) ? requestedDuration : 5));
     const normalizedResolution = normalizeAdvancedResolution(resolution || "1080p", normalizedProvider);
-    const capability = String(options.videoCapability || "wan30-video");
+    const capability = String(options.videoCapability || currentAdvancedVideoCapability(normalizedProvider) || "wan30-video");
     const pricingConfig = state.config?.platform?.advancedPricing || {};
     const pricingByCapability = {
       "wan30-video": ["wan30CreditsPerSecondByResolution", "configured_wan30_output_duration_rate"],
@@ -2108,16 +2107,17 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     };
     const [rateTable, pricingSource] = pricingByCapability[capability] || pricingByCapability["wan30-video"];
     const configuredRates = pricingConfig[rateTable] || {};
-    const standardFallbackRates = {
-      "480p": 6.7466,
-      "720p": 13.4933,
-      "1080p": 26.9865,
-      "2k": 53.973,
-      "4k": 107.946,
+    const fallbackRatesByCapability = {
+      "wan30-video": { "480p": 7, "720p": 15, "1080p": 30 },
+      "wan30-video-pro": { "1080p": 26.986507, "2k": 53.973014, "4k": 107.946028 },
+      "wan30-video-prime": { "480p": 10, "720p": 20, "1080p": 38 },
+      "wan30-video-prime-pro": { "1080p": 40.479761, "2k": 80.959521, "4k": 161.919042 },
     };
-    const primeFactor = capability === "wan30-video-prime" ? 1.5 : capability === "wan30-video-prime-pro" ? 3 : 1;
-    const fallbackRates = Object.fromEntries(Object.entries(standardFallbackRates).map(([key, value]) => [key, value * primeFactor]));
-    const creditsPerSecond = Number(configuredRates[normalizedResolution] ?? fallbackRates[normalizedResolution] ?? fallbackRates["1080p"]);
+    const fallbackRates = fallbackRatesByCapability[capability] || fallbackRatesByCapability["wan30-video"];
+    const configuredRate = Number(configuredRates[normalizedResolution]);
+    const creditsPerSecond = configuredRate > 0
+      ? configuredRate
+      : Number(fallbackRates[normalizedResolution] ?? fallbackRates["1080p"]);
     const originalCredits = creditsAmount(billingDuration * creditsPerSecond);
     const multiplier = userPricingMultiplier();
     return {
