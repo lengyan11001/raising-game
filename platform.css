@@ -969,11 +969,13 @@ body.tenant-tool-shell .launch-banner + .site-head {
 .top-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   justify-content: flex-start;
   min-width: 0;
-  min-height: 44px;
+  min-height: 30px;
   overflow: hidden;
+  padding: 4px 9px;
+  border-radius: 7px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
