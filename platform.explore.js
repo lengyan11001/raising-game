@@ -187,7 +187,7 @@ function syncSideNavigationMore() {
   tabs.querySelectorAll(".is-nav-overflow-item").forEach((item) => item.classList.remove("is-nav-overflow-item"));
   menu.replaceChildren();
   tabs.classList.add("is-nav-overflowing");
-  const moreHeight = moreButton.getBoundingClientRect().height || 44;
+  const moreHeight = Number.parseFloat(getComputedStyle(moreButton).minHeight) || 44;
   if (isMobile) {
     tabs.classList.remove("is-nav-overflowing");
     return;
@@ -215,7 +215,10 @@ function syncSideNavigationMore() {
       overflow.push(item);
     }
   });
-  if (!overflow.length) return;
+  if (!overflow.length) {
+    tabs.classList.remove("is-nav-overflowing");
+    return;
+  }
   overflow.forEach((item) => item.classList.add("is-nav-overflow-item"));
   overflow.forEach((item) => {
     const clone = item.cloneNode(true);
