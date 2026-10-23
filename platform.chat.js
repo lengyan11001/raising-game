@@ -166,6 +166,7 @@ function renderChatPanel() {
       refreshIcons();
     }
   }
+  renderChatRelationshipPill(conversation);
   if (els.chatThread && hasConversation) {
     els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
     els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
@@ -206,6 +207,34 @@ function renderChatPanel() {
   renderChatSettings(conversation);
   refreshIcons();
   requestAnimationFrame(syncChatViewportHeight);
+}
+
+function renderChatRelationshipPill(conversation = null) {
+  const root = els.chatRelationshipPill || document.querySelector("#chatRelationshipPill");
+  if (!root) return;
+  if (!conversation) {
+    root.innerHTML = "";
+    root.hidden = true;
+    return;
+  }
+  const relationship = conversation.relationship || {};
+  const stage = String(relationship.stage || "初识");
+  const description = String(relationship.stageDescription || "还在客气地认识你");
+  root.hidden = false;
+  root.innerHTML = `
+    <button class="chat-intimacy-pill" type="button" data-chat-relationship>
+      <i data-lucide="heart"></i>
+      <span>亲密度 · ${escapeHtml(stage)}</span>
+      <small>${escapeHtml(description)}</small>
+      <i data-lucide="chevron-right"></i>
+    </button>`;
+  root.querySelector("[data-chat-relationship]")?.addEventListener("click", () => {
+    state.relationshipPanelCharacterId = String(conversation.characterId || conversation.character?.id || "");
+    state.relationshipPanelData = relationship;
+    state.relationshipReturnTab = "chat";
+    setTab("relationship");
+  });
+  refreshIcons();
 }
 
 async function loadChatConversations({ selectFirst = true } = {}) {

@@ -110,9 +110,13 @@ test("server applies media checks before upstream generation and mirrors tool up
 });
 
 test("R2 failures are terminal and never silently fall back to the origin", () => {
-  assert.match(server, /async function uploadLocalAssetMirrorToObjectStorage[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
-  assert.match(server, /R2 upload completed without a public URL/);
-  assert.doesNotMatch(server, /async function uploadLocalAssetMirrorToObjectStorage[\s\S]*?catch \(error\) \{[\s\S]*?publicUrl: ""/);
+  const localMirrorSource = server.slice(
+    server.indexOf("async function uploadLocalAssetMirrorToObjectStorage"),
+    server.indexOf("async function publishLocalAssetUrlToObjectStorage"),
+  );
+  assert.match(localMirrorSource, /const upload = await uploadStaticAssetToObjectStorage/);
+  assert.match(localMirrorSource, /R2 upload completed without a public URL/);
+  assert.doesNotMatch(localMirrorSource, /catch \(error\) \{[\s\S]*?publicUrl: ""/);
   assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?const videoUpload = await uploadStaticAssetToObjectStorage/);
   assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
   assert.match(server, /function r2UploadTimeoutMs[\s\S]*?R2_UPLOAD_MIN_BYTES_PER_SECOND/);

@@ -87,6 +87,16 @@ const {
 } = require("./workflow-canvases");
 const { getOurDreamPresetLibrary } = require("./ourdream-presets");
 const {
+  COMPANION_LEVELS,
+  INTIMACY_STAGES,
+  companionLevelForRechargeUsd,
+  companionLevelSummary,
+  intimacyStageForDays,
+  localDayKey,
+  nextCharacterRelationship,
+  publicCharacterRelationship,
+} = require("./companion-domain");
+const {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
   minimumImageTargetDimensions,
@@ -156,6 +166,10 @@ const {
   listChatConversationsInDb,
   getChatConversationInDb,
   upsertChatConversationInDb,
+  getCharacterRelationshipInDb,
+  upsertCharacterRelationshipInDb,
+  getGuideStateInDb,
+  upsertGuideStateInDb,
   listChatMessagesInDb,
   insertChatMessageInDb,
   updateChatMessageInDb,
@@ -10087,6 +10101,10 @@ function userView(user) {
     bio: String(user.bio || ""),
     interests: Array.isArray(user.interests) ? user.interests.slice(0, 8).map(String) : [],
     voiceIntroUrl: String(user.voiceIntroUrl || ""),
+    profilePrivacy: {
+      showDistance: user.profilePrivacy?.showDistance !== false,
+      showActivity: user.profilePrivacy?.showActivity === true,
+    },
     role: user.role || "user",
     credits: Number(user.credits || 0),
     apiToken: isSubtokenRequest ? "" : String(user.apiToken || ""),
@@ -10100,6 +10118,35 @@ function userView(user) {
     apiDocs: publicApiDocsEntitlement(user),
     apiDocsAccess: userHasApiDocsAccess(user),
     createdAt: user.createdAt,
+  };
+}
+
+function normalizeProfilePrivacy(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    showDistance: source.showDistance !== false,
+    showActivity: source.showActivity === true,
+  };
+}
+
+function publicProfileStats(db = {}, user = {}) {
+  const userId = String(user.id || "");
+  const ownCharacters = new Set((db.userCharacters || [])
+    .filter((entry) => String(entry.userId || "") === userId && !isSoftDeleted(entry))
+    .map((entry) => String(entry.id || entry.characterId || ""))
+    .filter(Boolean));
+  const giftsReceived = (db.creditLedger || []).filter((entry) => {
+    if (!/gift/i.test(String(entry.type || "")) || Number(entry.delta || 0) >= 0) return false;
+    const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
+    return ownCharacters.has(String(meta.characterId || meta.creatorCharacterId || ""));
+  }).length;
+  return {
+    // There is no follow/creator-income model yet. Do not derive these from
+    // per-character intimacy rows or gift senders because that changes meaning.
+    following: 0,
+    followers: 0,
+    giftsReceived,
+    creatorIncomeCredits: 0,
   };
 }
 
@@ -10118,21 +10165,34 @@ async function handleAccountProfile(req, res) {
   auth.user.city = String(body.city || "").trim().slice(0, 60);
   auth.user.bio = String(body.bio || "").trim().slice(0, 120);
   auth.user.interests = (Array.isArray(body.interests) ? body.interests : []).map((item) => String(item || "").trim().slice(0, 20)).filter(Boolean).slice(0, 8);
+  if (body.profilePrivacy !== undefined) auth.user.profilePrivacy = normalizeProfilePrivacy(body.profilePrivacy);
   if (Array.isArray(body.profilePhotos)) {
     const existing = new Set(Array.isArray(auth.user.profilePhotos) ? auth.user.profilePhotos.map(String) : []);
     auth.user.profilePhotos = body.profilePhotos.map(String).filter((url) => existing.has(url)).slice(0, 6);
   }
   auth.user.updatedAt = new Date().toISOString();
   await updateUserInDb(auth.user);
-  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
+  return sendJson(res, 200, { ok: true, user: userView(auth.user), profileStats: publicProfileStats(auth.db, auth.user) });
 }
 
 async function handleAccountProfileMedia(req, res) {
   const auth = await requireUser(req, res); if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "照片上传需要数据库服务。" });
+  const body = await readJson(req);
+  if (body.kind === "voice") {
+    let decoded;
+    try { decoded = decodeWanMediaDataUrl(body.dataUrl || ""); } catch { return sendJson(res, 400, { ok: false, message: "只支持 MP3、WAV、M4A、OGG、WEBM 音频。" }); }
+    if (!decoded.mime.startsWith("audio/") || decoded.bytes.byteLength > 8 * 1024 * 1024) return sendJson(res, 400, { ok: false, message: "请上传 8MB 以内的语音文件。" });
+    const ext = audioExtFromMime(decoded.mime);
+    const key = `${String(OBJECT_STORAGE_KEY_PREFIX || "seedance-assets/raising-game").replace(/^\/+|\/+$/g, "")}/live-profile/${auth.user.id}-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}${ext}`;
+    const uploaded = await uploadStaticAssetToR2({ key, bytes: decoded.bytes, mime: decoded.mime });
+    auth.user.voiceIntroUrl = uploaded.publicUrl;
+    auth.user.updatedAt = new Date().toISOString();
+    await updateUserInDb(auth.user);
+    return sendJson(res, 200, { ok: true, url: uploaded.publicUrl, user: userView(auth.user) });
+  }
   const current = Array.isArray(auth.user.profilePhotos) ? auth.user.profilePhotos.map(String) : [];
   if (current.length >= 6) return sendJson(res, 422, { ok: false, message: "最多上传 6 张照片。" });
-  const body = await readJson(req);
   let decoded;
   try { decoded = decodeImageDataUrl(body.dataUrl || ""); } catch { return sendJson(res, 400, { ok: false, message: "只支持 PNG、JPG、WEBP 图片。" }); }
   if (!["image/png", "image/jpeg", "image/webp"].includes(decoded.mime) || decoded.bytes.byteLength > 8 * 1024 * 1024) return sendJson(res, 400, { ok: false, message: "请上传 8MB 以内的 PNG、JPG 或 WEBP 图片。" });
@@ -17354,6 +17414,18 @@ async function chatCharacterById(characterId = "") {
   };
 }
 
+async function recordEffectiveInteractionDay(userId = "", characterId = "") {
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return publicCharacterRelationship(null, cleanCharacterId);
+  const current = await getCharacterRelationshipInDb(cleanUserId, cleanCharacterId);
+  const next = nextCharacterRelationship(current, cleanCharacterId);
+  next.userId = cleanUserId;
+  next.stage = intimacyStageForDays(next.effectiveDays).id;
+  await upsertCharacterRelationshipInDb(next);
+  return publicCharacterRelationship(next, cleanCharacterId);
+}
+
 function publicChatConversation(conversation = {}) {
   return publicAssetUrlsForClient({
     id: conversation.id,
@@ -17365,6 +17437,7 @@ function publicChatConversation(conversation = {}) {
     instructions: conversation.instructions || "",
     tracker: plainObject(conversation.tracker),
     trackerUpdatedAt: conversation.trackerUpdatedAt || "",
+    relationship: conversation.relationship || publicCharacterRelationship(null, conversation.characterId),
     backgroundEnabled: conversation.backgroundEnabled !== false,
     lastMessage: conversation.lastMessage || "",
     createdAt: conversation.createdAt,
@@ -17507,7 +17580,11 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const character = conversation.character || {};
   const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null);
   const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 2500);
+  const relationship = publicCharacterRelationship(conversation.relationship, conversation.characterId || character.id || "");
   const hasRelationship = Boolean(relationshipMemory);
+  const intimacyPrompt = conversation.relationship
+    ? `Intimacy stage (user × this character, independent from spending): ${relationship.stage}. ${relationship.stageDescription}. This stage never decreases and never carries across characters. Let the stage shape familiarity and initiative, but do not announce a level, stage name, or progress number.`
+    : "";
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
   const tracker = plainObject(conversation.tracker);
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
@@ -17529,6 +17606,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     character.replyStyle ? `VOICE OVERRIDE (highest priority, overrides the character sheet speaking habits): ${String(character.replyStyle).slice(0, 4000)}` : "",
     `Character background (reference only): ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
+    intimacyPrompt,
     styleGuide,
     `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep the spoken reply in that language. Do not write narration or action beats. Do not use English unless that is the requested language.`,
     latest ? `LATEST USER MESSAGE (answer this exact message first): ${latest}` : "",
@@ -17555,7 +17633,11 @@ async function handleListChatConversations(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const conversations = await listChatConversationsInDb(auth.user.id, 100);
-  return sendJson(res, 200, { ok: true, conversations: conversations.map(publicChatConversation) });
+  const withRelationships = await Promise.all(conversations.map(async (conversation) => {
+    const relationship = await getCharacterRelationshipInDb(auth.user.id, conversation.characterId || conversation.character?.id || "");
+    return publicChatConversation({ ...conversation, relationship: publicCharacterRelationship(relationship, conversation.characterId) });
+  }));
+  return sendJson(res, 200, { ok: true, conversations: withRelationships });
 }
 
 async function handleCreateChatConversation(req, res) {
@@ -17592,7 +17674,8 @@ async function handleCreateChatConversation(req, res) {
   const existing = (await listChatConversationsInDb(auth.user.id, 100)).find((item) => String(item.characterId || item.character?.id || "") === String(characterView.id));
   if (existing) {
     const messages = await listChatMessagesInDb(existing.id, auth.user.id, 300);
-    return sendJson(res, 200, { ok: true, conversation: publicChatConversation(existing), messages: messages.map(publicChatMessage), reused: true });
+    const relationship = await getCharacterRelationshipInDb(auth.user.id, existing.characterId || existing.character?.id || "");
+    return sendJson(res, 200, { ok: true, conversation: publicChatConversation({ ...existing, relationship: publicCharacterRelationship(relationship, existing.characterId) }), messages: messages.map(publicChatMessage), reused: true });
   }
   const conversation = {
     id: randomId("chat"), userId: auth.user.id, characterId: characterView.id, character: characterView,
@@ -17605,6 +17688,7 @@ async function handleCreateChatConversation(req, res) {
     content: character.chatGreeting || characterView.summary || character.title || `Hi, I'm ${characterView.name}. What would you like to talk about?`, createdAt: now, updatedAt: now,
   };
   await insertChatMessageInDb(greeting);
+  conversation.relationship = publicCharacterRelationship(null, characterView.id);
   return sendJson(res, 201, { ok: true, conversation: publicChatConversation(conversation), messages: [publicChatMessage(greeting)] });
 }
 
@@ -17614,7 +17698,8 @@ async function handleGetChatConversation(req, res, conversationId) {
   const conversation = await getChatConversationInDb(conversationId, auth.user.id);
   if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
   const messages = await listChatMessagesInDb(conversation.id, auth.user.id, 300);
-  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(conversation), messages: messages.map(publicChatMessage) });
+  const relationship = await getCharacterRelationshipInDb(auth.user.id, conversation.characterId || conversation.character?.id || "");
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation({ ...conversation, relationship: publicCharacterRelationship(relationship, conversation.characterId) }), messages: messages.map(publicChatMessage) });
 }
 
 async function handleUpdateChatConversation(req, res, conversationId) {
@@ -17632,7 +17717,8 @@ async function handleUpdateChatConversation(req, res, conversationId) {
     updatedAt: new Date().toISOString(),
   };
   await upsertChatConversationInDb(next);
-  return sendJson(res, 200, { ok: true, conversation: publicChatConversation(next) });
+  const relationship = await getCharacterRelationshipInDb(auth.user.id, next.characterId || next.character?.id || "");
+  return sendJson(res, 200, { ok: true, conversation: publicChatConversation({ ...next, relationship: publicCharacterRelationship(relationship, next.characterId) }) });
 }
 
 async function handleCreateChatImage(req, res, conversationId) {
@@ -17774,7 +17860,8 @@ async function handleSendChatMessage(req, res, conversationId) {
     if (freshCharacterEarly) {
       conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
     }
-    const chatMessages = [{ role: "system", content: chatSystemPrompt(conversation, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly)) }, ...modelMessages];
+    const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
+    const chatMessages = [{ role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly)) }, ...modelMessages];
     const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
@@ -17793,10 +17880,10 @@ async function handleSendChatMessage(req, res, conversationId) {
     const rememberedUser = [...messages].reverse().find((message) => message.role === "user")?.content || "";
     await rememberChatCharacterTurn(auth.user.id, conversation.characterId || conversation.character?.id, "user", rememberedUser, "text");
     await rememberChatCharacterTurn(auth.user.id, conversation.characterId || conversation.character?.id, "assistant", reply, "text");
-    conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now };
+    conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now, relationship: relationshipBeforeReply };
     await upsertChatConversationInDb(conversation);
     refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
-    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), credits: creditsAmount(auth.user.credits), messageCredits: CHAT_MESSAGE_CREDITS });
+    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), relationship: relationshipBeforeReply, credits: creditsAmount(auth.user.credits), messageCredits: CHAT_MESSAGE_CREDITS });
   } catch (error) {
     console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
     const db = await readDb();
@@ -35553,6 +35640,8 @@ async function handleMe(req, res) {
     else await writeDb(auth.db);
   }
   const user = userView(auth.user);
+  if (user && auth.user) user.companionLevel = companionLevelSummary(auth.db, auth.user.id);
+  if (user && auth.user) user.profileStats = publicProfileStats(auth.db, auth.user);
   if (user && auth.tokenSource) {
     user.accessTokenSource = auth.tokenSource;
     user.accessTokenId = auth.tokenRecord?.id || "";
@@ -35561,6 +35650,58 @@ async function handleMe(req, res) {
     user.accessTokenPreview = auth.tokenRecord?.tokenPreview || "";
   }
   return sendJson(res, 200, { ok: true, user });
+}
+
+async function handleGetCompanionLevel(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  return sendJson(res, 200, { ok: true, companionLevel: companionLevelSummary(auth.db, auth.user.id) });
+}
+
+async function handleGetCharacterRelationship(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanCharacterId) return sendJson(res, 400, { ok: false, message: "characterId is required." });
+  const relationship = await getCharacterRelationshipInDb(auth.user.id, cleanCharacterId);
+  return sendJson(res, 200, { ok: true, relationship: publicCharacterRelationship(relationship, cleanCharacterId) });
+}
+
+function publicOnboardingGuide(state = null, guideKey = "") {
+  return {
+    guideKey: String(guideKey || state?.guideKey || ""),
+    seen: Boolean(state?.seenAt),
+    completed: Boolean(state?.completedAt),
+    seenAt: String(state?.seenAt || ""),
+    completedAt: String(state?.completedAt || ""),
+  };
+}
+
+async function handleGetOnboarding(req, res, url) {
+  const guideKey = String(url.searchParams.get("guide") || "video-companion").trim().slice(0, 80) || "video-companion";
+  const auth = await getAuth(req, { loadDb: false });
+  if (!auth.user) return sendJson(res, 200, { ok: true, guide: publicOnboardingGuide(null, guideKey), sessionOnly: true });
+  const state = await getGuideStateInDb(auth.user.id, guideKey);
+  return sendJson(res, 200, { ok: true, guide: publicOnboardingGuide(state, guideKey) });
+}
+
+async function handleUpdateOnboarding(req, res, guideKey, action) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const cleanKey = String(guideKey || "").trim().slice(0, 80);
+  if (!cleanKey) return sendJson(res, 400, { ok: false, message: "guideKey is required." });
+  const nowIso = new Date().toISOString();
+  const current = await getGuideStateInDb(auth.user.id, cleanKey);
+  const next = {
+    ...(current || {}),
+    userId: auth.user.id,
+    guideKey: cleanKey,
+    seenAt: current?.seenAt || nowIso,
+    completedAt: action === "complete" ? (current?.completedAt || nowIso) : String(current?.completedAt || ""),
+    updatedAt: nowIso,
+  };
+  await upsertGuideStateInDb(next);
+  return sendJson(res, 200, { ok: true, guide: publicOnboardingGuide(next, cleanKey) });
 }
 
 async function handleLogout(req, res) {
@@ -41289,6 +41430,7 @@ const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
 
 function publicUserCharacter(character) {
   if (!character) return null;
+  const creator = plainObject(character.creator);
   const posterUrl = character.publicImageUrl || character.cdnImageUrl || character.posterUrl || character.localImageUrl || "";
   const sourceImageUrl = character.publicImageUrl || character.cdnImageUrl || character.sourceImageUrl || character.localImageUrl || character.posterUrl || "";
   const videoUrl = DISABLE_GENERATED_R2_STORAGE
@@ -41313,6 +41455,14 @@ function publicUserCharacter(character) {
     error: character.error || "",
     referenceAssetUri: character.referenceAssetUri || "",
     prompt: character.prompt || "",
+    creator: creator && Object.keys(creator).length ? creator : null,
+    callMe: String(creator.callMe || character.callMe || ""),
+    personalityTags: Array.isArray(creator.tags) ? creator.tags.map(String).slice(0, 3) : (Array.isArray(character.personalityTags) ? character.personalityTags.map(String).slice(0, 3) : []),
+    voiceStyle: String(creator.voice || character.voiceStyle || ""),
+    relationStart: String(creator.relation || character.relationStart || ""),
+    greeting: String(creator.intro || character.greeting || ""),
+    isPublic: creator.isPublic === true || character.isPublic === true,
+    visibility: creator.isPublic === true || character.isPublic === true ? "public" : "private",
     sceneVideos: publicSceneVideoMap(character.sceneVideos || {}),
     deletedAt: character.deletedAt || "",
     createdAt: character.createdAt || "",
@@ -41874,6 +42024,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
   const model = job.model || config.characterImage?.textModel || "";
   const params = job.params || {};
   const userPrompt = String(job.userPrompt || record.prompt || "").trim();
+  const sourceImageUrl = String(job.sourceImageUrl || record.sourceImagePublicUrl || "").trim();
   record.awaitingImageSubmit = true;
   record.status = "image_generating";
   record.imageStatus = record.imageStatus || "submitting";
@@ -41887,6 +42038,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
         name: record.name,
         title: record.title,
         creator: record.creator,
+        sourceImageUrl,
       });
       auth = await backgroundAuthForMyCharacterJob(auth);
       record = (auth.db.userCharacters || []).find((entry) => entry.id === job.characterId && entry.userId === auth.user.id && !isSoftDeleted(entry)) || record;
@@ -41949,6 +42101,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
 
     const generated = await createSeedream5ImageDirect({
       prompt: userPrompt,
+      imageUrls: sourceImageUrl ? [sourceImageUrl] : [],
       resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
       model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
       tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
@@ -42226,23 +42379,51 @@ async function handleSaveMyCharacterDraft(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
-  const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
-  if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
-    return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
-  }
   const name = String(body.name || "").trim().slice(0, 32);
   if (!name) {
     return sendJson(res, 400, { ok: false, message: "Name is required." });
   }
   const title = String(body.title || "My drama").trim().slice(0, 32) || "My drama";
 
+  let mime = "";
+  let bytes = Buffer.alloc(0);
+  const dataUrl = String(body.dataUrl || "").trim();
+  const sourceImageUrl = String(body.sourceImageUrl || "").trim();
+  if (dataUrl) {
+    const decoded = decodeDataUrl(dataUrl);
+    mime = decoded.mime;
+    bytes = decoded.bytes;
+    if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
+      return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
+    }
+  } else if (sourceImageUrl) {
+    mime = imageMimeFromKnownPath(sourceImageUrl) || "image/jpeg";
+    if (!(mime.startsWith("image/") && sourceImageUrl.startsWith("/assets/"))) {
+      return sendJson(res, 400, { ok: false, message: "Draft source image must be a local image asset." });
+    }
+  } else {
+    return sendJson(res, 400, { ok: false, message: "A draft source image is required." });
+  }
+
   const characterId = randomId("mychar");
-  const fileName = `${characterId}-source${imageExtFromMime(mime)}`;
-  const dir = path.join(USER_CHARACTER_DIR, auth.user.id);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, fileName), bytes);
-  const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
-  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  let localUrl = sourceImageUrl;
+  let objectStorage = { publicUrl: "", key: "", error: "" };
+  if (dataUrl) {
+    const fileName = `${characterId}-source${imageExtFromMime(mime)}`;
+    const dir = path.join(USER_CHARACTER_DIR, auth.user.id);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, fileName), bytes);
+    localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+    objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  } else {
+    const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
+    bytes = await fs.readFile(localPath).catch(() => null);
+    if (!bytes) return sendJson(res, 400, { ok: false, message: "Draft source image could not be read." });
+    if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
+      return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
+    }
+    objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  }
 
   const nowIso = new Date().toISOString();
   const record = {
@@ -42268,6 +42449,7 @@ async function handleSaveMyCharacterDraft(req, res) {
     taskId: "",
     status: "draft",
     prompt: typeof body.prompt === "string" ? body.prompt : "",
+    creator: body.creator && typeof body.creator === "object" && !Array.isArray(body.creator) ? body.creator : null,
     sceneVideos: {},
     deletedAt: "",
     createdAt: nowIso,
@@ -42287,12 +42469,26 @@ async function handleGenerateMyCharacterImage(req, res) {
   const body = await readJson(req);
   const userPrompt = String(body.prompt || "").trim();
   if (!userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  let sourceImageAsset = null;
+  let sourceImageUrl = "";
+  if (body.sourceImageDataUrl) {
+    try {
+      sourceImageAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
+        dataUrl: body.sourceImageDataUrl,
+        name: `${String(body.name || "Character").slice(0, 40)} reference`,
+        fileName: "character-card-reference.png",
+      });
+      sourceImageUrl = sourceImageAsset.publicUrl || publicUrlForAssetPath(sourceImageAsset.localUrl);
+    } catch (error) {
+      return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "CHARACTER_REFERENCE_INVALID", message: error.message || "Character reference image is invalid." });
+    }
+  }
   const config = await readAppConfig();
   const nowIso = new Date().toISOString();
   const characterId = randomId("mychar");
   const imageRecordTaskId = localGenerationTaskId("mychar-img");
   const model = config.characterImage.textModel;
-  const imagePricingOptions = characterSeedream5ImageOptions(config, model);
+  const imagePricingOptions = characterSeedream5ImageOptions(config, model, { referenceImageCount: sourceImageUrl ? 1 : 0 });
   const pricing = myCharacterImagePricing(config, auth, imagePricingOptions);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
@@ -42333,6 +42529,9 @@ async function handleGenerateMyCharacterImage(req, res) {
     taskId: "",
     status: "image_generating",
     prompt: userPrompt,
+    sourceImageAssetId: sourceImageAsset?.id || "",
+    sourceImageUrl: sourceImageAsset?.localUrl || "",
+    sourceImagePublicUrl: sourceImageAsset?.publicUrl || "",
     creator: body.creator && typeof body.creator === "object" && !Array.isArray(body.creator) ? body.creator : null,
     sceneVideos: {},
     deletedAt: "",
@@ -42350,6 +42549,7 @@ async function handleGenerateMyCharacterImage(req, res) {
     max_images: 1,
     enhance_prompt_mode: "standard",
   };
+  if (sourceImageUrl) params.image = [sourceImageUrl];
   await updateMyCharacterImageGenerationRecord(auth, record, {
     status: "submitting",
     model,
@@ -42419,6 +42619,7 @@ async function handleGenerateMyCharacterImage(req, res) {
     characterId,
     record: { ...record },
     userPrompt,
+    sourceImageUrl,
     config,
     model,
     params,
@@ -47385,6 +47586,20 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
       return await handleMe(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/companion/level") {
+      return await handleGetCompanionLevel(req, res);
+    }
+    const relationshipMatch = url.pathname.match(/^\/api\/companion\/relationship\/([^/]+)\/?$/);
+    if (req.method === "GET" && relationshipMatch) {
+      return await handleGetCharacterRelationship(req, res, decodeURIComponent(relationshipMatch[1]));
+    }
+    if (req.method === "GET" && url.pathname === "/api/onboarding") {
+      return await handleGetOnboarding(req, res, url);
+    }
+    const onboardingMatch = url.pathname.match(/^\/api\/onboarding\/([^/]+)\/(seen|complete)\/?$/);
+    if (req.method === "POST" && onboardingMatch) {
+      return await handleUpdateOnboarding(req, res, decodeURIComponent(onboardingMatch[1]), onboardingMatch[2]);
     }
 
     if (req.method === "POST" && url.pathname === "/api/telegram/webapp-auth") {

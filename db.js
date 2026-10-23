@@ -512,6 +512,33 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_character_relationships (
+      user_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      stage TEXT NOT NULL DEFAULT '初识',
+      effective_days INT NOT NULL DEFAULT 0,
+      last_effective_day DATE,
+      first_chat_at TIMESTAMPTZ,
+      last_chat_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, character_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_character_relationships_user_updated_idx ON app_character_relationships (user_id, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_guides (
+      user_id TEXT NOT NULL,
+      guide_key TEXT NOT NULL,
+      seen_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, guide_key)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_guides_user_updated_idx ON app_user_guides (user_id, updated_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_chat_live_rooms (
       id TEXT PRIMARY KEY,
       character_id TEXT NOT NULL DEFAULT '',
@@ -2405,6 +2432,72 @@ async function deleteChatMessagesAfterInDb(conversationId = "", userId = "", mes
   return rowCount || 0;
 }
 
+async function getCharacterRelationshipInDb(userId = "", characterId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT user_id, character_id, stage, effective_days, last_effective_day, first_chat_at, last_chat_at, payload, updated_at
+    FROM app_character_relationships WHERE user_id = $1 AND character_id = $2
+  `, [String(userId || ""), String(characterId || "")]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...(row.payload || {}),
+    userId: row.user_id,
+    characterId: row.character_id,
+    stage: row.stage,
+    effectiveDays: Number(row.effective_days || 0),
+    lastEffectiveDay: row.last_effective_day ? new Date(row.last_effective_day).toISOString().slice(0, 10) : "",
+    firstChatAt: row.first_chat_at ? new Date(row.first_chat_at).toISOString() : "",
+    lastChatAt: row.last_chat_at ? new Date(row.last_chat_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function upsertCharacterRelationshipInDb(relationship = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...relationship };
+  await query(`
+    INSERT INTO app_character_relationships(user_id, character_id, stage, effective_days, last_effective_day, first_chat_at, last_chat_at, payload, updated_at)
+    VALUES ($1, $2, $3, $4, NULLIF($5, '')::date, NULLIF($6, '')::timestamptz, NULLIF($7, '')::timestamptz, $8::jsonb, $9::timestamptz)
+    ON CONFLICT (user_id, character_id) DO UPDATE SET
+      stage = EXCLUDED.stage,
+      effective_days = GREATEST(app_character_relationships.effective_days, EXCLUDED.effective_days),
+      last_effective_day = EXCLUDED.last_effective_day,
+      first_chat_at = COALESCE(app_character_relationships.first_chat_at, EXCLUDED.first_chat_at),
+      last_chat_at = EXCLUDED.last_chat_at,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [String(relationship.userId || ""), String(relationship.characterId || ""), String(relationship.stage || "初识"), Math.max(0, Number(relationship.effectiveDays || 0)), String(relationship.lastEffectiveDay || ""), String(relationship.firstChatAt || ""), String(relationship.lastChatAt || ""), JSON.stringify(payload), relationship.updatedAt || new Date().toISOString()]);
+  return payload;
+}
+
+async function getGuideStateInDb(userId = "", guideKey = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT user_id, guide_key, seen_at, completed_at, payload, updated_at FROM app_user_guides WHERE user_id = $1 AND guide_key = $2`, [String(userId || ""), String(guideKey || "")]);
+  const row = rows[0];
+  if (!row) return null;
+  return { ...(row.payload || {}), userId: row.user_id, guideKey: row.guide_key, seenAt: row.seen_at ? new Date(row.seen_at).toISOString() : "", completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : "", updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "" };
+}
+
+async function upsertGuideStateInDb(state = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...state };
+  await query(`
+    INSERT INTO app_user_guides(user_id, guide_key, seen_at, completed_at, payload, updated_at)
+    VALUES ($1, $2, NULLIF($3, '')::timestamptz, NULLIF($4, '')::timestamptz, $5::jsonb, $6::timestamptz)
+    ON CONFLICT (user_id, guide_key) DO UPDATE SET
+      seen_at = COALESCE(app_user_guides.seen_at, EXCLUDED.seen_at),
+      completed_at = COALESCE(app_user_guides.completed_at, EXCLUDED.completed_at),
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [String(state.userId || ""), String(state.guideKey || ""), String(state.seenAt || ""), String(state.completedAt || ""), JSON.stringify(payload), state.updatedAt || new Date().toISOString()]);
+  return payload;
+}
+
 /* ------------------------------------------------------------------ *
  * Chat live (Vidu S2-Avatar realtime video chat)                      *
  * ------------------------------------------------------------------ */
@@ -4038,6 +4131,10 @@ module.exports = {
   listChatConversationsInDb,
   getChatConversationInDb,
   upsertChatConversationInDb,
+  getCharacterRelationshipInDb,
+  upsertCharacterRelationshipInDb,
+  getGuideStateInDb,
+  upsertGuideStateInDb,
   listChatMessagesInDb,
   insertChatMessageInDb,
   updateChatMessageInDb,

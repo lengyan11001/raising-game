@@ -58,6 +58,9 @@ function setTab(tab) {
     nextTab = state.tab || nextTab;
   }
   state.tab = nextTab;
+  const companionRoute = ["profile", "profile-edit", "relationship", "level"].includes(nextTab);
+  document.body.classList.toggle("companion-route", companionRoute);
+  document.body.classList.toggle("companion-profile-route", nextTab === "profile" || nextTab === "profile-edit");
   if (nextTab === "advanced") {
     if (customAdvancedRoute) {
       state.advancedCreateKind = ADVANCED_CUSTOM_KIND.id;
@@ -71,9 +74,7 @@ function setTab(tab) {
     }
   }
   if (nextTab === "characters") {
-    state.characterPanelTab = state.routeCharacterId || state.activeGalleryCharacterId
-      ? "list"
-      : previousTab === "characters" ? normalizeCharacterPanelTab(state.characterPanelTab) : "create";
+    state.characterPanelTab = "list";
   }
   if (routeGalleryMode) state.galleryMode = routeGalleryMode;
   if (nextTab === DEFAULT_PLATFORM_TAB && !isGalleryModeAllowed(state.galleryMode)) {
@@ -131,6 +132,29 @@ function setTab(tab) {
   if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
   if (nextTab === "chat") loadChatConversations({ selectFirst: true });
+  if (nextTab === "profile") {
+    renderProfilePanel();
+    if (state.user && !state.referral) loadReferralSummary().catch(() => {});
+    if (state.user && !state.companionLevel) loadCompanionLevel().catch(() => {});
+  }
+  if (nextTab === "profile-edit") {
+    if (!state.user) {
+      setTab("profile");
+      openLogin();
+    } else {
+      renderProfileEditPanel();
+    }
+  }
+  if (nextTab === "level") {
+    if (typeof loadCompanionLevel === "function") loadCompanionLevel().catch(() => {});
+    if (typeof renderLevelPanel === "function") renderLevelPanel();
+  }
+  if (nextTab === "relationship" && typeof renderRelationshipPanel === "function") {
+    renderRelationshipPanel();
+    if (state.user && typeof loadRelationshipPanelData === "function") {
+      loadRelationshipPanelData().catch(() => {}).finally(() => renderRelationshipPanel());
+    }
+  }
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);
@@ -166,7 +190,7 @@ function syncMainTabState() {
     const buttonTab = button.dataset.tab || "";
     const active = buttonTab === "custom"
       ? customActive
-      : buttonTab === state.tab
+      : (buttonTab === state.tab || (buttonTab === "profile" && state.tab === "profile-edit"))
         && !(buttonTab === "advanced" && customActive)
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
@@ -1539,18 +1563,295 @@ function renderCharacterPageTabs() {
   });
 }
 
-function renderCharactersPanel({ forceCreator = false } = {}) {
-  if (state.routeCharacterId || state.activeGalleryCharacterId) state.characterPanelTab = "list";
-  state.characterPanelTab = normalizeCharacterPanelTab(state.characterPanelTab);
-  renderCharacterPageTabs();
-  const showCreate = state.characterPanelTab === "create";
-  if (els.characterCreatorCard) els.characterCreatorCard.hidden = !showCreate;
-  if (els.characterListPanel) els.characterListPanel.hidden = showCreate;
-  if (showCreate) {
-    bindCharacterCreator({ force: forceCreator });
-  } else {
-    renderGalleryCharacters(els.characterGrid);
+function createCardImage(item = {}) {
+  return characterUsableImage(item) || DEFAULT_TEMPLATE_COVER;
+}
+
+function createCardTags(item = {}) {
+  const tags = Array.isArray(item.personalityTags) ? item.personalityTags : (Array.isArray(item.tags) ? item.tags : []);
+  return tags.map((tag) => String(tag || "").trim()).filter(Boolean).slice(0, 3);
+}
+
+function createCardIsPublic(item = {}) {
+  return item.isPublic === true || item.visibility === "public" || item.creator?.isPublic === true;
+}
+
+function renderCreateCards() {
+  if (!els.characterGrid) return;
+  const items = (state.myCharacters || []).filter((item) => item && !item.deletedAt);
+  const publicCount = items.filter(createCardIsPublic).length;
+  const overview = document.querySelector("#characterCardOverview");
+  if (overview) overview.textContent = items.length ? `共 ${items.length} 张 · 公开 ${publicCount} · 仅自己 ${items.length - publicCount}` : "";
+  const empty = document.querySelector("#characterCardEmpty");
+  if (empty) empty.hidden = items.length > 0;
+  els.characterGrid.hidden = items.length === 0;
+  els.characterGrid.className = "create-card-grid";
+  els.characterGrid.innerHTML = items.map((item) => {
+    const tags = createCardTags(item);
+    return `
+      <button class="create-character-card" type="button" data-create-card-id="${escapeHtml(item.id || "")}">
+        <span class="create-character-cover"><img src="${escapeHtml(createCardImage(item))}" alt="${escapeHtml(item.name || "角色卡")}" loading="lazy" /><span class="create-visibility-badge">${createCardIsPublic(item) ? "公开" : "仅自己"}</span></span>
+        <span class="create-character-meta"><strong>${escapeHtml(item.name || "未命名")}</strong><span class="create-character-tags">${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</span></span>
+      </button>`;
+  }).join("");
+  els.characterGrid.querySelectorAll("[data-create-card-id]").forEach((button) => {
+    button.addEventListener("click", () => openCreateCardSheet(button.dataset.createCardId || ""));
+  });
+  refreshIcons();
+}
+
+function currentCreateDraft() {
+  const creator = state.characterCreator || {};
+  const defaultAvatar = createOfferCards()[0]?.image || "";
+  const tags = Array.isArray(creator.tags) && creator.tags.length
+    ? creator.tags.slice(0, 3)
+    : ["温柔"];
+  return {
+    ...creator,
+    name: String(creator.name || "小满"),
+    callMe: String(creator.callMe || ""),
+    avatar: creator.avatar || defaultAvatar,
+    tags,
+    voice: creator.voiceLabel || creator.voice || "温柔女声",
+    relation: creator.relation || "刚认识",
+    intro: creator.intro || "",
+    isPublic: creator.isPublic === true,
+  };
+}
+
+function createOfferCards() {
+  return [
+    { image: "assets/admin/home/cover-home-role-pink-local-1777738973553-v2.jpg", name: "小满" },
+    { image: "assets/admin/home/cover-cgt-20260506192837-82d6t.jpg", name: "秋秋" },
+    { image: "assets/admin/home/cover-cgt-20260506192849-flvqb.jpg", name: "媛媛" },
+    { image: "assets/admin/home/cover-cgt-20260506192843-2kdjg.jpg", name: "阿鹿" },
+    { image: "assets/admin/home/cover-cgt-20260506190043-8d7cz.jpg", name: "小雨" },
+  ];
+}
+
+function createDraftPreviewHtml() {
+  const draft = currentCreateDraft();
+  const tags = draft.tags.length ? draft.tags : ["温柔"];
+  return `
+    <div class="create-preview-card">
+      <div class="create-preview-main">
+        <span class="create-preview-avatar">${draft.avatar ? `<img src="${escapeHtml(draft.avatar)}" alt="" />` : `<i data-lucide="wand-sparkles"></i>`}</span>
+        <div><strong>${escapeHtml(draft.name || "小满")}</strong><p>${escapeHtml(draft.intro || "在等你开口的第一句话")}</p></div>
+        <span class="create-preview-status">草稿</span>
+      </div>
+      <div class="create-preview-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      <p class="create-preview-relation"><i data-lucide="heart"></i>关系：${escapeHtml(draft.relation || "刚认识")} · Ta 会叫你「${escapeHtml(draft.callMe || "你")}」<em>${draft.isPublic ? "公开" : "仅自己"}</em></p>
+    </div>`;
+}
+
+function renderCreateCardForm() {
+  const root = document.querySelector("#characterCardForm");
+  if (!root) return;
+  const draft = currentCreateDraft();
+  const offers = createOfferCards();
+  const tags = ["温柔", "直率", "慢热", "爱开玩笑", "理性", "黏人"];
+  const voices = ["温柔女声", "清亮少年", "低沉男声"];
+  const relations = [["刚认识", "handshake"], ["老同学", "notebook"], ["邻居", "house"], ["搭档", "users"]];
+  root.innerHTML = `
+    <div id="characterCardPreview">${createDraftPreviewHtml()}</div>
+    <section><div class="create-form-section-title"><strong>形象</strong><small>选一个 Ta 的样子</small></div><div class="create-avatar-grid">${offers.map((item, index) => `<button class="${(draft.avatar ? draft.avatar.endsWith(item.image.replace(/^assets/, "")) : index === 0) ? "is-active" : ""}" data-create-avatar="${escapeHtml(item.image)}" type="button"><img src="./${escapeHtml(item.image)}" alt="候选人像" /></button>`).join("")}</div></section>
+    <section><div class="create-form-section-title"><strong>名字与称呼</strong></div><div class="create-fields-row"><label><span>角色名字</span><input maxlength="12" data-create-field="name" value="${escapeHtml(draft.name || "小满")}" placeholder="如：小满" /></label><label><span>Ta 叫你</span><input maxlength="10" data-create-field="callMe" value="${escapeHtml(draft.callMe || "")}" placeholder="如：阿南" /></label></div></section>
+    <section><div class="create-form-section-title"><strong>性格</strong><small>至少 1 个，最多 3 个</small></div><div class="create-tag-grid">${tags.map((tag) => `<button class="${draft.tags.includes(tag) ? "is-active" : ""}" data-create-tag="${tag}" type="button">${tag}</button>`).join("")}</div></section>
+    <section><div class="create-form-section-title"><strong>声音</strong></div><div class="create-voice-list">${voices.map((voice) => `<button class="${draft.voice === voice ? "is-active" : ""}" data-create-voice="${voice}" type="button"><i data-lucide="audio-lines"></i><span>${voice}</span><i data-lucide="check-circle"></i></button>`).join("")}</div></section>
+    <section><div class="create-form-section-title"><strong>开场白</strong><small id="createIntroCount">${String(draft.intro || "").length}/60</small></div><textarea class="create-intro-input" data-create-field="intro" maxlength="60" rows="3" placeholder="Ta 说的第一句话，比如：这么晚还没睡，是有什么话想跟我说吗？">${escapeHtml(draft.intro || "")}</textarea></section>
+    <section><div class="create-form-section-title"><strong>关系设定</strong></div><div class="create-relation-grid">${relations.map(([label, icon]) => `<button class="${draft.relation === label ? "is-active" : ""}" data-create-relation="${label}" type="button"><i data-lucide="${icon}"></i>${label}</button>`).join("")}</div></section>
+    <section><div class="create-form-section-title"><strong>公开</strong><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-visibility-grid"><button class="${!draft.isPublic ? "" : "is-active"}" data-create-visibility="public" type="button"><i data-lucide="globe"></i>公开</button><button class="${!draft.isPublic ? "is-active" : ""}" data-create-visibility="private" type="button"><i data-lucide="lock-keyhole"></i>仅自己</button></div></section>
+    <p class="create-form-note">角色卡的可见范围随时可以再调整</p>
+    <p class="create-form-status" id="characterCreateStatus"></p>`;
+  root.querySelectorAll("[data-create-avatar]").forEach((button) => button.addEventListener("click", () => { state.characterCreator.avatar = button.dataset.createAvatar; renderCreateCardForm(); }));
+  root.querySelectorAll("[data-create-tag]").forEach((button) => button.addEventListener("click", () => {
+    const tag = button.dataset.createTag || "";
+    const selected = currentCreateDraft().tags;
+    if (selected.includes(tag)) state.characterCreator.tags = selected.filter((item) => item !== tag);
+    else if (selected.length < 3) state.characterCreator.tags = [...selected, tag];
+    renderCreateCardForm();
+  }));
+  root.querySelectorAll("[data-create-voice]").forEach((button) => button.addEventListener("click", () => { state.characterCreator.voiceLabel = button.dataset.createVoice; renderCreateCardForm(); }));
+  root.querySelectorAll("[data-create-relation]").forEach((button) => button.addEventListener("click", () => { state.characterCreator.relation = button.dataset.createRelation; renderCreateCardForm(); }));
+  root.querySelectorAll("[data-create-visibility]").forEach((button) => button.addEventListener("click", () => { state.characterCreator.isPublic = button.dataset.createVisibility === "public"; renderCreateCardForm(); }));
+  root.querySelectorAll("[data-create-field]").forEach((input) => input.addEventListener("input", () => {
+    state.characterCreator[input.dataset.createField] = input.value;
+    if (input.dataset.createField === "intro") document.querySelector("#createIntroCount").textContent = `${input.value.length}/60`;
+    const preview = document.querySelector("#characterCardPreview");
+    if (preview) preview.innerHTML = createDraftPreviewHtml();
+  }));
+  refreshIcons();
+}
+
+function openCharacterCreatePanel() {
+  if (!state.user) return openLogin();
+  state.characterCreator = {
+    ...state.characterCreator,
+    name: state.characterCreator?.name || "小满",
+    callMe: state.characterCreator?.callMe || "",
+    tags: Array.isArray(state.characterCreator?.tags) && state.characterCreator.tags.length ? state.characterCreator.tags.slice(0, 3) : ["温柔"],
+    avatar: state.characterCreator?.avatar || createOfferCards()[0]?.image || "",
+    voiceLabel: state.characterCreator?.voiceLabel || "温柔女声",
+    relation: state.characterCreator?.relation || "刚认识",
+    isPublic: state.characterCreator?.isPublic === true,
+  };
+  state.characterCreateOpen = true;
+  state.characterPanelTab = "create";
+  const overlay = document.querySelector("#characterCreateOverlay");
+  if (overlay) overlay.hidden = false;
+  renderCreateCardForm();
+}
+
+function closeCharacterCreatePanel() {
+  state.characterCreateOpen = false;
+  const overlay = document.querySelector("#characterCreateOverlay");
+  if (overlay) overlay.hidden = true;
+  state.characterPanelTab = "list";
+  renderCharactersPanel();
+}
+
+function openCreateCardSheet(characterId = "") {
+  const item = (state.myCharacters || []).find((entry) => String(entry.id || "") === String(characterId));
+  if (!item) return;
+  state.characterCardDetailId = characterId;
+  state.characterCardOpen = true;
+  const sheet = document.querySelector("#characterCardSheet");
+  const body = document.querySelector("#characterCardSheetBody");
+  if (sheet) sheet.hidden = false;
+  if (document.querySelector("#characterCardSheetMask")) document.querySelector("#characterCardSheetMask").hidden = false;
+  if (!body) return;
+  const tags = createCardTags(item);
+  body.innerHTML = `
+    <div class="create-sheet-hero"><img src="${escapeHtml(createCardImage(item))}" alt="" /><div><strong>${escapeHtml(item.name || "未命名")}</strong><p>Ta 会叫你「${escapeHtml(item.callMe || "你")}」</p></div></div>
+    <h3>形象</h3><p>已选好 Ta 的样子，出现在上面这张形象里</p>
+    <h3>性格</h3><div class="create-preview-tags">${(tags.length ? tags : ["待填写"]).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+    <dl class="create-sheet-details">
+      <div><dt>名字</dt><dd>${escapeHtml(item.name || "未命名")}</dd></div>
+      <div><dt>Ta 叫你</dt><dd>${escapeHtml(item.callMe || "你")}</dd></div>
+      <div><dt>声音</dt><dd>${escapeHtml(item.voiceStyle || "温柔女声")}</dd></div>
+      <div><dt>关系起点</dt><dd>${escapeHtml(item.relationStart || "刚认识")}</dd></div>
+      <div><dt>公开 / 仅自己</dt><dd>${createCardIsPublic(item) ? "公开" : "仅自己"}</dd></div>
+      <div><dt>开场白</dt><dd>${escapeHtml(item.greeting || "还没有写下开场白")}</dd></div>
+    </dl>`;
+  refreshIcons();
+}
+
+function closeCreateCardSheet() {
+  state.characterCardOpen = false;
+  state.characterCardDetailId = "";
+  const sheet = document.querySelector("#characterCardSheet");
+  const mask = document.querySelector("#characterCardSheetMask");
+  if (sheet) sheet.hidden = true;
+  if (mask) mask.hidden = true;
+}
+
+async function submitCreateCharacterCard() {
+  if (!state.user) return openLogin();
+  const draft = currentCreateDraft();
+  const name = String(draft.name || "").trim();
+  const callMe = String(draft.callMe || "").trim();
+  const intro = String(draft.intro || "").trim();
+  if (!name) return window.alert("给 Ta 起个名字吧");
+  if (!callMe) return window.alert("写下 Ta 对你的称呼");
+  if (!intro) return window.alert("写一句开场白，Ta 才知道怎么开口");
+  if (!Array.isArray(draft.tags) || !draft.tags.length) return window.alert("至少选一个性格");
+  const prompt = buildCharacterCardPrompt(draft);
+  const button = document.querySelector("#characterCreateSubmitBtn");
+  if (button) { button.disabled = true; button.textContent = "创建中..."; }
+  try {
+    const sourceImageUrl = String(draft.avatar || "").trim();
+    const sourceDataUrl = sourceImageUrl ? await imageUrlToDataUrl(sourceImageUrl) : "";
+    if (!sourceDataUrl) throw new Error("请先选择 Ta 的样子");
+    const payload = await requestJson("/api/my/characters/generate-image", {
+      method: "POST",
+      body: {
+        prompt,
+        name,
+        title: intro,
+        sourceImageUrl,
+        sourceImageDataUrl: sourceDataUrl,
+        creator: {
+          ...state.characterCreator,
+          name,
+          callMe,
+          tags: draft.tags.slice(0, 3),
+          voice: draft.voice,
+          intro,
+          relation: draft.relation,
+          isPublic: draft.isPublic === true,
+          avatar: sourceImageUrl,
+        },
+      },
+    });
+    if (payload.user) setUser(payload.user);
+    if (payload.character) updateMyCharacterInState(payload.character);
+    closeCharacterCreatePanel();
+  } catch (error) {
+    window.alert(error.message || "创建失败");
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "创建角色卡"; }
   }
+}
+
+async function saveCreateDraft() {
+  const draft = currentCreateDraft();
+  const sourceImageUrl = String(draft.avatar || "").trim();
+  if (!sourceImageUrl) throw new Error("请先选择 Ta 的样子");
+  const sourceDataUrl = await imageUrlToDataUrl(sourceImageUrl);
+  const payload = await requestJson("/api/my/characters/draft", {
+    method: "POST",
+    body: {
+      dataUrl: sourceDataUrl,
+      name: draft.name || "未命名",
+      title: draft.intro || draft.name || "未命名",
+      prompt: buildCharacterCardPrompt(draft),
+      creator: {
+        ...state.characterCreator,
+        ...draft,
+        avatar: sourceImageUrl,
+      },
+    },
+  });
+  if (payload.character) updateMyCharacterInState(payload.character);
+  return payload.character || null;
+}
+
+function bindCreatePanel() {
+  document.querySelector("#characterCreateOpenBtn")?.addEventListener("click", openCharacterCreatePanel);
+  document.querySelector("#characterEmptyCreateBtn")?.addEventListener("click", openCharacterCreatePanel);
+  document.querySelector("#characterCreateCloseBtn")?.addEventListener("click", closeCharacterCreatePanel);
+  document.querySelector("#characterCreateSubmitBtn")?.addEventListener("click", submitCreateCharacterCard);
+  document.querySelector("#characterDraftBtn")?.addEventListener("click", async () => {
+    const button = document.querySelector("#characterDraftBtn");
+    if (button) button.disabled = true;
+    try {
+      await saveCreateDraft();
+      window.alert("草稿已保存");
+    } catch (error) {
+      window.alert(error.message || "草稿保存失败");
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+  document.querySelector("#characterCardSheetMask")?.addEventListener("click", closeCreateCardSheet);
+  document.querySelector("#characterCardSheetClose")?.addEventListener("click", closeCreateCardSheet);
+}
+
+function renderCharactersPanel({ forceCreator = false } = {}) {
+  if (forceCreator && state.user && !state.routeCharacterId && !state.activeGalleryCharacterId) {
+    const overlay = document.querySelector("#characterCreateOverlay");
+    if (overlay) overlay.hidden = false;
+    state.characterCreateOpen = true;
+  }
+  if (state.routeCharacterId || state.activeGalleryCharacterId) state.characterPanelTab = "list";
+  if (!state.user) {
+    state.myCharacters = [];
+    state.myCharactersLoaded = true;
+  } else if (!state.myCharactersLoaded) {
+    loadMyCharacters({ silent: true }).catch(() => {});
+  }
+  renderCreateCards();
+  if (state.characterCreateOpen) renderCreateCardForm();
   refreshIcons();
 }
 
@@ -2392,6 +2693,18 @@ function buildCharacterCreatorPrompt() {
     String(creator.customFaceDetails || "").trim(),
     String(creator.prompt || "").trim(),
     "solo character, clear face, detailed identity reference, polished lighting, no watermark, no text",
+  ].filter(Boolean).join(", ");
+}
+
+function buildCharacterCardPrompt(draft = {}) {
+  const tags = Array.isArray(draft.tags) ? draft.tags.filter(Boolean).slice(0, 3) : [];
+  return [
+    "Use Image 1 as the strict identity, face, hairstyle, body proportions, outfit silhouette, fabric colors and textures reference.",
+    "Create one premium photorealistic vertical 3:4 character card portrait of the same consenting adult.",
+    draft.name ? `Character name: ${String(draft.name).trim()}` : "",
+    tags.length ? `Personality impression: ${tags.join(", ")}` : "",
+    "Keep the selected identity and visual details from Image 1. Change only pose, lighting and background as needed for a polished character portrait.",
+    "Single subject, centered, clear face, natural skin texture, editorial portrait lighting, no anime, no CGI, no plastic doll look, no text, no watermark, no collage.",
   ].filter(Boolean).join(", ");
 }
 
@@ -4884,3 +5197,5 @@ function renderAccessGuides() {
 function userHasAdvancedAccess() {
   return Boolean(state.user);
 }
+
+bindCreatePanel();

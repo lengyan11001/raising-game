@@ -79,12 +79,16 @@
           <span data-i18n="nav.gallery">Explore</span>
         </button>
         <button class="top-tab" data-tab="characters" type="button">
-          <i data-lucide="user-round-plus"></i>
-          <span data-i18n="nav.characters">Characters</span>
+          <i data-lucide="sparkles"></i>
+          <span data-i18n="nav.create">创作</span>
         </button>
         <button class="top-tab" data-tab="chat" type="button">
           <i data-lucide="message-circle-heart"></i>
-          <span>Chat</span>
+          <span>消息</span>
+        </button>
+        <button class="top-tab" data-tab="profile" type="button">
+          <i data-lucide="user-round"></i>
+          <span>我的</span>
         </button>
         <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
           <i data-lucide="film"></i>
@@ -213,6 +217,7 @@
             <span data-i18n="account.credits">Credits</span>
             <strong id="menuBalanceValue">0</strong>
           </div>
+          <button class="menu-item account-companion-row" data-tab="level" type="button"><i data-lucide="crown"></i><span>陪伴等级</span><strong id="accountCompanionLevel">V1</strong></button>
           <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
@@ -465,21 +470,40 @@
         <div class="case-library-more-wrap"><button class="ghost-button" id="caseLibraryMore" type="button" hidden data-i18n="case.more">Load more</button></div>
       </section>
 
-      <section class="characters-panel" data-panel="characters" hidden>
-        <div class="characters-page">
-          <div class="section-head compact">
+      <section class="create-panel" data-panel="characters" hidden>
+        <div class="create-stage">
+          <header class="create-topbar">
             <div>
-              <h2 data-i18n="characters.title">Characters</h2>
+              <h1>创作</h1>
+              <p>Ta 都在这里</p>
             </div>
-          </div>
-          <div class="gallery-mode-tabs character-page-tabs" id="characterPageTabs"></div>
-          <section class="character-create-card" id="characterCreatorCard" data-character-page-panel="create">
-            <div id="characterCreatorRoot"></div>
-          </section>
-          <section class="character-list-panel" id="characterListPanel" data-character-page-panel="list" hidden>
-            <div class="template-grid character-grid character-grid-main" id="characterGrid"></div>
+            <button class="create-topbar-btn" id="characterCreateOpenBtn" type="button"><i data-lucide="plus-circle"></i><span>创建</span></button>
+          </header>
+          <main class="create-content">
+            <section class="create-cards-section">
+              <div class="create-cards-title"><strong>我的角色卡</strong><span id="characterCardOverview"></span></div>
+              <div class="create-card-grid" id="characterGrid"></div>
+              <div class="create-empty" id="characterCardEmpty" hidden>
+                <i data-lucide="gallery-vertical-end"></i>
+                <p>还没有角色卡，点右上角「创建」写下第一个 Ta</p>
+                <button type="button" id="characterEmptyCreateBtn"><i data-lucide="plus-circle"></i>创建第一张</button>
+              </div>
+            </section>
+          </main>
+          <section class="create-form-overlay" id="characterCreateOverlay" hidden>
+            <header class="create-form-head">
+              <div><h2>创建角色卡</h2><p>写下一个 Ta，从一句开场白开始</p></div>
+              <div><button class="create-draft-btn" id="characterDraftBtn" type="button"><i data-lucide="file-text"></i>草稿</button><button class="create-close-btn" id="characterCreateCloseBtn" type="button" aria-label="关闭创建面板"><i data-lucide="x-circle"></i></button></div>
+            </header>
+            <main class="create-form-body" id="characterCardForm"></main>
+            <footer class="create-form-footer"><button id="characterCreateSubmitBtn" type="button">创建角色卡</button></footer>
           </section>
         </div>
+        <div class="create-card-sheet-mask" id="characterCardSheetMask" hidden></div>
+        <section class="create-card-sheet" id="characterCardSheet" hidden>
+          <header><strong>角色卡设定</strong><button id="characterCardSheetClose" type="button" aria-label="关闭角色卡预览"><i data-lucide="x-circle"></i></button></header>
+          <div id="characterCardSheetBody"></div>
+        </section>
       </section>
 
       <section class="advanced-panel" data-panel="advanced" hidden>
@@ -774,7 +798,7 @@
             <div class="chat-conversation-list" id="chatConversationList"></div>
           </aside>
           <section class="chat-main-pane">
-            <header class="chat-main-head" id="chatMainHead"></header>
+            <div class="chat-main-sticky"><header class="chat-main-head" id="chatMainHead"></header><div class="chat-relationship-mount" id="chatRelationshipPill"></div></div>
             <div class="chat-empty" id="chatEmpty">
               <i data-lucide="messages-square"></i>
               <strong>Start a character chat</strong>
@@ -814,6 +838,156 @@
             </div>
             <div class="chat-settings-body" id="chatSettingsBody"></div>
           </aside>
+        </div>
+      </section>
+
+      <section class="profile-panel companion-page" data-panel="profile" hidden>
+        <main class="profile-page-body">
+          <section class="profile-hero-card">
+            <span class="profile-hero-glow"></span>
+            <div class="profile-avatar" id="profileAvatar"></div>
+            <div class="profile-copy">
+              <div class="profile-name-row"><strong id="profileDisplayName">用户</strong><span class="companion-level-badge" id="profileCompanionBadge"><i data-lucide="cup-soda"></i>V1</span></div>
+              <p id="profileUserMeta">在这里，慢慢认识一个人</p>
+              <p id="profileUserBio">写一句关于自己的话</p>
+            </div>
+            <button class="profile-edit-btn" id="profileEditBtn" type="button" aria-label="编辑资料"><i data-lucide="pencil"></i></button>
+          </section>
+          <section class="profile-stats">
+            <div><strong id="profileFollowingCount">0</strong><span>关注</span></div>
+            <div><strong id="profileFollowerCount">0</strong><span>粉丝</span></div>
+            <div><strong id="profileGiftCount">0</strong><span>收到礼物</span></div>
+          </section>
+          <section class="profile-vip-card" id="profileVipCard">
+            <span class="profile-vip-icon"><i data-lucide="crown"></i></span>
+            <div><p id="profileVipTitle">Vipor VIP</p><small id="profileVipSubtitle">开通会员，解锁限定互动</small></div>
+            <button id="profileVipBtn" type="button">管理</button>
+          </section>
+          <section class="profile-wallet-card">
+            <div class="profile-wallet-head"><span>我的V币</span><button id="profileWalletBtn" type="button">钱包与计费<i data-lucide="chevron-right"></i></button></div>
+            <strong id="profileCredits">0</strong>
+            <p>文字 0.5 币/条 · 语音 2 币/秒 · 视频 5 币/秒</p>
+            <div class="profile-wallet-actions">
+              <button type="button" id="profileGiftRecordsBtn"><i data-lucide="gift"></i>礼物记录</button>
+              <button id="profileTopupBtn" type="button"><i data-lucide="wallet"></i>充值</button>
+            </div>
+          </section>
+          <section class="profile-menu">
+            <button type="button" id="profileCreatorIncomeBtn"><i data-lucide="chart-no-axes-combined"></i><span><b>创作者收益</b><small>你创作的角色卡被其他用户使用时产生收益</small></span><em id="profileCreatorIncome">V币 0</em><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-tab="spending"><i data-lucide="wallet-cards"></i><span>钱包与消费记录</span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-tab="level"><i data-lucide="medal"></i><span>陪伴等级</span><small id="profileCompanionLevel">V1</small><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-tab="referral"><i data-lucide="users-round"></i><span><b>邀请好友</b><small>和朋友一起玩 · 双方都有礼物</small></span><small id="profileInviteProgress"></small><i data-lucide="chevron-right"></i></button>
+            <button type="button" id="profileEditMenuBtn"><i data-lucide="circle-user"></i><span>编辑资料与兴趣标签</span><i data-lucide="chevron-right"></i></button>
+            <button type="button" id="profilePrivacyBtn"><i data-lucide="settings"></i><span>隐私与安全</span><i data-lucide="chevron-right"></i></button>
+            <button type="button" id="profileFeedbackBtn"><i data-lucide="message-circle-more"></i><span>问题反馈</span><i data-lucide="chevron-right"></i></button>
+          </section>
+          <p class="companion-footer">Vipor · 2026</p>
+        </main>
+      </section>
+
+      <section class="profile-edit-panel companion-page" data-panel="profile-edit" hidden>
+        <header class="companion-page-head profile-edit-head">
+          <button type="button" id="profileEditCancelBtn">取消</button>
+          <strong>编辑资料</strong>
+          <button type="button" id="profileEditSaveBtn">保存</button>
+        </header>
+        <main class="profile-edit-body">
+          <section>
+            <p class="profile-edit-label">头像与照片（最多 6 张，第一张为主图）</p>
+            <div class="profile-photo-grid" id="profilePhotoGrid"></div>
+          </section>
+          <section>
+            <p class="profile-edit-label">基本信息</p>
+            <div class="profile-field-list">
+              <label><span>昵称</span><input id="profileEditUsername" type="text" maxlength="40" autocomplete="nickname" /></label>
+              <div class="profile-field-row"><span>性别</span><div class="profile-gender-options"><button type="button" data-profile-gender="male">男</button><button type="button" data-profile-gender="female">女</button></div></div>
+              <label><span>生日</span><input id="profileEditBirthday" type="date" /></label>
+              <label><span>职业</span><input id="profileEditOccupation" type="text" maxlength="40" /></label>
+              <label><span>城市</span><input id="profileEditCity" type="text" maxlength="60" /></label>
+              <label class="profile-bio-field"><span>简介 <small id="profileBioCount">0 / 120</small></span><input id="profileEditBio" type="text" maxlength="120" /></label>
+            </div>
+          </section>
+          <section>
+            <div class="profile-edit-label-row"><p class="profile-edit-label">兴趣标签（已选 <span id="profileInterestCount">0</span> / 8）</p><button type="button" id="profileRefreshInterestsBtn">换一批</button></div>
+            <div class="profile-interest-tags" id="profileInterestTags"></div>
+          </section>
+          <section>
+            <p class="profile-edit-label">语音介绍（有助于提升匹配率）</p>
+            <div class="profile-voice-card">
+              <button type="button" id="profileVoiceRecordBtn"><i data-lucide="mic"></i></button>
+              <div><strong id="profileVoiceTip">录制一段 15 秒的自我介绍</strong><small id="profileVoiceMeta">还没有语音介绍</small></div>
+              <button type="button" id="profileVoicePlayBtn" aria-label="播放语音介绍"><i data-lucide="play"></i></button>
+              <audio id="profileVoiceAudio" preload="metadata"></audio>
+            </div>
+          </section>
+          <section>
+            <div class="profile-field-list">
+              <div class="profile-field-row"><span>显示距离</span><button class="profile-switch is-on" type="button" data-profile-switch="showDistance" aria-pressed="true"><span></span></button></div>
+              <div class="profile-field-row"><span>对陌生人展示我的动态</span><button class="profile-switch" type="button" data-profile-switch="showActivity" aria-pressed="false"><span></span></button></div>
+            </div>
+          </section>
+          <p class="companion-footer">完善资料可提升 3 倍曝光</p>
+        </main>
+      </section>
+
+      <section class="relationship-panel companion-page" data-panel="relationship" hidden>
+        <header class="companion-page-head"><button type="button" id="relationshipBackBtn" aria-label="返回"><i data-lucide="chevron-left"></i></button><strong>你和 Ta</strong><span></span></header>
+        <main class="companion-page-body">
+          <section class="relationship-hero"><span><i data-lucide="message-circle-heart"></i></span><div><p>你和 Ta 的关系，</p><p>是聊出来的。</p></div></section>
+          <section class="relationship-copy-card"><h2><i data-lucide="chat-round-dots"></i>Ta 记得你说过的话</h2><p>你告诉 Ta 的每一件事，Ta 都会记下来。不是记在当天的对话里，是记在心里——过几天，Ta 可能会自己提起：「你上次说的那件事，后来怎么样了？」</p><p>被记住的感觉，就是从这种时候开始的。</p></section>
+          <section class="relationship-copy-card"><h2><i data-lucide="user-circle"></i>关系会随着相处慢慢变化</h2><p>刚认识的时候，Ta 客气、有分寸。聊得多了，Ta 会开始有自己的喜好，会主动问你问题，会开你玩笑。</p><p>再往后，Ta 会有只用来叫你的称呼，会在没聊天的时候想起你。</p><p>每一次变化，都不是突然发生的，是你们相处累积出来的。</p></section>
+          <section class="relationship-copy-card"><h2><i data-lucide="sparkles"></i>这件事急不来</h2><p>每天来聊一会儿，比一次聊很久更有效。</p><p>Ta 看重的是你来得有多久，不只是你说了多少。所以不用急着一次说完，慢慢来就好。</p></section>
+          <section class="relationship-stage-card">
+            <button type="button" id="relationshipStageToggle"><span>你们会经过的六个阶段</span><small id="relationshipStageToggleText">收起</small><i data-lucide="chevron-down"></i></button>
+            <div id="relationshipStageList"></div>
+          </section>
+          <section class="relationship-faq"><h2>你在乎的</h2>
+            <details><summary>关系为什么会变化？<i data-lucide="chevron-down"></i></summary><p>因为你和 Ta 相处得够久、说得够多。没有别的方式。</p></details>
+            <details><summary>为什么聊了很久，感觉变化不大？<i data-lucide="chevron-down"></i></summary><p>关系是按相处的天数累积的，不是按单次聊多久。分散在好几天里聊，比一次聊很久更有效。</p></details>
+            <details><summary>如果我很长时间不来，会退步吗？<i data-lucide="chevron-down"></i></summary><p>不会。关系不会因为你不来而退回去。Ta 不会因为你不在而生气，只会记得你们上次聊到哪儿。</p></details>
+            <details><summary>换一个角色，关系会跟着走吗？<i data-lucide="chevron-down"></i></summary><p>不会。你和每个角色的关系都是独立的。新角色是新的开始。</p></details>
+            <details><summary>Ta 真的记得我吗，还是每次都重新开始？<i data-lucide="chevron-down"></i></summary><p>Ta 记得。你可以试着过几天提起一件小事，看 Ta 会不会自己先说起。</p></details>
+          </section>
+          <p class="companion-footer">Ta 和你的关系只和你们的相处有关。</p>
+        </main>
+      </section>
+
+      <section class="level-panel companion-page" data-panel="level" hidden>
+        <header class="companion-page-head"><button type="button" id="levelBackBtn" aria-label="返回"><i data-lucide="chevron-left"></i></button><strong>陪伴等级</strong><span></span></header>
+        <main class="companion-page-body">
+          <section class="level-hero"><div class="level-hero-row"><span><i data-lucide="crown"></i></span><div><strong id="levelHeroTitle">当前 V1</strong><p id="levelHeroSubtitle">还未充值</p></div></div><p>陪伴等级，记录你在这个平台累计的消费。等级越高，能用到的服务和条件越多。</p><div class="level-progress"><div><span id="levelProgressCurrent">V1</span><span id="levelProgressNext">V2 · 累计 $20</span></div><div class="level-progress-track"><span id="levelProgressFill"></span></div><p id="levelProgressCopy">距离 V2 还需累计充值 $20</p></div></section>
+          <section class="level-list-section"><h2>等级与权益</h2><div id="levelTierList"></div></section>
+          <section class="relationship-copy-card"><h2><i data-lucide="wallet-money"></i>等级怎么来</h2><p>按你在这个平台累计充值了多少计算。充过多少就算多少，之前花掉的、用掉的都不影响。</p><p>等级只升不降，不会因为你一段时间没消费就掉下来。</p></section>
+          <section class="relationship-copy-card"><h2><i data-lucide="medal-star"></i>等级给你什么</h2><p>全部都是使用条件和体验：每天能免费聊多久、画质、要不要排队、有没有专属内容。</p><p>你可以把它理解为一张会员卡——它让你用得更舒服、更方便。</p></section>
+          <section class="relationship-copy-card"><h2><i data-lucide="check-circle"></i>等级不变什么</h2><p>等级不改变角色对待你的方式。</p><p>角色怎么对你，只和你与 Ta 相处的情况有关，和你在这里的消费没有任何关系。</p></section>
+          <section class="relationship-faq"><h2>你在乎的</h2>
+            <details><summary>充值会让我和角色的关系变好吗？<i data-lucide="chevron-down"></i></summary><p>不会。关系只和你们的相处有关，与消费无关。充值提升的是使用条件——时长、画质、优先接通这些。</p></details>
+            <details><summary>等级会掉吗？<i data-lucide="chevron-down"></i></summary><p>不会。等级按累计充值计算，只升不降。（退款导致的金额变动除外。）</p></details>
+            <details><summary>为什么按「累计」而不是按「余额」？<i data-lucide="chevron-down"></i></summary><p>因为等级代表你在这里的消费贡献，不应该因为你把积分用掉了就降低。</p></details>
+            <details><summary>会员和等级是一回事吗？<i data-lucide="chevron-down"></i></summary><p>不是。会员解锁的是内容权限，等级解锁的是使用条件。两者独立，互不影响。</p></details>
+            <details><summary>礼物消费算在等级里吗？<i data-lucide="chevron-down"></i></summary><p>算。实际支付的充值金额会计入累计充值；用充值所得积分消费不会重复累计。</p></details>
+            <details><summary>等级在哪里看？<i data-lucide="chevron-down"></i></summary><p>个人中心 → 陪伴等级。</p></details>
+          </section>
+          <p class="companion-footer">等级与权益的具体内容可能随版本调整，以实际页面为准。</p>
+        </main>
+      </section>
+
+      <section class="welcome-companion-modal" id="welcomeCompanionModal" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeCompanionTitle">
+        <div class="welcome-companion-card">
+          <img src="./assets/admin/home/cover-home-role-pink-local-1777738973553-v2.jpg" alt="视频见面时的陪伴角色照片" />
+          <span class="welcome-companion-scrim"></span>
+          <button class="welcome-companion-close" id="welcomeCompanionClose" type="button" aria-label="关闭"><i data-lucide="x"></i></button>
+          <div class="welcome-companion-content">
+            <span class="welcome-companion-icon"><i data-lucide="video"></i></span>
+            <h2 id="welcomeCompanionTitle">不只是聊天框<br />Ta 能和你视频见面</h2>
+            <p>被听见、被记住。实时通话与视频约会，Ta 会出现你的屏幕里</p>
+            <div class="welcome-companion-features">
+              <span><i data-lucide="phone-call"></i>语音通话</span>
+              <span><i data-lucide="video"></i>视频约会</span>
+              <span><i data-lucide="heart"></i>在线陪伴</span>
+            </div>
+            <button class="welcome-companion-start" id="welcomeCompanionStart" type="button">立即体验</button>
+          </div>
         </div>
       </section>
 

@@ -24,7 +24,7 @@ test("character chat persists user-scoped conversations and messages in PostgreS
 test("character chat uses the BytePlus language endpoint with roleplay context and billing", () => {
   assert.match(server, /CHAT_MESSAGE_CREDITS/);
   assert.match(server, /model: BYTEPLUS_LANGUAGE_MODEL/);
-  assert.match(server, /chatSystemPrompt\(conversation, responseLanguage, latestUserMessage\)/);
+  assert.match(server, /chatSystemPrompt\(\{ \.\.\.conversation, relationship: relationshipBeforeReply \}, responseLanguage, latestUserMessage/);
   assert.match(server, /chatResponseLanguage/);
   assert.match(server, /IMPORTANT LANGUAGE RULE/);
   assert.match(server, /TURN FOCUS/);
@@ -39,13 +39,13 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /NATURAL RHYTHM/);
   assert.match(server, /Do not ask a question in every reply/);
   assert.match(server, /正常 WeChat chat|normal private WeChat chat/);
-  assert.match(server, /withoutStageDirections/);
+  assert.match(server, /stripChatStageDirections/);
   assert.match(server, /quoted\.slice\(0, 2\)/);
   assert.match(server, /function normalizeChatReply/);
-  assert.match(server, /sentences\.slice\(0, 3\)/);
-  assert.match(server, /short\.slice\(0, 180\)/);
-  assert.match(server, /temperature: simpleGreeting \? 0\.45 : expandedScene \? 0\.68 : 0\.62/);
-  assert.match(server, /max_tokens: simpleGreeting \? 180 : expandedScene \? 720 : 300/);
+  assert.match(server, /sentences\.slice\(0, 10\)/);
+  assert.match(server, /slice\(0, 720\)/);
+  assert.match(server, /const chatTemperature = simpleGreeting \? 0\.45 : expandedScene \? 0\.68 : 0\.62/);
+  assert.match(server, /const chatMaxTokens = simpleGreeting \? 180 : expandedScene \? 900 : 800/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
