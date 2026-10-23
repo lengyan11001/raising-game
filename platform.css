@@ -965,6 +965,7 @@ body.tenant-tool-shell .launch-banner + .site-head {
   padding: 9px 14px;
   font-weight: 700;
 }
+.top-tab { padding: 4px 9px; }
 .top-tab {
   display: flex;
   align-items: center;
