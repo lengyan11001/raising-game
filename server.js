@@ -2301,7 +2301,9 @@ function publicAdvancedPricingView(pricing = {}) {
     || PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED;
   if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED && !selectiveAliyunExposureEnabled) {
     delete view.wan30CreditsPerSecondByResolution;
+    delete view.wan30ProCreditsPerSecondByResolution;
     delete view.wan30PrimeCreditsPerSecondByResolution;
+    delete view.wan30PrimeProCreditsPerSecondByResolution;
     delete view.wan27CreditsPerSecondByResolution;
     delete view.happyhorseCreditsPerSecondByResolution;
     delete view.aliyunVideoCreditsPerSecondByCapability;
@@ -2310,7 +2312,9 @@ function publicAdvancedPricingView(pricing = {}) {
   } else if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
     if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) {
       delete view.wan30CreditsPerSecondByResolution;
+      delete view.wan30ProCreditsPerSecondByResolution;
       delete view.wan30PrimeCreditsPerSecondByResolution;
+      delete view.wan30PrimeProCreditsPerSecondByResolution;
     }
     if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
       delete view.wan27CreditsPerSecondByResolution;

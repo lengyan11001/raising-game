@@ -95,6 +95,13 @@ test("Wan3.0 premium pricing fails closed and keeps public rate tables", () => {
   assert.match(server, /return sendAdvancedValidationError\(res, error, "Model pricing is unavailable\."\)/);
   assert.match(server, /videoCapability: params\.videoCapability/);
   assert.doesNotMatch(server, /\n  delete view\.wan30PrimeCreditsPerSecondByResolution;/);
+  const publicPricingSource = server.slice(
+    server.indexOf("function publicAdvancedPricingView("),
+    server.indexOf("function publicCharacterPageFromItems("),
+  );
+  assert.match(publicPricingSource, /wan30ProCreditsPerSecondByResolution: \{ \.\.\.normalized\.wan30ProCreditsPerSecondByResolution \}/);
+  assert.match(publicPricingSource, /wan30PrimeCreditsPerSecondByResolution: \{ \.\.\.normalized\.wan30PrimeCreditsPerSecondByResolution \}/);
+  assert.match(publicPricingSource, /wan30PrimeProCreditsPerSecondByResolution: \{ \.\.\.normalized\.wan30PrimeProCreditsPerSecondByResolution \}/);
 });
 
 test("Wan3.0 adaptive duration pre-deducts the maximum and settles from the output video", () => {
