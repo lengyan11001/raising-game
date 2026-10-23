@@ -13,6 +13,70 @@ const css = fs.readFileSync(path.join(root, "platform.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const config = fs.readFileSync(path.join(root, "platform.config.js"), "utf8");
 
+function extractFunction(source, name) {
+  const marker = `function ${name}(`;
+  const declaration = source.indexOf(marker);
+  if (declaration === -1) throw new Error(`missing function ${name}`);
+  const start = source.slice(Math.max(0, declaration - 6), declaration) === "async " ? declaration - 6 : declaration;
+
+  const scan = (from, opening, closing, initialDepth) => {
+    let depth = initialDepth;
+    let quote = "";
+    let escaped = false;
+    let lineComment = false;
+    let blockComment = false;
+    for (let index = from; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (lineComment) {
+        if (char === "\n") lineComment = false;
+        continue;
+      }
+      if (blockComment) {
+        if (char === "*" && next === "/") {
+          blockComment = false;
+          index += 1;
+        }
+        continue;
+      }
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === quote) quote = "";
+        continue;
+      }
+      if (char === "/" && next === "/") {
+        lineComment = true;
+        index += 1;
+        continue;
+      }
+      if (char === "/" && next === "*") {
+        blockComment = true;
+        index += 1;
+        continue;
+      }
+      if (char === "\"" || char === "'" || char === "`") {
+        quote = char;
+        continue;
+      }
+      if (char === opening) depth += 1;
+      else if (char === closing) {
+        depth -= 1;
+        if (depth === 0) return index;
+      }
+    }
+    return -1;
+  };
+
+  const paramsEnd = scan(source.indexOf("(", start), "(", ")", 0);
+  if (paramsEnd === -1) throw new Error(`unterminated parameters for ${name}`);
+  const bodyStart = source.indexOf("{", paramsEnd + 1);
+  if (bodyStart === -1) throw new Error(`missing body for ${name}`);
+  const bodyEnd = scan(bodyStart, "{", "}", 0);
+  if (bodyEnd === -1) throw new Error(`unterminated function ${name}`);
+  return source.slice(start, bodyEnd + 1);
+}
+
 function elementMarkup(id) {
   const match = html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)<\\/select>`));
   assert.ok(match, `missing #${id}`);
@@ -129,6 +193,91 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
   assert.match(ui, /happyhorse:[\s\S]*?value: "happyhorse-i2v", label: "First Frame"[\s\S]*?value: "happyhorse-video-edit"/);
   assert.match(ui, /label\.textContent = "Mode"/);
   assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
+});
+
+test("Wan3.0 engine selection is authoritative over a stale mode", () => {
+  const capabilities = new Set([
+    "wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro",
+    "wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit", "wan-legacy",
+  ]);
+  const groups = {
+    wan30: [{ value: "wan30-video" }, { value: "wan30-video-pro" }],
+    "wan30-prime": [{ value: "wan30-video-prime" }, { value: "wan30-video-prime-pro" }],
+  };
+  const els = {
+    advancedProvider: { value: "wan30-prime" },
+    advancedVideoCapability: { value: "wan30-video" },
+  };
+  const currentCapability = new Function(
+    "ADVANCED_ALIYUN_VIDEO_CAPABILITIES",
+    "ADVANCED_VIDEO_CAPABILITY_GROUPS",
+    "els",
+    "advancedEngineValue",
+    "advancedVideoCapabilityOptions",
+    `${extractFunction(ui, "currentAdvancedVideoCapability")}
+return currentAdvancedVideoCapability;`,
+  )(
+    capabilities,
+    groups,
+    els,
+    (value) => String(value || "").trim().toLowerCase(),
+    (engine) => groups[engine] || [],
+  );
+  assert.equal(currentCapability(), "wan30-video-prime");
+  els.advancedProvider.value = "wan30";
+  assert.equal(currentCapability(), "wan30-video");
+  els.advancedVideoCapability.value = "wan30-video-pro";
+  assert.equal(currentCapability(), "wan30-video-pro");
+});
+
+test("Wan3.0 browser price fallback never returns zero for sold models", () => {
+  const pricing = new Function(
+    "state",
+    "normalizeAdvancedProvider",
+    "normalizeAdvancedResolution",
+    "currentAdvancedVideoCapability",
+    "creditsAmount",
+    "userPricingMultiplier",
+    "normalizeVideoRatio",
+    "advancedProviderLabel",
+    `${extractFunction(ui, "advancedPricing")}
+return advancedPricing;`,
+  )(
+    { config: { platform: { advancedPricing: {} } }, user: { pricingMultiplier: 1 } },
+    (value) => String(value || "").toLowerCase().includes("wan30") ? "wan30" : "seedance",
+    (value) => String(value || "").toLowerCase(),
+    () => "wan30-video",
+    (value) => Math.max(0, Math.round(Number(value || 0) * 10000) / 10000),
+    () => 1,
+    (value) => value || "adaptive",
+    () => "W3.0",
+  );
+  const regular = pricing(5, "wan30", "720p", "adaptive", { videoCapability: "wan30-video" });
+  const prime = pricing(5, "wan30", "720p", "adaptive", { videoCapability: "wan30-video-prime" });
+  const vsrPrime = pricing(5, "wan30", "1080p", "adaptive", { videoCapability: "wan30-video-prime-pro" });
+  assert.equal(regular.credits, 75);
+  assert.equal(prime.credits, 100);
+  assert.equal(vsrPrime.credits, 202.3988);
+  assert.ok(regular.credits > 0 && prime.credits > 0 && vsrPrime.credits > 0);
+});
+
+test("Wan3.0 Pro capabilities expose only 1080p, 2k, and 4k", () => {
+  const resolutions = new Function(
+    "normalizeAdvancedProvider",
+    "currentAdvancedVideoCapability",
+    "normalizeAdvancedResolution",
+    "advancedEngineValue",
+    "ADVANCED_VIDEO_CAPABILITY_GROUPS",
+    `${extractFunction(ui, "advancedVideoResolutionOptions")}
+return advancedVideoResolutionOptions;`,
+  )(
+    (value) => String(value || "").toLowerCase().includes("wan30") ? "wan30" : "seedance",
+    () => "wan30-video-prime-pro",
+    (value) => value,
+    (value) => value,
+    {},
+  );
+  assert.deepEqual(resolutions("wan30"), ["1080p", "2k", "4k"]);
 });
 
 test("Wan3.0 Prime shares controls and uses its configured rate table", () => {

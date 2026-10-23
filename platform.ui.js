@@ -1853,10 +1853,18 @@ function syncAdvancedSeedanceModeOptions(provider = currentAdvancedProvider()) {
 
 function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {
   const raw = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  const selected = String(els.advancedVideoCapability?.value || "").trim();
+  // Capability ids identify the exact model and remain valid when reopening an
+  // older record. Engine ids, however, are authoritative: W3.0 and
+  // W3.0-Prime share provider wan30, so a stale Mode value from the previous
+  // engine must never select the other engine's capability or price table.
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return raw;
-  if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(selected)) return selected;
-  const options = advancedVideoCapabilityOptions(advancedEngineValue(raw));
+  const currentEngine = String(els.advancedProvider?.value || "").trim().toLowerCase();
+  const engine = raw === "wan30" && ADVANCED_VIDEO_CAPABILITY_GROUPS[currentEngine]
+    ? currentEngine
+    : advancedEngineValue(raw);
+  const options = advancedVideoCapabilityOptions(engine);
+  const selected = String(els.advancedVideoCapability?.value || "").trim();
+  if (options.some((item) => item.value === selected)) return selected;
   if (options.length) return options[0].value;
   return "";
 }
@@ -2118,6 +2126,11 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const creditsPerSecond = configuredRate > 0
       ? configuredRate
       : Number(fallbackRates[normalizedResolution] ?? fallbackRates["1080p"]);
+    if (!(creditsPerSecond > 0)) {
+      const error = new Error(advancedProviderLabel(normalizedProvider) + " " + normalizedResolution + " pricing is unavailable.");
+      error.code = "MODEL_PRICING_UNAVAILABLE";
+      throw error;
+    }
     const originalCredits = creditsAmount(billingDuration * creditsPerSecond);
     const multiplier = userPricingMultiplier();
     return {
@@ -3852,7 +3865,13 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           referenceImageCount: Math.max(0, Number(options.referenceImageCount || 0) || 0),
         },
       });
-      state.advancedEstimate = payload.pricing || null;
+      const estimatedPricing = payload.pricing || null;
+      if (normalizeAdvancedProvider(provider) === "wan30" && !(Number(estimatedPricing?.credits) > 0)) {
+        const error = new Error("The server returned invalid Wan 3.0 pricing.");
+        error.code = "MODEL_PRICING_UNAVAILABLE";
+        throw error;
+      }
+      state.advancedEstimate = estimatedPricing;
       state.advancedEstimateKey = key;
       updateAdvancedButtonCost();
       renderAdvancedAssetTargets();
