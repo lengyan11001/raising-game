@@ -273,6 +273,7 @@
           <nav class="w-nav-links" aria-label="Landing sections">
             <a href="#wFeatures" data-w-anchor="wFeatures" data-i18n="welcome.navFeatures">功能</a>
             <a href="#wShowcase" data-w-anchor="wShowcase" data-i18n="welcome.navShowcase">示例</a>
+            <a href="#wCaseLibrary" data-w-anchor="wCaseLibrary" data-i18n="welcome.navCases">案例</a>
             <a href="#wWorkflow" data-w-anchor="wWorkflow" data-i18n="welcome.navWorkflow">工作流</a>
             <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
           </nav>
@@ -301,6 +302,7 @@
               <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
               <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
               <button class="w-btn ghost" type="button" data-w-scroll="wShowcase" data-i18n="welcome.seeShowcase">看示例</button>
+              <button class="w-btn ghost" type="button" data-w-scroll="wCaseLibrary" data-i18n="welcome.browseCases">浏览案例</button>
             </div>
             <ul class="w-stats">
               <li><strong>&lt;3<span>min</span></strong><span data-i18n="welcome.stat1">从参考图到成片</span></li>
@@ -399,6 +401,24 @@
           </div>
         </section>
 
+        <section class="w-section w-case-library" id="wCaseLibrary">
+          <header class="w-section-head w-reveal">
+            <span class="w-eyebrow" data-i18n="welcome.casesEyebrow">CASE LIBRARY</span>
+            <h3 data-i18n="welcome.casesTitle">真实案例，直接复用提示词</h3>
+            <p data-i18n="welcome.casesSub">按创作方向浏览案例，查看参考素材、生成结果与完整提示词。</p>
+          </header>
+          <div class="w-case-toolbar w-reveal">
+            <div class="w-case-tabs" id="wCaseTabs" role="tablist" aria-label="Case categories"></div>
+            <label class="w-case-search">
+              <i data-lucide="search" aria-hidden="true"></i>
+              <input id="wCaseSearch" type="search" autocomplete="off" data-i18n-placeholder="welcome.casesSearch" placeholder="搜索提示词、模型或标签" />
+            </label>
+          </div>
+          <div class="w-case-meta"><span id="wCaseCount"></span><span id="wCaseStatus" role="status"></span></div>
+          <div class="w-case-grid" id="wCaseGrid" aria-live="polite"></div>
+          <div class="w-case-more-wrap"><button class="w-btn ghost w-case-more" id="wCaseMore" type="button" hidden data-i18n="welcome.casesMore">加载更多</button></div>
+        </section>
+
         <section class="w-section" id="wWorkflow">
           <header class="w-section-head w-reveal">
             <h3 data-i18n="welcome.stepTitle">三步进入创作台</h3>
@@ -427,6 +447,32 @@
           <span>© <span id="welcomeYear">2026</span></span>
         </footer>
       </section>
+
+      <dialog class="w-case-dialog" id="wCaseDialog" aria-labelledby="wCaseDialogTitle">
+        <div class="w-case-dialog-shell">
+          <button class="w-case-close" type="button" data-w-case-close aria-label="Close"><i data-lucide="x"></i></button>
+          <div class="w-case-dialog-head">
+            <div>
+              <span class="w-case-kicker" id="wCaseDialogCategory"></span>
+              <h3 id="wCaseDialogTitle"></h3>
+            </div>
+            <span class="w-case-model" id="wCaseDialogModel"></span>
+          </div>
+          <div class="w-case-dialog-grid">
+            <div class="w-case-dialog-media" id="wCaseDialogMedia"></div>
+            <div class="w-case-dialog-copy">
+              <div class="w-case-prompt-head">
+                <strong data-i18n="welcome.casesPrompt">提示词</strong>
+                <button class="w-case-copy" id="wCaseCopy" type="button" data-i18n="welcome.casesCopy">复制</button>
+              </div>
+              <p class="w-case-prompt" id="wCaseDialogPrompt"></p>
+              <div class="w-case-reference" id="wCaseDialogReference"></div>
+              <div class="w-case-facts" id="wCaseDialogFacts"></div>
+              <p class="w-case-note" id="wCaseDialogNote" hidden></p>
+            </div>
+          </div>
+        </div>
+      </dialog>
 
       <section class="workspace" data-panel="gallery">
         <section class="gallery-panel">

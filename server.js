@@ -46632,6 +46632,7 @@ async function serveStatic(req, res, url) {
     (req.method === "GET" || req.method === "HEAD") &&
     pathname.startsWith("/assets/") &&
     !pathname.startsWith("/assets/brand/") &&
+    !pathname.startsWith("/assets/showcase/") &&
     !pathname.startsWith("/assets/generated/") &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain;
