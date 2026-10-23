@@ -2456,7 +2456,7 @@ function creatorMembershipPayload(user = {}) {
 }
 
 function userHasCreatorMembership(user = {}) {
-  const membership = creatorMembershipPayload(user);
+  const membership = creatorMembershipPayload(user || {});
   return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
 }
 
@@ -46928,7 +46928,8 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/cases") {
       const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
-      const unlocked = userHasCreatorMembership(auth.user);
+      const user = auth.user || {};
+      const unlocked = userHasCreatorMembership(user);
       const view = showcaseCasesView(await readShowcaseCases(), unlocked);
       return sendJson(res, 200, {
         ok: true,
@@ -46937,7 +46938,7 @@ async function handleRequest(req, res) {
         previewLimitPerCategory: SHOWCASE_CASES_PREVIEW_LIMIT,
         totals: view.totals,
         items: view.items,
-        membership: publicCreatorMembership(auth.user || {}),
+        membership: publicCreatorMembership(user),
       });
     }
 

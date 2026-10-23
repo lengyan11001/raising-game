@@ -36,10 +36,17 @@ test("case API returns only two preview items per category until membership is a
   assert.match(server, /url\.pathname === "\/api\/cases"/);
   assert.match(server, /userHasCreatorMembership\(auth\.user\)/);
   assert.match(server, /items:\s*view\.items/);
-  assert.match(server, /publicCreatorMembership\(auth\.user \|\| \{\}\)/);
+  assert.match(server, /const user = auth\.user \|\| \{\};/);
+  assert.match(server, /publicCreatorMembership\(user\)/);
   assert.match(server, /"\/assets\/showcase\/spicy\/cases\.json"/);
   assert.doesNotMatch(frontend, /fetch\("\/assets\/showcase\/spicy\/cases\.json"/);
   assert.match(frontend, /requestJson\("\/api\/cases"\)/);
   assert.match(frontend, /data-case-unlock/);
   assert.match(frontend, /billingPlanId:\s*"plan-main-creator"/);
+  const payloadStart = server.indexOf("function creatorMembershipPayload(");
+  const membershipEnd = server.indexOf("\n}\n\nconst SHOWCASE_CASES_FILE", payloadStart);
+  const membershipSource = server.slice(payloadStart, membershipEnd + 2);
+  const userHasCreatorMembership = new Function(`${membershipSource}\nreturn userHasCreatorMembership;`)();
+  assert.equal(userHasCreatorMembership(null), false);
+  assert.equal(userHasCreatorMembership({}), false);
 });
