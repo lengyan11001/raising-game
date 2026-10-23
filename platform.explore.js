@@ -124,6 +124,7 @@ function setTab(tab) {
     // until the user changes the tool tab again.
     if (typeof renderUndressToolHomeState === "function") renderUndressToolHomeState();
   }
+  if (nextTab === "cases" && typeof renderCaseLibrary === "function") renderCaseLibrary();
   if (nextTab === "history") loadHistory({ page: isMobileHistoryLayout() ? 1 : state.historyRecordsPage || 1 });
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();

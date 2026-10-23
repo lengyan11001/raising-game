@@ -291,6 +291,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.telegram.js",
   "platform.workflow-canvases.js",
   "platform.explore.js",
+  "platform.cases.js",
   "platform.chat.js",
   "platform.create.js",
   "platform.video-tools.js",
@@ -4274,6 +4275,13 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
         "$1hidden $2",
       );
     });
+    // Cases are a main-site navigation entry. Profile hosts keep their own
+    // reduced navigation, so hide it in the first paint before the client
+    // feature bootstrap applies allowedTabs.
+    withTenantShell = withTenantShell.replace(
+      /(<button\s+class="top-tab"\s+data-tab="cases"\s+)(type="button")/i,
+      "$1hidden $2",
+    );
     ["playflux-video", "playflux-anime", "playflux-image"].forEach((shortcut) => {
       withTenantShell = withTenantShell.replace(
         new RegExp(`(<button\\s+class="top-tab"\\s+data-gallery-shortcut="${shortcut}"\\s+)(type="button")`, "i"),
