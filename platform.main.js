@@ -7,6 +7,12 @@ async function startPlatform() {
 }
 
 document.addEventListener("click", (event) => {
+  if (event.target.closest("#sideNavMoreMenu [data-tab]")) {
+    const menu = document.getElementById("sideNavMoreMenu");
+    const moreButton = document.getElementById("sideNavMoreBtn");
+    if (menu) menu.hidden = true;
+    moreButton?.setAttribute("aria-expanded", "false");
+  }
   const homeAction = event.target.closest("[data-home-action]");
   if (homeAction) {
     state.routeCharacterId = "";

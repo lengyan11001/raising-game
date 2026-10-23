@@ -537,6 +537,7 @@ function applyTenantFeatures() {
       || !isGalleryModeAllowed(shortcut)
       || (shortcut === "playflux-anime" && !animeEnabled);
   });
+  if (typeof syncSideNavigationMore === "function") syncSideNavigationMore();
   document.querySelectorAll("[data-panel='access'], #accessTokenCard").forEach((element) => {
     element.hidden = !apiAccessEnabled || element.hidden;
   });

@@ -171,7 +171,82 @@ function syncMainTabState() {
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
   });
+  syncSideNavigationMore();
 }
+
+function syncSideNavigationMore() {
+  const tabs = document.querySelector(".top-tabs");
+  const moreButton = document.getElementById("sideNavMoreBtn");
+  const menu = document.getElementById("sideNavMoreMenu");
+  if (!tabs || !moreButton || !menu) return;
+  const isMobile = window.matchMedia("(max-width: 720px)").matches;
+  const menuWasOpen = !menu.hidden;
+  menu.hidden = true;
+  moreButton.setAttribute("aria-expanded", "false");
+  tabs.classList.remove("is-nav-overflowing");
+  tabs.querySelectorAll(".is-nav-overflow-item").forEach((item) => item.classList.remove("is-nav-overflow-item"));
+  menu.replaceChildren();
+  if (isMobile) {
+    tabs.classList.remove("is-nav-overflowing");
+    return;
+  }
+  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more)")).filter((item) => !item.hidden);
+  if (!candidates.length) return;
+  const tabHeights = candidates.map((item) => item.getBoundingClientRect().height || 44);
+  const totalHeight = tabHeights.reduce((sum, height) => sum + height + 3, 0) + 47;
+  const available = tabs.clientHeight || window.innerHeight - tabs.getBoundingClientRect().top - 130;
+  if (totalHeight <= available) return;
+  tabs.classList.add("is-nav-overflowing");
+  let used = 47;
+  const overflow = [];
+  const minimumVisible = Math.min(4, candidates.length);
+  candidates.forEach((item, index) => {
+    const height = tabHeights[index];
+    const mustShow = index < minimumVisible;
+    if (mustShow || used + height + 3 <= available) {
+      used += height + 3;
+    } else {
+      overflow.push(item);
+    }
+  });
+  if (!overflow.length) return;
+  overflow.forEach((item) => item.classList.add("is-nav-overflow-item"));
+  overflow.forEach((item) => {
+    const clone = item.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.classList.remove("is-nav-overflow-item", "is-active");
+    clone.removeAttribute("hidden");
+    clone.setAttribute("type", "button");
+    clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
+    menu.appendChild(clone);
+  });
+  menu.hidden = true;
+  moreButton.setAttribute("aria-expanded", "false");
+  menu.hidden = !menuWasOpen;
+  moreButton.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+  moreButton.classList.toggle("is-active", overflow.some((item) => item.classList.contains("is-active")));
+}
+
+function toggleSideNavigationMore() {
+  const menu = document.getElementById("sideNavMoreMenu");
+  const button = document.getElementById("sideNavMoreBtn");
+  if (!menu || !button) return;
+  menu.hidden = !menu.hidden;
+  button.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+}
+
+document.getElementById("sideNavMoreBtn")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleSideNavigationMore();
+});
+document.addEventListener("click", (event) => {
+  const menu = document.getElementById("sideNavMoreMenu");
+  const button = document.getElementById("sideNavMoreBtn");
+  if (!menu || menu.hidden || menu.contains(event.target) || button?.contains(event.target)) return;
+  menu.hidden = true;
+  button?.setAttribute("aria-expanded", "false");
+});
+window.addEventListener("resize", () => syncSideNavigationMore());
 
 function setCategory(category) {
   state.category = category;
