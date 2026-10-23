@@ -186,6 +186,8 @@ function syncSideNavigationMore() {
   tabs.classList.remove("is-nav-overflowing");
   tabs.querySelectorAll(".is-nav-overflow-item").forEach((item) => item.classList.remove("is-nav-overflow-item"));
   menu.replaceChildren();
+  tabs.classList.add("is-nav-overflowing");
+  const moreHeight = moreButton.getBoundingClientRect().height || 44;
   if (isMobile) {
     tabs.classList.remove("is-nav-overflowing");
     return;
@@ -193,11 +195,15 @@ function syncSideNavigationMore() {
   const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more)")).filter((item) => !item.hidden);
   if (!candidates.length) return;
   const tabHeights = candidates.map((item) => item.getBoundingClientRect().height || 44);
-  const totalHeight = tabHeights.reduce((sum, height) => sum + height + 3, 0) + 47;
-  const available = tabs.clientHeight || window.innerHeight - tabs.getBoundingClientRect().top - 130;
+  const navRow = tabs.closest(".side-rail") || tabs;
+  const utility = document.querySelector(".side-utility-nav");
+  const tabsTop = tabs.getBoundingClientRect().top;
+  const available = utility
+    ? Math.max(0, utility.getBoundingClientRect().top - tabsTop - 10)
+    : Math.max(0, navRow.getBoundingClientRect().bottom - tabsTop - 120);
+  const totalHeight = tabHeights.reduce((sum, height) => sum + height + 3, 0) + moreHeight + 3;
   if (totalHeight <= available) return;
-  tabs.classList.add("is-nav-overflowing");
-  let used = 47;
+  let used = moreHeight + 3;
   const overflow = [];
   const minimumVisible = Math.min(4, candidates.length);
   candidates.forEach((item, index) => {
