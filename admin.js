@@ -3843,14 +3843,18 @@ async function renderPricingLegacy() {
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
   byId("savePricingBtn")?.addEventListener("click", async () => {
     try {
-      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
-        provider: tr.dataset.provider,
-        resolution: tr.dataset.resolution,
-        rateKind: tr.dataset.rateKind,
-        key: tr.dataset.key,
-        unit: tr.dataset.unit,
-        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
-      }));
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => {
+        const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+        return {
+          provider: tr.dataset.provider,
+          resolution: tr.dataset.resolution,
+          rateKind: tr.dataset.rateKind,
+          key: tr.dataset.key,
+          unit: tr.dataset.unit,
+          ...(purchaseInput ? { purchaseUsdPerSecond: Number(purchaseInput.value) } : {}),
+          saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
+        };
+      });
       const payload = await api("/api/admin/pricing", {
         method: "PUT",
         body: { rows: nextRows },
@@ -5416,8 +5420,13 @@ function renderPricingTable(rows = []) {
               <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
               <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
               <td>
-                <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
-                <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                ${row.purchaseEditable ? `
+                  <input class="adm-price-input" data-f="purchaseUsdPerSecond" type="number" min="0.000001" step="0.000001" value="${escapeHtml(fmtPrice(row.purchaseUsdPerSecond, 8))}" />
+                  <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
+                ` : `
+                  <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                  <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                `}
                 ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
               </td>
               <td>
@@ -5447,7 +5456,7 @@ async function renderPricing() {
       <div class="adm-page-head">
         <div>
           <h2>价格配置</h2>
-          <p class="adm-muted">配置 Advanced 对外价格。Seedance 视频输入任务按两段计费：基础生成价 + 视频输入加收价。</p>
+          <p class="adm-muted">配置 Advanced 采购价和对外价格。Wan3 新模型支持分别配置采购价与对外价；Seedance 视频输入任务按两段计费。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
@@ -5486,8 +5495,8 @@ async function renderPricing() {
           <section class="adm-pricing-section">
             <div class="adm-pricing-section-head">
               <div>
-                <h4>其他模型价格</h4>
-                <p class="adm-muted">Wan2.7 视频和图片价格。</p>
+                <h4>Wan 3.0、HappyHorse 与图片模型价格</h4>
+                <p class="adm-muted">W3.0、W3.0-Pro、W3.0-Prime、W3.0-VSR-Prime、HappyHorse 及图片模型。Wan3 采购价和对外价均可配置。</p>
               </div>
             </div>
             ${renderPricingTable(otherRows)}

@@ -52,6 +52,30 @@ test("admin pricing keeps current models and omits early Wan models", () => {
   assert.match(pricingRowsSource, /model: "happyhorse"/);
 });
 
+test("admin pricing filters retired rows while preserving internal compatibility", () => {
+  assert.match(server, /ADMIN_HIDDEN_PRICING_PROVIDERS = new Set\(\["wan27", "wan27-image"\]\)/);
+  assert.match(server, /ADMIN_HIDDEN_PRICING_CAPABILITIES = new Set\(\["wan-animate-move", "wan-animate-mix"\]\)/);
+  assert.match(server, /ADVANCED_PRICING_ROWS\.filter\(adminAdvancedPricingRowVisible\)/);
+  assert.match(server, /key: "wan27-720p"/);
+  assert.match(server, /key: `aliyun-\$\{item\.capability\}-\$\{rateKey\}`/);
+  assert.match(server, /providerLabel: "W3\.0"/);
+  assert.match(server, /providerLabel: "W3\.0-Pro"/);
+  assert.match(server, /providerLabel: "W3\.0-Prime"/);
+  assert.match(server, /providerLabel: "W3\.0-VSR-Prime"/);
+  assert.match(server, /providerLabel: "HappyHorse Video"/);
+});
+
+test("admin pricing exposes persisted purchase and sale inputs for Wan3.0", () => {
+  assert.match(server, /wan30PurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video"\] \}/);
+  assert.match(server, /wan30ProPurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video-pro"\] \}/);
+  assert.match(server, /wan30PrimePurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video-prime"\] \}/);
+  assert.match(server, /wan30PrimeProPurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video-prime-pro"\] \}/);
+  assert.match(server, /purchaseEditable: Boolean\(wan30PurchaseTable\)/);
+  assert.match(server, /const rawPurchaseUsd = Number\(row\.purchaseUsdPerSecond\)/);
+  assert.match(server, /purchaseTable\[definedRow\.resolution\] = pricingNumber\(rawPurchaseUsd/);
+  assert.match(server, /definedRow\?\.provider === "wan30" && rawCredits <= 0/);
+});
+
 test("runtime billing uses family prices for Wan2.7 and HappyHorse", () => {
   const pricingSource = server.slice(
     server.indexOf("function advancedModelPricing("),

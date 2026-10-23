@@ -709,6 +709,27 @@ const ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND = Object.freeze({
   "480p": 0.3,
   "720p": 0.6,
   "1080p": 1.2,
+  "2k": 2.4,
+  "4k": 4.8,
+});
+const ALIYUN_WAN30_PRIME_PRICE_FACTOR = pricingNumber(process.env.ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1.5, 1, 6);
+const WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY = Object.freeze({
+  "wan30-video": Object.freeze(Object.fromEntries(["480p", "720p", "1080p"].map((resolution) => [
+    resolution,
+    pricingNumber(ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[resolution] / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8),
+  ]))),
+  "wan30-video-pro": Object.freeze(Object.fromEntries(["1080p", "2k", "4k"].map((resolution) => [
+    resolution,
+    pricingNumber(ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[resolution] / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8),
+  ]))),
+  "wan30-video-prime": Object.freeze(Object.fromEntries(["480p", "720p", "1080p"].map((resolution) => [
+    resolution,
+    pricingNumber((ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[resolution] * ALIYUN_WAN30_PRIME_PRICE_FACTOR) / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8),
+  ]))),
+  "wan30-video-prime-pro": Object.freeze(Object.fromEntries(["1080p", "2k", "4k"].map((resolution) => [
+    resolution,
+    pricingNumber((ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[resolution] * ALIYUN_WAN30_PRIME_PRICE_FACTOR) / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8),
+  ]))),
 });
 const WAN30_DEFAULT_SALE_CREDITS_PER_SECOND = Object.freeze({
   "wan30-video": Object.freeze({ "480p": 7, "720p": 15, "1080p": 30 }),
@@ -823,6 +844,10 @@ const DEFAULT_ADVANCED_PRICING = {
   wan30PrimeCreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video-prime"] },
   wan30ProCreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video-pro"] },
   wan30PrimeProCreditsPerSecondByResolution: { ...WAN30_DEFAULT_SALE_CREDITS_PER_SECOND["wan30-video-prime-pro"] },
+  wan30PurchaseUsdPerSecondByResolution: { ...WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY["wan30-video"] },
+  wan30PrimePurchaseUsdPerSecondByResolution: { ...WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY["wan30-video-prime"] },
+  wan30ProPurchaseUsdPerSecondByResolution: { ...WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY["wan30-video-pro"] },
+  wan30PrimeProPurchaseUsdPerSecondByResolution: { ...WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY["wan30-video-prime-pro"] },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
@@ -991,7 +1016,6 @@ const ALIYUN_WAN30_PRIME_BASE_URL = (process.env.ALIYUN_WAN30_PRIME_BASE_URL
     ? "https://model-intl.aimobile.wuying.aliyuncs.com/us-east-1"
     : ALIYUN_WAN30_BASE_URL)).replace(/\/+$/, "");
 const ALIYUN_WAN30_PRIME_API_KEY = String(process.env.ALIYUN_WAN30_PRIME_API_KEY || "").trim();
-const ALIYUN_WAN30_PRIME_PRICE_FACTOR = pricingNumber(process.env.ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1.5, 1, 6);
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
@@ -1918,6 +1942,18 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan30PrimePro = source.wan30PrimeProCreditsPerSecondByResolution && typeof source.wan30PrimeProCreditsPerSecondByResolution === "object"
     ? source.wan30PrimeProCreditsPerSecondByResolution
     : {};
+  const wan30Purchase = source.wan30PurchaseUsdPerSecondByResolution && typeof source.wan30PurchaseUsdPerSecondByResolution === "object"
+    ? source.wan30PurchaseUsdPerSecondByResolution
+    : {};
+  const wan30PrimePurchase = source.wan30PrimePurchaseUsdPerSecondByResolution && typeof source.wan30PrimePurchaseUsdPerSecondByResolution === "object"
+    ? source.wan30PrimePurchaseUsdPerSecondByResolution
+    : {};
+  const wan30ProPurchase = source.wan30ProPurchaseUsdPerSecondByResolution && typeof source.wan30ProPurchaseUsdPerSecondByResolution === "object"
+    ? source.wan30ProPurchaseUsdPerSecondByResolution
+    : {};
+  const wan30PrimeProPurchase = source.wan30PrimeProPurchaseUsdPerSecondByResolution && typeof source.wan30PrimeProPurchaseUsdPerSecondByResolution === "object"
+    ? source.wan30PrimeProPurchaseUsdPerSecondByResolution
+    : {};
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
@@ -2143,6 +2179,26 @@ function normalizeAdvancedPricing(pricing = {}) {
       "1080p": normalizeStoredCredits(wan30PrimePro["1080p"], DEFAULT_ADVANCED_PRICING.wan30PrimeProCreditsPerSecondByResolution["1080p"], 6),
       "2k": normalizeStoredCredits(wan30PrimePro["2k"], DEFAULT_ADVANCED_PRICING.wan30PrimeProCreditsPerSecondByResolution["2k"], 6),
       "4k": normalizeStoredCredits(wan30PrimePro["4k"], DEFAULT_ADVANCED_PRICING.wan30PrimeProCreditsPerSecondByResolution["4k"], 6),
+    },
+    wan30PurchaseUsdPerSecondByResolution: {
+      "480p": pricingNumber(wan30Purchase["480p"], DEFAULT_ADVANCED_PRICING.wan30PurchaseUsdPerSecondByResolution["480p"], 0, 8),
+      "720p": pricingNumber(wan30Purchase["720p"], DEFAULT_ADVANCED_PRICING.wan30PurchaseUsdPerSecondByResolution["720p"], 0, 8),
+      "1080p": pricingNumber(wan30Purchase["1080p"], DEFAULT_ADVANCED_PRICING.wan30PurchaseUsdPerSecondByResolution["1080p"], 0, 8),
+    },
+    wan30PrimePurchaseUsdPerSecondByResolution: {
+      "480p": pricingNumber(wan30PrimePurchase["480p"], DEFAULT_ADVANCED_PRICING.wan30PrimePurchaseUsdPerSecondByResolution["480p"], 0, 8),
+      "720p": pricingNumber(wan30PrimePurchase["720p"], DEFAULT_ADVANCED_PRICING.wan30PrimePurchaseUsdPerSecondByResolution["720p"], 0, 8),
+      "1080p": pricingNumber(wan30PrimePurchase["1080p"], DEFAULT_ADVANCED_PRICING.wan30PrimePurchaseUsdPerSecondByResolution["1080p"], 0, 8),
+    },
+    wan30ProPurchaseUsdPerSecondByResolution: {
+      "1080p": pricingNumber(wan30ProPurchase["1080p"], DEFAULT_ADVANCED_PRICING.wan30ProPurchaseUsdPerSecondByResolution["1080p"], 0, 8),
+      "2k": pricingNumber(wan30ProPurchase["2k"], DEFAULT_ADVANCED_PRICING.wan30ProPurchaseUsdPerSecondByResolution["2k"], 0, 8),
+      "4k": pricingNumber(wan30ProPurchase["4k"], DEFAULT_ADVANCED_PRICING.wan30ProPurchaseUsdPerSecondByResolution["4k"], 0, 8),
+    },
+    wan30PrimeProPurchaseUsdPerSecondByResolution: {
+      "1080p": pricingNumber(wan30PrimeProPurchase["1080p"], DEFAULT_ADVANCED_PRICING.wan30PrimeProPurchaseUsdPerSecondByResolution["1080p"], 0, 8),
+      "2k": pricingNumber(wan30PrimeProPurchase["2k"], DEFAULT_ADVANCED_PRICING.wan30PrimeProPurchaseUsdPerSecondByResolution["2k"], 0, 8),
+      "4k": pricingNumber(wan30PrimeProPurchase["4k"], DEFAULT_ADVANCED_PRICING.wan30PrimeProPurchaseUsdPerSecondByResolution["4k"], 0, 8),
     },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
     happyhorseCreditsPerSecondByResolution: normalizedHappyhorseRates,
@@ -42798,18 +42854,18 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-nsfw-720p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
   { key: "seedance-nsfw-video-input-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: `${SEEDANCE25_DIRECT_LABEL} + Video`, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "video_input", unit: "combined_second", usageLabel: "Input + output video seconds" },
   { key: "seedance-nsfw-video-input-720p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: `${SEEDANCE25_DIRECT_LABEL} + Video`, model: SEEDANCE25_DIRECT_MODEL, resolution: "720p", rateKind: "video_input", unit: "combined_second", usageLabel: "Input + output video seconds" },
-  { key: "wan30-480p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-720p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-prime-480p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-prime-720p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-prime-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-pro-1080p", provider: "wan30", providerLabel: "Wan 3.0 Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-pro-2k", provider: "wan30", providerLabel: "Wan 3.0 Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-pro-4k", provider: "wan30", providerLabel: "Wan 3.0 Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-prime-pro-1080p", provider: "wan30", providerLabel: "Wan 3.0 VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-prime-pro-2k", provider: "wan30", providerLabel: "Wan 3.0 VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "wan30-prime-pro-4k", provider: "wan30", providerLabel: "Wan 3.0 VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-480p", provider: "wan30", providerLabel: "W3.0", model: ALIYUN_WAN30_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-720p", provider: "wan30", providerLabel: "W3.0", model: ALIYUN_WAN30_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-1080p", provider: "wan30", providerLabel: "W3.0", model: ALIYUN_WAN30_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-480p", provider: "wan30", providerLabel: "W3.0-Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-720p", provider: "wan30", providerLabel: "W3.0-Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-1080p", provider: "wan30", providerLabel: "W3.0-Prime", capability: "wan30-video-prime", model: ALIYUN_WAN30_PRIME_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-pro-1080p", provider: "wan30", providerLabel: "W3.0-Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-pro-2k", provider: "wan30", providerLabel: "W3.0-Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-pro-4k", provider: "wan30", providerLabel: "W3.0-Pro", capability: "wan30-video-pro", model: ALIYUN_WAN30_MODEL.replace(/-video$/, "-video-pro"), resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-pro-1080p", provider: "wan30", providerLabel: "W3.0-VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-pro-2k", provider: "wan30", providerLabel: "W3.0-VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-prime-pro-4k", provider: "wan30", providerLabel: "W3.0-VSR-Prime", capability: "wan30-video-prime-pro", model: ALIYUN_WAN30_PRIME_MODEL.replace(/-prime$/, "-prime-pro"), resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
@@ -42860,6 +42916,17 @@ const ADVANCED_PRICING_ROW_KEYS = new Set([
   "qwen-image3-standard-reference",
 ]);
 const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => [row.key, row]));
+
+const ADMIN_HIDDEN_PRICING_PROVIDERS = new Set(["wan27", "wan27-image"]);
+const ADMIN_HIDDEN_PRICING_CAPABILITIES = new Set(["wan-animate-move", "wan-animate-mix"]);
+
+function adminAdvancedPricingRowVisible(row = {}) {
+  const provider = String(row.provider || "").trim().toLowerCase();
+  const capability = String(row.capability || "").trim().toLowerCase();
+  if (ADMIN_HIDDEN_PRICING_PROVIDERS.has(provider)) return false;
+  if (ADMIN_HIDDEN_PRICING_CAPABILITIES.has(capability)) return false;
+  return true;
+}
 
 function publicAdvancedPricingRowVisible(row = {}) {
   const key = String(row.key || "").trim().toLowerCase();
@@ -43424,20 +43491,37 @@ async function gatewayPurchaseQwenImage3ReferenceCredits(tier = "pro") {
   }
 }
 
+function wan30PurchaseTableForRow(pricing = DEFAULT_ADVANCED_PRICING, row = {}) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const capability = String(row.capability || "").trim();
+  if (row.provider !== "wan30") return null;
+  if (capability === "wan30-video-pro") return normalized.wan30ProPurchaseUsdPerSecondByResolution;
+  if (capability === "wan30-video-prime-pro") return normalized.wan30PrimeProPurchaseUsdPerSecondByResolution;
+  if (capability === "wan30-video-prime") return normalized.wan30PrimePurchaseUsdPerSecondByResolution;
+  return normalized.wan30PurchaseUsdPerSecondByResolution;
+}
+
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
-  const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
+  const rows = await Promise.all(ADVANCED_PRICING_ROWS.filter(adminAdvancedPricingRowVisible).map(async (row) => {
     const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
+    const wan30PurchaseTable = wan30PurchaseTableForRow(pricing, row);
+    const configuredWan30PurchaseUsd = wan30PurchaseTable?.[row.resolution];
     const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
     return {
       ...row,
-      purchaseCreditsPerSecond: purchase.creditsPerSecond,
+      purchaseCreditsPerSecond: wan30PurchaseTable
+        ? pricingNumber(configuredWan30PurchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6)
+        : purchase.creditsPerSecond,
       purchaseCreditsPerSecondRange: Array.isArray(purchase.creditsPerSecondRange) ? purchase.creditsPerSecondRange.slice(0, 2) : null,
-      purchaseUsdPerSecond: purchase.usdPerSecond ?? usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
+      purchaseUsdPerSecond: wan30PurchaseTable
+        ? configuredWan30PurchaseUsd
+        : purchase.usdPerSecond ?? usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
       purchaseUsdPerSecondRange: purchase.usdPerSecondRange
         ?? usdRangeFromCny(yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny)),
-      purchaseSource: purchase.source,
-      purchaseMessage: purchase.message || "",
+      purchaseSource: wan30PurchaseTable ? "admin_configured" : purchase.source,
+      purchaseMessage: wan30PurchaseTable ? "后台配置的采购价；对外计费仍使用右侧对外价。" : purchase.message || "",
+      purchaseEditable: Boolean(wan30PurchaseTable),
       saleCreditsPerSecond,
       saleUsdPerSecond: pricingNumber(saleCreditsPerSecond / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     };
@@ -43446,22 +43530,6 @@ async function adminAdvancedPricingView(config = {}) {
   const imagePurchaseCredits = gatewayImagePurchase
     ? gatewayImagePurchase.credits
     : pricingNumber(WAN27_IMAGE_PRO_PURCHASE_USD * DEFAULT_CREDITS_PER_USD, 0);
-  rows.push({
-    key: "wan27-image",
-    provider: "wan27-image",
-    providerLabel: "Wan2.7 Image Pro",
-    resolution: "image",
-    unit: "image",
-    purchaseCreditsPerSecond: imagePurchaseCredits,
-    purchaseUsdPerSecond: gatewayImagePurchase
-      ? purchaseUsdFromCredits(imagePurchaseCredits)
-      : WAN27_IMAGE_PRO_PURCHASE_USD,
-    purchaseSource: gatewayImagePurchase?.source || "aliyun_singapore_official_model_pricing",
-    purchaseMessage: gatewayImagePurchase?.message || "Alibaba Cloud Model Studio Singapore official price per generated image. Failed calls are not charged upstream.",
-    saleCreditsPerSecond: advancedSaleImageCredits(pricing),
-    saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-    model: pricing.wan27ImagePro.model,
-  });
   for (const [rowKey, pricingKey, providerLabel, model] of [
     ["z-image-spicy-pro", "zImageSpicyPro", "Z-Image Spicy Pro", "z-image-spicy-pro"],
     ["qwen-image-edit-spicy", "qwenImageEditSpicy", "Qwen Image Edit Spicy", "qwen-image-edit-spicy"],
@@ -43610,6 +43678,14 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     }
     seen.add(key);
     const definedRow = ADVANCED_PRICING_ROWS_BY_KEY.get(key) || null;
+    if (definedRow?.provider === "wan30") {
+      const purchaseTable = wan30PurchaseTableForRow(next, definedRow);
+      const rawPurchaseUsd = Number(row.purchaseUsdPerSecond);
+      if (!purchaseTable || !Number.isFinite(rawPurchaseUsd) || rawPurchaseUsd <= 0) {
+        throw pricingPayloadError(`Invalid purchase price for ${key}`);
+      }
+      purchaseTable[definedRow.resolution] = pricingNumber(rawPurchaseUsd, purchaseTable[definedRow.resolution], 0, 8);
+    }
     if (key === "wan27-image") {
       const rawSale = advancedPricingRowSaleYuan(row, next.creditsPerCny);
       if (!Number.isFinite(rawSale) || rawSale < 0) {
@@ -43685,7 +43761,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       continue;
     }
     const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);
-    if (!Number.isFinite(rawCredits) || rawCredits < 0) {
+    if (!Number.isFinite(rawCredits) || rawCredits < 0 || (definedRow?.provider === "wan30" && rawCredits <= 0)) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
     const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-nsfw-") ? 6 : 4);
