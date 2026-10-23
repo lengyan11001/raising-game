@@ -8,17 +8,17 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 function showcaseCasesViewFromServer() {
   const server = read("server.js");
-  const start = server.indexOf("function showcaseCasesView(");
+  const start = server.indexOf("const SHOWCASE_CASE_TITLE_TERMS");
   const end = server.indexOf("\n}\n\nfunction userHasApiDocsAccess", start);
-  assert.ok(start >= 0 && end > start, "showcaseCasesView should be present");
-  return new Function("const SHOWCASE_CASES_PREVIEW_LIMIT = 2;\n" + `${server.slice(start, end + 2)}\nreturn showcaseCasesView;`)();
+  assert.ok(start >= 0 && end > start, "case view and title helpers should be present");
+  return new Function("const SHOWCASE_CASES_PREVIEW_LIMIT = 2;\n" + `${server.slice(start, end + 2)}\nreturn { showcaseCasesView, showcaseCaseTitle };`)();
 }
 
 test("case API returns every case while withholding locked case content", () => {
   const server = read("server.js");
   const frontend = read("platform.cases.js");
   const cases = JSON.parse(read("assets/showcase/spicy/cases.json"));
-  const view = showcaseCasesViewFromServer();
+  const { showcaseCasesView: view, showcaseCaseTitle } = showcaseCasesViewFromServer();
   const locked = view(cases, false);
   const unlocked = view(cases, true);
 
@@ -47,11 +47,20 @@ test("case API returns every case while withholding locked case content", () => 
     "locked",
     "model_key",
     "model_label",
+    "title_en",
+    "title_zh",
   ]);
   assert.equal(lockedItem.prompt, undefined);
   assert.equal(lockedItem.outputs, undefined);
   assert.equal(lockedItem.inputs, undefined);
   assert.equal(lockedItem.params, undefined);
+  assert.ok(lockedItem.title_zh);
+  assert.ok(lockedItem.title_en);
+  const unlockedTitles = unlocked.items.map((item) => item.title_zh);
+  assert.equal(new Set(unlockedTitles).size, unlocked.items.length);
+  assert.ok(unlocked.items.every((item) => item.title_zh !== item.model_label));
+  assert.match(showcaseCaseTitle(cases[0], "zh"), /深喉|口爆/);
+  assert.match(showcaseCaseTitle(cases[0], "en"), /POV/);
   assert.match(server, /url\.pathname === "\/api\/cases"/);
   assert.match(server, /userHasCreatorMembership\(auth\.user\)/);
   assert.match(server, /items:\s*view\.items/);
@@ -63,6 +72,8 @@ test("case API returns every case while withholding locked case content", () => 
   assert.match(frontend, /data-case-unlock/);
   assert.match(frontend, /item\.locked/);
   assert.match(frontend, /case-library-card is-locked/);
+  assert.match(frontend, /function caseLibraryTitle\(/);
+  assert.match(frontend, /caseLibraryTitle\(item\)/);
   assert.match(frontend, /billingPlanId:\s*"plan-main-creator"/);
   const payloadStart = server.indexOf("function creatorMembershipPayload(");
   const membershipEnd = server.indexOf("\n}\n\nconst SHOWCASE_CASES_FILE", payloadStart);

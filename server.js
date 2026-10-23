@@ -2464,6 +2464,111 @@ const SHOWCASE_CASES_FILE = path.join(ROOT, "assets/showcase/spicy/cases.json");
 const SHOWCASE_CASES_PREVIEW_LIMIT = 2;
 let showcaseCasesCache = null;
 
+const SHOWCASE_CASE_TITLE_TERMS = {
+  scenes: [
+    { zh: "便利店后巷", en: "Convenience-store alley", needles: ["便利店后巷", "convenience store alley", "convenience-store alley"] },
+    { zh: "水族馆", en: "Aquarium", needles: ["水族馆", "aquarium"] },
+    { zh: "图书馆", en: "Library", needles: ["图书馆", "library"] },
+    { zh: "便利店", en: "Convenience store", needles: ["便利店", "convenience store"] },
+    { zh: "排练室", en: "Rehearsal room", needles: ["排练室", "练舞室", "ballet studio", "rehearsal room"] },
+    { zh: "摄影棚", en: "Photo studio", needles: ["摄影棚", "photo studio", "photography studio"] },
+    { zh: "楼梯间", en: "Stairwell", needles: ["楼梯间", "楼梯", "stairwell", "staircase"] },
+    { zh: "淋浴间", en: "Shower", needles: ["淋浴", "shower"] },
+    { zh: "办公室", en: "Office", needles: ["办公室", "office"] },
+    { zh: "天台", en: "Rooftop", needles: ["天台", "屋顶", "rooftop"] },
+    { zh: "厨房", en: "Kitchen", needles: ["厨房", "kitchen"] },
+    { zh: "和室", en: "Tatami room", needles: ["和室", "榻榻米", "tatami"] },
+    { zh: "教室", en: "Classroom", needles: ["教室", "classroom"] },
+    { zh: "地铁", en: "Subway", needles: ["地铁", "subway"] },
+    { zh: "酒店", en: "Hotel", needles: ["酒店", "hotel"] },
+    { zh: "浴室", en: "Bathroom", needles: ["浴室", "bathroom"] },
+    { zh: "卧室内", en: "Bedroom", needles: ["卧室", "bedroom"] },
+    { zh: "床上", en: "On the bed", needles: ["床上", "床单", "床沿", "on the bed", "bed sheet", "bedroom"] },
+    { zh: "溪流", en: "Forest creek", needles: ["溪流", "密林", "forest stream", "creek"] },
+    { zh: "海滩", en: "Beach", needles: ["海滩", "沙滩", "beach"] },
+    { zh: "车内", en: "In the car", needles: ["车内", "车里", "in the car", "car interior"] },
+    { zh: "电梯", en: "Elevator", needles: ["电梯", "elevator"] },
+  ],
+  actions: [
+    { zh: "肛交", en: "Anal", tags: ["anal"] },
+    { zh: "深喉", en: "Deep throat", tags: ["blowjob"] },
+    { zh: "乳交", en: "Titfuck", tags: ["titfuck"] },
+    { zh: "后入", en: "Doggy", tags: ["doggy"] },
+    { zh: "女上位", en: "Cowgirl", tags: ["cowgirl"] },
+    { zh: "传教士", en: "Missionary", tags: ["missionary"] },
+    { zh: "射精", en: "Cumshot", tags: ["cumshot"] },
+    { zh: "自慰", en: "Masturbation", tags: ["masturbation"] },
+    { zh: "单人姿势", en: "Solo pose", tags: ["solo"] },
+    { zh: "换脸", en: "Face swap", needles: ["换脸", "face swap"] },
+    { zh: "视频换人", en: "Video person swap", needles: ["视频换人", "换人", "person replacement"] },
+    { zh: "肛交", en: "Anal", needles: ["肛交", "肛门", "anal"] },
+    { zh: "口爆", en: "Oral finish", needles: ["口爆", "射在嘴里", "oral cumshot"] },
+    { zh: "乳交", en: "Titfuck", needles: ["乳交", "乳沟", "titfuck", "between her breasts"] },
+    { zh: "深喉", en: "Deep throat", needles: ["深喉", "顶到喉咙", "deep throat", "throat"] },
+    { zh: "后入", en: "Doggy", needles: ["后入", "从背后", "背后插入", "rear entry", "doggy"] },
+    { zh: "女上位", en: "Cowgirl", needles: ["女上位", "跨坐", "骑乘", "cowgirl", "riding"] },
+    { zh: "传教士", en: "Missionary", needles: ["传教士", "missionary"] },
+    { zh: "自慰", en: "Masturbation", needles: ["自慰", "手指插入", "masturbat", "fingers inside"] },
+    { zh: "口交", en: "Oral", needles: ["口交", "含住", "oral", "mouth around"] },
+    { zh: "射精", en: "Cumshot", needles: ["射精", "精液", "cumshot", "ejaculat"] },
+    { zh: "换装", en: "Outfit change", needles: ["脱去所有衣物", "移除所有衣物", "undress", "remove all clothing"] },
+    { zh: "单人姿势", en: "Solo pose", needles: ["改变姿势", "change pose", "solo"] },
+  ],
+  framings: [
+    { zh: "极度特写", en: "Extreme close-up", needles: ["极度特写", "极端特写", "extreme close-up"] },
+    { zh: "俯拍", en: "Top-down", needles: ["俯拍", "向下拍摄", "top-down", "looking down"] },
+    { zh: "仰拍", en: "Low angle", needles: ["仰拍", "低角度", "low-angle", "looking up"] },
+    { zh: "特写", en: "Close-up", needles: ["特写", "close-up", "close shot"] },
+    { zh: "POV", en: "POV", needles: ["pov", "第一人称", "第一视角", "first-person"] },
+    { zh: "侧视", en: "Side view", needles: ["侧视", "侧面", "side view", "profile"] },
+    { zh: "背影", en: "Rear view", needles: ["背对镜头", "背影", "from behind", "rear view"] },
+    { zh: "偷拍感", en: "Voyeur", needles: ["偷拍", "偷窥", "voyeur"] },
+    { zh: "长镜头", en: "Long take", needles: ["长镜头", "long take"] },
+  ],
+  styles: [
+    { zh: "新海诚动画", en: "Makoto Shinkai anime", needles: ["新海诚", "makoto shinkai"] },
+    { zh: "赛璐珞动画", en: "Cel animation", needles: ["赛璐珞", "cel animation"] },
+    { zh: "2D 手绘", en: "2D hand-drawn", needles: ["2d手绘", "2d动画", "2d hand-drawn", "2d animation"] },
+    { zh: "复古数码", en: "Retro digital", needles: ["复古数码", "复古数字", "retro digital"] },
+    { zh: "胶片", en: "Film look", needles: ["35mm", "胶片", "film look"] },
+    { zh: "超写实", en: "Photoreal", needles: ["超写实", "照片级", "photoreal", "hyper-real"] },
+  ],
+};
+
+function showcaseCaseTitleTerm(source, terms) {
+  const text = String(source || "").toLowerCase();
+  return terms.find((term) => (term.needles || []).some((needle) => text.includes(String(needle).toLowerCase()))) || null;
+}
+
+function showcaseCaseTagAction(item = {}) {
+  const tags = new Set(Array.isArray(item.tags) ? item.tags.map((tag) => String(tag).toLowerCase()) : []);
+  return SHOWCASE_CASE_TITLE_TERMS.actions.find((term) => term.tags?.some((tag) => tags.has(tag))) || null;
+}
+
+function showcaseCaseTitle(item = {}, language = "zh") {
+  const lang = language === "en" ? "en" : "zh";
+  const source = [
+    item.prompt_zh,
+    item.prompt_en,
+    item.prompt,
+    ...(Array.isArray(item.tags) ? item.tags : []),
+  ].filter(Boolean).join("\n");
+  const pick = (key) => showcaseCaseTitleTerm(source, SHOWCASE_CASE_TITLE_TERMS[key]);
+  const scene = pick("scenes");
+  const action = pick("actions") || showcaseCaseTagAction(item);
+  const framing = pick("framings");
+  const style = pick("styles");
+  const category = lang === "zh"
+    ? ({ image_gen: "文生图", i2v: "图生视频", image_edit: "图像编辑", swap: "视频换人" }[item.category] || "创作案例")
+    : ({ image_gen: "Text to image", i2v: "Image to video", image_edit: "Image edit", swap: "Person swap" }[item.category] || "Creative case");
+  const parts = [scene, action, framing || style].filter(Boolean).map((term) => term[lang]);
+  if (!parts.length) parts.push(category);
+  if (parts.length === 1 && style && style !== framing) parts.push(style[lang]);
+  if (parts.length < 2) parts.push(category);
+  const id = Number(item.id);
+  return `${parts.slice(0, 3).join(" · ")}${Number.isFinite(id) ? ` · #${id}` : ""}`;
+}
+
 async function readShowcaseCases() {
   if (Array.isArray(showcaseCasesCache)) return showcaseCasesCache;
   const raw = await fs.readFile(SHOWCASE_CASES_FILE, "utf8");
@@ -2482,7 +2587,12 @@ function showcaseCasesView(items = [], unlocked = false) {
   const totals = { all: items.length, byCategory };
   if (unlocked) {
     return {
-      items: items.map((item) => ({ ...item, locked: false })),
+      items: items.map((item) => ({
+        ...item,
+        title_zh: showcaseCaseTitle(item, "zh"),
+        title_en: showcaseCaseTitle(item, "en"),
+        locked: false,
+      })),
       totals,
       previewCount: items.length,
       lockedCount: 0,
@@ -2497,7 +2607,12 @@ function showcaseCasesView(items = [], unlocked = false) {
     categoryCounts[category] = (categoryCounts[category] || 0) + 1;
     if (categoryCounts[category] <= SHOWCASE_CASES_PREVIEW_LIMIT) {
       previewCount += 1;
-      return { ...item, locked: false };
+      return {
+        ...item,
+        title_zh: showcaseCaseTitle(item, "zh"),
+        title_en: showcaseCaseTitle(item, "en"),
+        locked: false,
+      };
     }
     lockedCount += 1;
     return {
@@ -2507,6 +2622,8 @@ function showcaseCasesView(items = [], unlocked = false) {
       model_label: item.model_label,
       category: item.category,
       category_label: item.category_label,
+      title_zh: showcaseCaseTitle(item, "zh"),
+      title_en: showcaseCaseTitle(item, "en"),
       locked: true,
     };
   }).filter(Boolean);

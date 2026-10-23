@@ -38,11 +38,19 @@ function caseLibraryModelLabel(item = {}) {
   return raw.replace(/\s*\(([^)]+)\)\s*$/, (_, suffix) => ` · ${suffix}`);
 }
 
+function caseLibraryTitle(item = {}) {
+  const lang = caseLibraryLanguage();
+  const localized = item[`title_${lang}`];
+  const alternate = item[`title_${lang === "zh" ? "en" : "zh"}`];
+  return String(localized || alternate || item.title || caseLibraryModelLabel(item) || t("case.lockedTitle"));
+}
+
 function caseLibraryMatches(item = {}) {
   if (caseLibraryCategory !== "all" && item.category !== caseLibraryCategory) return false;
   const needle = caseLibraryQuery.trim().toLowerCase();
   if (!needle) return true;
   return [
+    caseLibraryTitle(item),
     item.locked ? "" : caseLibraryText(item, "prompt"),
     item.prompt,
     item.model_label,
@@ -104,8 +112,9 @@ function renderCaseLibraryCards(reset = false) {
             <span class="case-library-kind">${escapeHtml(caseLibraryCategoryLabel(item.category))}</span>
           </span>
           <span class="case-library-card-copy">
-            <strong>${escapeHtml(caseLibraryModelLabel(item) || t("case.lockedTitle"))}</strong>
+            <strong>${escapeHtml(caseLibraryTitle(item))}</strong>
             <span>${escapeHtml(t("case.lockedPrompt"))}</span>
+            <small>${escapeHtml(caseLibraryModelLabel(item))}</small>
             <button class="case-library-unlock" type="button" data-case-unlock>${escapeHtml(state.user ? t("case.unlockCta") : t("case.unlockLogin"))}</button>
           </span>
         </article>`;
@@ -114,16 +123,16 @@ function renderCaseLibraryCards(reset = false) {
       const poster = output?.poster || (output?.kind === "image" ? output?.url : "") || "";
       const isVideo = String(output?.kind || "") === "video";
       const prompt = caseLibraryText(item, "prompt").replace(/\s+/g, " ").trim();
-      return `<button class="case-library-card" type="button" data-case-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(caseLibraryModelLabel(item))}">
+      return `<button class="case-library-card" type="button" data-case-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(caseLibraryTitle(item))}">
         <span class="case-library-thumb">
           ${poster ? `<img src="${escapeHtml(poster)}" alt="" loading="lazy" decoding="async" />` : `<span class="case-library-media-empty">${escapeHtml(t("common.preview"))}</span>`}
           ${isVideo ? `<span class="case-library-play"><i data-lucide="play"></i></span>` : ""}
           <span class="case-library-kind">${escapeHtml(caseLibraryCategoryLabel(item.category))}</span>
         </span>
         <span class="case-library-card-copy">
-          <strong>${escapeHtml(caseLibraryModelLabel(item))}</strong>
+          <strong>${escapeHtml(caseLibraryTitle(item))}</strong>
           <span>${escapeHtml(prompt || t("case.prompt"))}</span>
-          <small>${escapeHtml(String(item.created_at_str || ""))}</small>
+          <small>${escapeHtml([caseLibraryModelLabel(item), item.created_at_str].filter(Boolean).join(" · "))}</small>
         </span>
       </button>`;
     }).join("") + (!unlocked ? `<div class="case-library-locked">
@@ -168,8 +177,8 @@ function openCaseLibraryItem(item = null) {
   const tags = document.getElementById("caseDetailTags");
   const copy = document.getElementById("caseDetailCopy");
   if (kicker) kicker.textContent = caseLibraryCategoryLabel(item.category);
-  if (title) title.textContent = caseLibraryModelLabel(item);
-  if (model) model.textContent = item.category_label || caseLibraryCategoryLabel(item.category);
+  if (title) title.textContent = caseLibraryTitle(item);
+  if (model) model.textContent = caseLibraryModelLabel(item);
   if (media) {
     media.innerHTML = `
       ${output ? `<div class="case-detail-main">${caseLibraryMediaMarkup(output, { className: "case-detail-main-media", alt: t("case.output") })}</div>` : ""}
