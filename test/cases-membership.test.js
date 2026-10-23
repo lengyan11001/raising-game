@@ -36,6 +36,7 @@ test("case API returns only two preview items per category until membership is a
   assert.match(server, /url\.pathname === "\/api\/cases"/);
   assert.match(server, /userHasCreatorMembership\(auth\.user\)/);
   assert.match(server, /items:\s*view\.items/);
+  assert.match(server, /publicCreatorMembership\(auth\.user \|\| \{\}\)/);
   assert.match(server, /"\/assets\/showcase\/spicy\/cases\.json"/);
   assert.doesNotMatch(frontend, /fetch\("\/assets\/showcase\/spicy\/cases\.json"/);
   assert.match(frontend, /requestJson\("\/api\/cases"\)/);

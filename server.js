@@ -46937,7 +46937,7 @@ async function handleRequest(req, res) {
         previewLimitPerCategory: SHOWCASE_CASES_PREVIEW_LIMIT,
         totals: view.totals,
         items: view.items,
-        membership: publicCreatorMembership(auth.user),
+        membership: publicCreatorMembership(auth.user || {}),
       });
     }
 
