@@ -2460,6 +2460,36 @@ function userHasCreatorMembership(user = {}) {
   return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
 }
 
+const SHOWCASE_CASES_FILE = path.join(ROOT, "assets/showcase/spicy/cases.json");
+const SHOWCASE_CASES_PREVIEW_LIMIT = 2;
+let showcaseCasesCache = null;
+
+async function readShowcaseCases() {
+  if (Array.isArray(showcaseCasesCache)) return showcaseCasesCache;
+  const raw = await fs.readFile(SHOWCASE_CASES_FILE, "utf8");
+  const parsed = JSON.parse(raw);
+  showcaseCasesCache = Array.isArray(parsed) ? parsed : [];
+  return showcaseCasesCache;
+}
+
+function showcaseCasesView(items = [], unlocked = false) {
+  const byCategory = {};
+  items.forEach((item) => {
+    const category = String(item?.category || "").trim();
+    if (!category) return;
+    byCategory[category] = (byCategory[category] || 0) + 1;
+  });
+  if (unlocked) return { items, totals: { all: items.length, byCategory } };
+  const categoryCounts = {};
+  const preview = items.filter((item) => {
+    const category = String(item?.category || "").trim();
+    if (!category) return false;
+    categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+    return categoryCounts[category] <= SHOWCASE_CASES_PREVIEW_LIMIT;
+  });
+  return { items: preview, totals: { all: items.length, byCategory } };
+}
+
 function userHasApiDocsAccess(user = {}) {
   const entitlement = user.apiDocsAccess && typeof user.apiDocsAccess === "object" ? user.apiDocsAccess : {};
   return entitlement.status === "active" && Boolean(entitlement.grantedAt || entitlement.orderId);
@@ -46559,6 +46589,7 @@ const PRIVATE_STATIC_ROOT_FILES = new Set([
   "/site-seo.js",
   "/telegram-bot.js",
   "/video-tools.js",
+  "/assets/showcase/spicy/cases.json",
 ]);
 
 function privateStaticPath(pathname = "") {
@@ -46893,6 +46924,21 @@ async function handleRequest(req, res) {
         ? "private, no-store"
         : "public, max-age=30, s-maxage=30, stale-while-revalidate=120";
       return sendJson(res, 200, { ok: true, config: publicView }, { cacheControl });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/cases") {
+      const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
+      const unlocked = userHasCreatorMembership(auth.user);
+      const view = showcaseCasesView(await readShowcaseCases(), unlocked);
+      return sendJson(res, 200, {
+        ok: true,
+        unlocked,
+        membershipRequired: !unlocked,
+        previewLimitPerCategory: SHOWCASE_CASES_PREVIEW_LIMIT,
+        totals: view.totals,
+        items: view.items,
+        membership: publicCreatorMembership(auth.user),
+      });
     }
 
     if (req.method === "GET" && url.pathname === "/api/platform/playflux-templates") {

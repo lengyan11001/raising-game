@@ -5647,6 +5647,7 @@ async function redeemMembershipCode(event) {
   try {
     const payload = await requestJson("/api/membership/redeem", { method: "POST", body: { code } });
     if (payload.user) setUser(payload.user, { skipReferralRefresh: true });
+    if (typeof refreshCaseLibraryAccess === "function") refreshCaseLibraryAccess();
     if (state.billing) state.billing = { ...state.billing, membership: payload.membership || state.billing.membership };
     if (els.membershipCodeInput) els.membershipCodeInput.value = "";
     if (els.membershipNote) els.membershipNote.textContent = t("membership.activated");
@@ -6073,10 +6074,14 @@ async function loadMe() {
 
 async function loadBillingSummary() {
   if (!state.user || (!tenantFeature("subscriptions", false) && !membershipProgramEnabled())) return;
+  const membershipWasActive = creatorMembershipActive();
   try {
     const payload = await requestJson("/api/billing/summary");
     state.billing = payload.billing || state.billing;
     if (payload.user) setUser(payload.user);
+    if (!membershipWasActive && creatorMembershipActive() && typeof refreshCaseLibraryAccess === "function") {
+      refreshCaseLibraryAccess();
+    }
     renderTopupSummary();
     renderMembershipCard();
     renderAccessGuides();

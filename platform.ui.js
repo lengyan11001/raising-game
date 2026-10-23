@@ -654,6 +654,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.workflowPickerSearch = "";
     state.workflowMessage = "";
     state.workflowLogs = [];
+    if (typeof resetCaseLibrary === "function") resetCaseLibrary();
   }
   const accountLabel = state.user
     ? state.user.username
@@ -676,6 +677,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (userChanged && state.tab === "access") loadApiSubtokens({ force: true });
   if (userChanged && state.tab === "chat") loadChatConversations({ selectFirst: true });
   if (userChanged && state.tab === "workflow") loadWorkflowCanvases({ force: true });
+  if (userChanged && state.tab === "cases") renderCaseLibrary();
   if (state.tab === "referral") {
     if (userChanged && state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
     else renderReferral();

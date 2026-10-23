@@ -2,6 +2,7 @@
 // while users and generation records remain in PostgreSQL through the API.
 let caseLibraryItems = null;
 let caseLibraryPromise = null;
+let caseLibraryPayload = null;
 let caseLibraryCategory = "all";
 let caseLibraryQuery = "";
 let caseLibraryShown = 24;
@@ -63,10 +64,8 @@ function caseLibraryMediaMarkup(asset = null, options = {}) {
 function renderCaseLibraryTabs() {
   const tabs = document.getElementById("caseCategoryTabs");
   if (!tabs || !Array.isArray(caseLibraryItems)) return;
-  const counts = { all: caseLibraryItems.length };
-  caseLibraryItems.forEach((item) => {
-    counts[item.category] = (counts[item.category] || 0) + 1;
-  });
+  const totals = caseLibraryPayload?.totals || {};
+  const counts = { all: Number(totals.all || caseLibraryItems.length), ...(totals.byCategory || {}) };
   const categories = ["all", ...CASE_LIBRARY_CATEGORY_ORDER.filter((id) => counts[id])];
   tabs.innerHTML = categories.map((id) => {
     const label = id === "all" ? t("case.all") : caseLibraryCategoryLabel(id);
@@ -84,8 +83,16 @@ function renderCaseLibraryCards(reset = false) {
   const count = document.getElementById("caseLibraryCount");
   const status = document.getElementById("caseLibraryStatus");
   const more = document.getElementById("caseLibraryMore");
-  if (count) count.textContent = t("case.count", { count: items.length });
-  if (status) status.textContent = caseLibraryQuery.trim() ? `“${caseLibraryQuery.trim()}”` : "";
+  const unlocked = caseLibraryPayload?.unlocked === true;
+  const totalCount = Number(caseLibraryPayload?.totals?.all || caseLibraryItems.length);
+  if (count) count.textContent = unlocked
+    ? t("case.count", { count: items.length })
+    : t("case.previewCount", { count: items.length, total: totalCount });
+  if (status) {
+    status.textContent = caseLibraryQuery.trim()
+      ? `“${caseLibraryQuery.trim()}”`
+      : (!unlocked ? t("case.previewLimit") : "");
+  }
   if (!visible.length) {
     grid.innerHTML = `<div class="case-library-empty">${escapeHtml(t("case.empty"))}</div>`;
   } else {
@@ -106,9 +113,13 @@ function renderCaseLibraryCards(reset = false) {
           <small>${escapeHtml(String(item.created_at_str || ""))}</small>
         </span>
       </button>`;
-    }).join("");
+    }).join("") + (!unlocked ? `<div class="case-library-locked">
+      <span class="case-library-locked-icon"><i data-lucide="lock"></i></span>
+      <div><strong>${escapeHtml(t("case.unlockTitle"))}</strong><span>${escapeHtml(t("case.unlockBody"))}</span></div>
+      <button class="primary-button compact" type="button" data-case-unlock>${escapeHtml(state.user ? t("case.unlockCta") : t("case.unlockLogin"))}</button>
+    </div>` : "");
   }
-  if (more) more.hidden = items.length <= caseLibraryShown;
+  if (more) more.hidden = !unlocked || items.length <= caseLibraryShown;
   refreshIcons();
 }
 
@@ -196,6 +207,13 @@ function bindCaseLibraryEvents() {
     renderCaseLibraryCards(false);
   });
   grid?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-case-unlock]")) {
+      if (!state.user) return openLogin();
+      if (typeof openBillingPaymentChoice === "function") {
+        openBillingPaymentChoice({ billingPlanId: "plan-main-creator" });
+      }
+      return;
+    }
     const card = event.target.closest("[data-case-id]");
     if (!card) return;
     const item = (caseLibraryItems || []).find((candidate) => String(candidate.id) === String(card.dataset.caseId));
@@ -229,14 +247,11 @@ function bindCaseLibraryEvents() {
 async function loadCaseLibrary() {
   if (Array.isArray(caseLibraryItems)) return caseLibraryItems;
   if (caseLibraryPromise) return caseLibraryPromise;
-  caseLibraryPromise = fetch("/assets/showcase/spicy/cases.json", { credentials: "same-origin" })
-    .then((response) => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    })
+  caseLibraryPromise = requestJson("/api/cases")
     .then((payload) => {
-      const items = Array.isArray(payload) ? payload : [];
+      const items = Array.isArray(payload.items) ? payload.items : [];
       items.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+      caseLibraryPayload = payload;
       caseLibraryItems = items;
       return items;
     })
@@ -245,6 +260,20 @@ async function loadCaseLibrary() {
       throw error;
     });
   return caseLibraryPromise;
+}
+
+function resetCaseLibrary() {
+  caseLibraryItems = null;
+  caseLibraryPromise = null;
+  caseLibraryPayload = null;
+  caseLibraryCategory = "all";
+  caseLibraryQuery = "";
+  caseLibraryShown = CASE_LIBRARY_PAGE_SIZE;
+}
+
+function refreshCaseLibraryAccess() {
+  resetCaseLibrary();
+  if (state.tab === "cases") renderCaseLibrary();
 }
 
 async function renderCaseLibrary() {
