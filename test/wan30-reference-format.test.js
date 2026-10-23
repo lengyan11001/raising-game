@@ -120,6 +120,18 @@ test("a reference sent as a bare url keeps its real format and size", () => {
   assert.match(server, /detectedMime \|\| extensionMime \|\| \(headerMime\.startsWith\("image\/"\) \? headerMime : ""\)/);
 });
 
+test("external API callers pass Wan 3.0 media through without local size validation", () => {
+  assert.match(
+    server,
+    /const externalApiCaller = auth\.tokenSource === "api_token" \|\| auth\.tokenSource === "subtoken" \|\| auth\.isApiToken === true;/,
+  );
+  assert.match(server, /skipWan30Validation: externalApiCaller,/);
+  assert.match(
+    server,
+    /if \(!skipWan30Validation\) await validateWan30ResolvedMedia\(media, requestParams\);/,
+  );
+});
+
 test("the Wan 3.0 format complaint still exists for genuinely wrong files", () => {
   assert.match(
     server,

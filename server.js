@@ -19815,7 +19815,7 @@ async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
   return { totalVideoSeconds, totalAudioSeconds };
 }
 
-async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null } = {}) {
+async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null, skipWan30Validation = false } = {}) {
   const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
   const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
   if (["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(capability)) {
@@ -19843,7 +19843,10 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
     if (frameMode && (!media.some((item) => item.type === "first_frame") || !media.some((item) => item.type === "last_frame"))) {
       throw advancedValidationError("WAN30_FRAMES_REQUIRED", "Wan 3.0 First + Last Frame mode requires both frame images.");
     }
-    await validateWan30ResolvedMedia(media, requestParams);
+    // External API callers provide upstream-ready URLs. The upstream remains the
+    // authority for media limits; locally probing every URL would reject valid
+    // signed links that do not expose dimensions to us.
+    if (!skipWan30Validation) await validateWan30ResolvedMedia(media, requestParams);
     return { capability, mediaMode: frameMode ? "first_last_frame" : "multimodal", media };
   }
   if (["wan27-t2v", "happyhorse-t2v"].includes(capability)) return { capability, mediaMode: capability, media: [] };
@@ -30847,6 +30850,7 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const externalApiCaller = auth.tokenSource === "api_token" || auth.tokenSource === "subtoken" || auth.isApiToken === true;
 
   const body = await readJson(req);
   const config = await readAppConfig();
@@ -31386,6 +31390,7 @@ async function handleAdvancedGenerate(req, res) {
       body: mergedBody,
       requestParams,
       fallbackAsset: userAsset,
+      skipWan30Validation: externalApiCaller,
     });
     wan27MediaMode = resolved.mediaMode || requestParams.videoCapability;
     wan27Media = resolved.media;
