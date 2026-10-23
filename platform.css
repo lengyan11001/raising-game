@@ -11195,10 +11195,17 @@ body.wan30-launch-visible .site-head { top: 0; }
 .case-library-card { display: flex; flex-direction: column; padding: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: var(--text); background: #17171b; text-align: left; box-shadow: 0 12px 30px rgba(0,0,0,.2); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
 .case-library-card:hover { transform: translateY(-4px); border-color: rgba(255,79,163,.55); box-shadow: 0 20px 42px rgba(0,0,0,.34); }
 .case-library-card:focus-visible { outline: 2px solid #ff7ac1; outline-offset: 3px; }
+.case-library-card.is-locked { border-color: rgba(255,255,255,.09); background: #141417; }
+.case-library-card.is-locked:hover { transform: none; border-color: rgba(255,79,163,.35); box-shadow: 0 12px 30px rgba(0,0,0,.2); }
 .case-library-thumb { position: relative; display: block; aspect-ratio: 4 / 5; overflow: hidden; background: #0b0b0e; }
 .case-library-thumb img, .case-library-thumb video { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .4s ease; }
 .case-library-card:hover .case-library-thumb img { transform: scale(1.035); }
 .case-library-thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 58%, rgba(8,8,10,.65)); pointer-events: none; }
+.case-library-thumb-locked::after { background: rgba(8,8,10,.2); }
+.case-library-locked-media { position: absolute; inset: 0; z-index: 1; display: grid; align-content: center; justify-items: center; gap: 6px; padding: 24px; color: rgba(247,247,251,.68); text-align: center; background: radial-gradient(circle at 50% 35%, rgba(255,79,163,.15), transparent 48%); }
+.case-library-locked-media svg { width: 28px; height: 28px; color: #ff8bc6; }
+.case-library-locked-media strong { color: #fff; font-size: .82rem; }
+.case-library-locked-media small { color: rgba(247,247,251,.52); font-size: .68rem; }
 .case-library-play { position: absolute; left: 50%; top: 50%; z-index: 1; display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid rgba(255,255,255,.26); border-radius: 50%; color: #fff; background: rgba(9,9,12,.62); backdrop-filter: blur(8px); transform: translate(-50%, -50%); }
 .case-library-play svg { width: 16px; height: 16px; margin-left: 2px; }
 .case-library-kind { position: absolute; left: 10px; top: 10px; z-index: 1; padding: 4px 8px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; color: #f7f7fb; background: rgba(9,9,12,.7); font-size: .67rem; font-weight: 800; backdrop-filter: blur(8px); }
@@ -11206,6 +11213,8 @@ body.wan30-launch-visible .site-head { top: 0; }
 .case-library-card-copy strong { overflow: hidden; color: #fff; font-size: .83rem; text-overflow: ellipsis; white-space: nowrap; }
 .case-library-card-copy > span { display: -webkit-box; overflow: hidden; color: rgba(247,247,251,.64); font-size: .75rem; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .case-library-card-copy small { margin-top: auto; color: rgba(163,163,173,.65); font-size: .68rem; }
+.case-library-unlock { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; margin-top: auto; padding: 6px 9px; border: 1px solid rgba(255,79,163,.5); border-radius: 7px; color: #fff; background: rgba(255,79,163,.16); font-size: .72rem; font-weight: 800; cursor: pointer; }
+.case-library-unlock:hover { border-color: rgba(255,79,163,.8); background: rgba(255,79,163,.28); }
 .case-library-media-empty { display: grid; width: 100%; height: 100%; min-height: 120px; place-items: center; color: var(--muted); background: #101013; font-size: .8rem; }
 .case-library-empty { grid-column: 1 / -1; padding: 52px 20px; border: 1px dashed rgba(255,255,255,.17); border-radius: 10px; color: var(--muted); text-align: center; }
 .case-library-locked { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 20px; border: 1px solid rgba(255,79,163,.34); border-radius: 12px; background: linear-gradient(120deg, rgba(255,79,163,.14), rgba(255,255,255,.035)); }

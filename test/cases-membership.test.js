@@ -14,7 +14,7 @@ function showcaseCasesViewFromServer() {
   return new Function("const SHOWCASE_CASES_PREVIEW_LIMIT = 2;\n" + `${server.slice(start, end + 2)}\nreturn showcaseCasesView;`)();
 }
 
-test("case API returns only two preview items per category until membership is active", () => {
+test("case API returns every case while withholding locked case content", () => {
   const server = read("server.js");
   const frontend = read("platform.cases.js");
   const cases = JSON.parse(read("assets/showcase/spicy/cases.json"));
@@ -22,8 +22,10 @@ test("case API returns only two preview items per category until membership is a
   const locked = view(cases, false);
   const unlocked = view(cases, true);
 
-  assert.equal(locked.items.length, 8);
+  assert.equal(locked.items.length, 146);
   assert.equal(unlocked.items.length, 146);
+  assert.equal(locked.previewCount, 8);
+  assert.equal(locked.lockedCount, 138);
   assert.deepEqual(locked.totals.byCategory, {
     image_gen: 69,
     i2v: 44,
@@ -31,8 +33,25 @@ test("case API returns only two preview items per category until membership is a
     image_edit: 30,
   });
   for (const category of Object.keys(locked.totals.byCategory)) {
-    assert.equal(locked.items.filter((item) => item.category === category).length, 2);
+    const items = locked.items.filter((item) => item.category === category);
+    assert.equal(items.length, locked.totals.byCategory[category]);
+    assert.equal(items.filter((item) => item.locked === false).length, 2);
   }
+  const lockedItem = locked.items.find((item) => item.locked);
+  assert.ok(lockedItem);
+  assert.deepEqual(Object.keys(lockedItem).sort(), [
+    "category",
+    "category_label",
+    "created_at_str",
+    "id",
+    "locked",
+    "model_key",
+    "model_label",
+  ]);
+  assert.equal(lockedItem.prompt, undefined);
+  assert.equal(lockedItem.outputs, undefined);
+  assert.equal(lockedItem.inputs, undefined);
+  assert.equal(lockedItem.params, undefined);
   assert.match(server, /url\.pathname === "\/api\/cases"/);
   assert.match(server, /userHasCreatorMembership\(auth\.user\)/);
   assert.match(server, /items:\s*view\.items/);
@@ -42,6 +61,8 @@ test("case API returns only two preview items per category until membership is a
   assert.doesNotMatch(frontend, /fetch\("\/assets\/showcase\/spicy\/cases\.json"/);
   assert.match(frontend, /requestJson\("\/api\/cases"\)/);
   assert.match(frontend, /data-case-unlock/);
+  assert.match(frontend, /item\.locked/);
+  assert.match(frontend, /case-library-card is-locked/);
   assert.match(frontend, /billingPlanId:\s*"plan-main-creator"/);
   const payloadStart = server.indexOf("function creatorMembershipPayload(");
   const membershipEnd = server.indexOf("\n}\n\nconst SHOWCASE_CASES_FILE", payloadStart);

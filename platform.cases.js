@@ -43,7 +43,7 @@ function caseLibraryMatches(item = {}) {
   const needle = caseLibraryQuery.trim().toLowerCase();
   if (!needle) return true;
   return [
-    caseLibraryText(item, "prompt"),
+    item.locked ? "" : caseLibraryText(item, "prompt"),
     item.prompt,
     item.model_label,
     item.model_key,
@@ -87,7 +87,7 @@ function renderCaseLibraryCards(reset = false) {
   const totalCount = Number(caseLibraryPayload?.totals?.all || caseLibraryItems.length);
   if (count) count.textContent = unlocked
     ? t("case.count", { count: items.length })
-    : t("case.previewCount", { count: items.length, total: totalCount });
+    : t("case.count", { count: totalCount });
   if (status) {
     status.textContent = caseLibraryQuery.trim()
       ? `“${caseLibraryQuery.trim()}”`
@@ -97,6 +97,19 @@ function renderCaseLibraryCards(reset = false) {
     grid.innerHTML = `<div class="case-library-empty">${escapeHtml(t("case.empty"))}</div>`;
   } else {
     grid.innerHTML = visible.map((item) => {
+      if (item.locked) {
+        return `<article class="case-library-card is-locked" aria-label="${escapeHtml(t("case.lockedTitle"))}">
+          <span class="case-library-thumb case-library-thumb-locked">
+            <span class="case-library-locked-media"><i data-lucide="lock"></i><strong>${escapeHtml(t("case.lockedTitle"))}</strong><small>${escapeHtml(t("case.lockedBody"))}</small></span>
+            <span class="case-library-kind">${escapeHtml(caseLibraryCategoryLabel(item.category))}</span>
+          </span>
+          <span class="case-library-card-copy">
+            <strong>${escapeHtml(caseLibraryModelLabel(item) || t("case.lockedTitle"))}</strong>
+            <span>${escapeHtml(t("case.lockedPrompt"))}</span>
+            <button class="case-library-unlock" type="button" data-case-unlock>${escapeHtml(state.user ? t("case.unlockCta") : t("case.unlockLogin"))}</button>
+          </span>
+        </article>`;
+      }
       const output = caseLibraryOutput(item);
       const poster = output?.poster || (output?.kind === "image" ? output?.url : "") || "";
       const isVideo = String(output?.kind || "") === "video";
@@ -140,7 +153,7 @@ function caseLibraryParamFacts(item = {}) {
 
 function openCaseLibraryItem(item = null) {
   const dialog = document.getElementById("caseDetailDialog");
-  if (!dialog || !item) return;
+  if (!dialog || !item || item.locked) return;
   caseLibraryActiveItem = item;
   const output = caseLibraryOutput(item);
   const inputs = Array.isArray(item.inputs) ? item.inputs : [];

@@ -2479,15 +2479,38 @@ function showcaseCasesView(items = [], unlocked = false) {
     if (!category) return;
     byCategory[category] = (byCategory[category] || 0) + 1;
   });
-  if (unlocked) return { items, totals: { all: items.length, byCategory } };
+  const totals = { all: items.length, byCategory };
+  if (unlocked) {
+    return {
+      items: items.map((item) => ({ ...item, locked: false })),
+      totals,
+      previewCount: items.length,
+      lockedCount: 0,
+    };
+  }
   const categoryCounts = {};
-  const preview = items.filter((item) => {
+  let previewCount = 0;
+  let lockedCount = 0;
+  const visibleItems = items.map((item) => {
     const category = String(item?.category || "").trim();
-    if (!category) return false;
+    if (!category) return null;
     categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-    return categoryCounts[category] <= SHOWCASE_CASES_PREVIEW_LIMIT;
-  });
-  return { items: preview, totals: { all: items.length, byCategory } };
+    if (categoryCounts[category] <= SHOWCASE_CASES_PREVIEW_LIMIT) {
+      previewCount += 1;
+      return { ...item, locked: false };
+    }
+    lockedCount += 1;
+    return {
+      id: item.id,
+      created_at_str: item.created_at_str,
+      model_key: item.model_key,
+      model_label: item.model_label,
+      category: item.category,
+      category_label: item.category_label,
+      locked: true,
+    };
+  }).filter(Boolean);
+  return { items: visibleItems, totals, previewCount, lockedCount };
 }
 
 function userHasApiDocsAccess(user = {}) {
@@ -46937,6 +46960,8 @@ async function handleRequest(req, res) {
         membershipRequired: !unlocked,
         previewLimitPerCategory: SHOWCASE_CASES_PREVIEW_LIMIT,
         totals: view.totals,
+        previewCount: view.previewCount,
+        lockedCount: view.lockedCount,
         items: view.items,
         membership: publicCreatorMembership(user),
       });
