@@ -605,3 +605,9 @@
 .companion-guide-features b{margin-top:9px;color:rgba(255,255,255,.8);font-size:11.5px;font-weight:400;white-space:nowrap}
 .companion-guide-start{height:48px;margin-top:24px;border:0;border-radius:6px;background:linear-gradient(90deg,#ff2d6f,#ff5c8a);color:#fff;font-size:15px;font-weight:700;letter-spacing:.04em;box-shadow:0 10px 24px rgba(255,45,111,.4)}
 @media(max-width:360px){.chat-video span{display:none}.relationship-entry b em{display:none}.companion-guide{padding-left:12px;padding-right:12px}}
+/* Keep every recommendation card on the same visual frame regardless of copy length. */
+.person-card{height:392px;display:flex;flex-direction:column}
+.person-profile-button{display:flex;flex:1;min-height:0;width:100%;flex-direction:column;padding:0;border:0;background:none;color:inherit;text-align:left}
+.person-image{display:block;width:100%;height:330px;flex:0 0 330px}
+.person-intro{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.person-actions{flex:none}

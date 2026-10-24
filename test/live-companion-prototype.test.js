@@ -43,11 +43,17 @@ test("live companion guide persists seen and complete state while keeping local 
   assert.match(live, /vipeakVideoCompanionGuideSeen/);
 });
 
+test("live recommendation cards keep one fixed frame", () => {
+  assert.match(css, /\.person-card\{height:392px;display:flex;flex-direction:column\}/);
+  assert.match(css, /\.person-image\{display:block;width:100%;height:330px;flex:0 0 330px\}/);
+  assert.match(css, /\.person-intro\{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2/);
+});
+
 test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=202610242300/);
-  assert.match(html, /live\.js\?v=202610242300/);
+  assert.match(html, /live\.css\?v=202610242350/);
+  assert.match(html, /live\.js\?v=202610242350/);
   assert.match(html, /chat-live\.js\?v=202610242320/);
 });
