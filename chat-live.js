@@ -2308,10 +2308,15 @@
     } catch (error) {
       const message = error.message || "创建会话失败。";
       const membership = error.code === "CHAT_LIVE_MEMBERSHIP_REQUIRED";
-      const noCredits = !membership && (error.status === 402 || String(error.code || "").includes("CREDIT"));
+      const upstreamBalance = error.code === "CHAT_LIVE_UPSTREAM_BALANCE_UNAVAILABLE";
+      const noCredits = !membership && !upstreamBalance && (
+        error.status === 402
+        || error.code === "INSUFFICIENT_CREDITS"
+        || error.code === "CHAT_LIVE_INSUFFICIENT_CREDITS"
+      );
       if (openOptions.handover === true) {
         state.lookSwitching = false;
-        appendLine("sys", membership ? "私密画面需要先开通会员，当前通话还在。" : (noCredits ? "积分不够，当前通话还在。" : (message + " 当前通话还在。")));
+        appendLine("sys", membership ? "私密画面需要先开通会员，当前通话还在。" : (noCredits ? "积分不够，当前通话还在。" : (upstreamBalance ? "视频服务额度暂时不足，当前通话还在，请联系客服处理。" : (message + " 当前通话还在。"))));
         if (membership) showMembershipGuide();
         if (noCredits) showCreditGuide();
         return;
@@ -2319,9 +2324,9 @@
       setStageStatus(
         membership ? "需要会员" : (noCredits ? "积分不足" : "创建失败"),
         "error",
-        membership ? "私密画面需要先开通会员。" : (noCredits ? "余额不够开始本次视频通话，请先充值后再拨打。" : "视频服务暂时没有接通，请稍后重试或联系客服。"),
+        membership ? "私密画面需要先开通会员。" : (noCredits ? "余额不够开始本次视频通话，请先充值后再拨打。" : (upstreamBalance ? "视频服务额度暂时不足，请联系客服处理。" : "视频服务暂时没有接通，请稍后重试或联系客服。")),
       );
-      appendLine("sys", membership ? "私密画面需要先开通会员。" : (noCredits ? "积分不够，请先充值后再拨打。" : "视频服务暂时没有接通，请稍后重试。"));
+      appendLine("sys", membership ? "私密画面需要先开通会员。" : (noCredits ? "积分不够，请先充值后再拨打。" : (upstreamBalance ? "视频服务额度暂时不足，请联系客服处理。" : "视频服务暂时没有接通，请稍后重试。")));
       if (membership) showMembershipGuide();
       overlay.sendBtn.disabled = true;
       if (noCredits) showCreditGuide();

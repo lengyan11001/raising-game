@@ -6212,7 +6212,18 @@ async function viduLiveRequestRetry(pathname, options = {}, meta = {}) {
   throw last;
 }
 
+function chatLiveUpstreamBalanceUnavailable(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  const message = String(error?.message || "").trim().toLowerCase();
+  return ["insufficient_credits", "insufficient_credit", "insufficient_balance", "balance_not_enough", "not_enough_credits"].includes(code)
+    || /(?:insufficient|not enough)\s+(?:credits?|balance)/.test(message)
+    || /余额不足|额度不足|账户余额/.test(String(error?.message || ""));
+}
+
 function publicChatLiveUpstreamMessage(error) {
+  if (chatLiveUpstreamBalanceUnavailable(error)) {
+    return "视频服务额度暂时不足，请联系客服处理。";
+  }
   const raw = sanitizeChatLiveDiagnosticText(error?.message || "", 160);
   if (!raw) return "创建在线聊天失败。";
   if (/[\u4e00-\u9fff]/.test(raw)) return raw;
@@ -6223,11 +6234,12 @@ function publicChatLiveUpstreamMessage(error) {
 }
 
 function sendChatLiveCreateError(res, error) {
+  const upstreamBalanceUnavailable = chatLiveUpstreamBalanceUnavailable(error);
   const status = Number(error?.statusCode || 502);
-  const safeStatus = status === 502 || status === 504 ? 424 : status;
+  const safeStatus = upstreamBalanceUnavailable ? 424 : (status === 502 || status === 504 ? 424 : status);
   return sendJson(res, safeStatus, {
     ok: false,
-    code: error?.code || "CHAT_LIVE_CREATE_FAILED",
+    code: upstreamBalanceUnavailable ? "CHAT_LIVE_UPSTREAM_BALANCE_UNAVAILABLE" : (error?.code || "CHAT_LIVE_CREATE_FAILED"),
     message: publicChatLiveUpstreamMessage(error),
   });
 }

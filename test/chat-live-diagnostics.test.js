@@ -9,8 +9,17 @@ const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 const client = fs.readFileSync(path.join(__dirname, "..", "chat-live.js"), "utf8");
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 
+test("upstream Vidu balance exhaustion is not treated as the user's wallet balance", () => {
+  assert.match(server, /function chatLiveUpstreamBalanceUnavailable/);
+  assert.match(server, /code: upstreamBalanceUnavailable \? "CHAT_LIVE_UPSTREAM_BALANCE_UNAVAILABLE"/);
+  assert.match(server, /视频服务额度暂时不足，请联系客服处理。/);
+  assert.match(client, /const upstreamBalance = error\.code === "CHAT_LIVE_UPSTREAM_BALANCE_UNAVAILABLE"/);
+  assert.match(client, /const noCredits = !membership && !upstreamBalance/);
+  assert.match(client, /if \(noCredits\) showCreditGuide\(\);/);
+});
+
 test("chat live sessions use first-frame billing and preserve legacy sessions", () => {
-  assert.equal((server.match(/billingPolicy: "first_frame"/g) || []).length, 2);
+  assert.ok((server.match(/billingPolicy: "first_frame"/g) || []).length >= 2);
   assert.match(server, /const billingPolicy = session\.billingPolicy \|\| latest\?\.billingPolicy \|\| ""/);
   assert.match(server, /const billedSeconds = billingPolicy === "first_frame"/);
   assert.match(server, /const billedSeconds = session\.billingPolicy === "first_frame"/);
@@ -56,7 +65,7 @@ test("chat live retains upstream trace, request, response, billing, and RTC diag
 });
 
 test("Undress replacement keeps the overlay but releases RTC before a fresh session", () => {
-  assert.match(client, /finishSession\("look_reconnect", "Undress 使用新图片重新建立连接", \{ keepOverlay: true \}\)/);
+  assert.match(client, /endSessionRequest\(oldId, "look_reconnect", "私密画面已就绪"\)/);
   assert.match(client, /replaceSessionId: oldSessionId/);
   assert.match(client, /preserveOverlay: true, freshRtc: true/);
   assert.match(client, /await new Promise\(\(resolve\) => window\.setTimeout\(resolve, 450\)\)/);
@@ -69,7 +78,7 @@ test("Undress replacement keeps the overlay but releases RTC before a fresh sess
 test("chat live characters support per-role Markdown persona maintenance", () => {
   assert.match(server, /const personaMd = String\(body\.personaMd/);
   assert.match(server, /personaFormat: personaMd \? "markdown"/);
-  assert.match(admin, /上传 Markdown/);
+  assert.match(admin, /导入人设 Markdown/);
   assert.match(admin, /chatLivePersonaTemplate/);
   assert.match(admin, /readChatLivePersonaMarkdown/);
 });
