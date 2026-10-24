@@ -2060,7 +2060,7 @@
     document.querySelector(".chat-live-confirm")?.remove();
     const target = page === "vip" ? "vip" : "recharge";
     try {
-      if (!state.ended) await finishSession(target === "vip" ? "leave_for_vip" : "insufficient_credits", target === "vip" ? "前往开通会员" : "前往充值");
+      if (!state.ended && state.session?.id) await finishSession(target === "vip" ? "leave_for_vip" : "insufficient_credits", target === "vip" ? "前往开通会员" : "前往充值");
     } catch {}
     closeOverlay();
     window.dispatchEvent(new CustomEvent("vipeak-live-leave", { detail: { page: target } }));
@@ -2316,8 +2316,12 @@
         if (noCredits) showCreditGuide();
         return;
       }
-      setStageStatus(membership ? "需要会员" : (noCredits ? "积分不足" : "创建失败"), "error", membership ? "私密画面需要先开通会员。" : message);
-      appendLine("sys", membership ? "私密画面需要先开通会员。" : (noCredits ? "积分不够，请先充值后再拨打。" : message + " 可以点关闭离开。"));
+      setStageStatus(
+        membership ? "需要会员" : (noCredits ? "积分不足" : "创建失败"),
+        "error",
+        membership ? "私密画面需要先开通会员。" : (noCredits ? "余额不够开始本次视频通话，请先充值后再拨打。" : "视频服务暂时没有接通，请稍后重试或联系客服。"),
+      );
+      appendLine("sys", membership ? "私密画面需要先开通会员。" : (noCredits ? "积分不够，请先充值后再拨打。" : "视频服务暂时没有接通，请稍后重试。"));
       if (membership) showMembershipGuide();
       overlay.sendBtn.disabled = true;
       if (noCredits) showCreditGuide();
