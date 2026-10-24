@@ -43,6 +43,10 @@ test("live companion guide persists seen and complete state while keeping local 
   assert.match(live, /vipeakVideoCompanionGuideSeen/);
 });
 
+test("the welcome guide CTA enters the first recommended character", () => {
+  assert.match(live, /if \(a === "guide-start"\) \{[\s\S]*?const firstCharacter = state\.chars\[0\][\s\S]*?state\.role = firstCharacter; state\.page = "role-detail";[\s\S]*?render\(\);/);
+});
+
 test("live recommendation cards keep one fixed frame", () => {
   assert.match(css, /\.person-card\{height:392px;display:flex;flex-direction:column\}/);
   assert.match(css, /\.person-image\{display:block;width:100%;height:330px;flex:0 0 330px\}/);
@@ -54,6 +58,6 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=202610242350/);
-  assert.match(html, /live\.js\?v=202610242350/);
+  assert.match(html, /live\.js\?v=202610242430/);
   assert.match(html, /chat-live\.js\?v=202610242400/);
 });

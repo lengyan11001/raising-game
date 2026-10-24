@@ -1586,7 +1586,14 @@ document.addEventListener("click", async (e) => {
     if (a === "toggle-relationship-stages") { state.relationshipStagesOpen = state.relationshipStagesOpen === false; render(); return; }
     if (a === "back-level") { state.page = "profile"; render(); return; }
     if (a === "guide-close") { closeCompanionGuide(false); return; }
-    if (a === "guide-start") { closeCompanionGuide(true); state.page = "home"; render(); return; }
+    if (a === "guide-start") {
+      closeCompanionGuide(true);
+      const firstCharacter = state.chars[0] || null;
+      if (firstCharacter) { state.role = firstCharacter; state.page = "role-detail"; }
+      else { state.page = "home"; }
+      render();
+      return;
+    }
     if (a === "relationship") { state.relationshipReturn = state.page === "role-detail" ? "role-detail" : "text-chat"; openRelationship(e.target.closest("[data-character-id]")?.dataset.characterId || ""); return; }
     if (a === "level") { showLevel(); return; }
     if (a === "vip") { state.pageReturn = state.page === "role-detail" ? "role-detail" : "profile"; state.page = "vip"; ensureBilling().finally(() => { if (state.page === "vip") render(); }); return; }
