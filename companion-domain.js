@@ -31,27 +31,44 @@ function localDayKey(value = Date.now()) {
   return `${year}-${month}-${day}`;
 }
 
+function relationshipActivityDays(relationship = null) {
+  const source = relationship?.activityDays && typeof relationship.activityDays === "object" ? relationship.activityDays : {};
+  return Object.fromEntries(Object.entries(source)
+    .filter(([day, value]) => /^\d{4}-\d{2}-\d{2}$/.test(day) && Number(value) > 0)
+    .slice(-400)
+    .map(([day, value]) => [day, Math.max(1, Math.round(Number(value)))]));
+}
+
 function publicCharacterRelationship(relationship = null, characterId = "") {
-  const effectiveDays = Math.max(0, Math.round(Number(relationship?.effectiveDays || 0)));
+  const activityDays = relationshipActivityDays(relationship);
+  const effectiveDays = Math.max(0, Math.round(Number(relationship?.effectiveDays || Object.keys(activityDays).length || 0)));
   const stage = intimacyStageForDays(effectiveDays);
+  const nextStage = INTIMACY_STAGES.find((item) => item.threshold > effectiveDays) || null;
   return {
     characterId: String(characterId || relationship?.characterId || ""),
     stage: stage.id,
     stageDescription: stage.description,
     effectiveDays,
+    nextStage: nextStage?.id || "",
+    nextStageThreshold: nextStage?.threshold ?? null,
+    remainingDays: nextStage ? Math.max(0, nextStage.threshold - effectiveDays) : 0,
     lastEffectiveDay: String(relationship?.lastEffectiveDay || ""),
     firstChatAt: String(relationship?.firstChatAt || ""),
     lastChatAt: String(relationship?.lastChatAt || ""),
+    activityDays,
     stages: INTIMACY_STAGES.map((item) => ({ ...item })),
   };
 }
 
-function nextCharacterRelationship(relationship = null, characterId = "", now = new Date()) {
+function nextCharacterRelationship(relationship = null, characterId = "", now = new Date(), source = "text") {
   const effectiveDays = Math.max(0, Number(relationship?.effectiveDays || 0));
   const today = localDayKey(now);
   const nowIso = now.toISOString();
   const lastDay = String(relationship?.lastEffectiveDay || "");
+  const activityDays = relationshipActivityDays(relationship);
   const nextDays = lastDay === today ? effectiveDays : effectiveDays + 1;
+  activityDays[today] = Math.max(Number(activityDays[today] || 0), 1);
+  const activitySources = { ...(relationship?.activitySources || {}), [today]: String(source || "text").slice(0, 20) };
   return {
     ...(relationship || {}),
     characterId: String(characterId || relationship?.characterId || ""),
@@ -59,6 +76,8 @@ function nextCharacterRelationship(relationship = null, characterId = "", now = 
     lastEffectiveDay: today,
     firstChatAt: String(relationship?.firstChatAt || nowIso),
     lastChatAt: nowIso,
+    activityDays,
+    activitySources,
     updatedAt: nowIso,
   };
 }
@@ -106,4 +125,5 @@ module.exports = {
   localDayKey,
   nextCharacterRelationship,
   publicCharacterRelationship,
+  relationshipActivityDays,
 };

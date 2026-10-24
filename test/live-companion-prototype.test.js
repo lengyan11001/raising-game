@@ -26,6 +26,16 @@ test("live relationship and companion level pages use the persisted API", () => 
   assert.match(live, /id="companionGuideTitle"/);
 });
 
+
+test("live relationship entries match the prototype placement and interaction", () => {
+  assert.match(live, /class="relationship-entry"/);
+  assert.match(live, /class="chat-relationship-strip"/);
+  assert.match(live, /pendingRelationship/);
+  assert.match(live, /function openCall\([\s\S]*?if \(!token\(\)\) return askLogin\(\{ characterId: c\.id, roomId \}\)/);
+  assert.match(live, /role-detail-page[\s\S]*?relationship-entry[\s\S]*?role-intro-card/);
+  assert.doesNotMatch(live, /class="role-relationship"/);
+});
+
 test("live companion guide persists seen and complete state while keeping local suppression", () => {
   assert.match(live, /api\(`\/api\/onboarding\?guide=\$\{GUIDE_KEY\}`\)/);
   assert.match(live, /api\(`\/api\/onboarding\/\$\{GUIDE_KEY\}\/\$\{action\}`/);
@@ -37,6 +47,6 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=202610242130/);
-  assert.match(html, /live\.js\?v=202610242130/);
+  assert.match(html, /live\.css\?v=202610242300/);
+  assert.match(html, /live\.js\?v=202610242300/);
 });

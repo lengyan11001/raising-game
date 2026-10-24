@@ -8423,9 +8423,19 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
       issues,
       updatedAt: new Date().toISOString(),
     });
+    if (updated?.billableStartedAt && Number(updated.billedSeconds || 0) > 0) {
+      await recordEffectiveInteractionDay(auth.user.id, updated.characterId, "video").catch((error) => {
+        console.warn("[companion-video-day-failed]", String(error?.message || error).slice(0, 180));
+      });
+    }
     return sendJson(res, 200, { ok: true, session: publicChatLiveSession(updated) });
   }
   const settled = await settleChatLiveSession(session, { auth });
+  if (settled?.billableStartedAt && Number(settled.billedSeconds || 0) > 0) {
+    await recordEffectiveInteractionDay(auth.user.id, settled.characterId, "video").catch((error) => {
+      console.warn("[companion-video-day-failed]", String(error?.message || error).slice(0, 180));
+    });
+  }
   return sendJson(res, 200, { ok: true, session: publicChatLiveSession(settled) });
 }
 
@@ -17414,12 +17424,12 @@ async function chatCharacterById(characterId = "") {
   };
 }
 
-async function recordEffectiveInteractionDay(userId = "", characterId = "") {
+async function recordEffectiveInteractionDay(userId = "", characterId = "", source = "text") {
   const cleanUserId = String(userId || "").trim();
   const cleanCharacterId = String(characterId || "").trim();
   if (!cleanUserId || !cleanCharacterId) return publicCharacterRelationship(null, cleanCharacterId);
   const current = await getCharacterRelationshipInDb(cleanUserId, cleanCharacterId);
-  const next = nextCharacterRelationship(current, cleanCharacterId);
+  const next = nextCharacterRelationship(current, cleanCharacterId, new Date(), source);
   next.userId = cleanUserId;
   next.stage = intimacyStageForDays(next.effectiveDays).id;
   await upsertCharacterRelationshipInDb(next);

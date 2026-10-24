@@ -25,15 +25,19 @@ test("intimacy stages follow the prototype thresholds", () => {
 });
 
 test("effective interaction days increase once per day and never carry across characters", () => {
-  const first = nextCharacterRelationship(null, "character-a", new Date("2026-10-23T08:00:00+07:00"));
+  const first = nextCharacterRelationship(null, "character-a", new Date("2026-10-23T08:00:00+07:00"), "text");
   assert.equal(first.effectiveDays, 1);
   assert.equal(first.lastEffectiveDay, "2026-10-23");
-  const sameDay = nextCharacterRelationship(first, "character-a", new Date("2026-10-23T20:00:00+07:00"));
+  assert.equal(first.activityDays["2026-10-23"], 1);
+  assert.equal(first.activitySources["2026-10-23"], "text");
+  const sameDay = nextCharacterRelationship(first, "character-a", new Date("2026-10-23T20:00:00+07:00"), "video");
   assert.equal(sameDay.effectiveDays, 1);
+  assert.equal(sameDay.activitySources["2026-10-23"], "video");
   const otherCharacter = nextCharacterRelationship(null, "character-b", new Date("2026-10-23T20:00:00+07:00"));
   assert.equal(otherCharacter.effectiveDays, 1);
-  const nextDay = nextCharacterRelationship(sameDay, "character-a", new Date("2026-10-24T09:00:00+07:00"));
+  const nextDay = nextCharacterRelationship(sameDay, "character-a", new Date("2026-10-24T09:00:00+07:00"), "video");
   assert.equal(nextDay.effectiveDays, 2);
+  assert.equal(nextDay.activityDays["2026-10-24"], 1);
 });
 
 test("public relationship always returns the six stages and current copy", () => {
@@ -41,6 +45,8 @@ test("public relationship always returns the six stages and current copy", () =>
   assert.equal(relationship.stage, "默契");
   assert.equal(relationship.stageDescription, "会主动提起你以前说过的事");
   assert.equal(relationship.stages.length, 6);
+  assert.equal(relationship.nextStage, "依恋");
+  assert.equal(relationship.remainingDays, 15);
 });
 
 test("companion level counts only paid USD topups and subtracts refunds", () => {
