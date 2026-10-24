@@ -141,7 +141,5 @@ test("Google login stays inside the mobile login dialog", () => {
   assert.doesNotMatch(google, /googleId\.prompt\(/);
   assert.match(create, /els\.loginDialog\.showModal\(\);[\s\S]*?renderGoogleLoginButton\(\)/);
   assert.match(css, /\.google-login-mount \{[\s\S]*?width: 100%;/);
-  assert.match(google, /const GOOGLE_LOGIN_VISIBLE = false;/);
-  assert.match(google, /function renderGoogleLoginButton[\s\S]*?if \(!GOOGLE_LOGIN_VISIBLE\)[\s\S]*?hidden = true;[\s\S]*?return false;/);
-  assert.match(google, /function configureGoogleLogin[\s\S]*?if \(!GOOGLE_LOGIN_VISIBLE\)[\s\S]*?hidden = true;[\s\S]*?return;/);
+  assert.match(google, /const GOOGLE_LOGIN_VISIBLE = true;/);
 });

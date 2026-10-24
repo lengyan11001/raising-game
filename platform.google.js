@@ -1,6 +1,6 @@
 "use strict";
 
-const GOOGLE_LOGIN_VISIBLE = false;
+const GOOGLE_LOGIN_VISIBLE = true;
 
 let googleLoginSdkPromise = null;
 let googleLoginConfigured = false;

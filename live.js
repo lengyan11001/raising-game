@@ -104,7 +104,7 @@
     if (note) note.textContent = t("loginNote");
     if (google) google.textContent = t("google");
   }
-  const GOOGLE_LOGIN_VISIBLE = false;
+  const GOOGLE_LOGIN_VISIBLE = true;
 
   function ensureGoogleSdk() {
     if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
