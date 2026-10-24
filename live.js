@@ -134,7 +134,7 @@
   function openGooglePopup(clientId) {
     const nonce = (crypto.randomUUID?.() || String(Date.now()));
     sessionStorage.setItem("vipeakGoogleNonce", nonce);
-    const redirect = location.origin + "/";
+    const redirect = location.origin;
     const url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + encodeURIComponent(clientId)
       + "&redirect_uri=" + encodeURIComponent(redirect)
       + "&response_type=id_token&scope=" + encodeURIComponent("openid email profile")

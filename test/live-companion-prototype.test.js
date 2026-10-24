@@ -55,6 +55,8 @@ test("live recommendation cards keep one fixed frame", () => {
 
 test("live Google login is force-hidden while keeping account login available", () => {
   assert.match(live, /const GOOGLE_LOGIN_VISIBLE = false;/);
+  assert.match(live, /const redirect = location\.origin;/);
+  assert.doesNotMatch(live, /const redirect = location\.origin \+ "\/"/);
   assert.match(live, /if \(!GOOGLE_LOGIN_VISIBLE\) \{[\s\S]*?button\.hidden = true;[\s\S]*?button\.disabled = true;[\s\S]*?return;/);
   assert.match(live, /if \(!GOOGLE_LOGIN_VISIBLE\) return;[\s\S]*?const hash = String\(location\.hash/);
   assert.match(html, /data-google-login hidden/);
@@ -67,6 +69,6 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=202610242350/);
-  assert.match(html, /live\.js\?v=202610242500/);
+  assert.match(html, /live\.js\?v=202610242530/);
   assert.match(html, /chat-live\.js\?v=202610242400/);
 });
