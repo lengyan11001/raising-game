@@ -104,6 +104,8 @@
     if (note) note.textContent = t("loginNote");
     if (google) google.textContent = t("google");
   }
+  const GOOGLE_LOGIN_VISIBLE = false;
+
   function ensureGoogleSdk() {
     if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
     if (ensureGoogleSdk.promise) return ensureGoogleSdk.promise;
@@ -158,7 +160,13 @@
   }
   async function setupGoogleLogin() {
     const button = loginDialog?.querySelector("[data-google-login]");
-    if (!button || button.dataset.loading === "1") return;
+    if (!button) return;
+    if (!GOOGLE_LOGIN_VISIBLE) {
+      button.hidden = true;
+      button.disabled = true;
+      return;
+    }
+    if (button.dataset.loading === "1") return;
     button.dataset.loading = "1";
     let google = null;
     try { google = await googleClient(); } catch { google = null; }
@@ -1283,6 +1291,7 @@
   }
 
   (function consumeGoogleRedirect() {
+    if (!GOOGLE_LOGIN_VISIBLE) return;
     const hash = String(location.hash || "");
     if (!hash.includes("id_token=")) return;
     const token = new URLSearchParams(hash.slice(1)).get("id_token");

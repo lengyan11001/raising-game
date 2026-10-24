@@ -1,5 +1,7 @@
 "use strict";
 
+const GOOGLE_LOGIN_VISIBLE = false;
+
 let googleLoginSdkPromise = null;
 let googleLoginConfigured = false;
 let googleLoginRenderedWidth = 0;
@@ -47,6 +49,10 @@ function setGoogleLoginBusy(busy) {
 }
 
 function renderGoogleLoginButton(googleId = window.google?.accounts?.id) {
+  if (!GOOGLE_LOGIN_VISIBLE) {
+    if (els.googleLoginBtn) els.googleLoginBtn.hidden = true;
+    return false;
+  }
   if (!googleLoginConfigured || !els.googleLoginBtn || !googleId?.renderButton) return false;
   const container = els.googleLoginBtn;
   // GSI One Tap renders into the normal document layer, where a native
@@ -71,6 +77,11 @@ function renderGoogleLoginButton(googleId = window.google?.accounts?.id) {
 }
 
 function configureGoogleLogin() {
+  if (!GOOGLE_LOGIN_VISIBLE) {
+    googleLoginConfigured = false;
+    if (els.googleLoginBtn) els.googleLoginBtn.hidden = true;
+    return;
+  }
   const clientId = String(state.config?.auth?.google?.clientId || "").trim();
   googleLoginConfigured = Boolean(state.config?.auth?.google?.enabled && clientId);
   if (els.googleLoginBtn) els.googleLoginBtn.hidden = !googleLoginConfigured;
