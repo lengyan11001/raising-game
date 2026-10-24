@@ -6,7 +6,7 @@ const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["home", "gallery", "cases", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing", "profile", "profile-edit", "relationship", "level"]);
+const ALL_TABS = new Set(["home", "gallery", "cases", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -750,7 +750,7 @@ const state = {
   galleryMode: initialGalleryMode(),
   playfluxTemplateTab: "video",
   characterSource: "custom",
-  characterPanelTab: "list",
+  characterPanelTab: "create",
   characterFilters: { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" },
   characterFiltersExpanded: false,
   characterFilterSearchTimer: null,
@@ -788,22 +788,6 @@ const state = {
   chatSetting: "style",
   chatMode: "chat",
   chatTrackerVisible: true,
-  characterCardOpen: false,
-  characterCardDetailId: "",
-  characterCreateOpen: false,
-  companionLevel: null,
-  companionLevelLoading: false,
-  profileEditDraft: null,
-  profileEditSaving: false,
-  profileVoiceRecorder: null,
-  profileVoiceChunks: [],
-  profileVoiceRecordingStartedAt: 0,
-  profileVoiceRecordingTimer: 0,
-  relationshipPanelCharacterId: "",
-  relationshipPanelData: null,
-  relationshipReturnTab: "profile",
-  onboarding: null,
-  onboardingLoading: false,
   chatImagePolls: new Map(),
   advancedCases: [],
   activeAdvancedCaseId: "",
@@ -1116,7 +1100,6 @@ const els = {
   chatSearch: document.querySelector("#chatSearch"),
   chatConversationList: document.querySelector("#chatConversationList"),
   chatMainHead: document.querySelector("#chatMainHead"),
-  chatRelationshipPill: document.querySelector("#chatRelationshipPill"),
   chatEmpty: document.querySelector("#chatEmpty"),
   chatThread: document.querySelector("#chatThread"),
   chatSuggestion: document.querySelector("#chatSuggestion"),

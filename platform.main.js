@@ -3,7 +3,7 @@ async function startPlatform() {
   const allowed = await ensureAgeGate();
   if (!allowed) return;
   await bootstrap();
-  await initCompanionWelcomeGuide();
+  initChatOnboarding();
 }
 
 document.addEventListener("click", (event) => {

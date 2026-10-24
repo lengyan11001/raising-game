@@ -5697,7 +5697,6 @@ async function loadReferralSummary({ force = false } = {}) {
     state.referralLoading = false;
   }
   renderReferral();
-  if (typeof renderProfilePanel === "function") renderProfilePanel();
 }
 
 function renderSpendingTypeOptions(types = []) {
@@ -5995,7 +5994,6 @@ async function completeLogin(payload = {}) {
   setUser(payload.user);
   els.loginDialog?.close();
   await refreshAfterLogin();
-  await syncCompanionGuideStateAfterLogin();
 }
 
 async function submitLogin() {

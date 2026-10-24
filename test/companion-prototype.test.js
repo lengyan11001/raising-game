@@ -68,52 +68,6 @@ test("guide and relationship state are persisted in PostgreSQL", () => {
   assert.match(db, /async function upsertGuideStateInDb/);
 });
 
-test("prototype entry points and controls are wired without replacing the design", () => {
-  const html = read("platform.html");
-  const explore = read("platform.explore.js");
-  const chat = read("platform.chat.js");
-  const ui = read("platform.ui.js");
-  assert.match(html, /data-panel="characters"/);
-  assert.match(html, /我的角色卡/);
-  assert.match(html, /id="characterCreateOverlay"/);
-  assert.match(html, /id="chatRelationshipPill"/);
-  assert.match(html, /不只是聊天框/);
-  assert.match(html, /Ta 能和你视频见面/);
-  assert.match(html, /立即体验/);
-  assert.match(html, /data-panel="relationship"/);
-  assert.match(html, /data-panel="level"/);
-  assert.match(html, /data-panel="profile-edit"/);
-  assert.match(html, /头像与照片（最多 6 张，第一张为主图）/);
-  assert.match(html, /兴趣标签（已选/);
-  assert.match(html, /语音介绍（有助于提升匹配率）/);
-  assert.match(html, /显示距离/);
-  assert.match(html, /对陌生人展示我的动态/);
-  assert.match(html, /等级在哪里看/);
-  assert.match(explore, /callMe: String\(creator\.callMe \|\| ""\)/);
-  assert.match(explore, /companion-profile-route/);
-  assert.match(chat, /亲密度 · \$\{escapeHtml\(stage\)\}/);
-  assert.match(ui, /syncCompanionGuideStateAfterLogin/);
-  assert.match(ui, /loadRelationshipPanelData/);
-  assert.match(ui, /\/api\/account\/profile/);
-  assert.match(ui, /\/api\/account\/profile\/media/);
-  assert.match(ui, /profilePrivacy/);
-});
-
-test("profile view and media persistence use the PostgreSQL-backed account payload", () => {
-  const server = read("server.js");
-  const ui = read("platform.ui.js");
-  assert.match(server, /profileStats: publicProfileStats/);
-  assert.match(server, /following: 0,/);
-  assert.match(server, /followers: 0,/);
-  assert.match(server, /giftsReceived,/);
-  assert.match(server, /voiceIntroUrl: String\(user\.voiceIntroUrl \|\| ""\)/);
-  assert.match(server, /showActivity: user\.profilePrivacy\?\.showActivity === true/);
-  assert.match(server, /body\.profilePrivacy !== undefined/);
-  assert.match(server, /kind === "voice"/);
-  assert.match(ui, /voiceIntroUrl: String\(user\.voiceIntroUrl \|\| ""\)/);
-  assert.match(ui, /showActivity: user\.profilePrivacy\?\.showActivity === true/);
-});
-
 test("creator card fields survive the public character mapping", () => {
   const server = read("server.js");
   assert.match(server, /creator: creator && Object\.keys\(creator\)\.length \? creator : null/);
