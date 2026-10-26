@@ -30,6 +30,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /TURN FOCUS/);
   assert.match(server, /GREETING OVERRIDE/);
   assert.match(server, /LATEST USER MESSAGE/);
+  assert.match(server, /ACTION SUBJECT OWNERSHIP/);
+  assert.match(server, /我\/我的 refers to the user/);
+  assert.match(server, /你\/你的 refers to the character/);
+  assert.match(server, /想不想用嘴巴含住/);
+  assert.match(server, /绝不能改成“你用嘴巴含住我”/);
   assert.match(server, /isSimpleChatGreeting/);
   assert.match(server, /你好\|您好\|嗨\|哈喽\|哈啰/);
   assert.match(server, /啊\|呀\|哦\|喔/);
