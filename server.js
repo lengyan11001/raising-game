@@ -17690,6 +17690,23 @@ function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
   return false;
 }
 
+function chatSentenceLooksLikeNarration(value = "") {
+  const sentence = String(value || "").trim();
+  if (!sentence || /[“”"]/.test(sentence)) return false;
+  const bare = sentence.replace(/^[嗯啊哦噢好行可以，,。.!！\s]+/u, "").trim();
+  if (!/^我/u.test(bare)) return false;
+  if (/(?:感觉|觉得|想|想要|愿意|喜欢|讨厌|害怕|舒服|难受|爽|兴奋|紧张|羞|湿|烫|忍|控制不住|受不了|满足|开心|生气|委屈|心动|渴望|爱|需要)/u.test(bare)) return false;
+  return /(?:走到|走过去|过去|转身|把|伸手|低头|抬头|看着|看向|盯着|看|靠|坐着|坐下|跪|趴|抬起|张开|闭上|抚|摸|夹|裹|托|按|退|抽|沉|贴|凑|探|压|挺|动|收紧|撑开|用|让|强迫|固定|展示|撤|落|站|静止)/u.test(bare);
+}
+
+function chatSpokenOnlyText(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const sentences = text.match(/[^。！？.!?]+[。！？.!?]?/g) || [text];
+  const spoken = sentences.filter((sentence) => !chatSentenceLooksLikeNarration(sentence)).join("").trim();
+  return spoken || text;
+}
+
 function stripChatStageDirections(value = "") {
   let text = String(value || "")
     .replace(/\r/g, "")
@@ -17710,12 +17727,16 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   const text = String(value || "").replace(/\r/g, "").trim();
   if (!text) return "";
   const spoken = stripChatStageDirections(text);
-  if (expanded) return chatReplyHasWords(spoken) ? spoken : (chatReplyHasWords(text.replace(/^[)）\s]+/, "")) ? text.replace(/^[)）\s]+/, "").trim() : "");
+  if (expanded) {
+    const fallback = text.replace(/^[)）\s]+/, "").trim();
+    const expandedText = chatReplyHasWords(spoken) ? spoken : (chatReplyHasWords(fallback) ? fallback : "");
+    return expandedText.replace(/[ \t]*\n+[ \t]*/g, " ").trim();
+  }
   const compact = spoken.replace(/[ ]{2,}/g, " ").trim();
   const quoted = [...compact.matchAll(/[“"]([^”"]+)[”"]/g)].map((match) => match[1].trim()).filter(chatReplyHasWords);
   const candidate = quoted.length ? quoted.slice(0, 2).join(" ") : compact;
   const sentences = candidate.match(/[^。！？.!?]+[。！？.!?]?/g) || [candidate];
-  const short = sentences.slice(0, 10).join("").trim().slice(0, 720).trim();
+  const short = chatSpokenOnlyText(sentences.slice(0, 10).join("").trim()).slice(0, 720).trim();
   if (chatReplyHasWords(short)) return short;
   const inner = [...text.matchAll(/[（(]([^）)]{1,180})[）)]/g)].map((match) => match[1].trim()).find(chatReplyHasWords) || "";
   return chatReplyHasWords(inner) ? inner.slice(0, 180).trim() : "";
@@ -17749,6 +17770,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
       : "");
   return [
     `You are ${character.name || "the character"} chatting with the user by text message.`,
+    "OUTPUT CONTRACT (highest priority): Output only words the character actually says to the user. This is a phone chat, not a screenplay. Never write narration, stage directions, camera action, or a first-person action log. Never write sentences such as 我走到, 我转身, 我把, 我伸手, 我看着他, 我感觉到, or parenthesized actions. To agree to a movement, say it: 好，我过去。 To express a physical feeling, say it as speech: 我有点受不了。 Do not narrate the movement itself.",
     character.replyStyle ? `VOICE OVERRIDE (highest priority, overrides the character sheet speaking habits): ${String(character.replyStyle).slice(0, 4000)}` : "",
     `Character background (reference only): ${character.description || "Stay consistent with the established character."}`,
     character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
@@ -18049,7 +18071,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatMessages = [
       { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages) },
       ...modelMessages,
-      { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nDo not reproduce a previous user-assistant pair. Decide and answer based on this turn's meaning.` },
+      { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words the character says out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), and express physical feeling as speech (我有点受不了。). Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.78 : 0.82;
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 700;

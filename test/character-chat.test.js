@@ -52,6 +52,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /stripChatStageDirections/);
   assert.match(server, /quoted\.slice\(0, 2\)/);
   assert.match(server, /function normalizeChatReply/);
+  assert.match(server, /function chatSentenceLooksLikeNarration/);
+  assert.match(server, /function chatSpokenOnlyText/);
+  assert.match(server, /OUTPUT CONTRACT/);
+  assert.match(server, /FINAL SPEECH-ONLY FORMAT/);
   assert.match(server, /function chatReplyIsDegenerate/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
