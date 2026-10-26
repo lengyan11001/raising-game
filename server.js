@@ -18061,9 +18061,22 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     lines.unshift("唔…啊…", "哈…");
     repaired = lines.join("\n");
   }
-  if (chatReplyLiveBrokenSpeechCount(repaired) < 3 || !chatReplyHasLiveDirtyTalk(repaired)) {
-    const marker = chatReplyLiveDirtyTalkCount(repaired);
-    lines.push(...directLines.slice(marker, marker + 2));
+  if (chatReplyLiveBrokenSpeechCount(repaired) < 3) {
+    lines.push("唔…再深…", "啊…别停…");
+    repaired = lines.join("\n");
+  }
+  if (chatReplyLiveDirtyTalkCount(repaired) < 3) {
+    const chosen = [];
+    for (const line of directLines) {
+      const candidate = [...lines, ...chosen, line].join("\n");
+      if (chatReplyLiveDirtyTalkCount(candidate) > chatReplyLiveDirtyTalkCount([...lines, ...chosen].join("\n"))) chosen.push(line);
+      if (chosen.length >= 3) break;
+    }
+    lines.push(...chosen);
+    repaired = lines.join("\n");
+  }
+  if (!chatReplyHasPersonaContrast(repaired, character)) {
+    lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
     repaired = lines.join("\n");
   }
   return repaired;
