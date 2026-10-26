@@ -2383,8 +2383,13 @@ async function listChatMessagesInDb(conversationId = "", userId = "", limit = 20
   if (!dbEnabled()) return [];
   await ensureSchema();
   const { rows } = await query(`
-    SELECT payload FROM app_chat_messages WHERE conversation_id = $1 AND user_id = $2
-    ORDER BY created_at ASC LIMIT $3
+    SELECT payload FROM (
+      SELECT payload, created_at FROM app_chat_messages
+      WHERE conversation_id = $1 AND user_id = $2
+      ORDER BY created_at DESC
+      LIMIT $3
+    ) recent_messages
+    ORDER BY created_at ASC
   `, [String(conversationId || ""), String(userId || ""), Math.max(1, Math.min(500, Number(limit || 200) || 200))]);
   return rows.map((row) => row.payload || {});
 }

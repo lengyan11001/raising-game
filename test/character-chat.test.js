@@ -22,6 +22,7 @@ test("character chat persists user-scoped conversations and messages in PostgreS
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_chat_messages/);
   assert.match(db, /WHERE id = \$1 AND user_id = \$2/);
   assert.match(db, /conversation_id TEXT NOT NULL REFERENCES app_chat_conversations/);
+  assert.match(db, /ORDER BY created_at DESC\s+LIMIT \$3\s+\) recent_messages\s+ORDER BY created_at ASC/);
 });
 
 test("character chat uses the BytePlus language endpoint with roleplay context and billing", () => {
