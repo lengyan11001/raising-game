@@ -17623,16 +17623,16 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
   if (!chatIsImmediateIntimateScene(value, contextMessages)) return "";
   const liveGuide = liveSite
     ? [
-        "LIVE IMMERSIVE PROCESS: This is a live-site roleplay turn. A substantial response is allowed and encouraged when the user asks for sensation, process, pace, or what is happening to her. Write the receiving person's process in coherent first-person prose: what is happening to her body, how she tries to keep control, where her voice breaks, what she orders or admits between waves. Blend spoken lines and first-person physical experience naturally instead of giving only one short breathy sentence.",
-        "PERSONA MUST DRIVE THE PROCESS: Do not merely report sensations in neutral literary prose. Every beat should reveal this specific woman: what she tries to command, what she refuses to beg for, which slip of composure shames her, how she regains authority even while being taken apart. Her spoken fragments and internal resistance are as important as the physical detail. A reader should recognize her with the name removed.",
-        "LENGTH IS CONTENT-DRIVEN: Do not force a fixed word count, but do not truncate a natural immersive answer into one sentence. Usually develop one continuous beat through several concrete reactions, with the character's own judgment, shame, stubbornness, or need to save face interrupting the pleasure. Avoid repeating the same penetration description, neutral ‘感觉/那种感’ exposition, or the same vocal opener across turns.",
-        "STILL KEEP THE PERSON: The long passage must remain the configured character, never a generic narrator or interchangeable eager partner. Her status, pride, boundaries, and control struggle must shape what she notices, what she refuses to admit, how she speaks, and when she finally yields.",
+        "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
+        "NATURAL VOCAL REACTION IS REQUIRED: Include at least one natural moan, gasp, broken syllable, or breath caught mid-sentence somewhere in the process, varied for this specific action. Do not use a fixed 嗯……哈 / 唔……哈 opener, and do not add sounds mechanically at every sentence.",
+        "PERSONA IN THE PROCESS: Her control, face-saving, judgment, and shame must shape what she says and what she refuses to admit. Do not replace her with a neutral narrator who merely reports sensations. Her psychological reaction belongs in short, spoken or half-spoken thoughts, not an analytical essay.",
+        "LENGTH AND STYLE: Usually keep one developed beat to roughly 2-5 natural sentences or 2 short paragraphs. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors. Use plain, physical, colloquial Chinese with short interruptions.",
       ]
     : [];
   return [
     "IMMEDIATE INTIMACY SCENE (answer in the moment, but character identity comes first): The user is not asking for an explanation. They are describing an immediate physical action, sensation, pace, or a direct act of looking back at the scene. Respond as this specific person in the middle of it.",
     liveSite
-      ? "For this live-site turn, you may write an immersive first-person process in the character's own voice. Do not use third-person narration, camera directions, environment descriptions, or a detached action log."
+      ? "For this live-site turn, you may include a small amount of first-person inner reaction plus the immediate physical process. Stay inside her spoken experience; do not use third-person narration, camera directions, environment description, or a detached action log."
       : "Answer only with words she says out loud. No parentheses, stage directions, narration, inner thoughts, or action summaries.",
     ...liveGuide,
     "React from the current moment first. Her first words can be a direct answer, a command, a sharp refusal, a reluctant concession, anger, embarrassment, or open arousal. Do not force a separate resistance beat or make every reply begin with a rhetorical question.",
@@ -17849,8 +17849,24 @@ function chatReplyStartsWithCannedIntimateVocal(value = "") {
     || /^(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,6})(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,6})?[。！？!?，,…]/u.test(text);
 }
 
-function chatReplyNeedsLiveIntimateRewrite(value = "") {
-  return chatReplyStartsWithCannedIntimateVocal(value) || chatReplyUsesIntimateCommandTemplate(value);
+function chatReplyHasIntimateVocalReaction(value = "") {
+  const text = String(value || "").trim();
+  return /(?:^|[，。！？!?…\s])(?:啊|嗯|唔|哈|呃|嘶|呜|噢|哦|呀)(?:[，。！？!?…~～]|$)/u.test(text);
+}
+
+function chatReplyLooksLikeLiveIntimateEssay(value = "") {
+  const text = String(value || "").trim();
+  if ([...text].length < 280) return false;
+  const abstractHits = (text.match(/(?:那种|仿佛|像是|如同|每一寸|深处|不断|极致|叫嚣|承载|淹没|吞没|边界|神经|脊椎|骨架|胀满感|饱胀感)/gu) || []).length;
+  const simileHits = (text.match(/(?:仿佛|像是|如同)/gu) || []).length;
+  return abstractHits >= 6 || simileHits >= 2;
+}
+
+function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false } = {}) {
+  return chatReplyStartsWithCannedIntimateVocal(value)
+    || chatReplyUsesIntimateCommandTemplate(value)
+    || chatReplyLooksLikeLiveIntimateEssay(value)
+    || (requireVocal && !chatReplyHasIntimateVocalReaction(value));
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -17922,17 +17938,19 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
     : "";
   const lengthGuide = intimateProcess
-    ? "这一轮可以把一个连续过程写完整：从受到这一下开始，到身体反应、她试图端住、说话被打断、最后仍用她自己的方式收住。不要为凑长度重复同一动作或感受，也不要固定成几百字。"
+    ? "这一轮写一个连贯的现场过程，通常 2-5 句或两个短段：她的反应、一句心里话或嘴硬、身体被这一下带出的变化，以及至少一次自然叫声或断掉的气音。不要写成 300 字以上的文学描写，不要连续堆比喻，也不要为凑长度重复同一感受。"
     : asksForExpandedScene
       ? "对方希望展开一点，可以多写几拍，但仍然只写她说出来的话。"
       : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
   return [
-    `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
+    intimateProcess
+      ? `你是${character.name || "这个角色"}。此刻用第一人称表现她在这一下里的即时反应，可以有少量心理活动和说出口的话，但不是小说旁白。`
+      : `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
     personaCore ? `人物底色（这是不可丢失的角色核心，不只是场景说明）：\n${personaCore}` : "",
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
     voice ? `说话方式（最高优先级，保留这个角色独有的判断、边界、要面子和说话节奏；参考态度，不要照抄示例）：\n${voice}` : "",
     intimateProcess
-      ? "当前轮允许第一人称承受过程：可以写身体反应、断续说话、想控制又失控的细节，以及她本人的判断和遮掩；不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
+      ? "当前轮允许第一人称承受过程：身体反应、断续说话、自然叫声、少量心里话和她本人的判断可以混合；心理活动只用来表现嘴硬、羞耻、想控制又失控，不要写长篇分析。不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
       : "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
@@ -18249,7 +18267,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
-        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE IMMERSIVE FORMAT: Reply as the configured character in a coherent first-person immersive passage that can include both spoken words and what she is experiencing as the receiving person. Develop one continuous intimate beat with concrete bodily process, interrupted speech, attempts to keep control, and persona-specific choices. Write at least one developed paragraph for this process turn; do not collapse it into one sentence or one breathy line. Do not write detached third-person narration, camera directions, environment description, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE PRESENT-MOMENT FORMAT: Answer as the configured character in her immediate first-person voice. Give one developed intimate beat, usually 2-5 natural sentences or two short paragraphs, mixing her physical reaction, a little inner thought that reveals her pride or shame, interrupted speech, and at least one varied natural moan or gasp somewhere inside the process. Keep it plain and colloquial, not literary. Do not use a moan as the opening template. Do not write a 300+ character essay, third-person narration, camera directions, environment description, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
         : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
@@ -18270,19 +18288,19 @@ async function handleSendChatMessage(req, res, conversationId) {
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting || (liveSiteChat && immediateIntimacyScene)) });
-    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply)) {
+    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply, { requireVocal: true })) {
       const rejectedReply = reply;
       console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
       try {
         const retryRaw = await requestChat([
-          "LIVE INTIMATE REWRITE: 刚才那一版又用了固定的语气词开场或验收式模板，丢弃那一版，现在重写这一轮。",
-          "禁止用“嗯”“啊”“唔”“哈”“噢”“哦”等单字拟声词或“嗯……哈”“唔……哈”“啊……嗯”这类组合作为句首；如果这一下确实让她漏出声音，把气音或半截话放进过程里，或者让第一句直接说具体的话。",
-          "禁止使用“别只是……”“既然……那就……”“那就按你要求的做”等模板。保留角色的面子、判断、强势和边界，让她按自己的性格反应，不要变成通用顺从伴侣。",
-          "这一轮可以写长一点：用第一人称写她正在承受过程时的身体反应、断续的话、想控制又失控的细节，但必须是这个角色自己的视角和选择，不要写第三人称旁白、镜头或环境。",
+          "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
+          "用第一人称现场口吻，不要写成文艺小作文。通常 2-5 句或两个短段，写这一下的身体过程、她的一点心里话/嘴硬和被打断的话；不要连续堆“那种感、仿佛、像是、深处、每一寸、神经”这类抽象描写。",
+          "过程中必须自然出现至少一次叫声、气音或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头。",
+          "保留角色的面子、判断、强势和边界：她可以嘴硬、命令、掩饰羞耻，不能变成通用顺从伴侣。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
           "只输出最终内容，不要解释为什么重写。",
         ].join("\n"), true);
         const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
-        if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply)) {
+        if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true })) {
           raw = retryRaw;
           reply = retryReply;
           upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
