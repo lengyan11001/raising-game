@@ -142,6 +142,7 @@ function renderChatPanel() {
   if (els.chatEmpty) els.chatEmpty.hidden = hasConversation;
   if (els.chatThread) els.chatThread.hidden = !hasConversation;
   if (els.chatComposer) els.chatComposer.hidden = !hasConversation;
+  if (els.chatSendBtn) els.chatSendBtn.disabled = false;
   if (els.chatSuggestion) els.chatSuggestion.hidden = !hasConversation || !state.chatMessages.length;
   if (els.chatMainHead) {
     els.chatMainHead.innerHTML = hasConversation ? `<button class="icon-btn chat-mobile-control" type="button" data-chat-mobile-list aria-label="Chats"><i data-lucide="panel-left"></i></button><img src="${escapeHtml(chatPoster(conversation.character))}" alt="" /><span><strong>${escapeHtml(conversation.title)}</strong><small>BytePlus Language</small></span><button class="icon-btn chat-mobile-control" type="button" data-chat-mobile-settings aria-label="Chat settings"><i data-lucide="sliders-horizontal"></i></button>` : "";
@@ -699,24 +700,17 @@ function scheduleChatBurstFlush(delay = CHAT_BURST_SETTLE_MS) {
 function queueChatMessage(content = "") {
   const text = String(content || "").trim();
   if (!text) return;
-  if (state.chatSending || state.chatPendingMessages?.length) {
-    state.chatPendingMessages = [...(state.chatPendingMessages || []), chatPendingMessage(text)];
-    if (els.chatInput) {
-      els.chatInput.value = "";
-      delete els.chatInput.dataset.editMessageId;
-    }
-    renderChatPanel();
-    scheduleChatBurstFlush();
-    return;
-  }
-  state.chatSending = true;
-  state.chatPendingMessages = [chatPendingMessage(text)];
+  state.chatPendingMessages = [...(state.chatPendingMessages || []), chatPendingMessage(text)];
   if (els.chatInput) {
     els.chatInput.value = "";
     delete els.chatInput.dataset.editMessageId;
+    els.chatInput.focus();
   }
   renderChatPanel();
-  flushChatBurst().catch(() => {});
+  if (!state.chatSending) {
+    state.chatNextBurstAt = Date.now() + CHAT_BURST_SETTLE_MS;
+    flushChatBurst().catch(() => {});
+  }
 }
 
 async function flushChatBurst() {
@@ -749,10 +743,11 @@ async function flushChatBurst() {
     window.alert(error.message || "Chat failed.");
   } finally {
     state.chatSending = false;
-    state.chatNextBurstAt = Date.now() + CHAT_BURST_SETTLE_MS;
+    const retryPending = pending.some((item) => state.chatPendingMessages?.some((queued) => queued.id === item.id));
+    state.chatNextBurstAt = Date.now() + (retryPending ? 2000 : CHAT_BURST_SETTLE_MS);
     if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
     renderChatPanel();
-    if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
+    if (state.chatPendingMessages?.length) scheduleChatBurstFlush(retryPending ? 2000 : CHAT_BURST_SETTLE_MS);
   }
 }
 

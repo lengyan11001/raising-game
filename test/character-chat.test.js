@@ -93,6 +93,8 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /chatContinueBtn\.disabled = true/);
   assert.match(chat, /CHAT_BURST_SETTLE_MS = 1000/);
   assert.match(chat, /function queueChatMessage/);
+  assert.match(chat, /chatSendBtn\.disabled = false/);
+  assert.match(chat, /els\.chatInput\.focus\(\)/);
   assert.match(chat, /function flushChatBurst/);
   assert.match(chat, /contents/);
   assert.doesNotMatch(chat, /正在思考/);
