@@ -17699,36 +17699,6 @@ function chatReplyHasWords(value = "") {
   return /[\p{L}\p{N}]/u.test(String(value || ""));
 }
 
-function chatReplyRepeatsRecent(value = "", recentReplies = []) {
-  const text = chatSpokenOnlyText(String(value || "").trim());
-  if (!text) return false;
-  const openerPattern = /^(?:既然|如果|要是|你(?:要是|既然|要求|想让|要我))/u;
-  return (Array.isArray(recentReplies) ? recentReplies : []).some((previous) => {
-    const old = chatSpokenOnlyText(String(previous || "").trim());
-    if (!old) return false;
-    const similarity = chatContextSimilarity(text, old);
-    if (similarity >= 0.86) return true;
-    if (old.length >= 12 && similarity >= 0.72 && chatContextComparable(text).includes(chatContextComparable(old).slice(0, 12))) return true;
-    const sameConditionalOpening = openerPattern.test(text.trim()) && openerPattern.test(old.trim());
-    return old.length >= 18 && similarity >= 0.52 && sameConditionalOpening;
-  });
-}
-
-function chatReplyUsesRejectedScaffold(value = "", rejected = "") {
-  const text = chatContextComparable(value);
-  const draft = chatContextComparable(rejected);
-  if (!text || !draft) return false;
-  const opening = draft.slice(0, Math.min(8, draft.length));
-  return opening.length >= 4 && text.startsWith(opening);
-}
-
-function chatReplyUsesConditionalBargain(value = "") {
-  const text = chatSpokenOnlyText(String(value || "").trim());
-  if (!text) return false;
-  return /(?:既然|要是).{0,80}(?:那|就)/u.test(text) ||
-    /(?:你|您)(?:要|想|让|叫)(?:我|我们).{0,80}(?:那|就)/u.test(text);
-}
-
 function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
   const text = String(value || "").trim();
   if (!chatReplyHasWords(text)) return true;
@@ -17843,10 +17813,12 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "CHARACTER-SHEET DRIFT CHECK: Conversation history is continuity evidence, not a style template. If recent replies have drifted into generic compliance, repetitive descriptions of arousal, repeated explanations, or lost the character's status and judgment, preserve only the scene facts and return to the character sheet now. Do not smooth a proud, severe, or mature person into a generic eager partner who explains every feeling. Let her hold some of herself back.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
     "COOPERATION, NOT COMMANDING: Decide what this exact message needs. If it is a question, answer it. If it is a description, react to it. If the user says they want to do something with you, answer as the person receiving it, not as a supervisor issuing another order. Do not reflexively tell the user to do the same thing back to you.",
+    "RESPONSE DECISION BEFORE WORDING: Silently choose one response function for this turn: agree and act, refuse and set a boundary, answer a question, ask one necessary clarification, react to what just happened, or take the initiative. Then make the first spoken sentence perform that function directly. Do not announce the decision, explain the character's reasoning, or turn it into a bargain. The character can be reluctant, proud, sharp, warm, or conflicted, but the reply must still directly address the user's latest message.",
+    "NATURAL CONDITIONAL LANGUAGE: Use 如果/要是/既然 naturally when the meaning genuinely needs a condition. Never use them as a generic way to delay agreement or demand compliance. Prefer plain, direct speech such as 好，我配合你, 这次可以, 但我有我的规矩, 我现在不想, or 先听我说完.",
     chatTurnProtocol(),
     "PERSONA USE: Use the character sheet for attitude, preferences, initiative, and speaking style. Do not use persona as a reason to refuse cooperation. A cold, dominant, proud, shy, or bratty character still answers the user's request in her own way. If the user hands control to the character, the character must act; if the user takes the lead, the character reacts. If the user gives no direction, the character may advance the scene based on her current desire and the established relationship.",
     "CONTINUITY WITHOUT REPETITION: Do not reuse the previous reply's sequence of ideas, sentence structure, threats, signature phrases, or closing line. Continue from the established scene, but generate the next reply from the latest user turn rather than copying the prior pattern.",
-    "NO CONDITIONAL THREAT TEMPLATE: Do not build replies as repeated clauses beginning with '既然', '你要是', or '我就要把你'. Those are not personality; they are stale template scaffolding. State the action, answer, or feeling first. Only use a condition when the current user turn genuinely creates one.",
+    "DIRECT RESPONSE FIRST: State the action, answer, boundary, refusal, or feeling in the first sentence. Let the character's personality shape the tone rather than adding a bargaining preamble or a repeated threat formula.",
     "ACTOR AND RESPONSE CHECK: Before replying, verify who acts and who receives the action in the latest user message. If the user addresses an action or question to the character, the character responds from their own side. Do not reassign the user's action to the character or the character's requested action back to the user.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",
     "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual text message, not polished customer support. 人设只说明你是谁。回复只能是嘴上说的话。不要写衣服怎么动、灯光、身体轮廓。对方催就先接催。",
@@ -18164,54 +18136,6 @@ async function handleSendChatMessage(req, res, conversationId) {
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    const previousAssistantReplies = history.filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-40);
-    let rejectedDraft = "";
-    const replyNeedsFreshAttempt = (candidate) => chatReplyRepeatsRecent(candidate, previousAssistantReplies) || chatSentenceLooksLikeNarration(candidate) || chatReplyUsesRejectedScaffold(candidate, rejectedDraft) || chatReplyUsesConditionalBargain(candidate);
-    if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && replyNeedsFreshAttempt(reply)) {
-      const reason = chatReplyRepeatsRecent(reply, previousAssistantReplies) ? "repeated" : chatSentenceLooksLikeNarration(reply) ? "narrated" : chatReplyUsesConditionalBargain(reply) ? "conditional-bargain" : "scaffold";
-      rejectedDraft = reply;
-      console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reason, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
-      const replacementMessages = [
-        ...chatMessages,
-        { role: "system", content: "FRESH ATTEMPT REQUIRED: The previous draft is rejected and must not be continued. Answer the latest user message again from scratch. Return only a short line the character says out loud. Do not reuse any recent reply's wording, opening, action order, body description, or closing line. Do not start with 既然, 你要是, 那我就, or an equivalent conditional bargain. Do not narrate movement or posture. Keep the character's pride, judgment, status, and voice; cooperation may be reluctant, dry, sharp, or negotiated rather than instantly eager. Prefer one concrete human first beat: a boundary, a dry agreement, a sharp correction, or a decision to yield." },
-      ];
-      const replacementRaw = usePapayaChat
-        ? await papayaLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.95, chatTemperature + 0.12), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.9, presence_penalty: 0.82 }, { timeoutMs: 45000 })
-        : await byteplusLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.95, chatTemperature + 0.12), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.9, presence_penalty: 0.82 }, { timeoutMs: 45000 });
-      const replacementReply = normalizeChatReply(qwen37FlashResponseText(replacementRaw), { expanded: expandedScene || simpleGreeting });
-      if (!chatReplyIsDegenerate(replacementReply, { simpleGreeting }) && !replyNeedsFreshAttempt(replacementReply)) {
-        raw = replacementRaw;
-        reply = replacementReply;
-        upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
-      } else {
-        console.warn("[character-chat-repeated-reply-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, replacementUpstreamResponseId: String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || ""), reply: String(replacementReply || "").slice(0, 180) }));
-        const finalAttemptMessages = [
-          { role: "system", content: "Reply in character with one direct spoken sentence about the user's latest message. No conditions, negotiation, narration, repeated opening, or explanation. State a reaction or decision plainly." },
-          { role: "user", content: latestUserMessage.slice(0, 1200) },
-        ];
-        const finalRaw = usePapayaChat
-          ? await papayaLanguageRequest({ model: chatModel, messages: finalAttemptMessages, temperature: 1.05, top_p: 0.95, max_tokens: Math.min(chatMaxTokens, 240), frequency_penalty: 0.9, presence_penalty: 0.85 }, { timeoutMs: 30000 })
-          : await byteplusLanguageRequest({ model: chatModel, messages: finalAttemptMessages, temperature: 1.05, top_p: 0.95, max_tokens: Math.min(chatMaxTokens, 240), frequency_penalty: 0.9, presence_penalty: 0.85 }, { timeoutMs: 30000 });
-        const finalReply = normalizeChatReply(qwen37FlashResponseText(finalRaw), { expanded: false });
-        if (!chatReplyIsDegenerate(finalReply, { simpleGreeting }) && !replyNeedsFreshAttempt(finalReply)) {
-          raw = finalRaw;
-          reply = finalReply;
-          upstreamResponseId = String(finalRaw?.id || finalRaw?.request_id || finalRaw?.requestId || finalRaw?.trace_id || finalRaw?.traceId || upstreamResponseId);
-        } else {
-          // Style rejection must not become a user-visible 502 or a refunded empty turn.
-          // Keep the best non-empty draft and let the next turn continue naturally.
-          const safeFallbacks = [finalReply, replacementReply, reply].filter((candidate) => !chatReplyIsDegenerate(candidate, { simpleGreeting }));
-          if (!safeFallbacks.length) {
-            const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
-            unusable.requestId = chatRequestId;
-            unusable.upstreamResponseId = upstreamResponseId;
-            throw unusable;
-          }
-          reply = safeFallbacks[0];
-          console.warn("[character-chat-reply-fallback]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: reply.slice(0, 180) }));
-        }
-      }
-    }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
       console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });

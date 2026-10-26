@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -63,17 +62,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /OUTPUT CONTRACT/);
   assert.match(server, /FINAL SPEECH-ONLY FORMAT/);
   assert.match(server, /function chatReplyIsDegenerate/);
-  assert.match(server, /function chatReplyRepeatsRecent/);
-  assert.match(server, /similarity >= 0\.86/);
-  assert.match(server, /sameConditionalOpening/);
-  assert.match(server, /similarity >= 0\.52 && sameConditionalOpening/);
-  assert.match(server, /openerPattern = \/\^\(\?:既然\|如果\|要是\|你/);
-  assert.match(server, /function chatReplyUsesRejectedScaffold/);
-  assert.match(server, /function chatReplyUsesConditionalBargain/);
-  assert.match(server, /chatReplyUsesConditionalBargain\(candidate\)/);
+  assert.doesNotMatch(server, /chatReplyUsesConditionalBargain|chatReplyUsesRejectedScaffold|replyNeedsFreshAttempt/);
   assert.match(server, /const \{ mood: _trackerMood, \.\.\.sceneTracker \} = tracker/);
   assert.match(server, /Current scene facts only/);
-  assert.match(server, /chatReplyUsesRejectedScaffold\(candidate, rejectedDraft\)/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
   assert.match(server, /isImmediateRetry/);
@@ -102,21 +93,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /CURRENT TURN ANCHOR/);
   assert.match(server, /requesting an action, asking a question or opinion, giving a preference or pace/);
   assert.match(server, /CONTINUITY WITHOUT REPETITION/);
-  assert.match(server, /NO CONDITIONAL THREAT TEMPLATE/);
+  assert.match(server, /DIRECT RESPONSE FIRST/);
   assert.match(server, /ACTOR AND RESPONSE CHECK/);
   assert.match(server, /Recent replies from you/);
   assert.match(server, /character-chat-empty-reply/);
-  assert.match(server, /character-chat-repeated-reply/);
-  assert.match(server, /history\.filter\(\(message\) => message\.role === "assistant"\)[\s\S]*slice\(-40\)/);
-  assert.match(server, /character-chat-repeated-reply-rejected/);
-  assert.match(server, /character-chat-reply-fallback/);
-  assert.match(server, /Style rejection must not become a user-visible 502/);
-  assert.match(server, /const safeFallbacks = \[finalReply, replacementReply, reply\]/);
-  assert.match(server, /!replyNeedsFreshAttempt\(replacementReply\)/);
-  assert.match(server, /FRESH ATTEMPT REQUIRED/);
-  assert.doesNotMatch(server, /replacementMessages = \[\s*\.\.\.chatMessages,\s*\{ role: "assistant", content: reply \}/);
-  assert.match(server, /Do not start with 既然, 你要是, 那我就/);
-  assert.match(server, /chatSentenceLooksLikeNarration\(candidate\)/);
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
   assert.match(server, /taskId: billingId, requestId: billingId/);
   assert.match(server, /upstreamResponseId: error\.upstreamResponseId/);
@@ -136,27 +116,13 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /\/api\/chat\/conversations/);
 });
 
-test("character chat only rejects conditional replies that bargain over compliance", () => {
-  const start = server.indexOf("function chatReplyUsesConditionalBargain");
-  assert.notEqual(start, -1);
-  let depth = 0;
-  let end = -1;
-  for (let index = server.indexOf("{", start); index < server.length; index += 1) {
-    if (server[index] === "{") depth += 1;
-    if (server[index] === "}") depth -= 1;
-    if (depth === 0) { end = index + 1; break; }
-  }
-  assert.notEqual(end, -1);
-  const source = server.slice(start, end);
-  const normalize = (value) => String(value || "").trim();
-  const reject = vm.runInNewContext(`(${source})`, { chatSpokenOnlyText: normalize });
-
-  assert.equal(reject("既然你要我这样，那我就听你的。"), true);
-  assert.equal(reject("好，既然你需要，我就配合。"), true);
-  assert.equal(reject("你要我听你的，那你就得先让我满意。"), true);
-  assert.equal(reject("如果疼，你就告诉我。"), false);
-  assert.equal(reject("我想先洗一下，然后过去。"), false);
-  assert.equal(reject("好，我过去。"), false);
+test("character chat shapes compliant replies during generation instead of post-filtering", () => {
+  assert.match(server, /RESPONSE DECISION BEFORE WORDING/);
+  assert.match(server, /agree and act, refuse and set a boundary, answer a question, ask one necessary clarification/);
+  assert.match(server, /make the first spoken sentence perform that function directly/);
+  assert.match(server, /NATURAL CONDITIONAL LANGUAGE/);
+  assert.match(server, /DIRECT RESPONSE FIRST/);
+  assert.doesNotMatch(server, /chatReplyUsesConditionalBargain|chatReplyUsesRejectedScaffold|replyNeedsFreshAttempt|FRESH ATTEMPT REQUIRED/);
 });
 
 test("chat assets bypass stale browser caches after deployment", () => {
