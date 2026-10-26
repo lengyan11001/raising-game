@@ -17587,14 +17587,20 @@ function compactChatReply(value = "") {
   return String(value || "").toLowerCase().replace(/[\s。！？.!?，,、；;：:“”"'（）()【】\[\]…—\-~～]/g, "");
 }
 
+function chatReplyUsesTemplate(value = "") {
+  const compact = compactChatReply(value);
+  if (!compact) return false;
+  const formulaic = [/既然你/g, /那你就别/g, /你要是敢/g, /我就要把你按/g, /让你知道谁才是真正掌控/g, /把你的腰部/g];
+  const formulaCount = formulaic.reduce((count, pattern) => count + ((compact.match(pattern) || []).length), 0);
+  return formulaCount >= 2 || /既然.{0,16}那你就别.{0,160}你要是敢/u.test(compact);
+}
+
 function chatReplyRepeatsRecent(value = "", recentReplies = []) {
   const current = compactChatReply(value);
   if (!current) return false;
+  if (chatReplyUsesTemplate(current)) return true;
   const previous = (Array.isArray(recentReplies) ? recentReplies : []).map(compactChatReply).filter(Boolean).slice(-6);
   if (!previous.length) return false;
-  const formulaic = [/既然你/g, /那你就别/g, /你要是敢/g, /我就要把你按/g, /让你知道谁才是真正掌控/g, /把你的腰部/g];
-  const formulaCount = formulaic.reduce((count, pattern) => count + ((current.match(pattern) || []).length), 0);
-  if (formulaCount >= 2 && previous.some((item) => formulaic.reduce((count, pattern) => count + ((item.match(pattern) || []).length), 0) >= 2)) return true;
   for (const item of previous) {
     if (current === item) return true;
     const shorterLength = Math.min(current.length, item.length);
@@ -17612,15 +17618,25 @@ function chatReplyRepeatsRecent(value = "", recentReplies = []) {
   return false;
 }
 
-function chatRetryCorrection(value = "", recentReplies = []) {
+function chatRetryCorrection(value = "", recentReplies = [], latestUserMessage = "", attempt = 1) {
   const repeated = chatReplyRepeatsRecent(value, recentReplies);
   return [
-    "RETRY CORRECTION: The previous draft was not acceptable because it was " + (repeated ? "too similar to an earlier reply." : "incomplete or unusable."),
-    "Write a fresh reply to the LATEST USER MESSAGE only.",
-    "Do not reuse the same opening, sentence structure, threat, command, or closing from earlier replies.",
-    "If the user talks about what they want to do to you, respond as the person receiving it: accept, react, or say what you want in your own words. Do not turn it into an instruction back to the user.",
-    "Do not dodge a concrete request with atmosphere. A short direct answer with a different rhythm is better than a long formulaic paragraph.",
+    `RETRY CORRECTION ${attempt}: The previous draft was not acceptable because it was ${repeated ? "a banned formula or too similar to an earlier reply" : "incomplete or unusable"}.`,
+    "Discard the rejected draft and its entire sentence structure.",
+    "BANNED THIS TURN: 既然你 / 那你就别 / 你要是敢 / 我就要把你按 / 让你知道谁才是真正掌控 / 把你的腰部. Do not use any of these phrases.",
+    "Do not command, challenge, threaten, or instruct the user. The user's latest message is the request; respond as the character receiving or doing it.",
+    latestUserMessage ? `LATEST USER REQUEST TO ANSWER DIRECTLY: ${String(latestUserMessage).slice(0, 800)}` : "",
+    attempt >= 2
+      ? "Restart in a different rhythm: begin with a concrete reaction such as 来 / 嗯 / 好 / 慢点 / 我..., then say or do what the user asked. Use at most two short spoken sentences."
+      : "Write a fresh, cooperative reply in one or two short spoken sentences.",
+    "No atmosphere, metaphor, recap, new threat, or closing slogan. A short direct answer with a different rhythm is better than a long formulaic paragraph.",
   ].join("\n");
+}
+
+function chatHistoryWithoutTemplates(messages = [], limit = 24) {
+  return (Array.isArray(messages) ? messages : [])
+    .filter((message) => message.role !== "assistant" || !chatReplyUsesTemplate(message.content))
+    .slice(-Math.max(2, Number(limit || 24)));
 }
 
 function stripChatStageDirections(value = "") {
@@ -17962,41 +17978,45 @@ async function handleSendChatMessage(req, res, conversationId) {
     const hasReplyStyle = Boolean(String(freshCharacterEarly?.replyStyle || conversation.character?.replyStyle || "").trim());
     const simpleGreeting = isSimpleChatGreeting(latestUserMessage) && !hasReplyStyle;
     const expandedScene = chatWantsExpandedScene(latestUserMessage);
+    const cleanMessages = chatHistoryWithoutTemplates(messages, 28);
     const modelMessages = simpleGreeting
       ? [{ role: "user", content: latestUserMessage }]
-      : messages;
+      : cleanMessages;
     if (freshCharacterEarly) {
       conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
     }
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
-    const recentAssistantReplies = messages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
+    const recentAssistantReplies = cleanMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
     const chatMessages = [{ role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies) }, ...modelMessages];
     const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
-    const requestChat = (retry = false, rejectedReply = "") => {
+    const requestChat = (retry = false, rejectedReply = "", retryAttempt = 1) => {
       const requestMessages = retry
-        ? [...chatMessages, { role: "system", content: chatRetryCorrection(rejectedReply, recentAssistantReplies) }]
+        ? [...chatMessages, { role: "system", content: chatRetryCorrection(rejectedReply, recentAssistantReplies, latestUserMessage, retryAttempt) }]
         : chatMessages;
-      const tuning = { frequency_penalty: retry ? 0.7 : 0.28, presence_penalty: retry ? 0.6 : 0.22 };
+      const tuning = { frequency_penalty: retry ? 1.0 : 0.3, presence_penalty: retry ? 0.9 : 0.22 };
       return usePapayaChat
-        ? papayaLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 0.86 : chatTemperature, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
-        : byteplusLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 0.82 : chatTemperature, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
+        ? papayaLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 1.0 : chatTemperature, top_p: retry ? 0.95 : 0.9, max_tokens: retry ? Math.min(chatMaxTokens, 240) : chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
+        : byteplusLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 0.95 : chatTemperature, top_p: retry ? 0.95 : 0.9, max_tokens: retry ? Math.min(chatMaxTokens, 240) : chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
     };
     let upstreamResponseId = "";
     let raw = await requestChat(false);
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    const repeatedReply = chatReplyRepeatsRecent(reply, recentAssistantReplies);
-    if (chatReplyIsDegenerate(reply, { simpleGreeting }) || repeatedReply) {
-      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, attempt: 1, repeatedReply, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
-      raw = await requestChat(true, reply);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const repeatedReply = chatReplyRepeatsRecent(reply, recentAssistantReplies);
+      const unusable = chatReplyIsDegenerate(reply, { simpleGreeting }) || repeatedReply;
+      if (!unusable) break;
+      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, attempt, repeatedReply, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      if (attempt === 3) break;
+      raw = await requestChat(true, reply, attempt);
       upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
       reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     }
-    if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
+    if (chatReplyIsDegenerate(reply, { simpleGreeting }) || chatReplyRepeatsRecent(reply, recentAssistantReplies)) {
       console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
       unusable.requestId = chatRequestId;

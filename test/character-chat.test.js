@@ -53,7 +53,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function normalizeChatReply/);
   assert.match(server, /function chatReplyIsDegenerate/);
   assert.match(server, /function chatReplyRepeatsRecent/);
+  assert.match(server, /function chatReplyUsesTemplate/);
   assert.match(server, /function chatRetryCorrection/);
+  assert.match(server, /function chatHistoryWithoutTemplates/);
   assert.match(server, /REPLY COMPLETENESS/);
   assert.match(server, /COOPERATION, NOT COMMANDING/);
   assert.match(server, /DO NOT COPY YOUR OWN TEMPLATE/);
@@ -63,9 +65,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
   assert.match(server, /taskId: billingId, requestId: billingId/);
   assert.match(server, /upstreamResponseId: error\.upstreamResponseId/);
-  assert.match(server, /const requestChat = \(retry = false, rejectedReply = ""\)/);
+  assert.match(server, /const requestChat = \(retry = false, rejectedReply = "", retryAttempt = 1\)/);
   assert.match(server, /const repeatedReply = chatReplyRepeatsRecent\(reply, recentAssistantReplies\)/);
-  assert.match(server, /if \(chatReplyIsDegenerate\(reply, \{ simpleGreeting \}\) \|\| repeatedReply\) \{[\s\S]*?raw = await requestChat\(true, reply\)/);
+  assert.match(server, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
+  assert.match(server, /raw = await requestChat\(true, reply, attempt\)/);
   assert.match(server, /message\.role === "user" \|\| !chatReplyIsDegenerate\(normalizeChatReply\(message\.content/);
   assert.match(server, /sentences\.slice\(0, 10\)/);
   assert.match(server, /slice\(0, 720\)/);
