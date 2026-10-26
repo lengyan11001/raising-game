@@ -17933,7 +17933,9 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const length = [...text].length;
   const literaryHits = (text.match(/(?:仿佛|像是|如同|褶皱|胀实感|胀满感|脊背|脊椎|骨架|神经末梢|每寸|每一寸|极致|叫嚣|承载|淹没|吞没)/gu) || []).length;
   const abstractHits = (text.match(/(?:那种|不断|一点点|一圈圈|缓缓|微微|透亮)/gu) || []).length;
+  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄)/gu) || []).length;
   if (literaryHits >= 3) return true;
+  if (explanatoryHits >= 1) return true;
   if (length >= 260 && literaryHits + abstractHits >= 6) return true;
   return length >= 420 && (literaryHits >= 2 || abstractHits >= 7);
 }
@@ -17962,7 +17964,8 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
   const anchors = chatPersonaContrastAnchors(character);
   const exposesIdentity = /(?:我是|身为|作为|明明(?:我)?是|我这个)[^。！？!?]{0,20}(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|同学(?:的)?妈妈|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻)/u.test(text)
     || /(?:该|在|要)(?:管教|管|教)[^。！？!?]{0,8}(?:规矩|人)/u.test(text);
-  const weakAbstract = /(?:别管|不管|丢开|放下)[^。！？!?]{0,12}(?:仪态|端庄|脸面|面子|体面|身份)[^。！？!?]{0,12}(?:了)?/u.test(text);
+  const weakAbstract = /(?:仪态|端庄|体面)/u.test(text)
+    || /(?:别管|不管|丢开|放下)[^。！？!?]{0,12}(?:脸面|面子|身份)[^。！？!?]{0,12}(?:了)?/u.test(text);
   const habitualBehavior = /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
     || /(?:我(?:平时|平常|一向|从来|平常)[^。！？!?]{0,28}(?:说了算|一句话|没人敢|都听|得听|不准|不许|最重|最看重))/u.test(text);
   const concreteAnchor = habitualBehavior || anchors.some((anchor) => text.includes(anchor));
@@ -18413,14 +18416,17 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
-    const requestChat = (extraGuide = "", retry = false) => {
+    const requestChat = (extraGuide = "", retry = false, override = {}) => {
       const tuning = liveSiteChat && immediateIntimacyScene
         ? (retry ? { frequency_penalty: 1, presence_penalty: 0.9 } : { frequency_penalty: 0.92, presence_penalty: 0.82 })
         : { frequency_penalty: 0.72, presence_penalty: 0.65 };
       const outgoingMessages = extraGuide ? [...chatMessages, { role: "system", content: extraGuide }] : chatMessages;
+      const temperature = override.temperature ?? (retry ? 0.98 : chatTemperature);
+      const topP = override.topP ?? 0.92;
+      const maxTokens = override.maxTokens ?? chatMaxTokens;
       return usePapayaChat
-        ? papayaLanguageRequest({ model: chatModel, messages: outgoingMessages, temperature: retry ? 0.98 : chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
-        : byteplusLanguageRequest({ model: chatModel, messages: outgoingMessages, temperature: retry ? 0.98 : chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
+        ? papayaLanguageRequest({ model: chatModel, messages: outgoingMessages, temperature, top_p: topP, max_tokens: maxTokens, ...tuning }, { timeoutMs: 45000 })
+        : byteplusLanguageRequest({ model: chatModel, messages: outgoingMessages, temperature, top_p: topP, max_tokens: maxTokens, ...tuning }, { timeoutMs: 45000 });
     };
     let upstreamResponseId = "";
     let raw = await requestChat();
@@ -18432,18 +18438,19 @@ async function handleSendChatMessage(req, res, conversationId) {
       console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
       let bestCandidate = { raw, reply, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter) };
       let accepted = false;
+      const anchorHint = chatPersonaContrastAnchors(liveIntimateCharacter).slice(0, 12).join("、");
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
           const retryRaw = await requestChat([
-            `LIVE INTIMATE REWRITE CANDIDATE ${attempt}: Discard the rejected version. This is spoken adult-scene dialogue, not a complete literary paragraph.`,
-            "Write 2-6 very short spoken fragments. The mouth is unsteady: sounds, half-words, interrupted orders, and dirty talk must dominate. Do not explain her feelings or the contrast; let the broken speech do it.",
-            "At least four separate vocal reactions at different beats: 啊…, 哈啊…, 唔…, 嘶…, a swallowed sound, or a word cut in half. At least three broken-off places using ellipses or dashes. Do not save all the sounds for the opening.",
-            "Use at least three direct adult or body words that fit the exact action, in ordinary spoken Chinese: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Do not substitute abstract sensation nouns or polished description.",
-            "Show persona reversal through action, not explanation: someone used to giving orders loses the sentence and asks for more; someone who protects face lets a shameful word slip; someone cold and distant clings and refuses to let go. Never say 我是主任/我是…; never use 仪态, 端庄, or 体面 as the contrast.",
-            "Banned shapes: 我是…, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
-            "Rhythm reference only (do not copy): 啊…！哈啊…慢点…太深了…唔…别停，就那里…操我…再用力…嘶…我刚才还想让你守规矩…现在居然求你…不许笑…",
+            `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Discard the rejected version. Output only the character's broken spoken subtitles for this exact moment.`,
+            "FORMAT IS MANDATORY: 6-9 lines. Each line is 1-14 Chinese characters. Put one line break between lines. No paragraph, no complete speech, no narrator, no explanation.",
+            "The first, middle, and late beats should each contain a sound such as 啊…, 哈啊…, 唔…, 嘶…, 嗯…, or a half-swallowed syllable. At least three lines must break off mid-word with ellipses or a dash. The mouth must sound unsteady, not composed.",
+            "At least four hits must be direct, ordinary adult speech for this exact action: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Do not use abstract sensation nouns.",
+            `Use one concrete reversal anchor from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Show it only through broken behavior, for example an order collapsing into a plea, distance collapsing into clinging, or a proud refusal turning into a shameful admission. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
+            "Banned shapes: 每一寸, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
+            "Form reference only, do not reuse its nouns or wording:\n啊…！\n哈啊…别、别停…\n唔…我平时只让人守规矩…\n现在…求你…操我…\n嘶…再深…灌进来…\n嗯…不许笑…",
             "只输出最终内容，不要解释为什么重写。",
-          ].join("\n"), true);
+          ].join("\n"), true, { temperature: 0.78, topP: 0.82, maxTokens: 520 });
           const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
           const score = chatReplyLiveIntimateScore(retryReply, liveIntimateCharacter);
           if (retryReply && score > bestCandidate.score) bestCandidate = { raw: retryRaw, reply: retryReply, score };

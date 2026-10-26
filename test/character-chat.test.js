@@ -85,9 +85,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /requireVocal: true/);
   assert.match(server, /chatReplyHasLiveSpokenTexture/);
   assert.match(server, /chatReplyHasPersonaContrast/);
-  assert.match(server, /LIVE INTIMATE REWRITE CANDIDATE/);
+  assert.match(server, /LIVE INTIMATE SUBTITLE REWRITE/);
+  assert.match(server, /FORMAT IS MANDATORY: 6-9 lines/);
   assert.match(server, /character-chat-live-intimate-rewrite/);
-  assert.match(server, /LIVE INTIMATE REWRITE/);
+  assert.match(server, /LIVE INTIMATE SUBTITLE REWRITE/);
   assert.match(server, /!chatReplyUsesIntimateCommandTemplate\(message\.content\)/);
   assert.match(server, /!chatReplyUsesIntimateCommandTemplate\(turn\.content\)/);
   assert.match(server, /现在在暧昧试探/);
@@ -113,7 +114,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
   assert.match(server, /taskId: billingId, requestId: billingId/);
   assert.match(server, /upstreamResponseId: error\.upstreamResponseId/);
-  assert.match(server, /const requestChat = \(extraGuide = "", retry = false\) =>/);
+  assert.match(server, /const requestChat = \(extraGuide = "", retry = false, override = \{\}\) =>/);
   assert.doesNotMatch(server, /chatRetryCorrection|chatReplyUsesTemplate|chatHistoryWithoutTemplates|chatTurnDirective/);
   assert.match(server, /message\.role === "user" \|\| !chatReplyIsDegenerate\(normalizeChatReply\(message\.content/);
   assert.match(server, /Length is content-driven\. Do not truncate a coherent spoken reply/);
