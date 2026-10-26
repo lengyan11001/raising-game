@@ -17668,9 +17668,9 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
   const liveGuide = liveSite
     ? [
         "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
-        "LIVE SPOKEN TEXTURE (HARD REQUIREMENT): Include at least three separate vocal reactions, such as startled syllables, caught breaths, broken moans, or words cut apart. Put them at different beats that this exact action causes. Let at least two places break off with ellipses, dashes, or an unfinished syllable. Do not write smooth, complete, grammatically polished paragraphs, and do not put all the sounds only in the opening.",
+        "LIVE SPOKEN TEXTURE (HARD REQUIREMENT): Include at least four separate vocal reactions, such as startled syllables, caught breaths, broken moans, or words cut apart. Put them at different beats that this exact action causes. Let at least three places break off with ellipses, dashes, or an unfinished syllable. Do not write smooth, complete, grammatically polished paragraphs, and do not put all the sounds only in the opening.",
         "PERSONA CONTRAST (HARD REQUIREMENT): Pick one concrete behavior or status anchor from this specific character, then show the reversal in action: the person who normally makes others obey is the one begging; the person who normally protects face admits something shameful mid-sentence; the person who usually keeps distance refuses to let go. The contrast must be audible in the words, not explained with abstract words such as 仪态 or 端庄. Do not tell the user why the reversal happened; let the broken words expose it.",
-        "DIRTY TALK IN THE MOMENT: Use abundant direct, colloquial adult words for the current action, body reaction, pace, need, or loss of control. Do not replace them with literary sensation nouns or a detached report. She may curse, order, beg, deny, or contradict herself in the same breath.",
+        "DIRTY TALK IN THE MOMENT: Use abundant direct, colloquial adult words for the current action, body reaction, pace, need, or loss of control, with at least three direct hits in a normal beat. Do not replace them with literary sensation nouns or a detached report. She may curse, order, beg, deny, or contradict herself in the same breath.",
         "LENGTH AND STYLE: Usually keep one developed beat to roughly 2-5 natural sentences or 2 short paragraphs. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors.",
       ]
     : [];
@@ -17907,21 +17907,25 @@ function chatReplyIntimateVocalReactionCount(value = "") {
 function chatReplyLiveDirtyTalkCount(value = "") {
   const text = String(value || "").trim();
   if (!text) return 0;
-  return (text.match(/(?:鸡巴|阴茎|龟头|阴道|里面|穴|操我|干我|插我|顶我|顶到|插到|继续(?:插|干|顶)|射|高潮|淫水|骚|浪叫|太深|好深|到底|别停|再(?:深|重|用力)|弄坏|撑坏|受不了|插进来|干进来|顶进来|填满|灌进来)/gu) || []).length;
+  return (text.match(/(?:鸡巴|阴茎|龟头|阴道|里面|穴|操我|干我|插我|顶我|顶到|插到|继续(?:插|干|顶)|射|高潮|淫水|骚|浪叫|太深|好深|到底|别停|再(?:深|重|用力)|弄坏|撑坏|受不了|插进来|干进来|顶进来|填满|灌进来|弄碎|操死|干死)/gu) || []).length;
 }
 
 function chatReplyHasBrokenLiveSpeech(value = "") {
+  return chatReplyLiveBrokenSpeechCount(value) >= 3;
+}
+
+function chatReplyLiveBrokenSpeechCount(value = "") {
   const text = String(value || "").trim();
-  if (!text) return false;
+  if (!text) return 0;
   const breaks = [
     ...(text.match(/…{1,}|—{1,}|\.{3,}/gu) || []),
     ...(text.match(/(?:别|不|慢|快|轻|重|深|顶|插|停|要|给)[^。！？!?]{0,10}(?:…|—)/gu) || []),
   ];
-  return breaks.length >= 2;
+  return breaks.length;
 }
 
 function chatReplyHasLiveSpokenTexture(value = "") {
-  return chatReplyIntimateVocalReactionCount(value) >= 2 && chatReplyHasBrokenLiveSpeech(value);
+  return chatReplyIntimateVocalReactionCount(value) >= 4 && chatReplyHasBrokenLiveSpeech(value);
 }
 
 function chatReplyLooksLikeLiveIntimateEssay(value = "") {
@@ -17956,16 +17960,18 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
   const text = String(value || "").trim();
   if (!text) return false;
   const anchors = chatPersonaContrastAnchors(character);
-  const concreteAnchor = anchors.some((anchor) => text.includes(anchor))
-    || /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
+  const exposesIdentity = /(?:我是|身为|作为|明明我是|我这个)[^。！？!?]{0,20}(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|同学(?:的)?妈妈|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻)/u.test(text);
+  const weakAbstract = /(?:别管|不管|丢开|放下)[^。！？!?]{0,12}(?:仪态|端庄|脸面|面子|体面|身份)[^。！？!?]{0,12}(?:了)?/u.test(text);
+  const habitualBehavior = /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
     || /(?:我(?:平时|平常|一向|从来|平常)[^。！？!?]{0,28}(?:说了算|一句话|没人敢|都听|得听|不准|不许|最重|最看重))/u.test(text);
+  const concreteAnchor = habitualBehavior || anchors.some((anchor) => text.includes(anchor));
   const reversal = /(?:现在|可(?:现在)?|却|居然|偏偏|反倒|反而|结果|这回|这次|下一秒|刚一?[^。！？!?]{0,8}就)/u.test(text);
   const yielding = /(?:别停|继续(?:插|干|顶)?|快点|再(?:深|重|用力)|深一点|重一点|想要|求你|求我|受不了|撑不住|不行了|弄坏|湿|水|爽|舒服|操我|干我|插我|顶我|进来|到底)/u.test(text);
-  return concreteAnchor && reversal && yielding;
+  return !exposesIdentity && !weakAbstract && concreteAnchor && reversal && yielding;
 }
 
 function chatReplyHasLiveDirtyTalk(value = "") {
-  return chatReplyLiveDirtyTalkCount(value) >= 2;
+  return chatReplyLiveDirtyTalkCount(value) >= 3;
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
@@ -17982,9 +17988,9 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   const text = String(value || "").trim();
   if (!text) return -100;
   let score = 0;
-  score += Math.min(4, chatReplyIntimateVocalReactionCount(text)) * 3;
-  if (chatReplyHasBrokenLiveSpeech(text)) score += 4;
-  score += Math.min(6, chatReplyLiveDirtyTalkCount(text)) * 2;
+  score += Math.min(8, chatReplyIntimateVocalReactionCount(text)) * 4;
+  score += Math.min(6, chatReplyLiveBrokenSpeechCount(text)) * 3;
+  score += Math.min(8, chatReplyLiveDirtyTalkCount(text)) * 3;
   if (chatReplyHasPersonaContrast(text, character)) score += 8;
   if (chatReplyLooksLikeLiveIntimateEssay(text)) score -= 10;
   if (chatReplyUsesIntimateCommandTemplate(text)) score -= 6;
@@ -18430,9 +18436,9 @@ async function handleSendChatMessage(req, res, conversationId) {
           const retryRaw = await requestChat([
             `LIVE INTIMATE REWRITE CANDIDATE ${attempt}: 刚才那一版不合格。丢弃它，按下面的硬要求重写这一轮。`,
             "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的嘴硬、羞耻或失控。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
-            "必须有三处以上真正说出口的声音或气音，分布在这一下造成反应的不同位置；至少两处句子被撞断，出现省略号、破折号、拖长的字或说不完整的词。不要写成语法完整的顺滑段落，也不要只在开头喊一声。",
-            "必须大量使用符合当前动作的直接成人荤话或身体词，至少两处，例如里面、顶到、插我、操我、干我、太深、别停、再用力、弄坏、灌进来这类口语；可以粗俗，可以骂，可以命令，也可以求，但不能用抽象感觉代替。",
-            "必须做出这个人具体的反差，不能只说“仪态、端庄、体面”这种概念词，也不要解释为什么破功。用一个人物自带的身份、习惯或行为来破功：平时只会命令别人的人，这轮被撞断后自己开口求；平时最重规矩的人，这轮骂出平时不会说的荤话；平时冷着脸不解释的人，这轮承认自己湿了、想要、离不开。反差要让读者从台词里直接看见。",
+            "必须有四处以上真正说出口的声音或气音，分布在这一下造成反应的不同位置；至少三处句子被撞断，出现省略号、破折号、拖长的字或说不完整的词。不要写成语法完整的顺滑段落，也不要只在开头喊一声。",
+            "必须大量使用符合当前动作的直接成人荤话或身体词，至少三处，例如里面、顶到、插我、操我、干我、太深、别停、再用力、弄坏、灌进来这类口语；可以粗俗，可以骂，可以命令，也可以求，但不能用抽象感觉代替。",
+            "必须做出这个人具体的反差，不能只说“仪态、端庄、体面”这种概念词，也不要解释为什么破功，也不能直接说“我是主任/我是……”介绍身份。用一个人物自带的身份、习惯或行为来破功：平时只会命令别人的人，这轮被撞断后自己开口求；平时最重规矩的人，这轮骂出平时不会说的荤话；平时冷着脸不解释的人，这轮承认自己湿了、想要、离不开。反差要让读者从台词里直接看见。",
             "禁止直接自我介绍职位或履历，禁止“我是主任所以……”，禁止“既然……那就……”“别只是……”“把你的力道……”“按我的节奏”“那就按你要求的做”。",
             "语气参考（只学现场短句、浪叫、断续荤话和反差的密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点…… 我刚才还想让你守规矩……现在居然求你……唔……不许笑。",
             "只输出最终内容，不要解释为什么重写。",
@@ -49048,6 +49054,8 @@ module.exports = {
   chatReplyHasLiveSpokenTexture,
   chatReplyHasPersonaContrast,
   chatReplyIntimateVocalReactionCount,
+  chatReplyLiveBrokenSpeechCount,
+  chatReplyLiveDirtyTalkCount,
   chatReplyLiveIntimateScore,
   chatReplyNeedsLiveIntimateRewrite,
 };
