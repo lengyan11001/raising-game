@@ -33,6 +33,7 @@ const {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveBrokenSpeechCount,
   chatReplyLiveIntimateFallback,
+  chatReplyRepairLiveIntimateLocally,
   chatReplyNeedsLiveIntimateRewrite,
 } = require("../server.js");
 
@@ -99,6 +100,10 @@ test("moans without concrete process or persona contradiction are rejected", () 
   assert.equal(chatReplyNeedsLiveIntimateRewrite(hollow, { requireVocal: true, character }), true);
   const repaired = chatReplyLiveIntimateFallback(hollow, character, 2);
   assert.doesNotMatch(repaired, /撑裂开|完全贯穿|给到最深处|那股劲儿全给到/);
+  const anatomical = "嗯！\n……哈，你要是敢把那股劲儿全堆到最深处——唔，快点，别只顾着冲刺……啊！\n你简直要把我整个人都给贯穿了。\n操，这种被完全填满的感觉……真的要让我的骨盆都被你撞开。\n别让我觉得你在只是单纯地动着，要把每一处缝隙都塞满……嗯！\n你就这么狠狠地、全部灌进来吧！";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(anatomical, { requireVocal: true, character }), true);
+  const anatomicalRepair = chatReplyRepairLiveIntimateLocally(anatomical);
+  assert.doesNotMatch(anatomicalRepair, /贯穿|骨盆|每一处缝隙|被完全填满|最深处/);
 });
 
 test("third-person or incoherent dirty phrasing is rejected", () => {
