@@ -68,12 +68,16 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatIsImmediateIntimateScene/);
   assert.match(server, /function chatImmediateSceneGuide/);
   assert.match(server, /IMMEDIATE INTIMACY SCENE \(answer in the moment, but character identity comes first\)/);
+  assert.match(server, /Do not force a separate resistance beat or make every reply begin with a rhetorical question/);
   assert.match(server, /Spoken reactions may be a sound, a fragment, or several connected lines/);
   assert.match(server, /Do not reduce the whole reply to a breathy template such as 唔……别急/);
+  assert.match(server, /CHARACTER, NOT SELF-EXPOSITION/);
+  assert.match(server, /Never recite her job title, community role, policy, responsibility, family relationship/);
   assert.match(server, /Do not name the sensation as a noun or compare it with an earlier action/);
   assert.match(server, /IMMEDIATE SCENE FINAL RULE/);
   assert.match(server, /Begin in the moment/);
-  assert.match(server, /First show this character's specific judgment, resistance, demand, face-saving, or choice/);
+  assert.match(server, /answer the act itself/);
+  assert.match(server, /do not force a rhetorical question or a separate resistance formula/);
   assert.match(server, /Bad shape: 嗯……那股撑开的压迫感/);
   assert.match(server, /Better shape: 疼……你当我会由着你乱来/);
   assert.match(server, /Do not narrate the body, describe the process, explain pleasure/);
@@ -96,6 +100,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /VOICE INTEGRATION/);
   assert.match(server, /how she handles an order/);
   assert.match(server, /mandatory, but subordinate to identity and the reply-length override/);
+  assert.match(server, /CHARACTERIZATION WITHOUT SELF-ANNOUNCEMENT/);
   assert.match(server, /STYLE-SPECIFIC FIRST BEAT/);
   assert.match(server, /Let her hold some of herself back/);
   assert.match(server, /CHARACTER-SHEET DRIFT CHECK/);
@@ -130,7 +135,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
   assert.match(server, /Length is not the target; useful spoken content is/);
-  assert.match(server, /Use as many spoken lines or fragments as the reaction genuinely needs/);
+  assert.match(server, /Use only as many spoken lines as this moment needs/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
@@ -143,6 +148,8 @@ test("character chat shapes compliant replies during generation instead of post-
   assert.match(server, /A request may be carried out, but it must not erase her personality, boundaries, or reservations/);
   assert.match(server, /make the first spoken sentence perform that decision directly/);
   assert.match(server, /NATURAL CONDITIONAL LANGUAGE/);
+  assert.match(server, /Do not default to 既然……那就…… as a speech formula/);
+  assert.match(server, /chatIsImmediateIntimateScene\(latestUserMessage, messages\)/);
   assert.match(server, /DIRECT RESPONSE FIRST/);
   assert.doesNotMatch(server, /chatReplyUsesConditionalBargain|chatReplyUsesRejectedScaffold|replyNeedsFreshAttempt|FRESH ATTEMPT REQUIRED/);
 });
