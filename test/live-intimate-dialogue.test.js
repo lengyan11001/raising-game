@@ -112,6 +112,11 @@ test("moans without concrete process or persona contradiction are rejected", () 
   assert.equal(chatReplyNeedsLiveIntimateRewrite(policy, { requireVocal: true, character }), true);
   const policyRepair = chatReplyRepairLiveIntimateLocally(policy);
   assert.doesNotMatch(policyRepair, /配对|清单|没给够力|完全占领/);
+  const wholeBody = "啊……！哈，你就这么——唔。别再只是在动了，把你的鸡巴更深一点地塞进来……嗯！操，要把我整个人都给顶开。快点，全部灌进我的里面来……哈啊！你要是敢一直用这种速度冲刺——唔，真的要让我感觉被你完全撑开了。";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(wholeBody, { requireVocal: true, character }), true);
+  const wholeBodyRepair = chatReplyRepairLiveIntimateLocally(wholeBody);
+  assert.doesNotMatch(wholeBodyRepair, /整个人都给顶开|完全撑开/);
+  assert.doesNotMatch(wholeBodyRepair, /别光顾着了/);
 });
 
 test("third-person or incoherent dirty phrasing is rejected", () => {
