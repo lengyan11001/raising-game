@@ -59,3 +59,9 @@ test("explaining the role reversal is not accepted as spoken contrast", () => {
   assert.equal(chatReplyHasPersonaContrast(explanation, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(explanation, { requireVocal: true, character }), true);
 });
+
+test("discarding rules or face is not a concrete reversal", () => {
+  const discard = "啊……！ 哈啊……你要把整根都… 唔，全都给我灌进来。 别管我刚才说的规矩了，就这么… 狠狠地、一直顶到最深处。 嘶……快点。";
+  assert.equal(chatReplyHasPersonaContrast(discard, character), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(discard, { requireVocal: true, character }), true);
+});
