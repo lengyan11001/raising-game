@@ -46,6 +46,12 @@ test("a concrete character reversal with live dirty talk passes", () => {
   assert.ok(chatReplyLiveIntimateScore(valid, character) >= 24);
 });
 
+test("novelistic euphemisms do not count as direct dirty talk", () => {
+  const euphemistic = "哈啊……啊……你就这么…把那根粗大的…全部灌进来…唔…再深点…";
+  assert.equal(chatReplyHasLiveDirtyTalk(euphemistic), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(euphemistic, { requireVocal: true, character }), true);
+});
+
 test("the previous production reply is rejected as insufficiently present", () => {
   const previous = "啊……！哈，你这频率快得让人有点跟不上。虽然我明明在心里一直要求你要稳重一点，可你的每一次贯穿都…别只顾着出力了，看着我……唔……快点把你的力道全部灌进来。";
   assert.equal(chatReplyNeedsLiveIntimateRewrite(previous, { requireVocal: true, character }), true);
