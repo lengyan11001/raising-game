@@ -18112,6 +18112,7 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   lines = lines.filter((line) => !/(?:全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(line));
   repaired = lines.join("\n");
   if (chatReplyLivePersonaPostureCount(repaired) < 2) {
+    lines = lines.filter((line) => !/(?:我让你慢点|谁准你|不许躲|听我的，别只顾着动)/u.test(line));
     lines.splice(Math.max(1, lines.length - 2), 0, postureLine);
     repaired = lines.join("\n");
   }
