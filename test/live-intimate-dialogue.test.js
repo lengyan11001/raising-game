@@ -108,6 +108,7 @@ test("repair fallback varies with the character instead of appending one canned 
   const second = chatReplyWithLivePersonaSlip(draft, proud, 1);
   assert.notEqual(first, second);
   assert.doesNotMatch(first, /哈…操我…插进来…再深点…/);
+  assert.doesNotMatch(first, /彻底.{0,8}弄坏|最深处|那根粗大的/);
 });
 
 test("weak live drafts are repaired with a concrete persona slip", () => {

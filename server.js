@@ -18043,6 +18043,7 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     .map((line) => weakPattern.test(line)
       ? line.replace(/(?:我居然|我竟然|这不像我|不像我|我怎么会)[^。！？!?]*(?:[。！？]|$)/gu, "").trim()
       : line)
+    .map((line) => line.replace(/[^。！？!?]*(?:最深处|那根粗大的|彻底.{0,8}弄坏)[^。！？!?]*[。！？!?]?/gu, "").trim())
     .filter((line) => line && !weakPattern.test(line))
     .slice(-9);
   if (!lines.length) lines = ["啊…别停…"];
