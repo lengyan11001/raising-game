@@ -18033,10 +18033,17 @@ function chatReplyLivePersonaPostureCount(value = "") {
 function chatReplyLiveOpensSubmissive(value = "") {
   const fragments = String(value || "").split(/\n+|[。！？!?]+/).map((line) => line.trim()).filter(Boolean).slice(0, 6);
   const firstPosture = fragments.findIndex((line) => /(?:不许|不准|谁准|谁要你|听我的|都听我的|我说了算|轮不到|急什么|别急|看着我|手拿开|别碰|别自作主张|给我(?:听|老实|忍住|停|慢|快|看着|说)|我还没(?:让|准|说|同意)|先(?:别|把|看着|说)|规矩|你敢)/u.test(line));
-  const submission = /(?:想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
+  const submission = /(?:你要我|想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
   const question = /[?？]|(?:吗|么|呢)[。！？!?…~～—\s]*$/u;
   const willing = fragments.findIndex((line) => submission.test(line) && !question.test(line));
-  return willing >= 0 && (firstPosture < 0 || willing < firstPosture);
+  if (willing >= 0 && (firstPosture < 0 || willing < firstPosture)) return true;
+  if (willing >= 0 && willing === firstPosture) {
+    const line = fragments[willing] || "";
+    const submissionIndex = line.search(submission);
+    const postureIndex = line.search(/(?:不许|不准|谁准|谁要你|听我的|都听我的|我说了算|轮不到|急什么|别急|看着我|手拿开|别碰|别自作主张|给我(?:听|老实|忍住|停|慢|快|看着|说)|我还没(?:让|准|说|同意)|先(?:别|把|看着|说)|规矩|你敢)/u);
+    return submissionIndex >= 0 && postureIndex >= 0 && submissionIndex < postureIndex;
+  }
+  return false;
 }
 
 function chatReplyHasLivePersonaPosture(value = "") {
@@ -18136,9 +18143,15 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     repaired = lines.join("\n");
   }
   if (chatReplyLiveOpensSubmissive(repaired)) {
-    const submission = /(?:想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
+    const submission = /(?:你要我|想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
     const firstSubmission = lines.findIndex((line) => submission.test(line));
     if (firstSubmission >= 0) {
+      const line = lines[firstSubmission];
+      const control = /(?:不许|不准|谁准|谁要你|听我的|都听我的|我说了算|轮不到|急什么|别急|看着我|手拿开|别碰|别自作主张|给我(?:听|老实|忍住|停|慢|快|看着|说)|我还没(?:让|准|说|同意)|先(?:别|把|看着|说)|规矩|你敢)/u;
+      const controlMatch = control.exec(line);
+      if (controlMatch) {
+        lines[firstSubmission] = line.slice(controlMatch.index).trim();
+      }
       lines.splice(Math.max(1, firstSubmission), 0, postureLine);
       repaired = lines.join("\n");
     }

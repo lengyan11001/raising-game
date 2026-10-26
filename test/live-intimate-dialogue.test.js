@@ -130,6 +130,14 @@ test("repair moves persona control ahead of a submissive opening", () => {
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
+test("a soft phrase before control in the same line still opens submissive", () => {
+  const sameLine = "啊……！\n唔，你要我... 听我的，别只顾着动。\n哈啊……操我…… 插进来…\n谁准你...这么蛮横。";
+  const repaired = chatReplyWithLivePersonaSlip(sameLine, character, 2);
+  assert.equal(chatReplyLiveOpensSubmissive(sameLine), true);
+  assert.equal(chatReplyLiveOpensSubmissive(repaired), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
+});
+
 test("persona posture needs two distinct control beats", () => {
   const oneBeat = "啊……！\n哈啊……不许躲……看着我……\n唔……再深点……\n操我……插进来……";
   const twoBeats = "啊……！\n哈啊……不许躲……看着我……\n谁准你……自作主张……\n唔……再深点……\n操我……插进来……";
