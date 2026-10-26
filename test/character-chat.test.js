@@ -81,7 +81,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /site: requestTenantDescriptor\(req\)\.toolId/);
   assert.match(server, /liveSiteChat && immediateIntimacyScene/);
   assert.match(server, /LIVE SITE INTIMACY BEAT/);
-  assert.match(server, /说话方式（参考语气和态度/);
+  assert.match(server, /说话方式（最高优先级/);
+  assert.match(server, /人物底色（这是不可丢失的角色核心/);
+  assert.match(server, /live\.personaMd \|\| live\.persona/);
   assert.match(server, /她的人设通过用词、判断和反应露出来/);
   assert.match(server, /每一轮都要有一句和上一轮不同的话/);
   assert.match(server, /最近说过的话（只避免重复/);

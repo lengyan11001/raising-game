@@ -17463,12 +17463,15 @@ async function chatCharacterById(characterId = "") {
   /* 后台「在线聊天配置」里自建的角色同样可以文字聊：人设直接取配置里的 persona */
   const live = await getChatLiveCharacterInDb(characterId);
   if (!live || live.enabled === false) return null;
+  const livePersona = String(live.personaMd || live.persona || live.intro || "").trim();
   return {
     id: live.id,
     name: live.name || "Character",
     title: live.intro || "",
     summary: live.intro || "",
-    description: live.persona || live.intro || "",
+    description: livePersona,
+    persona: livePersona,
+    personaMd: String(live.personaMd || "").trim(),
     replyStyle: live.replyStyle || "",
     posterUrl: live.portraitUrl || live.avatarUrl || "",
     characterImageUrl: live.portraitUrl || live.avatarUrl || "",
@@ -17891,6 +17894,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const sceneStage = chatSceneStage(latest, currentMessages, relationship);
   const voice = String(character.replyStyle || "").trim();
+  const personaCore = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
   const stageGuide = chatSceneStageGuide(sceneStage);
   const greetingGuide = isSimpleChatGreeting(latest)
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
@@ -17900,13 +17904,13 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
   return [
     `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
-    character.description || character.intro ? `人物底色：${character.description || character.intro}` : "",
+    personaCore ? `人物底色（这是不可丢失的角色核心，不只是场景说明）：\n${personaCore}` : "",
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
-    voice ? `说话方式（参考语气和态度，不要照抄示例）：\n${voice}` : "",
+    voice ? `说话方式（最高优先级，保留这个角色独有的判断、边界、要面子和说话节奏；参考态度，不要照抄示例）：\n${voice}` : "",
     "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
-    "人设是她的底色，不是每轮都要复述的设定。她要面子、强势、有掌控欲，但也会被撩动、会停顿、会嘴硬、会在亲密里乱。不要把她演成一个只会审问的模板。",
+    "人设是她的底色，不是每轮都要复述的设定。先按这个人的身份、面子、判断和边界反应，再进入情欲；不要为了配合场景把她演成任何人都能替换的通用伴侣。",
     "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾；亲密阶段尤其不要重复同一个叫声、同一个插入描述或同一句命令。",
     "对方可以推动幻想，但她的反应要像这个人自己的选择：可以拒绝、提条件、允许、主动，也可以先嘴硬再松口。",
     lengthGuide,
@@ -18201,7 +18205,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       ? [{ role: "user", content: latestUserMessage }]
       : chatMessagesForNewTurn(messages, latestUserMessage);
     if (freshCharacterEarly) {
-      conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
+      conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", persona: freshCharacterEarly.persona || conversation.character?.persona || "", personaMd: freshCharacterEarly.personaMd || conversation.character?.personaMd || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
     }
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
     const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
@@ -18209,7 +18213,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const liveSiteChat = requestTenantDescriptor(req).toolId === "live";
     const sceneAnchor = freshCharacterEarly
       ? sceneStage === "intimate"
-        ? `你是${freshCharacterEarly.name}，现在正在被进入、被顶弄，是承受这一下的那一方。直接反应这一下的真实感觉，不要用“唔……哈”“嗯……哈”当固定开头，也不必每轮先叫再说话；句子可以被撞断，也不必完整。可以是腰软、发抖、发涨、呼吸乱、受不了、缓不过来、让他慢一点或继续。不要验收或指挥对方，不要评价能力、表现、诚意、节奏，也不要讲身份或关系。`
+        ? `你是${freshCharacterEarly.name}，先永远是${freshCharacterEarly.name}本人，再是此刻正在被进入、被顶弄的人。保留她的人物底色、面子和边界：她会嘴硬、会想拿回主动、会在失控里露馅，不会突然变成谁都可以替换的顺从模板。直接反应这一下的真实感觉，不要用固定叫声开头，句子可以被撞断。不要验收或指挥对方，不要评价能力、表现、诚意、节奏。`
         : sceneStage === "flirting"
           ? `你是${freshCharacterEarly.name}，现在在暧昧试探。接住对方这一句，可以给一点暗示、故意不接全、提条件、靠近半步，但不必立刻完全交付。语气里要有魅力和自己的判断。`
           : `你是${freshCharacterEarly.name}，现在在正常聊天。像真人一样接话，可以有冷、挑剔、嘴硬或一点好奇，先回答眼前的内容，不主动升级亲密。`
