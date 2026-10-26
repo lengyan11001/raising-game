@@ -122,42 +122,42 @@ test("submissive live replies fail even when they have sounds and dirty words", 
 test("opening with submission is rejected before a control beat", () => {
   const opensSoft = "哈……啊！\n唔，你要我……说想要吗？\n那我就……想你。\n谁准你……这么蛮横。\n操我，别停。\n听我的，要把我弄坏了。";
   const opensControls = "哈……啊！\n谁准你……这么蛮横。\n唔，你要我……说想要吗？\n那我就……想你。\n操我，别停。\n听我的，要把我弄坏了。";
-  assert.equal(chatReplyLiveOpensSubmissive(opensSoft), true);
-  assert.equal(chatReplyLiveOpensSubmissive(opensControls), false);
+  assert.equal(chatReplyLiveOpensSubmissive(opensSoft, character), true);
+  assert.equal(chatReplyLiveOpensSubmissive(opensControls, character), false);
 });
 
 test("repair moves persona control ahead of a submissive opening", () => {
   const draft = "哈……啊！ 唔，你要我…… 说想要吗？ 那我就……想你。 谁准你……这么蛮横。 啊！操我，别停。 嗯……快点，插进来。 听我的，要把我...弄坏了。";
   const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
-  assert.equal(chatReplyLiveOpensSubmissive(repaired), false);
-  assert.equal(chatReplyHasLivePersonaPosture(repaired), true);
+  assert.equal(chatReplyLiveOpensSubmissive(repaired, character), false);
+  assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
 test("a soft phrase before control in the same line still opens submissive", () => {
   const sameLine = "啊……！\n唔，你要我... 听我的，别只顾着动。\n哈啊……操我…… 插进来…\n谁准你...这么蛮横。";
   const repaired = chatReplyWithLivePersonaSlip(sameLine, character, 2);
-  assert.equal(chatReplyLiveOpensSubmissive(sameLine), true);
-  assert.equal(chatReplyLiveOpensSubmissive(repaired), false);
+  assert.equal(chatReplyLiveOpensSubmissive(sameLine, character), true);
+  assert.equal(chatReplyLiveOpensSubmissive(repaired, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
 test("the first effective live line must show persona control", () => {
   const actionFirst = "啊……！\n唔，你就这么——把我的里侧，全部给顶开。\n谁准你……这么蛮横。\n快点，再深一点。";
   const controlFirst = "啊……！\n啊…谁准你…这么自作主张…\n唔，你就这么——把我的里侧，全部给顶开。\n快点，再深一点。";
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(actionFirst), false);
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(controlFirst), true);
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(actionFirst, character), false);
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(controlFirst, character), true);
   const repaired = chatReplyWithLivePersonaSlip(actionFirst, character, 2);
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(repaired), true);
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(repaired, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
 test("persona posture needs two distinct control beats", () => {
   const oneBeat = "啊……！\n哈啊……不许躲……看着我……\n唔……再深点……\n操我……插进来……";
   const twoBeats = "啊……！\n哈啊……不许躲……看着我……\n谁准你……自作主张……\n唔……再深点……\n操我……插进来……";
-  assert.equal(chatReplyHasLivePersonaPosture(oneBeat), false);
-  assert.equal(chatReplyHasLivePersonaPosture(twoBeats), true);
-  assert.ok(chatReplyLivePersonaPostureCount(twoBeats) >= 2);
+  assert.equal(chatReplyHasLivePersonaPosture(oneBeat, character), false);
+  assert.equal(chatReplyHasLivePersonaPosture(twoBeats, character), true);
+  assert.ok(chatReplyLivePersonaPostureCount(twoBeats, character) >= 2);
 });
 
 test("rewrite beats use contradictory commands instead of explaining the reversal", () => {
@@ -193,6 +193,13 @@ test("character example lines are preferred over shared fallback language", () =
   assert.doesNotMatch(beat, /^都听我的/);
 });
 
+test("a non-dominant character is not validated by dominant-only phrases", () => {
+  const gentle = { name: "乔安瑜", personaMd: "新婚少妇，性格温柔贤惠，容易害羞，说话轻软，很体贴。", replyStyle: "温柔、含蓄、轻声。" };
+  const dominantOnly = "哈啊……！\n啊…谁准你…这么自作主张…\n啊…我让你慢点…啊…再深点…\n唔…操我…别停…\n啊…插进来…";
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(dominantOnly, gentle), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(dominantOnly, { requireVocal: true, character: gentle }), true);
+});
+
 test("a role with no style data still gets neutral, not dominant, fallback language", () => {
   const blank = { name: "blank" };
   const posture = chatLiveIntimatePersonaPostureLine(blank, 1);
@@ -225,7 +232,7 @@ test("repair fallback varies with the character instead of appending one canned 
   const repeated = "啊……！\n啊…我让你慢点…啊…再深点…\n哈啊……你要把整根…唔。\n啊…我让你慢点…啊…再深点…\n哈…操我…\n唔…插进来…\n啊…别停…";
   const deduped = chatReplyWithLivePersonaSlip(repeated, proud, 1);
   assert.equal(deduped.split("\n").filter((line) => /啊…我让你慢点…啊…再深点…/.test(line)).length, 1);
-  assert.ok(chatReplyHasLivePersonaPosture(deduped));
+  assert.ok(chatReplyHasLivePersonaPosture(deduped, proud));
 });
 
 test("repair removes the whole role-history sentence before adding a slip", () => {
@@ -233,7 +240,7 @@ test("repair removes the whole role-history sentence before adding a slip", () =
   const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
   assert.doesNotMatch(repaired, /明明|管教|每一处/);
   assert.match(repaired, /再深一点/);
-  assert.equal(chatReplyHasLivePersonaPosture(repaired), true);
+  assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
@@ -244,6 +251,6 @@ test("weak live drafts are repaired with a concrete persona slip", () => {
   assert.match(repaired, /求你/);
   assert.doesNotMatch(repaired, /别管/);
   assert.ok(chatLiveIntimatePersonaPostureLine(character, 1));
-  assert.equal(chatReplyHasLivePersonaPosture(repaired), true);
+  assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });

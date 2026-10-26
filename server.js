@@ -17674,7 +17674,7 @@ function chatLiveVoiceProfile(character = {}) {
     .join("\n");
   const has = (pattern) => pattern.test(source);
   return {
-    dominant: has(/(?:强势|掌控|控制欲|命令|严厉|高傲|冷艳|霸道|冷酷|上司|领导|主管|主任|老板|老师|医生|长辈|女王|俯视)/u),
+    dominant: has(/(?:强势|掌控(?:欲)?|控制欲|命令|严厉|高傲|冷艳|霸道|冷酷|上司|领导|主管|主任|老板|长辈|女王|俯视)/u),
     gentle: has(/(?:温柔|贤惠|软|甜|乖巧|体贴|亲和|含羞|害羞|容易脸红)/u),
     bold: has(/(?:风骚|骚|开放|直白|主动|性感|媚|浪|欲|勾人|大胆|肉便器|暴露)/u),
     tsundere: has(/(?:嘴硬|傲娇|别扭|不服|毒舌|冷淡|冷艳|挑剔|爱面子|要面子)/u),
@@ -17705,6 +17705,21 @@ function chatLiveCharacterVoiceLines(character = {}) {
   return [...new Set(lines)].slice(0, 8);
 }
 
+function chatLiveCharacterHasStrongStyle(character = {}) {
+  const source = chatLivePersonaSource(character);
+  return /(?:强势|掌控|控制欲|命令|严厉|高傲|冷艳|霸道|冷酷|上司|领导|主管|主任|老板|老师|长辈|女王|俯视)/u.test(source);
+}
+
+function chatLiveCharacterSpecificPostureRegex(character = {}) {
+  const lines = chatLiveCharacterPostureLines(character);
+  if (!lines.length) return null;
+  const escaped = lines
+    .flatMap((line) => String(line).split(/[。！？!?\n]+/).map((part) => part.trim()))
+    .filter((part) => part.length >= 2 && part.length <= 40)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return escaped.length ? new RegExp(`(?:${escaped.join("|")})`, "u") : null;
+}
+
 function chatLiveCharacterPostureLines(character = {}) {
   const source = chatLivePersonaSource(character);
   if (!source) return [];
@@ -17717,15 +17732,18 @@ function chatLiveCharacterPostureLines(character = {}) {
 
 function chatReplyLivePersonaPosturePattern(character = {}) {
   const profile = chatLiveVoiceProfile(character);
+  const strong = chatLiveCharacterHasStrongStyle(character);
   const parts = [
-    "不许", "不准", "谁准", "谁要你", "听我的", "都听我的", "我说了算", "轮不到",
-    "急什么", "别急", "等一下", "慢着", "先别动", "别碰", "手拿开", "看着我", "别躲",
-    "别自作主张", "别自己乱来", "我还没(?:让|准|说|同意|准备好|说完)", "我说可以才算",
-    "先(?:别|把|看着我|抱紧我|让我|听我说|缓一下)", "规矩", "你敢", "少得意", "偏不",
-    "别看我", "谁让你", "我让你", "给我(?:听|老实|忍住|停|慢|快|看着|说)",
+    "不许", "不准", "等一下", "慢着", "先别动", "别碰", "看着我", "别躲",
+    "别自作主张", "别自己乱来", "我还没(?:让|准|说|同意|准备好|说完)",
+    "先(?:别|把|看着我|抱紧我|让我|听我说|缓一下)", "偏不", "少得意",
+    "别看我", "谁让你", "给我(?:听|老实|忍住|停|慢|快|看着|说)", "先让我来",
   ];
+  if (strong) {
+    parts.push("谁准", "谁要你", "听我的", "都听我的", "我说了算", "轮不到", "急什么", "别急", "手拿开", "规矩", "你敢", "我让你", "我说可以才算");
+  }
   if (profile.gentle) parts.push("先抱紧我", "让我缓一下", "别走", "再近一点");
-  if (profile.bold) parts.push("先让我来", "我说可以", "别装", "你先说清楚");
+  if (profile.bold) parts.push("我说可以", "别装", "你先说清楚");
   if (profile.tsundere) parts.push("才不是", "想得美", "少来", "谁稀罕");
   if (profile.playful) parts.push("想得美", "偏要", "就不说", "先看我");
   if (profile.reserved) parts.push("先听我说", "让我想想", "我还没说完", "不准看");
@@ -17740,7 +17758,8 @@ function chatLiveIntimateRewriteBeat(character = {}, attempt = 1) {
     const index = (Math.max(1, Number(attempt) || 1) - 1) % extracted.length;
     return `${extracted[index].replace(/[。！？!?]+$/u, "")}…唔…别停…求你…`;
   }
-  const beats = profile.dominant
+  const strong = chatLiveCharacterHasStrongStyle(character);
+  const beats = strong && profile.dominant
     ? ["都听我的…唔…别停…求你…", "我让你慢点…啊…再深点…", "看着我…哈…谁让你自作主张…"]
     : profile.bold
       ? ["你想得美…哈…可别停…", "急什么…唔…先让我来…", "偏要看你…啊…受不了…"]
@@ -17765,18 +17784,23 @@ function chatLiveIntimatePersonaPostureLine(character = {}, attempt = 1) {
     const index = (Math.max(1, Number(attempt) || 1) - 1) % candidateLines.length;
     return candidateLines[index];
   }
-  const lines = profile.dominant
-    ? ["唔…不许躲…看着我…", "谁准你…这么自作主张…", "我还没说停…听见没有…", "急什么…先看着我…"]
-    : profile.bold
-      ? ["唔…急什么…先让我来…", "谁让你自己动了…", "看着我…别躲…", "我说可以才算…"]
-      : profile.gentle
-        ? ["唔…等一下…先抱紧我…", "别急…我还没准备好…", "轻一点…先听我说…", "你…别自己乱来…"]
+  const strong = chatLiveCharacterHasStrongStyle(character);
+  const lines = strong
+    ? (profile.dominant
+      ? ["唔…不许躲…看着我…", "谁准你…这么自作主张…", "我还没说停…听见没有…", "急什么…先看着我…"]
+      : profile.bold
+        ? ["唔…急什么…先让我来…", "谁让你自己动了…", "看着我…别躲…", "我说可以才算…"]
+        : ["唔…少得意…", "谁让你擅自乱来…", "别看我…我还没说可以…", "急什么…我才没催你…"])
+    : profile.gentle
+      ? ["唔…等一下…先抱紧我…", "别急…我还没准备好…", "轻一点…先听我说…", "你…别自己乱来…"]
+      : profile.bold
+        ? ["唔…急什么…先让我来…", "谁让你自己动了…", "看着我…别躲…", "我说可以才算…"]
         : profile.tsundere
           ? ["唔…少得意…", "谁让你擅自乱来…", "别看我…我还没说可以…", "急什么…我才没催你…"]
           : profile.playful
             ? ["唔…急什么…先看我…", "想得美…谁让你动了…", "偏不…你先说清楚…", "别躲…让我看看你…"]
             : profile.reserved
-              ? ["先别动…让我缓一下…", "不准看…我还没说完…", "慢着…谁许你乱来…", "等一下…先听我的…"]
+              ? ["先别动…让我缓一下…", "不准看…我还没说完…", "慢着…谁许你乱来…", "等一下…先听我说…"]
               : ["唔…先别动…", "等一下…我还没说完…", "你…别自作主张…", "急什么…先看着我…"];
   return lines[(Math.max(1, Number(attempt) || 1) - 1) % lines.length];
 }
@@ -49353,6 +49377,7 @@ module.exports = {
   chatLiveVoiceProfile,
   chatLiveCharacterVoiceLines,
   chatLiveCharacterPostureLines,
+  chatLiveCharacterHasStrongStyle,
   chatReplyLivePersonaPosturePattern,
   chatLiveIntimateRewriteBeat,
   chatLiveIntimatePersonaPostureLine,
