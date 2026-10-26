@@ -18193,12 +18193,14 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const novelisticEuphemism = /(?:那根粗大的|全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(text);
   const explanatoryReversal = /(?:明明是我|我居然被你|我原本该是|现在却被你|别管我[^。！？!?]{0,12}(?:规矩|面子|脸面))/u.test(text)
     || /(?:明明|明明就)是你在主导[^。！？!?]{0,40}(?:为什么|可为什么|怎么)[^。！？!?]{0,36}(?:身体|我会|我却)/u.test(text)
-    || /(?:为什么|怎么)(?:我的)?身体[^。！？!?]{0,30}(?:像|会|却)[^。！？!?]{0,30}(?:被|变成|反应)/u.test(text)
-    || /(?:配对法|新政|性教育配对|制度|政策|责任|义务|规定)[^。！？!?]{0,40}(?:而已|罢了|必须|应该|履行|遵守|执行|配合|完成|记住)/u.test(text)
-    || /(?:这只是在|我只是在|不过是)[^。！？!?]{0,30}(?:履行|执行|配合|完成|遵守|尽责)/u.test(text);
+    || /(?:为什么|怎么)(?:我的)?身体[^。！？!?]{0,30}(?:像|会|却)[^。！？!?]{0,30}(?:被|变成|反应)/u.test(text);
+  // In an intimate beat, policy/role language is always an explanation, no
+  // matter the sentence wrapper. Keep the character's identity implicit.
+  const policyExplanation = /(?:配对法|性教育配对|新政|制度|政策|任务要求|工作规定|组织安排|上级要求)/u.test(text)
+    || /(?:这只是在|我只是在|不过是|你记住|别忘了)[^。！？!?]{0,34}(?:履行|执行|配合|完成|遵守|尽责|义务|责任)/u.test(text);
   // One direct phrase such as 最深处 or 弄坏 can be ordinary erotic speech.
   // Only reject when literary/explaining language dominates the beat.
-  if (novelisticEuphemism || explanatoryReversal) return true;
+  if (novelisticEuphemism || explanatoryReversal || policyExplanation) return true;
   if (literaryHits >= 3) return true;
   if (explanatoryHits >= 2) return true;
   if (length >= 260 && literaryHits + abstractHits + explanatoryHits >= 6) return true;
