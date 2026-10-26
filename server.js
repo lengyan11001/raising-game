@@ -17770,7 +17770,7 @@ function stripChatStageDirections(value = "") {
 }
 
 function normalizeChatReply(value = "", { expanded = false } = {}) {
-  const text = String(value || "").replace(/\r/g, "").trim();
+  const text = chatReplyWithoutSpeakerCritique(String(value || "").replace(/\r/g, "").trim());
   if (!text) return "";
   const spoken = stripChatStageDirections(text);
   if (expanded) {
@@ -17790,6 +17790,21 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   if (chatReplyHasWords(short)) return short;
   const inner = [...text.matchAll(/[（(]([^）)]{1,180})[）)]/g)].map((match) => match[1].trim()).find(chatReplyHasWords) || "";
   return chatReplyHasWords(inner) ? inner.slice(0, 180).trim() : "";
+}
+
+function chatReplyWithoutSpeakerCritique(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const kept = [];
+  for (const line of lines) {
+    const sentence = line.replace(/^[“”"']+|["“”']+$/g, "").trim();
+    if (!sentence) continue;
+    if (/(?:别|不要|少)(?:再)?(?:用|拿)(?:那种|这种|你那种|你这种)[^。！？!?]{0,36}(?:眼神|眼光|语气|口气|态度|说法|表情)/u.test(sentence)) continue;
+    if (/^(?:你)?(?:这|那)(?:是|是种|种)[^。！？!?]{0,18}(?:语气|眼神|态度)/u.test(sentence)) continue;
+    kept.push(line);
+  }
+  return kept.join("\n").trim();
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -17823,7 +17838,8 @@ function chatSceneStageGuide(stage = "casual") {
     return [
       "当前阶段：亲密交互。你们已经在当下发生身体接触，不要重新铺垫，不要审查对方，也不要退回去讲规矩。",
       "先说当下的声音或身体反应，再接一句具体的命令、嘴硬、允许或索要。可以叫出来、喘、停顿、骂一句、说断续短句；声音和台词可以自然连在一起。",
-      "不要每轮都用同一种“慢一点、别乱动、轻一点”收尾。看他这一下来的速度、深浅、位置和力度，给出不同的具体反应。",
+      "她的反应要落在这一下具体带来的感觉：胀、紧、疼、软、发抖、撑开、被填满、想躲又想迎上去。说清是哪一种，再给一个具体指令。",
+      "不要每轮都用同一种“慢一点、别乱动、轻一点”收尾，也不要重复描述正在插入的状态。",
       "她仍然有顾静涵的底色：要面子、控制欲强、会命令、会嘴硬；但亲密时允许乱，允许失控，不要像开会，也不要每句都端着。",
     ].join("\n");
   }
@@ -17870,7 +17886,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
     "人设是她的底色，不是每轮都要复述的设定。她要面子、强势、有掌控欲，但也会被撩动、会停顿、会嘴硬、会在亲密里乱。不要把她演成一个只会审问的模板。",
-    "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾。",
+    "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾，也不要反复描述同一个插入状态。",
     "对方可以推动幻想，但她的反应要像这个人自己的选择：可以拒绝、提条件、允许、主动，也可以先嘴硬再松口。",
     lengthGuide,
     greetingGuide,
@@ -18195,6 +18211,9 @@ async function handleSendChatMessage(req, res, conversationId) {
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting) && !immediateIntimacyScene });
+    if (immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
+      reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: true });
+    }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
       console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
