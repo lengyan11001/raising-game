@@ -108,6 +108,10 @@ test("moans without concrete process or persona contradiction are rejected", () 
   assert.equal(chatReplyNeedsLiveIntimateRewrite(inflated, { requireVocal: true, character }), true);
   const inflatedRepair = chatReplyRepairLiveIntimateLocally(inflated);
   assert.doesNotMatch(inflatedRepair, /那层皮|撞碎|每一个动作都要|既然你这么坚持/);
+  const policy = "唔……！\n哈啊，你就这么——嗯，把那股劲儿全部塞进来。\n操，别光动……啊！\n你要是敢一直用这种速度冲刺，我真的会——唔。\n快点，要把我整个人都给撑开、灌满……哈。\n明明是我在主导这次配对，可我的身体却像被你完全占领了似的……嗯！\n再深一点点……你要是敢在这一连串的撞击里让我觉得你没给够力，我就要把你从我的‘配对清单’里直接踢出去。";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(policy, { requireVocal: true, character }), true);
+  const policyRepair = chatReplyRepairLiveIntimateLocally(policy);
+  assert.doesNotMatch(policyRepair, /配对|清单|没给够力|完全占领/);
 });
 
 test("third-person or incoherent dirty phrasing is rejected", () => {
