@@ -18219,6 +18219,13 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   return score;
 }
 
+function chatReplyLiveIntimateFallback(value = "", character = {}, attempt = 2) {
+  const original = String(value || "").trim();
+  if (!original || chatReplyIsDegenerate(original)) return "";
+  const repaired = chatReplyWithLivePersonaSlip(original, character, attempt);
+  return chatReplyIsDegenerate(repaired) ? original : repaired.trim();
+}
+
 function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -18795,8 +18802,20 @@ async function handleSendChatMessage(req, res, conversationId) {
         }
       }
       if (!accepted) {
+        // This validator is a quality preference, not a delivery gate. A transient
+        // model miss must not turn an otherwise usable chat turn into a 502.
+        const fallbackReply = chatReplyLiveIntimateFallback(bestCandidate.reply, liveIntimateCharacter, 2);
+        if (fallbackReply) {
+          raw = bestCandidate.raw;
+          reply = fallbackReply;
+          upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
+          accepted = true;
+          console.warn("[character-chat-live-intimate-rewrite-salvaged]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter), reply: reply.slice(0, 240) }));
+        }
+      }
+      if (!accepted) {
         console.warn("[character-chat-live-intimate-rewrite-exhausted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: String(bestCandidate.reply || "").slice(0, 240) }));
-        const unusable = Object.assign(new Error("Live intimate reply did not meet the spoken-scene requirements."), { statusCode: 502, requestId: chatRequestId, upstreamResponseId });
+        const unusable = Object.assign(new Error("Chat model returned an unusable intimate reply."), { statusCode: 502, requestId: chatRequestId, upstreamResponseId });
         throw unusable;
       }
     }
@@ -49404,5 +49423,6 @@ module.exports = {
   chatReplyLiveDirtyTalkCount,
   chatReplyLiveIntimateScore,
   chatReplyWithLivePersonaSlip,
+  chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
 };

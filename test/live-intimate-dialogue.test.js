@@ -22,6 +22,7 @@ const {
   chatReplyIntimateVocalReactionCount,
   chatReplyLiveIntimateScore,
   chatReplyWithLivePersonaSlip,
+  chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
 } = require("../server.js");
 
@@ -261,4 +262,13 @@ test("weak live drafts are repaired with a concrete persona slip", () => {
   assert.ok(chatLiveIntimatePersonaPostureLine(character, 1));
   assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
+});
+
+test("a quality-check miss is salvaged instead of becoming a 502", () => {
+  const rejectedProductionReply = "啊……！ 唔，你就这么—— 把我的里侧，全部给顶开。 哈啊……操我……快点。 别停，再深一点。 啊…我让你慢点…啊…再深点… 谁准你……这么蛮横。 快点，再深一点。";
+  const fallback = chatReplyLiveIntimateFallback(rejectedProductionReply, character, 2);
+  assert.ok(fallback.length > 0);
+  assert.match(fallback, /操我|插进来|别停/);
+  assert.equal(chatReplyLiveIntimateFallback("", character, 2), "");
+  assert.equal(chatReplyLiveIntimateFallback("啊……", character, 2), "");
 });
