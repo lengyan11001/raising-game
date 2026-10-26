@@ -18290,6 +18290,14 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
       repaired = lines.join("\n");
     }
   }
+  for (let guard = 0; guard < 4 && !chatReplyLiveStartsWithPersonaPosture(repaired, character); guard += 1) {
+    const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
+    const firstEffective = lines.findIndex((line) => !vocalOnly.test(line));
+    const nextPosture = chatLiveIntimatePersonaPostureLine(character, attempt + guard + 1);
+    lines.splice(Math.max(0, firstEffective), 0, `啊…${nextPosture}`);
+    repaired = lines.join("\n");
+    if (chatReplyLiveStartsWithPersonaPosture(repaired, character)) break;
+  }
   if (!chatReplyLiveStartsWithPersonaPosture(repaired, character)) {
     const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
     const firstEffective = lines.findIndex((line) => !vocalOnly.test(line));
