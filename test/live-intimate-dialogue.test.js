@@ -79,6 +79,29 @@ test("a concrete character reversal with live dirty talk passes", () => {
   assert.ok(chatReplyLiveIntimateScore(valid, character) >= 24);
 });
 
+test("four scattered vocal beats and a broken persona reversal pass", () => {
+  const natural = "啊……！\n哈啊……别只顾着快，把你的鸡巴更深一点地灌进来……唔。\n操，你要是再这么猛地撞入我的里面——哈啊！\n别停……你就这么一直顶到底，哪怕要把我整个人都撑开也别松手。";
+  assert.equal(chatReplyIntimateVocalReactionCount(natural), 4);
+  assert.equal(chatReplyLiveBrokenSpeechCount(natural) >= 3, true);
+  assert.equal(chatReplyHasLiveIntimateDelivery(natural), true);
+  assert.equal(chatReplyHasPersonaContrast(natural, character), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(natural, { requireVocal: true, character }), false);
+});
+
+test("three vocal beats still fail the live delivery gate", () => {
+  const tooSparse = "啊……！\n哈啊……别只顾着快……\n唔……再深一点……\n操我……别停……";
+  assert.equal(chatReplyIntimateVocalReactionCount(tooSparse), 3);
+  assert.equal(chatReplyHasLiveIntimateDelivery(tooSparse), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(tooSparse, { requireVocal: true, character }), true);
+});
+
+test("a smooth beat with a reversal still needs live spoken texture", () => {
+  const smooth = "我想让你慢一点，可又忍不住想要你更深地插进来。别看我，我已经湿了，你继续吧。";
+  assert.equal(chatReplyHasPersonaContrast(smooth, character), true);
+  assert.equal(chatReplyHasLiveIntimateDelivery(smooth), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(smooth, { requireVocal: true, character }), true);
+});
+
 test("novelistic euphemisms do not count as direct dirty talk", () => {
   const euphemistic = "哈啊……啊……你就这么…把那根粗大的…全部灌进来…唔…再深点…";
   assert.equal(chatReplyHasLiveDirtyTalk(euphemistic), false);
@@ -167,9 +190,11 @@ test("submissive replies can sound present without forced dominant posture", () 
   const selfBetraying = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……啊……\n我本来想忍住……可里面已经湿了……\n别看我……\n哈啊……夹紧了……";
   assert.equal(chatReplyHasLivePersonaPosture(obedient, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(selfBetraying, { requireVocal: true, character }), false);
-  assert.equal(chatReplyHasLiveSpokenTexture(obedient), false);
+  assert.equal(chatReplyHasLiveSpokenTexture(obedient), true);
+  assert.equal(chatReplyHasLiveIntimateDelivery(obedient), true);
   assert.equal(chatReplyLiveBrokenSpeechCount(obedient) >= 1, true);
   assert.equal(chatReplyHasPersonaContrast(obedient, character), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), true);
 });
 
 test("opening with submission is rejected before a control beat", () => {

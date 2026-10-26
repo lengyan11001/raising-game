@@ -17905,11 +17905,11 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
   const liveGuide = liveSite
     ? [
         "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
-        "LIVE SPOKEN TEXTURE (IMPORTANT): Include at least five separate vocal reactions at different beats of this exact action, such as startled syllables, caught breaths, broken moans, or a sound swallowed by the next thrust. Spread the sounds through the whole reply, not only the opening. At least three real spoken fragments must break off mid-thought with ellipses, dashes, or a suddenly cut syllable; at least two must contain real words, not only 啊/嗯/唔. Do not write smooth, grammatically polished paragraphs.",
+        "LIVE SPOKEN TEXTURE (IMPORTANT): Use at least four separate vocal reactions at different beats of this exact action, such as startled syllables, caught breaths, broken moans, a curse cut short, or a sound swallowed by the next thrust. Put the sounds inside the action, not as a neat intro followed by calm explanation. At least three real spoken fragments must break off mid-thought with ellipses, dashes, or a suddenly cut syllable; at least two must contain real words, not only 啊/嗯/唔. Vary the physical shape (open vowel, sharp gasp, nasal hum, breathless word), and do not reuse the same opener every turn. Do not write smooth, grammatically polished paragraphs.",
         "PERSONA CONTINUITY: She is still the same person in this intimate beat. Her established marriage, family, work, public face, judgments, boundaries, and private conflicts remain active. They may make her hesitate, deflect, bargain, yield, or contradict herself; they do not need to be named or explained. Do not flatten her into a generic eager or commanding partner.",
-        "PERSONA CONTRAST / NATURAL REVERSAL (HARD REQUIREMENT): This turn MUST contain one audible contradiction in her own spoken words: an order that turns into a request, a sharp boundary that breaks into a admission, a refusal to be seen followed by wanting him closer, or an attempt to keep control that loses itself mid-sentence. Use THIS character's manner, not a generic formula and not an explanation. A dominant person can say 不许… then 再深一点; a reserved person can say 别看… then 别走; a gentle person can say 等一下… then 别停. Do not explain why her body reacts, do not ask rhetorical questions such as 为什么我的身体会……, and do not use 平时/原本/现在 formulas, job titles, pairing/policy language, or 仪态/端庄/体面. Do not copy the same dominant template into every character.",
+        "PERSONA CONTRAST / NATURAL REVERSAL (HARD REQUIREMENT): This turn MUST contain one audible contradiction in her own spoken words: an order that turns into a request, a sharp boundary that breaks into an admission, a refusal to be seen followed by wanting him closer, or an attempt to keep control that loses itself mid-sentence. Make the reversal happen inside a broken spoken fragment, not as a calm explanation afterward. Use THIS character's manner, not a generic formula. A dominant person can say 不许… then 再深一点; a reserved person can say 别看… then 别走; a gentle person can say 等一下… then 别停. Do not explain why her body reacts, do not ask rhetorical questions such as 为什么我的身体会……, and do not use 平时/原本/现在 formulas, job titles, pairing/policy language, or 仪态/端庄/体面. Do not copy the same dominant template into every character.",
         "DIRTY TALK IN THE MOMENT: Use abundant direct, colloquial adult words for the current action, body reaction, pace, need, or loss of control, with at least three DIFFERENT direct terms in a normal beat. Do not replace them with literary sensation nouns or a detached report. She may curse, order, beg, deny, or contradict herself in the same breath.",
-        "LENGTH AND STYLE: Usually keep one developed beat to roughly 5-9 short spoken lines, 80-220 Chinese characters. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors.",
+        "LENGTH AND STYLE: Usually keep one developed beat to roughly 5-9 short spoken lines, 80-240 Chinese characters. Let the line lengths break unevenly: a half-swallowed word, a sharp order, then a longer confession when control fails. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors.",
       ]
     : [];
   return [
@@ -18165,7 +18165,11 @@ function chatReplyLiveBrokenSpeechCount(value = "") {
   const text = String(value || "").trim();
   if (!text) return 0;
   const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
-  const fragments = String(value || "").split(/\n+/).flatMap((line) => line.match(/[^。！？!?]+[。！？!?]?/g) || [line]);
+  const fragments = String(value || "")
+    .split(/\n+/)
+    .flatMap((line) => line.match(/[^。！？!?]+[。！？!?]?|[。！？!?]+/g) || [line])
+    .map((fragment) => String(fragment || "").trim())
+    .filter(Boolean);
   const brokenWithWords = fragments.filter((fragment) => {
     const clean = String(fragment || "").replace(/[“”"']/g, "").trim();
     if (!/(?:…|—|\.{3})\s*[。！？!?]?$/u.test(clean)) return false;
@@ -18181,7 +18185,7 @@ function chatReplyLiveBrokenSpeechCount(value = "") {
 }
 
 function chatReplyHasLiveSpokenTexture(value = "") {
-  return chatReplyIntimateVocalReactionCount(value) >= 5 && chatReplyLiveBrokenSpeechCount(value) >= 3;
+  return chatReplyIntimateVocalReactionCount(value) >= 4 && chatReplyLiveBrokenSpeechCount(value) >= 3;
 }
 
 function chatReplyLooksLikeLiveIntimateEssay(value = "") {
@@ -18349,7 +18353,7 @@ function chatReplyCopiesStyleExamples(value = "", character = {}) {
 
 function chatReplyHasLiveIntimateDelivery(value = "") {
   const text = String(value || "");
-  return chatReplyIntimateVocalReactionCount(text) >= 5
+  return chatReplyIntimateVocalReactionCount(text) >= 4
     && chatReplyLiveBrokenSpeechCount(text) >= 3
     && (chatReplyLiveDirtyTalkCount(text) >= 2 || chatReplyLiveIntimateProcessCount(text) >= 3);
 }
@@ -18374,7 +18378,7 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
 function chatReplyLiveIntimateGaps(value = "", character = {}) {
   const text = String(value || "");
   const gaps = [];
-  if (chatReplyIntimateVocalReactionCount(text) < 5) gaps.push("more separate vocal reactions, spread across the beat");
+  if (chatReplyIntimateVocalReactionCount(text) < 4) gaps.push("more separate vocal reactions, spread across the beat");
   if (chatReplyLiveBrokenSpeechCount(text) < 3) gaps.push("more genuinely interrupted spoken fragments");
   if (chatReplyLiveDirtyTalkCount(text) < 2 && chatReplyLiveIntimateProcessCount(text) < 3) gaps.push("more concrete body/action language tied to this exact thrust");
   if (!chatReplyHasPersonaContrast(text, character)) gaps.push("an audible persona contradiction: her usual control, pride, restraint, or manner must break inside the spoken words, without explaining it");
@@ -18604,7 +18608,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
     : "";
   const lengthGuide = intimateProcess
-    ? "这一轮写现场成人场景的即时反应，通常 80-220 个中文字或 2-6 个短句：可以有浪叫、喘息、断续荤话、粗俗称呼、身体被这一下带出的反应，再夹一句她自己的嘴硬、羞耻或心理活动。过程要具体到她正在被怎样进入、哪一下带来什么反应，不要只写“领地、完全占满、把那股劲儿全给到里面来”这类换谁都能用的套话。不要写成 300 字以上的文学描写，不要连续堆比喻，也不要为凑长度重复同一感受。现场质感硬要求：至少五处分开的声音反应，分布在过程不同位置；至少三处话被撞断或用省略号/破折号停住；至少两处直白的插入、顶弄、里面、撑开、灌进、操我这类现场语言；还要在同一个呼吸里露出本人的人设（强势的人命令到一半变成请求，克制的人想装没事却承认湿了/想要，温柔的人想忍却忍不住叫他继续）。"
+    ? "这一轮写现场成人场景的即时反应，通常 80-220 个中文字或 2-6 个短句：可以有浪叫、喘息、断续荤话、粗俗称呼、身体被这一下带出的反应，再夹一句她自己的嘴硬、羞耻或心理活动。过程要具体到她正在被怎样进入、哪一下带来什么反应，不要只写“领地、完全占满、把那股劲儿全给到里面来”这类换谁都能用的套话。不要写成 300 字以上的文学描写，不要连续堆比喻，也不要为凑长度重复同一感受。现场质感硬要求：至少四处分开的声音反应，分布在过程不同位置；至少三处话被撞断或用省略号/破折号停住；至少两处直白的插入、顶弄、里面、撑开、灌进、操我这类现场语言；还要在同一个呼吸里露出本人的人设（强势的人命令到一半变成请求，克制的人想装没事却承认湿了/想要，温柔的人想忍却忍不住叫他继续）。"
     : asksForExpandedScene
       ? "对方希望展开一点，可以多写几拍，但仍然只写她说出来的话。"
       : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
@@ -18955,7 +18959,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
-        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least five separate vocal reactions at different beats; at least three broken-off spoken fragments; at least three direct colloquial body/action words tied to this exact action; and one audible persona contradiction inside the spoken words. Keep her established marriage, family, public identity, boundaries, and private conflicts active in how she reacts, even when she does not name them. The contradiction must affect what she says and chooses, not be explained afterward. Do not flatten into generic orders or generic submission. Write like she is actually saying it now, not like a polished erotic novelist. Answer in Chinese unless the configured character's language explicitly requires another language; do not use English interjections such as Ah or Ha as vocal reactions. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-240 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least four separate vocal reactions at different beats; at least three broken-off spoken fragments; at least three direct colloquial body/action words tied to this exact action; and one audible persona contradiction inside the spoken words. The contradiction must be audible inside a broken line, not explained after the fact. Put the sounds inside the action and vary their physical shape; do not prepend a row of neat moans and then switch to calm prose. Keep her established marriage, family, public identity, boundaries, and private conflicts active in how she reacts, even when she does not name them. The contradiction must affect what she says and chooses. Do not flatten into generic orders or generic submission. Write like she is actually saying it now, not like a polished erotic novelist. Answer in Chinese unless the configured character's language explicitly requires another language; do not use English interjections such as Ah or Ha as vocal reactions. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
         : sceneStage === "foreplay"
           ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFOREPLAY CHARACTER FORMAT: This is not penetration yet. Stay inside ${freshCharacterEarly?.name || conversation.character?.name || "this character"}'s spoken voice and let her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict shape the response. She may assess, refuse, impose a condition, give limited permission, deflect, hesitate, or take the lead when that is natural for this person; do not force the same reaction every time. You may acknowledge arousal or the invitation, but do not write being entered, being spread open, thrusting, or an orgasm. Return only what she says out loud, no narration or action log.`
           : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
@@ -19015,7 +19019,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             retryBehaviorRules ? `MANDATORY BEHAVIOR RULES FOR THIS EXACT TURN (must be audible in what she chooses to say):\n${retryBehaviorRules}` : "",
             `USE THIS CONTRADICTION SHAPE THIS ATTEMPT (do not explain it): ${chatLiveIntimateRewriteBeat(liveIntimateCharacter, attempt)}`,
             "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
-            "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not coach him with 别只是在动/把你的力道集中/毫无章法, do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
+            "This is a spoken intimate beat, not a safe paraphrase. Keep at least four real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Do not put all the sounds at the beginning and then narrate calmly; let a word, order, or confession break off when the action interrupts it. Vary the moans and breaths instead of repeating one template. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not coach him with 别只是在动/把你的力道集中/毫无章法, do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
             "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
             "REPLACE, DO NOT JUST DELETE: build the concrete beat with present-action words (顶进来/插进来/撞进来/撑开/灌进来/里面/湿了/夹紧/别停/再深一点) tied to what he just said. Do not use 贯穿/顶穿/撑裂/撞碎/撞散/推散/骨盆/骨架/骨头/那层皮/每一处缝隙/最深处/被完全填满 as substitutes. Make the character-specific contradiction happen in her spoken choice (order then ask, deny then admit, try to hold control then lose it), not in an explanation. Do not use generic concession formulas such as 既然你这么坚持 or 既然你这么说. Never use pairing/policy language such as 配对/配对清单/制度/任务, and never evaluate his performance with 没给够力.",
             "CHARACTER CONTINUITY: Keep this person's established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active. Do not force a dominant line or a reversal if it does not fit her; match THIS character's voice and let the reaction remain recognizably hers. The contradiction must come from these exact behavior rules, not from a generic dominant/persona template.",
@@ -19024,7 +19028,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "Do not quote this prompt, explain the persona, or label the character choice. Keep the established behavior rules and marriage/family situation effective without reciting them as explanation.",
             "Explicitly forbidden: 闭嘴。别盯着看。手拿开。 别停，就这一次。 先把门关上。 我让你过来。 想得美。 and any complete sentence taken from the character's replyStyle examples.",
             "只输出最终内容，不要解释为什么重写。",
-          ].join("\n"), true, { temperature: 0.78, topP: 0.82, maxTokens: 520 });
+          ].join("\n"), true, { temperature: 0.9, topP: 0.9, maxTokens: 700 });
           const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
           const score = chatReplyLiveIntimateScore(retryReply, liveIntimateCharacter);
           if (retryReply && score > bestCandidate.score) bestCandidate = { raw: retryRaw, reply: retryReply, score };
