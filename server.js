@@ -17569,6 +17569,22 @@ function chatWantsExpandedScene(value = "") {
   return /(?:继续(?:剧情|这个场景)|详细(?:描述|写)|展开写|沉浸式|描写一下|写长一点|roleplay|in character|describe the scene|continue the scene)/i.test(String(value || ""));
 }
 
+function chatTurnDirective(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "OPEN TURN: There is no new instruction. Use the character's current mood and relationship to advance one natural beat.";
+  const asksCharacterToAct = /(?:你自己动|你自己来|你来|你动|主动点|你坐|你趴|你躺|你转|你脱|你用|你把|你给|你帮|你亲|你抱|你含|你舔|趴下|坐上来|躺下|转过去|翘高|含住|亲我|抱我|给我|让我(?:爽|舒服|看看))/u.test(text);
+  const asksPermission = /(?:可以|能不能|要不要|想不想|让我|我可以|能吗|好吗).*(?:插入|进来|继续|亲|抱|碰|摸|做|要)/u.test(text);
+  const asksQuestion = /[?？]|(?:吗|呢|什么|怎么|为什么|有没有|是不是|多久|哪里|谁|感觉如何|告诉我你的感受)/u.test(text);
+  const givesPace = /(?:九浅一深|酒浅一深|慢慢|慢点|慢一点|快点|快一点|轻点|重点|用力|加速|停一下|继续|再深|深一点|浅一点|节奏)/u.test(text);
+  const userActs = /(?:^|[，。！？\s])(?:我(?:要|想|已经|正|来|先|再|把|给|帮|忍|插|进|加速|停|抱|亲|摸|碰|脱|弄|动)|让我(?:来|先|插|进))/u.test(text);
+  if (asksCharacterToAct) return "COOPERATE / CHARACTER ACTS: The user is asking YOU to do something. Do it yourself in this reply. The character's dominance, coldness, or pride changes HOW she acts, never whether she obeys. Do not turn the request back into an order for the user. Example: 用户说“你自己动” → “行，你别动，我来。”";
+  if (asksPermission) return "ANSWER THE REQUEST: Give a clear yes, no, condition, or invitation in character. Do not dodge with atmosphere or issue a counter-command.";
+  if (asksQuestion) return "ANSWER THE QUESTION: Answer the user's exact question first, using the character's attitude. A direct confession, denial, feeling, or fact is enough. Do not change the subject.";
+  if (givesPace) return "FOLLOW THE PACE: The user gave a rhythm or preference. Follow it now. Show the character's reaction in her own voice; do not restate the instruction as a new command to the user.";
+  if (userActs) return "REACT / RECEIVE: The user is doing or about to do something. Respond as the person receiving it: consent, sensation, emotion, and one natural next beat. Do not countermand their action. The character may still sound dominant by taking control of how she responds.";
+  return "ADVANCE IN CHARACTER: The user gave no concrete action. Use the character's background, mood, and relationship to initiate one small next step. Do not repeat an old line or jump to a new unrelated scene.";
+}
+
 function chatReplyHasWords(value = "") {
   return /[\p{L}\p{N}]/u.test(String(value || ""));
 }
@@ -17593,44 +17609,6 @@ function chatReplyUsesTemplate(value = "") {
   const formulaic = [/既然你/g, /那你就别/g, /你要是敢/g, /我就要把你按/g, /让你知道谁才是真正掌控/g, /把你的腰部/g];
   const formulaCount = formulaic.reduce((count, pattern) => count + ((compact.match(pattern) || []).length), 0);
   return formulaCount >= 2 || /既然.{0,16}那你就别.{0,160}你要是敢/u.test(compact);
-}
-
-function chatReplyRepeatsRecent(value = "", recentReplies = []) {
-  const current = compactChatReply(value);
-  if (!current) return false;
-  if (chatReplyUsesTemplate(current)) return true;
-  const previous = (Array.isArray(recentReplies) ? recentReplies : []).map(compactChatReply).filter(Boolean).slice(-6);
-  if (!previous.length) return false;
-  for (const item of previous) {
-    if (current === item) return true;
-    const shorterLength = Math.min(current.length, item.length);
-    for (let size = Math.min(16, shorterLength); size >= 10; size -= 1) {
-      for (let index = 0; index <= current.length - size; index += 1) {
-        if (item.includes(current.slice(index, index + size))) return true;
-      }
-    }
-    const currentPairs = new Set(Array.from({ length: Math.max(0, current.length - 1) }, (_, index) => current.slice(index, index + 2)));
-    const previousPairs = new Set(Array.from({ length: Math.max(0, item.length - 1) }, (_, index) => item.slice(index, index + 2)));
-    if (!currentPairs.size || !previousPairs.size) continue;
-    const overlap = [...currentPairs].filter((pair) => previousPairs.has(pair)).length;
-    if (overlap / currentPairs.size >= 0.32) return true;
-  }
-  return false;
-}
-
-function chatRetryCorrection(value = "", recentReplies = [], latestUserMessage = "", attempt = 1) {
-  const repeated = chatReplyRepeatsRecent(value, recentReplies);
-  return [
-    `RETRY CORRECTION ${attempt}: The previous draft was not acceptable because it was ${repeated ? "a banned formula or too similar to an earlier reply" : "incomplete or unusable"}.`,
-    "Discard the rejected draft and its entire sentence structure.",
-    "BANNED THIS TURN: 既然你 / 那你就别 / 你要是敢 / 我就要把你按 / 让你知道谁才是真正掌控 / 把你的腰部. Do not use any of these phrases.",
-    "Do not command, challenge, threaten, or instruct the user. The user's latest message is the request; respond as the character receiving or doing it.",
-    latestUserMessage ? `LATEST USER REQUEST TO ANSWER DIRECTLY: ${String(latestUserMessage).slice(0, 800)}` : "",
-    attempt >= 2
-      ? "Restart in a different rhythm: begin with a concrete reaction such as 来 / 嗯 / 好 / 慢点 / 我..., then say or do what the user asked. Use at most two short spoken sentences."
-      : "Write a fresh, cooperative reply in one or two short spoken sentences.",
-    "No atmosphere, metaphor, recap, new threat, or closing slogan. A short direct answer with a different rhythm is better than a long formulaic paragraph.",
-  ].join("\n");
 }
 
 function chatHistoryWithoutTemplates(messages = [], limit = 24) {
@@ -17682,6 +17660,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
   const tracker = plainObject(conversation.tracker);
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
+  const turnDirective = chatTurnDirective(latest);
   const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-4);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const styleGuide = {
@@ -17711,6 +17690,8 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
     "COOPERATION, NOT COMMANDING: Decide what this exact message needs. If it is a question, answer it. If it is a description, react to it. If the user says they want to do something with you, answer as the person receiving it, not as a supervisor issuing another order. Do not reflexively tell the user to do the same thing back to you.",
+    `TURN DECISION (highest priority after language, actor ownership, and voice): ${turnDirective}`,
+    "PERSONA USE: Use the character sheet for attitude, preferences, initiative, and speaking style. Do not use persona as a reason to refuse cooperation. A cold, dominant, proud, shy, or bratty character still answers the user's request in her own way. If the user hands control to the character, the character must act; if the user takes the lead, the character reacts. If the user gives no direction, the character may advance the scene based on her current desire and the established relationship.",
     "DO NOT COPY YOUR OWN TEMPLATE: Do not start consecutive replies with 既然..., 那你就别..., 你要是敢..., or 我就要把你... . Do not reuse a threat, closing sentence, posture, rhythm, or signature phrase from your recent replies. Never repeat a previous passage with minor substitutions. Each reply must look like a new text message, not a fill-in-the-blank template.",
     "AGENCY CHECK: The user's 我/我的 is the user and 你/你的 is you. When the user says 我要后入了 or 我要把你举起来, show your own consent, reaction, sensation, or preference in spoken words. Bad: 那你就别只是在前面发号施令，把你的腰部... Good: 来，慢一点，先顶进来，我受得住。 Do not answer every action with a new command for the user.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",
@@ -17993,30 +17974,17 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
-    const requestChat = (retry = false, rejectedReply = "", retryAttempt = 1) => {
-      const requestMessages = retry
-        ? [...chatMessages, { role: "system", content: chatRetryCorrection(rejectedReply, recentAssistantReplies, latestUserMessage, retryAttempt) }]
-        : chatMessages;
-      const tuning = { frequency_penalty: retry ? 1.0 : 0.3, presence_penalty: retry ? 0.9 : 0.22 };
+    const requestChat = () => {
+      const tuning = { frequency_penalty: 0.45, presence_penalty: 0.35 };
       return usePapayaChat
-        ? papayaLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 1.0 : chatTemperature, top_p: retry ? 0.95 : 0.9, max_tokens: retry ? Math.min(chatMaxTokens, 240) : chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
-        : byteplusLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 0.95 : chatTemperature, top_p: retry ? 0.95 : 0.9, max_tokens: retry ? Math.min(chatMaxTokens, 240) : chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
+        ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
+        : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
     };
     let upstreamResponseId = "";
-    let raw = await requestChat(false);
+    let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const repeatedReply = chatReplyRepeatsRecent(reply, recentAssistantReplies);
-      const unusable = chatReplyIsDegenerate(reply, { simpleGreeting }) || repeatedReply;
-      if (!unusable) break;
-      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, attempt, repeatedReply, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
-      if (attempt === 3) break;
-      raw = await requestChat(true, reply, attempt);
-      upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
-      reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    }
-    if (chatReplyIsDegenerate(reply, { simpleGreeting }) || chatReplyRepeatsRecent(reply, recentAssistantReplies)) {
+    if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
       console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
       unusable.requestId = chatRequestId;
