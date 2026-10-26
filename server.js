@@ -6647,7 +6647,7 @@ function chatLiveUserContext(user = null) {
 }
 
 function chatMemoryTurnsForPrompt(turns = [], { currentMessages = [] } = {}) {
-  const list = chatHistoryWithoutPollutedReplies(turns).filter((turn) => turn && ["user", "assistant"].includes(turn.role));
+  const list = (Array.isArray(turns) ? turns : []).filter((turn) => turn && ["user", "assistant"].includes(turn.role));
   const current = (Array.isArray(currentMessages) ? currentMessages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
   const removed = new Set();
   for (let index = 0; index < list.length; index += 1) {
@@ -17669,19 +17669,8 @@ function chatContextHasRepeatedReplyScaffold(messages = []) {
   return false;
 }
 
-function chatReplyUsesAbstractIntimacyVoice(value = "") {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) return false;
-  return /(?:别让我觉得你|你要我承受|频繁的位移|定格在这一刻|呈现出什么样子|承担责任|旁观我的羞耻|审视艺术品的眼神|物理位移|视觉收藏|宏大的|仪式感)/u.test(text);
-}
-
-function chatHistoryWithoutPollutedReplies(messages = []) {
-  const list = Array.isArray(messages) ? messages : [];
-  return list.filter((message) => message?.role !== "assistant" || !chatReplyUsesAbstractIntimacyVoice(message.content));
-}
-
 function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
-  const raw = chatHistoryWithoutPollutedReplies(messages).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const raw = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
   const list = [];
   for (const message of raw) {
     const previous = list.at(-1);
@@ -17727,7 +17716,7 @@ function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
     if (message.role === "assistant" && continuity.some((kept) => kept.role === "assistant" && chatContextSimilarity(kept.content, message.content) >= 0.86)) continue;
     continuity.unshift(message);
   }
-  return [...continuity.slice(-4), ...currentTurn];
+  return [...continuity.slice(-8), ...currentTurn];
 }
 
 function chatReplyHasWords(value = "") {
