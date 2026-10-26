@@ -17842,14 +17842,18 @@ function stripChatStageDirections(value = "") {
   return text.replace(/^[)）\s]+/, "").trim();
 }
 
-function normalizeChatReply(value = "", { expanded = false } = {}) {
+function normalizeChatReply(value = "", { expanded = false, preserveBreaks = false } = {}) {
   const text = chatReplyWithoutSpeakerCritique(String(value || "").replace(/\r/g, "").trim());
   if (!text) return "";
   const spoken = stripChatStageDirections(text);
   if (expanded) {
     const fallback = text.replace(/^[)）\s]+/, "").trim();
     const expandedText = chatReplyHasWords(spoken) ? spoken : (chatReplyHasWords(fallback) ? fallback : "");
-    return expandedText.replace(/[ \t]*\n+[ \t]*/g, " ").trim();
+    return expandedText
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n[ \t]+/g, "\n")
+      .replace(preserveBreaks ? /\n{3,}/g : /\n+/g, preserveBreaks ? "\n\n" : " ")
+      .trim();
   }
   const compact = spoken.replace(/[ ]{2,}/g, " ").trim();
   const quoted = [...compact.matchAll(/[“"]([^”"]+)[”"]/g)].map((match) => match[1].trim()).filter(chatReplyHasWords);
@@ -18389,7 +18393,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const simpleGreeting = isSimpleChatGreeting(latestUserMessage) && !hasReplyStyle;
     const expandedScene = chatWantsExpandedScene(latestUserMessage);
     const immediateIntimacyScene = chatIsImmediateIntimateScene(latestUserMessage, messages);
-    const modelMessages = simpleGreeting
+    let modelMessages = simpleGreeting
       ? [{ role: "user", content: latestUserMessage }]
       : chatMessagesForNewTurn(messages, latestUserMessage);
     if (freshCharacterEarly) {
@@ -18399,6 +18403,11 @@ async function handleSendChatMessage(req, res, conversationId) {
     const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
     const sceneStage = chatSceneStage(latestUserMessage, modelMessages, relationshipBeforeReply);
     const liveSiteChat = requestTenantDescriptor(req).toolId === "live";
+    if (liveSiteChat && immediateIntimacyScene) {
+      // Old assistant prose teaches the model to imitate the exact weak rhythm we are removing.
+      // Keep the user's concrete actions, but do not let rejected phrasing re-enter the context.
+      modelMessages = modelMessages.filter((message) => message.role === "user").slice(-8);
+    }
     const sceneAnchor = freshCharacterEarly
       ? sceneStage === "intimate"
         ? `你是${freshCharacterEarly.name}，先永远是${freshCharacterEarly.name}本人，再是此刻正在被进入、被顶弄的人。保留她的人物底色、面子和边界：她会嘴硬、会想拿回主动、会在失控里露馅，不会突然变成谁都可以替换的顺从模板。直接反应这一下的真实感觉，不要用固定叫声开头，句子可以被撞断。不要验收或指挥对方，不要评价能力、表现、诚意、节奏。`
@@ -18434,7 +18443,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     let upstreamResponseId = "";
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
-    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting || (liveSiteChat && immediateIntimacyScene)) });
+    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting || (liveSiteChat && immediateIntimacyScene)), preserveBreaks: liveSiteChat && immediateIntimacyScene });
     const liveIntimateCharacter = freshCharacterEarly || conversation.character || {};
     if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply, { requireVocal: true, character: liveIntimateCharacter })) {
       const rejectedReply = reply;
@@ -18451,10 +18460,10 @@ async function handleSendChatMessage(req, res, conversationId) {
             "At least two hits must be direct, ordinary adult speech for this exact action: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Do not use abstract sensation nouns.",
             `Use one concrete reversal anchor from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech, not as an explanation: her usual order collapses into “求你…” or “听我的…” becoming “我不敢信…”; her rule-keeping turns into “我居然…” or “我怎么会…”; her distance turns into clinging. Never write a contrast sentence shaped like “明明我…现在…/原本…现在…” and never write “别管我的规矩/面子/脸面”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
             "Banned shapes: 每一寸, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
-            "Form reference only, do not reuse its nouns or wording:\n啊…！\n哈啊…别、别停…\n唔…我平时只让人守规矩…\n现在…求你…操我…\n嘶…再深…灌进来…\n嗯…不许笑…",
+            "Do not quote this prompt, explain the persona, or label the reversal. Let the broken words themselves expose the slip.",
             "只输出最终内容，不要解释为什么重写。",
           ].join("\n"), true, { temperature: 0.78, topP: 0.82, maxTokens: 520 });
-          const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
+          const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
           const score = chatReplyLiveIntimateScore(retryReply, liveIntimateCharacter);
           if (retryReply && score > bestCandidate.score) bestCandidate = { raw: retryRaw, reply: retryReply, score };
           if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true, character: liveIntimateCharacter })) {

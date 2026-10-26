@@ -126,7 +126,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.doesNotMatch(server, /slice\(0, 720\)/);
   assert.match(server, /immediateIntimacyScene \? \(liveSiteChat \? 0\.95 : 0\.92\) : expandedScene \? 0\.78/);
   assert.match(server, /simpleGreeting \? 240 : liveSiteChat && immediateIntimacyScene \? 2400 : immediateIntimacyScene \|\| expandedScene \? 1200 : 900/);
-  assert.match(server, /const modelMessages = simpleGreeting/);
+  assert.match(server, /let modelMessages = simpleGreeting/);
+  assert.match(server, /Old assistant prose teaches the model/);
+  assert.match(server, /modelMessages\.filter\(\(message\) => message\.role === "user"\)\.slice\(-8\)/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
