@@ -18218,6 +18218,92 @@ function chatReplyHasLiveDirtyTalk(value = "") {
   return chatReplyLiveDirtyTalkCount(value) >= 3;
 }
 
+function chatReplyLiveForeplayPersonaPattern(character = {}) {
+  const posture = chatReplyLivePersonaPosturePattern(character);
+  return new RegExp(`(?:${posture.source}|(?:但|不过|先|等我|我还没|按我说的|规矩|条件|要求|准|同意|允许|别|不准|不许))`, "u");
+}
+
+function chatReplyLiveForeplayFragments(value = "") {
+  return String(value || "")
+    .split(/\n+|[。！？!?]+|\.{3,}/)
+    .map((line) => line.trim().replace(/^[“”"']+|[“”"']+$/g, "").trim())
+    .filter(Boolean);
+}
+
+function chatReplyHasLiveForeplayPersona(value = "", character = {}) {
+  const fragments = chatReplyLiveForeplayFragments(value);
+  const posture = chatReplyLiveForeplayPersonaPattern(character);
+  return fragments.some((line) => posture.test(line));
+}
+
+function chatReplyLiveForeplayStartsWithPersonaJudgment(value = "", character = {}) {
+  const fragments = chatReplyLiveForeplayFragments(value).slice(0, 3);
+  if (!fragments.length) return false;
+  const posture = chatReplyLiveForeplayPersonaPattern(character);
+  if (posture.test(fragments[0])) return true;
+  const limitedPermission = /^(?:(?:可以|行|好|拍|看|说|来|过来|坐下|站好|躺下|躺好|想拍|要拍)[^。！？!?]{0,12}|[^。！？!?]{1,12}(?:可以|行|好))$/u;
+  return limitedPermission.test(fragments[0]) && Boolean(fragments[1] && posture.test(fragments[1]));
+}
+
+function chatReplyUsesGenericForeplayTemplate(value = "") {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return /(?:你就喜欢这种姿势|那就躺好|躺好了?(?:吧|就行)|拿好(?:你|你的)?相机|把(?:你|你的)?(?:精力|力气)(?:都|全)?(?:给|用在)到我?身上|最动人的样子|定格下来|接下来.{0,16}给到我身上)/u.test(text);
+}
+
+function chatReplyLiveForeplayHasPrematureAction(value = "") {
+  return /(?:插进来|插进去|插到底|被进入|进入我|被顶开|顶开我|被撑开|撑开我|里面被撑满|填满我|抽插|抽送|顶弄|贯穿|操我|干我|高潮了|射进来)/u.test(String(value || ""));
+}
+
+function chatReplyNeedsLiveForeplayRewrite(value = "", { character = {} } = {}) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  return chatReplyLiveForeplayHasPrematureAction(text)
+    || chatReplyUsesGenericForeplayTemplate(text)
+    || !chatReplyHasLiveForeplayPersona(text, character)
+    || !chatReplyLiveForeplayStartsWithPersonaJudgment(text, character);
+}
+
+function chatLiveForeplayPersonaBeat(character = {}, attempt = 1) {
+  const profile = chatLiveVoiceProfile(character);
+  const sourceLines = chatLiveCharacterPostureLines(character);
+  if (sourceLines.length) return sourceLines[(Math.max(1, Number(attempt) || 1) - 1) % sourceLines.length];
+  const strong = chatLiveCharacterHasStrongStyle(character);
+  const beats = strong && profile.dominant
+    ? ["我还没准你。", "规矩先听清楚。", "手拿开，我来定。"]
+    : profile.bold
+      ? ["急什么，先让我来。", "我说可以才算。", "别装，先看着我。"]
+      : profile.gentle
+        ? ["先等一下。", "别急，让我缓缓。", "先抱紧我。"]
+        : profile.tsundere
+          ? ["想得美。", "少来这套。", "我还没说可以。"]
+          : profile.playful
+            ? ["急什么。", "偏要你先说。", "先让我看看。"]
+            : profile.reserved
+              ? ["慢着。", "先听我说。", "我还没说完。"]
+              : ["等一下。", "先别动。", "我还没说完。"];
+  return beats[(Math.max(1, Number(attempt) || 1) - 1) % beats.length];
+}
+
+function chatLiveForeplayFallback(value = "", character = {}, attempt = 1) {
+  const original = String(value || "").trim();
+  if (original && !chatReplyNeedsLiveForeplayRewrite(original, { character })) return original;
+  let lines = chatReplyLiveForeplayFragments(original)
+    .filter((line) => !chatReplyUsesGenericForeplayTemplate(line) && !chatReplyLiveForeplayHasPrematureAction(line))
+    .slice(-3);
+  const personaLine = chatLiveForeplayPersonaBeat(character, attempt);
+  const permission = chatLiveCharacterHasStrongStyle(character)
+    ? "想继续，就先按我说的来。"
+    : chatLiveVoiceProfile(character).gentle
+      ? "先让我缓一下，再继续。"
+      : "别自己先动，等我点头。";
+  if (lines[0] && chatReplyLiveForeplayPersonaPattern(character).test(lines[0])) lines = lines.slice(1);
+  return [personaLine, ...lines, permission]
+    .filter((line, index, all) => line && all.indexOf(line) === index)
+    .join("\n")
+    .trim();
+}
+
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
   return chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
@@ -18401,8 +18487,9 @@ function chatSceneStageGuide(stage = "casual") {
   if (stage === "foreplay") {
     return [
       "当前阶段：亲密前的预热。对方只说明了身体状态、准备姿势、欲望或邀请，还没有明确开始插入、顶弄或抽插。",
-      "接住这个准备状态：可以回应期待、故意拿捏、提条件、命令对方、口头挑逗或表达一点难为情，但不要先写自己被进入、被顶开、里面被撑满或已经开始承受动作。",
-      "不要把“躺在餐桌上、鸡巴硬了、身体湿了”自动扩写成性交已经开始。对方明确说进来、操、插、顶、舔或继续时，才进入亲密交互阶段。",
+      "接住这个准备状态，但先让这个角色本人的判断出来：她怎么回应被命令、被看、被要求摆姿势。可以冷淡地审视、提条件、限定规矩、拿回主动，或嘴硬地给一点有限允许；不要先说“你就喜欢这种姿势”“拿好你的相机”“接下来把精力都给我”这类谁都能说的通用调情句。",
+      "不要提前写被进入、被顶开、里面被撑满、抽插或高潮，也不要替对方开始动作。她可以回应期待或羞耻，但要从她自己的身份、面子、习惯和说话方式里长出来。",
+      "不要把“躺在餐桌上、鸡巴硬了、身体湿了、要拍照”自动扩写成性交已经开始；对方明确说进来、操、插、顶、舔或继续时，才进入亲密交互阶段。",
     ].join("\n");
   }
   if (stage === "flirting") {
@@ -18771,7 +18858,7 @@ async function handleSendChatMessage(req, res, conversationId) {
         : sceneStage === "aftercare"
           ? `你是${freshCharacterEarly.name}。亲密已经结束或暂停，现在恢复理智和日常状态。先回应对方眼前的话，不要继续呻吟、说荤话或把场景强行拉回性爱；保留她自己的面子、脾气和判断，只有对方明确重新发起时才再次进入亲密。`
         : sceneStage === "foreplay"
-          ? `你是${freshCharacterEarly.name}，现在处于亲密前预热。对方只说明了身体状态、姿势或邀请，还没有开始实际性交动作。用她自己的语气挑逗、拿捏、提条件或回应期待，但绝对不要先写被进入、被顶开、里面撑满、抽插或高潮，也不要替对方开始动作。`
+          ? `你是${freshCharacterEarly.name}，现在处于亲密前预热。对方只说明了身体状态、姿势、拍照或邀请，还没有开始实际性交动作。第一句先让${freshCharacterEarly.name}自己的判断、面子、条件或脾气出来，再给有限允许或挑逗；不要用“你就喜欢这种姿势”“拿好相机”“把精力都给我”这类通用情色模板。绝对不要先写被进入、被顶开、里面撑满、抽插或高潮，也不要替对方开始动作。`
         : sceneStage === "flirting"
           ? `你是${freshCharacterEarly.name}，现在在暧昧试探。接住对方这一句，可以给一点暗示、故意不接全、提条件、靠近半步，但不必立刻完全交付。语气里要有魅力和自己的判断。`
           : `你是${freshCharacterEarly.name}，现在在正常聊天。像真人一样接话，可以有冷、挑剔、嘴硬或一点好奇，先回答眼前的内容，不主动升级亲密。`
@@ -18782,7 +18869,9 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
         ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least two separate vocal reactions at different beats; at least two broken-off spoken fragments; direct colloquial dirty talk or body words tied to this exact action; at least TWO distinct stance beats that unmistakably belong to THIS character (judgment, condition, boundary, pride, teasing, withdrawal, or taking the lead), not automatically dominant phrases copied from another role; and one concrete reversal of this character's own habit, guard, distance, or face-saving. Do not open with compliance, confession, or 想要. Keep her own judgment visible before and while she breaks. Show the reversal through what she says, not by explaining 仪态 or 端庄. Write like she is actually saying it now, not like a polished erotic novelist. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
-        : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
+        : sceneStage === "foreplay"
+          ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFOREPLAY CHARACTER FORMAT: This is not penetration yet. Stay inside ${freshCharacterEarly?.name || conversation.character?.name || "this character"}'s spoken voice and make her own judgment visible first: a boundary, condition, order, cold appraisal, face-saving, or limited permission that only this role would say. You may acknowledge arousal or the invitation, but do not write being entered, being spread open, thrusting, or an orgasm. BANNED GENERIC LINES: 你就喜欢这种姿势，对吧; 那就躺好; 拿好你的相机; 把精力都给到我身上; 把最动人的样子定格下来. Do not swap in any smooth generic seduction voice. Return only what she says out loud, no narration or action log.`
+          : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
     const chatMaxTokens = simpleGreeting ? 240 : liveSiteChat && immediateIntimacyScene ? 2400 : immediateIntimacyScene || expandedScene ? 1200 : 900;
@@ -18869,6 +18958,53 @@ async function handleSendChatMessage(req, res, conversationId) {
         console.warn("[character-chat-live-intimate-rewrite-exhausted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: String(bestCandidate.reply || "").slice(0, 240) }));
         const unusable = Object.assign(new Error("Chat model returned an unusable intimate reply."), { statusCode: 502, requestId: chatRequestId, upstreamResponseId });
         throw unusable;
+      }
+    }
+    if (liveSiteChat && sceneStage === "foreplay" && chatReplyNeedsLiveForeplayRewrite(reply, { character: liveIntimateCharacter })) {
+      const rejectedReply = reply;
+      const personaSource = chatLivePersonaSource(liveIntimateCharacter).slice(0, 1600);
+      console.warn("[character-chat-live-foreplay-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
+      let bestForeplayReply = "";
+      let bestForeplayScore = -100;
+      let accepted = false;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const personaBeat = chatLiveForeplayPersonaBeat(liveIntimateCharacter, attempt);
+        try {
+          const retryRaw = await requestChat([
+            `LIVE FOREPLAY PERSONA REWRITE ${attempt}: Discard the rejected version. Write the current beat again in the configured character's own spoken voice.`,
+            `LATEST USER MESSAGE: ${latestUserMessage.slice(0, 1200)}`,
+            `CHARACTER SOURCE: ${personaSource || `${liveIntimateCharacter.name || "this character"} must keep her established judgment and speaking style.`}`,
+            "This is foreplay, not penetration. The user may be aroused, posing, asking to photograph, or inviting something, but must not yet be written as entering, thrusting, being spread open, or reaching orgasm.",
+            "Output 2-5 short spoken lines only. No narration, stage directions, camera directions, explanations, or action log.",
+            `The FIRST effective line must expose this person's own judgment, boundary, condition, pride, face-saving, or limited permission. Try this direction: ${personaBeat}`,
+            "Do not use generic seduction lines: 你就喜欢这种姿势; 那就躺好; 拿好你的相机; 把精力都给我; 最动人的样子; 定格下来.",
+            "Do not merely obey or invite him. Keep her specific temperament visible while she responds to the actual request. A strong, proud character should sound cold, exacting, or controlled; a gentle character should sound hesitant or soft; do not paste dominant lines onto every role.",
+            "只输出最终台词，不要解释。",
+          ].join("\n"), true, { temperature: 0.82, topP: 0.86, maxTokens: 420 });
+          const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
+          const score = chatReplyNeedsLiveForeplayRewrite(retryReply, { character: liveIntimateCharacter }) ? -100 : chatReplyLiveForeplayFragments(retryReply).length;
+          if (retryReply && score > bestForeplayScore) {
+            bestForeplayReply = retryReply;
+            bestForeplayScore = score;
+          }
+          if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveForeplayRewrite(retryReply, { character: liveIntimateCharacter })) {
+            raw = retryRaw;
+            reply = retryReply;
+            upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
+            accepted = true;
+            console.warn("[character-chat-live-foreplay-rewrite-accepted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, reply: reply.slice(0, 240) }));
+            break;
+          }
+          console.warn("[character-chat-live-foreplay-rewrite-rejected-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, reply: String(retryReply || "").slice(0, 240) }));
+        } catch (retryError) {
+          console.warn("[character-chat-live-foreplay-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
+        }
+      }
+      if (!accepted) {
+        // Foreplay quality is a preference, not a delivery gate. Keep a usable
+        // character-specific reply instead of turning a model miss into a 502.
+        reply = chatLiveForeplayFallback(bestForeplayReply || rejectedReply, liveIntimateCharacter, 2);
+        console.warn("[character-chat-live-foreplay-rewrite-salvaged]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(reply || "").slice(0, 240) }));
       }
     }
     if (!(liveSiteChat && immediateIntimacyScene) && immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
@@ -49482,4 +49618,11 @@ module.exports = {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
+  chatReplyHasLiveForeplayPersona,
+  chatReplyLiveForeplayStartsWithPersonaJudgment,
+  chatReplyUsesGenericForeplayTemplate,
+  chatReplyLiveForeplayHasPrematureAction,
+  chatReplyNeedsLiveForeplayRewrite,
+  chatLiveForeplayPersonaBeat,
+  chatLiveForeplayFallback,
 };

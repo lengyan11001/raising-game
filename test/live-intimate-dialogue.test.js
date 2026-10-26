@@ -28,6 +28,13 @@ const {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
+  chatReplyHasLiveForeplayPersona,
+  chatReplyLiveForeplayStartsWithPersonaJudgment,
+  chatReplyUsesGenericForeplayTemplate,
+  chatReplyLiveForeplayHasPrematureAction,
+  chatReplyNeedsLiveForeplayRewrite,
+  chatLiveForeplayPersonaBeat,
+  chatLiveForeplayFallback,
 } = require("../server.js");
 
 const character = {
@@ -310,4 +317,46 @@ test("foreplay does not trigger present-tense penetration validation", () => {
   assert.equal(chatIsImmediateIntimateScene(latest, history), false);
   assert.equal(chatSceneStage(latest, history), "foreplay");
   assert.equal(chatSceneStage("操我，别停", history), "intimate");
+});
+
+test("generic seduction replies fail live foreplay persona validation", () => {
+  const poseTemplate = "你就喜欢这种姿势，对吧？那就躺好。既然你已经吃饱了，那接下来，就把你的精力都给到我身上。";
+  const cameraTemplate = "拿好你的相机。你要拍清楚一点，别让我觉得你在随便抓拍，要把我最动人的样子都定格下来。";
+  assert.equal(chatReplyUsesGenericForeplayTemplate(poseTemplate), true);
+  assert.equal(chatReplyUsesGenericForeplayTemplate(cameraTemplate), true);
+  assert.equal(chatReplyNeedsLiveForeplayRewrite(poseTemplate, { character }), true);
+  assert.equal(chatReplyNeedsLiveForeplayRewrite(cameraTemplate, { character }), true);
+});
+
+test("foreplay accepts a character-specific judgment or limited permission", () => {
+  const boundary = "先把门关上。我让你过来，你再过来。";
+  const limited = "躺下可以。别自己先动，我还没准你。";
+  for (const reply of [boundary, limited]) {
+    assert.equal(chatReplyHasLiveForeplayPersona(reply, character), true);
+    assert.equal(chatReplyLiveForeplayStartsWithPersonaJudgment(reply, character), true);
+    assert.equal(chatReplyNeedsLiveForeplayRewrite(reply, { character }), false);
+  }
+});
+
+test("foreplay rewrite rejects penetration before the user has started it", () => {
+  const premature = "躺下可以。别自己先动，我还没准你……唔，还是插进来吧。";
+  assert.equal(chatReplyLiveForeplayHasPrematureAction(premature), true);
+  assert.equal(chatReplyNeedsLiveForeplayRewrite(premature, { character }), true);
+});
+
+test("foreplay fallback uses the role's own posture instead of a shared seduction template", () => {
+  const generic = "你就喜欢这种姿势，对吧？那就躺好。把精力都给我。";
+  const fallback = chatLiveForeplayFallback(generic, character, 1);
+  assert.match(fallback, /不许|不准|规矩|我还没|手拿开|我说可以|急什么|先|谁/);
+  assert.equal(chatReplyUsesGenericForeplayTemplate(fallback), false);
+  assert.equal(chatReplyNeedsLiveForeplayRewrite(fallback, { character }), false);
+  assert.notEqual(chatLiveForeplayPersonaBeat(character, 1), chatLiveForeplayPersonaBeat(character, 2));
+});
+
+test("foreplay fallback prefixes a persona judgment before a soft opening", () => {
+  const soft = "可以。你拍吧。";
+  assert.equal(chatReplyNeedsLiveForeplayRewrite(soft, { character }), true);
+  const fallback = chatLiveForeplayFallback(soft, character, 1);
+  assert.equal(chatReplyNeedsLiveForeplayRewrite(fallback, { character }), false);
+  assert.match(fallback.split("\n")[0], /不许|不准|规矩|我还没|手拿开|我说可以|急什么|先|谁/);
 });
