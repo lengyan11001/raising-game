@@ -11,6 +11,8 @@ const {
   chatLiveIntimateRewriteBeat,
   chatLiveIntimatePersonaPostureLine,
   chatIsImmediateIntimateScene,
+  chatSceneExitIntent,
+  chatSceneStage,
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLivePersonaPosture,
@@ -36,8 +38,8 @@ test("follow-up intimate commands still enter live intimate validation", () => {
   assert.equal(chatIsImmediateIntimateScene("再深一点，不许停，说你想要。"), true);
   assert.equal(chatIsImmediateIntimateScene("别停，继续。", [{ role: "user", content: "操我" }]), true);
   assert.equal(chatIsImmediateIntimateScene("再深一点这个功能怎么调？"), true);
-  assert.equal(chatIsImmediateIntimateScene("别停，继续。"), false);
-  assert.equal(chatIsImmediateIntimateScene("别停。", [{ role: "assistant", content: "好，我继续。" }]), false);
+  assert.equal(chatIsImmediateIntimateScene("继续，帮我看看这个功能。"), false);
+  assert.equal(chatIsImmediateIntimateScene("别停。", [{ role: "assistant", content: "好，我继续。" }]), true);
 });
 
 test("live intimate validation rejects polished dialogue without spoken texture", () => {
@@ -271,4 +273,26 @@ test("a quality-check miss is salvaged instead of becoming a 502", () => {
   assert.match(fallback, /操我|插进来|别停/);
   assert.equal(chatReplyLiveIntimateFallback("", character, 2), "");
   assert.equal(chatReplyLiveIntimateFallback("啊……", character, 2), "");
+});
+
+test("scene stages switch from intimacy to aftercare and back", () => {
+  const history = [
+    { role: "user", content: "操我，别停" },
+    { role: "assistant", content: "啊……好……" },
+  ];
+  assert.equal(chatSceneStage("再深一点", history), "intimate");
+  assert.equal(chatSceneExitIntent("先停一下，我去洗澡"), true);
+  assert.equal(chatSceneStage("先停一下，我去洗澡", history), "aftercare");
+  assert.equal(chatIsImmediateIntimateScene("我去洗澡", history), false);
+  assert.equal(chatSceneStage("我去洗澡", [...history, { role: "user", content: "先停一下" }]), "aftercare");
+  assert.equal(chatSceneStage("今天吃什么", [...history, { role: "user", content: "先停一下" }, { role: "assistant", content: "嗯，缓一下。" }]), "casual");
+  assert.equal(chatSceneStage("想你了", history), "flirting");
+  assert.equal(chatSceneStage("再深一点", [{ role: "user", content: "先停一下" }]), "intimate");
+  assert.equal(chatSceneExitIntent("别停，不要停"), false);
+});
+
+test("ambiguous pace words do not enter intimacy without intimate context", () => {
+  assert.equal(chatIsImmediateIntimateScene("你快点回来"), false);
+  assert.equal(chatIsImmediateIntimateScene("慢点说"), false);
+  assert.equal(chatIsImmediateIntimateScene("轻一点", [{ role: "user", content: "操我" }]), true);
 });
