@@ -28,6 +28,7 @@ const {
   chatReplyIntimateVocalReactionCount,
   chatReplyLiveIntimateScore,
   chatReplyCopiesStyleExamples,
+  chatReplyHasForeignVocalEnglish,
   chatReplyWithLivePersonaSlip,
   chatReplyLiveBrokenSpeechCount,
   chatReplyLiveIntimateFallback,
@@ -194,6 +195,13 @@ test("prompt style strips concrete sample dialogue but keeps behavior rules", ()
   assert.match(prompt, /被命令时先压住场面/);
   assert.match(prompt, /当前阶段：亲密交互/);
   assert.doesNotMatch(prompt, /闭嘴。别盯着看/);
+});
+
+test("Chinese live intimacy rejects English vocal interjections", () => {
+  const zh = { name: "顾静涵", language: "zh", replyStyle: "# 回复口吻\n## 行为规则\n- 被命令时先压住场面。" };
+  assert.equal(chatReplyHasForeignVocalEnglish("Ah...!\nHa... 别再这么蛮横了……", zh), true);
+  assert.equal(chatReplyHasForeignVocalEnglish("啊……！\n哈……别再这么蛮横了……", zh), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite("Ah...!\nHa... 别再这么蛮横了，要把我撞散开……唔！\n操，整根都要没入进去了。\n快点……", { requireVocal: true, character: zh }), true);
 });
 
 test("copying a replyStyle sample is rejected without banning ordinary phrases", () => {

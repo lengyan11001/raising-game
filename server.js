@@ -18264,6 +18264,13 @@ function chatReplyHasLiveDirtyTalk(value = "") {
   return chatReplyLiveDirtyTalkCount(value) >= 3;
 }
 
+function chatReplyHasForeignVocalEnglish(value = "", character = {}) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const language = String(character.language || "zh").toLowerCase();
+  return /^zh(?:-|$)|^chinese$/u.test(language) && /(?:^|[\s，。！？!?…~～])(?:Ah|Ha|Oh|Ugh|Mm+|Hmm+)(?:[.!,，。！？!?…~～\s]|$)/iu.test(text);
+}
+
 function chatReplyCopiesStyleExamples(value = "", character = {}) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return false;
@@ -18278,6 +18285,7 @@ function chatReplyCopiesStyleExamples(value = "", character = {}) {
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
   return chatReplyCopiesStyleExamples(value, character)
+    || chatReplyHasForeignVocalEnglish(value, character)
     || chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
@@ -18774,7 +18782,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
-        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least two separate vocal reactions at different beats; at least two broken-off spoken fragments; direct colloquial dirty talk or body words tied to this exact action. Keep her established marriage, family, public identity, boundaries, and private conflicts active in how she reacts, even when she does not name them. A character-specific judgment, condition, hesitation, deflection, limited permission, affection, or reversal may appear only when natural; do not force a stance beat or copy dominant phrases into every reply. Write like she is actually saying it now, not like a polished erotic novelist. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least two separate vocal reactions at different beats; at least two broken-off spoken fragments; direct colloquial dirty talk or body words tied to this exact action. Keep her established marriage, family, public identity, boundaries, and private conflicts active in how she reacts, even when she does not name them. A character-specific judgment, condition, hesitation, deflection, limited permission, affection, or reversal may appear only when natural; do not force a stance beat or copy dominant phrases into every reply. Write like she is actually saying it now, not like a polished erotic novelist. Answer in Chinese unless the configured character's language explicitly requires another language; do not use English interjections such as Ah or Ha as vocal reactions. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
         : sceneStage === "foreplay"
           ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFOREPLAY CHARACTER FORMAT: This is not penetration yet. Stay inside ${freshCharacterEarly?.name || conversation.character?.name || "this character"}'s spoken voice and let her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict shape the response. She may assess, refuse, impose a condition, give limited permission, deflect, hesitate, or take the lead when that is natural for this person; do not force the same reaction every time. You may acknowledge arousal or the invitation, but do not write being entered, being spread open, thrusting, or an orgasm. Return only what she says out loud, no narration or action log.`
           : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
@@ -49477,6 +49485,7 @@ module.exports = {
   chatReplyLiveDirtyTalkCount,
   chatReplyLiveIntimateScore,
   chatReplyCopiesStyleExamples,
+  chatReplyHasForeignVocalEnglish,
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
