@@ -17860,7 +17860,7 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
   const liveGuide = liveSite
     ? [
         "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
-        "LIVE SPOKEN TEXTURE (HARD REQUIREMENT): Include at least five separate vocal reactions, such as startled syllables, caught breaths, broken moans, or a sound swallowed by the next thrust. Put them at different beats this exact action causes. At least three spoken fragments must break off mid-thought with ellipses, dashes, or a suddenly cut syllable, and at least two of those fragments must contain real words rather than only 啊/嗯/唔. Do not write smooth, complete, grammatically polished paragraphs, and do not put all the sounds only in the opening.",
+        "LIVE SPOKEN TEXTURE: Include several vocal reactions at different beats of this exact action, such as startled syllables, caught breaths, broken moans, or a sound swallowed by the next thrust. At least one real spoken fragment must break off mid-thought with ellipses, dashes, or a suddenly cut syllable. Do not write smooth, grammatically polished paragraphs, and do not put all the sounds only at the opening.",
         "PERSONA CONTINUITY: She is still the same person in this intimate beat. Her established marriage, family, work, public face, judgments, boundaries, and private conflicts remain active. They may make her hesitate, deflect, bargain, yield, or contradict herself; they do not need to be named or explained. Do not flatten her into a generic eager or commanding partner.",
         "NATURAL REVERSAL: A character beat may appear when it genuinely fits this person and this moment, but do not force a stance beat, reversal, or dominant line into every reply. Let the concrete words and body reaction expose whatever control, need, shame, or affection this character would actually show.",
         "DIRTY TALK IN THE MOMENT: Use abundant direct, colloquial adult words for the current action, body reaction, pace, need, or loss of control, with at least three DIFFERENT direct terms in a normal beat. Do not replace them with literary sensation nouns or a detached report. She may curse, order, beg, deny, or contradict herself in the same breath.",
@@ -18242,7 +18242,7 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
     || chatReplyLooksLikeLiveIntimateEssay(value)
     || /(?:别管|不管)/u.test(String(value || ""))
     || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
-    || (requireVocal && !chatReplyHasLiveSpokenTexture(value))
+    || (requireVocal && !chatReplyHasBrokenLiveSpeech(value))
     || (requireVocal && !chatReplyHasLiveDirtyTalk(value));
 }
 
@@ -18282,24 +18282,7 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     .filter(Boolean)
     .slice(-9);
   if (!lines.length) lines = ["别停…"];
-  const directLines = [
-    "操我…",
-    "插进来…",
-    "再深点…",
-    "别停…",
-    "弄坏我…",
-  ];
   let repaired = lines.join("\n");
-  if (chatReplyLiveDirtyTalkCount(repaired) < 3) {
-    const chosen = [];
-    for (const line of directLines) {
-      const candidate = [...lines, ...chosen, line].join("\n");
-      if (chatReplyLiveDirtyTalkCount(candidate) > chatReplyLiveDirtyTalkCount([...lines, ...chosen].join("\n"))) chosen.push(line);
-      if (chosen.length >= 3) break;
-    }
-    lines.push(...chosen);
-    repaired = lines.join("\n");
-  }
   lines = lines.filter((line) => !/(?:全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(line));
   repaired = lines.join("\n");
   const seen = new Set();

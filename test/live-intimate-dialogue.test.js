@@ -26,6 +26,7 @@ const {
   chatReplyIntimateVocalReactionCount,
   chatReplyLiveIntimateScore,
   chatReplyWithLivePersonaSlip,
+  chatReplyLiveBrokenSpeechCount,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
 } = require("../server.js");
@@ -120,10 +121,12 @@ test("a concrete spoken reversal can omit the 明明-now formula", () => {
   assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
 });
 
-test("submissive live replies still need the intimate spoken texture", () => {
+test("submissive replies can still sound present without forcing posture", () => {
   const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……弄坏我……";
   assert.equal(chatReplyHasLivePersonaPosture(obedient, character), false);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), false);
+  assert.equal(chatReplyHasLiveSpokenTexture(obedient), false);
+  assert.equal(chatReplyLiveBrokenSpeechCount(obedient) >= 1, true);
 });
 
 test("opening with submission is rejected before a control beat", () => {
