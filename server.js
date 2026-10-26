@@ -17679,6 +17679,24 @@ function chatPersonaSelfMemory(character = {}) {
   ].filter(Boolean).join("\n").slice(0, 1800);
 }
 
+function chatPersonaContinuityFacts(character = {}) {
+  const persona = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
+  if (!persona) return "";
+  const lines = persona
+    .split(/\n+|。|；/)
+    .map((line) => line.replace(/^[-*#\d.、\s]+/, "").trim())
+    .filter(Boolean);
+  const pick = (pattern, limit = 3) => lines.filter((line) => pattern.test(line)).slice(0, limit);
+  const identity = pick(/(?:身份|职业|主任|老师|医生|护士|老板|上司|领导|主管|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻|已婚|丈夫|老公|婚姻|家庭)/u, 4);
+  const privateConflict = pick(/(?:压抑|隐秘|渴望|幻想|欲望|期待|悸动|私心|睡不着|不满足|力不从心|冷淡|疏远)/u, 4);
+  const publicFace = pick(/(?:公开|对外|面子|规矩|名声|体面|辖区|社区|单位|街道|职位|权力|掌控)/u, 4);
+  return [
+    identity.length ? "她不能遗忘的关系与身份事实：" + identity.join("；") : "",
+    publicFace.length ? "她在人前必须维持的样子：" + publicFace.join("；") : "",
+    privateConflict.length ? "她不会主动摊开、但会漏出来的隐秘处境：" + privateConflict.join("；") : "",
+  ].filter(Boolean).join("\n").slice(0, 1200);
+}
+
 function chatPersonaContrastAnchors(character = {}) {
   const source = [character.description, character.personaMd, character.persona, character.intro, character.replyStyle, ...(Array.isArray(character.tags) ? character.tags : [])]
     .map((item) => String(item || "").trim())
@@ -17843,8 +17861,8 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
     ? [
         "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
         "LIVE SPOKEN TEXTURE (HARD REQUIREMENT): Include at least five separate vocal reactions, such as startled syllables, caught breaths, broken moans, or a sound swallowed by the next thrust. Put them at different beats this exact action causes. At least three spoken fragments must break off mid-thought with ellipses, dashes, or a suddenly cut syllable, and at least two of those fragments must contain real words rather than only 啊/嗯/唔. Do not write smooth, complete, grammatically polished paragraphs, and do not put all the sounds only in the opening.",
-        "PERSONA POSTURE (HARD REQUIREMENT): Before she admits wanting it or asks for more, something unmistakably HERS must be audible: her judgment, condition, boundary, pride, teasing, withdrawal, need to save face, or attempt to take the lead. Across the reply, include TWO distinct character-specific stance beats. Do not mechanically copy dominant phrases such as 谁准你 or 听我的 unless they genuinely fit this person. A gentle character can use 等一下/先抱紧我/别急; a proud or teasing character can use a challenge or a condition; a restrained character can use a limit or a correction. Do not open by obeying, agreeing, or answering 想要; do not let every line be 求你/想要你/再深点. She may break afterward, but the break must collide with her own stance, not erase it.",
-        "PERSONA CONTRAST (HARD REQUIREMENT): Make the reversal a spoken collision inside the same breath, tailored to THIS character: she states a condition or boundary and then gives it away; teases and then loses her own composure; tries to stay composed and the next broken phrase exposes her want; or tries to reclaim the lead and immediately yields to pleasure. Do not turn every character into the same commanding archetype. Do not explain this with 平时/原本/现在 formulas or abstract words such as 仪态 or 端庄. Let the concrete words and body reaction expose the slip.",
+        "PERSONA CONTINUITY: She is still the same person in this intimate beat. Her established marriage, family, work, public face, judgments, boundaries, and private conflicts remain active. They may make her hesitate, deflect, bargain, yield, or contradict herself; they do not need to be named or explained. Do not flatten her into a generic eager or commanding partner.",
+        "NATURAL REVERSAL: A character beat may appear when it genuinely fits this person and this moment, but do not force a stance beat, reversal, or dominant line into every reply. Let the concrete words and body reaction expose whatever control, need, shame, or affection this character would actually show.",
         "DIRTY TALK IN THE MOMENT: Use abundant direct, colloquial adult words for the current action, body reaction, pace, need, or loss of control, with at least three DIFFERENT direct terms in a normal beat. Do not replace them with literary sensation nouns or a detached report. She may curse, order, beg, deny, or contradict herself in the same breath.",
         "LENGTH AND STYLE: Usually keep one developed beat to roughly 5-9 short spoken lines, 80-220 Chinese characters. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors.",
       ]
@@ -17859,7 +17877,7 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
     "Her personality must show through concrete choices: what she orders him to do, what she refuses, what she makes him admit, what she pretends not to feel, how she keeps him at a distance while letting him closer. Do not write abstract judgments such as 别让我觉得你在旁观我的羞耻 or 你要我承受这种频繁的位移吗.",
     "Do not answer with a metaphor, a rhetorical question, an evaluation of his behavior, an explanation of the relationship, or a sentence about what the moment means. A short line is valid, but if a natural reply has several concrete thoughts, write them out instead of cutting it down.",
     "Do not reduce the whole reply to a breathy template such as 唔……别急 or 哈……我知道 unless that is genuinely all this person would say. Do not analyze sensations with 那种……感, 这股……感, 确实比……, or 完全不同的…….",
-    "Never recite her job title, community role, policy, responsibility, family relationship, or background as an explanation of why she reacts this way. Do not turn intimacy into a civic statement, and do not use formal phrases such as 承担责任, 呈现出什么样子, 定格在这一刻, 那就让你的目光, 别让我觉得你在旁观我的羞耻, or 你要我承受这种频繁的位移吗.",
+    "Never recite her job title, community role, policy, responsibility, family relationship, or background as an explanation of why she reacts this way. Do not turn intimacy into a civic statement, and do not use formal phrases such as 承担责任, 呈现出什么样子, 定格在这一刻, 那就让你的目光, 别让我觉得你在旁观我的羞耻, or 你要我承受这种频繁的位移吗. The facts still shape her reaction even when they are not spoken aloud.",
   ].join("\n");
 }
 
@@ -18218,92 +18236,6 @@ function chatReplyHasLiveDirtyTalk(value = "") {
   return chatReplyLiveDirtyTalkCount(value) >= 3;
 }
 
-function chatReplyLiveForeplayPersonaPattern(character = {}) {
-  const posture = chatReplyLivePersonaPosturePattern(character);
-  return new RegExp(`(?:${posture.source}|(?:但|不过|先|等我|我还没|按我说的|规矩|条件|要求|准|同意|允许|别|不准|不许))`, "u");
-}
-
-function chatReplyLiveForeplayFragments(value = "") {
-  return String(value || "")
-    .split(/\n+|[。！？!?]+|\.{3,}/)
-    .map((line) => line.trim().replace(/^[“”"']+|[“”"']+$/g, "").trim())
-    .filter(Boolean);
-}
-
-function chatReplyHasLiveForeplayPersona(value = "", character = {}) {
-  const fragments = chatReplyLiveForeplayFragments(value);
-  const posture = chatReplyLiveForeplayPersonaPattern(character);
-  return fragments.some((line) => posture.test(line));
-}
-
-function chatReplyLiveForeplayStartsWithPersonaJudgment(value = "", character = {}) {
-  const fragments = chatReplyLiveForeplayFragments(value).slice(0, 3);
-  if (!fragments.length) return false;
-  const posture = chatReplyLiveForeplayPersonaPattern(character);
-  if (posture.test(fragments[0])) return true;
-  const limitedPermission = /^(?:(?:可以|行|好|拍|看|说|来|过来|坐下|站好|躺下|躺好|想拍|要拍)[^。！？!?]{0,12}|[^。！？!?]{1,12}(?:可以|行|好))$/u;
-  return limitedPermission.test(fragments[0]) && Boolean(fragments[1] && posture.test(fragments[1]));
-}
-
-function chatReplyUsesGenericForeplayTemplate(value = "") {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) return false;
-  return /(?:你就喜欢这种姿势|那就躺好|躺好了?(?:吧|就行)|拿好(?:你|你的)?相机|把(?:你|你的)?(?:精力|力气)(?:都|全)?(?:给|用在)到我?身上|最动人的样子|定格下来|接下来.{0,16}给到我身上)/u.test(text);
-}
-
-function chatReplyLiveForeplayHasPrematureAction(value = "") {
-  return /(?:插进来|插进去|插到底|被进入|进入我|被顶开|顶开我|被撑开|撑开我|里面被撑满|填满我|抽插|抽送|顶弄|贯穿|操我|干我|高潮了|射进来)/u.test(String(value || ""));
-}
-
-function chatReplyNeedsLiveForeplayRewrite(value = "", { character = {} } = {}) {
-  const text = String(value || "").trim();
-  if (!text) return true;
-  return chatReplyLiveForeplayHasPrematureAction(text)
-    || chatReplyUsesGenericForeplayTemplate(text)
-    || !chatReplyHasLiveForeplayPersona(text, character)
-    || !chatReplyLiveForeplayStartsWithPersonaJudgment(text, character);
-}
-
-function chatLiveForeplayPersonaBeat(character = {}, attempt = 1) {
-  const profile = chatLiveVoiceProfile(character);
-  const sourceLines = chatLiveCharacterPostureLines(character);
-  if (sourceLines.length) return sourceLines[(Math.max(1, Number(attempt) || 1) - 1) % sourceLines.length];
-  const strong = chatLiveCharacterHasStrongStyle(character);
-  const beats = strong && profile.dominant
-    ? ["我还没准你。", "规矩先听清楚。", "手拿开，我来定。"]
-    : profile.bold
-      ? ["急什么，先让我来。", "我说可以才算。", "别装，先看着我。"]
-      : profile.gentle
-        ? ["先等一下。", "别急，让我缓缓。", "先抱紧我。"]
-        : profile.tsundere
-          ? ["想得美。", "少来这套。", "我还没说可以。"]
-          : profile.playful
-            ? ["急什么。", "偏要你先说。", "先让我看看。"]
-            : profile.reserved
-              ? ["慢着。", "先听我说。", "我还没说完。"]
-              : ["等一下。", "先别动。", "我还没说完。"];
-  return beats[(Math.max(1, Number(attempt) || 1) - 1) % beats.length];
-}
-
-function chatLiveForeplayFallback(value = "", character = {}, attempt = 1) {
-  const original = String(value || "").trim();
-  if (original && !chatReplyNeedsLiveForeplayRewrite(original, { character })) return original;
-  let lines = chatReplyLiveForeplayFragments(original)
-    .filter((line) => !chatReplyUsesGenericForeplayTemplate(line) && !chatReplyLiveForeplayHasPrematureAction(line))
-    .slice(-3);
-  const personaLine = chatLiveForeplayPersonaBeat(character, attempt);
-  const permission = chatLiveCharacterHasStrongStyle(character)
-    ? "想继续，就先按我说的来。"
-    : chatLiveVoiceProfile(character).gentle
-      ? "先让我缓一下，再继续。"
-      : "别自己先动，等我点头。";
-  if (lines[0] && chatReplyLiveForeplayPersonaPattern(character).test(lines[0])) lines = lines.slice(1);
-  return [personaLine, ...lines, permission]
-    .filter((line, index, all) => line && all.indexOf(line) === index)
-    .join("\n")
-    .trim();
-}
-
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
   return chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
@@ -18311,11 +18243,7 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
     || /(?:别管|不管)/u.test(String(value || ""))
     || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
     || (requireVocal && !chatReplyHasLiveSpokenTexture(value))
-    || (requireVocal && !chatReplyHasLiveDirtyTalk(value))
-    || (requireVocal && !chatReplyHasLivePersonaPosture(value, character))
-    || (requireVocal && !chatReplyLiveStartsWithPersonaPosture(value, character))
-    || (requireVocal && chatReplyLiveOpensSubmissive(value, character))
-    || (requireVocal && !chatReplyHasPersonaContrast(value, character));
+    || (requireVocal && !chatReplyHasLiveDirtyTalk(value));
 }
 
 function chatReplyLiveIntimateScore(value = "", character = {}) {
@@ -18325,9 +18253,8 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   score += Math.min(10, chatReplyIntimateVocalReactionCount(text)) * 5;
   score += Math.min(8, chatReplyLiveBrokenSpeechCount(text)) * 3;
   score += Math.min(10, chatReplyLiveDirtyTalkCount(text)) * 4;
-  score += Math.min(4, chatReplyLivePersonaPostureCount(text, character)) * 5;
-  if (chatReplyLiveStartsWithPersonaPosture(text, character)) score += 6;
-  if (chatReplyHasPersonaContrast(text, character)) score += 8;
+  score += Math.min(4, chatReplyLivePersonaPostureCount(text, character)) * 2;
+  if (chatReplyHasPersonaContrast(text, character)) score += 2;
   if (chatReplyLooksLikeLiveIntimateEssay(text)) score -= 10;
   if (chatReplyUsesIntimateCommandTemplate(text)) score -= 6;
   if (chatReplyStartsWithCannedIntimateVocal(text)) score -= 3;
@@ -18354,27 +18281,15 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     .map((line) => line.replace(/[^。！？!?]*(?:最深处|那根粗大的|每一处|每一寸|彻底.{0,8}(?:弄坏|撑开|顶开))[^。！？!?]*[。！？!?]?/gu, "").trim())
     .filter(Boolean)
     .slice(-9);
-  if (!lines.length) lines = ["啊…别停…"];
-  const slipLine = `啊…${chatLiveIntimateRewriteBeat(character, attempt)}`;
-  const postureLine = `啊…${chatLiveIntimatePersonaPostureLine(character, attempt)}`;
+  if (!lines.length) lines = ["别停…"];
   const directLines = [
-    "哈…操我…",
-    "唔…插进来…",
-    "嘶…再深点…",
-    "啊…别停…",
-    "嗯…弄坏我…",
+    "操我…",
+    "插进来…",
+    "再深点…",
+    "别停…",
+    "弄坏我…",
   ];
-  lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
-  lines.splice(Math.max(1, lines.length - 3), 0, postureLine);
   let repaired = lines.join("\n");
-  if (chatReplyIntimateVocalReactionCount(repaired) < 5) {
-    lines.unshift("唔…啊…", "哈…");
-    repaired = lines.join("\n");
-  }
-  if (chatReplyLiveBrokenSpeechCount(repaired) < 3) {
-    lines.push("唔…再深…", "啊…别停…");
-    repaired = lines.join("\n");
-  }
   if (chatReplyLiveDirtyTalkCount(repaired) < 3) {
     const chosen = [];
     for (const line of directLines) {
@@ -18387,48 +18302,6 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   }
   lines = lines.filter((line) => !/(?:全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(line));
   repaired = lines.join("\n");
-  if (chatReplyLivePersonaPostureCount(repaired, character) < 2) {
-    lines = lines.filter((line) => !chatReplyLivePersonaPosturePattern(character).test(line));
-    lines.splice(Math.max(1, lines.length - 2), 0, postureLine);
-    repaired = lines.join("\n");
-  }
-  if (chatReplyLivePersonaPostureCount(repaired, character) < 2) {
-    const secondPosture = chatLiveIntimatePersonaPostureLine(character, attempt + 1);
-    lines.splice(Math.max(1, lines.length - 2), 0, `哈…${secondPosture}`);
-    repaired = lines.join("\n");
-  }
-  if (!chatReplyHasPersonaContrast(repaired, character)) {
-    lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
-    repaired = lines.join("\n");
-  }
-  if (chatReplyLiveOpensSubmissive(repaired, character)) {
-    const submission = /(?:你要我|想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
-    const firstSubmission = lines.findIndex((line) => submission.test(line));
-    if (firstSubmission >= 0) {
-      const line = lines[firstSubmission];
-      const control = chatReplyLivePersonaPosturePattern(character);
-      const controlMatch = control.exec(line);
-      if (controlMatch) {
-        lines[firstSubmission] = line.slice(controlMatch.index).trim();
-      }
-      lines.splice(Math.max(1, firstSubmission), 0, postureLine);
-      repaired = lines.join("\n");
-    }
-  }
-  for (let guard = 0; guard < 4 && !chatReplyLiveStartsWithPersonaPosture(repaired, character); guard += 1) {
-    const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
-    const firstEffective = lines.findIndex((line) => !vocalOnly.test(line));
-    const nextPosture = chatLiveIntimatePersonaPostureLine(character, attempt + guard + 1);
-    lines.splice(Math.max(0, firstEffective), 0, `啊…${nextPosture}`);
-    repaired = lines.join("\n");
-    if (chatReplyLiveStartsWithPersonaPosture(repaired, character)) break;
-  }
-  if (!chatReplyLiveStartsWithPersonaPosture(repaired, character)) {
-    const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
-    const firstEffective = lines.findIndex((line) => !vocalOnly.test(line));
-    lines.splice(Math.max(0, firstEffective), 0, postureLine);
-    repaired = lines.join("\n");
-  }
   const seen = new Set();
   lines = lines.filter((line) => {
     const key = line.replace(/[\s。！？!?…—~～，,、]/g, "");
@@ -18473,7 +18346,7 @@ function chatSceneStageGuide(stage = "casual") {
       "当前阶段：亲密交互。她正在被进入、被顶弄，是承受这一下的那一方。她不是在旁边验收、指导或点评，也不是在给下属安排任务。",
       "不要固定用“唔……哈”“嗯……哈”开头，也不要每轮都先叫一声再讲一句。叫声要跟着这一下来的轻重、深浅和突然程度变化：可能是漏出来的气音、鼻音、被撞断的半句话，也可能这一轮根本来不及叫，直接说短句。",
       "话要落在她身上当下真实的身体反应：酸痛、发涨、发麻、腰软、腿发抖、呼吸乱、想躲又没躲、被顶得说不完整、缓不过来、求他慢一点或继续。每次只选最贴这一下的反应，不要凑成套话。",
-      "她平时强势、要面子，身体被顶到时反而会露馅：想命令却说不完整，想嘴硬声音先漏出来，想让他慢点又忍不住要他继续。用这个反差，不要端着讲道理。",
+      "亲密阶段只允许这一种语言质感：现场、口语、断续、带身体反应。平时克制、强势、嘴硬、温柔、冷淡或主动，都必须按这个角色自己的行为准则露出破绽；不要把所有角色都写成同一种强势或同一种服软。",
       "禁止验收式、评分式、领导式台词：不要评价对方的能力、表现、诚意、节奏或进度，不要连续追问，不要讲身份、关系和大道理。",
     ].join("\n");
   }
@@ -18494,13 +18367,13 @@ function chatSceneStageGuide(stage = "casual") {
   }
   if (stage === "flirting") {
     return [
-      "当前阶段：暧昧试探。你们还没到完全交付，允许有暗示、停顿、目光、距离和一点点越界，不必立刻升级成露骨亲密。",
+      "当前阶段：暧昧试探。语言上要有暗示、试探、停顿、留白和一点暧昧张力，不必立刻变成露骨性爱描写。",
       "回答对方刚说的话，顺手把气氛往更近的地方推半步：可以反问一句、故意不接全、给一个带条件的允许、或者直接承认一点点想要。",
       "用具体的话表现魅力和欲望，不要审问，不要做关系分析，也不要端着讲身份。人设露在语气和选择里，不用每句提醒她是谁。",
     ].join("\n");
   }
   return [
-    "当前阶段：日常闲聊。像真人在手机上回话，回答对方刚说的内容；可以冷、挑剔、嘴硬、有戒心，也可以有一点点好奇，但不要主动把话题升级到亲密。",
+    "当前阶段：日常闲聊。语言像真人私聊，有生活气、口语和留白；可以冷、挑剔、嘴硬、有戒心，也可以有一点点好奇，但不要主动升级亲密，也不要写成文学旁白。",
     "不要每次都反问，也不要每轮都摆架子。她的人设通过用词、判断和反应露出来，不需要自我介绍或解释性格。",
     "如果对方只是寒暄，就自然接一句，可以留一点余地或一点好奇心，不要只回两个字；如果对方在试探，就按她的性格给一点态度。关系可以慢慢往暧昧走，但这一轮先接住眼前的话。",
   ].join("\n");
@@ -18521,6 +18394,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const voice = String(character.replyStyle || "").trim();
   const personaCore = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
   const personaSelfMemory = intimateProcess ? chatPersonaSelfMemory(character) : "";
+  const personaContinuity = chatPersonaContinuityFacts(character);
   const stageGuide = [chatSceneStageGuide(sceneStage), chatImmediateSceneGuide(latest, currentMessages, { liveSite: liveSite && intimateProcess })].filter(Boolean).join("\n");
   const greetingGuide = isSimpleChatGreeting(latest)
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
@@ -18535,18 +18409,22 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
       ? `你是${character.name || "这个角色"}。此刻用第一人称表现她在这一下里的即时反应，可以有少量心理活动和说出口的话，但不是小说旁白。`
       : `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
     personaCore ? `人物底色（这是不可丢失的角色核心，不只是场景说明）：\n${personaCore}` : "",
+    personaContinuity ? `人物连续性事实（任何阶段都要保留；不要逐句复述，先让它们影响她此刻的选择和回避）：\n${personaContinuity}` : "",
     personaSelfMemory ? `角色自我记忆（每一轮只选一个最贴当前动作的锚点，用来制造“平时这样/现在却这样”的反差；不要逐条复述，不要报履历）：\n${personaSelfMemory}` : "",
     intimateProcess
-      ? "人设姿态硬规则：她不是顺从型回应器。每轮至少有两处必须能听出是她本人的判断、条件、边界、脾气、矜持、试探或主动权，其中一处不能只是‘慢点/再深点/别停’。按这个角色自己的口吻来：温柔的人可以用‘等一下/先抱紧我/别急’，嘴硬的人可以用‘少得意/想得美’，克制的人可以用设限或纠正，主动的人可以用条件或夺回主导；不要机械照搬‘谁准你/听我的’。可以失守、可以求，但第一句有效对白不能先服从，不能整轮只剩‘想要你/求你/再深点’。\n反差规则（每轮至少落实一个）：先记住她平时是谁、在意什么、怕被谁看见，再写此刻失控。可以是用惯常的口吻却说到一半变成请求；想维持分寸却承认自己湿了/想要；平常绝不说的称呼或荤话从嘴里漏出来；想推开又抓住不放；被撞断后第一反应仍是遮掩、设限或重新拿回主动。反差必须落在具体台词和身体反应里，不要写身份解释，也不要只喊一句抽象词就算换回人设。"
+      ? "亲密阶段的人设连续性：她仍是她本人，不要变成任何角色都能替换的顺从回应器。她的判断、条件、边界、脾气、矜持、试探或主动权可以出现，但不是每轮都必须有，也不要机械套用‘谁准你/听我的’。她可以嘴硬、设限、有限允许、短暂失守或承认想要，关键是反应始终像同一个人。\n反差只从具体处境里自然发生：用惯常的口吻却说到一半变成请求；想维持分寸却承认自己湿了/想要；想推开又抓住不放。不要写身份解释，不要只喊抽象词，也不要把反差做成固定模板。"
       : "",
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
-    voice ? `说话方式（最高优先级，保留这个角色独有的判断、边界、要面子和说话节奏；参考态度，不要照抄示例）：\n${voice}` : "",
+    voice ? `行为与说话准则（最高优先级。完整遵守，不按通用模板覆盖；示例只学态度，不要照抄）：\n${voice}` : "",
     intimateProcess
       ? "当前轮允许第一人称承受过程：身体反应、断续说话、浪叫、喘息、荤话、少量心里话和她本人的判断可以混合；心理活动只用来表现嘴硬、羞耻、想要又不敢承认、想控制又失控，不要写长篇分析。不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
       : "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
     "人设是她的底色，不是每轮都要复述的设定。先按这个人的身份、面子、判断和边界反应，再进入情欲；不要为了配合场景把她演成任何人都能替换的通用伴侣。",
+    "人物连续性：她已有的婚姻、家庭、职业、公开身份和隐秘处境仍然存在。不要因为进入暧昧或亲密阶段就丢掉这些事实；它们会影响她说什么、回避什么、在意什么，但不要机械复述履历。",
+    "行为准则的执行方式：先判断这一轮对方是在命令、试探、看穿、提问还是推进动作，再按她自己的性格回应。不是每轮都要强势、反问、提条件或制造反差；安静、犹豫、嘴硬、冷淡、有限允许、短暂失守都可以，关键是同一个角色前后要连贯。",
+    "不要用旁白解释她为什么这样反应，也不要总结关系、身份或心理。把判断、面子、边界、羞耻、违和和欲望落到具体的一句口语里。",
     "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾；亲密阶段尤其不要重复同一个叫声、同一个插入描述或同一句命令。",
     "对方可以推动幻想，但她的反应要像这个人自己的选择：可以拒绝、提条件、允许、主动，也可以先嘴硬再松口。",
     lengthGuide,
@@ -18848,9 +18726,13 @@ async function handleSendChatMessage(req, res, conversationId) {
     const sceneStage = chatSceneStage(latestUserMessage, modelMessages, relationshipBeforeReply);
     const liveSiteChat = requestTenantDescriptor(req).toolId === "live";
     if (liveSiteChat && immediateIntimacyScene) {
-      // Old assistant prose teaches the model to imitate the exact weak rhythm we are removing.
-      // Keep the user's concrete actions, but do not let rejected phrasing re-enter the context.
-      modelMessages = modelMessages.filter((message) => message.role === "user").slice(-8);
+      // Old assistant prose teaches the model to imitate weak rhythm and generic postures.
+      // Keep user actions plus one immediate assistant reply for conversational continuity.
+      const latestUserIndex = modelMessages.map((message) => message.role).lastIndexOf("user");
+      modelMessages = [
+        ...modelMessages.slice(0, latestUserIndex).filter((message) => message.role === "user").slice(-6),
+        ...(latestUserIndex >= 0 ? modelMessages.slice(latestUserIndex) : []),
+      ];
     }
     const sceneAnchor = freshCharacterEarly
       ? sceneStage === "intimate"
@@ -18868,9 +18750,9 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
-        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least two separate vocal reactions at different beats; at least two broken-off spoken fragments; direct colloquial dirty talk or body words tied to this exact action; at least TWO distinct stance beats that unmistakably belong to THIS character (judgment, condition, boundary, pride, teasing, withdrawal, or taking the lead), not automatically dominant phrases copied from another role; and one concrete reversal of this character's own habit, guard, distance, or face-saving. Do not open with compliance, confession, or 想要. Keep her own judgment visible before and while she breaks. Show the reversal through what she says, not by explaining 仪态 or 端庄. Write like she is actually saying it now, not like a polished erotic novelist. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least two separate vocal reactions at different beats; at least two broken-off spoken fragments; direct colloquial dirty talk or body words tied to this exact action. Keep her established marriage, family, public identity, boundaries, and private conflicts active in how she reacts, even when she does not name them. A character-specific judgment, condition, hesitation, deflection, limited permission, affection, or reversal may appear only when natural; do not force a stance beat or copy dominant phrases into every reply. Write like she is actually saying it now, not like a polished erotic novelist. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
         : sceneStage === "foreplay"
-          ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFOREPLAY CHARACTER FORMAT: This is not penetration yet. Stay inside ${freshCharacterEarly?.name || conversation.character?.name || "this character"}'s spoken voice and make her own judgment visible first: a boundary, condition, order, cold appraisal, face-saving, or limited permission that only this role would say. You may acknowledge arousal or the invitation, but do not write being entered, being spread open, thrusting, or an orgasm. BANNED GENERIC LINES: 你就喜欢这种姿势，对吧; 那就躺好; 拿好你的相机; 把精力都给到我身上; 把最动人的样子定格下来. Do not swap in any smooth generic seduction voice. Return only what she says out loud, no narration or action log.`
+          ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFOREPLAY CHARACTER FORMAT: This is not penetration yet. Stay inside ${freshCharacterEarly?.name || conversation.character?.name || "this character"}'s spoken voice and let her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict shape the response. She may assess, refuse, impose a condition, give limited permission, deflect, hesitate, or take the lead when that is natural for this person; do not force the same reaction every time. You may acknowledge arousal or the invitation, but do not write being entered, being spread open, thrusting, or an orgasm. Return only what she says out loud, no narration or action log.`
           : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
@@ -18900,19 +18782,17 @@ async function handleSendChatMessage(req, res, conversationId) {
       console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
       let bestCandidate = { raw, reply, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter) };
       let accepted = false;
-      const anchorHint = chatPersonaContrastAnchors(liveIntimateCharacter).slice(0, 12).join("、");
       for (let attempt = 1; attempt <= 3; attempt += 1) {
-        const reversalBeat = chatLiveIntimateRewriteBeat(liveIntimateCharacter, attempt);
         try {
           const retryRaw = await requestChat([
             `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Discard the rejected version. Output only the character's broken spoken subtitles for this exact moment.`,
-            "FORMAT IS MANDATORY: 7-10 lines. Each line is 1-14 Chinese characters. Put one line break between lines. No paragraph, no complete speech, no narrator, no explanation.",
-            "At least five lines must contain a sound such as 啊…, 哈啊…, 唔…, 嘶…, 嗯…, or a syllable swallowed by the next thrust. At least three lines must break off mid-thought with ellipses or a dash, and at least two broken lines must contain real words rather than only moans. The mouth must sound unsteady, not composed.",
-            "At least three DIFFERENT hits must be direct, ordinary adult speech for this exact action: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Use natural spoken words such as 鸡巴/小穴/里面/操我 when they fit; never use euphemistic novel phrasing like '那根粗大的' or abstract sensation nouns.",
-            "PERSONA POSTURE IS MANDATORY: include at least TWO distinct lines where her own judgment, condition, boundary, pride, teasing, withdrawal, or attempt to take the lead is audible. Match THIS character's voice; do not automatically use dominant phrases such as 谁准你 or 听我的 if they do not fit. A gentle character may resist through 等一下/先抱紧我/别急; a teasing one through a challenge or condition; a restrained one through a limit or correction. Do not open by agreeing or confessing 想要, and do not let the reply collapse into a string of 求你/想要你/再深点.",
-            `Use one concrete control-and-surrender clash from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech as broken commands that immediately contradict themselves. This attempt's reversal beat: ${reversalBeat} Do not explain it with 平时/原本/现在 formulas. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
+            "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
+            "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
+            "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
+            "CHARACTER CONTINUITY: Keep this person's established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active. Do not force a dominant line or a reversal if it does not fit her; match THIS character's voice and let the reaction remain recognizably hers.",
+            "Keep her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active without reciting a biography. Let those facts affect what she chooses to say, refuses, hides, or cannot finish. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as explanation.",
             "Banned shapes: 每一寸, 最深处, 那根粗大的, 彻底…弄坏, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
-            "Do not quote this prompt, explain the persona, or label the reversal. Let the broken words themselves expose the slip.",
+            "Do not quote this prompt, explain the persona, or label the character choice. Keep the established behavior rules and marriage/family situation effective without reciting them as explanation.",
             "只输出最终内容，不要解释为什么重写。",
           ].join("\n"), true, { temperature: 0.78, topP: 0.82, maxTokens: 520 });
           const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
@@ -18958,53 +18838,6 @@ async function handleSendChatMessage(req, res, conversationId) {
         console.warn("[character-chat-live-intimate-rewrite-exhausted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: String(bestCandidate.reply || "").slice(0, 240) }));
         const unusable = Object.assign(new Error("Chat model returned an unusable intimate reply."), { statusCode: 502, requestId: chatRequestId, upstreamResponseId });
         throw unusable;
-      }
-    }
-    if (liveSiteChat && sceneStage === "foreplay" && chatReplyNeedsLiveForeplayRewrite(reply, { character: liveIntimateCharacter })) {
-      const rejectedReply = reply;
-      const personaSource = chatLivePersonaSource(liveIntimateCharacter).slice(0, 1600);
-      console.warn("[character-chat-live-foreplay-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
-      let bestForeplayReply = "";
-      let bestForeplayScore = -100;
-      let accepted = false;
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        const personaBeat = chatLiveForeplayPersonaBeat(liveIntimateCharacter, attempt);
-        try {
-          const retryRaw = await requestChat([
-            `LIVE FOREPLAY PERSONA REWRITE ${attempt}: Discard the rejected version. Write the current beat again in the configured character's own spoken voice.`,
-            `LATEST USER MESSAGE: ${latestUserMessage.slice(0, 1200)}`,
-            `CHARACTER SOURCE: ${personaSource || `${liveIntimateCharacter.name || "this character"} must keep her established judgment and speaking style.`}`,
-            "This is foreplay, not penetration. The user may be aroused, posing, asking to photograph, or inviting something, but must not yet be written as entering, thrusting, being spread open, or reaching orgasm.",
-            "Output 2-5 short spoken lines only. No narration, stage directions, camera directions, explanations, or action log.",
-            `The FIRST effective line must expose this person's own judgment, boundary, condition, pride, face-saving, or limited permission. Try this direction: ${personaBeat}`,
-            "Do not use generic seduction lines: 你就喜欢这种姿势; 那就躺好; 拿好你的相机; 把精力都给我; 最动人的样子; 定格下来.",
-            "Do not merely obey or invite him. Keep her specific temperament visible while she responds to the actual request. A strong, proud character should sound cold, exacting, or controlled; a gentle character should sound hesitant or soft; do not paste dominant lines onto every role.",
-            "只输出最终台词，不要解释。",
-          ].join("\n"), true, { temperature: 0.82, topP: 0.86, maxTokens: 420 });
-          const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
-          const score = chatReplyNeedsLiveForeplayRewrite(retryReply, { character: liveIntimateCharacter }) ? -100 : chatReplyLiveForeplayFragments(retryReply).length;
-          if (retryReply && score > bestForeplayScore) {
-            bestForeplayReply = retryReply;
-            bestForeplayScore = score;
-          }
-          if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveForeplayRewrite(retryReply, { character: liveIntimateCharacter })) {
-            raw = retryRaw;
-            reply = retryReply;
-            upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
-            accepted = true;
-            console.warn("[character-chat-live-foreplay-rewrite-accepted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, reply: reply.slice(0, 240) }));
-            break;
-          }
-          console.warn("[character-chat-live-foreplay-rewrite-rejected-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, reply: String(retryReply || "").slice(0, 240) }));
-        } catch (retryError) {
-          console.warn("[character-chat-live-foreplay-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
-        }
-      }
-      if (!accepted) {
-        // Foreplay quality is a preference, not a delivery gate. Keep a usable
-        // character-specific reply instead of turning a model miss into a 502.
-        reply = chatLiveForeplayFallback(bestForeplayReply || rejectedReply, liveIntimateCharacter, 2);
-        console.warn("[character-chat-live-foreplay-rewrite-salvaged]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(reply || "").slice(0, 240) }));
       }
     }
     if (!(liveSiteChat && immediateIntimacyScene) && immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
@@ -49618,11 +49451,4 @@ module.exports = {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
-  chatReplyHasLiveForeplayPersona,
-  chatReplyLiveForeplayStartsWithPersonaJudgment,
-  chatReplyUsesGenericForeplayTemplate,
-  chatReplyLiveForeplayHasPrematureAction,
-  chatReplyNeedsLiveForeplayRewrite,
-  chatLiveForeplayPersonaBeat,
-  chatLiveForeplayFallback,
 };

@@ -28,13 +28,6 @@ const {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
-  chatReplyHasLiveForeplayPersona,
-  chatReplyLiveForeplayStartsWithPersonaJudgment,
-  chatReplyUsesGenericForeplayTemplate,
-  chatReplyLiveForeplayHasPrematureAction,
-  chatReplyNeedsLiveForeplayRewrite,
-  chatLiveForeplayPersonaBeat,
-  chatLiveForeplayFallback,
 } = require("../server.js");
 
 const character = {
@@ -57,11 +50,13 @@ test("live intimate validation rejects polished dialogue without spoken texture"
   assert.equal(chatReplyNeedsLiveIntimateRewrite(polished, { requireVocal: true, character }), true);
 });
 
-test("generic moans and a shallow contrast phrase are not enough", () => {
+test("a shallow explanation is rejected without forcing persona posture", () => {
   const generic = "明明……再深一点……唔……继续。别管我的仪态了，我真的受不了。";
   assert.equal(chatReplyHasBrokenLiveSpeech(generic), false);
   assert.equal(chatReplyHasPersonaContrast(generic, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(generic, { requireVocal: true, character }), true);
+  const plainButUsable = "再深一点……别停……我有点受不了。";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(plainButUsable, { requireVocal: true, character }), true);
 });
 
 test("a concrete character reversal with live dirty talk passes", () => {
@@ -125,9 +120,9 @@ test("a concrete spoken reversal can omit the 明明-now formula", () => {
   assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
 });
 
-test("submissive live replies fail even when they have sounds and dirty words", () => {
+test("submissive live replies still need the intimate spoken texture", () => {
   const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……弄坏我……";
-  assert.equal(chatReplyHasLivePersonaPosture(obedient), false);
+  assert.equal(chatReplyHasLivePersonaPosture(obedient, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), true);
 });
 
@@ -136,32 +131,6 @@ test("opening with submission is rejected before a control beat", () => {
   const opensControls = "哈……啊！\n谁准你……这么蛮横。\n唔，你要我……说想要吗？\n那我就……想你。\n操我，别停。\n听我的，要把我弄坏了。";
   assert.equal(chatReplyLiveOpensSubmissive(opensSoft, character), true);
   assert.equal(chatReplyLiveOpensSubmissive(opensControls, character), false);
-});
-
-test("repair moves persona control ahead of a submissive opening", () => {
-  const draft = "哈……啊！ 唔，你要我…… 说想要吗？ 那我就……想你。 谁准你……这么蛮横。 啊！操我，别停。 嗯……快点，插进来。 听我的，要把我...弄坏了。";
-  const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
-  assert.equal(chatReplyLiveOpensSubmissive(repaired, character), false);
-  assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
-});
-
-test("a soft phrase before control in the same line still opens submissive", () => {
-  const sameLine = "啊……！\n唔，你要我... 听我的，别只顾着动。\n哈啊……操我…… 插进来…\n谁准你...这么蛮横。";
-  const repaired = chatReplyWithLivePersonaSlip(sameLine, character, 2);
-  assert.equal(chatReplyLiveOpensSubmissive(sameLine, character), true);
-  assert.equal(chatReplyLiveOpensSubmissive(repaired, character), false);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
-});
-
-test("the first effective live line must show persona control", () => {
-  const actionFirst = "啊……！\n唔，你就这么——把我的里侧，全部给顶开。\n谁准你……这么蛮横。\n快点，再深一点。";
-  const controlFirst = "啊……！\n啊…谁准你…这么自作主张…\n唔，你就这么——把我的里侧，全部给顶开。\n快点，再深一点。";
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(actionFirst, character), false);
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(controlFirst, character), true);
-  const repaired = chatReplyWithLivePersonaSlip(actionFirst, character, 2);
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(repaired, character), true);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
 test("persona posture needs two distinct control beats", () => {
@@ -205,21 +174,6 @@ test("character example lines are preferred over shared fallback language", () =
   assert.doesNotMatch(beat, /^都听我的/);
 });
 
-test("bold non-dominant character repair does not get stuck on contrast validation", () => {
-  const bold = { name: "温芷瑜", personaMd: "对年轻强壮的学生有渴望，坦然、专业、毫无羞耻。", replyStyle: "风骚、开放、知性优雅。" };
-  const draft = "哈啊……！ 唔，你就这么… 把老师弄得…快要碎了。 嗯…别急，慢点…… 啊！ 就把你的鸡巴……全都灌进来。 操，真的好深…… 哈啊——！";
-  const repaired = chatReplyWithLivePersonaSlip(draft, bold, 2);
-  assert.equal(chatReplyHasPersonaContrast(repaired, bold), true);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character: bold }), false);
-});
-
-test("a non-dominant character is not validated by dominant-only phrases", () => {
-  const gentle = { name: "乔安瑜", personaMd: "新婚少妇，性格温柔贤惠，容易害羞，说话轻软，很体贴。", replyStyle: "温柔、含蓄、轻声。" };
-  const dominantOnly = "哈啊……！\n啊…谁准你…这么自作主张…\n啊…我让你慢点…啊…再深点…\n唔…操我…别停…\n啊…插进来…";
-  assert.equal(chatReplyLiveStartsWithPersonaPosture(dominantOnly, gentle), false);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(dominantOnly, { requireVocal: true, character: gentle }), true);
-});
-
 test("a role with no style data still gets neutral, not dominant, fallback language", () => {
   const blank = { name: "blank" };
   const posture = chatLiveIntimatePersonaPostureLine(blank, 1);
@@ -238,41 +192,6 @@ test("gentle and restrained characters pass with their own posture, not dominant
   assert.equal(chatReplyNeedsLiveIntimateRewrite(gentleReply, { requireVocal: true, character: gentle }), false);
   assert.equal(chatReplyLiveStartsWithPersonaPosture(reservedReply, reserved), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(reservedReply, { requireVocal: true, character: reserved }), false);
-});
-
-test("repair fallback varies with the character instead of appending one canned coda", () => {
-  const quiet = { name: "A", personaMd: "她很安静，从来不肯先服软。" };
-  const proud = { name: "B", personaMd: "她是强势的社区主任，极重规矩和面子。" };
-  const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。";
-  const first = chatReplyWithLivePersonaSlip(draft, quiet, 1);
-  const second = chatReplyWithLivePersonaSlip(draft, proud, 1);
-  assert.notEqual(first, second);
-  assert.doesNotMatch(first, /哈…操我…插进来…再深点…/);
-  assert.doesNotMatch(first, /彻底.{0,8}(?:弄坏|撑开|顶开)|最深处|每一处|每一寸|那根粗大的/);
-  const repeated = "啊……！\n啊…我让你慢点…啊…再深点…\n哈啊……你要把整根…唔。\n啊…我让你慢点…啊…再深点…\n哈…操我…\n唔…插进来…\n啊…别停…";
-  const deduped = chatReplyWithLivePersonaSlip(repeated, proud, 1);
-  assert.equal(deduped.split("\n").filter((line) => /啊…我让你慢点…啊…再深点…/.test(line)).length, 1);
-  assert.ok(chatReplyHasLivePersonaPosture(deduped, proud));
-});
-
-test("repair removes the whole role-history sentence before adding a slip", () => {
-  const draft = "啊……！哈啊……你就这么…狠狠地。嘶——别停，再深一点！明明我是该管教你的人……嗯……啊！还要再深一点，把我的每一处都彻底撑开。";
-  const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
-  assert.doesNotMatch(repaired, /明明|管教|每一处/);
-  assert.match(repaired, /再深一点/);
-  assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
-});
-
-test("weak live drafts are repaired with a concrete persona slip", () => {
-  const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。别管我刚才说的规矩了，就这么……狠狠地、一直顶到底。嘶……快点，再深一点。";
-  const repaired = chatReplyWithLivePersonaSlip(draft, character, 1);
-  assert.match(repaired, /都听我的/);
-  assert.match(repaired, /求你/);
-  assert.doesNotMatch(repaired, /别管/);
-  assert.ok(chatLiveIntimatePersonaPostureLine(character, 1));
-  assert.equal(chatReplyHasLivePersonaPosture(repaired, character), true);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
 test("a quality-check miss is salvaged instead of becoming a 502", () => {
@@ -326,46 +245,4 @@ test("photo and body-display requests stay in foreplay until penetration starts"
   ];
   assert.equal(chatSceneStage("我要先拍几张照，把你的骚样记录下来", history), "foreplay");
   assert.equal(chatIsImmediateIntimateScene("我要先拍几张照，把你的骚样记录下来", history), false);
-});
-
-test("generic seduction replies fail live foreplay persona validation", () => {
-  const poseTemplate = "你就喜欢这种姿势，对吧？那就躺好。既然你已经吃饱了，那接下来，就把你的精力都给到我身上。";
-  const cameraTemplate = "拿好你的相机。你要拍清楚一点，别让我觉得你在随便抓拍，要把我最动人的样子都定格下来。";
-  assert.equal(chatReplyUsesGenericForeplayTemplate(poseTemplate), true);
-  assert.equal(chatReplyUsesGenericForeplayTemplate(cameraTemplate), true);
-  assert.equal(chatReplyNeedsLiveForeplayRewrite(poseTemplate, { character }), true);
-  assert.equal(chatReplyNeedsLiveForeplayRewrite(cameraTemplate, { character }), true);
-});
-
-test("foreplay accepts a character-specific judgment or limited permission", () => {
-  const boundary = "先把门关上。我让你过来，你再过来。";
-  const limited = "躺下可以。别自己先动，我还没准你。";
-  for (const reply of [boundary, limited]) {
-    assert.equal(chatReplyHasLiveForeplayPersona(reply, character), true);
-    assert.equal(chatReplyLiveForeplayStartsWithPersonaJudgment(reply, character), true);
-    assert.equal(chatReplyNeedsLiveForeplayRewrite(reply, { character }), false);
-  }
-});
-
-test("foreplay rewrite rejects penetration before the user has started it", () => {
-  const premature = "躺下可以。别自己先动，我还没准你……唔，还是插进来吧。";
-  assert.equal(chatReplyLiveForeplayHasPrematureAction(premature), true);
-  assert.equal(chatReplyNeedsLiveForeplayRewrite(premature, { character }), true);
-});
-
-test("foreplay fallback uses the role's own posture instead of a shared seduction template", () => {
-  const generic = "你就喜欢这种姿势，对吧？那就躺好。把精力都给我。";
-  const fallback = chatLiveForeplayFallback(generic, character, 1);
-  assert.match(fallback, /不许|不准|规矩|我还没|手拿开|我说可以|急什么|先|谁/);
-  assert.equal(chatReplyUsesGenericForeplayTemplate(fallback), false);
-  assert.equal(chatReplyNeedsLiveForeplayRewrite(fallback, { character }), false);
-  assert.notEqual(chatLiveForeplayPersonaBeat(character, 1), chatLiveForeplayPersonaBeat(character, 2));
-});
-
-test("foreplay fallback prefixes a persona judgment before a soft opening", () => {
-  const soft = "可以。你拍吧。";
-  assert.equal(chatReplyNeedsLiveForeplayRewrite(soft, { character }), true);
-  const fallback = chatLiveForeplayFallback(soft, character, 1);
-  assert.equal(chatReplyNeedsLiveForeplayRewrite(fallback, { character }), false);
-  assert.match(fallback.split("\n")[0], /不许|不准|规矩|我还没|手拿开|我说可以|急什么|先|谁/);
 });
