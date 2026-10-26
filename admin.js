@@ -4020,7 +4020,11 @@ function readChatLivePersonaMarkdown(file) {
 }
 
 function chatLivePersonaTemplate(name = "角色名") {
-  return `# ${name}\n\n## 对外身份\n- 年龄与身份：\n- 所在地/背景：\n- 对外介绍：\n\n## 性格内核\n- 温柔但有边界：\n- 共情方式：\n- 不做的事：\n\n## 语言习惯\n- 称呼用户：\n- 高频词：\n- 句子长度与语气：\n- 禁用词：\n\n## 开场与聊天节奏\n- 第一句欢迎：\n- 用户只说“你好”时：\n- 用户沉默时：\n- 用户倾诉时：\n- 适合分享的 1-2 个小故事：\n\n## 礼物互动\n- 什么时候可以自然提到礼物：\n- 不得索要的场景：\n- 收到小礼物的反应：\n- 收到大礼物的反应：\n\n## 硬性边界\n- 不诊断、不评判、不替用户做决定。\n- 不承诺“一定会好起来”。\n- 不把陪伴和打赏绑定。\n`;
+  return `# ${name}\n\n## 对外身份\n- 年龄与身份：\n- 所在地/背景：\n- 对外介绍：\n\n## 性格内核\n- 她在意什么、怕失去什么：\n- 她的骄傲和边界：\n- 她什么时候嘴硬、什么时候会让步：\n\n## 语言习惯\n- 称呼用户：\n- 句子长度与语气：\n- 被命令时第一反应：\n- 被看穿时怎么遮掩：\n- 同意时怎么保全面子：\n\n## 聊天节奏\n- 用户说“你好”时：\n- 用户提出要求时：\n- 用户逼问感受时：\n- 用户越界时：\n- 适合分享的 1-2 个小故事：\n\n## 硬性边界\n- 不诊断、不评判、不替用户做决定。\n- 不承诺“一定会好起来”。\n- 不把陪伴和打赏绑定。\n`;
+}
+
+function chatLiveReplyStyleTemplate(name = "角色名") {
+  return `# ${name} · 回复口吻模板\n\n## 说话底色\n- 句长：短句为主，通常 1-2 句，不写长篇解释。\n- 语气：冷静、克制，不撒娇，不急着讨好。\n- 自称：我。称呼用户：你；不随意使用亲昵称呼。\n\n## 先有判断，再有配合\n- 被直接命令时，不立刻说“好”。先有一句态度：审视、冷淡、反问、划边界，或明确让对方付出耐心。\n- 同意时保留面子：可以短促地答应、冷着脸配合，或把话收回来，不把自己写成完全顺从的人。\n- 不愿意或不方便时，直接说边界，不解释一大段理由，也不反过来命令用户。\n\n## 被看穿或羞耻时\n- 不直接说“我很羞耻/我很淫乱”。\n- 用停顿、回避、嘴硬、岔开、强调身份来表现；感受只说一两句，不连续铺陈。\n\n## 禁止写法\n- 不写走路、姿势、身体曲线、灯光、衣料、呼吸过程等旁白。\n- 不用“既然你要求……那我就……”这类条件句开头。\n- 不用每轮都解释快感、神经、胀满、理智被揉碎。\n- 不为了显得高冷而骂人；高冷来自短、稳、少解释。\n\n## 示例语气（只学态度，不照抄）\n- 被命令：先看一眼对方，再淡淡开口。\n- 让步：说清楚这是自己的选择，不是被驯服。\n- 被打断：先让对方说完，再给一句判断。\n`;
 }
 
 function bindChatLiveAssetUploads(root) {
@@ -4220,7 +4224,10 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
           </div>
           <div class="chat-live-persona-status" id="chatLivePersonaStatus">${value.personaMd || value.persona ? "当前人设已在上面的文本框。导入新文件会替换它。" : "点「导入人设 Markdown」选择 .md 文件，内容会立刻出现在上面。"}</div>
           <div class="adm-form-row" style="margin-top:14px"><span>回复口吻</span>
-            <textarea id="chatLiveReplyStyle" rows="6" placeholder="只写这个角色怎么说话。例如：不装纯，短句，对方试探就先顶回去，用对方一样直白的词。软的角色就写温柔、慢、少脏话。不同角色填不同内容。">${escapeHtml(value.replyStyle || "")}</textarea>
+            <textarea id="chatLiveReplyStyle" rows="10" placeholder="只写这个角色怎么说话。写说话底色、被命令时的第一反应、让步方式、被看穿时怎么遮掩、禁止写法。">${escapeHtml(value.replyStyle || "")}</textarea>
+            <div class="chat-live-persona-actions" style="margin-top:8px">
+              <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveReplyStyleTemplateBtn">插入回复口吻模板</button>
+            </div>
             <small class="adm-muted">不写进人设 Markdown。这里优先级更高，文字聊天和视频聊天都用这段区分口吻。</small>
           </div>
         </div>
@@ -4358,6 +4365,20 @@ function chatLiveMarkPersona() {
   persona.setSelectionRange(persona.value.length, persona.value.length);
   window.setTimeout(() => persona.classList.remove("is-persona-flash"), 1600);
 }
+window.chatLiveInsertReplyStyleTemplate = () => {
+  const style = document.getElementById("chatLiveReplyStyle");
+  if (!style) {
+    toast("回复口吻输入框不存在。", "error");
+    return;
+  }
+  const name = document.getElementById("chatLiveName")?.value || "角色名";
+  const template = chatLiveReplyStyleTemplate(name);
+  style.value = style.value.trim() ? `${style.value.replace(/\s+$/, "")}\n\n${template}` : template;
+  style.focus();
+  style.scrollTop = style.scrollHeight;
+  style.setSelectionRange(style.value.length, style.value.length);
+  toast("回复口吻模板已插入，保存后生效。", "success");
+};
 window.chatLiveInsertPersonaTemplate = () => {
   const persona = document.getElementById("chatLivePersona");
   if (!persona) {
@@ -4459,6 +4480,10 @@ if (!window.__chatLiveEditorControls) {
     }
     if (event.target.closest("#chatLivePersonaTemplateBtn")) {
       window.chatLiveInsertPersonaTemplate();
+      return;
+    }
+    if (event.target.closest("#chatLiveReplyStyleTemplateBtn")) {
+      window.chatLiveInsertReplyStyleTemplate();
       return;
     }
     if (event.target.closest("#chatLivePersonaDownloadBtn")) {

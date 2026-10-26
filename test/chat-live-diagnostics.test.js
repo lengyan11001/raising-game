@@ -80,5 +80,8 @@ test("chat live characters support per-role Markdown persona maintenance", () =>
   assert.match(server, /personaFormat: personaMd \? "markdown"/);
   assert.match(admin, /导入人设 Markdown/);
   assert.match(admin, /chatLivePersonaTemplate/);
+  assert.match(admin, /chatLiveReplyStyleTemplate/);
+  assert.match(admin, /被命令时第一反应/);
+  assert.match(admin, /不把陪伴和打赏绑定/);
   assert.match(admin, /readChatLivePersonaMarkdown/);
 });
