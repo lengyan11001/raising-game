@@ -17692,7 +17692,9 @@ function chatReplyRepeatsRecent(value = "", recentReplies = []) {
   if (!text) return false;
   return (Array.isArray(recentReplies) ? recentReplies : []).some((previous) => {
     const old = chatSpokenOnlyText(String(previous || "").trim());
-    return old && chatContextSimilarity(text, old) >= 0.72;
+    if (!old) return false;
+    const similarity = chatContextSimilarity(text, old);
+    return similarity >= 0.86 || (old.length >= 12 && similarity >= 0.72 && text.includes(old.slice(0, Math.min(12, old.length))));
   });
 }
 

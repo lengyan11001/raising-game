@@ -60,6 +60,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /FINAL SPEECH-ONLY FORMAT/);
   assert.match(server, /function chatReplyIsDegenerate/);
   assert.match(server, /function chatReplyRepeatsRecent/);
+  assert.match(server, /similarity >= 0\.86 \|\| \(old\.length >= 12 && similarity >= 0\.72/);
   assert.match(server, /function chatReplyUsesRejectedScaffold/);
   assert.match(server, /chatReplyUsesRejectedScaffold\(candidate, rejectedDraft\)/);
   assert.match(server, /function chatTurnProtocol/);
