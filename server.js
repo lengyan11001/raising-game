@@ -17635,8 +17635,19 @@ function recentIntimateContext(contextMessages = []) {
     .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨|弄我|别停|再深)/u.test(String(message?.content || "")));
 }
 
+function chatIntimateIntentIsPlanned(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const planned = /(?:准备|打算|计划|下一轮|再来一轮|等(?:一下|会儿|我)?|待会儿|一会儿|马上要|先把|先让)[^。！？!?]{0,32}(?:干|操|插|顶|上)(?:你|我)/u.test(text);
+  if (!planned) return false;
+  const ongoing = /(?:已经|正在|现在就|这就|当下|此刻)[^。！？!?]{0,20}(?:干|操|插|顶)(?:你|我)|(?:已经|正)(?:插|顶|干|操)(?:进来|进去|到底)/u.test(text);
+  return !ongoing;
+}
+
 function chatHasIntimateAction(value = "") {
-  return /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|夹紧|射进|射进去|射进来|高潮了|弄我|蹭我|磨我|叫床|叫出来)/u.test(String(value || ""));
+  const text = String(value || "");
+  if (chatIntimateIntentIsPlanned(text)) return false;
+  return /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|夹紧|射进|射进去|射进来|高潮了|弄我|蹭我|磨我|叫床|叫出来)/u.test(text);
 }
 
 function chatIsIntimateForeplayScene(value = "") {
@@ -17650,7 +17661,8 @@ function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
   if (!text || chatSceneExitIntent(text)) return false;
   const visualRequest = /(?:拍照|照片|拍几张|拍张|骚样|让我看看你(?:现在|这样|这副|身体|下面|腿|胸|腰|臀|湿|裸|穿|被我弄成)|看看你(?:现在|这样|这副|身体|下面|腿|胸|腰|臀|湿|裸|穿|是什么样|被我弄成)|你现在(?:的样子|这样|这副样子)|你这副样子|定格)/u.test(text);
   const activeIntimateCue = /(?:操我|干我|插我|顶我|再(?:深|重|快|用力)|别停|不许停|继续(?:插|干|顶|弄)|插到底|顶到底|弄坏)/u.test(text);
-  const direct = /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|咬|夹紧|射进|射进去|射进来|高潮了|淫水|汁水|弄我|摸我|叫床|叫出来)/u.test(text);
+  const direct = !chatIntimateIntentIsPlanned(text)
+    && /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|咬|夹紧|射进|射进去|射进来|高潮了|淫水|汁水|弄我|摸我|叫床|叫出来)/u.test(text);
   if (direct) return true;
   const recentIntimate = recentIntimateContext(contextMessages);
   const contextualIntimate = recentIntimate && /(?:再(?:深|重|快|用力|进来|顶)|别停|不许停|继续(?:插|干|顶|弄)?|插到底|顶到底|弄坏|操我|干我|插我|顶我|要我|想要你|我要你|轻点|轻一点|重一点|慢点|快点|疼|里面|进去|脱掉|蹭|磨)/u.test(text);

@@ -396,6 +396,20 @@ test("foreplay does not trigger present-tense penetration validation", () => {
   assert.equal(chatSceneStage("操我，别停", history), "intimate");
 });
 
+test("planned next-round penetration stays in foreplay until it starts", () => {
+  const history = [
+    { role: "user", content: "把饭端到饭桌上吧，我要吃了，但是你要在餐桌下含着我的鸡巴，全程不能吐出来" },
+    { role: "assistant", content: "唔……知道了。" },
+  ];
+  const planned = "我补充好了体力，我准备干你下一轮了，现在躺在餐桌上";
+  assert.equal(chatHasIntimateAction(planned), false);
+  assert.equal(chatIsIntimateForeplayScene(planned), true);
+  assert.equal(chatIsImmediateIntimateScene(planned, history), false);
+  assert.equal(chatSceneStage(planned, history), "foreplay");
+  assert.equal(chatIsImmediateIntimateScene("我现在干你", history), true);
+  assert.equal(chatIsImmediateIntimateScene("我已经插进来了", history), true);
+});
+
 test("photo and body-display requests stay in foreplay until penetration starts", () => {
   const history = [
     { role: "user", content: "我吃好了，鸡巴也被你亲的好硬，现在躺在餐桌上" },
