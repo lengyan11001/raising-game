@@ -18046,6 +18046,21 @@ function chatReplyLiveOpensSubmissive(value = "") {
   return false;
 }
 
+function chatReplyLiveStartsWithPersonaPosture(value = "") {
+  const fragments = String(value || "")
+    .split(/\n+|[。！？!?]+|\.{3,}/)
+    .map((line) => line.trim().replace(/^[“”"']+|[“”"']+$/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
+  const posture = /(?:不许|不准|谁准|谁要你|听我的|都听我的|我说了算|轮不到|急什么|别急|看着我|手拿开|别碰|别自作主张|给我(?:听|老实|忍住|停|慢|快|看着|说)|我还没(?:让|准|说|同意)|先(?:别|把|看着|说)|规矩|你敢)/u;
+  for (const line of fragments) {
+    if (vocalOnly.test(line)) continue;
+    return posture.test(line);
+  }
+  return false;
+}
+
 function chatReplyHasLivePersonaPosture(value = "") {
   return chatReplyLivePersonaPostureCount(value) >= 2;
 }
@@ -18063,6 +18078,7 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
     || (requireVocal && !chatReplyHasLiveSpokenTexture(value))
     || (requireVocal && !chatReplyHasLiveDirtyTalk(value))
     || (requireVocal && !chatReplyHasLivePersonaPosture(value))
+    || (requireVocal && !chatReplyLiveStartsWithPersonaPosture(value))
     || (requireVocal && chatReplyLiveOpensSubmissive(value))
     || (requireVocal && !chatReplyHasPersonaContrast(value, character));
 }
@@ -18075,6 +18091,7 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   score += Math.min(8, chatReplyLiveBrokenSpeechCount(text)) * 3;
   score += Math.min(10, chatReplyLiveDirtyTalkCount(text)) * 4;
   score += Math.min(4, chatReplyLivePersonaPostureCount(text)) * 5;
+  if (chatReplyLiveStartsWithPersonaPosture(text)) score += 6;
   if (chatReplyHasPersonaContrast(text, character)) score += 8;
   if (chatReplyLooksLikeLiveIntimateEssay(text)) score -= 10;
   if (chatReplyUsesIntimateCommandTemplate(text)) score -= 6;
@@ -18155,6 +18172,12 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
       lines.splice(Math.max(1, firstSubmission), 0, postureLine);
       repaired = lines.join("\n");
     }
+  }
+  if (!chatReplyLiveStartsWithPersonaPosture(repaired)) {
+    const vocalOnly = /^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*$/u;
+    const firstEffective = lines.findIndex((line) => !vocalOnly.test(line));
+    lines.splice(Math.max(0, firstEffective), 0, postureLine);
+    repaired = lines.join("\n");
   }
   const seen = new Set();
   lines = lines.filter((line) => {
@@ -49242,6 +49265,7 @@ module.exports = {
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLivePersonaPosture,
   chatReplyLiveOpensSubmissive,
+  chatReplyLiveStartsWithPersonaPosture,
   chatReplyLivePersonaPostureCount,
   chatReplyHasLiveSpokenTexture,
   chatReplyHasPersonaContrast,

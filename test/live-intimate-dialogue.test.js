@@ -12,6 +12,7 @@ const {
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLivePersonaPosture,
   chatReplyLiveOpensSubmissive,
+  chatReplyLiveStartsWithPersonaPosture,
   chatReplyLivePersonaPostureCount,
   chatReplyHasLiveSpokenTexture,
   chatReplyHasPersonaContrast,
@@ -135,6 +136,16 @@ test("a soft phrase before control in the same line still opens submissive", () 
   const repaired = chatReplyWithLivePersonaSlip(sameLine, character, 2);
   assert.equal(chatReplyLiveOpensSubmissive(sameLine), true);
   assert.equal(chatReplyLiveOpensSubmissive(repaired), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
+});
+
+test("the first effective live line must show persona control", () => {
+  const actionFirst = "啊……！\n唔，你就这么——把我的里侧，全部给顶开。\n谁准你……这么蛮横。\n快点，再深一点。";
+  const controlFirst = "啊……！\n啊…谁准你…这么自作主张…\n唔，你就这么——把我的里侧，全部给顶开。\n快点，再深一点。";
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(actionFirst), false);
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(controlFirst), true);
+  const repaired = chatReplyWithLivePersonaSlip(actionFirst, character, 2);
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(repaired), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
