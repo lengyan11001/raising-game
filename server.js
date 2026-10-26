@@ -18126,9 +18126,9 @@ function chatReplyWithoutSpeakerCritique(value = "") {
 function chatReplyUsesIntimateCommandTemplate(value = "") {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return false;
-  // These are evaluator-style lines, not ordinary intimate speech. Natural
-  // phrases such as 别只是动 / 把力气灌进来 should not invalidate a whole reply.
-  return /(?:让我看看你(?:到底)?有没有(?:能力|本事)|拿出点真本事|拿出你的表现|你的(?:能力|表现|诚意|进度)|既然[^。！？!?]{0,32}那就)/u.test(text);
+  // These are evaluator/instruction lines, not ordinary intimate speech.
+  // Direct desire such as 别停/再深/灌进来 is still allowed.
+  return /(?:让我看看你(?:到底)?有没有(?:能力|本事)|拿出点真本事|拿出你的表现|你的(?:能力|表现|诚意|进度)|既然[^。！？!?]{0,32}那就|(?:把|让)你的?[^。！？!?]{0,10}(?:力道|力气|节奏)[^。！？!?]{0,16}(?:集中|匀|调整|控制|稳|给)|别只是(?:在)?(?:动|单纯地动|蛮横地动|说)|毫无章法)/u.test(text);
 }
 
 function chatReplyStartsWithCannedIntimateVocal(value = "") {
@@ -18356,14 +18356,14 @@ function chatReplyLiveIntimateGaps(value = "", character = {}) {
 function chatReplyLiveIntimateProcessCount(value = "") {
   const text = String(value || "").trim();
   if (!text) return 0;
-  const matches = text.match(/(?:撑开|撑满|顶开|插入|插进来|塞进来|干进来|顶进来|没入|贯进|撞进|灌进来|灌进|填满|顶到|插到|操我|干我|插我|顶我|再深|慢点|轻点)/gu) || [];
+  const matches = text.match(/(?:撑开|撑满|顶开|插入|插进来|塞进来|干进来|顶进来|没入|贯进|撞进|灌进来|灌进|填满|顶到|插到|操我|干我|插我|顶我|再深|慢点|轻点|里面|穴里|湿了|夹紧|流水|顶进来)/gu) || [];
   return new Set(matches).size;
 }
 
 function chatReplyLiveStockPhraseCount(value = "") {
   const text = String(value || "").trim();
   if (!text) return 0;
-  return (text.match(/(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了)/gu) || []).length;
+  return (text.match(/(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了|灌进我的身体里|塞进我的身体里|把我整个人撞开)/gu) || []).length;
 }
 
 function chatReplyLiveRepeatedClauseCount(value = "") {
@@ -18414,7 +18414,10 @@ function chatReplyRepairLiveIntimateLocally(value = "") {
     .replace(/把你的力道/gu, "把力气")
     .replace(/按我的节奏/gu, "跟着我")
     .replace(/(?:要的就是这种感觉|哪怕[^。！？!?]{0,14}说不完整)/gu, "")
-    .replace(/[^\n。！？!?]*(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了)[^\n。！？!?]*[。！？!?]?/gu, "")
+    .replace(/[^\n。！？!?]*(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了|灌进我的身体里|塞进我的身体里|把我整个人撞开|毫无章法|就像这样)[^\n。！？!?]*[。！？!?]?/gu, "")
+    .replace(/别只是在(?:动|做|冲|蛮横地动)?/gu, "别光动")
+    .replace(/把你的力道(?:更)?集中一点/gu, "把力气都给我")
+    .replace(/把那股劲儿全都灌进我的身体里/gu, "全灌进里面来")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
   if (!text) return "";
@@ -18959,7 +18962,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "Do not treat earlier assistant messages, memory summaries, or any sample dialogue as a phrase bank. Use them only for relationship continuity. Every clause in the final reply must be newly phrased for this turn.",
             "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
             "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
-            "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
+            "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not coach him with 别只是在动/把你的力道集中/毫无章法, do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
             "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
             "CHARACTER CONTINUITY: Keep this person's established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active. Do not force a dominant line or a reversal if it does not fit her; match THIS character's voice and let the reaction remain recognizably hers.",
             "Keep her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active without reciting a biography. Let those facts affect what she chooses to say, refuses, hides, or cannot finish. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as explanation.",
