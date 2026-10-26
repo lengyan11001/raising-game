@@ -85,6 +85,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /Recent replies from you/);
   assert.match(server, /character-chat-empty-reply/);
   assert.match(server, /character-chat-repeated-reply/);
+  assert.match(server, /history\.filter\(\(message\) => message\.role === "assistant"\)[\s\S]*slice\(-40\)/);
+  assert.match(server, /character-chat-repeated-reply-rejected/);
+  assert.match(server, /!chatReplyRepeatsRecent\(replacementReply, previousAssistantReplies\)/);
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
   assert.match(server, /taskId: billingId, requestId: billingId/);
   assert.match(server, /upstreamResponseId: error\.upstreamResponseId/);

@@ -18113,7 +18113,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    const previousAssistantReplies = history.slice(-8).filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-4);
+    const previousAssistantReplies = history.filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-40);
     if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && chatReplyRepeatsRecent(reply, previousAssistantReplies)) {
       console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
       const replacementMessages = [
@@ -18125,10 +18125,12 @@ async function handleSendChatMessage(req, res, conversationId) {
         ? await papayaLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.9, chatTemperature + 0.08), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.82, presence_penalty: 0.75 }, { timeoutMs: 45000 })
         : await byteplusLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.9, chatTemperature + 0.08), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.82, presence_penalty: 0.75 }, { timeoutMs: 45000 });
       const replacementReply = normalizeChatReply(qwen37FlashResponseText(replacementRaw), { expanded: expandedScene || simpleGreeting });
-      if (!chatReplyIsDegenerate(replacementReply, { simpleGreeting })) {
+      if (!chatReplyIsDegenerate(replacementReply, { simpleGreeting }) && !chatReplyRepeatsRecent(replacementReply, previousAssistantReplies)) {
         raw = replacementRaw;
         reply = replacementReply;
         upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
+      } else {
+        console.warn("[character-chat-repeated-reply-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, replacementUpstreamResponseId: String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || ""), reply: String(replacementReply || "").slice(0, 180) }));
       }
     }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
