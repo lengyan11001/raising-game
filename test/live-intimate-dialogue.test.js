@@ -203,6 +203,8 @@ test("prompt repeats the configured behavior section as a hard constraint", () =
   assert.equal(chatPromptBehaviorRules(style), "- 被命令时先压住场面，可以提条件。\n- 被看穿时嘴硬遮掩。");
   const prompt = chatSystemPrompt({ character: { name: "顾静涵", replyStyle: style }, relationship: {} }, "zh", "我插进来了。", null, [], [{ role: "user", content: "我插进来了。" }], { liveSite: true, intimateProcess: true });
   assert.match(prompt, /本轮必须执行的行为规则/);
+  assert.match(prompt, /PERSONA CONTRAST \/ NATURAL REVERSAL \(HARD REQUIREMENT\)/);
+  assert.match(prompt, /This turn MUST contain one audible contradiction/);
   assert.match(prompt, /被命令时先压住场面/);
   assert.doesNotMatch(prompt, /先把门关上/);
 });
