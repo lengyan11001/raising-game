@@ -94,6 +94,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /requesting an action, asking a question or opinion, giving a preference or pace/);
   assert.match(server, /CONTINUITY WITHOUT REPETITION/);
   assert.match(server, /DIRECT RESPONSE FIRST/);
+  assert.match(server, /agree reluctantly, refuse, or set a boundary according to the character/);
+  assert.match(server, /Do not explain the request back to the user or describe it as a process/);
   assert.match(server, /ACTOR AND RESPONSE CHECK/);
   assert.match(server, /Recent replies from you/);
   assert.match(server, /character-chat-empty-reply/);
@@ -110,6 +112,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /const chatMaxTokens = simpleGreeting \? 180 : expandedScene \? 900 : 700/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
+  assert.match(server, /One sentence is complete when it answers/);
+  assert.match(server, /Do not add self-explanation, sensory description, or a summary after the answer/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
@@ -117,9 +121,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
 });
 
 test("character chat shapes compliant replies during generation instead of post-filtering", () => {
-  assert.match(server, /RESPONSE DECISION BEFORE WORDING/);
-  assert.match(server, /agree and act, refuse and set a boundary, answer a question, ask one necessary clarification/);
-  assert.match(server, /make the first spoken sentence perform that function directly/);
+  assert.match(server, /RESPONSE DECISION BEFORE WORDING \(highest priority after character voice\)/);
+  assert.match(server, /Let her judgment happen before cooperation/);
+  assert.match(server, /A request may be carried out, but it must not erase her personality, boundaries, or reservations/);
+  assert.match(server, /make the first spoken sentence perform that decision directly/);
   assert.match(server, /NATURAL CONDITIONAL LANGUAGE/);
   assert.match(server, /DIRECT RESPONSE FIRST/);
   assert.doesNotMatch(server, /chatReplyUsesConditionalBargain|chatReplyUsesRejectedScaffold|replyNeedsFreshAttempt|FRESH ATTEMPT REQUIRED/);
