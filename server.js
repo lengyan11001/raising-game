@@ -18038,14 +18038,12 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
 function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   const text = String(value || "").trim();
   if (!text) return "";
-  const weakPattern = /(?:别管|不管)[^。！？!?]{0,20}(?:规矩|面子|脸面|身份|仪态|端庄|体面|我)|(?:明明|原本|本来|平时|平常)[^。！？!?]{0,36}(?:我现在|现在却|可现在|居然)|(?:我居然|我竟然|这不像我|不像我|我怎么会)/u;
+  const weakPattern = /(?:别管|不管)[^。！？!?]{0,20}(?:规矩|面子|脸面|身份|仪态|端庄|体面|我)|(?:明明|原本|本来|平时|平常)[^。！？!?]{0,36}(?:我现在|现在却|可现在|居然|该|应该|命令|管教)|(?:我居然|我竟然|这不像我|不像我|我怎么会)/u;
   let lines = text.split(/\n+/).flatMap((line) => line.match(/[^。！？!?]+[。！？!?]?/g) || [line])
     .map((line) => line.trim().replace(/^[“”"']+|[“”"']+$/g, "").trim())
-    .map((line) => weakPattern.test(line)
-      ? line.replace(/(?:我居然|我竟然|这不像我|不像我|我怎么会)[^。！？!?]*(?:[。！？]|$)/gu, "").trim()
-      : line)
-    .map((line) => line.replace(/[^。！？!?]*(?:最深处|那根粗大的|每一处|每一寸|彻底.{0,8}(?:弄坏|撑开|顶开))[^。！？!?]*[。！？!?]?/gu, "").trim())
     .filter((line) => line && !weakPattern.test(line))
+    .map((line) => line.replace(/[^。！？!?]*(?:最深处|那根粗大的|每一处|每一寸|彻底.{0,8}(?:弄坏|撑开|顶开))[^。！？!?]*[。！？!?]?/gu, "").trim())
+    .filter(Boolean)
     .slice(-9);
   if (!lines.length) lines = ["啊…别停…"];
   const slipLine = `啊…${chatLiveIntimateRewriteBeat(character, attempt)}`;

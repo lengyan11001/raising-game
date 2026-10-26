@@ -122,6 +122,14 @@ test("repair fallback varies with the character instead of appending one canned 
   assert.doesNotMatch(first, /彻底.{0,8}(?:弄坏|撑开|顶开)|最深处|每一处|每一寸|那根粗大的/);
 });
 
+test("repair removes the whole role-history sentence before adding a slip", () => {
+  const draft = "啊……！哈啊……你就这么…狠狠地。嘶——别停，再深一点！明明我是该管教你的人……嗯……啊！还要再深一点，把我的每一处都彻底撑开。";
+  const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
+  assert.doesNotMatch(repaired, /明明|管教|每一处/);
+  assert.match(repaired, /再深点/);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
+});
+
 test("weak live drafts are repaired with a concrete persona slip", () => {
   const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。别管我刚才说的规矩了，就这么……狠狠地、一直顶到底。嘶……快点，再深一点。";
   const repaired = chatReplyWithLivePersonaSlip(draft, character, 1);
