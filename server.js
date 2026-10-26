@@ -6647,7 +6647,7 @@ function chatLiveUserContext(user = null) {
 }
 
 function chatMemoryTurnsForPrompt(turns = [], { currentMessages = [] } = {}) {
-  const list = (Array.isArray(turns) ? turns : []).filter((turn) => turn && ["user", "assistant"].includes(turn.role));
+  const list = chatHistoryWithoutPollutedReplies(turns).filter((turn) => turn && ["user", "assistant"].includes(turn.role));
   const current = (Array.isArray(currentMessages) ? currentMessages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
   const removed = new Set();
   for (let index = 0; index < list.length; index += 1) {
@@ -17672,8 +17672,19 @@ function chatContextHasRepeatedReplyScaffold(messages = []) {
   return false;
 }
 
+function chatReplyUsesAbstractIntimacyVoice(value = "") {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return /(?:别让我觉得你|你要我承受|频繁的位移|定格在这一刻|呈现出什么样子|承担责任|旁观我的羞耻|审视艺术品的眼神|物理位移|视觉收藏|宏大的|仪式感)/u.test(text);
+}
+
+function chatHistoryWithoutPollutedReplies(messages = []) {
+  const list = Array.isArray(messages) ? messages : [];
+  return list.filter((message) => message?.role !== "assistant" || !chatReplyUsesAbstractIntimacyVoice(message.content));
+}
+
 function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
-  const raw = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const raw = chatHistoryWithoutPollutedReplies(messages).filter((message) => message && ["user", "assistant"].includes(message.role));
   const list = [];
   for (const message of raw) {
     const previous = list.at(-1);
@@ -17850,7 +17861,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "NATURAL CONDITIONAL LANGUAGE: Use 如果/要是/既然 naturally when the meaning genuinely needs a condition. Never use them as a generic way to delay agreement or demand compliance. Do not default to 既然……那就…… as a speech formula. Prefer plain, direct speech such as 好，我配合你, 这次可以, 但我有我的规矩, 我现在不想, or 先听我说完.",
     chatTurnProtocol(),
     "PERSONA USE: Use the character sheet for attitude, preferences, initiative, and speaking style. Persona determines both how she answers and whether she pushes back, sets a boundary, or makes the user earn her agreement. Never flatten a proud, cold, severe, or cautious character into an eager generic responder. If the user hands control to the character, she acts in character; if the user takes the lead, she reacts as this person would. If the user gives no direction, she may advance the scene from her own desire and the established relationship.",
-    "CONTINUITY WITHOUT REPETITION: Do not reuse the previous reply's sequence of ideas, sentence structure, threats, signature phrases, or closing line. Continue from the established scene, but generate the next reply from the latest user turn rather than copying the prior pattern.",
+    "CONTINUITY WITHOUT REPETITION: Do not reuse the previous reply's sequence of ideas, sentence structure, threats, signature phrases, or closing line. Continue from the established scene, but generate the next reply from the latest user turn rather than copying the prior pattern. Any previous reply containing abstract criticism such as 旁观我的羞耻, 频繁的位移, 定格在这一刻, 呈现出什么样子, or an explanation of her role is an error sample: never imitate, quote, complete, or paraphrase it.",
     "DIRECT RESPONSE FIRST: State the action, answer, boundary, refusal, or feeling in the first sentence. Let the character's personality shape the tone rather than adding a bargaining preamble or a repeated threat formula.",
     "ACTOR AND RESPONSE CHECK: Before replying, verify who acts and who receives the action in the latest user message. If the user addresses an action or question to the character, the character responds from their own side. Do not reassign the user's action to the character or the character's requested action back to the user.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",

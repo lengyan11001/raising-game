@@ -90,6 +90,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /does not turn into a generic eager, breathy partner/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
+  assert.match(server, /function chatReplyUsesAbstractIntimacyVoice/);
+  assert.match(server, /function chatHistoryWithoutPollutedReplies/);
+  assert.match(server, /chatHistoryWithoutPollutedReplies\(messages\)/);
+  assert.match(server, /chatHistoryWithoutPollutedReplies\(turns\)/);
+  assert.match(server, /never imitate, quote, complete, or paraphrase it/);
   assert.match(server, /isImmediateRetry/);
   assert.match(server, /lastKeptUserIndex/);
   assert.match(server, /function chatMemoryTurnsForPrompt/);
