@@ -45,6 +45,7 @@ button { cursor:pointer; }
 .standalone-chat-message.is-user { align-self:flex-end; }
 .standalone-chat-bubble { padding:11px 14px; border-radius:16px 16px 16px 4px; color:var(--ink); background:#fff; box-shadow:0 2px 8px rgba(16,24,40,.06); white-space:normal; overflow-wrap:anywhere; }
 .standalone-chat-message.is-user .standalone-chat-bubble { border-radius:16px 16px 4px 16px; color:#fff; background:#111827; }
+.standalone-chat-message.is-pending { opacity:.7; }
 .standalone-chat-composer { display:grid; grid-template-columns:1fr auto; gap:10px; margin-top:14px; }
 .standalone-chat-composer textarea { min-width:0; resize:vertical; padding:12px 14px; border:1px solid var(--line); border-radius:14px; color:var(--ink); background:#fff; outline:none; }
 .standalone-chat-composer textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(95,92,232,.12); }

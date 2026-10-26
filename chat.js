@@ -136,6 +136,11 @@
     const assistant = message.role !== "user";
     return `<article class="standalone-chat-message ${assistant ? "is-assistant" : "is-user"}"><div class="standalone-chat-bubble">${chatText(message.content || "")}</div></article>`;
   }
+  const standaloneChatBursts = new Map();
+  function standaloneChatBurstState(conversationId) {
+    if (!standaloneChatBursts.has(conversationId)) standaloneChatBursts.set(conversationId, { timer: 0, pending: [], sending: false });
+    return standaloneChatBursts.get(conversationId);
+  }
   async function renderStandaloneChat(conversationId) {
     const renderToken = ++standaloneChatRenderToken;
     app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-loading">Loading conversation…</div></section>`;
@@ -146,23 +151,73 @@
       const character = conversation.character || {};
       const messages = Array.isArray(payload.messages) ? payload.messages : [];
       const avatar = imageFor(character);
-      app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-shell"><button class="back-link standalone-chat-back" type="button" data-chat-back>← Back to ${esc(character.name || "models")}</button><header class="standalone-chat-heading"><img src="${esc(avatar)}" alt="${esc(character.name || "Character")}" /><div><span class="eyebrow">PRIVATE CHAT</span><h1>${esc(conversation.title || character.name || "Chat")}</h1><p>${esc(character.title || character.summary || "A focused conversation with your selected creator.")}</p></div></header><div class="standalone-chat-thread" data-chat-thread>${messages.length ? messages.map(standaloneChatMessage).join("") : `<p class="empty-state">Start the conversation below.</p>`}</div><form class="standalone-chat-composer" data-chat-composer><textarea name="content" rows="2" maxlength="12000" placeholder="Write a message…" required></textarea><button class="solid-button" type="submit">Send</button><div class="standalone-chat-error" data-chat-error role="alert"></div></form></div></section>`;
+      const burst = standaloneChatBurstState(conversationId);
+      const pendingMarkup = burst.pending.map((item) => `<article class="standalone-chat-message is-user is-pending"><div class="standalone-chat-bubble">${chatText(item)}</div></article>`).join("");
+      app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-shell"><button class="back-link standalone-chat-back" type="button" data-chat-back>← Back to ${esc(character.name || "models")}</button><header class="standalone-chat-heading"><img src="${esc(avatar)}" alt="${esc(character.name || "Character")}" /><div><span class="eyebrow">PRIVATE CHAT</span><h1>${esc(conversation.title || character.name || "Chat")}</h1><p>${esc(character.title || character.summary || "A focused conversation with your selected creator.")}</p></div></header><div class="standalone-chat-thread" data-chat-thread>${(messages.length || pendingMarkup) ? messages.map(standaloneChatMessage).join("") + pendingMarkup : `<p class="empty-state">Start the conversation below.</p>`}</div><form class="standalone-chat-composer" data-chat-composer><textarea name="content" rows="2" maxlength="12000" placeholder="Write a message…" required></textarea><button class="solid-button" type="submit">Send</button><div class="standalone-chat-error" data-chat-error role="alert"></div></form></div></section>`;
       app.querySelector("[data-chat-back]")?.addEventListener("click", () => { location.hash = `model/${encodeURIComponent(conversation.characterId || character.id || "")}`; });
       const thread = app.querySelector("[data-chat-thread]"); if (thread) thread.scrollTop = thread.scrollHeight;
-      app.querySelector("[data-chat-composer]")?.addEventListener("submit", (event) => sendStandaloneChatMessage(event, conversationId));
+      const composer = app.querySelector("[data-chat-composer]");
+      if (composer) composer.dataset.conversationId = conversationId;
+      composer?.addEventListener("submit", (event) => sendStandaloneChatMessage(event, conversationId));
     } catch (error) {
       if (renderToken !== standaloneChatRenderToken) return;
       app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-shell"><button class="back-link standalone-chat-back" type="button" data-chat-back>← Back to models</button><div class="empty-state">${esc(error.message || "Unable to load this conversation.")}</div></div></section>`;
       app.querySelector("[data-chat-back]")?.addEventListener("click", () => { location.hash = "models"; });
     }
   }
-  async function sendStandaloneChatMessage(event, conversationId) {
+  function standaloneChatError(conversationId, message = "") {
+    const form = app.querySelector("[data-chat-composer]");
+    if (form?.dataset.conversationId !== conversationId) return;
+    const errorNode = form.querySelector("[data-chat-error]");
+    if (errorNode) errorNode.textContent = message;
+  }
+  async function flushStandaloneChatBurst(conversationId) {
+    const burst = standaloneChatBurstState(conversationId);
+    if (burst.sending || !burst.pending.length) return;
+    const queued = burst.pending.slice();
+    const contents = queued.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!contents.length) {
+      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+      await renderStandaloneChat(conversationId);
+      return;
+    }
+    burst.sending = true;
+    standaloneChatError(conversationId, "");
+    try {
+      await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ contents, content: contents[contents.length - 1], action: "send", language: navigator.language || "en" }),
+      });
+      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+      await renderStandaloneChat(conversationId);
+    } catch (error) {
+      burst.sending = false;
+      standaloneChatError(conversationId, error.message || "Chat failed.");
+      await renderStandaloneChat(conversationId);
+      return;
+    }
+    burst.sending = false;
+    if (burst.pending.length) burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
+  }
+  function sendStandaloneChatMessage(event, conversationId) {
     event.preventDefault();
-    const form = event.currentTarget; const input = form.elements.content; const button = form.querySelector("button[type=submit]"); const errorNode = form.querySelector("[data-chat-error]");
+    const form = event.currentTarget; const input = form.elements.content;
     const content = String(input.value || "").trim(); if (!content) return;
-    input.disabled = true; button.disabled = true; button.textContent = "Send"; if (errorNode) errorNode.textContent = "";
-    try { await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, { method: "POST", body: JSON.stringify({ content, action: "send", language: navigator.language || "en" }) }); await renderStandaloneChat(conversationId); }
-    catch (error) { input.disabled = false; button.disabled = false; button.textContent = "Send"; if (errorNode) errorNode.textContent = error.message || "Chat failed."; }
+    const burst = standaloneChatBurstState(conversationId);
+    burst.pending.push(content);
+    input.value = "";
+    form.dataset.conversationId = conversationId;
+    if (burst.timer) window.clearTimeout(burst.timer);
+    if (burst.sending) {
+      burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
+    } else {
+      flushStandaloneChatBurst(conversationId).catch(() => {});
+    }
+    renderStandaloneChat(conversationId).then(() => {
+      const next = app.querySelector("[data-chat-composer]");
+      if (next?.dataset) next.dataset.conversationId = conversationId;
+      next?.elements?.content?.focus();
+    });
   }
   function route() { const chatMatch = location.hash.match(/^#chat\/(.+)$/); if (chatMatch) return renderStandaloneChat(decodeURIComponent(chatMatch[1])); const match = location.hash.match(/^#model\/(.+)$/); if (match) { const id = decodeURIComponent(match[1]); const item = state.characters.find((entry) => String(entry.id) === id); if (item) return renderDetail(item); } renderModels(); }
   document.addEventListener("click", (event) => { const action = event.target.closest("[data-action]")?.dataset.action; if (action === "models") { location.hash = "models"; route(); } if (action === "categories") { document.querySelector("[data-search]")?.focus(); } if (action === "account") { if (getToken()) { fetch("/api/auth/logout", { method: "POST", headers: { authorization: `Bearer ${getToken()}` } }).catch(() => {}).finally(() => { localStorage.removeItem(TOKEN_KEY); location.reload(); }); } else loginDialog.showModal(); } if (action === "theme") { document.body.classList.toggle("dark"); } if (action === "email-login") { loginDialog.close(); emailDialog.showModal(); } if (action === "request-email") requestEmailCode(); });

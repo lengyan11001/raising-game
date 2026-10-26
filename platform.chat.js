@@ -42,13 +42,14 @@ function renderChatConversationList() {
 function chatMessageMarkup(message = {}) {
   const assistant = message.role !== "user";
   const media = message.kind === "image";
+  const pending = message.pending === true;
   const mediaMarkup = media ? (message.imageUrl
     ? `<figure class="chat-message-media"><img src="${escapeHtml(message.imageUrl)}" alt="${escapeHtml(message.content || "Generated scene")}" /><figcaption>${chatFormattedText(message.content || "Generated scene")}</figcaption></figure>`
     : `<div class="chat-media-pending ${message.status === "failed" ? "is-failed" : ""}"><i data-lucide="${message.status === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(message.error || "Generating image...")}</span></div>`) : chatFormattedText(message.content || "");
   return `
-    <article class="chat-message ${assistant ? "is-assistant" : "is-user"}" data-chat-message="${escapeHtml(message.id || "")}">
+    <article class="chat-message ${assistant ? "is-assistant" : "is-user"}${pending ? " is-pending" : ""}" data-chat-message="${escapeHtml(message.id || "")}">
       <div class="chat-message-content">${mediaMarkup}</div>
-      <div class="chat-message-actions">
+      ${pending ? "" : `<div class="chat-message-actions">
         <button class="icon-btn" type="button" data-chat-copy aria-label="Copy" title="Copy"><i data-lucide="copy"></i></button>
         ${assistant && !media ? `<button class="icon-btn" type="button" data-chat-read aria-label="Read aloud" title="Read aloud"><i data-lucide="volume-2"></i></button>` : ""}
         ${assistant && !media
@@ -61,7 +62,7 @@ function chatMessageMarkup(message = {}) {
           <button type="button" data-chat-report><i data-lucide="flag"></i>Report</button>
           <button type="button" data-chat-delete><i data-lucide="trash-2"></i>Delete</button>
         </div></details>
-      </div>
+      </div>`}
     </article>`;
 }
 
@@ -169,10 +170,8 @@ function renderChatPanel() {
   if (els.chatThread && hasConversation) {
     els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
     els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
-    // Keep the thread clean while the assistant is responding; transport state is
-    // reflected by the disabled composer, not exposed as an internal status.
-    const pendingMarkup = "";
-    els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMarkup || `<div class="chat-list-empty">No messages yet</div>`;
+    const pendingMessages = (state.chatPendingMessages || []).map((item) => ({ ...item, pending: true }));
+    els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMessages.map(chatMessageMarkup).join("") || `<div class="chat-list-empty">No messages yet</div>`;
     els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
       const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
       article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.imageUrl || message?.content || ""));
@@ -681,36 +680,99 @@ async function generateChatImage({ mode = "image" } = {}) {
   }
 }
 
-async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
-  if (state.chatMode === "image" && action === "send") return generateChatImage({ mode: "image" });
-  const conversation = activeChatConversation();
-  if (!conversation || state.chatSending) return;
-  const editMessageId = els.chatInput?.dataset.editMessageId || "";
-  const content = String(els.chatInput?.value || "").trim();
-  const effectiveAction = editMessageId && action === "send" ? "edit" : action;
-  if (!["continue", "regenerate"].includes(effectiveAction) && !content) return;
-  const previousMessages = state.chatMessages.slice();
-  if (effectiveAction === "send") {
-    state.chatMessages = [...state.chatMessages, { id: `pending-${Date.now()}`, role: "user", content }];
-    if (els.chatInput) els.chatInput.value = "";
+const CHAT_BURST_SETTLE_MS = 1000;
+
+function chatPendingMessage(content = "") {
+  return { id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, role: "user", content: String(content || "") };
+}
+
+function scheduleChatBurstFlush(delay = CHAT_BURST_SETTLE_MS) {
+  if (state.chatBurstTimer) window.clearTimeout(state.chatBurstTimer);
+  state.chatNextBurstAt = Date.now() + delay;
+  state.chatBurstTimer = window.setTimeout(() => {
+    state.chatBurstTimer = 0;
+    state.chatNextBurstAt = 0;
+    flushChatBurst().catch(() => {});
+  }, delay);
+}
+
+function queueChatMessage(content = "") {
+  const text = String(content || "").trim();
+  if (!text) return;
+  if (state.chatSending || state.chatPendingMessages?.length) {
+    state.chatPendingMessages = [...(state.chatPendingMessages || []), chatPendingMessage(text)];
+    if (els.chatInput) {
+      els.chatInput.value = "";
+      delete els.chatInput.dataset.editMessageId;
+    }
+    renderChatPanel();
+    scheduleChatBurstFlush();
+    return;
   }
   state.chatSending = true;
-  renderChatPanel();
-  if (els.chatSendBtn) {
-    els.chatSendBtn.disabled = true;
-    els.chatSendBtn.innerHTML = `<i data-lucide="send"></i><span>${state.lang === "zh" ? "发送" : "Send"}</span>`;
+  state.chatPendingMessages = [chatPendingMessage(text)];
+  if (els.chatInput) {
+    els.chatInput.value = "";
+    delete els.chatInput.dataset.editMessageId;
   }
+  renderChatPanel();
+  flushChatBurst().catch(() => {});
+}
+
+async function flushChatBurst() {
+  const conversation = activeChatConversation();
+  const pending = Array.isArray(state.chatPendingMessages) ? [...state.chatPendingMessages] : [];
+  if (!conversation || !pending.length) return;
+  const queued = pending.filter((item) => String(item.content || "").trim());
+  const contents = queued.map((item) => String(item.content || "").trim());
+  if (!contents.length) {
+    state.chatPendingMessages = [];
+    renderChatPanel();
+    return;
+  }
+  state.chatSending = true;
+  if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
+  renderChatPanel();
+  try {
+    const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
+      method: "POST",
+      body: { contents, content: contents[contents.length - 1], action: "send", language: els.languageSelect?.value || state.lang },
+    });
+    state.chatPendingMessages = (state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id));
+    if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
+    await openChatConversation(conversation.id);
+    scheduleChatTrackerRefresh(conversation.id);
+    renderAccountMenu();
+    renderTopupSummary();
+  } catch (error) {
+    state.chatPendingMessages = [...pending, ...(state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id))];
+    window.alert(error.message || "Chat failed.");
+  } finally {
+    state.chatSending = false;
+    state.chatNextBurstAt = Date.now() + CHAT_BURST_SETTLE_MS;
+    if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
+    renderChatPanel();
+    if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
+  }
+}
+
+async function submitChatMessage({ action = "send", targetMessageId = "", content = "" } = {}) {
+  const conversation = activeChatConversation();
+  if (!conversation || state.chatSending) return;
+  const effectiveAction = action;
+  const text = String(content || "").trim();
+  if (!["continue", "regenerate"].includes(effectiveAction) && !text) return;
+  const previousMessages = state.chatMessages.slice();
+  state.chatSending = true;
+  renderChatPanel();
   if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
   refreshIcons();
   try {
     const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
       method: "POST",
-      body: { content, action: effectiveAction, targetMessageId: targetMessageId || editMessageId, language: els.languageSelect?.value || state.lang },
+      body: { content: text, action: effectiveAction, targetMessageId, language: els.languageSelect?.value || state.lang },
     });
-    if (els.chatInput) {
-      els.chatInput.value = "";
-      delete els.chatInput.dataset.editMessageId;
-    }
+    if (els.chatInput) delete els.chatInput.dataset.editMessageId;
     if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
     await openChatConversation(conversation.id);
     scheduleChatTrackerRefresh(conversation.id);
@@ -718,17 +780,27 @@ async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
     renderTopupSummary();
   } catch (error) {
     state.chatMessages = previousMessages;
-    if (els.chatInput && !els.chatInput.value && content) els.chatInput.value = content;
     window.alert(error.message || "Chat failed.");
   } finally {
     state.chatSending = false;
-    if (els.chatSendBtn) {
-      els.chatSendBtn.disabled = false;
-      els.chatSendBtn.innerHTML = `<i data-lucide="send"></i><span>Send</span>`;
-    }
     if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
     renderChatPanel();
   }
+}
+
+async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
+  if (state.chatMode === "image" && action === "send") return generateChatImage({ mode: "image" });
+  const conversation = activeChatConversation();
+  if (!conversation) return;
+  const editMessageId = els.chatInput?.dataset.editMessageId || "";
+  const content = String(els.chatInput?.value || "").trim();
+  const effectiveAction = editMessageId && action === "send" ? "edit" : action;
+  if (effectiveAction === "send") {
+    queueChatMessage(content);
+    return;
+  }
+  if (state.chatSending) return;
+  return submitChatMessage({ action: effectiveAction, targetMessageId: targetMessageId || editMessageId, content });
 }
 
 async function updateChatPreferences(changes = {}) {

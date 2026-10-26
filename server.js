@@ -17849,6 +17849,16 @@ async function handleBranchChatConversation(req, res, conversationId) {
   return sendJson(res, 201, { ok: true, conversation: publicChatConversation(branch), messages: copied.map(publicChatMessage) });
 }
 
+function chatBurstPrompt(messages = []) {
+  const contents = (Array.isArray(messages) ? messages : []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (contents.length <= 1) return contents[0] || "";
+  return `以下是用户连续发来的多条消息，请把它们合在一起理解，只回答一轮，不要逐条机械回复：\n${contents.map((item, index) => `${index + 1}. ${item}`).join("\n")}`;
+}
+
+function chatReplyDelayMs() {
+  return 800 + Math.floor(Math.random() * 1401);
+}
+
 async function handleSendChatMessage(req, res, conversationId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -17863,7 +17873,11 @@ async function handleSendChatMessage(req, res, conversationId) {
   const action = String(body.action || "send");
   if (!["send", "continue", "regenerate", "edit"].includes(action)) return sendJson(res, 400, { ok: false, message: "Invalid chat action." });
   const targetMessageId = String(body.targetMessageId || "");
+  const submittedContents = Array.isArray(body.contents)
+    ? body.contents.map((item) => String(item || "").trim().slice(0, 12000)).filter(Boolean).slice(0, 12)
+    : [];
   let content = String(body.content || "").trim().slice(0, 12000);
+  if (action === "send" && submittedContents.length > 1) content = submittedContents[submittedContents.length - 1];
   if (action === "continue") content = "Continue the scene naturally from where you stopped.";
   if (auth.user.credits < CHAT_MESSAGE_CREDITS) return sendJson(res, 402, insufficientCreditsPayload(CHAT_MESSAGE_CREDITS, auth.user.credits));
   if (action === "regenerate" || action === "edit") {
@@ -17871,9 +17885,17 @@ async function handleSendChatMessage(req, res, conversationId) {
     await deleteChatMessagesAfterInDb(conversation.id, auth.user.id, targetMessageId);
   }
   if (!["regenerate", "continue"].includes(action)) {
-    if (!content) return sendJson(res, 400, { ok: false, message: "Message is required." });
+    const messagesToSave = action === "send" && submittedContents.length ? submittedContents : [content];
+    if (!messagesToSave.some(Boolean)) return sendJson(res, 400, { ok: false, message: "Message is required." });
     const now = new Date().toISOString();
-    await insertChatMessageInDb({ id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content, createdAt: now, updatedAt: now });
+    for (let index = 0; index < messagesToSave.length; index += 1) {
+      const userContent = messagesToSave[index];
+      if (!userContent) continue;
+      await insertChatMessageInDb({
+        id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content: userContent,
+        createdAt: new Date(Date.parse(now) + index).toISOString(), updatedAt: new Date(Date.parse(now) + index).toISOString(),
+      });
+    }
   }
   const billingId = randomId("chat-bill");
   await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { taskId: billingId, requestId: billingId, conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL } });
@@ -17882,7 +17904,9 @@ async function handleSendChatMessage(req, res, conversationId) {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
     const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: normalizeChatReply(message.content, { expanded: false }) || String(message.content || "").replace(/^[)）\s]+/, "").trim() })).filter((message) => message.role === "user" || !chatReplyIsDegenerate(normalizeChatReply(message.content, { expanded: false })));
     if (action === "continue") messages.push({ role: "user", content });
-    const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || content;
+    const latestUserMessage = action === "send" && submittedContents.length > 1
+      ? chatBurstPrompt(submittedContents)
+      : ([...messages].reverse().find((message) => message.role === "user")?.content || content);
     const liveCharacterIdEarly = conversation.characterId || conversation.character?.id || "";
     const freshCharacterEarly = liveCharacterIdEarly ? (await chatCharacterById(liveCharacterIdEarly) || ownedCustomChatCharacter(auth, liveCharacterIdEarly)) : null;
     const hasReplyStyle = Boolean(String(freshCharacterEarly?.replyStyle || conversation.character?.replyStyle || "").trim());
@@ -17921,6 +17945,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       unusable.upstreamResponseId = upstreamResponseId;
       throw unusable;
     }
+    await new Promise((resolve) => setTimeout(resolve, chatReplyDelayMs()));
     const now = new Date().toISOString();
     const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
     await insertChatMessageInDb(assistantMessage);
