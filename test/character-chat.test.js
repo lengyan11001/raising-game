@@ -81,6 +81,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /PERSONA CONTINUITY/);
   assert.match(server, /VOICE INTEGRATION/);
   assert.match(server, /how she handles an order/);
+  assert.match(server, /apply before composing the first sentence/);
+  assert.match(server, /STYLE-SPECIFIC FIRST BEAT/);
   assert.match(server, /Let her hold some of herself back/);
   assert.match(server, /CHARACTER-SHEET DRIFT CHECK/);
   assert.match(server, /Give the response a human first beat when it fits/);
