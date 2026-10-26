@@ -73,8 +73,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
 });
 
 test("chat assets bypass stale browser caches after deployment", () => {
-  assert.match(html, /platform\.js\?v=chat-unlocked-20261026-3/);
-  assert.match(standaloneHtml, /chat\.js\?v=chat-unlocked-20261026-3/);
+  assert.match(html, /platform\.js\?v=chat-inline-20261026-1/);
+  assert.match(standaloneHtml, /chat\.js\?v=chat-inline-20261026-1/);
 });
 
 test("standalone chat opens the created conversation and sends messages", () => {
@@ -127,7 +127,11 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(standaloneChat, /standaloneChatBursts/);
   assert.doesNotMatch(standaloneChat, /standalone-chat-typing-dots/);
   assert.match(standaloneChat, /1000/);
-  assert.match(standaloneChat, /preserveDraft: true/);
+  assert.match(standaloneChat, /refreshStandaloneChatMessages\(conversationId\)/);
+  assert.match(standaloneChat, /\[data-chat-thread\]/);
+  assert.match(chat, /function renderChatThread/);
+  assert.match(chat, /openChatConversation\(conversation\.id, \{ renderList: false, messagesOnly: true \}\)/);
+  assert.doesNotMatch(standaloneChat, /await renderStandaloneChat\(conversationId, \{ preserveDraft: true \}\)/);
   assert.match(standaloneChat, /burst\.pending\.length\) burst\.timer/);
   assert.doesNotMatch(standaloneChat, /flushStandaloneChatBurst\(conversationId\)\.catch/);
   assert.match(html, /data-chat-mode="image"/);

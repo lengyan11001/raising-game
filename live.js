@@ -878,10 +878,7 @@
       });
       burst.pending = burst.pending.filter((item) => !queued.includes(item));
       if (state.user && result.credits != null) state.user.credits = result.credits;
-      if (state.page === "text-chat" && state.textChatId === conversationId) {
-        const draft = textChatDraft();
-        await showTextChat({ preserveDraft: true, draft });
-      }
+      await refreshTextChatMessages(conversationId);
     } catch (error) {
       burst.pending = burst.pending.filter((item) => !queued.includes(item));
       if (error.status === 402) {
@@ -899,9 +896,27 @@
       if (!burst.blocked && burst.pending.length) scheduleTextChatBurst(conversationId);
     }
   }
+  function renderTextChatThread(messages, avatar, name) {
+    const thread = document.querySelector("[data-text-thread]");
+    if (!thread) return;
+    const pending = textChatBurstState(state.textChatId).pending.map((item) => renderChatItem({ role: "user", content: item }, avatar, name)).join("");
+    const next = messages.map((item) => renderChatItem(item, avatar, name)).join("") + pending || `<p class="detail-empty">开始和 TA 聊聊。</p>`;
+    if (thread.innerHTML !== next) thread.innerHTML = next;
+    thread.scrollTo(0, thread.scrollHeight);
+  }
+  async function refreshTextChatMessages(conversationId, avatar = "", name = "") {
+    if (state.page !== "text-chat" || state.textChatId !== conversationId) return;
+    const payload = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+    if (state.page !== "text-chat" || state.textChatId !== conversationId) return;
+    const messages = payload.messages || [];
+    const conversation = payload.conversation || {};
+    const character = conversation.character || state.role || {};
+    const peerName = name || character.name || conversation.title || document.querySelector(".chat-peer b")?.textContent || "对话";
+    const peerAvatar = avatar || media(rolePhoto(character) || conversationAvatar(conversation) || rolePhoto(state.role), peerName);
+    renderTextChatThread(messages, peerAvatar, peerName);
+  }
   async function showTextChat(options = {}) {
     if (!state.textChatId) { state.page = "messages"; render(); return; }
-    const draft = options.preserveDraft ? (options.draft ?? textChatDraft()) : "";
     const known = state.conversations.find((item) => String(item.id) === String(state.textChatId));
     const knownName = known?.character?.name || known?.title || state.role?.name || "对话";
     const knownPhoto = conversationAvatar(known || { character: state.role, characterId: state.role?.id }) || rolePhoto(state.role);
@@ -928,10 +943,7 @@
       const thread = document.querySelector("[data-text-thread]");
       if (photo && thread) thread.style.backgroundImage = `linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${photo}')`;
       const avatar = media(photo, name);
-      const pending = textChatBurstState(state.textChatId).pending.map((item) => renderChatItem({ role: "user", content: item }, avatar, name)).join("");
-      if (thread) thread.innerHTML = messages.map((item) => renderChatItem(item, avatar, name)).join("") + pending || `<p class="detail-empty">开始和 TA 聊聊。</p>`;
-      thread?.scrollTo(0, thread.scrollHeight);
-      if (options.preserveDraft) restoreTextChatDraft(draft);
+      renderTextChatThread(messages, avatar, name);
     } catch (error) {
       const thread = document.querySelector("[data-text-thread]");
       if (thread) thread.innerHTML = `<p class="detail-empty">${esc(error.message)}</p>`;

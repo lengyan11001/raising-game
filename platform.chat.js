@@ -66,6 +66,39 @@ function chatMessageMarkup(message = {}) {
     </article>`;
 }
 
+function bindChatThreadActions() {
+  if (!els.chatThread) return;
+  els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
+    const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
+    article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.imageUrl || message?.content || ""));
+    article.querySelector("[data-chat-read]")?.addEventListener("click", () => readChatMessage(message));
+    article.querySelector("[data-chat-regenerate]")?.addEventListener("click", () => sendChatMessage({ action: "regenerate", targetMessageId: message?.id || "" }));
+    article.querySelector("[data-chat-continue]")?.addEventListener("click", () => sendChatMessage({ action: "continue", targetMessageId: message?.id || "" }));
+    article.querySelector("[data-chat-branch]")?.addEventListener("click", () => branchChatFromMessage(message?.id || ""));
+    article.querySelector("[data-chat-report]")?.addEventListener("click", () => reportChatMessage(message));
+    article.querySelector("[data-chat-delete]")?.addEventListener("click", () => deleteChatMessage(message?.id || ""));
+    article.querySelector("[data-chat-animate]")?.addEventListener("click", (event) => openChatImageInVideo(message, event.currentTarget));
+    article.querySelector("[data-chat-edit]")?.addEventListener("click", () => {
+      if (!els.chatInput) return;
+      els.chatInput.value = message?.content || "";
+      els.chatInput.dataset.editMessageId = message?.id || "";
+      els.chatInput.focus();
+    });
+  });
+}
+
+function renderChatThread({ scroll = true } = {}) {
+  const conversation = activeChatConversation();
+  if (!els.chatThread || !conversation) return;
+  els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
+  els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
+  const pendingMessages = (state.chatPendingMessages || []).map((item) => ({ ...item, pending: true }));
+  els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMessages.map(chatMessageMarkup).join("") || `<div class="chat-list-empty">No messages yet</div>`;
+  bindChatThreadActions();
+  if (scroll) requestAnimationFrame(() => { els.chatThread.scrollTop = els.chatThread.scrollHeight; });
+  state.chatMessages.filter((message) => message.kind === "image" && message.taskId && message.status === "generating").forEach((message) => pollChatImage(conversation.id, message.taskId));
+}
+
 function renderChatTracker(conversation = activeChatConversation()) {
   if (!els.chatTracker) return;
   els.chatTracker.hidden = !conversation || !state.chatTrackerVisible;
@@ -169,29 +202,7 @@ function renderChatPanel() {
     }
   }
   if (els.chatThread && hasConversation) {
-    els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
-    els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
-    const pendingMessages = (state.chatPendingMessages || []).map((item) => ({ ...item, pending: true }));
-    els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMessages.map(chatMessageMarkup).join("") || `<div class="chat-list-empty">No messages yet</div>`;
-    els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
-      const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
-      article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.imageUrl || message?.content || ""));
-      article.querySelector("[data-chat-read]")?.addEventListener("click", () => readChatMessage(message));
-      article.querySelector("[data-chat-regenerate]")?.addEventListener("click", () => sendChatMessage({ action: "regenerate", targetMessageId: message?.id || "" }));
-      article.querySelector("[data-chat-continue]")?.addEventListener("click", () => sendChatMessage({ action: "continue", targetMessageId: message?.id || "" }));
-      article.querySelector("[data-chat-branch]")?.addEventListener("click", () => branchChatFromMessage(message?.id || ""));
-      article.querySelector("[data-chat-report]")?.addEventListener("click", () => reportChatMessage(message));
-      article.querySelector("[data-chat-delete]")?.addEventListener("click", () => deleteChatMessage(message?.id || ""));
-      article.querySelector("[data-chat-animate]")?.addEventListener("click", (event) => openChatImageInVideo(message, event.currentTarget));
-      article.querySelector("[data-chat-edit]")?.addEventListener("click", () => {
-        if (!els.chatInput) return;
-        els.chatInput.value = message?.content || "";
-        els.chatInput.dataset.editMessageId = message?.id || "";
-        els.chatInput.focus();
-      });
-    });
-    requestAnimationFrame(() => { els.chatThread.scrollTop = els.chatThread.scrollHeight; });
-    state.chatMessages.filter((message) => message.kind === "image" && message.taskId && message.status === "generating").forEach((message) => pollChatImage(conversation.id, message.taskId));
+    renderChatThread();
   }
   if (els.chatCharacterCard) {
     els.chatCharacterCard.innerHTML = hasConversation ? `
@@ -229,7 +240,7 @@ async function loadChatConversations({ selectFirst = true } = {}) {
   }
 }
 
-async function openChatConversation(conversationId = "", { renderList = true } = {}) {
+async function openChatConversation(conversationId = "", { renderList = true, messagesOnly = false } = {}) {
   if (!conversationId) return;
   state.chatActiveConversationId = conversationId;
   if (renderList) renderChatConversationList();
@@ -238,6 +249,10 @@ async function openChatConversation(conversationId = "", { renderList = true } =
   const index = state.chatConversations.findIndex((item) => item.id === conversationId);
   if (index >= 0) state.chatConversations[index] = payload.conversation;
   else state.chatConversations.unshift(payload.conversation);
+  if (messagesOnly && els.chatThread) {
+    renderChatThread();
+    return;
+  }
   renderChatPanel();
 }
 
@@ -706,7 +721,7 @@ function queueChatMessage(content = "") {
     delete els.chatInput.dataset.editMessageId;
     els.chatInput.focus();
   }
-  renderChatPanel();
+  renderChatThread();
   scheduleChatBurstFlush();
 }
 
@@ -722,12 +737,11 @@ async function flushChatBurst() {
   const contents = queued.map((item) => String(item.content || "").trim());
   if (!contents.length) {
     state.chatPendingMessages = [];
-    renderChatPanel();
+    renderChatThread();
     return;
   }
   state.chatSending = true;
   if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
-  renderChatPanel();
   try {
     const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
       method: "POST",
@@ -736,7 +750,7 @@ async function flushChatBurst() {
     });
     state.chatPendingMessages = (state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id));
     if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
-    await openChatConversation(conversation.id);
+    await openChatConversation(conversation.id, { renderList: false, messagesOnly: true });
     scheduleChatTrackerRefresh(conversation.id);
     renderAccountMenu();
     renderTopupSummary();
@@ -745,7 +759,7 @@ async function flushChatBurst() {
   } finally {
     state.chatSending = false;
     if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
-    renderChatPanel();
+    renderChatThread();
     if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
   }
 }

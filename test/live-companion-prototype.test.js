@@ -51,6 +51,8 @@ test("live text chat keeps composing while a reply is pending", () => {
   assert.match(live, /textChatBurstState/);
   assert.match(live, /queueTextChatMessage\(conversationId, content\)/);
   assert.match(live, /flushTextChatBurst\(conversationId\)/);
+  assert.match(live, /refreshTextChatMessages\(conversationId\)/);
+  assert.match(live, /\[data-text-thread\]/);
   assert.match(live, /burst\.blocked/);
   assert.doesNotMatch(live, /const sendBtn = textForm\.querySelector\("button\[type=submit\]"\); sendBtn\.disabled = true/);
 });
@@ -85,6 +87,6 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=202610262200/);
-  assert.match(html, /live\.js\?v=chat-unlocked-20261026-3/);
-  assert.match(html, /chat-live\.js\?v=chat-unlocked-20261026-3/);
+  assert.match(html, /live\.js\?v=chat-inline-20261026-1/);
+  assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
 });

@@ -182,6 +182,19 @@
     const errorNode = form.querySelector("[data-chat-error]");
     if (errorNode) errorNode.textContent = message;
   }
+  async function refreshStandaloneChatMessages(conversationId) {
+    if (location.hash !== `#chat/${encodeURIComponent(conversationId)}`) return;
+    const payload = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+    if (location.hash !== `#chat/${encodeURIComponent(conversationId)}`) return;
+    const thread = app.querySelector("[data-chat-thread]");
+    if (!thread) return;
+    const burst = standaloneChatBurstState(conversationId);
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    const pendingMarkup = burst.pending.map((item) => `<article class="standalone-chat-message is-user is-pending"><div class="standalone-chat-bubble">${chatText(item)}</div></article>`).join("");
+    const next = (messages.length || pendingMarkup) ? messages.map(standaloneChatMessage).join("") + pendingMarkup : `<p class="empty-state">Start the conversation below.</p>`;
+    if (thread.innerHTML !== next) thread.innerHTML = next;
+    thread.scrollTop = thread.scrollHeight;
+  }
   async function flushStandaloneChatBurst(conversationId) {
     const burst = standaloneChatBurstState(conversationId);
     if (burst.sending || !burst.pending.length) return;
@@ -206,7 +219,7 @@
       burst.sending = false;
     }
     if (sent) burst.pending = burst.pending.filter((item) => !queued.includes(item));
-    await renderStandaloneChat(conversationId, { preserveDraft: true });
+    await refreshStandaloneChatMessages(conversationId);
     if (burst.pending.length) burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
   }
   function sendStandaloneChatMessage(event, conversationId) {
