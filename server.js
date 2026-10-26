@@ -18442,7 +18442,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       let bestCandidate = { raw, reply, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter) };
       let accepted = false;
       const anchorHint = chatPersonaContrastAnchors(liveIntimateCharacter).slice(0, 12).join("、");
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
           const retryRaw = await requestChat([
             `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Discard the rejected version. Output only the character's broken spoken subtitles for this exact moment.`,
@@ -18470,14 +18470,13 @@ async function handleSendChatMessage(req, res, conversationId) {
           console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
         }
       }
-      if (!accepted && bestCandidate.reply) {
-        raw = bestCandidate.raw;
-        reply = bestCandidate.reply;
-        upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
-        console.warn("[character-chat-live-intimate-rewrite-best-effort]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: reply.slice(0, 240) }));
+      if (!accepted) {
+        console.warn("[character-chat-live-intimate-rewrite-exhausted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: String(bestCandidate.reply || "").slice(0, 240) }));
+        const unusable = Object.assign(new Error("Live intimate reply did not meet the spoken-scene requirements."), { statusCode: 502, requestId: chatRequestId, upstreamResponseId });
+        throw unusable;
       }
     }
-    if (immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
+    if (!(liveSiteChat && immediateIntimacyScene) && immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
       reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: true });
     }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
