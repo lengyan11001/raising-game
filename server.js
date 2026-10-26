@@ -6755,7 +6755,7 @@ function chatLiveLegacyPrompt(character = {}, { language = "zh", memory = null, 
 function chatLiveReplyStyleBlock(character = {}) {
   const style = String(character.replyStyle || "").trim();
   if (!style) return "";
-  return "回复口吻（最高优先级。覆盖人设里的说话习惯，也覆盖通用语气。不同角色必须按这里区分，不要说成同一种人）：\n" + style;
+  return "回复口吻（最高优先级。覆盖人设里的说话习惯，也覆盖通用语气。不同角色必须按这里区分，不要说成同一种人）：\n" + chatPromptReplyStyle(style);
 }
 
 function chatLiveConversationTone(language = "") {
@@ -17740,6 +17740,32 @@ function chatLivePersonaSource(character = {}) {
     .join("\n");
 }
 
+function chatPromptReplyStyle(value = "") {
+  const source = String(value || "").trim();
+  if (!source) return "";
+  const kept = [];
+  let skippedHeadingLevel = 0;
+  for (const line of source.split(/\r?\n/)) {
+    const heading = line.match(/^\s*(#{1,6})\s*(.+?)\s*#*\s*$/u);
+    if (heading) {
+      const level = heading[1].length;
+      const title = heading[2];
+      if (skippedHeadingLevel && level <= skippedHeadingLevel) skippedHeadingLevel = 0;
+      if (!skippedHeadingLevel && /(?:示例|范例|参考(?:对白|台词|回复)|对话(?:示例|样例)|样例)/u.test(title)) {
+        skippedHeadingLevel = level;
+        continue;
+      }
+    }
+    if (skippedHeadingLevel) continue;
+    if (/^\s*(?:示例(?:回复|对白|台词)?|范例|参考(?:对白|台词|回复)|对话(?:示例|样例)|样例)\s*[:：]?\s*$/u.test(line)) {
+      skippedHeadingLevel = 1;
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function chatLiveCharacterVoiceLines(character = {}) {
   const source = chatLivePersonaSource(character);
   if (!source) return [];
@@ -18374,7 +18400,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-2);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const sceneStage = chatSceneStage(latest, currentMessages, relationship);
-  const voice = String(character.replyStyle || "").trim();
+  const voice = chatPromptReplyStyle(character.replyStyle);
   const personaCore = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
   const personaSelfMemory = intimateProcess ? chatPersonaSelfMemory(character) : "";
   const personaContinuity = chatPersonaContinuityFacts(character);
@@ -49406,6 +49432,8 @@ if (require.main === module) {
 
 module.exports = {
   chatPersonaContrastAnchors,
+  chatPromptReplyStyle,
+  chatSystemPrompt,
   chatLiveVoiceProfile,
   chatLiveCharacterVoiceLines,
   chatLiveCharacterPostureLines,

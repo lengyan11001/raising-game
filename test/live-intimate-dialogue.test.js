@@ -5,6 +5,8 @@ const test = require("node:test");
 
 const {
   chatPersonaContrastAnchors,
+  chatPromptReplyStyle,
+  chatSystemPrompt,
   chatLiveVoiceProfile,
   chatLiveCharacterVoiceLines,
   chatLiveCharacterPostureLines,
@@ -161,6 +163,36 @@ test("voice profile and repair beats follow different character types", () => {
   assert.match(chatLiveIntimatePersonaPostureLine(bold, 1), /先让我来|自己动|看着我|可以才算/);
   assert.match(chatLiveIntimatePersonaPostureLine(reserved, 1), /先别动|不准看|慢着|听我的/);
   assert.notEqual(chatLiveIntimateRewriteBeat(gentle, 1), chatLiveIntimateRewriteBeat(character, 1));
+});
+
+test("prompt style strips concrete sample dialogue but keeps behavior rules", () => {
+  const style = [
+    "# 回复口吻",
+    "## 说话底色",
+    "- 句长跟内容走，不撒娇，不解释心理。",
+    "## 行为规则",
+    "- 被命令时先压住场面，可以划边界、提条件或冷着脸答应。",
+    "## 示例只学态度，绝对不要照抄",
+    "用户：你下面都湿了。",
+    "顾静涵：闭嘴。别盯着看。手拿开，我自己来。",
+    "## 边界",
+    "- 仍然不许讨好。",
+  ].join("\n");
+  const filtered = chatPromptReplyStyle(style);
+  assert.match(filtered, /## 行为规则/);
+  assert.match(filtered, /被命令时先压住场面/);
+  assert.match(filtered, /## 边界/);
+  assert.match(filtered, /仍然不许讨好/);
+  assert.doesNotMatch(filtered, /示例只学态度/);
+  assert.doesNotMatch(filtered, /闭嘴。别盯着看/);
+
+  const prompt = chatSystemPrompt({
+    character: { name: "顾静涵", personaMd: "社区主任，有丈夫，强势要面子。", replyStyle: style },
+    relationship: {},
+  }, "zh", "我整根插进来，开始抽插，不许躲。", null, [], [{ role: "user", content: "我整根插进来，开始抽插，不许躲。" }], { liveSite: true, intimateProcess: true });
+  assert.match(prompt, /被命令时先压住场面/);
+  assert.match(prompt, /当前阶段：亲密交互/);
+  assert.doesNotMatch(prompt, /闭嘴。别盯着看/);
 });
 
 test("character example lines are preferred over shared fallback language", () => {
