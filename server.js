@@ -17960,7 +17960,7 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const length = [...text].length;
   const literaryHits = (text.match(/(?:仿佛|像是|如同|褶皱|胀实感|胀满感|脊背|脊椎|骨架|神经末梢|每寸|每一寸|极致|叫嚣|承载|淹没|吞没)/gu) || []).length;
   const abstractHits = (text.match(/(?:那种|不断|一点点|一圈圈|缓缓|微微|透亮)/gu) || []).length;
-  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄|最深处|每一处|每一寸|彻底.{0,6}(?:弄坏|撑开|顶开)|那根粗大的)/gu) || []).length;
+  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄|最深处|每一处|每一寸|彻底.{0,6}(?:弄坏|撑开|顶开)|那根粗大的|全给我(?:也|都)?(?:塞|灌|顶|弄))/gu) || []).length;
   if (literaryHits >= 3) return true;
   if (explanatoryHits >= 1) return true;
   if (length >= 260 && literaryHits + abstractHits >= 6) return true;
@@ -18076,6 +18076,8 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     lines.push(...chosen);
     repaired = lines.join("\n");
   }
+  lines = lines.filter((line) => !/(?:全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(line));
+  repaired = lines.join("\n");
   if (!chatReplyHasPersonaContrast(repaired, character)) {
     lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
     repaired = lines.join("\n");

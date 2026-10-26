@@ -71,6 +71,11 @@ test("the previous production reply is rejected as insufficiently present", () =
   assert.equal(chatReplyNeedsLiveIntimateRewrite(previous, { requireVocal: true, character }), true);
 });
 
+test("third-person or incoherent dirty phrasing is rejected", () => {
+  const awkward = "啊……！哈啊……你要把整根……唔，全部给我灌进来。嗯……就把那股热度全给我也塞进去吧！";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(awkward, { requireVocal: true, character }), true);
+});
+
 test("explanatory literary live replies are always rejected", () => {
   const explanatory = "啊……！哈啊……每一寸都被你狠狠地钉入，甚至要把我整个人给顶裂开。别停，再深一点……唔！要的就是这种感觉，哪怕被你弄得几乎说不完整。你想让我彻底变坏吗？那就……把所有的力道都塞进来吧。";
   assert.equal(chatReplyNeedsLiveIntimateRewrite(explanatory, { requireVocal: true, character }), true);
