@@ -17906,6 +17906,13 @@ function chatReplyAsLiveSpokenBeat(value = "") {
   return text;
 }
 
+function chatReplyHasPersonaContrast(value = "") {
+  const text = String(value || "").trim();
+  const boundaryContrast = /(?:规矩|面子|体面|身份|主任|长辈|平时|从来|不许|不能|不该|明明|偏偏|嘴上|装作|忍着|撑着|端着|控制|命令|求|承认|丢脸|羞|不像我|被你看见)/u.test(text);
+  const yielding = /(?:别停|继续|快点|深一点|重一点|想要|求你|受不了|撑不住|不行了|弄坏|湿|爽|舒服)/u.test(text);
+  return boundaryContrast && yielding;
+}
+
 function chatReplyHasLiveDirtyTalk(value = "") {
   const text = String(value || "").trim();
   return /(?:操|干|插|顶|射|鸡巴|阴茎|阴道|里面|穴|骚|浪|爽|舒服|疼|轻点|重点|别停|继续|深一点|到底|受不了|要坏|弄坏|水|湿)/u.test(text);
@@ -17916,7 +17923,8 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false } 
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
     || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
-    || (requireVocal && !chatReplyHasLiveDirtyTalk(value));
+    || (requireVocal && !chatReplyHasLiveDirtyTalk(value))
+    || (requireVocal && !chatReplyHasPersonaContrast(value));
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -18351,8 +18359,8 @@ async function handleSendChatMessage(req, res, conversationId) {
           "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
           "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的心理活动/嘴硬。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
           "过程中必须自然出现至少一次叫声、气音、闷哼或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头，也不要总用同一个“嗯/哈”，可以是被撞断的字、吸气、喉咙里漏出的短音。",
-          "保留角色的面子、判断、强势和边界：她可以浪、可以骂、可以命令、可以承认爽，但不能变成通用顺从伴侣。至少用一个具体的身份习惯和此刻的失控形成反差：惯常命令变成请求、平时不肯说的话漏出来、想掩饰却身体先承认、被撞断后仍想拿回主动。不要只喊“端庄/主任”或直接介绍职位。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
-          "语气参考（只学现场短句、浪叫、断续荤话的密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点……",
+          "保留角色的面子、判断、强势和边界：她可以浪、可以骂、可以命令、可以承认爽，但不能变成通用顺从伴侣。这一版必须让人一眼看出反差：先写出她惯常会守的东西（规矩、面子、命令、身份口吻、平时不肯说的话），下一秒却在身体或台词里破功。禁止只写“端庄”“主任”，也禁止直接介绍职位。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
+          "语气参考（只学现场短句、浪叫、断续荤话和反差密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点…… 我刚才还想让你守规矩……现在居然求你……唔……不许笑。",
           "只输出最终内容，不要解释为什么重写。",
         ].join("\n"), true);
         const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
@@ -18360,7 +18368,7 @@ async function handleSendChatMessage(req, res, conversationId) {
           raw = retryRaw;
           reply = retryReply;
           upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
-        } else if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyLooksLikeLiveIntimateEssay(retryReply) && !chatReplyStartsWithCannedIntimateVocal(retryReply) && !chatReplyUsesIntimateCommandTemplate(retryReply)) {
+        } else if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyLooksLikeLiveIntimateEssay(retryReply) && !chatReplyStartsWithCannedIntimateVocal(retryReply) && !chatReplyUsesIntimateCommandTemplate(retryReply) && chatReplyHasPersonaContrast(retryReply)) {
           console.warn("[character-chat-live-intimate-rewrite-partial]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply).slice(0, 240) }));
           raw = retryRaw;
           reply = retryReply;
