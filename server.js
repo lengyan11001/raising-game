@@ -17743,7 +17743,10 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   }
   const compact = spoken.replace(/[ ]{2,}/g, " ").trim();
   const quoted = [...compact.matchAll(/[“"]([^”"]+)[”"]/g)].map((match) => match[1].trim()).filter(chatReplyHasWords);
-  const candidate = quoted.length ? quoted.slice(0, 2).join(" ") : compact;
+  const quotedText = quoted.slice(0, 2).join(" ");
+  const quotedWeight = chatContextComparable(quotedText).length;
+  const compactWeight = chatContextComparable(compact).length;
+  const candidate = quoted.length && quotedWeight / Math.max(1, compactWeight) >= 0.55 ? quotedText : compact;
   const sentences = candidate.match(/[^。！？.!?]+[。！？.!?]?/g) || [candidate];
   const short = chatSpokenOnlyText(sentences.slice(0, 10).join("").trim()).slice(0, 720).trim();
   if (chatReplyHasWords(short)) return short;
