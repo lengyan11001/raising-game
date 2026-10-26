@@ -63,7 +63,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatImmediateSceneGuide/);
   assert.match(server, /是承受这一下的那一方/);
   assert.match(server, /不要验收或指挥对方/);
-  assert.match(server, /不要每轮都用同一个拟声词/);
+  assert.match(server, /不要固定用“唔……哈”/);
   assert.match(server, /被顶得说不完整/);
   assert.match(server, /function chatReplyUsesIntimateCommandTemplate/);
   assert.match(server, /!chatReplyUsesIntimateCommandTemplate\(message\.content\)/);
