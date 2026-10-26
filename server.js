@@ -18034,16 +18034,19 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   if (!text) return "";
   const beat = chatLiveIntimateRewriteBeat(character, attempt);
   const directLine = /(?:操我|干我|插我|顶我|插进来|干进来|顶进来|灌进来|弄坏|撑开|好深|太深|到底|别停|再用力)/u.test(text);
-  const slipLine = directLine ? `${beat} 操我…` : `${beat} 操我…再深一点…`;
+  const slipLine = directLine ? `${beat} 操我…` : `${beat} 操我…`;
+  const vocalLine = /^(?:啊|嗯|唔|哈|嘶|呃|呜|噢|哦|呀)/u.test(slipLine)
+    ? slipLine
+    : `唔…${slipLine}`;
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const weakPattern = /(?:别管|不管)[^。！？!?]{0,20}(?:规矩|面子|脸面|身份|仪态|端庄|体面|我)|(?:明明|原本|本来)[^。！？!?]{0,32}(?:我现在|现在却|可现在)/u;
   if (lines.length > 1) {
     const weakIndex = lines.findIndex((line) => weakPattern.test(line));
     if (weakIndex >= 0) {
-      lines[weakIndex] = slipLine;
+      lines[weakIndex] = vocalLine;
       text = lines.join("\n");
     } else if (!chatReplyHasPersonaContrast(text, character)) {
-      lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
+      lines.splice(Math.max(1, lines.length - 2), 0, vocalLine);
       text = lines.join("\n");
     }
     return text;
@@ -18051,9 +18054,9 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   const sentences = text.match(/[^。！？!?]+[。！？!?]?/g) || [text];
   const weakIndex = sentences.findIndex((sentence) => weakPattern.test(sentence));
   if (weakIndex >= 0) {
-    sentences[weakIndex] = slipLine;
+    sentences[weakIndex] = vocalLine;
   } else if (!chatReplyHasPersonaContrast(text, character)) {
-    sentences.splice(Math.max(1, sentences.length - 2), 0, slipLine);
+    sentences.splice(Math.max(1, sentences.length - 2), 0, vocalLine);
   }
   return sentences.map((sentence) => sentence.trim()).filter(Boolean).join("\n");
 }
