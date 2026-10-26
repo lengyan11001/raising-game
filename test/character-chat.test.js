@@ -71,6 +71,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /liveSiteChat && immediateIntimacyScene \? 2400/);
   assert.match(server, /intimateProcess/);
   assert.match(server, /第一人称承受过程/);
+  assert.match(server, /function chatPersonaSelfMemory/);
+  assert.match(server, /角色自我记忆/);
+  assert.match(server, /平时这样\/现在却这样/);
+  assert.match(server, /身份锚点/);
+  assert.match(server, /反差规则/);
   assert.match(server, /function chatReplyNeedsLiveIntimateRewrite/);
   assert.match(server, /function chatReplyHasIntimateVocalReaction/);
   assert.match(server, /function chatReplyLooksLikeLiveIntimateEssay/);

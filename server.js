@@ -17619,6 +17619,30 @@ function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
     .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨)/u.test(String(message?.content || "")));
 }
 
+function chatPersonaSelfMemory(character = {}) {
+  const persona = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
+  const style = String(character.replyStyle || "").trim();
+  const source = [persona, style].filter(Boolean).join("\n");
+  if (!source) return "";
+  const pick = (pattern, limit = 3) => source
+    .split(/\n|。|；/)
+    .map((line) => line.replace(/^[-*#\d.、\s]+/, "").trim())
+    .filter((line) => line && pattern.test(line))
+    .slice(0, limit);
+  const identity = pick(/(?:是|身为|身份|职业|主任|老师|医生|妈妈|姐姐|老板|学生|年龄)/u, 3);
+  const habits = pick(/(?:习惯|总是|从来|不喜欢|讨厌|在意|面子|规矩|控制|强势|高傲|冷|挑剔|嘴硬)/u, 4);
+  const boundaries = pick(/(?:不许|不能|不会|不要|禁止|边界|拒绝|原则)/u, 3);
+  const privateWant = pick(/(?:渴望|想要|幻想|隐秘|压抑|欲望|期待|忍不住|偷偷)/u, 3);
+  const voice = pick(/(?:自称|称呼|说话|口吻|句长|短|直接|不解释|不讨好)/u, 3);
+  return [
+    identity.length ? "她的自我身份锚点：" + identity.join("；") : "",
+    habits.length ? "她平时会守着的习惯和面子：" + habits.join("；") : "",
+    boundaries.length ? "她不会轻易放下的边界：" + boundaries.join("；") : "",
+    privateWant.length ? "她不愿承认但确实存在的隐秘需求：" + privateWant.join("；") : "",
+    voice.length ? "她说话时不能丢的口吻：" + voice.join("；") : "",
+  ].filter(Boolean).join("\n").slice(0, 1400);
+}
+
 function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = false } = {}) {
   if (!chatIsImmediateIntimateScene(value, contextMessages)) return "";
   const liveGuide = liveSite
@@ -17959,6 +17983,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const sceneStage = chatSceneStage(latest, currentMessages, relationship);
   const voice = String(character.replyStyle || "").trim();
   const personaCore = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
+  const personaSelfMemory = intimateProcess ? chatPersonaSelfMemory(character) : "";
   const stageGuide = [chatSceneStageGuide(sceneStage), chatImmediateSceneGuide(latest, currentMessages, { liveSite: liveSite && intimateProcess })].filter(Boolean).join("\n");
   const greetingGuide = isSimpleChatGreeting(latest)
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
@@ -17973,6 +17998,10 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
       ? `你是${character.name || "这个角色"}。此刻用第一人称表现她在这一下里的即时反应，可以有少量心理活动和说出口的话，但不是小说旁白。`
       : `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
     personaCore ? `人物底色（这是不可丢失的角色核心，不只是场景说明）：\n${personaCore}` : "",
+    personaSelfMemory ? `角色自我记忆（每一轮只选一个最贴当前动作的锚点，用来制造“平时这样/现在却这样”的反差；不要逐条复述，不要报履历）：\n${personaSelfMemory}` : "",
+    intimateProcess
+      ? "反差规则：这一轮必须让她的身份底色和当下的失控形成对照。可以是一句还想维持身份的嘴硬、一个不该在此刻出现的称呼、一次想命令却变成请求、一个平时绝不肯说的荤话，或一句被撞断的自我否认。反差要落在具体台词和身体反应里，不要写‘我是主任所以……’这种解释。"
+      : "",
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
     voice ? `说话方式（最高优先级，保留这个角色独有的判断、边界、要面子和说话节奏；参考态度，不要照抄示例）：\n${voice}` : "",
     intimateProcess
@@ -18322,7 +18351,7 @@ async function handleSendChatMessage(req, res, conversationId) {
           "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
           "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的心理活动/嘴硬。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
           "过程中必须自然出现至少一次叫声、气音、闷哼或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头，也不要总用同一个“嗯/哈”，可以是被撞断的字、吸气、喉咙里漏出的短音。",
-          "保留角色的面子、判断、强势和边界：她可以浪、可以骂、可以命令、可以承认爽，但不能变成通用顺从伴侣。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
+          "保留角色的面子、判断、强势和边界：她可以浪、可以骂、可以命令、可以承认爽，但不能变成通用顺从伴侣。至少用一个平时会守的身份/习惯和此刻的失控形成反差，例如嘴硬着要人别停、还想维持体面却说出平时不会说的荤话，但不要直接介绍职位。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
           "语气参考（只学现场短句、浪叫、断续荤话的密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点……",
           "只输出最终内容，不要解释为什么重写。",
         ].join("\n"), true);
