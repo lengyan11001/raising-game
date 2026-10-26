@@ -683,6 +683,13 @@ async function generateChatImage({ mode = "image" } = {}) {
 
 const CHAT_BURST_SETTLE_MS = 1000;
 
+function setChatSendError(message = "") {
+  const node = els.chatComposer?.querySelector(".chat-send-error");
+  if (!node) return;
+  node.textContent = String(message || "").trim();
+  node.hidden = !node.textContent;
+}
+
 function chatPendingMessage(content = "") {
   return { id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, role: "user", content: String(content || "") };
 }
@@ -722,12 +729,14 @@ async function flushChatBurst() {
     return;
   }
   state.chatSending = true;
+  setChatSendError("");
   if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
   renderChatPanel();
   try {
     const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
       method: "POST",
       body: { contents, content: contents[contents.length - 1], action: "send", language: els.languageSelect?.value || state.lang },
+      timeoutMs: 50000,
     });
     state.chatPendingMessages = (state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id));
     if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
@@ -736,15 +745,15 @@ async function flushChatBurst() {
     renderAccountMenu();
     renderTopupSummary();
   } catch (error) {
-    state.chatPendingMessages = [...pending, ...(state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id))];
-    window.alert(error.message || "Chat failed.");
+    state.chatPendingMessages = [];
+    const message = error?.name === "TimeoutError" || /timed out|timeout|aborted/i.test(String(error?.message || ""))
+      ? "Reply timed out. Please send again."
+      : (error.message || "Chat failed.");
+    setChatSendError(message);
   } finally {
     state.chatSending = false;
-    const retryPending = pending.some((item) => state.chatPendingMessages?.some((queued) => queued.id === item.id));
-    state.chatNextBurstAt = Date.now() + (retryPending ? 2000 : CHAT_BURST_SETTLE_MS);
     if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
     renderChatPanel();
-    if (state.chatPendingMessages?.length) scheduleChatBurstFlush(retryPending ? 2000 : CHAT_BURST_SETTLE_MS);
   }
 }
 

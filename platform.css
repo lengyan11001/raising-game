@@ -243,6 +243,7 @@ a { color: inherit; text-decoration: none; }
 .chat-composer textarea { min-height: 48px; max-height: 150px; resize: vertical; border: 0; outline: 0; color: #fff; background: transparent; }
 .chat-composer-actions { display: flex; align-items: flex-end; gap: 7px; }
 .chat-send-btn { min-width: 92px; }
+.chat-send-error { grid-column: 1 / -1; margin: 0 16px; color: #fca5a5; font-size: .78rem; line-height: 1.4; }
 .chat-mode-control { position: relative; display: flex; align-items: flex-end; }
 .chat-mode-menu { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 30; width: 210px; padding: 6px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: #29292d; box-shadow: 0 14px 36px rgba(0,0,0,.4); }
 .chat-mode-menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px; border: 0; border-radius: 6px; color: #f3f3f5; text-align: left; background: transparent; cursor: pointer; }

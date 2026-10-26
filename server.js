@@ -17931,8 +17931,8 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
     const requestChat = (retry = false) => (usePapayaChat
-      ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.78 : chatTemperature, max_tokens: chatMaxTokens })
-      : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.72 : chatTemperature, max_tokens: chatMaxTokens }));
+      ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.78 : chatTemperature, max_tokens: chatMaxTokens }, { timeoutMs: 45000 })
+      : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.72 : chatTemperature, max_tokens: chatMaxTokens }, { timeoutMs: 45000 }));
     let upstreamResponseId = "";
     let raw = await requestChat(false);
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");

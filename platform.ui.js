@@ -3955,6 +3955,7 @@ async function requestJson(url, options = {}) {
     method: options.method || "GET",
     headers,
     body: options.body === undefined ? undefined : typeof options.body === "string" ? options.body : JSON.stringify(options.body),
+    signal: options.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {

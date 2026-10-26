@@ -14,6 +14,7 @@ const standaloneHtml = read("chat.html");
 const loader = read("platform.js");
 const chat = read("platform.chat.js");
 const standaloneChat = read("chat.js");
+const ui = read("platform.ui.js");
 
 test("character chat persists user-scoped conversations and messages in PostgreSQL", () => {
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_chat_conversations/);
@@ -115,6 +116,10 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(server, /800 \+ Math\.floor\(Math\.random\(\) \* 1401\)/);
   assert.match(server, /setTimeout\(resolve, chatReplyDelayMs\(\)\)/);
   assert.match(server, /chatBurstPrompt/);
+  assert.match(server, /timeoutMs: 45000/);
+  assert.match(chat, /function setChatSendError/);
+  assert.match(chat, /timeoutMs: 50000/);
+  assert.match(ui, /AbortSignal\.timeout\(options\.timeoutMs\)/);
   assert.match(server, /submittedContents/);
   assert.match(standaloneChat, /standaloneChatBursts/);
   assert.doesNotMatch(standaloneChat, /standalone-chat-typing-dots/);

@@ -189,13 +189,13 @@
         body: JSON.stringify({ contents, content: contents[contents.length - 1], action: "send", language: navigator.language || "en" }),
       });
       burst.pending = burst.pending.filter((item) => !queued.includes(item));
-      await renderStandaloneChat(conversationId);
     } catch (error) {
       burst.sending = false;
-      standaloneChatError(conversationId, error.message || "Chat failed.");
       await renderStandaloneChat(conversationId);
+      standaloneChatError(conversationId, error.message || "Chat failed.");
       return;
     }
+    await renderStandaloneChat(conversationId);
     burst.sending = false;
     if (burst.pending.length) burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
   }
