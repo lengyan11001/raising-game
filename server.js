@@ -17725,8 +17725,8 @@ function chatReplyUsesRejectedScaffold(value = "", rejected = "") {
 function chatReplyUsesConditionalBargain(value = "") {
   const text = chatSpokenOnlyText(String(value || "").trim());
   if (!text) return false;
-  const clauses = text.split(/[。！？.!?]/).map((item) => item.trim()).filter(Boolean);
-  return clauses.some((clause) => /^(?:既然|如果|要是)/u.test(clause) || /(?:既然|如果|要是).{0,60}(?:那|就)/u.test(clause));
+  return /(?:既然|要是).{0,80}(?:那|就)/u.test(text) ||
+    /(?:你|您)(?:要|想|让|叫)(?:我|我们).{0,80}(?:那|就)/u.test(text);
 }
 
 function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {

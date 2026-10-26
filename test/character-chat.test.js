@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -130,6 +131,29 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
   assert.match(server, /\/api\/chat\/conversations/);
+});
+
+test("character chat only rejects conditional replies that bargain over compliance", () => {
+  const start = server.indexOf("function chatReplyUsesConditionalBargain");
+  assert.notEqual(start, -1);
+  let depth = 0;
+  let end = -1;
+  for (let index = server.indexOf("{", start); index < server.length; index += 1) {
+    if (server[index] === "{") depth += 1;
+    if (server[index] === "}") depth -= 1;
+    if (depth === 0) { end = index + 1; break; }
+  }
+  assert.notEqual(end, -1);
+  const source = server.slice(start, end);
+  const normalize = (value) => String(value || "").trim();
+  const reject = vm.runInNewContext(`(${source})`, { chatSpokenOnlyText: normalize });
+
+  assert.equal(reject("既然你要我这样，那我就听你的。"), true);
+  assert.equal(reject("好，既然你需要，我就配合。"), true);
+  assert.equal(reject("你要我听你的，那你就得先让我满意。"), true);
+  assert.equal(reject("如果疼，你就告诉我。"), false);
+  assert.equal(reject("我想先洗一下，然后过去。"), false);
+  assert.equal(reject("好，我过去。"), false);
 });
 
 test("chat assets bypass stale browser caches after deployment", () => {
