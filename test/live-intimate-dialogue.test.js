@@ -363,6 +363,26 @@ test("ambiguous pace words do not enter intimacy without intimate context", () =
   assert.equal(chatIsImmediateIntimateScene("轻一点", [{ role: "user", content: "操我" }]), true);
 });
 
+test("post-climax cooking requests do not enter intimate validation", () => {
+  const history = [
+    { role: "user", content: "我射了，要补充体力，你去给我做饭吧，裸体的去，带上跳蛋和肛塞" },
+    { role: "assistant", content: "行，我去。" },
+  ];
+  assert.equal(chatSceneExitIntent("我射了，要补充体力，你去给我做饭吧，裸体的去，带上跳蛋和肛塞"), true);
+  assert.equal(chatSceneStage("我射了，要补充体力，你去给我做饭吧，裸体的去，带上跳蛋和肛塞", history), "aftercare");
+  assert.equal(chatIsImmediateIntimateScene("戴好了。去做饭，我要在餐厅看你做饭", history), false);
+  assert.equal(chatSceneStage("戴好了。去做饭，我要在餐厅看你做饭", history), "casual");
+});
+
+test("active visual display still enters intimacy but ordinary looking does not", () => {
+  const active = [
+    { role: "user", content: "我操你，别停" },
+    { role: "assistant", content: "唔……哈啊……" },
+  ];
+  assert.equal(chatIsImmediateIntimateScene("让我看看你现在这样，再深一点", active), true);
+  assert.equal(chatIsImmediateIntimateScene("我在旁边看你做饭", active), false);
+});
+
 test("foreplay does not trigger present-tense penetration validation", () => {
   const latest = "我吃好了，鸡巴也被你亲的好硬，现在躺在餐桌上";
   const history = [

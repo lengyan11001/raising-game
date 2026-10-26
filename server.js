@@ -17614,7 +17614,8 @@ function chatSceneExitIntent(value = "") {
   const text = String(value || "").trim();
   if (!text) return false;
   if (/(?:别停|不要停|不许停|不准停|不能停|别结束|不要结束|还没结束|继续做|继续来|再继续)/u.test(text)) return false;
-  return /(?:停(?:一下|下|停|吧|了)?|暂停|结束(?:吧|了|这场|这次|一下)?|先到这里|今天到这里|不做了|不想做了|不要了|算了|收(?:一收|一下)|先这样|休息(?:一下|会儿|吧)?|累了|没力气了|先睡|去洗澡|洗澡|穿(?:好)?衣服|收拾一下|抱一会儿|缓一下|冷静一下|聊点别的|聊别的|正经聊|恢复(?:一下)?理智|退出(?:亲密|场景)|不继续了)/u.test(text);
+  if (/(?:继续|再来|还要|别停|不要停|不许停|不准停)/u.test(text)) return false;
+  return /(?:停(?:一下|下|停|吧|了)?|暂停|结束(?:吧|了|这场|这次|一下)?|先到这里|今天到这里|不做了|不想做了|不要了|算了|收(?:一收|一下)|先这样|休息(?:一下|会儿|吧)?|累了|没力气了|先睡|去洗澡|洗澡|穿(?:好)?衣服|收拾一下|抱一会儿|缓一下|冷静一下|聊点别的|聊别的|正经聊|恢复(?:一下)?理智|退出(?:亲密|场景)|不继续了|(?:我|已经)?射(?:了|完|出来)(?:了)?)/u.test(text);
 }
 
 function chatSceneUserMessagesAfterLastExit(messages = []) {
@@ -17647,14 +17648,15 @@ function chatIsIntimateForeplayScene(value = "") {
 function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
   const text = String(value || "").trim();
   if (!text || chatSceneExitIntent(text)) return false;
+  const visualRequest = /(?:拍照|照片|拍几张|拍张|骚样|让我看看你(?:现在|这样|这副|身体|下面|腿|胸|腰|臀|湿|裸|穿|被我弄成)|看看你(?:现在|这样|这副|身体|下面|腿|胸|腰|臀|湿|裸|穿|是什么样|被我弄成)|你现在(?:的样子|这样|这副样子)|你这副样子|定格)/u.test(text);
+  const activeIntimateCue = /(?:操我|干我|插我|顶我|再(?:深|重|快|用力)|别停|不许停|继续(?:插|干|顶|弄)|插到底|顶到底|弄坏)/u.test(text);
   const direct = /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|咬|夹紧|射进|射进去|射进来|高潮了|淫水|汁水|弄我|摸我|叫床|叫出来)/u.test(text);
   if (direct) return true;
   const recentIntimate = recentIntimateContext(contextMessages);
   const contextualIntimate = recentIntimate && /(?:再(?:深|重|快|用力|进来|顶)|别停|不许停|继续(?:插|干|顶|弄)?|插到底|顶到底|弄坏|操我|干我|插我|顶我|要我|想要你|我要你|轻点|轻一点|重一点|慢点|快点|疼|里面|进去|脱掉|蹭|磨)/u.test(text);
   const explicitAct = /(?:再(?:深|重|快|用力)|不许停|别停|继续(?:插|干|顶|弄)|插到底|顶到底|弄坏|操我|干我|插我|顶我)/u.test(text);
   if (explicitAct || (contextualIntimate && recentIntimate)) return true;
-  if (!/(?:拍照|照片|看看你|看你|现在的样子|这个样子|你这副样子|定格)/u.test(text)) return false;
-  return recentIntimate;
+  return recentIntimate && visualRequest && activeIntimateCue;
 }
 
 function chatPersonaSelfMemory(character = {}) {
