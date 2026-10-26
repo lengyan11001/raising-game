@@ -17632,10 +17632,20 @@ function recentIntimateContext(contextMessages = []) {
     .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨|弄我|别停|再深)/u.test(String(message?.content || "")));
 }
 
+function chatHasIntimateAction(value = "") {
+  return /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|夹紧|射进|射进去|射进来|高潮了|弄我|蹭我|磨我|叫床|叫出来)/u.test(String(value || ""));
+}
+
+function chatIsIntimateForeplayScene(value = "") {
+  const text = String(value || "").trim();
+  if (!text || chatSceneExitIntent(text) || chatHasIntimateAction(text)) return false;
+  return /(?:鸡巴|龟头|阴茎|阴道|肛门|乳房|奶子|咪咪|下面|身体|腿|腰|臀|胸口|跳蛋|肛塞|湿了|硬了|好硬|发烫|想要|准备好了|没穿|裸着|脱了|躺在床上|躺在桌上|躺在餐桌|趴在|跪着|张开腿|分开腿|给你看|帮我(?:含|舔|摸|亲)|亲得|舔得)/u.test(text);
+}
+
 function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
   const text = String(value || "").trim();
   if (!text || chatSceneExitIntent(text)) return false;
-  const direct = /(?:龟头|鸡巴|阴茎|阴道|肛门|插入|顶到|抽插|操|干你|舔|含住|咬|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|叫床|叫出来)/u.test(text);
+  const direct = /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|咬|夹紧|射进|射进去|射进来|高潮了|淫水|汁水|弄我|摸我|叫床|叫出来)/u.test(text);
   if (direct) return true;
   const recentIntimate = recentIntimateContext(contextMessages);
   const contextualIntimate = recentIntimate && /(?:再(?:深|重|快|用力|进来|顶)|别停|不许停|继续(?:插|干|顶|弄)?|插到底|顶到底|弄坏|操我|干我|插我|顶我|要我|想要你|我要你|轻点|轻一点|重一点|慢点|快点|疼|里面|进去|脱掉|蹭|磨)/u.test(text);
@@ -18351,6 +18361,7 @@ function chatSceneStage(latestUserMessage = "", currentMessages = [], relationsh
   if (chatSceneExitIntent(latest)) return "aftercare";
   const recent = chatSceneUserMessagesAfterLastExit(recentAll);
   const context = recent.map((message) => String(message?.content || "")).filter(Boolean).join(" ");
+  if (chatIsIntimateForeplayScene(latest)) return "foreplay";
   if (/(?:亲|吻|抱|暧昧|撩|想你|喜欢|心动|约会|睡衣|贴身|碰|摸|揉|湿|硬|欲望|忍不住|靠近|脸红了?|脸红|害羞|盯着|床上|睡|脱|暧昧|调情|想要)/u.test(latest)) return "flirting";
   if (relationship?.effectiveDays >= 7 && /(?:亲|吻|抱|暧昧|撩|想你|喜欢|心动|约会|睡衣|贴身|碰|摸|揉|湿|硬|欲望|忍不住|靠近|脸红了?|脸红|害羞|盯着|床上|睡|脱|暧昧|调情|想要)/u.test(context)) return "flirting";
   const intimacyDays = Number(relationship?.effectiveDays || 0) || 0;
@@ -18385,6 +18396,13 @@ function chatSceneStageGuide(stage = "casual") {
       "当前阶段：亲密已经结束或暂停，正在从情欲里退出来，恢复理智、呼吸和日常状态。不要继续主动升级亲密，也不要沿用刚才的叫声、荤话、节奏或身体过程。",
       "先接住对方此刻真正说的话。可以简短整理衣服、缓一口气、嘴硬掩饰、关心或吐槽一句，但都要落回她自己的性格和判断。",
       "如果对方只是休息、聊天、处理事情或转移话题，就正常回应；只有对方明确重新发起亲密，才切回亲密阶段。",
+    ].join("\n");
+  }
+  if (stage === "foreplay") {
+    return [
+      "当前阶段：亲密前的预热。对方只说明了身体状态、准备姿势、欲望或邀请，还没有明确开始插入、顶弄或抽插。",
+      "接住这个准备状态：可以回应期待、故意拿捏、提条件、命令对方、口头挑逗或表达一点难为情，但不要先写自己被进入、被顶开、里面被撑满或已经开始承受动作。",
+      "不要把“躺在餐桌上、鸡巴硬了、身体湿了”自动扩写成性交已经开始。对方明确说进来、操、插、顶、舔或继续时，才进入亲密交互阶段。",
     ].join("\n");
   }
   if (stage === "flirting") {
@@ -18752,6 +18770,8 @@ async function handleSendChatMessage(req, res, conversationId) {
         ? `你是${freshCharacterEarly.name}，先永远是${freshCharacterEarly.name}本人，再是此刻正在被进入、被顶弄的人。保留她的人物底色、面子和边界：她会嘴硬、会想拿回主动、会在失控里露馅，不会突然变成谁都可以替换的顺从模板。直接反应这一下的真实感觉，不要用固定叫声开头，句子可以被撞断。不要验收或指挥对方，不要评价能力、表现、诚意、节奏。`
         : sceneStage === "aftercare"
           ? `你是${freshCharacterEarly.name}。亲密已经结束或暂停，现在恢复理智和日常状态。先回应对方眼前的话，不要继续呻吟、说荤话或把场景强行拉回性爱；保留她自己的面子、脾气和判断，只有对方明确重新发起时才再次进入亲密。`
+        : sceneStage === "foreplay"
+          ? `你是${freshCharacterEarly.name}，现在处于亲密前预热。对方只说明了身体状态、姿势或邀请，还没有开始实际性交动作。用她自己的语气挑逗、拿捏、提条件或回应期待，但绝对不要先写被进入、被顶开、里面撑满、抽插或高潮，也不要替对方开始动作。`
         : sceneStage === "flirting"
           ? `你是${freshCharacterEarly.name}，现在在暧昧试探。接住对方这一句，可以给一点暗示、故意不接全、提条件、靠近半步，但不必立刻完全交付。语气里要有魅力和自己的判断。`
           : `你是${freshCharacterEarly.name}，现在在正常聊天。像真人一样接话，可以有冷、挑剔、嘴硬或一点好奇，先回答眼前的内容，不主动升级亲密。`
@@ -49442,6 +49462,8 @@ module.exports = {
   chatLiveIntimateRewriteBeat,
   chatLiveIntimatePersonaPostureLine,
   chatIsImmediateIntimateScene,
+  chatHasIntimateAction,
+  chatIsIntimateForeplayScene,
   chatSceneExitIntent,
   chatSceneUserMessagesAfterLastExit,
   chatSceneStage,

@@ -11,6 +11,8 @@ const {
   chatLiveIntimateRewriteBeat,
   chatLiveIntimatePersonaPostureLine,
   chatIsImmediateIntimateScene,
+  chatHasIntimateAction,
+  chatIsIntimateForeplayScene,
   chatSceneExitIntent,
   chatSceneStage,
   chatReplyHasBrokenLiveSpeech,
@@ -295,4 +297,17 @@ test("ambiguous pace words do not enter intimacy without intimate context", () =
   assert.equal(chatIsImmediateIntimateScene("你快点回来"), false);
   assert.equal(chatIsImmediateIntimateScene("慢点说"), false);
   assert.equal(chatIsImmediateIntimateScene("轻一点", [{ role: "user", content: "操我" }]), true);
+});
+
+test("foreplay does not trigger present-tense penetration validation", () => {
+  const latest = "我吃好了，鸡巴也被你亲的好硬，现在躺在餐桌上";
+  const history = [
+    { role: "user", content: "我开始吃了，你在桌子下面帮我含住鸡巴" },
+    { role: "assistant", content: "嗯……" },
+  ];
+  assert.equal(chatHasIntimateAction(latest), false);
+  assert.equal(chatIsIntimateForeplayScene(latest), true);
+  assert.equal(chatIsImmediateIntimateScene(latest, history), false);
+  assert.equal(chatSceneStage(latest, history), "foreplay");
+  assert.equal(chatSceneStage("操我，别停", history), "intimate");
 });
