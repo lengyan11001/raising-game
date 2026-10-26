@@ -361,25 +361,50 @@ function componentContextSimilarity(left = "", right = "") {
   return (2 * overlap) / (aPairs.size + bPairs.size);
 }
 
+function componentReplySkeleton(value = "") {
+  const compact = componentContextComparable(value);
+  return { head: compact.slice(0, 4), tail: compact.slice(-10) };
+}
+
+function componentHistoryHasRepeatedScaffold(history = []) {
+  const replies = (Array.isArray(history) ? history : []).filter((message) => message?.role === "assistant").map((message) => componentReplySkeleton(message.content)).filter((item) => item.head);
+  for (let left = 0; left < replies.length; left += 1) {
+    for (let right = left + 1; right < replies.length; right += 1) {
+      if (replies[left].head === replies[right].head || replies[left].tail === replies[right].tail) return true;
+    }
+  }
+  return false;
+}
+
 function componentHistoryForTurn(history = [], userText = "") {
-  const list = (Array.isArray(history) ? history : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const raw = (Array.isArray(history) ? history : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const list = [];
+  for (const message of raw) {
+    const previous = list.at(-1);
+    if (message.role === "user" && previous?.role === "user" && componentContextSimilarity(previous.content, message.content) >= 0.72) {
+      list[list.length - 1] = message;
+      continue;
+    }
+    list.push(message);
+  }
   const stale = new Set();
   for (let index = 0; index < list.length; index += 1) {
     if (list[index].role !== "user") continue;
-    if (componentContextSimilarity(list[index].content, userText) < 0.86) continue;
+    if (componentContextSimilarity(list[index].content, userText) < 0.72) continue;
     stale.add(index);
     if (list[index + 1]?.role === "assistant") stale.add(index + 1);
   }
   const assistants = list.map((message, index) => ({ message, index })).filter((item) => item.message.role === "assistant");
   const last = assistants.at(-1);
   if (last) {
-    const similar = assistants.filter((item) => componentContextSimilarity(item.message.content, last.message.content) >= 0.84);
+    const similar = assistants.filter((item) => componentContextSimilarity(item.message.content, last.message.content) >= 0.72);
     if (similar.length >= 2) similar.forEach((item) => stale.add(item.index));
   }
   const filtered = list.filter((_, index) => !stale.has(index));
   const latest = filtered.at(-1);
-  if (latest?.role === "user") return [...filtered.slice(0, -1).slice(-8), latest];
-  return filtered.slice(-8);
+  const current = latest?.role === "user" ? [latest] : [];
+  if (componentHistoryHasRepeatedScaffold(filtered)) return current;
+  return [...filtered.slice(0, current.length ? -1 : undefined).slice(-8), ...current];
 }
 
 function splitComponentSpeech(raw) {

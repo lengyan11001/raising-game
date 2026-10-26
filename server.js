@@ -17624,8 +17624,35 @@ function chatContextSimilarity(left = "", right = "") {
   return (2 * overlap) / (aPairs.size + bPairs.size);
 }
 
+function chatMessageSkeleton(value = "") {
+  const compact = chatContextComparable(value);
+  return {
+    head: compact.slice(0, Math.min(4, compact.length)),
+    tail: compact.slice(-Math.min(10, compact.length)),
+  };
+}
+
+function chatContextHasRepeatedReplyScaffold(messages = []) {
+  const assistants = (Array.isArray(messages) ? messages : []).filter((message) => message?.role === "assistant").map((message) => chatMessageSkeleton(message.content)).filter((item) => item.head);
+  for (let left = 0; left < assistants.length; left += 1) {
+    for (let right = left + 1; right < assistants.length; right += 1) {
+      if (assistants[left].head === assistants[right].head || assistants[left].tail === assistants[right].tail) return true;
+    }
+  }
+  return false;
+}
+
 function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
-  const list = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const raw = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const list = [];
+  for (const message of raw) {
+    const previous = list.at(-1);
+    if (message.role === "user" && previous?.role === "user" && chatContextSimilarity(previous.content, message.content) >= 0.72) {
+      list[list.length - 1] = message;
+      continue;
+    }
+    list.push(message);
+  }
   const lastUserIndex = list.map((message) => message.role).lastIndexOf("user");
   if (lastUserIndex < 0) return list.slice(-8);
   const stale = new Set();
@@ -17644,6 +17671,7 @@ function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
   const filtered = list.filter((_, index) => !stale.has(index));
   const latestUser = filtered.at(-1);
   const currentTurn = latestUser?.role === "user" ? [latestUser] : [];
+  if (chatContextHasRepeatedReplyScaffold(filtered)) return currentTurn;
   const recent = filtered.slice(0, currentTurn.length ? -1 : undefined).slice(-8);
   return [...recent, ...currentTurn];
 }
@@ -17748,7 +17776,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
     "End naturally without an automatic question. A direct sentence, reaction, or completed request is a complete reply. Only ask one focused question when necessary information is missing; do not turn every reply into an interrogation or a choice between options.",
     "Never claim to be an AI, break character, or repeat a previous passage.",
-    recentReplies.length ? `Recent replies from you (do not copy their wording, sentence structure, threats, or endings): ${recentReplies.map((item) => item.slice(0, 220)).join(" || ")}` : "",
+    recentReplies.length && !chatContextHasRepeatedReplyScaffold(recentReplies.map((content) => ({ role: "assistant", content }))) ? `Recent replies from you (do not copy their wording, sentence structure, threats, or endings): ${recentReplies.map((item) => item.slice(0, 220)).join(" || ")}` : "",
     Object.keys(tracker).length ? `Current scene state (preserve unless the user changes it): ${JSON.stringify(tracker).slice(0, 3000)}` : "",
     pinnedMemory ? `Pinned memory (use only when relevant): ${pinnedMemory}` : "",
     userInstructions ? `User preferences (follow when compatible with the current request): ${userInstructions}` : "",
