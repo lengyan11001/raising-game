@@ -17831,6 +17831,16 @@ function chatReplyUsesIntimateCommandTemplate(value = "") {
   return /(?:让我看看你(?:到底)?有没有(?:能力|本事)|别只是(?:在)?|把你的力道|按我的节奏|撑开我的节奏|拿出点真本事|拿出你的表现|你的(?:节奏|能力|表现|诚意|进度)|既然[^。！？!?]{0,32}那就)/u.test(text);
 }
 
+function chatReplyStartsWithCannedIntimateVocal(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return /^(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,4})(?:哈|嗯|啊|唔|噢|哦)(?:[^。！？!?]{0,4})?[。！？!?，,…]/u.test(text);
+}
+
+function chatReplyNeedsLiveIntimateRewrite(value = "") {
+  return chatReplyStartsWithCannedIntimateVocal(value) || chatReplyUsesIntimateCommandTemplate(value);
+}
+
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
   const latest = String(latestUserMessage || "").trim();
   const recent = (Array.isArray(currentMessages) ? currentMessages : []).slice(-10);
@@ -18229,18 +18239,41 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
-    const requestChat = () => {
+    const requestChat = (extraGuide = "", retry = false) => {
       const tuning = liveSiteChat && immediateIntimacyScene
-        ? { frequency_penalty: 0.92, presence_penalty: 0.82 }
+        ? (retry ? { frequency_penalty: 1, presence_penalty: 0.9 } : { frequency_penalty: 0.92, presence_penalty: 0.82 })
         : { frequency_penalty: 0.72, presence_penalty: 0.65 };
+      const outgoingMessages = extraGuide ? [...chatMessages, { role: "system", content: extraGuide }] : chatMessages;
       return usePapayaChat
-        ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
-        : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
+        ? papayaLanguageRequest({ model: chatModel, messages: outgoingMessages, temperature: retry ? 0.98 : chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
+        : byteplusLanguageRequest({ model: chatModel, messages: outgoingMessages, temperature: retry ? 0.98 : chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
     };
     let upstreamResponseId = "";
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting) && !immediateIntimacyScene });
+    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply)) {
+      const rejectedReply = reply;
+      console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
+      try {
+        const retryRaw = await requestChat([
+          "LIVE INTIMATE REWRITE: 刚才那一版又用了固定的语气词开场或验收式模板，丢弃那一版，现在重写这一轮。",
+          "禁止用“嗯……哈”“唔……哈”“啊……嗯”这类拟声词组合作为句首；如果这一下确实让她漏出声音，把气音或半截话放在句中被撞断的位置，或者这一轮直接说短句。",
+          "禁止使用“别只是……”“既然……那就……”“那就按你要求的做”等模板。保留顾静涵的面子、判断、强势和边界，让她按自己的性格反应，不要变成通用顺从伴侣。",
+          "只输出她这一轮真正会说出口的话，不要解释为什么重写。",
+        ].join("\n"), true);
+        const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: false });
+        if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply)) {
+          raw = retryRaw;
+          reply = retryReply;
+          upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
+        } else {
+          console.warn("[character-chat-live-intimate-rewrite-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply || "").slice(0, 240) }));
+        }
+      } catch (retryError) {
+        console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, message: String(retryError.message || retryError).slice(0, 240) }));
+      }
+    }
     if (immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
       reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: true });
     }
