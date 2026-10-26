@@ -305,6 +305,20 @@ test("character example lines are preferred over shared fallback language", () =
   assert.doesNotMatch(beat, /^都听我的/);
 });
 
+test("live intimacy carries forward a passing voice anchor without copying it", () => {
+  const teacher = { ...character, name: "温芷瑜", personaMd: "温芷瑜，高中老师，端庄克制，但在亲密里会嘴硬、会拿回主动。", replyStyle: "冷静、克制、习惯用短句维持控制。" };
+  const anchor = "哈啊……！\n啊…都听我的…唔…\n别停……求你……\n操我……插进来……\n哈啊……再深点……腰都软了……\n不许笑……嘶……里面被顶得发胀……\n灌进来……";
+  const history = [
+    { role: "user", content: "操我，别停，把整根都插到底。" },
+    { role: "assistant", content: anchor },
+    { role: "user", content: "继续" },
+  ];
+  const prompt = chatSystemPrompt({ character: teacher, relationship: { effectiveDays: 2 } }, "zh", "继续", null, [anchor], history, { liveSite: true, intimateProcess: true });
+  assert.match(prompt, /角色此前已经成立的高质量亲密语气锚点/);
+  assert.match(prompt, /都听我的/);
+  assert.match(prompt, /不得复用句子、句式、叫声或动作/);
+});
+
 test("a role with no style data still gets neutral, not dominant, fallback language", () => {
   const blank = { name: "blank" };
   const posture = chatLiveIntimatePersonaPostureLine(blank, 1);
@@ -363,6 +377,20 @@ test("ongoing penetration stays intimate across short continuation turns", () =>
   assert.equal(chatSceneStage("看着我", history), "intimate");
   assert.equal(chatSceneStage("先停一下，我去洗澡", history), "aftercare");
   assert.equal(chatSceneStage("我要先拍几张照，把你的骚样记录下来", history), "foreplay");
+});
+
+test("ongoing wording with 不停 is not mistaken for stopping the scene", () => {
+  const history = [
+    { role: "user", content: "把你按在床上，鸡巴插入嘴巴里，不停深喉" },
+    { role: "assistant", content: "唔……嗯嗯……" },
+    { role: "user", content: "转到你身后突然拆入阴户" },
+    { role: "assistant", content: "唔……嗯啊！" },
+  ];
+  const latest = "反复不停的插入，阴户都已经肿了";
+  assert.equal(chatSceneExitIntent(latest), false);
+  assert.equal(chatIsImmediateIntimateScene(latest, history), true);
+  assert.equal(chatSceneStage(latest, history), "intimate");
+  assert.equal(chatSceneExitIntent("先停一下，我去洗澡"), true);
 });
 
 test("a lightly reworded previous intimate beat is treated as repetition", () => {

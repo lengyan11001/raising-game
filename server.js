@@ -17615,7 +17615,7 @@ function chatSceneExitIntent(value = "") {
   if (!text) return false;
   if (/(?:别停|不要停|不许停|不准停|不能停|别结束|不要结束|还没结束|继续做|继续来|再继续)/u.test(text)) return false;
   if (/(?:继续|再来|还要|别停|不要停|不许停|不准停)/u.test(text)) return false;
-  return /(?:停(?:一下|下|停|吧|了)?|暂停|结束(?:吧|了|这场|这次|一下)?|先到这里|今天到这里|不做了|不想做了|不要了|算了|收(?:一收|一下)|先这样|休息(?:一下|会儿|吧)?|累了|没力气了|先睡|去洗澡|洗澡|穿(?:好)?衣服|收拾一下|抱一会儿|缓一下|冷静一下|聊点别的|聊别的|正经聊|恢复(?:一下)?理智|退出(?:亲密|场景)|不继续了|(?:我|已经)?射(?:了|完|出来)(?:了)?)/u.test(text);
+  return /(?:(?<!不)停(?:一下|下|停|吧|了)?|暂停|结束(?:吧|了|这场|这次|一下)?|先到这里|今天到这里|不做了|不想做了|不要了|算了|收(?:一收|一下)|先这样|休息(?:一下|会儿|吧)?|累了|没力气了|先睡|去洗澡|洗澡|穿(?:好)?衣服|收拾一下|抱一会儿|缓一下|冷静一下|聊点别的|聊别的|正经聊|恢复(?:一下)?理智|退出(?:亲密|场景)|不继续了|(?:我|已经)?射(?:了|完|出来)(?:了)?)/u.test(text);
 }
 
 function chatSceneUserMessagesAfterLastExit(messages = []) {
@@ -18710,6 +18710,17 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const personaSelfMemory = intimateProcess ? chatPersonaSelfMemory(character) : "";
   const personaContinuity = chatPersonaContinuityFacts(character);
   const stageGuide = [chatSceneStageGuide(sceneStage), chatImmediateSceneGuide(latest, currentMessages, { liveSite: liveSite && intimateProcess })].filter(Boolean).join("\n");
+  const liveVoiceAnchors = liveSite && intimateProcess
+    ? recentAssistantReplies
+      .map((item) => String(item || "").trim())
+      .filter((item) => item && !chatReplyIsDegenerate(item))
+      .filter((item) => chatReplyHasLiveIntimateDelivery(item)
+        && chatReplyHasPersonaContrast(item, character)
+        && !chatReplyLooksLikeLiveIntimateEssay(item)
+        && !chatReplyUsesIntimateCommandTemplate(item)
+        && chatReplyLiveStockPhraseCount(item) === 0)
+      .slice(-2)
+    : [];
   const greetingGuide = isSimpleChatGreeting(latest)
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
     : "";
@@ -18731,6 +18742,9 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
     voice ? `行为与说话准则（最高优先级。完整遵守，不按通用模板覆盖；示例只学态度，不要照抄）：\n${voice}` : "",
     behaviorRules ? `本轮必须执行的行为规则（不是可选氛围。亲密时也要让这些规则影响她怎么开口、怎么停顿、怎么答应或收回主动）：\n${behaviorRules}` : "",
+    liveVoiceAnchors.length
+      ? `角色此前已经成立的高质量亲密语气锚点（只稳定口吻、配合程度和人设选择；不得复用句子、句式、叫声或动作）：\n${liveVoiceAnchors.map((item) => item.slice(0, 360)).join("\n---\n")}`
+      : "",
     intimateProcess
       ? "当前轮允许第一人称承受过程：身体反应、断续说话、浪叫、喘息、荤话、少量心里话和她本人的判断可以混合；心理活动只用来表现嘴硬、羞耻、想要又不敢承认、想控制又失控，不要写长篇分析。不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
       : "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
@@ -19120,7 +19134,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Rewrite the rejected version for this exact moment. Output only the character's spoken subtitles; preserve any concrete action that already works.`,
             missingQualities.length ? `THE REJECTED DRAFT WAS MISSING: ${missingQualities.join("; ")}.` : "",
             "Do not treat earlier assistant messages, memory summaries, or any sample dialogue as a phrase bank. Use them only for relationship continuity. Every clause in the final reply must be newly phrased for this turn.",
-            "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
+            "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, willingness, cooperation, and level of openness. Do not make her more dominant, more submissive, more resistant, more eager, more explicit, or more emotional than the character and scene justify. If the rejected draft already accepts or cooperates with the action, keep that same acceptance and only fix the dead or repetitive wording.",
             retryPersonaCore ? `PERSONA CORE (highest priority; do not restate it as biography): ${retryPersonaCore}` : "",
             retryBehaviorRules ? `MANDATORY BEHAVIOR RULES FOR THIS EXACT TURN (must be audible in what she chooses to say):\n${retryBehaviorRules}` : "",
             `USE THIS CONTRADICTION SHAPE THIS ATTEMPT (do not explain it): ${chatLiveIntimateRewriteBeat(liveIntimateCharacter, attempt)}`,
