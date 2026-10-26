@@ -17925,7 +17925,7 @@ function chatReplyLiveBrokenSpeechCount(value = "") {
 }
 
 function chatReplyHasLiveSpokenTexture(value = "") {
-  return chatReplyIntimateVocalReactionCount(value) >= 4 && chatReplyHasBrokenLiveSpeech(value);
+  return chatReplyIntimateVocalReactionCount(value) >= 6 && chatReplyHasBrokenLiveSpeech(value);
 }
 
 function chatReplyLooksLikeLiveIntimateEssay(value = "") {
@@ -17960,7 +17960,8 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
   const text = String(value || "").trim();
   if (!text) return false;
   const anchors = chatPersonaContrastAnchors(character);
-  const exposesIdentity = /(?:我是|身为|作为|明明我是|我这个)[^。！？!?]{0,20}(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|同学(?:的)?妈妈|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻)/u.test(text);
+  const exposesIdentity = /(?:我是|身为|作为|明明(?:我)?是|我这个)[^。！？!?]{0,20}(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|同学(?:的)?妈妈|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻)/u.test(text)
+    || /(?:该|在|要)(?:管教|管|教)[^。！？!?]{0,8}(?:规矩|人)/u.test(text);
   const weakAbstract = /(?:别管|不管|丢开|放下)[^。！？!?]{0,12}(?:仪态|端庄|脸面|面子|体面|身份)[^。！？!?]{0,12}(?:了)?/u.test(text);
   const habitualBehavior = /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
     || /(?:我(?:平时|平常|一向|从来|平常)[^。！？!?]{0,28}(?:说了算|一句话|没人敢|都听|得听|不准|不许|最重|最看重))/u.test(text);
@@ -17971,7 +17972,7 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
 }
 
 function chatReplyHasLiveDirtyTalk(value = "") {
-  return chatReplyLiveDirtyTalkCount(value) >= 3;
+  return chatReplyLiveDirtyTalkCount(value) >= 4;
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
@@ -17988,9 +17989,9 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   const text = String(value || "").trim();
   if (!text) return -100;
   let score = 0;
-  score += Math.min(8, chatReplyIntimateVocalReactionCount(text)) * 4;
-  score += Math.min(6, chatReplyLiveBrokenSpeechCount(text)) * 3;
-  score += Math.min(8, chatReplyLiveDirtyTalkCount(text)) * 3;
+  score += Math.min(10, chatReplyIntimateVocalReactionCount(text)) * 5;
+  score += Math.min(8, chatReplyLiveBrokenSpeechCount(text)) * 3;
+  score += Math.min(10, chatReplyLiveDirtyTalkCount(text)) * 4;
   if (chatReplyHasPersonaContrast(text, character)) score += 8;
   if (chatReplyLooksLikeLiveIntimateEssay(text)) score -= 10;
   if (chatReplyUsesIntimateCommandTemplate(text)) score -= 6;
@@ -18434,13 +18435,13 @@ async function handleSendChatMessage(req, res, conversationId) {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
           const retryRaw = await requestChat([
-            `LIVE INTIMATE REWRITE CANDIDATE ${attempt}: 刚才那一版不合格。丢弃它，按下面的硬要求重写这一轮。`,
-            "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的嘴硬、羞耻或失控。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
-            "必须有四处以上真正说出口的声音或气音，分布在这一下造成反应的不同位置；至少三处句子被撞断，出现省略号、破折号、拖长的字或说不完整的词。不要写成语法完整的顺滑段落，也不要只在开头喊一声。",
-            "必须大量使用符合当前动作的直接成人荤话或身体词，至少三处，例如里面、顶到、插我、操我、干我、太深、别停、再用力、弄坏、灌进来这类口语；可以粗俗，可以骂，可以命令，也可以求，但不能用抽象感觉代替。",
-            "必须做出这个人具体的反差，不能只说“仪态、端庄、体面”这种概念词，也不要解释为什么破功，也不能直接说“我是主任/我是……”介绍身份。用一个人物自带的身份、习惯或行为来破功：平时只会命令别人的人，这轮被撞断后自己开口求；平时最重规矩的人，这轮骂出平时不会说的荤话；平时冷着脸不解释的人，这轮承认自己湿了、想要、离不开。反差要让读者从台词里直接看见。",
-            "禁止直接自我介绍职位或履历，禁止“我是主任所以……”，禁止“既然……那就……”“别只是……”“把你的力道……”“按我的节奏”“那就按你要求的做”。",
-            "语气参考（只学现场短句、浪叫、断续荤话和反差的密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点…… 我刚才还想让你守规矩……现在居然求你……唔……不许笑。",
+            `LIVE INTIMATE REWRITE CANDIDATE ${attempt}: Discard the rejected version. This is spoken adult-scene dialogue, not a complete literary paragraph.`,
+            "Write 2-6 very short spoken fragments. The mouth is unsteady: sounds, half-words, interrupted orders, and dirty talk must dominate. Do not explain her feelings or the contrast; let the broken speech do it.",
+            "At least four separate vocal reactions at different beats: 啊…, 哈啊…, 唔…, 嘶…, a swallowed sound, or a word cut in half. At least three broken-off places using ellipses or dashes. Do not save all the sounds for the opening.",
+            "Use at least three direct adult or body words that fit the exact action, in ordinary spoken Chinese: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Do not substitute abstract sensation nouns or polished description.",
+            "Show persona reversal through action, not explanation: someone used to giving orders loses the sentence and asks for more; someone who protects face lets a shameful word slip; someone cold and distant clings and refuses to let go. Never say 我是主任/我是…; never use 仪态, 端庄, or 体面 as the contrast.",
+            "Banned shapes: 我是…, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
+            "Rhythm reference only (do not copy): 啊…！哈啊…慢点…太深了…唔…别停，就那里…操我…再用力…嘶…我刚才还想让你守规矩…现在居然求你…不许笑…",
             "只输出最终内容，不要解释为什么重写。",
           ].join("\n"), true);
           const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });

@@ -34,7 +34,7 @@ test("generic moans and a shallow contrast phrase are not enough", () => {
 });
 
 test("a concrete character reversal with live dirty talk passes", () => {
-  const valid = "啊……！哈啊……你、你给我慢点……平时都是我让人守规矩，现在居然要开口求你……唔……哈……别停，就那里……再深一点，操我……操我，灌进来……哈啊……不许笑。";
+  const valid = "啊……！哈啊……你、你给我慢点……平时都是我让人守规矩，现在居然要开口求你……唔……哈……别停，就那里……再深一点，操我……操我，灌进来……哈啊……不许笑……嘶……";
   assert.ok(chatPersonaContrastAnchors(character).includes("社区主任"));
   assert.equal(chatReplyIntimateVocalReactionCount(valid) >= 2, true);
   assert.equal(chatReplyHasBrokenLiveSpeech(valid), true);
