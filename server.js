@@ -18469,6 +18469,15 @@ function chatReplyRepairLiveIntimateLocally(value = "") {
 function chatReplyLiveIntimateFallback(value = "", character = {}, attempt = 2) {
   const original = String(value || "").trim();
   if (!original || chatReplyIsDegenerate(original)) return "";
+
+  // The repair path may be called with an already-clean draft after a rewrite
+  // miss. Keep that draft only if it has no banned shape at all.
+  if (chatReplyHasLiveIntimateDelivery(original)
+    && chatReplyHasPersonaContrast(original, character)
+    && !chatReplyLooksLikeLiveIntimateEssay(original)
+    && !chatReplyUsesIntimateCommandTemplate(original)
+    && chatReplyLiveStockPhraseCount(original) === 0) return original;
+
   const repaired = chatReplyWithLivePersonaSlip(chatReplyRepairLiveIntimateLocally(original), character, attempt);
   if (chatReplyIsDegenerate(repaired)) return original;
   // Cleanup must not erase the only concrete process or persona beat and then
@@ -19002,6 +19011,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
             retryPersonaCore ? `PERSONA CORE (highest priority; do not restate it as biography): ${retryPersonaCore}` : "",
             retryBehaviorRules ? `MANDATORY BEHAVIOR RULES FOR THIS EXACT TURN (must be audible in what she chooses to say):\n${retryBehaviorRules}` : "",
+            `USE THIS CONTRADICTION SHAPE THIS ATTEMPT (do not explain it): ${chatLiveIntimateRewriteBeat(liveIntimateCharacter, attempt)}`,
             "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
             "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not coach him with 别只是在动/把你的力道集中/毫无章法, do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
             "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
