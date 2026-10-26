@@ -832,7 +832,7 @@
 
   function textChatBurstState(conversationId) {
     const key = String(conversationId || "");
-    if (!state.textChatBursts.has(key)) state.textChatBursts.set(key, { timer: 0, pending: [], sending: false });
+    if (!state.textChatBursts.has(key)) state.textChatBursts.set(key, { timer: 0, pending: [], sending: false, blocked: false });
     return state.textChatBursts.get(key);
   }
   function textChatDraft() {
@@ -862,12 +862,14 @@
   async function flushTextChatBurst(conversationId) {
     const burst = textChatBurstState(conversationId);
     if (burst.sending || !burst.pending.length) return;
+    if (burst.blocked) return;
     const queued = burst.pending.slice();
     const contents = queued.map((item) => String(item || "").trim()).filter(Boolean);
     if (!contents.length) {
       burst.pending = burst.pending.filter((item) => !queued.includes(item));
       return;
     }
+    burst.blocked = false;
     burst.sending = true;
     try {
       const result = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
@@ -887,13 +889,14 @@
         showRecharge();
         return;
       }
-      if (state.page === "text-chat" && state.textChatId === conversationId) {
+      burst.blocked = Boolean(error.status === 402 || String(error.code || "").includes("INSUFFICIENT"));
+      if (!burst.blocked && state.page === "text-chat" && state.textChatId === conversationId) {
         const note = document.querySelector("[data-text-error]");
         if (note) note.textContent = error.message || "消息没有发出去，可以继续发送。";
       }
     } finally {
       burst.sending = false;
-      if (burst.pending.length) scheduleTextChatBurst(conversationId);
+      if (!burst.blocked && burst.pending.length) scheduleTextChatBurst(conversationId);
     }
   }
   async function showTextChat(options = {}) {

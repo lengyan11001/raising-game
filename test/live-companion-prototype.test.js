@@ -51,6 +51,7 @@ test("live text chat keeps composing while a reply is pending", () => {
   assert.match(live, /textChatBurstState/);
   assert.match(live, /queueTextChatMessage\(conversationId, content\)/);
   assert.match(live, /flushTextChatBurst\(conversationId\)/);
+  assert.match(live, /burst\.blocked/);
   assert.doesNotMatch(live, /const sendBtn = textForm\.querySelector\("button\[type=submit\]"\); sendBtn\.disabled = true/);
 });
 
