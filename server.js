@@ -18190,7 +18190,9 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const literaryHits = (text.match(/(?:仿佛|像是|如同|褶皱|胀实感|胀满感|脊背|脊椎|骨架|神经末梢|每寸|每一寸|极致|叫嚣|承载|淹没|吞没)/gu) || []).length;
   const abstractHits = (text.match(/(?:那种|不断|一点点|一圈圈|缓缓|微微|透亮)/gu) || []).length;
   const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄|最深处|每一处|每一寸|彻底.{0,6}(?:弄坏|撑开|顶开)|那根粗大的|全给我(?:也|都)?(?:塞|灌|顶|弄))/gu) || []).length;
-  const novelisticEuphemism = /(?:那根粗大的|全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(text);
+  const novelisticEuphemism = /(?:那根粗大的|全给我(?:也|都)?(?:塞|灌|顶|弄))/u.test(text)
+    || /(?:撞开|顶开|撑开|震碎|撞碎)[^。！？!?]{0,12}(?:骨盆|骨架|脊椎|脊背|骨头|内脏|子宫)/u.test(text)
+    || /(?:骨盆|骨架|脊椎|骨头|内脏)[^。！？!?]{0,12}(?:撞开|顶开|撑开|震碎|撞碎)/u.test(text);
   const explanatoryReversal = /(?:明明是我|我居然被你|我原本该是|现在却被你|别管我[^。！？!?]{0,12}(?:规矩|面子|脸面))/u.test(text)
     || /(?:明明|明明就)是你在主导[^。！？!?]{0,40}(?:为什么|可为什么|怎么)[^。！？!?]{0,36}(?:身体|我会|我却)/u.test(text)
     || /(?:为什么|怎么)(?:我的)?身体[^。！？!?]{0,30}(?:像|会|却)[^。！？!?]{0,30}(?:被|变成|反应)/u.test(text);
@@ -18957,7 +18959,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "Do not treat earlier assistant messages, memory summaries, or any sample dialogue as a phrase bank. Use them only for relationship continuity. Every clause in the final reply must be newly phrased for this turn.",
             "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
             "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
-            "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
+            "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
             "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
             "CHARACTER CONTINUITY: Keep this person's established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active. Do not force a dominant line or a reversal if it does not fit her; match THIS character's voice and let the reaction remain recognizably hers.",
             "Keep her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active without reciting a biography. Let those facts affect what she chooses to say, refuses, hides, or cannot finish. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as explanation.",
