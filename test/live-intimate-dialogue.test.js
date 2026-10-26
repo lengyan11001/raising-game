@@ -341,6 +341,24 @@ test("a quality-check miss can be salvaged only when persona contrast survives",
   assert.equal(chatReplyLiveIntimateFallback("啊……", character, 2), "");
 });
 
+test("ongoing penetration stays intimate across short continuation turns", () => {
+  const history = [
+    { role: "user", content: "直接插入，全根插入，鸡蛋大的龟头不停进进出出" },
+    { role: "assistant", content: "唔……别这么急……" },
+    { role: "user", content: "连续插入30分钟，阴道都肿了" },
+    { role: "assistant", content: "啊……慢一点……" },
+  ];
+  assert.equal(chatSceneStage("继续", history), "intimate");
+  assert.equal(chatSceneStage("看着我", history), "intimate");
+  assert.equal(chatSceneStage("先停一下，我去洗澡", history), "aftercare");
+  assert.equal(chatSceneStage("我要先拍几张照，把你的骚样记录下来", history), "foreplay");
+});
+
+test("recent intimate replies are rewritten instead of spliced from old phrases", () => {
+  const previous = "唔……哈啊！你这没礼貌的，哪怕在餐桌上也要——嗯！慢一点……别急着就把我整个人都顶开。";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(previous, { requireVocal: true, character, previousReplies: [previous] }), true);
+});
+
 test("scene stages switch from intimacy to aftercare and back", () => {
   const history = [
     { role: "user", content: "操我，别停" },

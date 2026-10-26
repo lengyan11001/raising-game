@@ -17629,10 +17629,16 @@ function chatSceneUserMessagesAfterLastExit(messages = []) {
   return boundary >= 0 ? list.slice(boundary + 1) : list;
 }
 
+function chatHasOngoingIntimateAction(value = "") {
+  const text = String(value || "").trim();
+  if (!text || chatSceneExitIntent(text) || chatIntimateIntentIsPlanned(text)) return false;
+  return /(?:插(?:入|进|到|着)|抽插|抽送|进出|进进出出|顶(?:进|到|着|弄)|操(?:着|进|入)|干(?:着|进|入)|撑(?:开|满)|塞(?:进|满)|填满|灌(?:进|满)|夹紧|里面|穴里|龟头|鸡巴|阴道|湿了|淫水|流水|高潮|射(?:进|满|到))/u.test(text);
+}
+
 function recentIntimateContext(contextMessages = []) {
   return chatSceneUserMessagesAfterLastExit(contextMessages)
     .slice(-8)
-    .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨|弄我|别停|再深)/u.test(String(message?.content || "")));
+    .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨|弄我|别停|再深|进进出出|抽送|插着|顶着|干着|操着)/u.test(String(message?.content || "")));
 }
 
 function chatIntimateIntentIsPlanned(value = "") {
@@ -17663,8 +17669,12 @@ function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
   if (!text || chatSceneExitIntent(text)) return false;
   const visualRequest = /(?:拍照|照片|拍几张|拍张|骚样|让我看看你(?:现在|这样|这副|身体|下面|腿|胸|腰|臀|湿|裸|穿|被我弄成)|看看你(?:现在|这样|这副|身体|下面|腿|胸|腰|臀|湿|裸|穿|是什么样|被我弄成)|你现在(?:的样子|这样|这副样子)|你这副样子|定格)/u.test(text);
   const activeIntimateCue = /(?:操我|干我|插我|顶我|再(?:深|重|快|用力)|别停|不许停|继续(?:插|干|顶|弄)|插到底|顶到底|弄坏)/u.test(text);
+  const postureOnly = /(?:躺着|躺在床上|躺在桌上|躺在餐桌|趴在|跪着|坐着|张开腿|分开腿|准备好|躺好|趴好|把腿张开)/u.test(text)
+    && !/(?:正在|已经|开始|继续|不停|一直|插|抽|顶|操|干|撑开|填满|进出)/u.test(text);
+  if (postureOnly) return false;
   const direct = !chatIntimateIntentIsPlanned(text)
-    && /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|咬|夹紧|射进|射进去|射进来|高潮了|淫水|汁水|弄我|摸我|叫床|叫出来)/u.test(text);
+    && (chatHasOngoingIntimateAction(text)
+      || /(?:操我|干我|插我|顶我|操你|干你|插进来|插进去|插到底|顶进来|顶到底|顶到|抽插|撑开|挤进|含住|舔我|舔你|咬|夹紧|射进|射进去|射进来|高潮了|淫水|汁水|弄我|摸我|叫床|叫出来)/u.test(text));
   if (direct) return true;
   const recentIntimate = recentIntimateContext(contextMessages);
   const contextualIntimate = recentIntimate && /(?:再(?:深|重|快|用力|进来|顶)|别停|不许停|继续(?:插|干|顶|弄)?|插到底|顶到底|弄坏|操我|干我|插我|顶我|要我|想要你|我要你|轻点|轻一点|重一点|慢点|快点|疼|里面|进去|脱掉|蹭|磨)/u.test(text);
@@ -18374,7 +18384,7 @@ function chatReplyHasLiveIntimateDelivery(value = "") {
     && (chatReplyLiveDirtyTalkCount(text) >= 2 || chatReplyLiveIntimateProcessCount(text) >= 3);
 }
 
-function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
+function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {}, previousReplies = [] } = {}) {
   const text = String(value || "");
   // Live intimacy is not just "contains a moan". The spoken beat must sound
   // present, follow this exact action, and let the configured person leak
@@ -18388,7 +18398,8 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
     || /(?:别管|不管)/u.test(text)
     || (requireVocal && !chatReplyHasLiveIntimateDelivery(text))
     || (requireVocal && !chatReplyHasPersonaContrast(text, character))
-    || (requireVocal && hasStockPhrase);
+    || (requireVocal && hasStockPhrase)
+    || chatReplyRepeatsRecentLiveIntimate(text, previousReplies);
 }
 
 function chatReplyLiveIntimateGaps(value = "", character = {}) {
@@ -18414,19 +18425,31 @@ function chatReplyLiveStockPhraseCount(value = "") {
   return (text.match(/(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了|灌进我的身体里|塞进我的身体里|把我整个人撞开|撑裂开|完全贯穿|给到最深处|全给到最深处|每一处缝隙|骨盆都被你撞开|整个人都给贯穿|撞碎|撑爆|顶穿|戳穿|那层皮|骨头|骨架|每一处|整个人都给顶开|完全撑开|整个人都给撑开|整个人都被撑开)/gu) || []).length;
 }
 
-function chatReplyLiveRepeatedClauseCount(value = "") {
+function chatReplyLiveRepeatedClauseCount(value = "", previousReplies = []) {
   const text = String(value || "").trim();
   if (!text) return 0;
+  const normalizeClause = (line) => String(line || "").replace(/[\s，,、；;：:“”"'…—~～]/gu, "").trim();
+  const clauses = text.split(/[\n。！？!?]+/u)
+    .map(normalizeClause)
+    .filter((line) => [...line].length >= 2);
   const seen = new Set();
   let repeats = 0;
-  const clauses = text.split(/[\n。！？!?]+/u)
-    .map((line) => line.replace(/[\s，,、；;：:“”"'…—~～]/gu, "").trim())
-    .filter((line) => [...line].length >= 4);
   for (const clause of clauses) {
     if (seen.has(clause)) repeats += 1;
     else seen.add(clause);
   }
+  const previous = (Array.isArray(previousReplies) ? previousReplies : [])
+    .map(normalizeClause)
+    .filter((line) => line.length >= 4);
+  for (const clause of clauses) {
+    if (clause.length < 4) continue;
+    if (previous.some((line) => line.includes(clause) || clause.includes(line.slice(0, Math.min(24, line.length))))) repeats += 1;
+  }
   return repeats;
+}
+
+function chatReplyRepeatsRecentLiveIntimate(value = "", previousReplies = []) {
+  return chatReplyLiveRepeatedClauseCount(value, previousReplies) >= 2;
 }
 
 function chatReplyLiveIntimateScore(value = "", character = {}) {
@@ -18544,6 +18567,11 @@ function chatSceneStage(latestUserMessage = "", currentMessages = [], relationsh
   const recent = chatSceneUserMessagesAfterLastExit(recentAll);
   const context = recent.map((message) => String(message?.content || "")).filter(Boolean).join(" ");
   if (chatIsIntimateForeplayScene(latest)) return "foreplay";
+  // Keep an already-active intimate scene stable across short continuation
+  // turns. Explicit exits and explicit foreplay/planned actions above still win.
+  if (!chatIntimateIntentIsPlanned(latest)
+    && recentIntimateContext(recentAll)
+    && /(?:继续|别停|不要停|不许停|看着我|看着|别动|动啊|快点|慢点|轻点|重一点|再|嗯|啊|好|要|给我|抱紧|抓紧|吻我|亲我|别松|不要松|用力|舒服|受不了|到了|不行了|叫我|说|听|可以|还要)/u.test(latest)) return "intimate";
   if (/(?:亲|吻|抱|暧昧|撩|想你|喜欢|心动|约会|睡衣|贴身|碰|摸|揉|湿|硬|欲望|忍不住|靠近|脸红了?|脸红|害羞|盯着|床上|睡|脱|暧昧|调情|想要)/u.test(latest)) return "flirting";
   if (relationship?.effectiveDays >= 7 && /(?:亲|吻|抱|暧昧|撩|想你|喜欢|心动|约会|睡衣|贴身|碰|摸|揉|湿|硬|欲望|忍不住|靠近|脸红了?|脸红|害羞|盯着|床上|睡|脱|暧昧|调情|想要)/u.test(context)) return "flirting";
   const intimacyDays = Number(relationship?.effectiveDays || 0) || 0;
@@ -19002,7 +19030,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting || (liveSiteChat && immediateIntimacyScene)), preserveBreaks: liveSiteChat && immediateIntimacyScene });
     const liveIntimateCharacter = freshCharacterEarly || conversation.character || {};
-    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply, { requireVocal: true, character: liveIntimateCharacter })) {
+    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply, { requireVocal: true, character: liveIntimateCharacter, previousReplies: recentAssistantReplies })) {
       const rejectedReply = reply;
       console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
       let bestCandidate = { raw, reply, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter) };
@@ -19015,7 +19043,7 @@ async function handleSendChatMessage(req, res, conversationId) {
         && locallyRepairedScore >= bestCandidate.score
         && chatReplyHasLiveIntimateDelivery(locallyRepairedReply)
         && chatReplyHasPersonaContrast(locallyRepairedReply, liveIntimateCharacter)
-        && !chatReplyNeedsLiveIntimateRewrite(locallyRepairedReply, { requireVocal: true, character: liveIntimateCharacter })) {
+        && !chatReplyNeedsLiveIntimateRewrite(locallyRepairedReply, { requireVocal: true, character: liveIntimateCharacter, previousReplies: recentAssistantReplies })) {
         reply = locallyRepairedReply;
         bestCandidate = { raw, reply, score: locallyRepairedScore };
         accepted = true;
@@ -19048,7 +19076,7 @@ async function handleSendChatMessage(req, res, conversationId) {
           const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
           const score = chatReplyLiveIntimateScore(retryReply, liveIntimateCharacter);
           if (retryReply && score > bestCandidate.score) bestCandidate = { raw: retryRaw, reply: retryReply, score };
-          if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true, character: liveIntimateCharacter })) {
+          if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true, character: liveIntimateCharacter, previousReplies: recentAssistantReplies })) {
             raw = retryRaw;
             reply = retryReply;
             upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
@@ -19061,37 +19089,14 @@ async function handleSendChatMessage(req, res, conversationId) {
           console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
         }
       }
-      if (!accepted) {
-        const repairedReply = chatReplyWithLivePersonaSlip(bestCandidate.reply, liveIntimateCharacter, 2);
-        const repairedScore = chatReplyLiveIntimateScore(repairedReply, liveIntimateCharacter);
-        if (repairedReply
-          && chatReplyHasLiveIntimateDelivery(repairedReply)
-          && chatReplyHasPersonaContrast(repairedReply, liveIntimateCharacter)
-          && !chatReplyNeedsLiveIntimateRewrite(repairedReply, { requireVocal: true, character: liveIntimateCharacter })) {
-          raw = bestCandidate.raw;
-          reply = repairedReply;
-          upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
-          accepted = true;
-          console.warn("[character-chat-live-intimate-rewrite-repaired]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: repairedScore, reply: reply.slice(0, 240) }));
-        }
-      }
-      if (!accepted) {
-        // Local cleanup is allowed only if the result still has spoken delivery,
-        // a concrete body process, and an audible persona contradiction. Flattening
-        // a bad reply into short generic dirty talk is not a successful salvage.
-        const fallbackReply = chatReplyLiveIntimateFallback(bestCandidate.reply, liveIntimateCharacter, 2);
-        if (fallbackReply
-          && chatReplyHasLiveIntimateDelivery(fallbackReply)
-          && chatReplyHasPersonaContrast(fallbackReply, liveIntimateCharacter)
-          && !chatReplyNeedsLiveIntimateRewrite(fallbackReply, { requireVocal: true, character: liveIntimateCharacter })) {
-          raw = bestCandidate.raw;
-          reply = fallbackReply;
-          upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
-          accepted = true;
-          console.warn("[character-chat-live-intimate-rewrite-salvaged]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter), reply: reply.slice(0, 240) }));
-        } else if (fallbackReply) {
-          console.warn("[character-chat-live-intimate-rewrite-salvage-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: chatReplyLiveIntimateScore(fallbackReply, liveIntimateCharacter), gaps: chatReplyLiveIntimateGaps(fallbackReply, liveIntimateCharacter), reply: fallbackReply.slice(0, 240) }));
-        }
+      if (!accepted && bestCandidate.reply && !chatReplyIsDegenerate(bestCandidate.reply)) {
+        // If the model produced a usable scene beat but missed a soft texture
+        // preference, keep the model's own words. Do not splice local fallback
+        // fragments into it: that is what made later turns repeat earlier lines.
+        reply = bestCandidate.reply;
+        raw = bestCandidate.raw;
+        accepted = true;
+        console.warn("[character-chat-live-intimate-rewrite-best-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: reply.slice(0, 240) }));
       }
       if (!accepted) {
         console.warn("[character-chat-live-intimate-rewrite-exhausted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: String(bestCandidate.reply || "").slice(0, 240) }));
