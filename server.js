@@ -17665,6 +17665,17 @@ function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
     stale.add(index);
     for (let replyIndex = index + 1; replyIndex < lastUserIndex && list[replyIndex].role === "assistant"; replyIndex += 1) stale.add(replyIndex);
   }
+  let lastKeptUserIndex = -1;
+  for (let index = 0; index < lastUserIndex; index += 1) {
+    if (list[index].role === "user" && !stale.has(index)) lastKeptUserIndex = index;
+  }
+  for (let index = 0; index < lastUserIndex; index += 1) {
+    if (list[index].role !== "user" || stale.has(index)) continue;
+    if (chatContextSimilarity(list[index].content, latestUserMessage) < 0.82) continue;
+    if (index === lastKeptUserIndex) continue;
+    stale.add(index);
+    for (let replyIndex = index + 1; replyIndex < lastUserIndex && list[replyIndex].role === "assistant"; replyIndex += 1) stale.add(replyIndex);
+  }
   const assistantIndexes = list.map((message, index) => ({ message, index })).filter((item) => item.message.role === "assistant");
   const lastAssistant = assistantIndexes.at(-1);
   if (lastAssistant) {
@@ -18074,10 +18085,23 @@ async function handleSendChatMessage(req, res, conversationId) {
     if (!targetMessageId) return sendJson(res, 400, { ok: false, message: "targetMessageId is required." });
     await deleteChatMessagesAfterInDb(conversation.id, auth.user.id, targetMessageId);
   }
-  if (!["regenerate", "continue"].includes(action)) {
-    const savedUserContent = action === "send" && submittedContents.length
-      ? chatBurstMessageText(submittedContents)
-      : content;
+  const savedUserContent = action === "send" && submittedContents.length
+    ? chatBurstMessageText(submittedContents)
+    : content;
+  if (action === "send") {
+    const recentMessages = await listChatMessagesInDb(conversation.id, auth.user.id, 20);
+    const recentUser = [...recentMessages].reverse().find((message) => message.role === "user");
+    const recentAssistant = [...recentMessages].reverse().find((message) => message.role === "assistant");
+    const isImmediateRetry = recentUser && chatContextSimilarity(recentUser.content, savedUserContent) >= 0.9
+      && (!recentAssistant || String(recentAssistant.createdAt || "") < String(recentUser.createdAt || ""));
+    if (!isImmediateRetry && savedUserContent) {
+      const now = new Date().toISOString();
+      await insertChatMessageInDb({
+        id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content: savedUserContent,
+        createdAt: now, updatedAt: now,
+      });
+    }
+  } else if (action === "edit") {
     if (!savedUserContent) return sendJson(res, 400, { ok: false, message: "Message is required." });
     const now = new Date().toISOString();
     await insertChatMessageInDb({

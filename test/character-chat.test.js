@@ -71,6 +71,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /chatReplyUsesRejectedScaffold\(candidate, rejectedDraft\)/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
+  assert.match(server, /isImmediateRetry/);
+  assert.match(server, /lastKeptUserIndex/);
   assert.match(server, /function chatMemoryTurnsForPrompt/);
   assert.match(server, /currentMessages/);
   assert.match(chatLiveComponentSource, /componentHistoryForTurn/);
