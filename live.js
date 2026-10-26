@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, textChatBursts: new Map() };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -830,8 +830,75 @@
     }
   }
 
-  async function showTextChat() {
+  function textChatBurstState(conversationId) {
+    const key = String(conversationId || "");
+    if (!state.textChatBursts.has(key)) state.textChatBursts.set(key, { timer: 0, pending: [], sending: false });
+    return state.textChatBursts.get(key);
+  }
+  function textChatDraft() {
+    return String(app.querySelector("[data-text-form] input[name=content]")?.value || "");
+  }
+  function restoreTextChatDraft(draft = "") {
+    const input = app.querySelector("[data-text-form] input[name=content]");
+    if (!input) return;
+    if (draft) input.value = draft;
+    input.focus();
+  }
+  function scheduleTextChatBurst(conversationId, delay = 1000) {
+    const burst = textChatBurstState(conversationId);
+    if (burst.timer) window.clearTimeout(burst.timer);
+    burst.timer = window.setTimeout(() => {
+      burst.timer = 0;
+      flushTextChatBurst(conversationId).catch(() => {});
+    }, delay);
+  }
+  function queueTextChatMessage(conversationId, content) {
+    const value = String(content || "").trim();
+    if (!value) return;
+    const burst = textChatBurstState(conversationId);
+    burst.pending.push(value);
+    scheduleTextChatBurst(conversationId);
+  }
+  async function flushTextChatBurst(conversationId) {
+    const burst = textChatBurstState(conversationId);
+    if (burst.sending || !burst.pending.length) return;
+    const queued = burst.pending.slice();
+    const contents = queued.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!contents.length) {
+      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+      return;
+    }
+    burst.sending = true;
+    try {
+      const result = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ contents, content: contents[contents.length - 1], action: "send", language: state.language }),
+      });
+      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+      if (state.user && result.credits != null) state.user.credits = result.credits;
+      if (state.page === "text-chat" && state.textChatId === conversationId) {
+        const draft = textChatDraft();
+        await showTextChat({ preserveDraft: true, draft });
+      }
+    } catch (error) {
+      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+      if (error.status === 402) {
+        state.pageReturn = "text-chat";
+        showRecharge();
+        return;
+      }
+      if (state.page === "text-chat" && state.textChatId === conversationId) {
+        const note = document.querySelector("[data-text-error]");
+        if (note) note.textContent = error.message || "消息没有发出去，可以继续发送。";
+      }
+    } finally {
+      burst.sending = false;
+      if (burst.pending.length) scheduleTextChatBurst(conversationId);
+    }
+  }
+  async function showTextChat(options = {}) {
     if (!state.textChatId) { state.page = "messages"; render(); return; }
+    const draft = options.preserveDraft ? (options.draft ?? textChatDraft()) : "";
     const known = state.conversations.find((item) => String(item.id) === String(state.textChatId));
     const knownName = known?.character?.name || known?.title || state.role?.name || "对话";
     const knownPhoto = conversationAvatar(known || { character: state.role, characterId: state.role?.id }) || rolePhoto(state.role);
@@ -858,8 +925,10 @@
       const thread = document.querySelector("[data-text-thread]");
       if (photo && thread) thread.style.backgroundImage = `linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${photo}')`;
       const avatar = media(photo, name);
-      if (thread) thread.innerHTML = messages.map((item) => renderChatItem(item, avatar, name)).join("") || `<p class="detail-empty">开始和 TA 聊聊。</p>`;
+      const pending = textChatBurstState(state.textChatId).pending.map((item) => renderChatItem({ role: "user", content: item }, avatar, name)).join("");
+      if (thread) thread.innerHTML = messages.map((item) => renderChatItem(item, avatar, name)).join("") + pending || `<p class="detail-empty">开始和 TA 聊聊。</p>`;
       thread?.scrollTo(0, thread.scrollHeight);
+      if (options.preserveDraft) restoreTextChatDraft(draft);
     } catch (error) {
       const thread = document.querySelector("[data-text-thread]");
       if (thread) thread.innerHTML = `<p class="detail-empty">${esc(error.message)}</p>`;
@@ -1712,27 +1781,18 @@ document.addEventListener("click", async (e) => {
         showRecharge();
         return;
       }
-      const sendBtn = textForm.querySelector("button[type=submit]"); sendBtn.disabled = true;
-      try {
-        const thread = document.querySelector("[data-text-thread]");
-        const peerName = document.querySelector(".chat-peer b")?.textContent || "对话";
-        const avatar = document.querySelector(".chat-peer .chat-avatar")?.innerHTML || "";
-        const empty = thread?.querySelector(".detail-empty");
-        if (empty) empty.remove();
-        thread?.insertAdjacentHTML("beforeend", renderChatItem({ role: "user", content }, avatar, peerName));
-        thread?.scrollTo(0, thread.scrollHeight);
-        textForm.reset();
-        textForm.content.focus();
-        const result = await api(`/api/chat/conversations/${encodeURIComponent(state.textChatId)}/messages`, { method: "POST", body: JSON.stringify({ content, action: "send", language: state.language }) });
-        if (state.user && result.credits != null) state.user.credits = result.credits;
-        const reply = result.message || result.assistantMessage;
-        if (reply) thread?.insertAdjacentHTML("beforeend", renderChatItem(reply, avatar, peerName));
-        thread?.scrollTo(0, thread.scrollHeight);
-      } catch (error) {
-        if (error.status === 402) { state.pageReturn = "text-chat"; showRecharge(); return; }
-        const note = textForm.querySelector("[data-text-error]");
-        if (note) note.textContent = error.message;
-      } finally { sendBtn.disabled = false; }
+      const conversationId = state.textChatId;
+      const thread = document.querySelector("[data-text-thread]");
+      const peerName = document.querySelector(".chat-peer b")?.textContent || "对话";
+      const avatar = document.querySelector(".chat-peer .chat-avatar")?.innerHTML || "";
+      thread?.querySelector(".detail-empty")?.remove();
+      thread?.insertAdjacentHTML("beforeend", renderChatItem({ role: "user", content }, avatar, peerName));
+      thread?.scrollTo(0, thread.scrollHeight);
+      textForm.reset();
+      textForm.content.focus();
+      const note = textForm.querySelector("[data-text-error]");
+      if (note) note.textContent = "";
+      queueTextChatMessage(conversationId, content);
       return;
     }
     const form = e.target.closest("[data-profile-form]");

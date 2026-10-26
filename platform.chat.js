@@ -683,13 +683,6 @@ async function generateChatImage({ mode = "image" } = {}) {
 
 const CHAT_BURST_SETTLE_MS = 1000;
 
-function setChatSendError(message = "") {
-  const node = els.chatComposer?.querySelector(".chat-send-error");
-  if (!node) return;
-  node.textContent = String(message || "").trim();
-  node.hidden = !node.textContent;
-}
-
 function chatPendingMessage(content = "") {
   return { id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, role: "user", content: String(content || "") };
 }
@@ -721,6 +714,10 @@ async function flushChatBurst() {
   const conversation = activeChatConversation();
   const pending = Array.isArray(state.chatPendingMessages) ? [...state.chatPendingMessages] : [];
   if (!conversation || !pending.length) return;
+  if (state.chatSending) {
+    scheduleChatBurstFlush(500);
+    return;
+  }
   const queued = pending.filter((item) => String(item.content || "").trim());
   const contents = queued.map((item) => String(item.content || "").trim());
   if (!contents.length) {
@@ -729,7 +726,6 @@ async function flushChatBurst() {
     return;
   }
   state.chatSending = true;
-  setChatSendError("");
   if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
   renderChatPanel();
   try {
@@ -745,15 +741,12 @@ async function flushChatBurst() {
     renderAccountMenu();
     renderTopupSummary();
   } catch (error) {
-    state.chatPendingMessages = [];
-    const message = error?.name === "TimeoutError" || /timed out|timeout|aborted/i.test(String(error?.message || ""))
-      ? "Reply timed out. Please send again."
-      : (error.message || "Chat failed.");
-    setChatSendError(message);
+    state.chatPendingMessages = (state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id));
   } finally {
     state.chatSending = false;
     if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
     renderChatPanel();
+    if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
   }
 }
 

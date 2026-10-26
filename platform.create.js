@@ -5904,9 +5904,9 @@ function openAccount() {
 }
 
 function logout() {
+  closeMobileDrawer();
   const token = state.token;
   if (token) fetch("/api/auth/logout", { method: "POST", headers: { authorization: `Bearer ${token}` } }).catch(() => {});
-  closeMobileDrawer();
   state.token = "";
   state.user = null;
   state.showAccessToken = false;

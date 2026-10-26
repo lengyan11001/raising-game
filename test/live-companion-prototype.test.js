@@ -47,6 +47,13 @@ test("the welcome guide CTA enters the first recommended character", () => {
   assert.match(live, /if \(a === "guide-start"\) \{[\s\S]*?const firstCharacter = state\.chars\[0\][\s\S]*?state\.role = firstCharacter; state\.page = "role-detail";[\s\S]*?render\(\);/);
 });
 
+test("live text chat keeps composing while a reply is pending", () => {
+  assert.match(live, /textChatBurstState/);
+  assert.match(live, /queueTextChatMessage\(conversationId, content\)/);
+  assert.match(live, /flushTextChatBurst\(conversationId\)/);
+  assert.doesNotMatch(live, /const sendBtn = textForm\.querySelector\("button\[type=submit\]"\); sendBtn\.disabled = true/);
+});
+
 test("live recommendation cards keep one fixed frame", () => {
   assert.match(css, /\.person-card\{height:392px;display:flex;flex-direction:column\}/);
   assert.match(css, /\.person-image\{display:block;width:100%;height:330px;flex:0 0 330px\}/);
@@ -77,6 +84,6 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=202610262200/);
-  assert.match(html, /live\.js\?v=202610242550/);
-  assert.match(html, /chat-live\.js\?v=202610242400/);
+  assert.match(html, /live\.js\?v=chat-unlocked-20261026-3/);
+  assert.match(html, /chat-live\.js\?v=chat-unlocked-20261026-3/);
 });

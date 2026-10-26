@@ -2217,7 +2217,6 @@
       if (!value || state.ended) return;
       if (!state.roomId) appendLine("user", value);
       if (state.session?.mode === "component") {
-        overlay.sendBtn.disabled = true;
         const sessionId = state.session.id;
         try {
           let last = null;
@@ -2240,8 +2239,8 @@
             const waiting = !videoUp && (last.status === 409 || last.code === "CHAT_LIVE_NOT_READY" || /还在接通|还在准备|没有接通/.test(String(last.message || "")));
             appendLine("sys", waiting ? "还在接通，这句话没发出去，接通后再发一次。" : (videoUp ? (last.message || "这句话没发出去，请再发一次。") : (last.message || "回复没有发出去，请再试一次。")));
           }
-        } finally {
-          overlay.sendBtn.disabled = false;
+        } catch (error) {
+          appendLine("sys", error.message || "这句话没发出去，可以继续发送。");
         }
         return;
       }

@@ -141,8 +141,18 @@
     if (!standaloneChatBursts.has(conversationId)) standaloneChatBursts.set(conversationId, { timer: 0, pending: [], sending: false });
     return standaloneChatBursts.get(conversationId);
   }
-  async function renderStandaloneChat(conversationId) {
+  function standaloneChatDraft() {
+    return String(app.querySelector("[data-chat-composer] textarea")?.value || "");
+  }
+  function restoreStandaloneChatDraft(draft = "") {
+    const input = app.querySelector("[data-chat-composer] textarea");
+    if (!input) return;
+    if (draft) input.value = draft;
+    input.focus();
+  }
+  async function renderStandaloneChat(conversationId, options = {}) {
     const renderToken = ++standaloneChatRenderToken;
+    const draft = options.preserveDraft ? standaloneChatDraft() : "";
     app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-loading">Loading conversation…</div></section>`;
     try {
       const payload = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
@@ -159,6 +169,7 @@
       const composer = app.querySelector("[data-chat-composer]");
       if (composer) composer.dataset.conversationId = conversationId;
       composer?.addEventListener("submit", (event) => sendStandaloneChatMessage(event, conversationId));
+      if (options.preserveDraft) restoreStandaloneChatDraft(draft);
     } catch (error) {
       if (renderToken !== standaloneChatRenderToken) return;
       app.innerHTML = `<section class="standalone-chat-page"><div class="standalone-chat-shell"><button class="back-link standalone-chat-back" type="button" data-chat-back>← Back to models</button><div class="empty-state">${esc(error.message || "Unable to load this conversation.")}</div></div></section>`;
@@ -182,21 +193,20 @@
       return;
     }
     burst.sending = true;
-    standaloneChatError(conversationId, "");
+    let sent = false;
     try {
       await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
         method: "POST",
         body: JSON.stringify({ contents, content: contents[contents.length - 1], action: "send", language: navigator.language || "en" }),
       });
-      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+      sent = true;
     } catch (error) {
+      burst.pending = burst.pending.filter((item) => !queued.includes(item));
+    } finally {
       burst.sending = false;
-      await renderStandaloneChat(conversationId);
-      standaloneChatError(conversationId, error.message || "Chat failed.");
-      return;
     }
-    await renderStandaloneChat(conversationId);
-    burst.sending = false;
+    if (sent) burst.pending = burst.pending.filter((item) => !queued.includes(item));
+    await renderStandaloneChat(conversationId, { preserveDraft: true });
     if (burst.pending.length) burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
   }
   function sendStandaloneChatMessage(event, conversationId) {
@@ -207,13 +217,13 @@
     burst.pending.push(content);
     input.value = "";
     form.dataset.conversationId = conversationId;
+    const thread = app.querySelector("[data-chat-thread]");
+    thread?.querySelector(".empty-state")?.remove();
+    thread?.insertAdjacentHTML("beforeend", `<article class="standalone-chat-message is-user is-pending"><div class="standalone-chat-bubble">${chatText(content)}</div></article>`);
+    thread?.scrollTo(0, thread.scrollHeight);
+    input.focus();
     if (burst.timer) window.clearTimeout(burst.timer);
     burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
-    renderStandaloneChat(conversationId).then(() => {
-      const next = app.querySelector("[data-chat-composer]");
-      if (next?.dataset) next.dataset.conversationId = conversationId;
-      next?.elements?.content?.focus();
-    });
   }
   function route() { const chatMatch = location.hash.match(/^#chat\/(.+)$/); if (chatMatch) return renderStandaloneChat(decodeURIComponent(chatMatch[1])); const match = location.hash.match(/^#model\/(.+)$/); if (match) { const id = decodeURIComponent(match[1]); const item = state.characters.find((entry) => String(entry.id) === id); if (item) return renderDetail(item); } renderModels(); }
   document.addEventListener("click", (event) => { const action = event.target.closest("[data-action]")?.dataset.action; if (action === "models") { location.hash = "models"; route(); } if (action === "categories") { document.querySelector("[data-search]")?.focus(); } if (action === "account") { if (getToken()) { fetch("/api/auth/logout", { method: "POST", headers: { authorization: `Bearer ${getToken()}` } }).catch(() => {}).finally(() => { localStorage.removeItem(TOKEN_KEY); location.reload(); }); } else loginDialog.showModal(); } if (action === "theme") { document.body.classList.toggle("dark"); } if (action === "email-login") { loginDialog.close(); emailDialog.showModal(); } if (action === "request-email") requestEmailCode(); });
