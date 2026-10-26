@@ -82,6 +82,12 @@ test("explaining the role reversal is not accepted as spoken contrast", () => {
   assert.equal(chatReplyNeedsLiveIntimateRewrite(explanation, { requireVocal: true, character }), true);
 });
 
+test("explaining what the role should have been is not spoken contrast", () => {
+  const explanation = "啊……！哈啊……我原本该是命令你的人……嗯……啊！还要再深一点，把每一处都彻底撑开。";
+  assert.equal(chatReplyHasPersonaContrast(explanation, character), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(explanation, { requireVocal: true, character }), true);
+});
+
 test("discarding rules or face is not a concrete reversal", () => {
   const discard = "啊……！ 哈啊……你要把整根都… 唔，全都给我灌进来。 别管我刚才说的规矩了，就这么… 狠狠地、一直顶到最深处。 嘶……快点。";
   assert.equal(chatReplyHasPersonaContrast(discard, character), false);
@@ -108,7 +114,7 @@ test("repair fallback varies with the character instead of appending one canned 
   const second = chatReplyWithLivePersonaSlip(draft, proud, 1);
   assert.notEqual(first, second);
   assert.doesNotMatch(first, /哈…操我…插进来…再深点…/);
-  assert.doesNotMatch(first, /彻底.{0,8}弄坏|最深处|那根粗大的/);
+  assert.doesNotMatch(first, /彻底.{0,8}(?:弄坏|撑开|顶开)|最深处|每一处|每一寸|那根粗大的/);
 });
 
 test("weak live drafts are repaired with a concrete persona slip", () => {

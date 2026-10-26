@@ -17960,7 +17960,7 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const length = [...text].length;
   const literaryHits = (text.match(/(?:仿佛|像是|如同|褶皱|胀实感|胀满感|脊背|脊椎|骨架|神经末梢|每寸|每一寸|极致|叫嚣|承载|淹没|吞没)/gu) || []).length;
   const abstractHits = (text.match(/(?:那种|不断|一点点|一圈圈|缓缓|微微|透亮)/gu) || []).length;
-  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄|最深处|彻底.{0,6}弄坏|那根粗大的)/gu) || []).length;
+  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄|最深处|每一处|每一寸|彻底.{0,6}(?:弄坏|撑开|顶开)|那根粗大的)/gu) || []).length;
   if (literaryHits >= 3) return true;
   if (explanatoryHits >= 1) return true;
   if (length >= 260 && literaryHits + abstractHits >= 6) return true;
@@ -17994,7 +17994,8 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
     || /(?:明明|原本|本来)[^。！？!?]{0,32}(?:我现在|现在却|可现在)/u.test(text)
     || /(?:别管|不管)[^。！？!?]{0,16}(?:规矩|面子|脸面|身份|仪态|端庄|体面)/u.test(text);
   const weakAbstract = /(?:仪态|端庄|体面|别管|不管)/u.test(text);
-  const routineExposition = /(?:我)?(?:平时|平常|往常|原本|本来|一向)[^。！？!?]{0,36}(?:现在|可(?:现在)?|却|居然)/u.test(text);
+  const routineExposition = /(?:我)?(?:平时|平常|往常|原本|本来|一向)[^。！？!?]{0,36}(?:现在|可(?:现在)?|却|居然)/u.test(text)
+    || /(?:原本|本来|平时|平常)[^。！？!?]{0,16}(?:该|应该|是)[^。！？!?]{0,20}(?:命令|管|控制|训|要求|带节奏)/u.test(text);
   const yielding = /(?:别停|继续(?:插|干|顶)?|快点|再(?:深|重|用力)|深一点|重一点|想要|求你|求我|受不了|撑不住|不行了|弄坏|湿|水|爽|舒服|操我|干我|插我|顶我|进来|到底)/u.test(text);
   const behavioralReversal = /(?:听我的|都听我的|我说了算|我让你|给我(?:听|老实|忍住|守|慢|快|停|动|看)|不许|不准|别(?:看|走|笑|说|停|动))[^。！？!?]{0,28}(?:求你|求我|别停|想要|再深|再重|用力|操我|干我|插我|顶我|灌进来|弄坏|湿|受不了|夹紧|舒服)/u.test(text)
     || /(?:求你|求我)[^。！？!?]{0,28}(?:听我的|别停|再深|再重|操我|干我|插我|顶我|灌进来)/u.test(text);
@@ -18043,7 +18044,7 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     .map((line) => weakPattern.test(line)
       ? line.replace(/(?:我居然|我竟然|这不像我|不像我|我怎么会)[^。！？!?]*(?:[。！？]|$)/gu, "").trim()
       : line)
-    .map((line) => line.replace(/[^。！？!?]*(?:最深处|那根粗大的|彻底.{0,8}弄坏)[^。！？!?]*[。！？!?]?/gu, "").trim())
+    .map((line) => line.replace(/[^。！？!?]*(?:最深处|那根粗大的|每一处|每一寸|彻底.{0,8}(?:弄坏|撑开|顶开))[^。！？!?]*[。！？!?]?/gu, "").trim())
     .filter((line) => line && !weakPattern.test(line))
     .slice(-9);
   if (!lines.length) lines = ["啊…别停…"];
