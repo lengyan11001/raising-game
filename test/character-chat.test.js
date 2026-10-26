@@ -69,6 +69,12 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /COOPERATION, NOT COMMANDING/);
   assert.match(server, /TURN DECISION PROTOCOL/);
   assert.match(server, /PERSONA USE/);
+  assert.match(server, /PERSONA CONTINUITY/);
+  assert.match(server, /VOICE INTEGRATION/);
+  assert.match(server, /CHARACTER-SHEET DRIFT CHECK/);
+  assert.doesNotMatch(server, /Character background \(reference only\)/);
+  assert.doesNotMatch(server, /VOICE OVERRIDE \(highest priority/);
+  assert.doesNotMatch(server, /if \(chatContextHasRepeatedReplyScaffold\(filtered\)\) return currentTurn/);
   assert.match(server, /understand meaning, never keyword-match/);
   assert.match(server, /chatMessagesForNewTurn\(messages, latestUserMessage\)/);
   assert.match(server, /CURRENT TURN ANCHOR/);

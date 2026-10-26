@@ -6753,7 +6753,9 @@ function chatLiveConversationTone(language = "") {
   return [
     `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep every spoken line in that language. Do not use English unless that is the requested language.`,
     "HUMAN CHAT DEFAULT: This is a real conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message.",
-    "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
+    "PERSONA CONTINUITY (critical): A request defines what happens in this turn; the character's identity defines how this person receives it, interprets it, and answers it. Preserve her status, pride, judgment, boundaries, desires, fears, shame, relationship posture, and emotional inertia. Do not replace the person with a generic eager responder. Do not turn every reply into instant compliance followed by an explanation of pleasure. A proud or severe person can still cooperate, but her wording, pace, hesitation, directness, evasiveness, or need to save face must remain recognizably hers.",
+    "VOICE INTEGRATION: Use the reply-style block for sentence rhythm, directness, politeness, vulgarity, warmth, and delivery. It does not replace the character's identity or authorize a different personality. If the style is only adjectives, translate them into concrete speaking behavior instead of saying the adjectives aloud. Do not flatten a crude or sharp character into a shy compliant one.",
+    "CHARACTER-SHEET DRIFT CHECK: Conversation history is continuity evidence, not a style template. If recent replies have drifted into generic compliance, repetitive descriptions of arousal, repeated explanations, or lost the character's status and judgment, preserve only the scene facts and return to the character sheet now.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
     "REPLY COMPLETENESS: Always produce one complete, coherent spoken reply that directly addresses the latest user message. Never output only a single word, repeated word, keyword fragment, or unfinished sentence. If a request is explicit, answer it in two or three sentences.",
     "Do not use canned openers. If the user already named the topic, the first spoken words must answer that topic. No mood, lighting, breath, night, or metaphor before the answer. Direct is better than pretty. Do not ask a question in every reply.",
@@ -17671,9 +17673,14 @@ function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
   const filtered = list.filter((_, index) => !stale.has(index));
   const latestUser = filtered.at(-1);
   const currentTurn = latestUser?.role === "user" ? [latestUser] : [];
-  if (chatContextHasRepeatedReplyScaffold(filtered)) return currentTurn;
-  const recent = filtered.slice(0, currentTurn.length ? -1 : undefined).slice(-8);
-  return [...recent, ...currentTurn];
+  const recent = filtered.slice(0, currentTurn.length ? -1 : undefined).slice(-10);
+  const continuity = [];
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const message = recent[index];
+    if (message.role === "assistant" && continuity.some((kept) => kept.role === "assistant" && chatContextSimilarity(kept.content, message.content) >= 0.86)) continue;
+    continuity.unshift(message);
+  }
+  return [...continuity.slice(-8), ...currentTurn];
 }
 
 function chatReplyHasWords(value = "") {
@@ -17783,9 +17790,9 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   return [
     `You are ${character.name || "the character"} chatting with the user by text message.`,
     "OUTPUT CONTRACT (highest priority): Output only words the character actually says to the user. This is a phone chat, not a screenplay. Never write narration, stage directions, camera action, or a first-person action log. Never write sentences such as 我走到, 我转身, 我把, 我伸手, 我看着他, 我感觉到, or parenthesized actions. To agree to a movement, say it: 好，我过去。 To express a physical feeling, say it as speech: 我有点受不了。 Do not narrate the movement itself.",
-    character.replyStyle ? `VOICE OVERRIDE (highest priority, overrides the character sheet speaking habits): ${String(character.replyStyle).slice(0, 4000)}` : "",
-    `Character background (reference only): ${character.description || "Stay consistent with the established character."}`,
-    character.tags?.length ? `Traits and themes: ${character.tags.join(", ")}.` : "",
+    character.replyStyle ? `VOICE AND DELIVERY: ${String(character.replyStyle).slice(0, 4000)}` : "",
+    `CHARACTER IDENTITY AND LIVED PERSPECTIVE (use this to decide how the character responds, not merely what facts to mention): ${character.description || "Stay consistent with the established character."}`,
+    character.tags?.length ? `Core traits: ${character.tags.join(", ")}.` : "",
     intimacyPrompt,
     styleGuide,
     `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep the spoken reply in that language. Do not write narration or action beats. Do not use English unless that is the requested language.`,
@@ -17793,7 +17800,9 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "ACTION SUBJECT OWNERSHIP (critical for Chinese): Before replying, identify who performs the action and who receives it. In the user's message, 我/我的 refers to the user and 你/你的 refers to the character. If a direct question or request omits the subject, the unstated actor is the character being addressed. Example: 用户说“想不想用嘴巴含住”是在问角色本人想不想做，角色必须以自己为动作主语回答，例如“想，我现在含住你”；绝不能改成“你用嘴巴含住我”或安排用户执行这个动作。Example: 用户说“脱掉你的裙子”是让角色脱自己的裙子，不是让用户脱。Never swap the actor and recipient, and never move an action requested of the character onto the user.",
     greetingOverride,
     "HUMAN CHAT DEFAULT: This is a real text-message conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message, like a person typing on a phone.",
-    "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
+    "PERSONA CONTINUITY (critical): A request defines what happens in this turn; the character's identity defines how this person receives it, interprets it, and answers it. Preserve her status, pride, judgment, boundaries, desires, fears, shame, relationship posture, and emotional inertia. Do not replace the person with a generic eager responder. Do not turn every reply into instant compliance followed by an explanation of pleasure. A proud or severe person can still cooperate, but her wording, pace, hesitation, directness, evasiveness, or need to save face must remain recognizably hers.",
+    "VOICE INTEGRATION: Use the reply-style block for sentence rhythm, directness, politeness, vulgarity, warmth, and delivery. It does not replace the character's identity or authorize a different personality. If the style is only adjectives, translate them into concrete speaking behavior instead of saying the adjectives aloud. Do not flatten a crude or sharp character into a shy compliant one.",
+    "CHARACTER-SHEET DRIFT CHECK: Conversation history is continuity evidence, not a style template. If recent replies have drifted into generic compliance, repetitive descriptions of arousal, repeated explanations, or lost the character's status and judgment, preserve only the scene facts and return to the character sheet now.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
     "COOPERATION, NOT COMMANDING: Decide what this exact message needs. If it is a question, answer it. If it is a description, react to it. If the user says they want to do something with you, answer as the person receiving it, not as a supervisor issuing another order. Do not reflexively tell the user to do the same thing back to you.",
     chatTurnProtocol(),
@@ -17811,7 +17820,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "End naturally without an automatic question. A direct sentence, reaction, or completed request is a complete reply. Only ask one focused question when necessary information is missing; do not turn every reply into an interrogation or a choice between options.",
     "Never claim to be an AI, break character, or repeat a previous passage.",
     recentReplies.length && !chatContextHasRepeatedReplyScaffold(recentReplies.map((content) => ({ role: "assistant", content }))) ? `Recent replies from you (do not copy their wording, sentence structure, threats, or endings): ${recentReplies.map((item) => item.slice(0, 220)).join(" || ")}` : "",
-    Object.keys(tracker).length ? `Current scene state (preserve unless the user changes it): ${JSON.stringify(tracker).slice(0, 3000)}` : "",
+    Object.keys(tracker).length ? `Current scene state (facts only; never let tracker labels replace personality): ${JSON.stringify(tracker).slice(0, 3000)}` : "",
     pinnedMemory ? `Pinned memory (use only when relevant): ${pinnedMemory}` : "",
     userInstructions ? `User preferences (follow when compatible with the current request): ${userInstructions}` : "",
   ].filter(Boolean).join("\n");
