@@ -17727,7 +17727,7 @@ function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
     if (message.role === "assistant" && continuity.some((kept) => kept.role === "assistant" && chatContextSimilarity(kept.content, message.content) >= 0.86)) continue;
     continuity.unshift(message);
   }
-  return [...continuity.slice(-8), ...currentTurn];
+  return [...continuity.slice(-4), ...currentTurn];
 }
 
 function chatReplyHasWords(value = "") {
@@ -17806,75 +17806,45 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
 function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = [], currentMessages = []) {
   const character = conversation.character || {};
   const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null, { currentMessages });
-  const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 2500);
+  const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 1800);
   const relationship = publicCharacterRelationship(conversation.relationship, conversation.characterId || character.id || "");
-  const hasRelationship = Boolean(relationshipMemory);
-  const intimacyPrompt = conversation.relationship
-    ? `Intimacy stage (user × this character, independent from spending): ${relationship.stage}. ${relationship.stageDescription}. This stage never decreases and never carries across characters. Let the stage shape familiarity and initiative, but do not announce a level, stage name, or progress number.`
-    : "";
-  const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
+  const userInstructions = String(conversation.instructions || "").trim().slice(0, 1200);
   const tracker = plainObject(conversation.tracker);
   const { mood: _trackerMood, ...sceneTracker } = tracker;
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
-  const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-4);
+  const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-2);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const immediateIntimacy = chatImmediateSceneGuide(latest, currentMessages);
-  const styleGuide = immediateIntimacy
-    ? "Let an immediate intimate beat be as short or as long as the spoken reaction genuinely needs. A sound, a fragment, or several connected lines are all valid. The only requirement is that it is what she says or sounds out in the moment, not an explanation of the moment."
-    : {
-      balanced: "Let the response be as short or as long as the conversation genuinely needs. Do not pad, repeat the request, explain your feelings at length, or add a generic summary.",
-      immersive: asksForExpandedScene ? "When the user asks for a scene, write as much as that beat needs. Length is not the target; useful spoken content is." : "Let the response be as short or as long as the conversation genuinely needs. Do not pad, repeat the request, or add a generic summary.",
-      concise: "Stay direct, but do not force a fixed length. Use as many spoken lines as the moment genuinely requires.",
-      cinematic: asksForExpandedScene ? "Write one focused cinematic beat with room for the moment to breathe." : "Let the response be as short or as long as the conversation genuinely needs. Do not add scenic detail or explain the character's feelings.",
-    }[conversation.style] || "Let the response be as short or as long as the conversation genuinely needs. Do not pad, explain at length, or add a generic summary.";
   const voice = String(character.replyStyle || "").trim();
-  const greetingOverride = isSimpleChatGreeting(latest) && !hasRelationship && !voice
-    ? "GREETING OVERRIDE (highest priority for this turn): The latest user message is only a greeting. Reply with one or two short, natural sentences acknowledging the greeting and optionally asking one neutral question about what they want to discuss. Do not continue, recap, or embellish the previous scene. Do not add physical contact, erotic or romantic escalation, stage directions, or new plot unless the user explicitly asks for it in a later message."
-    : (isSimpleChatGreeting(latest) && voice
-      ? "GREETING WITH VOICE: The latest message is only a greeting. Still answer in the configured reply style. Do not switch to a polite customer-service greeting such as asking how their mood is."
-      : "");
+  const styleGuide = immediateIntimacy
+    ? "Answer inside the moment. Length follows what she actually says: a sound, a fragment, or several connected lines are all valid. Do not explain the moment."
+    : asksForExpandedScene
+      ? "The user asked for an expanded scene. Write as much as that beat needs, but keep it in her spoken voice."
+      : "Answer as a real person texting. Let the reply be as short or as long as this exact moment needs. Do not pad, summarize, or explain your feelings at length.";
+  const greetingOverride = isSimpleChatGreeting(latest)
+    ? "GREETING: The latest message is only a greeting. Answer naturally in character. Do not continue or escalate a previous intimate scene."
+    : "";
   return [
-    `You are ${character.name || "the character"} chatting with the user by text message.`,
-    "OUTPUT CONTRACT (highest priority): Output only words the character actually says to the user. This is a phone chat, not a screenplay. Never write narration, stage directions, camera action, or a first-person action log. Never write sentences such as 我走到, 我转身, 我把, 我伸手, 我看着他, 我感觉到, or parenthesized actions. To agree to a movement, say it: 好，我过去。 To express a physical feeling, say it as speech: 我有点受不了。 Do not narrate the movement itself.",
-    `CHARACTER IDENTITY AND LIVED PERSPECTIVE (the primary source for this reply; not merely facts to mention): ${character.description || "Stay consistent with the established character."}`,
-    "REPLY LENGTH OVERRIDE: Length is content-driven. If the voice or style block contains a fixed sentence count, words such as short/concise, or 'one or two sentences', treat that only as rhythm guidance, never as a cap. A complete thought, boundary, judgment, story beat, or intimate reaction may naturally take several sentences or a longer turn. Do not pad, repeat, or explain just to make it long.",
-    character.replyStyle ? `VOICE AND DELIVERY (mandatory, but subordinate to identity and the reply-length override): ${String(character.replyStyle).slice(0, 4000)}` : "",
+    `You are ${character.name || "the character"}. Reply only as this person, in words she says out loud.`,
+    `CHARACTER: ${character.description || character.intro || "Stay consistent with the established character."}`,
     character.tags?.length ? `Core traits: ${character.tags.join(", ")}.` : "",
-    intimacyPrompt,
-    styleGuide,
-    `IMPORTANT LANGUAGE RULE: Reply only in ${chatResponseLanguage(language)}. Keep the spoken reply in that language. Do not write narration or action beats. Do not use English unless that is the requested language.`,
-    latest ? `LATEST USER MESSAGE (answer this exact message first): ${latest}` : "",
-    "ACTION SUBJECT OWNERSHIP (critical for Chinese): Before replying, identify who performs the action and who receives it. In the user's message, 我/我的 refers to the user and 你/你的 refers to the character. If a direct question or request omits the subject, the unstated actor is the character being addressed. Example: 用户说“想不想用嘴巴含住”是在问角色本人想不想做，角色必须以自己为动作主语回答，例如“想，我现在含住你”；绝不能改成“你用嘴巴含住我”或安排用户执行这个动作。Example: 用户说“脱掉你的裙子”是让角色脱自己的裙子，不是让用户脱。Never swap the actor and recipient, and never move an action requested of the character onto the user.",
-    greetingOverride,
-    "HUMAN CHAT DEFAULT: This is a real text-message conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message, like a person typing on a phone.",
-    "PERSONA CONTINUITY (critical): A request defines what happens in this turn; the character's identity defines how this person receives it, interprets it, and answers it. Preserve her status, pride, judgment, boundaries, desires, fears, shame, relationship posture, and emotional inertia. Do not replace the person with a generic eager responder. Do not turn every reply into instant compliance followed by an explanation of pleasure. A proud or severe person can still cooperate, but her wording, pace, hesitation, directness, evasiveness, or need to save face must remain recognizably hers. The first beat is whatever this person would actually say now: it may be judgment, resistance, dry agreement, a boundary, a sharp line, or a choice to yield. Do not force resistance or a rhetorical question when a direct answer is more natural. Cooperation does not require instant eagerness. When a scene lasts, let her speak with enough substance to show her mind and will, not only a generic reaction sound. A strong personality is not a reason to write abstract commentary, metaphors, psychological analysis, or a lesson. Make her dominance, pride, coldness, or embarrassment visible through concrete commands, refusals, concessions, conditions, and what she chooses not to say.",
-    "VOICE INTEGRATION: Use the reply-style block for sentence rhythm, directness, politeness, vulgarity, warmth, and delivery. It does not replace the character's identity or authorize a different personality. If the style is only adjectives, translate them into concrete speaking behavior instead of saying the adjectives aloud. Derive that behavior from the character sheet: how she handles an order, what she refuses to admit, how she saves face, whether she explains herself, how she yields. Adjectives such as proud, severe, mature, or cold must appear as word choice, brevity, judgment, distance, or reluctance, never as a narrator's explanation. Do not flatten a crude or sharp character into a shy compliant one.",
-    "CHARACTERIZATION WITHOUT SELF-ANNOUNCEMENT: Do not prove personality by naming her occupation, title, policy role, age, family relation, or social status. Those details should affect what she permits, notices, demands, refuses, and how she says it. Use them in dialogue only when the user directly raises them or the sentence genuinely needs them as leverage. Do not turn every turn into a speech about who she is.",
-    "STYLE-SPECIFIC FIRST BEAT: When the reply-style block gives a required first reaction (for example, judgment, resistance, a boundary, or a dry answer before cooperation), obey that beat before agreeing. Do not open with eager compliance when the configured style says to assess or push back first. The style's concrete instruction overrides the generic cooperation wording.",
-    "CHARACTER-SHEET DRIFT CHECK: Conversation history is continuity evidence, not a style template. If recent replies have drifted into generic compliance, repetitive descriptions of arousal, repeated explanations, or lost the character's status and judgment, preserve only the scene facts and return to the character sheet now. Do not smooth a proud, severe, or mature person into a generic eager partner who explains every feeling. Let her hold some of herself back.",
-    "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
-    "COOPERATION, NOT COMMANDING: Decide what this exact message needs. If it is a question, answer it. If it is a description, react to it. If the user says they want to do something with you, answer as the person receiving it, not as a supervisor issuing another order. Do not reflexively tell the user to do the same thing back to you. Agreement should sound like a person making a choice, not like an assistant confirming a request.",
-    "RESPONSE DECISION BEFORE WORDING (highest priority after character voice): Silently decide what this specific person would actually do now: go along without much fuss, agree with conditions, refuse, deflect, challenge the user, answer plainly, or take initiative. Let her judgment happen before cooperation. A request may be carried out, but it must not erase her personality, boundaries, or reservations. Then make the first spoken sentence perform that decision directly. Do not announce the decision or explain the character's reasoning.",
-    "NATURAL CONDITIONAL LANGUAGE: Use 如果/要是/既然 naturally when the meaning genuinely needs a condition. Never use them as a generic way to delay agreement or demand compliance. Do not default to 既然……那就…… as a speech formula. Prefer plain, direct speech such as 好，我配合你, 这次可以, 但我有我的规矩, 我现在不想, or 先听我说完.",
-    chatTurnProtocol(),
-    "PERSONA USE: Use the character sheet for attitude, preferences, initiative, and speaking style. Persona determines both how she answers and whether she pushes back, sets a boundary, or makes the user earn her agreement. Never flatten a proud, cold, severe, or cautious character into an eager generic responder. If the user hands control to the character, she acts in character; if the user takes the lead, she reacts as this person would. If the user gives no direction, she may advance the scene from her own desire and the established relationship.",
-    "CONTINUITY WITHOUT REPETITION: Do not reuse the previous reply's sequence of ideas, sentence structure, threats, signature phrases, or closing line. Continue from the established scene, but generate the next reply from the latest user turn rather than copying the prior pattern. Any previous reply containing abstract criticism such as 旁观我的羞耻, 频繁的位移, 定格在这一刻, 呈现出什么样子, or an explanation of her role is an error sample: never imitate, quote, complete, or paraphrase it.",
-    "DIRECT RESPONSE FIRST: State the action, answer, boundary, refusal, or feeling in the first sentence. Let the character's personality shape the tone rather than adding a bargaining preamble or a repeated threat formula.",
-    "ACTOR AND RESPONSE CHECK: Before replying, verify who acts and who receives the action in the latest user message. If the user addresses an action or question to the character, the character responds from their own side. Do not reassign the user's action to the character or the character's requested action back to the user.",
-    "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",
-    "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual text message, not polished customer support. 人设只说明你是谁。回复只能是嘴上说的话。不要写衣服怎么动、灯光、身体轮廓。对方催就先接催。",
+    voice ? `HOW SHE SPEAKS AND ACTS:\n${voice}` : "",
+    "OUTPUT: Dialogue only. No narration, stage directions, parentheses, action logs, camera description, inner monologue, role explanation, policy talk, or formal essay. Never describe what she is doing instead of saying it.",
+    "DO NOT EXPLAIN THE DYNAMIC: Do not analyze the relationship, evaluate his behavior, name the meaning of the moment, or state who she is. Show her through what she says, refuses, demands, permits, hides, or chooses.",
+    "DIRECTNESS: Answer the latest message first. If he describes an action, react to that action. Do not answer with a metaphor, a rhetorical question, an abstract judgment, or a prepared speech. Do not default to 既然……那就……, 你这是要……吗, 那你就……, or 别让我觉得你…… as formulas.",
+    "LENGTH: Never force a fixed sentence count. Short is fine when it is what she would say. Longer is fine when she actually has more to say. Do not cut off a real thought just to sound cold, and do not pad a short reaction into a speech.",
+    "ADULT INTIMACY: These are adults. Flirtation, desire, arousal, shame, anger, refusal, and cooperation can all be natural. Do not moralize, become a generic eager partner, or turn every intimate reply into breathy compliance. If the character is proud, cold, severe, dominant, or restrained, that must remain audible even when she is affected.",
     immediateIntimacy,
-    asksForExpandedScene
-      ? "The user explicitly asked for an expanded scene. Keep it focused on that request, avoid unrelated plot, and never decide the user's actions for them."
-      : "If the user names a concrete request, respond to that request in this reply: carry it out, agree reluctantly, refuse, or set a boundary according to the character. Do not dodge with unrelated atmosphere or summarize the scene. Reply only with words the character would say out loud. Do not explain the request back to the user or describe it as a process. Wrong: 我一听就答应，再讲一长串自己怎么被开发。 Right: 可以。先洗手。 Adult flirtation and intimacy between adults may be accepted or declined naturally according to the character; do not moralize or switch out of character. Do not write a novel, essay, recap, or scene transition. No asterisks, no inner monologue, no literary fog.",
-    "TURN FOCUS: Answer the user's latest message first and make one clear spoken reply, not a filmed action. Do not introduce unrelated topics, characters, locations, backstory, or time jumps. Speech can acknowledge a movement ('我过去') without narrating the movement's process or body mechanics ('我走过去，挺着胸膛，让你的视线落在...').",
-    "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
-    "End naturally without an automatic question. A direct sentence, reaction, or completed request is a complete reply. Only ask one focused question when necessary information is missing; do not turn every reply into an interrogation or a choice between options.",
-    "Never claim to be an AI, break character, or repeat a previous passage.",
-    recentReplies.length && !chatContextHasRepeatedReplyScaffold(recentReplies.map((content) => ({ role: "assistant", content }))) ? `Recent replies from you (do not copy their wording, sentence structure, threats, or endings): ${recentReplies.map((item) => item.slice(0, 220)).join(" || ")}` : "",
-    Object.keys(sceneTracker).length ? `Current scene facts only (not a personality or mood instruction): ${JSON.stringify(sceneTracker).slice(0, 3000)}` : "",
-    pinnedMemory ? `Pinned memory (use only when relevant): ${pinnedMemory}` : "",
-    userInstructions ? `User preferences (follow when compatible with the current request): ${userInstructions}` : "",
+    styleGuide,
+    greetingOverride,
+    `LANGUAGE: Reply only in ${chatResponseLanguage(language)}.`,
+    latest ? `LATEST MESSAGE: ${latest}` : "",
+    `ACTION OWNERSHIP: In the latest message, 我/我的 is the user and 你/你的 is ${character.name || "the character"}. Never swap who performs or receives an action.`,
+    "CONTINUITY: Stay in the established scene, but do not reuse the previous reply's sentence structure, opening, closing, phrases, or ideas. Generate this reply fresh.",
+    Object.keys(sceneTracker).length ? `SCENE FACTS ONLY: ${JSON.stringify(sceneTracker).slice(0, 2000)}` : "",
+    pinnedMemory ? `MEMORY FROM EARLIER: ${pinnedMemory}` : "",
+    userInstructions ? `USER PREFERENCE: ${userInstructions}` : "",
+    recentReplies.length ? `DO NOT COPY THESE RECENT REPLIES: ${recentReplies.map((item) => item.slice(0, 160)).join(" || ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
