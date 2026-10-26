@@ -18301,15 +18301,15 @@ function chatReplyCopiesStyleExamples(value = "", character = {}) {
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
+  const text = String(value || "");
+  const hasPresentBeat = chatReplyHasIntimateVocalReaction(text) && (chatReplyHasBrokenLiveSpeech(text) || chatReplyHasLiveDirtyTalk(text));
   return chatReplyCopiesStyleExamples(value, character)
     || chatReplyHasForeignVocalEnglish(value, character)
     || chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
-    || /(?:别管|不管)/u.test(String(value || ""))
-    || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
-    || (requireVocal && !chatReplyHasBrokenLiveSpeech(value))
-    || (requireVocal && !chatReplyHasLiveDirtyTalk(value));
+    || /(?:别管|不管)/u.test(text)
+    || (requireVocal && !hasPresentBeat);
 }
 
 function chatReplyLiveIntimateScore(value = "", character = {}) {
