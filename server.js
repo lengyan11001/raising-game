@@ -17864,11 +17864,17 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   return length >= 420 && (literaryHits >= 2 || abstractHits >= 7);
 }
 
+function chatReplyHasLiveDirtyTalk(value = "") {
+  const text = String(value || "").trim();
+  return /(?:操|干|插|顶|射|鸡巴|阴茎|阴道|里面|穴|骚|浪|爽|舒服|疼|轻点|重点|别停|继续|深一点|到底|受不了|要坏|弄坏|水|湿)/u.test(text);
+}
+
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false } = {}) {
   return chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
-    || (requireVocal && !chatReplyHasIntimateVocalReaction(value));
+    || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
+    || (requireVocal && !chatReplyHasLiveDirtyTalk(value));
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -18303,6 +18309,11 @@ async function handleSendChatMessage(req, res, conversationId) {
         ].join("\n"), true);
         const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
         if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true })) {
+          raw = retryRaw;
+          reply = retryReply;
+          upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
+        } else if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyLooksLikeLiveIntimateEssay(retryReply) && !chatReplyStartsWithCannedIntimateVocal(retryReply) && !chatReplyUsesIntimateCommandTemplate(retryReply)) {
+          console.warn("[character-chat-live-intimate-rewrite-partial]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply).slice(0, 240) }));
           raw = retryRaw;
           reply = retryReply;
           upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
