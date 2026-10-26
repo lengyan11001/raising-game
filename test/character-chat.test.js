@@ -104,6 +104,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /character-chat-repeated-reply-rejected/);
   assert.match(server, /!replyNeedsFreshAttempt\(replacementReply\)/);
   assert.match(server, /FRESH ATTEMPT REQUIRED/);
+  assert.doesNotMatch(server, /replacementMessages = \[\s*\.\.\.chatMessages,\s*\{ role: "assistant", content: reply \}/);
   assert.match(server, /Do not start with 既然, 你要是, 那我就/);
   assert.match(server, /chatSentenceLooksLikeNarration\(candidate\)/);
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
