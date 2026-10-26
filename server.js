@@ -19025,15 +19025,21 @@ async function handleSendChatMessage(req, res, conversationId) {
         }
       }
       if (!accepted) {
-        // This validator is a quality preference, not a delivery gate. A transient
-        // model miss must not turn an otherwise usable chat turn into a 502.
+        // Local cleanup is allowed only if the result still has spoken delivery,
+        // a concrete body process, and an audible persona contradiction. Flattening
+        // a bad reply into short generic dirty talk is not a successful salvage.
         const fallbackReply = chatReplyLiveIntimateFallback(bestCandidate.reply, liveIntimateCharacter, 2);
-        if (fallbackReply) {
+        if (fallbackReply
+          && chatReplyHasLiveIntimateDelivery(fallbackReply)
+          && chatReplyHasPersonaContrast(fallbackReply, liveIntimateCharacter)
+          && !chatReplyNeedsLiveIntimateRewrite(fallbackReply, { requireVocal: true, character: liveIntimateCharacter })) {
           raw = bestCandidate.raw;
           reply = fallbackReply;
           upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
           accepted = true;
           console.warn("[character-chat-live-intimate-rewrite-salvaged]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter), reply: reply.slice(0, 240) }));
+        } else if (fallbackReply) {
+          console.warn("[character-chat-live-intimate-rewrite-salvage-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: chatReplyLiveIntimateScore(fallbackReply, liveIntimateCharacter), gaps: chatReplyLiveIntimateGaps(fallbackReply, liveIntimateCharacter), reply: fallbackReply.slice(0, 240) }));
         }
       }
       if (!accepted) {
@@ -49648,6 +49654,7 @@ module.exports = {
   chatReplyLiveStartsWithPersonaPosture,
   chatReplyLivePersonaPostureCount,
   chatReplyHasLiveSpokenTexture,
+  chatReplyHasLiveIntimateDelivery,
   chatReplyHasPersonaContrast,
   chatReplyIntimateVocalReactionCount,
   chatReplyLiveBrokenSpeechCount,

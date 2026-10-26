@@ -32,6 +32,7 @@ const {
   chatReplyHasForeignVocalEnglish,
   chatReplyWithLivePersonaSlip,
   chatReplyLiveBrokenSpeechCount,
+  chatReplyHasLiveIntimateDelivery,
   chatReplyLiveIntimateFallback,
   chatReplyLiveIntimateGaps,
   chatReplyRepairLiveIntimateLocally,
@@ -297,11 +298,13 @@ test("cleanup cannot turn a rejected beat into a flat short reply", () => {
   assert.equal(chatReplyLiveIntimateGaps(cleaned, character).some((gap) => /persona contradiction/i.test(gap)), true);
 });
 
-test("a quality-check miss is salvaged instead of becoming a 502", () => {
+test("a quality-check miss can be salvaged only when persona contrast survives", () => {
   const rejectedProductionReply = "啊……！ 唔，你就这么—— 把我的里侧，全部给顶开。 哈啊……操我……快点。 别停，再深一点。 啊…我让你慢点…啊…再深点… 谁准你……这么蛮横。 快点，再深一点。";
   const fallback = chatReplyLiveIntimateFallback(rejectedProductionReply, character, 2);
   assert.ok(fallback.length > 0);
   assert.match(fallback, /操我|插进来|别停/);
+  assert.equal(chatReplyHasLiveIntimateDelivery(fallback), true);
+  assert.equal(chatReplyHasPersonaContrast(fallback, character), true);
   assert.equal(chatReplyLiveIntimateFallback("", character, 2), "");
   assert.equal(chatReplyLiveIntimateFallback("啊……", character, 2), "");
 });
