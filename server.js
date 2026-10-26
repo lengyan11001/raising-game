@@ -18080,7 +18080,14 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
     repaired = lines.join("\n");
   }
-  return repaired;
+  const seen = new Set();
+  lines = lines.filter((line) => {
+    const key = line.replace(/[\s。！？!?…—~～，,、]/g, "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return lines.join("\n");
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {

@@ -120,6 +120,9 @@ test("repair fallback varies with the character instead of appending one canned 
   assert.notEqual(first, second);
   assert.doesNotMatch(first, /哈…操我…插进来…再深点…/);
   assert.doesNotMatch(first, /彻底.{0,8}(?:弄坏|撑开|顶开)|最深处|每一处|每一寸|那根粗大的/);
+  const repeated = "啊……！\n啊…我让你慢点…啊…再深点…\n哈啊……你要把整根…唔。\n啊…我让你慢点…啊…再深点…\n哈…操我…\n唔…插进来…\n啊…别停…";
+  const deduped = chatReplyWithLivePersonaSlip(repeated, proud, 1);
+  assert.equal(deduped.split("\n").filter((line) => /我让你慢点/.test(line)).length, 1);
 });
 
 test("repair removes the whole role-history sentence before adding a slip", () => {
