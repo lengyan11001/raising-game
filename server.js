@@ -17966,13 +17966,13 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
     || /(?:该|在|要)(?:管教|管|教)[^。！？!?]{0,8}(?:规矩|人)/u.test(text)
     || /(?:明明|原本|本来)[^。！？!?]{0,32}(?:我现在|现在却|可现在)/u.test(text)
     || /(?:别管|不管)[^。！？!?]{0,16}(?:规矩|面子|脸面|身份|仪态|端庄|体面)/u.test(text);
-  const weakAbstract = /(?:仪态|端庄|体面)/u.test(text);
+  const weakAbstract = /(?:仪态|端庄|体面|别管|不管)/u.test(text);
   const habitualBehavior = /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
     || /(?:我(?:平时|平常|一向|从来|平常)[^。！？!?]{0,28}(?:说了算|一句话|没人敢|都听|得听|不准|不许|最重|最看重))/u.test(text);
   const concreteAnchor = habitualBehavior || anchors.some((anchor) => text.includes(anchor));
   const reversal = /(?:现在|可(?:现在)?|却|居然|偏偏|反倒|反而|结果|这回|这次|下一秒|刚一?[^。！？!?]{0,8}就)/u.test(text);
   const yielding = /(?:别停|继续(?:插|干|顶)?|快点|再(?:深|重|用力)|深一点|重一点|想要|求你|求我|受不了|撑不住|不行了|弄坏|湿|水|爽|舒服|操我|干我|插我|顶我|进来|到底)/u.test(text);
-  const experientialReversal = /(?:我居然|我怎么会|我也会有|我竟然|居然会|怎么会|这不像我|不像我|我也会有今天|你把我|我偏偏|听我的[^。！？!?]{0,18}(?:求你|想要|别停|顶|插)|我让你[^。！？!?]{0,18}(?:求你|想要|别停|顶|插))/u.test(text);
+  const experientialReversal = /(?:我居然|我怎么会|我也会有|我竟然|居然会|怎么会|这不像我|不像我|我也会有今天|你把我|我偏偏|听我的[^。！？!?]{0,18}(?:求你|想要|别停|顶|插)|我让你[^。！？!?]{0,18}(?:求你|想要|别停|顶|插)|一直听我的[^。！？!?]{0,28}(?:求你|求我|别停|操我|灌|顶))/u.test(text);
   return !exposesIdentity && !weakAbstract && yielding && (reversal || experientialReversal) && (concreteAnchor || experientialReversal);
 }
 
@@ -17984,7 +17984,7 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
   return chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
-    || /(?:别管|不管)[^。！？!?]{0,16}(?:规矩|面子|脸面|身份|仪态|端庄|体面)/u.test(String(value || ""))
+    || /(?:别管|不管)/u.test(String(value || ""))
     || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
     || (requireVocal && !chatReplyHasLiveSpokenTexture(value))
     || (requireVocal && !chatReplyHasLiveDirtyTalk(value))

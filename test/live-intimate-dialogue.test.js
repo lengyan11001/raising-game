@@ -65,3 +65,9 @@ test("discarding rules or face is not a concrete reversal", () => {
   assert.equal(chatReplyHasPersonaContrast(discard, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(discard, { requireVocal: true, character }), true);
 });
+
+test("a concrete spoken reversal can omit the 明明-now formula", () => {
+  const spoken = "啊……！哈啊……慢点……我居然会求你……唔……听我的，别停……操我，再深一点……嘶……灌进来……";
+  assert.equal(chatReplyHasPersonaContrast(spoken, character), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
+});
