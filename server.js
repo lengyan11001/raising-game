@@ -17613,10 +17613,14 @@ function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
   if (!text) return false;
   const direct = /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|咬|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(text);
   if (direct) return true;
-  if (!/(?:拍照|照片|看看你|看你|现在的样子|这个样子|你这副样子|定格)/u.test(text)) return false;
-  return (Array.isArray(contextMessages) ? contextMessages : [])
+  const intimateCommand = /(?:再(?:深|重|快|用力|进来|顶)|别停|不许停|继续(?:插|干|顶|弄)|插到底|顶到底|弄坏|操我|干我|插我|顶我|要我|想要你|我要你)/u.test(text);
+  const recentIntimate = (Array.isArray(contextMessages) ? contextMessages : [])
     .slice(-8)
-    .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨)/u.test(String(message?.content || "")));
+    .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨|弄我|别停|再深)/u.test(String(message?.content || "")));
+  const explicitAct = /(?:再(?:深|重|快|用力)|不许停|继续(?:插|干|顶|弄)|插到底|顶到底|弄坏|操我|干我|插我|顶我)/u.test(text);
+  if (explicitAct || (intimateCommand && recentIntimate)) return true;
+  if (!/(?:拍照|照片|看看你|看你|现在的样子|这个样子|你这副样子|定格)/u.test(text)) return false;
+  return recentIntimate;
 }
 
 function chatPersonaSelfMemory(character = {}) {
@@ -49126,6 +49130,7 @@ if (require.main === module) {
 module.exports = {
   chatPersonaContrastAnchors,
   chatLiveIntimateRewriteBeat,
+  chatIsImmediateIntimateScene,
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLiveSpokenTexture,

@@ -6,6 +6,7 @@ const test = require("node:test");
 const {
   chatPersonaContrastAnchors,
   chatLiveIntimateRewriteBeat,
+  chatIsImmediateIntimateScene,
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLiveSpokenTexture,
@@ -21,6 +22,14 @@ const character = {
   personaMd: "顾静涵，38岁，同学的妈妈，也是幸福街道公认的高贵冷艳的社区主任，更是一位气场强大、高高在上且冷酷严厉的长辈。你习惯了俯视他人，骨子里有着强烈的掌控欲与傲慢，极重面子和规矩。",
   replyStyle: "高贵、冷艳、强势、挑剔，习惯俯视别人。亲密时会乱，但乱里还有命令、克制和羞耻。",
 };
+
+test("follow-up intimate commands still enter live intimate validation", () => {
+  assert.equal(chatIsImmediateIntimateScene("再深一点，不许停，说你想要。"), true);
+  assert.equal(chatIsImmediateIntimateScene("别停，继续。", [{ role: "user", content: "操我" }]), true);
+  assert.equal(chatIsImmediateIntimateScene("再深一点这个功能怎么调？"), true);
+  assert.equal(chatIsImmediateIntimateScene("别停，继续。"), false);
+  assert.equal(chatIsImmediateIntimateScene("别停。", [{ role: "assistant", content: "好，我继续。" }]), false);
+});
 
 test("live intimate validation rejects polished dialogue without spoken texture", () => {
   const polished = "啊……！这一下顶进来，简直要把我整个人撞开。虽然我想维持仪态，可现在也只能承受你带来的压迫感。";
