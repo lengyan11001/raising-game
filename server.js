@@ -17969,8 +17969,16 @@ async function handleBranchChatConversation(req, res, conversationId) {
   return sendJson(res, 201, { ok: true, conversation: publicChatConversation(branch), messages: copied.map(publicChatMessage) });
 }
 
+function chatBurstContents(messages = []) {
+  return (Array.isArray(messages) ? messages : []).map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function chatBurstMessageText(messages = []) {
+  return chatBurstContents(messages).join("\n");
+}
+
 function chatBurstPrompt(messages = []) {
-  const contents = (Array.isArray(messages) ? messages : []).map((item) => String(item || "").trim()).filter(Boolean);
+  const contents = chatBurstContents(messages);
   if (contents.length <= 1) return contents[0] || "";
   return `以下是用户连续发来的多条消息，请把它们合在一起理解，只回答一轮，不要逐条机械回复：\n${contents.map((item, index) => `${index + 1}. ${item}`).join("\n")}`;
 }
@@ -18005,17 +18013,15 @@ async function handleSendChatMessage(req, res, conversationId) {
     await deleteChatMessagesAfterInDb(conversation.id, auth.user.id, targetMessageId);
   }
   if (!["regenerate", "continue"].includes(action)) {
-    const messagesToSave = action === "send" && submittedContents.length ? submittedContents : [content];
-    if (!messagesToSave.some(Boolean)) return sendJson(res, 400, { ok: false, message: "Message is required." });
+    const savedUserContent = action === "send" && submittedContents.length
+      ? chatBurstMessageText(submittedContents)
+      : content;
+    if (!savedUserContent) return sendJson(res, 400, { ok: false, message: "Message is required." });
     const now = new Date().toISOString();
-    for (let index = 0; index < messagesToSave.length; index += 1) {
-      const userContent = messagesToSave[index];
-      if (!userContent) continue;
-      await insertChatMessageInDb({
-        id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content: userContent,
-        createdAt: new Date(Date.parse(now) + index).toISOString(), updatedAt: new Date(Date.parse(now) + index).toISOString(),
-      });
-    }
+    await insertChatMessageInDb({
+      id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content: savedUserContent,
+      createdAt: now, updatedAt: now,
+    });
   }
   const billingId = randomId("chat-bill");
   await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { taskId: billingId, requestId: billingId, conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL } });
