@@ -12,6 +12,7 @@ const {
   chatReplyHasPersonaContrast,
   chatReplyIntimateVocalReactionCount,
   chatReplyLiveIntimateScore,
+  chatReplyWithLivePersonaSlip,
   chatReplyNeedsLiveIntimateRewrite,
 } = require("../server.js");
 
@@ -77,4 +78,13 @@ test("rewrite beats come from the character's habitual control", () => {
   assert.equal(chatLiveIntimateRewriteBeat(character, 1), "我平时只让人听我的…唔…现在居然要开口求你…");
   assert.equal(chatLiveIntimateRewriteBeat(character, 2), "我居然会求你…这不像我…");
   assert.match(chatLiveIntimateRewriteBeat(character, 3), /我求你了/);
+});
+
+test("weak live drafts are repaired with a concrete persona slip", () => {
+  const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。别管我刚才说的规矩了，就这么……狠狠地、一直顶到底。嘶……快点，再深一点。";
+  const repaired = chatReplyWithLivePersonaSlip(draft, character, 1);
+  assert.match(repaired, /我平时只让人听我的/);
+  assert.match(repaired, /求你/);
+  assert.doesNotMatch(repaired, /别管/);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });

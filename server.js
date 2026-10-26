@@ -17998,7 +17998,7 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
 }
 
 function chatReplyHasLiveDirtyTalk(value = "") {
-  return chatReplyLiveDirtyTalkCount(value) >= 4;
+  return chatReplyLiveDirtyTalkCount(value) >= 3;
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
@@ -18027,6 +18027,35 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   if (length >= 45 && length <= 240) score += 2;
   if (length < 24) score -= 3;
   return score;
+}
+
+function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  const beat = chatLiveIntimateRewriteBeat(character, attempt);
+  const directLine = /(?:操我|干我|插我|顶我|插进来|干进来|顶进来|灌进来|弄坏|撑开|好深|太深|到底|别停|再用力)/u.test(text);
+  const slipLine = directLine ? `${beat} 操我…` : `${beat} 操我…再深一点…`;
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const weakPattern = /(?:别管|不管)[^。！？!?]{0,20}(?:规矩|面子|脸面|身份|仪态|端庄|体面|我)|(?:明明|原本|本来)[^。！？!?]{0,32}(?:我现在|现在却|可现在)/u;
+  if (lines.length > 1) {
+    const weakIndex = lines.findIndex((line) => weakPattern.test(line));
+    if (weakIndex >= 0) {
+      lines[weakIndex] = slipLine;
+      text = lines.join("\n");
+    } else if (!chatReplyHasPersonaContrast(text, character)) {
+      lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
+      text = lines.join("\n");
+    }
+    return text;
+  }
+  const sentences = text.match(/[^。！？!?]+[。！？!?]?/g) || [text];
+  const weakIndex = sentences.findIndex((sentence) => weakPattern.test(sentence));
+  if (weakIndex >= 0) {
+    sentences[weakIndex] = slipLine;
+  } else if (!chatReplyHasPersonaContrast(text, character)) {
+    sentences.splice(Math.max(1, sentences.length - 2), 0, slipLine);
+  }
+  return sentences.map((sentence) => sentence.trim()).filter(Boolean).join("\n");
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -18495,6 +18524,17 @@ async function handleSendChatMessage(req, res, conversationId) {
           console.warn("[character-chat-live-intimate-rewrite-rejected-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, score, reply: String(retryReply || "").slice(0, 240) }));
         } catch (retryError) {
           console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
+        }
+      }
+      if (!accepted) {
+        const repairedReply = chatReplyWithLivePersonaSlip(bestCandidate.reply, liveIntimateCharacter, 2);
+        const repairedScore = chatReplyLiveIntimateScore(repairedReply, liveIntimateCharacter);
+        if (repairedReply && !chatReplyNeedsLiveIntimateRewrite(repairedReply, { requireVocal: true, character: liveIntimateCharacter })) {
+          raw = bestCandidate.raw;
+          reply = repairedReply;
+          upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
+          accepted = true;
+          console.warn("[character-chat-live-intimate-rewrite-repaired]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: repairedScore, reply: reply.slice(0, 240) }));
         }
       }
       if (!accepted) {
@@ -49095,5 +49135,6 @@ module.exports = {
   chatReplyLiveBrokenSpeechCount,
   chatReplyLiveDirtyTalkCount,
   chatReplyLiveIntimateScore,
+  chatReplyWithLivePersonaSlip,
   chatReplyNeedsLiveIntimateRewrite,
 };
