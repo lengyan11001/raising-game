@@ -17690,11 +17690,15 @@ function chatReplyHasWords(value = "") {
 function chatReplyRepeatsRecent(value = "", recentReplies = []) {
   const text = chatSpokenOnlyText(String(value || "").trim());
   if (!text) return false;
+  const openerPattern = /^(?:既然|如果|要是|你(?:要是|既然|要求|想让|要我))/u;
   return (Array.isArray(recentReplies) ? recentReplies : []).some((previous) => {
     const old = chatSpokenOnlyText(String(previous || "").trim());
     if (!old) return false;
     const similarity = chatContextSimilarity(text, old);
-    return similarity >= 0.86 || (old.length >= 12 && similarity >= 0.72 && text.includes(old.slice(0, Math.min(12, old.length))));
+    if (similarity >= 0.86) return true;
+    if (old.length >= 12 && similarity >= 0.72 && chatContextComparable(text).includes(chatContextComparable(old).slice(0, 12))) return true;
+    const sameConditionalOpening = openerPattern.test(text.trim()) && openerPattern.test(old.trim());
+    return old.length >= 18 && similarity >= 0.52 && sameConditionalOpening;
   });
 }
 
