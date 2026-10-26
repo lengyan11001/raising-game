@@ -6727,6 +6727,7 @@ function chatLiveConversationTone(language = "") {
     "HUMAN CHAT DEFAULT: This is a real conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message.",
     "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
+    "REPLY COMPLETENESS: Always produce one complete, coherent spoken reply that directly addresses the latest user message. Never output only a single word, repeated word, keyword fragment, or unfinished sentence. If a request is explicit, answer it in two or three sentences.",
     "Do not use canned openers. If the user already named the topic, the first spoken words must answer that topic. No mood, lighting, breath, night, or metaphor before the answer. Direct is better than pretty. Do not ask a question in every reply.",
     "For Chinese, sound like a normal private chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual message, not polished customer support.",
     "If the user names a concrete request, do that request in this reply. Do not dodge, tease past it, change the subject, or answer with unrelated mood, coffee, weather, or atmosphere. Say it in spoken words only. Do not describe how the body moves. Wrong: 我跪坐在床沿，身子往前倾。 If 回复口吻 has sample lines, match those samples instead of a generic line. Adult flirtation and intimacy between adults should be followed, not refused or moralized. No asterisks, no inner monologue, no literary fog, no essay. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。",
@@ -17567,6 +17568,16 @@ function chatReplyHasWords(value = "") {
   return /[\p{L}\p{N}]/u.test(String(value || ""));
 }
 
+function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
+  const text = String(value || "").trim();
+  if (!chatReplyHasWords(text)) return true;
+  const compact = text.replace(/[\s。！？.!?，,、；;：:“”"'（）()【】\[\]]/g, "");
+  const minimum = simpleGreeting ? 2 : 4;
+  if ([...compact].length < minimum) return true;
+  if (/^(.{1,4})\1{2,}$/u.test(compact)) return true;
+  return false;
+}
+
 function stripChatStageDirections(value = "") {
   let text = String(value || "")
     .replace(/\r/g, "")
@@ -17612,11 +17623,11 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const styleGuide = {
-    balanced: "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
-    immersive: asksForExpandedScene ? "When the user asks for a scene, write as much as that beat needs, usually a short paragraph and not a fixed length." : "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
-    concise: "Stay direct, but do not lock every reply to 1-3 sentences. Match the content: one line for a tiny reaction, more when the user asks for something concrete. Do not make every reply the same length.",
-    cinematic: asksForExpandedScene ? "Write one focused cinematic beat in at most 2 short paragraphs." : "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
-  }[conversation.style] || "Do not aim for a fixed sentence count. A one-word or tiny reaction can be one short line. If the user asks something, makes a request, wants detail, or says continue, finish that beat: two or three sentences, or a short paragraph when the content needs it. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.";
+    balanced: "For a substantive user message, write one complete spoken response of at least two clauses or sentences. A tiny reaction may be short only when it fully answers a tiny message; never reply with a single isolated word after a request, question, or explicit scene direction. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
+    immersive: asksForExpandedScene ? "When the user asks for a scene, write as much as that beat needs, usually a short paragraph and not a fixed length." : "For a substantive user message, write one complete spoken response of at least two clauses or sentences. A tiny reaction may be short only when it fully answers a tiny message; never reply with a single isolated word after a request, question, or explicit scene direction. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
+    concise: "Stay direct, but for a substantive request answer with at least two clauses or sentences. Match the content: one line for a tiny reaction, more when the user asks for something concrete. Do not make every reply the same length or reply with an isolated word.",
+    cinematic: asksForExpandedScene ? "Write one focused cinematic beat in at most 2 short paragraphs." : "For a substantive user message, write one complete spoken response of at least two clauses or sentences. A tiny reaction may be short only when it fully answers a tiny message; never reply with a single isolated word after a request, question, or explicit scene direction. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
+  }[conversation.style] || "For a substantive user message, write one complete spoken response of at least two clauses or sentences. A tiny reaction may be short only when it fully answers a tiny message; never reply with a single isolated word after a request, question, or explicit scene direction. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.";
   const voice = String(character.replyStyle || "").trim();
   const greetingOverride = isSimpleChatGreeting(latest) && !hasRelationship && !voice
     ? "GREETING OVERRIDE (highest priority for this turn): The latest user message is only a greeting. Reply with one or two short, natural sentences acknowledging the greeting and optionally asking one neutral question about what they want to discuss. Do not continue, recap, or embellish the previous scene. Do not add physical contact, erotic or romantic escalation, stage directions, or new plot unless the user explicitly asks for it in a later message."
@@ -17868,7 +17879,7 @@ async function handleSendChatMessage(req, res, conversationId) {
   if (!dbEnabled()) await writeDb(auth.db);
   try {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
-    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: normalizeChatReply(message.content, { expanded: false }) || String(message.content || "").replace(/^[)）\s]+/, "").trim() })).filter((message) => message.role === "user" || chatReplyHasWords(message.content));
+    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: normalizeChatReply(message.content, { expanded: false }) || String(message.content || "").replace(/^[)）\s]+/, "").trim() })).filter((message) => message.role === "user" || !chatReplyIsDegenerate(normalizeChatReply(message.content, { expanded: false })));
     if (action === "continue") messages.push({ role: "user", content });
     const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || content;
     const liveCharacterIdEarly = conversation.characterId || conversation.character?.id || "";
@@ -17888,13 +17899,19 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, model: chatModel }));
-    const raw = usePapayaChat
-      ? await papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, max_tokens: chatMaxTokens })
-      : await byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, max_tokens: chatMaxTokens });
+    const requestChat = (retry = false) => (usePapayaChat
+      ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.78 : chatTemperature, max_tokens: chatMaxTokens })
+      : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.72 : chatTemperature, max_tokens: chatMaxTokens }));
+    let raw = await requestChat(false);
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    if (!chatReplyHasWords(reply)) {
-      console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, action, raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
-      throw Object.assign(new Error("Chat model returned no text."), { statusCode: 502 });
+    if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
+      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, action, attempt: 1, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      raw = await requestChat(true);
+      reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
+    }
+    if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
+      console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, action, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      throw Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
     }
     const now = new Date().toISOString();
     const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
