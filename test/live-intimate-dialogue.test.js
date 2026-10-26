@@ -11,6 +11,7 @@ const {
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLivePersonaPosture,
+  chatReplyLiveOpensSubmissive,
   chatReplyLivePersonaPostureCount,
   chatReplyHasLiveSpokenTexture,
   chatReplyHasPersonaContrast,
@@ -112,6 +113,21 @@ test("submissive live replies fail even when they have sounds and dirty words", 
   const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……弄坏我……";
   assert.equal(chatReplyHasLivePersonaPosture(obedient), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), true);
+});
+
+test("opening with submission is rejected before a control beat", () => {
+  const opensSoft = "哈……啊！\n唔，你要我……说想要吗？\n那我就……想你。\n谁准你……这么蛮横。\n操我，别停。\n听我的，要把我弄坏了。";
+  const opensControls = "哈……啊！\n谁准你……这么蛮横。\n唔，你要我……说想要吗？\n那我就……想你。\n操我，别停。\n听我的，要把我弄坏了。";
+  assert.equal(chatReplyLiveOpensSubmissive(opensSoft), true);
+  assert.equal(chatReplyLiveOpensSubmissive(opensControls), false);
+});
+
+test("repair moves persona control ahead of a submissive opening", () => {
+  const draft = "哈……啊！ 唔，你要我…… 说想要吗？ 那我就……想你。 谁准你……这么蛮横。 啊！操我，别停。 嗯……快点，插进来。 听我的，要把我...弄坏了。";
+  const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
+  assert.equal(chatReplyLiveOpensSubmissive(repaired), false);
+  assert.equal(chatReplyHasLivePersonaPosture(repaired), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
 test("persona posture needs two distinct control beats", () => {

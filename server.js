@@ -18030,6 +18030,15 @@ function chatReplyLivePersonaPostureCount(value = "") {
   return unique.size;
 }
 
+function chatReplyLiveOpensSubmissive(value = "") {
+  const fragments = String(value || "").split(/\n+|[。！？!?]+/).map((line) => line.trim()).filter(Boolean).slice(0, 6);
+  const firstPosture = fragments.findIndex((line) => /(?:不许|不准|谁准|谁要你|听我的|都听我的|我说了算|轮不到|急什么|别急|看着我|手拿开|别碰|别自作主张|给我(?:听|老实|忍住|停|慢|快|看着|说)|我还没(?:让|准|说|同意)|先(?:别|把|看着|说)|规矩|你敢)/u.test(line));
+  const submission = /(?:想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
+  const question = /[?？]|(?:吗|么|呢)[。！？!?…~～—\s]*$/u;
+  const willing = fragments.findIndex((line) => submission.test(line) && !question.test(line));
+  return willing >= 0 && (firstPosture < 0 || willing < firstPosture);
+}
+
 function chatReplyHasLivePersonaPosture(value = "") {
   return chatReplyLivePersonaPostureCount(value) >= 2;
 }
@@ -18047,6 +18056,7 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
     || (requireVocal && !chatReplyHasLiveSpokenTexture(value))
     || (requireVocal && !chatReplyHasLiveDirtyTalk(value))
     || (requireVocal && !chatReplyHasLivePersonaPosture(value))
+    || (requireVocal && chatReplyLiveOpensSubmissive(value))
     || (requireVocal && !chatReplyHasPersonaContrast(value, character));
 }
 
@@ -18124,6 +18134,14 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
   if (!chatReplyHasPersonaContrast(repaired, character)) {
     lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
     repaired = lines.join("\n");
+  }
+  if (chatReplyLiveOpensSubmissive(repaired)) {
+    const submission = /(?:想要你|想要|求你|求我|那我就|那就|听你的|都听你|随你|你说|承认|想你)/u;
+    const firstSubmission = lines.findIndex((line) => submission.test(line));
+    if (firstSubmission >= 0) {
+      lines.splice(Math.max(1, firstSubmission), 0, postureLine);
+      repaired = lines.join("\n");
+    }
   }
   const seen = new Set();
   lines = lines.filter((line) => {
@@ -49210,6 +49228,7 @@ module.exports = {
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLivePersonaPosture,
+  chatReplyLiveOpensSubmissive,
   chatReplyLivePersonaPostureCount,
   chatReplyHasLiveSpokenTexture,
   chatReplyHasPersonaContrast,
