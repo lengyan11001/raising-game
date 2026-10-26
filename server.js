@@ -6646,14 +6646,37 @@ function chatLiveUserContext(user = null) {
   ].filter(Boolean).join("\n");
 }
 
-function chatCharacterMemoryBlock(memory = null, user = null) {
-  const turns = Array.isArray(memory && memory.turns) ? memory.turns : [];
-  const summary = String((memory && memory.summary) || "").trim();
+function chatMemoryTurnsForPrompt(turns = [], { currentMessages = [] } = {}) {
+  const list = (Array.isArray(turns) ? turns : []).filter((turn) => turn && ["user", "assistant"].includes(turn.role));
+  const current = (Array.isArray(currentMessages) ? currentMessages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const removed = new Set();
+  for (let index = 0; index < list.length; index += 1) {
+    if (current.some((message) => message.role === list[index].role && chatContextSimilarity(message.content, list[index].content) >= 0.9)) removed.add(index);
+  }
+  const assistantIndexes = list.map((turn, index) => ({ turn, index })).filter((item) => !removed.has(item.index) && item.turn.role === "assistant");
+  for (let left = 0; left < assistantIndexes.length; left += 1) {
+    for (let right = left + 1; right < assistantIndexes.length; right += 1) {
+      if (chatContextSimilarity(assistantIndexes[left].turn.content, assistantIndexes[right].turn.content) < 0.84) continue;
+      removed.add(assistantIndexes[left].index);
+      removed.add(assistantIndexes[right].index);
+    }
+  }
+  return { turns: list.filter((_, index) => !removed.has(index)), removedTurns: removed.size };
+}
+
+function chatCharacterMemoryBlock(memory = null, user = null, { currentMessages = [] } = {}) {
+  const memoryTurns = Array.isArray(memory && memory.turns) ? memory.turns : [];
+  const filteredMemory = chatMemoryTurnsForPrompt(memoryTurns, { currentMessages });
+  const turns = filteredMemory.turns;
+  const storedSummary = String((memory && memory.summary) || "").trim();
+  const summary = filteredMemory.removedTurns
+    ? turns.slice(-8).map((turn) => (turn.role === "user" ? "用户：" : "角色：") + String(turn.content || "").replace(/\s+/g, " ").trim()).join(" ").slice(0, 900)
+    : storedSummary;
   const facts = (Array.isArray(memory && memory.facts) ? memory.facts : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-8);
   const userContext = chatLiveUserContext(user);
   if (!turns.length && !summary && !facts.length && !userContext) return "";
   const recent = turns.slice(-18).map((turn) => (turn.role === "user" ? "用户：" : "角色：") + String(turn.content || "").replace(/\s+/g, " ").trim().slice(0, 220)).filter((line) => line.length > 3).join("\n");
-  const stage = chatLiveStageName(turns.length);
+  const stage = chatLiveStageName(memoryTurns.length);
   return [
     "已有关系记忆：这是同一个用户和这个角色的延续。先理解对方上次在意什么，再说话。不要重新自我介绍，不要从头寒暄，不要重复开场，也不要把记忆逐条念出来。",
     "当前关系：" + stage + "。像认识的人往前聊一点，不要跳到告白或要礼物。",
@@ -17666,9 +17689,9 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   return chatReplyHasWords(inner) ? inner.slice(0, 180).trim() : "";
 }
 
-function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = []) {
+function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = [], currentMessages = []) {
   const character = conversation.character || {};
-  const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null);
+  const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null, { currentMessages });
   const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 2500);
   const relationship = publicCharacterRelationship(conversation.relationship, conversation.characterId || character.id || "");
   const hasRelationship = Boolean(relationshipMemory);
@@ -17985,7 +18008,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
     const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
     const chatMessages = [
-      { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies) },
+      { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages) },
       ...modelMessages,
       { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nDo not reproduce a previous user-assistant pair. Decide and answer based on this turn's meaning.` },
     ];

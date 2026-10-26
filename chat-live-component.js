@@ -342,6 +342,43 @@ function normalizeEmotion(value) {
   return EMOTION_ALIAS[key] || EMOTION_ALIAS[String(value || "").trim()] || "neutral";
 }
 
+function componentContextComparable(value = "") {
+  return String(value || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function componentContextSimilarity(left = "", right = "") {
+  const a = componentContextComparable(left);
+  const b = componentContextComparable(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length >= 4 && longer.includes(shorter)) return shorter.length / longer.length;
+  const aPairs = new Set(Array.from({ length: Math.max(0, a.length - 1) }, (_, index) => a.slice(index, index + 2)));
+  const bPairs = new Set(Array.from({ length: Math.max(0, b.length - 1) }, (_, index) => b.slice(index, index + 2)));
+  if (!aPairs.size || !bPairs.size) return a === b ? 1 : 0;
+  const overlap = [...aPairs].filter((pair) => bPairs.has(pair)).length;
+  return (2 * overlap) / (aPairs.size + bPairs.size);
+}
+
+function componentHistoryForTurn(history = [], userText = "") {
+  const list = (Array.isArray(history) ? history : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const stale = new Set();
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index].role !== "user") continue;
+    if (componentContextSimilarity(list[index].content, userText) < 0.86) continue;
+    stale.add(index);
+    if (list[index + 1]?.role === "assistant") stale.add(index + 1);
+  }
+  const assistants = list.map((message, index) => ({ message, index })).filter((item) => item.message.role === "assistant");
+  const last = assistants.at(-1);
+  if (last) {
+    const similar = assistants.filter((item) => componentContextSimilarity(item.message.content, last.message.content) >= 0.84);
+    if (similar.length >= 2) similar.forEach((item) => stale.add(item.index));
+  }
+  return list.filter((_, index) => !stale.has(index)).slice(-30);
+}
+
 function splitComponentSpeech(raw) {
   const text = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   try {
@@ -403,10 +440,14 @@ async function componentReply(session, userText, options = {}) {
       ? "用户没接话。用一句短话接上次的话题，不要重复上一句，不要自我介绍，不要另起剧情。"
       : "先回用户刚说的这句。不要铺气氛，不要改话题。";
   const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
+  const strategyBlock = [
+    "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
+    "先决定回复功能，再决定措辞。不要反问用户同一个请求，不要把用户对角色做的事改写成用户命令，不要沿用上一条回复的句式、威胁、收尾或动作顺序。",
+  ].join("\n");
   const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
-    { role: "system", content: `${basePrompt}\n${cue}\n${jsonTail}` },
-    ...session.history.slice(-40),
+    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${cue}\n${jsonTail}` },
+    ...componentHistoryForTurn(session.history, proactive ? "" : userText),
     { role: "user", content: proactive ? "（对方没接话）" : userText },
   ];
   const usePapaya = session.languageModel === "papaya";

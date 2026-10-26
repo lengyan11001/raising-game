@@ -15,6 +15,7 @@ const loader = read("platform.js");
 const chat = read("platform.chat.js");
 const standaloneChat = read("chat.js");
 const ui = read("platform.ui.js");
+const chatLiveComponentSource = read("chat-live-component.js");
 
 test("character chat persists user-scoped conversations and messages in PostgreSQL", () => {
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_chat_conversations/);
@@ -54,6 +55,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatReplyIsDegenerate/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
+  assert.match(server, /function chatMemoryTurnsForPrompt/);
+  assert.match(server, /currentMessages/);
+  assert.match(chatLiveComponentSource, /componentHistoryForTurn/);
   assert.match(server, /REPLY COMPLETENESS/);
   assert.match(server, /COOPERATION, NOT COMMANDING/);
   assert.match(server, /TURN DECISION PROTOCOL/);
