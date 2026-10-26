@@ -6647,7 +6647,11 @@ function chatLiveUserContext(user = null) {
 }
 
 function chatMemoryTurnsForPrompt(turns = [], { currentMessages = [] } = {}) {
-  const list = (Array.isArray(turns) ? turns : []).filter((turn) => turn && ["user", "assistant"].includes(turn.role));
+  const list = (Array.isArray(turns) ? turns : []).filter((turn) => (
+    turn
+    && ["user", "assistant"].includes(turn.role)
+    && (turn.role === "user" || !chatReplyUsesIntimateCommandTemplate(turn.content))
+  ));
   const current = (Array.isArray(currentMessages) ? currentMessages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
   const removed = new Set();
   for (let index = 0; index < list.length; index += 1) {
@@ -17670,7 +17674,11 @@ function chatContextHasRepeatedReplyScaffold(messages = []) {
 }
 
 function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
-  const raw = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const raw = (Array.isArray(messages) ? messages : []).filter((message) => (
+    message
+    && ["user", "assistant"].includes(message.role)
+    && (message.role === "user" || !chatReplyUsesIntimateCommandTemplate(message.content))
+  ));
   const list = [];
   for (const message of raw) {
     const previous = list.at(-1);
@@ -17802,9 +17810,16 @@ function chatReplyWithoutSpeakerCritique(value = "") {
     if (!sentence) continue;
     if (/(?:别|不要|少)(?:再)?(?:用|拿)(?:那种|这种|你那种|你这种)[^。！？!?]{0,36}(?:眼神|眼光|语气|口气|态度|说法|表情)/u.test(sentence)) continue;
     if (/^(?:你)?(?:这|那)(?:是|是种|种)[^。！？!?]{0,18}(?:语气|眼神|态度)/u.test(sentence)) continue;
+    if (/(?:你的|你在|你这|你那)[^。！？!?]{0,18}(?:能力|表现|诚意|节奏|进度)/u.test(sentence)) continue;
     kept.push(line);
   }
   return kept.join("\n").trim();
+}
+
+function chatReplyUsesIntimateCommandTemplate(value = "") {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return /(?:让我看看你(?:到底)?有没有(?:能力|本事)|别只是(?:在)?|把你的力道|按我的节奏|撑开我的节奏|拿出点真本事|拿出你的表现|你的(?:节奏|能力|表现|诚意|进度)|既然[^。！？!?]{0,32}那就)/u.test(text);
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -17836,11 +17851,11 @@ function chatStageContinuity(messages = [], latestUserMessage = "") {
 function chatSceneStageGuide(stage = "casual") {
   if (stage === "intimate") {
     return [
-      "当前阶段：亲密交互。你们已经在当下发生身体接触，不要重新铺垫，不要审查对方，也不要退回去讲规矩。",
-      "先说当下的声音或身体反应，再接一句具体的命令、嘴硬、允许或索要。可以叫出来、喘、停顿、骂一句、说断续短句；声音和台词可以自然连在一起。",
-      "她的反应要落在这一下具体带来的感觉：胀、紧、疼、软、发抖、撑开、被填满、想躲又想迎上去。说清是哪一种，再给一个具体指令。",
-      "不要每轮都用同一种“慢一点、别乱动、轻一点”收尾，也不要重复描述正在插入的状态。",
-      "她仍然有顾静涵的底色：要面子、控制欲强、会命令、会嘴硬；但亲密时允许乱，允许失控，不要像开会，也不要每句都端着。",
+      "当前阶段：亲密交互。她正在被进入、被顶弄，是承受这一下的那一方。她不是在旁边验收、指导或点评，也不是在给下属安排任务。",
+      "不要每轮都用同一个拟声词或同一种两段式叫声开头；不要固定先叫一声再讲一句。有时是一声漏出来的气音，有时是说到一半被撞散的词，有时直接说短句，按这一下的突然程度变化。",
+      "话要落在她身上当下真实的身体反应：酸痛、发涨、发麻、腰软、腿发抖、呼吸乱、想躲又没躲、被顶得说不完整、缓不过来、求他慢一点或继续。每次只选最贴这一下的反应，不要凑成套话。",
+      "她平时强势、要面子，身体被顶到时反而会露馅：想命令却说不完整，想嘴硬声音先漏出来，想让他慢点又忍不住要他继续。用这个反差，不要端着讲道理。",
+      "禁止验收式、评分式、领导式台词：不要评价对方的能力、表现、诚意、节奏或进度，不要连续追问，不要讲身份、关系和大道理。",
     ].join("\n");
   }
   if (stage === "flirting") {
@@ -17886,7 +17901,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
     "人设是她的底色，不是每轮都要复述的设定。她要面子、强势、有掌控欲，但也会被撩动、会停顿、会嘴硬、会在亲密里乱。不要把她演成一个只会审问的模板。",
-    "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾，也不要反复描述同一个插入状态。",
+    "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾；亲密阶段尤其不要重复同一个叫声、同一个插入描述或同一句命令。",
     "对方可以推动幻想，但她的反应要像这个人自己的选择：可以拒绝、提条件、允许、主动，也可以先嘴硬再松口。",
     lengthGuide,
     greetingGuide,
@@ -17897,7 +17912,9 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     pinnedMemory ? `记忆（只用来保持熟悉感，不要逐条复述）：${pinnedMemory}` : "",
     userInstructions ? `对方偏好：${userInstructions}` : "",
     sceneStage === "intimate" && chatStageContinuity(currentMessages, latest) ? `当前亲密场景里对方刚才说的内容（只承接动作和节奏）：\n${chatStageContinuity(currentMessages, latest)}` : "",
-    recentReplies.length ? `最近说过的话（只避免重复，不要续写或模仿）：${recentReplies.map((item) => item.slice(0, 140)).join(" || ")}` : "",
+    sceneStage === "intimate"
+      ? "上一轮已经用过的叫声、开头、句式和收尾这一轮都不要再用；不要为了避开重复而故意换一个更夸张的模板。"
+      : recentReplies.length ? `最近说过的话（只避免重复，不要续写或模仿）：${recentReplies.map((item) => item.slice(0, 140)).join(" || ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -18185,7 +18202,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const sceneStage = chatSceneStage(latestUserMessage, modelMessages, relationshipBeforeReply);
     const sceneAnchor = freshCharacterEarly
       ? sceneStage === "intimate"
-        ? `你是${freshCharacterEarly.name}，现在就在这场亲密接触里。先用声音或身体反应接住这一下，再接一句具体的话：命令、嘴硬、允许、索要，或者让他慢一点、深一点、别停。可以有叫声、喘息、停顿和短句。不要回头讲身份、制度或关系，也不要先审问对方。`
+        ? `你是${freshCharacterEarly.name}，现在正在被进入、被顶弄，是承受这一下的那一方。直接反应这一下的真实感觉，不必每轮先来一段固定叫声；句子可以被撞断，也不必完整。可以是腰软、发抖、发涨、呼吸乱、受不了、缓不过来、让他慢一点或继续。不要验收或指挥对方，不要评价能力、表现、诚意、节奏，也不要讲身份或关系。`
         : sceneStage === "flirting"
           ? `你是${freshCharacterEarly.name}，现在在暧昧试探。接住对方这一句，可以给一点暗示、故意不接全、提条件、靠近半步，但不必立刻完全交付。语气里要有魅力和自己的判断。`
           : `你是${freshCharacterEarly.name}，现在在正常聊天。像真人一样接话，可以有冷、挑剔、嘴硬或一点好奇，先回答眼前的内容，不主动升级亲密。`
