@@ -376,7 +376,10 @@ function componentHistoryForTurn(history = [], userText = "") {
     const similar = assistants.filter((item) => componentContextSimilarity(item.message.content, last.message.content) >= 0.84);
     if (similar.length >= 2) similar.forEach((item) => stale.add(item.index));
   }
-  return list.filter((_, index) => !stale.has(index)).slice(-30);
+  const filtered = list.filter((_, index) => !stale.has(index));
+  const latest = filtered.at(-1);
+  if (latest?.role === "user") return [...filtered.slice(0, -1).slice(-8), latest];
+  return filtered.slice(-8);
 }
 
 function splitComponentSpeech(raw) {
@@ -443,6 +446,7 @@ async function componentReply(session, userText, options = {}) {
   const strategyBlock = [
     "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
     "先决定回复功能，再决定措辞。不要反问用户同一个请求，不要把用户对角色做的事改写成用户命令，不要沿用上一条回复的句式、威胁、收尾或动作顺序。",
+    "禁止把回复写成重复的条件威胁结构（例如连续使用“既然……”“你要是……”“我就要把你……”）。先说出动作、回答或感受，再按角色态度收住。",
   ].join("\n");
   const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
@@ -467,8 +471,11 @@ async function componentReply(session, userText, options = {}) {
     body: JSON.stringify({
       model: usePapaya ? "carrothub-papaya-1.0" : (process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw"),
       messages,
-      max_tokens: 800,
-      temperature: 0.62,
+      max_tokens: 700,
+      temperature: 0.82,
+      top_p: 0.92,
+      frequency_penalty: 0.72,
+      presence_penalty: 0.65,
     }),
   });
   const payload = await response.json().catch(() => ({}));

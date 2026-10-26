@@ -67,6 +67,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /CURRENT TURN ANCHOR/);
   assert.match(server, /requesting an action, asking a question or opinion, giving a preference or pace/);
   assert.match(server, /CONTINUITY WITHOUT REPETITION/);
+  assert.match(server, /NO CONDITIONAL THREAT TEMPLATE/);
   assert.match(server, /ACTOR AND RESPONSE CHECK/);
   assert.match(server, /Recent replies from you/);
   assert.match(server, /character-chat-empty-reply/);
@@ -79,8 +80,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /message\.role === "user" \|\| !chatReplyIsDegenerate\(normalizeChatReply\(message\.content/);
   assert.match(server, /sentences\.slice\(0, 10\)/);
   assert.match(server, /slice\(0, 720\)/);
-  assert.match(server, /const chatTemperature = simpleGreeting \? 0\.45 : expandedScene \? 0\.68 : 0\.62/);
-  assert.match(server, /const chatMaxTokens = simpleGreeting \? 180 : expandedScene \? 900 : 800/);
+  assert.match(server, /const chatTemperature = simpleGreeting \? 0\.45 : expandedScene \? 0\.78 : 0\.82/);
+  assert.match(server, /const chatMaxTokens = simpleGreeting \? 180 : expandedScene \? 900 : 700/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);

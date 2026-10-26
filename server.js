@@ -17627,21 +17627,25 @@ function chatContextSimilarity(left = "", right = "") {
 function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
   const list = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
   const lastUserIndex = list.map((message) => message.role).lastIndexOf("user");
-  if (lastUserIndex < 0) return list;
+  if (lastUserIndex < 0) return list.slice(-8);
   const stale = new Set();
   for (let index = 0; index < lastUserIndex; index += 1) {
     if (list[index].role !== "user") continue;
-    if (chatContextSimilarity(list[index].content, latestUserMessage) < 0.86) continue;
+    if (chatContextSimilarity(list[index].content, latestUserMessage) < 0.72) continue;
     stale.add(index);
     for (let replyIndex = index + 1; replyIndex < lastUserIndex && list[replyIndex].role === "assistant"; replyIndex += 1) stale.add(replyIndex);
   }
   const assistantIndexes = list.map((message, index) => ({ message, index })).filter((item) => item.message.role === "assistant");
   const lastAssistant = assistantIndexes.at(-1);
   if (lastAssistant) {
-    const similarReplies = assistantIndexes.filter((item) => chatContextSimilarity(item.message.content, lastAssistant.message.content) >= 0.84);
+    const similarReplies = assistantIndexes.filter((item) => chatContextSimilarity(item.message.content, lastAssistant.message.content) >= 0.72);
     if (similarReplies.length >= 2) similarReplies.forEach((item) => stale.add(item.index));
   }
-  return list.filter((_, index) => !stale.has(index));
+  const filtered = list.filter((_, index) => !stale.has(index));
+  const latestUser = filtered.at(-1);
+  const currentTurn = latestUser?.role === "user" ? [latestUser] : [];
+  const recent = filtered.slice(0, currentTurn.length ? -1 : undefined).slice(-8);
+  return [...recent, ...currentTurn];
 }
 
 function chatReplyHasWords(value = "") {
@@ -17733,6 +17737,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     chatTurnProtocol(),
     "PERSONA USE: Use the character sheet for attitude, preferences, initiative, and speaking style. Do not use persona as a reason to refuse cooperation. A cold, dominant, proud, shy, or bratty character still answers the user's request in her own way. If the user hands control to the character, the character must act; if the user takes the lead, the character reacts. If the user gives no direction, the character may advance the scene based on her current desire and the established relationship.",
     "CONTINUITY WITHOUT REPETITION: Do not reuse the previous reply's sequence of ideas, sentence structure, threats, signature phrases, or closing line. Continue from the established scene, but generate the next reply from the latest user turn rather than copying the prior pattern.",
+    "NO CONDITIONAL THREAT TEMPLATE: Do not build replies as repeated clauses beginning with '既然', '你要是', or '我就要把你'. Those are not personality; they are stale template scaffolding. State the action, answer, or feeling first. Only use a condition when the current user turn genuinely creates one.",
     "ACTOR AND RESPONSE CHECK: Before replying, verify who acts and who receives the action in the latest user message. If the user addresses an action or question to the character, the character responds from their own side. Do not reassign the user's action to the character or the character's requested action back to the user.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",
     "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual text message, not polished customer support. 人设只说明你是谁。回复只能是嘴上说的话。不要写衣服怎么动、灯光、身体轮廓。对方催就先接催。",
@@ -18012,13 +18017,13 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nDo not reproduce a previous user-assistant pair. Decide and answer based on this turn's meaning.` },
     ];
-    const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
-    const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
+    const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.78 : 0.82;
+    const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 700;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
     const requestChat = () => {
-      const tuning = { frequency_penalty: 0.45, presence_penalty: 0.35 };
+      const tuning = { frequency_penalty: 0.72, presence_penalty: 0.65 };
       return usePapayaChat
         ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
         : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
