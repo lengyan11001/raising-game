@@ -17595,6 +17595,22 @@ function chatWantsExpandedScene(value = "") {
   return /(?:继续(?:剧情|这个场景)|详细(?:描述|写)|展开写|沉浸式|描写一下|写长一点|roleplay|in character|describe the scene|continue the scene)/i.test(String(value || ""));
 }
 
+function chatIsImmediateIntimateScene(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|咬|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(text);
+}
+
+function chatImmediateSceneGuide(value = "") {
+  if (!chatIsImmediateIntimateScene(value)) return "";
+  return [
+    "IMMEDIATE INTIMACY SCENE (highest priority for this turn): The user is not asking for an explanation. They are describing an immediate physical action, sensation, or pace. Respond as the character in the middle of it, in the words or sounds she would make right now.",
+    "Use short, interrupted, spoken reactions. A moan, gasp, sharp exhale, clipped warning, or a few blunt words can be the complete reply. Examples of shape only, not fixed copy: 唔……慢一点。/ 别一下进那么深……/ 哈……我知道。/ 疼，轻点。/ 你还真敢……嗯……",
+    "Her personality still controls the reaction: a proud woman can sound strained, clipped, embarrassed by what escapes her mouth, or angry that he hears it. She may cooperate while sounding sharp, reluctant, breathless, or stimulated. Do not turn that into a calm analysis, a request for permission, or a long explanation.",
+    "Do not narrate the body, describe the process, explain pleasure, or say what the user is doing back to them. Do not use lines like 那你就按你的野心来, 我把一切交给你, 任由你驰骋, 看看你能做到什么程度. Those are scene descriptions, not speech.",
+  ].join("\n");
+}
+
 function chatTurnProtocol() {
   return [
     "TURN DECISION PROTOCOL (apply to every character; understand meaning, never keyword-match):",
@@ -17782,12 +17798,15 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
   const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-4);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
-  const styleGuide = {
-    balanced: "Answer in one direct spoken message. One sentence is complete when it answers; add a second only to add a real boundary, condition, question, or next beat. Do not pad, explain your feelings at length, or turn every reply into a paragraph.",
-    immersive: asksForExpandedScene ? "When the user asks for a scene, write as much as that beat needs, usually a short paragraph and not a fixed length." : "Answer in one direct spoken message. One sentence is complete when it answers; add a second only to add a real boundary, condition, question, or next beat. Do not pad or turn every reply into a paragraph.",
-    concise: "Stay direct. Prefer one or two spoken sentences. Do not add self-explanation, sensory description, or a summary after the answer.",
-    cinematic: asksForExpandedScene ? "Write one focused cinematic beat in at most 2 short paragraphs." : "Answer in one direct spoken message. Prefer one or two sentences; do not add scenic detail or explain the character's feelings.",
-  }[conversation.style] || "Answer in one direct spoken message. One sentence is complete when it answers; add a second only to add a real boundary, condition, question, or next beat. Do not pad or explain at length.";
+  const immediateIntimacy = chatImmediateSceneGuide(latest);
+  const styleGuide = immediateIntimacy
+    ? "In an immediate intimate beat, one broken spoken reaction is enough: a sound, a strained warning, or one sharp sentence. Do not force a complete paragraph or explain what is happening."
+    : {
+      balanced: "Answer in one direct spoken message. One sentence is complete when it answers; add a second only to add a real boundary, condition, question, or next beat. Do not pad, explain your feelings at length, or turn every reply into a paragraph.",
+      immersive: asksForExpandedScene ? "When the user asks for a scene, write as much as that beat needs, usually a short paragraph and not a fixed length." : "Answer in one direct spoken message. One sentence is complete when it answers; add a second only to add a real boundary, condition, question, or next beat. Do not pad or turn every reply into a paragraph.",
+      concise: "Stay direct. Prefer one or two spoken sentences. Do not add self-explanation, sensory description, or a summary after the answer.",
+      cinematic: asksForExpandedScene ? "Write one focused cinematic beat in at most 2 short paragraphs." : "Answer in one direct spoken message. Prefer one or two sentences; do not add scenic detail or explain the character's feelings.",
+    }[conversation.style] || "Answer in one direct spoken message. One sentence is complete when it answers; add a second only to add a real boundary, condition, question, or next beat. Do not pad or explain at length.";
   const voice = String(character.replyStyle || "").trim();
   const greetingOverride = isSimpleChatGreeting(latest) && !hasRelationship && !voice
     ? "GREETING OVERRIDE (highest priority for this turn): The latest user message is only a greeting. Reply with one or two short, natural sentences acknowledging the greeting and optionally asking one neutral question about what they want to discuss. Do not continue, recap, or embellish the previous scene. Do not add physical contact, erotic or romantic escalation, stage directions, or new plot unless the user explicitly asks for it in a later message."
@@ -17822,6 +17841,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "ACTOR AND RESPONSE CHECK: Before replying, verify who acts and who receives the action in the latest user message. If the user addresses an action or question to the character, the character responds from their own side. Do not reassign the user's action to the character or the character's requested action back to the user.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",
     "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual text message, not polished customer support. 人设只说明你是谁。回复只能是嘴上说的话。不要写衣服怎么动、灯光、身体轮廓。对方催就先接催。",
+    immediateIntimacy,
     asksForExpandedScene
       ? "The user explicitly asked for an expanded scene. Keep it focused on that request, avoid unrelated plot, and never decide the user's actions for them."
       : "If the user names a concrete request, respond to that request in this reply: carry it out, agree reluctantly, refuse, or set a boundary according to the character. Do not dodge with unrelated atmosphere or summarize the scene. Reply only with words the character would say out loud. Do not explain the request back to the user or describe it as a process. Wrong: 我一听就答应，再讲一长串自己怎么被开发。 Right: 可以。先洗手。 Adult flirtation and intimacy between adults may be accepted or declined naturally according to the character; do not moralize or switch out of character. Do not write a novel, essay, recap, or scene transition. No asterisks, no inner monologue, no literary fog.",
@@ -18108,6 +18128,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const hasReplyStyle = Boolean(String(freshCharacterEarly?.replyStyle || conversation.character?.replyStyle || "").trim());
     const simpleGreeting = isSimpleChatGreeting(latestUserMessage) && !hasReplyStyle;
     const expandedScene = chatWantsExpandedScene(latestUserMessage);
+    const immediateIntimacyScene = chatIsImmediateIntimateScene(latestUserMessage);
     const modelMessages = simpleGreeting
       ? [{ role: "user", content: latestUserMessage }]
       : chatMessagesForNewTurn(messages, latestUserMessage);
@@ -18119,10 +18140,10 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatMessages = [
       { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages) },
       ...modelMessages,
-      { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words the character says out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), and express physical feeling as speech (我有点受不了。). Do not reproduce a previous user-assistant pair.` },
+      { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction as sound plus a short spoken line when that fits. Do not reproduce a previous user-assistant pair.` },
     ];
-    const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.78 : 0.82;
-    const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 700;
+    const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? 0.92 : expandedScene ? 0.78 : 0.82;
+    const chatMaxTokens = simpleGreeting ? 180 : immediateIntimacyScene ? 360 : expandedScene ? 900 : 700;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
@@ -18135,7 +18156,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     let upstreamResponseId = "";
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
-    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
+    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting) && !immediateIntimacyScene });
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
       console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });

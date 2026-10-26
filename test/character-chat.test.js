@@ -65,6 +65,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.doesNotMatch(server, /chatReplyUsesConditionalBargain|chatReplyUsesRejectedScaffold|replyNeedsFreshAttempt/);
   assert.match(server, /const \{ mood: _trackerMood, \.\.\.sceneTracker \} = tracker/);
   assert.match(server, /Current scene facts only/);
+  assert.match(server, /function chatIsImmediateIntimateScene/);
+  assert.match(server, /function chatImmediateSceneGuide/);
+  assert.match(server, /IMMEDIATE INTIMACY SCENE \(highest priority for this turn\)/);
+  assert.match(server, /A moan, gasp, sharp exhale, clipped warning, or a few blunt words can be the complete reply/);
+  assert.match(server, /Do not narrate the body, describe the process, explain pleasure/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
   assert.match(server, /isImmediateRetry/);
@@ -108,8 +113,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /message\.role === "user" \|\| !chatReplyIsDegenerate\(normalizeChatReply\(message\.content/);
   assert.match(server, /sentences\.slice\(0, 10\)/);
   assert.match(server, /slice\(0, 720\)/);
-  assert.match(server, /const chatTemperature = simpleGreeting \? 0\.45 : expandedScene \? 0\.78 : 0\.82/);
-  assert.match(server, /const chatMaxTokens = simpleGreeting \? 180 : expandedScene \? 900 : 700/);
+  assert.match(server, /immediateIntimacyScene \? 0\.92 : expandedScene \? 0\.78/);
+  assert.match(server, /immediateIntimacyScene \? 360 : expandedScene \? 900/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
   assert.match(server, /One sentence is complete when it answers/);
