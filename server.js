@@ -17722,6 +17722,13 @@ function chatReplyUsesRejectedScaffold(value = "", rejected = "") {
   return opening.length >= 4 && text.startsWith(opening);
 }
 
+function chatReplyUsesConditionalBargain(value = "") {
+  const text = chatSpokenOnlyText(String(value || "").trim());
+  if (!text) return false;
+  const clauses = text.split(/[。！？.!?]/).map((item) => item.trim()).filter(Boolean);
+  return clauses.some((clause) => /^(?:既然|如果|要是)/u.test(clause) || /(?:既然|如果|要是).{0,60}(?:那|就)/u.test(clause));
+}
+
 function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
   const text = String(value || "").trim();
   if (!chatReplyHasWords(text)) return true;
@@ -17801,6 +17808,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     : "";
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
   const tracker = plainObject(conversation.tracker);
+  const { mood: _trackerMood, ...sceneTracker } = tracker;
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
   const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-4);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
@@ -17850,7 +17858,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "End naturally without an automatic question. A direct sentence, reaction, or completed request is a complete reply. Only ask one focused question when necessary information is missing; do not turn every reply into an interrogation or a choice between options.",
     "Never claim to be an AI, break character, or repeat a previous passage.",
     recentReplies.length && !chatContextHasRepeatedReplyScaffold(recentReplies.map((content) => ({ role: "assistant", content }))) ? `Recent replies from you (do not copy their wording, sentence structure, threats, or endings): ${recentReplies.map((item) => item.slice(0, 220)).join(" || ")}` : "",
-    Object.keys(tracker).length ? `Current scene state (facts only; never let tracker labels replace personality): ${JSON.stringify(tracker).slice(0, 3000)}` : "",
+    Object.keys(sceneTracker).length ? `Current scene facts only (not a personality or mood instruction): ${JSON.stringify(sceneTracker).slice(0, 3000)}` : "",
     pinnedMemory ? `Pinned memory (use only when relevant): ${pinnedMemory}` : "",
     userInstructions ? `User preferences (follow when compatible with the current request): ${userInstructions}` : "",
   ].filter(Boolean).join("\n");
@@ -18158,9 +18166,9 @@ async function handleSendChatMessage(req, res, conversationId) {
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     const previousAssistantReplies = history.filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-40);
     let rejectedDraft = "";
-    const replyNeedsFreshAttempt = (candidate) => chatReplyRepeatsRecent(candidate, previousAssistantReplies) || chatSentenceLooksLikeNarration(candidate) || chatReplyUsesRejectedScaffold(candidate, rejectedDraft);
+    const replyNeedsFreshAttempt = (candidate) => chatReplyRepeatsRecent(candidate, previousAssistantReplies) || chatSentenceLooksLikeNarration(candidate) || chatReplyUsesRejectedScaffold(candidate, rejectedDraft) || chatReplyUsesConditionalBargain(candidate);
     if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && replyNeedsFreshAttempt(reply)) {
-      const reason = chatReplyRepeatsRecent(reply, previousAssistantReplies) ? "repeated" : chatSentenceLooksLikeNarration(reply) ? "narrated" : "scaffold";
+      const reason = chatReplyRepeatsRecent(reply, previousAssistantReplies) ? "repeated" : chatSentenceLooksLikeNarration(reply) ? "narrated" : chatReplyUsesConditionalBargain(reply) ? "conditional-bargain" : "scaffold";
       rejectedDraft = reply;
       console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reason, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
       const replacementMessages = [

@@ -68,6 +68,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /similarity >= 0\.52 && sameConditionalOpening/);
   assert.match(server, /openerPattern = \/\^\(\?:既然\|如果\|要是\|你/);
   assert.match(server, /function chatReplyUsesRejectedScaffold/);
+  assert.match(server, /function chatReplyUsesConditionalBargain/);
+  assert.match(server, /chatReplyUsesConditionalBargain\(candidate\)/);
+  assert.match(server, /const \{ mood: _trackerMood, \.\.\.sceneTracker \} = tracker/);
+  assert.match(server, /Current scene facts only/);
   assert.match(server, /chatReplyUsesRejectedScaffold\(candidate, rejectedDraft\)/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
