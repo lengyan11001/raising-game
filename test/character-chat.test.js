@@ -72,6 +72,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /PERSONA CONTINUITY/);
   assert.match(server, /VOICE INTEGRATION/);
   assert.match(server, /CHARACTER-SHEET DRIFT CHECK/);
+  assert.match(server, /Give the response a human first beat when it fits/);
+  assert.match(server, /Speech can acknowledge a movement/);
   assert.doesNotMatch(server, /Character background \(reference only\)/);
   assert.doesNotMatch(server, /VOICE OVERRIDE \(highest priority/);
   assert.doesNotMatch(server, /if \(chatContextHasRepeatedReplyScaffold\(filtered\)\) return currentTurn/);
