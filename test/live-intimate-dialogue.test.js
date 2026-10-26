@@ -33,6 +33,7 @@ const {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveBrokenSpeechCount,
   chatReplyLiveIntimateFallback,
+  chatReplyLiveIntimateGaps,
   chatReplyRepairLiveIntimateLocally,
   chatReplyNeedsLiveIntimateRewrite,
 } = require("../server.js");
@@ -285,6 +286,13 @@ test("gentle and restrained characters pass with their own posture, not dominant
   assert.equal(chatReplyNeedsLiveIntimateRewrite(gentleReply, { requireVocal: true, character: gentle }), false);
   assert.equal(chatReplyLiveStartsWithPersonaPosture(reservedReply, reserved), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(reservedReply, { requireVocal: true, character: reserved }), false);
+});
+
+test("cleanup cannot turn a rejected beat into a flat short reply", () => {
+  const cleaned = "哈……！\n啊，你就这么——唔。\n别光顾着动了，把你的鸡巴更深一点地塞进来……嗯！\n快点，全部灌进我的里面来……哈啊！";
+  assert.equal(chatReplyHasPersonaContrast(cleaned, character), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(cleaned, { requireVocal: true, character }), true);
+  assert.equal(chatReplyLiveIntimateGaps(cleaned, character).some((gap) => /persona contradiction/i.test(gap)), true);
 });
 
 test("a quality-check miss is salvaged instead of becoming a 502", () => {

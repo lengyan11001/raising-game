@@ -18967,6 +18967,8 @@ async function handleSendChatMessage(req, res, conversationId) {
       const locallyRepairedScore = chatReplyLiveIntimateScore(locallyRepairedReply, liveIntimateCharacter);
       if (locallyRepairedReply
         && locallyRepairedScore >= bestCandidate.score
+        && chatReplyHasLiveIntimateDelivery(locallyRepairedReply)
+        && chatReplyHasPersonaContrast(locallyRepairedReply, liveIntimateCharacter)
         && !chatReplyNeedsLiveIntimateRewrite(locallyRepairedReply, { requireVocal: true, character: liveIntimateCharacter })) {
         reply = locallyRepairedReply;
         bestCandidate = { raw, reply, score: locallyRepairedScore };
@@ -19011,7 +19013,10 @@ async function handleSendChatMessage(req, res, conversationId) {
       if (!accepted) {
         const repairedReply = chatReplyWithLivePersonaSlip(bestCandidate.reply, liveIntimateCharacter, 2);
         const repairedScore = chatReplyLiveIntimateScore(repairedReply, liveIntimateCharacter);
-        if (repairedReply && !chatReplyNeedsLiveIntimateRewrite(repairedReply, { requireVocal: true, character: liveIntimateCharacter })) {
+        if (repairedReply
+          && chatReplyHasLiveIntimateDelivery(repairedReply)
+          && chatReplyHasPersonaContrast(repairedReply, liveIntimateCharacter)
+          && !chatReplyNeedsLiveIntimateRewrite(repairedReply, { requireVocal: true, character: liveIntimateCharacter })) {
           raw = bestCandidate.raw;
           reply = repairedReply;
           upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
