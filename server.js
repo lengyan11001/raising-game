@@ -17857,10 +17857,11 @@ function chatReplyHasIntimateVocalReaction(value = "") {
 function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const text = String(value || "").trim();
   const length = [...text].length;
-  if (length < 300) return false;
-  const abstractHits = (text.match(/(?:那种|仿佛|像是|如同|每一寸|极致|叫嚣|承载|淹没|吞没|边界|神经末梢)/gu) || []).length;
-  const simileHits = (text.match(/(?:仿佛|像是|如同)/gu) || []).length;
-  return abstractHits >= 8 || simileHits >= 3 || (length >= 420 && abstractHits >= 5);
+  const literaryHits = (text.match(/(?:仿佛|像是|如同|褶皱|胀实感|胀满感|脊背|脊椎|骨架|神经末梢|每寸|每一寸|极致|叫嚣|承载|淹没|吞没)/gu) || []).length;
+  const abstractHits = (text.match(/(?:那种|不断|一点点|一圈圈|缓缓|微微|透亮)/gu) || []).length;
+  if (literaryHits >= 3) return true;
+  if (length >= 260 && literaryHits + abstractHits >= 6) return true;
+  return length >= 420 && (literaryHits >= 2 || abstractHits >= 7);
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false } = {}) {
@@ -18295,7 +18296,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       try {
         const retryRaw = await requestChat([
           "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
-          "用第一人称现场口吻，不要写成文艺小作文。通常 2-5 句或两个短段，写这一下的身体过程、她的一点心里话/嘴硬和被打断的话；不要连续堆“那种感、仿佛、像是、深处、每一寸、神经”这类抽象描写。",
+          "用第一人称现场口吻，不要写成文艺小作文。通常 2-5 句或两个短段，写这一下的身体过程、她的一点心里话/嘴硬和被打断的话；禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话，优先写具体动作、气音和短句。",
           "过程中必须自然出现至少一次叫声、气音或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头。",
           "保留角色的面子、判断、强势和边界：她可以嘴硬、命令、掩饰羞耻，不能变成通用顺从伴侣。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
           "只输出最终内容，不要解释为什么重写。",
