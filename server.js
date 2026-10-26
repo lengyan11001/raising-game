@@ -297,6 +297,7 @@ const {
 } = require("./lib-http");
 const ROOT = __dirname;
 const PLATFORM_ASSET_FILES = Object.freeze([
+  "platform.html",
   "platform.css",
   "platform.js",
   "platform.config.js",
@@ -312,6 +313,10 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.undress-tool.js",
   "platform.main.js",
   "site-123vipfans.js",
+  "chat.html",
+  "chat.css",
+  "chat.js",
+  "chat-live.js",
 ]);
 let platformAssetVersionPromise = null;
 const TOOL_VIDEO_STYLE_VERSION = crypto
@@ -47135,7 +47140,9 @@ async function serveStatic(req, res, url) {
     const isHtml = contentType === "text/html";
     const isVersionedAsset = Boolean(url.searchParams.get("v"));
     const frontendNames = ["/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js"];
-    const isFrontendAsset = frontendNames.includes(pathname) || ((liveTenantRequest || chatTenantRequest) && [".html", ".js", ".css"].includes(path.extname(pathname).toLowerCase()));
+    const isFrontendAsset = frontendNames.includes(pathname)
+      || PLATFORM_ASSET_FILES.some((fileName) => pathname === `/${fileName}`)
+      || ((liveTenantRequest || chatTenantRequest) && [".html", ".js", ".css"].includes(path.extname(pathname).toLowerCase()));
     const isLongCacheAsset =
       (isVersionedAsset && !isFrontendAsset) ||
       contentType.startsWith("image/") ||

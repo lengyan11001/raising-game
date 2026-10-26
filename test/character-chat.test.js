@@ -72,8 +72,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
 });
 
 test("chat assets bypass stale browser caches after deployment", () => {
-  assert.match(html, /platform\.js\?v=chat-batched-20261026-1/);
-  assert.match(standaloneHtml, /chat\.js\?v=chat-batched-20261026-1/);
+  assert.match(html, /platform\.js\?v=chat-batched-20261026-2/);
+  assert.match(standaloneHtml, /chat\.js\?v=chat-batched-20261026-2/);
 });
 
 test("standalone chat opens the created conversation and sends messages", () => {
