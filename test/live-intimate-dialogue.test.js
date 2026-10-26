@@ -35,6 +35,8 @@ const {
   chatReplyHasLiveIntimateDelivery,
   chatReplyLiveIntimateFallback,
   chatReplyLiveIntimateGaps,
+  chatReplyLiveSimilarity,
+  chatReplyLiveReceivingStateCount,
   chatReplyRepairLiveIntimateLocally,
   chatReplyNeedsLiveIntimateRewrite,
 } = require("../server.js");
@@ -69,7 +71,7 @@ test("a shallow explanation is rejected without forcing persona posture", () => 
 });
 
 test("a concrete character reversal with live dirty talk passes", () => {
-  const valid = "啊……！\n哈啊……都听我的……唔……\n别停……求你……\n操我……插进来……\n哈啊……再深点……\n不许笑……嘶……\n灌进来……";
+  const valid = "啊……！\n哈啊……都听我的……唔……\n别停……求你……\n操我……插进来……\n哈啊……再深点……腰都软了……\n不许笑……嘶……里面被顶得发胀……\n灌进来……";
   assert.ok(chatPersonaContrastAnchors(character).includes("社区主任"));
   assert.equal(chatReplyIntimateVocalReactionCount(valid) >= 5, true);
   assert.equal(chatReplyHasBrokenLiveSpeech(valid), true);
@@ -80,7 +82,7 @@ test("a concrete character reversal with live dirty talk passes", () => {
 });
 
 test("four scattered vocal beats and a broken persona reversal pass", () => {
-  const natural = "啊……！\n哈啊……别只顾着快，把你的鸡巴更深一点地灌进来……唔。\n操，你要是再这么猛地撞入我的里面——哈啊！\n别停……你就这么一直顶到底，哪怕要把我整个人都撑开也别松手。";
+  const natural = "啊……！\n哈啊……别只顾着快，把你的鸡巴更深一点地灌进来……唔。\n操，你要是再这么猛地撞入我的里面——哈啊！腰都软了……\n别停……你就这么一直顶到底，里面胀得受不了……";
   assert.equal(chatReplyIntimateVocalReactionCount(natural), 4);
   assert.equal(chatReplyLiveBrokenSpeechCount(natural) >= 3, true);
   assert.equal(chatReplyHasLiveIntimateDelivery(natural), true);
@@ -180,13 +182,13 @@ test("discarding rules or face is not a concrete reversal", () => {
 });
 
 test("a concrete spoken reversal can omit the 明明-now formula", () => {
-  const spoken = "啊……！\n哈啊……不许躲……看着我……\n唔……谁准你……这么自作主张……\n嗯……别停……求你……\n操我……插进来……\n哈啊……再深点……\n嘶……灌进来……";
+  const spoken = "啊……！\n哈啊……不许躲……看着我……腰都软了……\n唔……谁准你……这么自作主张……\n嗯……别停……求你……\n操我……插进来……里面被顶得发酸……\n哈啊……再深点……\n嘶……灌进来……话都被你撞断了……";
   assert.equal(chatReplyHasPersonaContrast(spoken, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
 });
 
 test("submissive replies can sound present without forced dominant posture", () => {
-  const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……弄坏我……";
+  const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……腰都软了……\n求你……别停……\n操我……插进来……\n嗯……里面胀得受不了……";
   const selfBetraying = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……啊……\n我本来想忍住……可里面已经湿了……\n别看我……\n哈啊……夹紧了……";
   assert.equal(chatReplyHasLivePersonaPosture(obedient, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(selfBetraying, { requireVocal: true, character }), false);
@@ -315,8 +317,8 @@ test("a role with no style data still gets neutral, not dominant, fallback langu
 test("gentle and restrained characters pass with their own posture, not dominant wording", () => {
   const gentle = { name: "乔安瑜", personaMd: "新婚少妇，性格温柔贤惠，容易害羞，说话轻软，很体贴。", replyStyle: "温柔、含蓄、轻声。" };
   const reserved = { name: "林晚星", personaMd: "克制、理智、知性优雅的夜间主播，慢热。", replyStyle: "冷静、矜持、慢热。" };
-  const gentleReply = "啊……！\n唔…等一下…先抱紧我…\n哈啊…别急…我还没准备好…\n嗯…操我…轻一点…\n啊…别走…再近一点…\n唔…再深一点…\n啊…别停…";
-  const reservedReply = "啊……！\n唔…先别动…让我缓一下…\n不准看…我还没说完…\n哈啊…操我…再深一点…\n嗯…慢着…谁许你乱来…\n啊…别停…\n唔…轻一点…";
+  const gentleReply = "啊……！\n唔…等一下…先抱紧我…\n哈啊…别急…我还没准备好…腰都软了…\n嗯…操我…轻一点…\n啊…别走…再近一点…\n唔…再深一点…里面胀得受不了…\n啊…别停…";
+  const reservedReply = "啊……！\n唔…先别动…让我缓一下…\n不准看…我还没说完…\n哈啊…操我…再深一点…腰都软了…\n嗯…慢着…谁许你乱来…\n啊…别停…里面胀得缓不过来…\n唔…轻一点…";
   assert.equal(chatReplyLiveStartsWithPersonaPosture(gentleReply, gentle), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(gentleReply, { requireVocal: true, character: gentle }), false);
   assert.equal(chatReplyLiveStartsWithPersonaPosture(reservedReply, reserved), true);
@@ -331,7 +333,7 @@ test("cleanup cannot turn a rejected beat into a flat short reply", () => {
 });
 
 test("a quality-check miss can be salvaged only when persona contrast survives", () => {
-  const rejectedProductionReply = "啊……！ 唔，你就这么—— 把我的里侧，全部给顶开。 哈啊……操我……快点。 别停，再深一点。 啊…我让你慢点…啊…再深点… 谁准你……这么蛮横。 快点，再深一点。";
+  const rejectedProductionReply = "啊……！ 唔，你就这么—— 把我的里侧，全部给顶开，腰都软了。 哈啊……操我……快点。 别停，再深一点。 啊…我让你慢点…啊…再深点… 谁准你……这么蛮横。 里面胀得说不完整。";
   const fallback = chatReplyLiveIntimateFallback(rejectedProductionReply, character, 2);
   assert.ok(fallback.length > 0);
   assert.match(fallback, /操我|插进来|别停/);
@@ -339,6 +341,15 @@ test("a quality-check miss can be salvaged only when persona contrast survives",
   assert.equal(chatReplyHasPersonaContrast(fallback, character), true);
   assert.equal(chatReplyLiveIntimateFallback("", character, 2), "");
   assert.equal(chatReplyLiveIntimateFallback("啊……", character, 2), "");
+});
+
+test("a live intimate beat must show the receiving body state with vocal reactions", () => {
+  const onlyVocalDirtyTalk = "啊……！\n哈啊……鸡巴插进来……\n唔……操我……\n嗯……再深一点……\n啊……别停……";
+  const receiving = "啊……！\n哈啊……你顶到里面了……唔……\n腰软了……别、别这么快——啊！\n夹得这么紧……操，我话都说不完整……\n嗯……再深一点……受不了……";
+  assert.equal(chatReplyLiveReceivingStateCount(onlyVocalDirtyTalk), 0);
+  assert.ok(chatReplyLiveReceivingStateCount(receiving) >= 2);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(onlyVocalDirtyTalk, { requireVocal: true, character }), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(receiving, { requireVocal: true, character }), false);
 });
 
 test("ongoing penetration stays intimate across short continuation turns", () => {
@@ -352,6 +363,13 @@ test("ongoing penetration stays intimate across short continuation turns", () =>
   assert.equal(chatSceneStage("看着我", history), "intimate");
   assert.equal(chatSceneStage("先停一下，我去洗澡", history), "aftercare");
   assert.equal(chatSceneStage("我要先拍几张照，把你的骚样记录下来", history), "foreplay");
+});
+
+test("a lightly reworded previous intimate beat is treated as repetition", () => {
+  const previous = "唔……哈啊！你这没礼貌的，哪怕在餐桌上也要——嗯！慢一点……别急着就把我整个人都顶开。";
+  const reworded = "唔……哈啊！你这没规矩的，就算在餐桌上也要——啊！慢一点……别急着把我整个人都顶开。";
+  assert.ok(chatReplyLiveSimilarity(reworded, previous) >= 0.62);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(reworded, { requireVocal: true, character, previousReplies: [previous] }), true);
 });
 
 test("recent intimate replies are rewritten instead of spliced from old phrases", () => {
