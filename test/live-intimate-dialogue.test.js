@@ -92,6 +92,15 @@ test("the previous production reply is rejected as insufficiently present", () =
   assert.equal(chatReplyNeedsLiveIntimateRewrite(previous, { requireVocal: true, character }), true);
 });
 
+test("moans without concrete process or persona contradiction are rejected", () => {
+  const hollow = "“嗯！……啊，就……快点，你要是敢用这种速度一直撞进来——唔！你的力道太大了，快要把我整个人撑裂开……哈。别只顾着追求速度，把那股劲儿全给到最深处来……嗯！操，感觉身体都要被你完全贯穿了……”";
+  assert.equal(chatReplyHasLiveSpokenTexture(hollow), true);
+  assert.equal(chatReplyHasPersonaContrast(hollow, character), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(hollow, { requireVocal: true, character }), true);
+  const repaired = chatReplyLiveIntimateFallback(hollow, character, 2);
+  assert.doesNotMatch(repaired, /撑裂开|完全贯穿|给到最深处|那股劲儿全给到/);
+});
+
 test("third-person or incoherent dirty phrasing is rejected", () => {
   const awkward = "啊……！哈啊……你要把整根……唔，全部给我灌进来。嗯……就把那股热度全给我也塞进去吧！";
   assert.equal(chatReplyNeedsLiveIntimateRewrite(awkward, { requireVocal: true, character }), true);
@@ -128,12 +137,12 @@ test("a concrete spoken reversal can omit the 明明-now formula", () => {
 
 test("submissive replies can sound present without forced dominant posture", () => {
   const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……弄坏我……";
-  const selfBetraying = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……啊……\n我本来想忍住……可里面已经湿了……";
+  const selfBetraying = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……啊……\n我本来想忍住……可里面已经湿了……\n别看我……\n哈啊……夹紧了……";
   assert.equal(chatReplyHasLivePersonaPosture(obedient, character), false);
-  assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(selfBetraying, { requireVocal: true, character }), false);
   assert.equal(chatReplyHasLiveSpokenTexture(obedient), false);
   assert.equal(chatReplyLiveBrokenSpeechCount(obedient) >= 1, true);
+  assert.equal(chatReplyHasPersonaContrast(obedient, character), false);
 });
 
 test("opening with submission is rejected before a control beat", () => {

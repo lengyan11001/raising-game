@@ -18243,8 +18243,13 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
   const yielding = /(?:别停|继续(?:插|干|顶)?|快点|再(?:深|重|用力)|深一点|重一点|想要|求你|求我|受不了|撑不住|不行了|弄坏|湿|水|爽|舒服|操我|干我|插我|顶我|进来|到底)/u.test(text);
   // A character's control can break across a newline or a pause. Judge the
   // whole spoken beat rather than only one comma-separated clause.
-  const behavioralReversal = /(?:听我的|都听我的|我说了算|我让你|给我(?:听|老实|忍住|守|慢|快|停|动|看)|先让我来|急什么|等一下|慢着|先别动|不许|不准|别(?:看|走|笑|说|停|动|急))[\s\S]{0,88}(?:求你|求我|别停|想要|再深|再重|用力|操我|干我|插我|顶我|灌进来|弄坏|湿|受不了|夹紧|舒服)/u.test(text)
-    || /(?:求你|求我)[\s\S]{0,88}(?:听我的|别停|再深|再重|操我|干我|插我|顶我|灌进来)/u.test(text)
+  const controlBeat = /(?:听我的|都听我的|我说了算|我让你|给我(?:听|老实|忍住|守|慢|快|停|动|看)|先让我来|急什么|等一下|慢着|先别动|不许|不准|别(?:看|走|笑|说|动|急))/gu;
+  const controlMatches = [...text.matchAll(controlBeat)];
+  const behavioralReversal = controlMatches.some((match) => {
+    const after = text.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 88);
+    return /(?:求你|求我|想要|再深|再重|用力|操我|干我|插我|顶我|灌进来|弄坏|湿|受不了|夹紧|舒服)/u.test(after);
+  })
+    || /(?:求你|求我)[\s\S]{0,88}(?:听我的|再深|再重)/u.test(text)
     || /(?:谁让你|别碰|手拿开|我还没(?:说|让|准)|管好你自己)[\s\S]{0,88}(?:湿|想要|受不了|夹紧|流水|弄坏|操我|插进来)/u.test(text);
   const selfBetrayal = /(?:不许|不准|别)[\s\S]{0,50}(?:看|说|问|笑|动|走)[\s\S]{0,54}(?:已经|都|这么|湿|想要|受不了|夹紧|流水|弄坏)/u.test(text)
     || /(?:本来|原本|明明)?(?:想|要)(?:克制|忍住|装作没感觉|保持冷静|端着)[\s\S]{0,64}(?:可|却|还是|已经|忍不住|湿|软|叫出来|夹紧)/u.test(text)
@@ -18326,12 +18331,18 @@ function chatReplyCopiesStyleExamples(value = "", character = {}) {
   return samples.some((line) => text.includes(line));
 }
 
+function chatReplyHasLiveIntimateDelivery(value = "") {
+  const text = String(value || "");
+  return chatReplyIntimateVocalReactionCount(text) >= 5
+    && chatReplyLiveBrokenSpeechCount(text) >= 3
+    && (chatReplyLiveDirtyTalkCount(text) >= 2 || chatReplyLiveIntimateProcessCount(text) >= 3);
+}
+
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
   const text = String(value || "");
-  // Hard gates are reserved for clear failures. Spoken texture and persona
-  // reversal are quality goals, not a reason to replace an otherwise good beat.
-  const hasPresentBeat = chatReplyHasIntimateVocalReaction(text)
-    && (chatReplyHasBrokenLiveSpeech(text) || chatReplyHasLiveDirtyTalk(text) || chatReplyLiveIntimateProcessCount(text) >= 2);
+  // Live intimacy is not just "contains a moan". The spoken beat must sound
+  // present, follow this exact action, and let the configured person leak
+  // through as a contradiction rather than a generic eager partner.
   const hasStockPhrase = chatReplyLiveStockPhraseCount(text) > 0;
   return chatReplyCopiesStyleExamples(value, character)
     || chatReplyHasForeignVocalEnglish(value, character)
@@ -18339,7 +18350,8 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(text)
     || /(?:别管|不管)/u.test(text)
-    || (requireVocal && !hasPresentBeat)
+    || (requireVocal && !chatReplyHasLiveIntimateDelivery(text))
+    || (requireVocal && !chatReplyHasPersonaContrast(text, character))
     || (requireVocal && hasStockPhrase);
 }
 
@@ -18348,8 +18360,8 @@ function chatReplyLiveIntimateGaps(value = "", character = {}) {
   const gaps = [];
   if (chatReplyIntimateVocalReactionCount(text) < 5) gaps.push("more separate vocal reactions, spread across the beat");
   if (chatReplyLiveBrokenSpeechCount(text) < 3) gaps.push("more genuinely interrupted spoken fragments");
-  if (chatReplyLiveDirtyTalkCount(text) < 2 && chatReplyLiveIntimateProcessCount(text) < 2) gaps.push("more direct body/action language");
-  if (!chatReplyHasPersonaContrast(text, character)) gaps.push("an audible character-specific reversal or self-betrayal");
+  if (chatReplyLiveDirtyTalkCount(text) < 2 && chatReplyLiveIntimateProcessCount(text) < 3) gaps.push("more concrete body/action language tied to this exact thrust");
+  if (!chatReplyHasPersonaContrast(text, character)) gaps.push("an audible persona contradiction: her usual control, pride, restraint, or manner must break inside the spoken words, without explaining it");
   return gaps;
 }
 
@@ -18393,6 +18405,7 @@ function chatReplyLiveIntimateScore(value = "", character = {}) {
   if (chatReplyHasPersonaContrast(text, character)) score += 16;
   if (chatReplyLiveStartsWithPersonaPosture(text, character)) score += 4;
   if (chatReplyHasLiveSpokenTexture(text)) score += 10;
+  if (chatReplyHasLiveIntimateDelivery(text)) score += 10;
   if (chatReplyLooksLikeLiveIntimateEssay(text)) score -= 10;
   if (chatReplyUsesIntimateCommandTemplate(text)) score -= 6;
   if (chatReplyStartsWithCannedIntimateVocal(text)) score -= 3;
@@ -18414,7 +18427,7 @@ function chatReplyRepairLiveIntimateLocally(value = "") {
     .replace(/把你的力道/gu, "把力气")
     .replace(/按我的节奏/gu, "跟着我")
     .replace(/(?:要的就是这种感觉|哪怕[^。！？!?]{0,14}说不完整)/gu, "")
-    .replace(/[^\n。！？!?]*(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了|灌进我的身体里|塞进我的身体里|把我整个人撞开|毫无章法|就像这样)[^\n。！？!?]*[。！？!?]?/gu, "")
+    .replace(/[^\n。！？!?]*(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了|灌进我的身体里|塞进我的身体里|把我整个人撞开|毫无章法|就像这样|撑裂开|完全贯穿|给到最深处|全给到最深处|整个人撑裂)[^\n。！？!?]*[。！？!?]?/gu, "")
     .replace(/别只是在(?:动|做|冲|蛮横地动)?/gu, "别光动")
     .replace(/把你的力道(?:更)?集中一点/gu, "把力气都给我")
     .replace(/把那股劲儿全都灌进我的身体里/gu, "全灌进里面来")
