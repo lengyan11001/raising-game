@@ -18248,8 +18248,19 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
   // whole spoken beat rather than only one comma-separated clause.
   const controlBeat = /(?:听我的|都听我的|我说了算|我让你|给我(?:听|老实|忍住|守|慢|快|停|动|看)|先让我来|急什么|等一下|慢着|先别动|不许|不准|别(?:看|走|笑|说|动|急))/gu;
   const controlMatches = [...text.matchAll(controlBeat)];
+  const nonVocalLines = text
+    .split(/\n+/)
+    .map((line) => line.replace(/^(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)[，。！？!?…~～—\s]*/u, "").replace(/[，,。！？!?…—\s]/g, ""))
+    .filter(Boolean);
+  const nonVocalHanText = nonVocalLines.join("");
+  const onlyGenericCorrection = nonVocalLines.length > 0
+    && nonVocalLines.every((line) => /^(?:别光顾着动|别只是在动|别光动|别只顾着动|别只顾着冲刺|你就这么|快点|全部|狠狠地|灌进来|吧|嗯|啊|唔|哈)/u.test(line))
+    && /^(?:哈?你就这么唔别光顾着动|别光顾着动)/u.test(nonVocalHanText);
+  if (onlyGenericCorrection) return false;
   const behavioralReversal = controlMatches.some((match) => {
-    const after = text.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 88);
+    const control = match[0];
+    if (/^(?:别光顾着动|别只是在动|别光动|别只顾着动|别只顾着冲刺|你就这么)$/u.test(control)) return false;
+    const after = text.slice((match.index || 0) + control.length, (match.index || 0) + control.length + 88);
     return /(?:求你|求我|想要|再深|再重|用力|操我|干我|插我|顶我|灌进来|弄坏|湿|受不了|夹紧|舒服)/u.test(after);
   })
     || /(?:求你|求我)[\s\S]{0,88}(?:听我的|再深|再重)/u.test(text)
