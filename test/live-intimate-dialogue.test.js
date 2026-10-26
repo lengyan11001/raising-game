@@ -6,6 +6,7 @@ const test = require("node:test");
 const {
   chatPersonaContrastAnchors,
   chatPromptReplyStyle,
+  chatPromptBehaviorRules,
   chatSystemPrompt,
   chatLiveVoiceProfile,
   chatLiveCharacterVoiceLines,
@@ -165,6 +166,15 @@ test("voice profile and repair beats follow different character types", () => {
   assert.match(chatLiveIntimatePersonaPostureLine(bold, 1), /先让我来|自己动|看着我|可以才算/);
   assert.match(chatLiveIntimatePersonaPostureLine(reserved, 1), /先别动|不准看|慢着|听我的/);
   assert.notEqual(chatLiveIntimateRewriteBeat(gentle, 1), chatLiveIntimateRewriteBeat(character, 1));
+});
+
+test("prompt repeats the configured behavior section as a hard constraint", () => {
+  const style = "# 回复口吻\n## 说话底色\n- 冷艳。\n## 行为规则\n- 被命令时先压住场面，可以提条件。\n- 被看穿时嘴硬遮掩。\n## 输出限制\n- 不写旁白。\n## 示例\n用户：过来。\n角色：先把门关上。";
+  assert.equal(chatPromptBehaviorRules(style), "- 被命令时先压住场面，可以提条件。\n- 被看穿时嘴硬遮掩。");
+  const prompt = chatSystemPrompt({ character: { name: "顾静涵", replyStyle: style }, relationship: {} }, "zh", "我插进来了。", null, [], [{ role: "user", content: "我插进来了。" }], { liveSite: true, intimateProcess: true });
+  assert.match(prompt, /本轮必须执行的行为规则/);
+  assert.match(prompt, /被命令时先压住场面/);
+  assert.doesNotMatch(prompt, /先把门关上/);
 });
 
 test("prompt style strips concrete sample dialogue but keeps behavior rules", () => {

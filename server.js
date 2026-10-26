@@ -17742,6 +17742,23 @@ function chatLivePersonaSource(character = {}) {
     .join("\n");
 }
 
+function chatPromptBehaviorRules(value = "") {
+  const source = String(value || "").trim();
+  if (!source) return "";
+  const lines = source.split(/\r?\n/);
+  const kept = [];
+  let capture = false;
+  for (const line of lines) {
+    const heading = line.match(/^\s*(#{1,6})\s*(.+?)\s*#*\s*$/u);
+    if (heading) {
+      capture = /(?:行为规则|行为准则|反应规则|执行方式|互动规则)/u.test(heading[2]);
+      continue;
+    }
+    if (capture) kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
 function chatPromptReplyStyle(value = "") {
   const source = String(value || "").trim();
   if (!source) return "";
@@ -18424,6 +18441,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const sceneStage = chatSceneStage(latest, currentMessages, relationship);
   const voice = chatPromptReplyStyle(character.replyStyle);
+  const behaviorRules = chatPromptBehaviorRules(character.replyStyle);
   const personaCore = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
   const personaSelfMemory = intimateProcess ? chatPersonaSelfMemory(character) : "";
   const personaContinuity = chatPersonaContinuityFacts(character);
@@ -18448,6 +18466,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
       : "",
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
     voice ? `行为与说话准则（最高优先级。完整遵守，不按通用模板覆盖；示例只学态度，不要照抄）：\n${voice}` : "",
+    behaviorRules ? `本轮必须执行的行为规则（不是可选氛围。亲密时也要让这些规则影响她怎么开口、怎么停顿、怎么答应或收回主动）：\n${behaviorRules}` : "",
     intimateProcess
       ? "当前轮允许第一人称承受过程：身体反应、断续说话、浪叫、喘息、荤话、少量心里话和她本人的判断可以混合；心理活动只用来表现嘴硬、羞耻、想要又不敢承认、想控制又失控，不要写长篇分析。不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
       : "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
@@ -49458,6 +49477,7 @@ if (require.main === module) {
 module.exports = {
   chatPersonaContrastAnchors,
   chatPromptReplyStyle,
+  chatPromptBehaviorRules,
   chatSystemPrompt,
   chatLiveVoiceProfile,
   chatLiveCharacterVoiceLines,
