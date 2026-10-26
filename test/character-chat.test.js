@@ -55,6 +55,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /quotedWeight \/ Math\.max\(1, compactWeight\) >= 0\.55/);
   assert.match(server, /function normalizeChatReply/);
   assert.match(server, /function chatSentenceLooksLikeNarration/);
+  assert.match(server, /processDetail/);
+  assert.match(server, /plainAction/);
+  assert.match(server, /\[\.\.\.bare\]\.length <= 24/);
   assert.match(server, /function chatSpokenOnlyText/);
   assert.match(server, /OUTPUT CONTRACT/);
   assert.match(server, /FINAL SPEECH-ONLY FORMAT/);

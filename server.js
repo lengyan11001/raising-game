@@ -17726,7 +17726,10 @@ function chatSentenceLooksLikeNarration(value = "") {
   const bare = sentence.replace(/^[嗯啊哦噢好行可以，,。.!！\s]+/u, "").trim();
   if (!/^我/u.test(bare)) return false;
   if (/(?:感觉|觉得|想|想要|愿意|喜欢|讨厌|害怕|舒服|难受|爽|兴奋|紧张|羞|湿|烫|忍|控制不住|受不了|满足|开心|生气|委屈|心动|渴望|爱|需要)/u.test(bare)) return false;
-  return /(?:走到|走过去|过去|转身|把|伸手|低头|抬头|看着|看向|盯着|看|靠|坐着|坐下|跪|趴|抬起|张开|闭上|抚|摸|夹|裹|托|按|退|抽|沉|贴|凑|探|压|挺|动|收紧|撑开|用|让|强迫|固定|展示|撤|落|站|静止)/u.test(bare);
+  const processDetail = /(?:挺着|胸膛|曲线|视线落在|目光落在|身子|腰|臀|大腿|衣料|灯光|呼吸|敏感|胀满|叫嚣|揉碎|重心|侵略|驰骋)/u.test(bare);
+  const plainAction = /(?:走到|走过去|过去|转身|把|伸手|低头|抬头|看着|看向|盯着|看|靠|坐着|坐下|跪|趴|抬起|张开|闭上|抚|摸|夹|裹|托|按|退|抽|沉|贴|凑|探|压|挺|动|收紧|撑开|用|让|强迫|固定|展示|撤|落|站|静止)/u.test(bare);
+  if (!processDetail && [...bare].length <= 24 && !/(?:然后|接着|慢慢|开始|一边|一边)/u.test(bare)) return false;
+  return processDetail || plainAction;
 }
 
 function chatSpokenOnlyText(value = "") {
