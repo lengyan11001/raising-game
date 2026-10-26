@@ -17964,7 +17964,7 @@ function chatReplyHasPersonaContrast(value = "", character = {}) {
   const anchors = chatPersonaContrastAnchors(character);
   const exposesIdentity = /(?:我是|身为|作为|明明(?:我)?是|我这个)[^。！？!?]{0,20}(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|同学(?:的)?妈妈|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻)/u.test(text)
     || /(?:该|在|要)(?:管教|管|教)[^。！？!?]{0,8}(?:规矩|人)/u.test(text)
-    || /(?:明明|原本|本来)[^。！？!?]{0,24}(?:我|规矩|命令|管教|控制|体面|面子|身份)[^。！？!?]{0,24}(?:现在|却|可)/u.test(text);
+    || /(?:明明|原本|本来)[^。！？!?]{0,32}(?:我现在|现在却|可现在)/u.test(text);
   const weakAbstract = /(?:仪态|端庄|体面)/u.test(text);
   const habitualBehavior = /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
     || /(?:我(?:平时|平常|一向|从来|平常)[^。！？!?]{0,28}(?:说了算|一句话|没人敢|都听|得听|不准|不许|最重|最看重))/u.test(text);
@@ -18447,7 +18447,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "FORMAT IS MANDATORY: 6-9 lines. Each line is 1-14 Chinese characters. Put one line break between lines. No paragraph, no complete speech, no narrator, no explanation.",
             "The first, middle, and late beats should each contain a sound such as 啊…, 哈啊…, 唔…, 嘶…, 嗯…, or a half-swallowed syllable. At least two lines must break off mid-word with ellipses or a dash. The mouth must sound unsteady, not composed.",
             "At least two hits must be direct, ordinary adult speech for this exact action: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Do not use abstract sensation nouns.",
-            `Use one concrete reversal anchor from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech, not as an explanation: her usual order collapses into “求你…” or “听我的…” becoming “我不敢信…”; her rule-keeping turns into “我居然…” or “我怎么会…”; her distance turns into clinging. Use a concrete phrase, not a job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
+            `Use one concrete reversal anchor from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech, not as an explanation: her usual order collapses into “求你…” or “听我的…” becoming “我不敢信…”; her rule-keeping turns into “我居然…” or “我怎么会…”; her distance turns into clinging. Never write a contrast sentence shaped like “明明我…现在…/原本…现在…”; no job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
             "Banned shapes: 每一寸, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
             "Form reference only, do not reuse its nouns or wording:\n啊…！\n哈啊…别、别停…\n唔…我平时只让人守规矩…\n现在…求你…操我…\n嘶…再深…灌进来…\n嗯…不许笑…",
             "只输出最终内容，不要解释为什么重写。",
