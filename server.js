@@ -17663,6 +17663,23 @@ function chatPersonaContrastAnchors(character = {}) {
   return [...anchors];
 }
 
+function chatLiveIntimateRewriteBeat(character = {}, attempt = 1) {
+  const anchors = chatPersonaContrastAnchors(character);
+  const authority = /(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|长辈)/u.test(anchors.join(""));
+  const pride = /(?:规矩|面子|掌控欲|强势|高傲|冷艳|挑剔|严厉|俯视)/u.test(anchors.join(""));
+  const habitual = authority
+    ? "我平时只让人听我的"
+    : pride
+      ? "我平时最重规矩"
+      : "我从来不肯先服软";
+  const beats = [
+    `${habitual}…唔…现在居然要开口求你…`,
+    `我居然会求你…这不像我…`,
+    `${habitual}…听见没有…我求你了…`,
+  ];
+  return beats[(Math.max(1, Number(attempt) || 1) - 1) % beats.length];
+}
+
 function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = false } = {}) {
   if (!chatIsImmediateIntimateScene(value, contextMessages)) return "";
   const liveGuide = liveSite
@@ -18452,13 +18469,14 @@ async function handleSendChatMessage(req, res, conversationId) {
       let accepted = false;
       const anchorHint = chatPersonaContrastAnchors(liveIntimateCharacter).slice(0, 12).join("、");
       for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const reversalBeat = chatLiveIntimateRewriteBeat(liveIntimateCharacter, attempt);
         try {
           const retryRaw = await requestChat([
             `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Discard the rejected version. Output only the character's broken spoken subtitles for this exact moment.`,
             "FORMAT IS MANDATORY: 6-9 lines. Each line is 1-14 Chinese characters. Put one line break between lines. No paragraph, no complete speech, no narrator, no explanation.",
             "The first, middle, and late beats should each contain a sound such as 啊…, 哈啊…, 唔…, 嘶…, 嗯…, or a half-swallowed syllable. At least two lines must break off mid-word with ellipses or a dash. The mouth must sound unsteady, not composed.",
             "At least two hits must be direct, ordinary adult speech for this exact action: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Do not use abstract sensation nouns.",
-            `Use one concrete reversal anchor from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech, not as an explanation: her usual order collapses into “求你…” or “听我的…” becoming “我不敢信…”; her rule-keeping turns into “我居然…” or “我怎么会…”; her distance turns into clinging. Never write a contrast sentence shaped like “明明我…现在…/原本…现在…” and never write “别管我的规矩/面子/脸面”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
+            `Use one concrete reversal anchor from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech as a broken line, not as an explanation. This attempt's reversal beat: ${reversalBeat} Do not write a contrast sentence shaped like “明明我…现在…/原本…现在…”. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
             "Banned shapes: 每一寸, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
             "Do not quote this prompt, explain the persona, or label the reversal. Let the broken words themselves expose the slip.",
             "只输出最终内容，不要解释为什么重写。",
@@ -49068,6 +49086,7 @@ if (require.main === module) {
 
 module.exports = {
   chatPersonaContrastAnchors,
+  chatLiveIntimateRewriteBeat,
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLiveSpokenTexture,

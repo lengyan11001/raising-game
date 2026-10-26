@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const {
   chatPersonaContrastAnchors,
+  chatLiveIntimateRewriteBeat,
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
   chatReplyHasLiveSpokenTexture,
@@ -70,4 +71,10 @@ test("a concrete spoken reversal can omit the 明明-now formula", () => {
   const spoken = "啊……！哈啊……慢点……我居然会求你……唔……听我的，别停……操我，再深一点……嘶……灌进来……";
   assert.equal(chatReplyHasPersonaContrast(spoken, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
+});
+
+test("rewrite beats come from the character's habitual control", () => {
+  assert.equal(chatLiveIntimateRewriteBeat(character, 1), "我平时只让人听我的…唔…现在居然要开口求你…");
+  assert.equal(chatLiveIntimateRewriteBeat(character, 2), "我居然会求你…这不像我…");
+  assert.match(chatLiveIntimateRewriteBeat(character, 3), /我求你了/);
 });
