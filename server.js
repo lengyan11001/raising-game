@@ -6677,6 +6677,8 @@ function chatCharacterMemoryBlock(memory = null, user = null, { currentMessages 
     ? turns.slice(-8).map((turn) => (turn.role === "user" ? "用户：" : "角色：") + String(turn.content || "").replace(/\s+/g, " ").trim()).join(" ").slice(0, 900)
     : storedSummary;
   const facts = (Array.isArray(memory && memory.facts) ? memory.facts : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-8);
+  const cleanStoredSummary = String(summary || "").replace(/\s+/g, " ").trim();
+  const summaryIsRepeatedTemplate = /(?:闭嘴。别盯着看|别停，就这一次|先把门关上|我让你过来|别停，再深一点|谁准你……这么蛮横)/u.test(cleanStoredSummary);
   const userContext = chatLiveUserContext(user);
   if (!turns.length && !summary && !facts.length && !userContext) return "";
   const recent = turns.slice(-18).map((turn) => (turn.role === "user" ? "用户：" : "角色：") + String(turn.content || "").replace(/\s+/g, " ").trim().slice(0, 220)).filter((line) => line.length > 3).join("\n");
@@ -6686,7 +6688,7 @@ function chatCharacterMemoryBlock(memory = null, user = null, { currentMessages 
     "当前关系：" + stage + "。像认识的人往前聊一点，不要跳到告白或要礼物。",
     facts.length ? "记住的用户细节：" + facts.join("；") + "。用到时像记得，不要像在查资料。" : "",
     userContext,
-    summary ? "最近一段：" + summary.slice(0, 900) : "",
+    summary && !summaryIsRepeatedTemplate ? "最近一段：" + summary.slice(0, 900) : "",
     recent ? "更早到刚才的对话：\n" + recent : "",
   ].filter(Boolean).join("\n");
 }
@@ -18262,8 +18264,21 @@ function chatReplyHasLiveDirtyTalk(value = "") {
   return chatReplyLiveDirtyTalkCount(value) >= 3;
 }
 
+function chatReplyCopiesStyleExamples(value = "", character = {}) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  const source = String(character.replyStyle || "");
+  const body = source.split(/^\s*#{1,6}\s*.*(?:示例|范例|样例|参考(?:对白|台词|回复)).*$/mu)[1] || "";
+  const samples = body
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*(?:用户|角色|[^：:\n]{1,20})[:：]\s*/u, "").replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 8);
+  return samples.some((line) => text.includes(line));
+}
+
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
-  return chatReplyStartsWithCannedIntimateVocal(value)
+  return chatReplyCopiesStyleExamples(value, character)
+    || chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
     || /(?:别管|不管)/u.test(String(value || ""))
@@ -18795,6 +18810,7 @@ async function handleSendChatMessage(req, res, conversationId) {
         try {
           const retryRaw = await requestChat([
             `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Discard the rejected version. Output only the character's broken spoken subtitles for this exact moment.`,
+            "Do not treat earlier assistant messages, memory summaries, or any sample dialogue as a phrase bank. Use them only for relationship continuity. Every clause in the final reply must be newly phrased for this turn.",
             "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
             "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
             "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
@@ -18802,6 +18818,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "Keep her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active without reciting a biography. Let those facts affect what she chooses to say, refuses, hides, or cannot finish. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as explanation.",
             "Banned shapes: 每一寸, 最深处, 那根粗大的, 彻底…弄坏, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
             "Do not quote this prompt, explain the persona, or label the character choice. Keep the established behavior rules and marriage/family situation effective without reciting them as explanation.",
+            "Explicitly forbidden: 闭嘴。别盯着看。手拿开。 别停，就这一次。 先把门关上。 我让你过来。 想得美。 and any complete sentence taken from the character's replyStyle examples.",
             "只输出最终内容，不要解释为什么重写。",
           ].join("\n"), true, { temperature: 0.78, topP: 0.82, maxTokens: 520 });
           const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true, preserveBreaks: true });
@@ -18815,7 +18832,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             accepted = true;
             break;
           }
-          console.warn("[character-chat-live-intimate-rewrite-rejected-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, score, reply: String(retryReply || "").slice(0, 240) }));
+          console.warn("[character-chat-live-intimate-rewrite-rejected-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, score, copiedStyleExample: chatReplyCopiesStyleExamples(retryReply, liveIntimateCharacter), reply: String(retryReply || "").slice(0, 240) }));
         } catch (retryError) {
           console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
         }
@@ -49459,6 +49476,7 @@ module.exports = {
   chatReplyLiveBrokenSpeechCount,
   chatReplyLiveDirtyTalkCount,
   chatReplyLiveIntimateScore,
+  chatReplyCopiesStyleExamples,
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,

@@ -27,6 +27,7 @@ const {
   chatReplyHasPersonaContrast,
   chatReplyIntimateVocalReactionCount,
   chatReplyLiveIntimateScore,
+  chatReplyCopiesStyleExamples,
   chatReplyWithLivePersonaSlip,
   chatReplyLiveBrokenSpeechCount,
   chatReplyLiveIntimateFallback,
@@ -193,6 +194,16 @@ test("prompt style strips concrete sample dialogue but keeps behavior rules", ()
   assert.match(prompt, /被命令时先压住场面/);
   assert.match(prompt, /当前阶段：亲密交互/);
   assert.doesNotMatch(prompt, /闭嘴。别盯着看/);
+});
+
+test("copying a replyStyle sample is rejected without banning ordinary phrases", () => {
+  const styled = {
+    name: "顾静涵",
+    replyStyle: "# 回复口吻\n## 行为规则\n- 被命令时先压住场面。\n## 示例只学态度，绝对不要照抄\n用户：你下面都湿了。\n顾静涵：闭嘴。别盯着看。手拿开，我自己来。\n用户：说你想要。\n顾静涵：想得美。……别停，就这一次。",
+  };
+  assert.equal(chatReplyCopiesStyleExamples("啊…闭嘴。别盯着看。手拿开，我自己来。…唔…", styled), true);
+  assert.equal(chatReplyCopiesStyleExamples("啊……你先别动……我还没缓过来……", styled), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite("啊…！\n哈…闭嘴。别盯着看。手拿开，我自己来。\n唔…再深一点…\n操我…\n别停…", { requireVocal: true, character: styled }), true);
 });
 
 test("character example lines are preferred over shared fallback language", () => {
