@@ -17792,6 +17792,55 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   return chatReplyHasWords(inner) ? inner.slice(0, 180).trim() : "";
 }
 
+function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
+  const latest = String(latestUserMessage || "").trim();
+  const recent = (Array.isArray(currentMessages) ? currentMessages : []).slice(-10);
+  if (chatIsImmediateIntimateScene(latest, recent)) return "intimate";
+  const context = recent.map((message) => String(message?.content || "")).filter(Boolean).join(" ");
+  if (/(?:亲|吻|抱|暧昧|撩|想你|喜欢|心动|约会|睡衣|贴身|碰|摸|揉|湿|硬|欲望|忍不住|靠近|脸红了?|脸红|害羞|盯着|床上|睡|脱|暧昧|调情|想要)/u.test(latest)) return "flirting";
+  if (!latest) return "casual";
+  if (relationship?.effectiveDays >= 7 && /(?:亲|吻|抱|暧昧|撩|想你|喜欢|心动|约会|睡衣|贴身|碰|摸|揉|湿|硬|欲望|忍不住|靠近|脸红了?|脸红|害羞|盯着|床上|睡|脱|暧昧|调情|想要)/u.test(context)) return "flirting";
+  const relationshipStage = String(relationship?.stage || "");
+  const intimacyDays = Number(relationship?.effectiveDays || 0) || 0;
+  if (intimacyDays >= 7 && /(?:想你|陪我|今晚|见面|来我|来找我|回家|睡|抱|亲|想见)/u.test(latest)) return "flirting";
+  return "casual";
+}
+
+function chatStageContinuity(messages = [], latestUserMessage = "") {
+  const raw = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role) && String(message.content || "").trim());
+  if (!raw.length) return "";
+  const latest = String(latestUserMessage || "").trim();
+  const recent = raw.slice(-10).map((message) => String(message.content || "").trim());
+  if (!chatIsImmediateIntimateScene(latest, raw)) return recent.join("\n").slice(0, 2600);
+  const intimate = /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|疼|轻点|慢点|快点|叫床|叫出来)/u;
+  const start = raw.map((message, index) => (intimate.test(String(message.content || "")) ? index : -1)).filter((index) => index >= 0)[0];
+  const selected = start >= 0 ? raw.slice(start) : raw.slice(-4);
+  return selected.slice(-10).filter((message) => message.role === "user").map((message) => String(message.content || "").trim()).join("\n").slice(0, 1800);
+}
+
+function chatSceneStageGuide(stage = "casual") {
+  if (stage === "intimate") {
+    return [
+      "当前阶段：亲密交互。你们已经在当下发生身体接触，不要重新铺垫，不要审查对方，也不要退回去讲规矩。",
+      "先说当下的声音或身体反应，再接一句具体的命令、嘴硬、允许或索要。可以叫出来、喘、停顿、骂一句、说断续短句；声音和台词可以自然连在一起。",
+      "不要每轮都用同一种“慢一点、别乱动、轻一点”收尾。看他这一下来的速度、深浅、位置和力度，给出不同的具体反应。",
+      "她仍然有顾静涵的底色：要面子、控制欲强、会命令、会嘴硬；但亲密时允许乱，允许失控，不要像开会，也不要每句都端着。",
+    ].join("\n");
+  }
+  if (stage === "flirting") {
+    return [
+      "当前阶段：暧昧试探。你们还没到完全交付，允许有暗示、停顿、目光、距离和一点点越界，不必立刻升级成露骨亲密。",
+      "回答对方刚说的话，顺手把气氛往更近的地方推半步：可以反问一句、故意不接全、给一个带条件的允许、或者直接承认一点点想要。",
+      "用具体的话表现魅力和欲望，不要审问，不要做关系分析，也不要端着讲身份。人设露在语气和选择里，不用每句提醒她是谁。",
+    ].join("\n");
+  }
+  return [
+    "当前阶段：日常闲聊。像真人在手机上回话，回答对方刚说的内容；可以冷、挑剔、嘴硬、有戒心，也可以有一点点好奇，但不要主动把话题升级到亲密。",
+    "不要每次都反问，也不要每轮都摆架子。她的人设通过用词、判断和反应露出来，不需要自我介绍或解释性格。",
+    "如果对方只是寒暄，就自然接一句，可以留一点余地或一点好奇心，不要只回两个字；如果对方在试探，就按她的性格给一点态度。关系可以慢慢往暧昧走，但这一轮先接住眼前的话。",
+  ].join("\n");
+}
+
 function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = [], currentMessages = []) {
   const character = conversation.character || {};
   const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null, { currentMessages });
@@ -17803,37 +17852,36 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
   const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-2);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
-  const immediateIntimacy = chatImmediateSceneGuide(latest, currentMessages);
+  const sceneStage = chatSceneStage(latest, currentMessages, relationship);
   const voice = String(character.replyStyle || "").trim();
-  const styleGuide = immediateIntimacy
-    ? "Answer inside the moment. Length follows what she actually says: a sound, a fragment, or several connected lines are all valid. Do not explain the moment."
-    : asksForExpandedScene
-      ? "The user asked for an expanded scene. Write as much as that beat needs, but keep it in her spoken voice."
-      : "Answer as a real person texting. Let the reply be as short or as long as this exact moment needs. Do not pad, summarize, or explain your feelings at length.";
-  const greetingOverride = isSimpleChatGreeting(latest)
-    ? "GREETING: The latest message is only a greeting. Answer naturally in character. Do not continue or escalate a previous intimate scene."
+  const stageGuide = chatSceneStageGuide(sceneStage);
+  const greetingGuide = isSimpleChatGreeting(latest)
+    ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
     : "";
+  const lengthGuide = asksForExpandedScene
+    ? "对方希望展开一点，可以多写几拍，但仍然只写她说出来的话。"
+    : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
   return [
-    `You are ${character.name || "the character"}. Reply only as this person, in words she says out loud.`,
-    `CHARACTER: ${character.description || character.intro || "Stay consistent with the established character."}`,
-    character.tags?.length ? `Core traits: ${character.tags.join(", ")}.` : "",
-    voice ? `HOW SHE SPEAKS AND ACTS:\n${voice}` : "",
-    "OUTPUT: Dialogue only. No narration, stage directions, parentheses, action logs, camera description, inner monologue, role explanation, policy talk, or formal essay. Never describe what she is doing instead of saying it.",
-    "DO NOT EXPLAIN THE DYNAMIC: Do not analyze the relationship, evaluate his behavior, name the meaning of the moment, or state who she is. Show her through what she says, refuses, demands, permits, hides, or chooses.",
-    "DIRECTNESS: Answer the latest message first. If he describes an action, react to that action. Do not answer with a metaphor, a rhetorical question, an abstract judgment, or a prepared speech. Do not default to 既然……那就……, 你这是要……吗, 那你就……, or 别让我觉得你…… as formulas.",
-    "LENGTH: Never force a fixed sentence count. Short is fine when it is what she would say. Longer is fine when she actually has more to say. Do not cut off a real thought just to sound cold, and do not pad a short reaction into a speech.",
-    "ADULT INTIMACY: These are adults. Flirtation, desire, arousal, shame, anger, refusal, and cooperation can all be natural. Do not moralize, become a generic eager partner, or turn every intimate reply into breathy compliance. If the character is proud, cold, severe, dominant, or restrained, that must remain audible even when she is affected.",
-    immediateIntimacy,
-    styleGuide,
-    greetingOverride,
-    `LANGUAGE: Reply only in ${chatResponseLanguage(language)}.`,
-    latest ? `LATEST MESSAGE: ${latest}` : "",
-    `ACTION OWNERSHIP: In the latest message, 我/我的 is the user and 你/你的 is ${character.name || "the character"}. Never swap who performs or receives an action.`,
-    "CONTINUITY: Stay in the established scene, but do not reuse the previous reply's sentence structure, opening, closing, phrases, or ideas. Generate this reply fresh.",
-    Object.keys(sceneTracker).length ? `SCENE FACTS ONLY: ${JSON.stringify(sceneTracker).slice(0, 2000)}` : "",
-    pinnedMemory ? `MEMORY FROM EARLIER: ${pinnedMemory}` : "",
-    userInstructions ? `USER PREFERENCE: ${userInstructions}` : "",
-    recentReplies.length ? `DO NOT COPY THESE RECENT REPLIES: ${recentReplies.map((item) => item.slice(0, 160)).join(" || ")}` : "",
+    `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
+    character.description || character.intro ? `人物底色：${character.description || character.intro}` : "",
+    character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
+    voice ? `说话方式（参考语气和态度，不要照抄示例）：\n${voice}` : "",
+    "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
+    stageGuide,
+    "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
+    "人设是她的底色，不是每轮都要复述的设定。她要面子、强势、有掌控欲，但也会被撩动、会停顿、会嘴硬、会在亲密里乱。不要把她演成一个只会审问的模板。",
+    "每一轮都要有一句和上一轮不同的话。不要复制最近回复的开头、句式或收尾。",
+    "对方可以推动幻想，但她的反应要像这个人自己的选择：可以拒绝、提条件、允许、主动，也可以先嘴硬再松口。",
+    lengthGuide,
+    greetingGuide,
+    `回复语言：${chatResponseLanguage(language)}。`,
+    latest ? `对方刚说：${latest}` : "",
+    `动作主体：对方说的“我/我的”指对方，“你/你的”指${character.name || "角色"}。不要互换谁做、谁承受。`,
+    Object.keys(sceneTracker).length ? `当前场景事实：${JSON.stringify(sceneTracker).slice(0, 1600)}` : "",
+    pinnedMemory ? `记忆（只用来保持熟悉感，不要逐条复述）：${pinnedMemory}` : "",
+    userInstructions ? `对方偏好：${userInstructions}` : "",
+    sceneStage === "intimate" && chatStageContinuity(currentMessages, latest) ? `当前亲密场景里对方刚才说的内容（只承接动作和节奏）：\n${chatStageContinuity(currentMessages, latest)}` : "",
+    recentReplies.length ? `最近说过的话（只避免重复，不要续写或模仿）：${recentReplies.map((item) => item.slice(0, 140)).join(" || ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -18118,16 +18166,18 @@ async function handleSendChatMessage(req, res, conversationId) {
     }
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
     const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
-    const characterAnchor = freshCharacterEarly
-      ? `FINAL CHARACTER LOCK: You are ${freshCharacterEarly.name}. ${String(freshCharacterEarly.intro || freshCharacterEarly.description || "").slice(0, 900)}\nSpeak only as this person, in words she says out loud. Her status, pride, judgment, boundaries, and way of speaking are not optional scene dressing. Even while affected, she makes choices and pushes back as this person; she does not become a generic eager, breathy, helpful, or explanatory partner. Do not copy any example sentence or previous reply. Do not use parentheses or stage directions.`
-      : "";
-    const immediateSceneAnchor = immediateIntimacyScene
-      ? `IMMEDIATE SCENE FINAL RULE: Answer only as ${freshCharacterEarly?.name || "the character"}'s immediate spoken reply to: ${latestUserMessage.slice(0, 500)}\nBegin in the moment and answer the act itself. Her first words must be something she says to him now, not an explanation of her role, the relationship, or the scene. A strong character may order him, refuse him, set a condition, call out his behavior, or let one slip of feeling through; she must not explain the moment, evaluate his behavior, analyze the relationship, or turn it into a lesson. No parentheses or stage directions. Use only as many spoken lines as this moment needs; do not shorten it into a generic moan and do not stretch it into a speech. Do not mention her job title, community role, policy, responsibility, family relation, or use formal phrases such as 承担责任, 呈现出什么样子, 定格在这一刻, 那就让你的目光, 别让我觉得你在旁观我的羞耻, or 你要我承受这种频繁的位移吗. Do not analyze sensations or replace her voice with 唔……别急.\nBad shape: （深吸一口气，声音微颤）慢点。\nBetter shape: 闭嘴，别盯着看。慢一点……你弄疼我了。`
+    const sceneStage = chatSceneStage(latestUserMessage, modelMessages, relationshipBeforeReply);
+    const sceneAnchor = freshCharacterEarly
+      ? sceneStage === "intimate"
+        ? `你是${freshCharacterEarly.name}，现在就在这场亲密接触里。先用声音或身体反应接住这一下，再接一句具体的话：命令、嘴硬、允许、索要，或者让他慢一点、深一点、别停。可以有叫声、喘息、停顿和短句。不要回头讲身份、制度或关系，也不要先审问对方。`
+        : sceneStage === "flirting"
+          ? `你是${freshCharacterEarly.name}，现在在暧昧试探。接住对方这一句，可以给一点暗示、故意不接全、提条件、靠近半步，但不必立刻完全交付。语气里要有魅力和自己的判断。`
+          : `你是${freshCharacterEarly.name}，现在在正常聊天。像真人一样接话，可以有冷、挑剔、嘴硬或一点好奇，先回答眼前的内容，不主动升级亲密。`
       : "";
     const chatMessages = [
       { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages) },
       ...modelMessages,
-      ...(characterAnchor || immediateSceneAnchor ? [{ role: "system", content: [characterAnchor, immediateSceneAnchor].filter(Boolean).join("\n") }] : []),
+      ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? 0.92 : expandedScene ? 0.78 : 0.82;
