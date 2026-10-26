@@ -17643,14 +17643,35 @@ function chatPersonaSelfMemory(character = {}) {
   ].filter(Boolean).join("\n").slice(0, 1800);
 }
 
+function chatPersonaContrastAnchors(character = {}) {
+  const source = [character.description, character.personaMd, character.persona, character.intro, character.replyStyle, ...(Array.isArray(character.tags) ? character.tags : [])]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  if (!source) return [];
+  const patterns = [
+    /(?:社区主任|班主任|老师|医生|护士|老板|上司|领导|主管|同学(?:的)?妈妈|妈妈|姐姐|阿姨|长辈|妻子|太太|人妻)/gu,
+    /(?:规矩|面子|体面|身份|分寸|掌控(?:欲)?|强势|高傲|冷艳|挑剔|严厉|命令|训人|管人|俯视|高冷|嘴硬|羞耻)/gu,
+    /(?:丈夫|老公|婚姻|家里|单位|街道|社区|辖区)/gu,
+  ];
+  const anchors = new Set();
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (match[0]) anchors.add(match[0]);
+    }
+  }
+  return [...anchors];
+}
+
 function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = false } = {}) {
   if (!chatIsImmediateIntimateScene(value, contextMessages)) return "";
   const liveGuide = liveSite
     ? [
         "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
-        "NATURAL VOCAL REACTION IS REQUIRED: Include at least one natural moan, gasp, broken syllable, or breath caught mid-sentence somewhere in the process, varied for this specific action. Do not use a fixed 嗯……哈 / 唔……哈 opener, and do not add sounds mechanically at every sentence. Vary vowels, consonants, swallowed sounds, and incomplete syllables rather than relying on 嗯 or 哈 every turn.",
-        "PERSONA IN THE PROCESS: Her control, face-saving, judgment, and shame must shape what she says and what she refuses to admit. Do not replace her with a neutral narrator who merely reports sensations. Her psychological reaction belongs in short, spoken or half-spoken thoughts, not an analytical essay.",
-        "LENGTH AND STYLE: Usually keep one developed beat to roughly 2-5 natural sentences or 2 short paragraphs. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors. Use plain, physical, colloquial Chinese with short interruptions.",
+        "LIVE SPOKEN TEXTURE (HARD REQUIREMENT): Include at least two separate vocal reactions, such as a startled syllable, a caught breath, a moan cut short, or a word breaking apart. Put them at different beats that this exact action causes. Let at least two places break off with ellipses, dashes, or an unfinished syllable. Do not write smooth, complete, grammatically polished paragraphs.",
+        "PERSONA CONTRAST (HARD REQUIREMENT): Pick one concrete behavior or status anchor from this specific character, then show the reversal in action: the person who normally makes others obey is the one begging; the person who normally protects face admits something shameful mid-sentence; the person who usually keeps distance refuses to let go. The contrast must be audible in the words, not explained with abstract words such as 仪态 or 端庄.",
+        "DIRTY TALK IN THE MOMENT: Use direct, colloquial adult words for the current action, body reaction, pace, need, or loss of control. Do not replace them with literary sensation nouns or a detached report. She may curse, order, beg, deny, or contradict herself in the same breath.",
+        "LENGTH AND STYLE: Usually keep one developed beat to roughly 2-5 natural sentences or 2 short paragraphs. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors.",
       ]
     : [];
   return [
@@ -17869,13 +17890,32 @@ function chatReplyUsesIntimateCommandTemplate(value = "") {
 function chatReplyStartsWithCannedIntimateVocal(value = "") {
   const text = String(value || "").trim();
   if (!text) return false;
-  return /^(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)(?:[。！？!?，,…]|$)/u.test(text)
-    || /^(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)(?:[^。！？!?]{0,6})(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)(?:[^。！？!?]{0,6})?[。！？!?，,…]/u.test(text);
+  return /^(?:(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)[，。！？!?…~～\s]*){2,}$/u.test(text);
 }
 
 function chatReplyHasIntimateVocalReaction(value = "") {
   const text = String(value || "").trim();
-  return /(?:^|[，。！？!?…\s])(?:啊|嗯|唔|哈|呃|嘶|呜|噢|哦|呀)(?:[，。！？!?…~～]|$)/u.test(text);
+  return chatReplyIntimateVocalReactionCount(text) > 0;
+}
+
+function chatReplyIntimateVocalReactionCount(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  return (text.match(/(?:^|[，。！？!?…~～\s])(?:哈啊|啊哈|嗯啊|唔嗯|啊啊|嗯嗯|啊+|嗯+|唔+|哈+|呃+|嘶+|呜+|噢+|哦+|呀+)(?=[，。！？!?…~～\s]|$)/gu) || []).length;
+}
+
+function chatReplyHasBrokenLiveSpeech(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const breaks = [
+    ...(text.match(/…{1,}|—{1,}|\.{3,}/gu) || []),
+    ...(text.match(/(?:别|不|慢|快|轻|重|深|顶|插|停|要|给)[^。！？!?]{0,10}(?:…|—)/gu) || []),
+  ];
+  return breaks.length >= 2;
+}
+
+function chatReplyHasLiveSpokenTexture(value = "") {
+  return chatReplyIntimateVocalReactionCount(value) >= 2 && chatReplyHasBrokenLiveSpeech(value);
 }
 
 function chatReplyLooksLikeLiveIntimateEssay(value = "") {
@@ -17906,25 +17946,48 @@ function chatReplyAsLiveSpokenBeat(value = "") {
   return text;
 }
 
-function chatReplyHasPersonaContrast(value = "") {
+function chatReplyHasPersonaContrast(value = "", character = {}) {
   const text = String(value || "").trim();
-  const boundaryContrast = /(?:规矩|面子|体面|身份|主任|长辈|平时|从来|不许|不能|不该|明明|偏偏|嘴上|装作|忍着|撑着|端着|控制|命令|求|承认|丢脸|羞|不像我|被你看见)/u.test(text);
-  const yielding = /(?:别停|继续|快点|深一点|重一点|想要|求你|受不了|撑不住|不行了|弄坏|湿|爽|舒服)/u.test(text);
-  return boundaryContrast && yielding;
+  if (!text) return false;
+  const anchors = chatPersonaContrastAnchors(character);
+  const concreteAnchor = anchors.some((anchor) => text.includes(anchor))
+    || /(?:我(?:平时|平常|一向|从来|刚刚|刚才|本来|原本|还想|总是|一直)?[^。！？!?]{0,24}(?:让|叫|要求|命令|训|管|盯着|守着|讲|端着|拿|摆|控制|压|维持|要)[^。！？!?]{0,24}(?:规矩|分寸|面子|体面|身份|样子|场面|秩序|主动权|上下|听我的))/u.test(text)
+    || /(?:我(?:平时|平常|一向|从来|平常)[^。！？!?]{0,28}(?:说了算|一句话|没人敢|都听|得听|不准|不许|最重|最看重))/u.test(text);
+  const reversal = /(?:现在|可(?:现在)?|却|居然|偏偏|反倒|反而|结果|这回|这次|下一秒|刚一?[^。！？!?]{0,8}就)/u.test(text);
+  const yielding = /(?:别停|继续(?:插|干|顶)?|快点|再(?:深|重|用力)|深一点|重一点|想要|求你|求我|受不了|撑不住|不行了|弄坏|湿|水|爽|舒服|操我|干我|插我|顶我|进来|到底)/u.test(text);
+  return concreteAnchor && reversal && yielding;
 }
 
 function chatReplyHasLiveDirtyTalk(value = "") {
   const text = String(value || "").trim();
-  return /(?:操|干|插|顶|射|鸡巴|阴茎|阴道|里面|穴|骚|浪|爽|舒服|疼|轻点|重点|别停|继续|深一点|到底|受不了|要坏|弄坏|水|湿)/u.test(text);
+  return /(?:鸡巴|阴茎|龟头|阴道|里面|穴|操我|干我|插我|顶我|顶到|插到|继续(?:插|干|顶)|射|高潮|淫水|骚|浪叫|太深|好深|到底|别停|再(?:深|重|用力)|弄坏|撑坏|受不了)/u.test(text);
 }
 
-function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false } = {}) {
+function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, character = {} } = {}) {
   return chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(value)
     || (requireVocal && !chatReplyHasIntimateVocalReaction(value))
+    || (requireVocal && !chatReplyHasLiveSpokenTexture(value))
     || (requireVocal && !chatReplyHasLiveDirtyTalk(value))
-    || (requireVocal && !chatReplyHasPersonaContrast(value));
+    || (requireVocal && !chatReplyHasPersonaContrast(value, character));
+}
+
+function chatReplyLiveIntimateScore(value = "", character = {}) {
+  const text = String(value || "").trim();
+  if (!text) return -100;
+  let score = 0;
+  score += Math.min(4, chatReplyIntimateVocalReactionCount(text)) * 3;
+  if (chatReplyHasBrokenLiveSpeech(text)) score += 4;
+  if (chatReplyHasLiveDirtyTalk(text)) score += 4;
+  if (chatReplyHasPersonaContrast(text, character)) score += 8;
+  if (chatReplyLooksLikeLiveIntimateEssay(text)) score -= 10;
+  if (chatReplyUsesIntimateCommandTemplate(text)) score -= 6;
+  if (chatReplyStartsWithCannedIntimateVocal(text)) score -= 3;
+  const length = [...text].length;
+  if (length >= 45 && length <= 240) score += 2;
+  if (length < 24) score -= 3;
+  return score;
 }
 
 function chatSceneStage(latestUserMessage = "", currentMessages = [], relationship = null) {
@@ -18330,7 +18393,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
-        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines: varied moans/gasps, broken dirty talk, a concrete physical reaction to this exact action, and a short psychological slip that reveals her pride, shame, control, or need. Write like she is actually saying it now, not like a polished erotic novelist. Usually mix sounds and spoken fragments inside the line rather than opening with a stock moan. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines. HARD REQUIREMENTS: at least two separate vocal reactions at different beats; at least two broken-off spoken fragments; direct colloquial dirty talk or body words tied to this exact action; and one concrete reversal of this character's own habitual control, pride, rules, distance, or face-saving. Show the reversal through what she says, not by explaining 仪态 or 端庄. Write like she is actually saying it now, not like a polished erotic novelist. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
         : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
@@ -18351,36 +18414,45 @@ async function handleSendChatMessage(req, res, conversationId) {
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting || (liveSiteChat && immediateIntimacyScene)) });
-    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply, { requireVocal: true })) {
+    const liveIntimateCharacter = freshCharacterEarly || conversation.character || {};
+    if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply, { requireVocal: true, character: liveIntimateCharacter })) {
       const rejectedReply = reply;
       console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
-      try {
-        const retryRaw = await requestChat([
-          "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
-          "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的心理活动/嘴硬。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
-          "过程中必须自然出现至少一次叫声、气音、闷哼或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头，也不要总用同一个“嗯/哈”，可以是被撞断的字、吸气、喉咙里漏出的短音。",
-          "保留角色的面子、判断、强势和边界：她可以浪、可以骂、可以命令、可以承认爽，但不能变成通用顺从伴侣。这一版必须让人一眼看出反差：先写出她惯常会守的东西（规矩、面子、命令、身份口吻、平时不肯说的话），下一秒却在身体或台词里破功。禁止只写“端庄”“主任”，也禁止直接介绍职位。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
-          "语气参考（只学现场短句、浪叫、断续荤话和反差密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点…… 我刚才还想让你守规矩……现在居然求你……唔……不许笑。",
-          "只输出最终内容，不要解释为什么重写。",
-        ].join("\n"), true);
-        const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
-        if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true })) {
-          raw = retryRaw;
-          reply = retryReply;
-          upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
-        } else if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyLooksLikeLiveIntimateEssay(retryReply) && !chatReplyStartsWithCannedIntimateVocal(retryReply) && !chatReplyUsesIntimateCommandTemplate(retryReply) && chatReplyHasPersonaContrast(retryReply)) {
-          console.warn("[character-chat-live-intimate-rewrite-partial]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply).slice(0, 240) }));
-          raw = retryRaw;
-          reply = retryReply;
-          upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
-        } else {
-          const cleanedReply = chatReplyAsLiveSpokenBeat(retryReply || reply);
-          console.warn("[character-chat-live-intimate-rewrite-cleaned]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(cleanedReply).slice(0, 240) }));
-          if (chatReplyHasWords(cleanedReply)) reply = cleanedReply;
-          else console.warn("[character-chat-live-intimate-rewrite-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply || "").slice(0, 240) }));
+      let bestCandidate = { raw, reply, score: chatReplyLiveIntimateScore(reply, liveIntimateCharacter) };
+      let accepted = false;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const retryRaw = await requestChat([
+            `LIVE INTIMATE REWRITE CANDIDATE ${attempt}: 刚才那一版不合格。丢弃它，按下面的硬要求重写这一轮。`,
+            "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的嘴硬、羞耻或失控。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
+            "必须有两处以上真正说出口的声音或气音，分布在这一下造成反应的不同位置；至少两处句子被撞断，出现省略号、破折号、拖长的字或说不完整的词。不要写成语法完整的顺滑段落，也不要只在开头喊一声。",
+            "必须直接出现符合当前动作的成人荤话或身体词，例如里面、顶到、插我、操我、干我、太深、别停、再用力、弄坏这类口语；可以粗俗，可以骂，可以命令，也可以求，但不能用抽象感觉代替。",
+            "必须做出这个人具体的反差，不能只说“仪态、端庄、体面”这种概念词。用一个人物自带的身份、习惯或行为来破功：平时只会命令别人的人，这轮被撞断后自己开口求；平时最重规矩的人，这轮骂出平时不会说的荤话；平时冷着脸不解释的人，这轮承认自己湿了、想要、离不开。反差要让读者从台词里直接看见。",
+            "禁止直接自我介绍职位或履历，禁止“我是主任所以……”，禁止“既然……那就……”“别只是……”“把你的力道……”“按我的节奏”“那就按你要求的做”。",
+            "语气参考（只学现场短句、浪叫、断续荤话和反差的密度，绝对不要照抄原句）：啊……！慢点……这么深……你要弄死我是不是……哈啊……别停，就那里……再重点…… 我刚才还想让你守规矩……现在居然求你……唔……不许笑。",
+            "只输出最终内容，不要解释为什么重写。",
+          ].join("\n"), true);
+          const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
+          const score = chatReplyLiveIntimateScore(retryReply, liveIntimateCharacter);
+          if (retryReply && score > bestCandidate.score) bestCandidate = { raw: retryRaw, reply: retryReply, score };
+          if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply, { requireVocal: true, character: liveIntimateCharacter })) {
+            raw = retryRaw;
+            reply = retryReply;
+            upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
+            console.warn("[character-chat-live-intimate-rewrite-accepted]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, score, reply: reply.slice(0, 240) }));
+            accepted = true;
+            break;
+          }
+          console.warn("[character-chat-live-intimate-rewrite-rejected-candidate]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, attempt, score, reply: String(retryReply || "").slice(0, 240) }));
+        } catch (retryError) {
+          console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, attempt, message: String(retryError.message || retryError).slice(0, 240) }));
         }
-      } catch (retryError) {
-        console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, message: String(retryError.message || retryError).slice(0, 240) }));
+      }
+      if (!accepted && bestCandidate.reply) {
+        raw = bestCandidate.raw;
+        reply = bestCandidate.reply;
+        upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || upstreamResponseId);
+        console.warn("[character-chat-live-intimate-rewrite-best-effort]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, score: bestCandidate.score, reply: reply.slice(0, 240) }));
       }
     }
     if (immediateIntimacyScene && /^(?:嗯|唔|啊|哈|好|是|别|不|慢|快|轻|重|继续|再来|可以|行)[^。！？!?]{0,10}[。！？!?]?$/u.test(reply.trim())) {
@@ -48957,7 +49029,20 @@ async function bootstrap() {
   });
 }
 
-bootstrap().catch((error) => {
-  console.error("[bootstrap] failed", error);
-  process.exit(1);
-});
+if (require.main === module) {
+  bootstrap().catch((error) => {
+    console.error("[bootstrap] failed", error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  chatPersonaContrastAnchors,
+  chatReplyHasBrokenLiveSpeech,
+  chatReplyHasLiveDirtyTalk,
+  chatReplyHasLiveSpokenTexture,
+  chatReplyHasPersonaContrast,
+  chatReplyIntimateVocalReactionCount,
+  chatReplyLiveIntimateScore,
+  chatReplyNeedsLiveIntimateRewrite,
+};

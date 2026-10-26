@@ -79,8 +79,13 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatReplyNeedsLiveIntimateRewrite/);
   assert.match(server, /function chatReplyHasIntimateVocalReaction/);
   assert.match(server, /function chatReplyLooksLikeLiveIntimateEssay/);
-  assert.match(server, /NATURAL VOCAL REACTION IS REQUIRED/);
+  assert.match(server, /LIVE SPOKEN TEXTURE \(HARD REQUIREMENT\)/);
+  assert.match(server, /PERSONA CONTRAST \(HARD REQUIREMENT\)/);
+  assert.match(server, /DIRTY TALK IN THE MOMENT/);
   assert.match(server, /requireVocal: true/);
+  assert.match(server, /chatReplyHasLiveSpokenTexture/);
+  assert.match(server, /chatReplyHasPersonaContrast/);
+  assert.match(server, /LIVE INTIMATE REWRITE CANDIDATE/);
   assert.match(server, /character-chat-live-intimate-rewrite/);
   assert.match(server, /LIVE INTIMATE REWRITE/);
   assert.match(server, /!chatReplyUsesIntimateCommandTemplate\(message\.content\)/);
