@@ -119,6 +119,8 @@ test("moans without concrete process or persona contradiction are rejected", () 
   assert.equal(chatReplyHasPersonaContrast(genericCorrection, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(genericCorrection, { requireVocal: true, character }), true);
   assert.equal(chatReplyLiveIntimateFallback(genericCorrection, character, 2), "");
+  const liveReversal = "嗯……哈！你这力道……啊！别只顾着快，把你的鸡巴更深一点地、狠狠地灌进来……唔。操，你要是再这么猛地撞入我的里面——哈啊！别停……你就这么一直顶到底，哪怕要把我整个人都撑开也别松手。";
+  assert.equal(chatReplyHasPersonaContrast(liveReversal, character), true);
   const wholeBody = "啊……！哈，你就这么——唔。别再只是在动了，把你的鸡巴更深一点地塞进来……嗯！操，要把我整个人都给顶开。快点，全部灌进我的里面来……哈啊！你要是敢一直用这种速度冲刺——唔，真的要让我感觉被你完全撑开了。";
   assert.equal(chatReplyNeedsLiveIntimateRewrite(wholeBody, { requireVocal: true, character }), true);
   const wholeBodyRepair = chatReplyRepairLiveIntimateLocally(wholeBody);
