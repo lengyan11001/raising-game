@@ -611,3 +611,15 @@
 .person-image{display:block;width:100%;height:330px;flex:0 0 330px}
 .person-intro{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .person-actions{flex:none}
+
+/* Wallet ledger: shared by spending and gift history. */
+.ledger-card{display:grid;gap:9px;margin:16px 20px 28px;padding:0}
+.ledger-card>div{display:grid;min-width:0;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:11px;min-height:64px;padding:11px 13px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(255,255,255,.045)}
+.ledger-card img,.ledger-ico{display:grid;width:42px;height:42px;min-width:42px;place-items:center;overflow:hidden;border-radius:50%;background:rgba(255,45,111,.14);color:var(--pink2);object-fit:cover}
+.ledger-ico svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ledger-copy{min-width:0}
+.ledger-copy b,.ledger-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger-copy b{font-size:12px;font-weight:600;line-height:1.35}
+.ledger-copy small{margin-top:5px;color:var(--muted);font-size:10px;line-height:1.25}
+.ledger-card>div>em{max-width:88px;overflow:hidden;color:var(--pink2);font-size:12px;font-style:normal;font-weight:700;text-align:right;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:360px){.ledger-card{margin-left:14px;margin-right:14px}.ledger-card>div{grid-template-columns:38px minmax(0,1fr) auto;gap:9px;padding:10px}.ledger-card img,.ledger-ico{width:38px;height:38px;min-width:38px}.ledger-card>div>em{max-width:72px;font-size:11px}}

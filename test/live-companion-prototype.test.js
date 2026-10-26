@@ -64,11 +64,19 @@ test("live Google login uses the registered redirect URI while keeping account l
   assert.match(html, /<input name="password"/);
 });
 
+test("live gift and spending ledger rows keep a stable three-column layout", () => {
+  assert.match(css, /\.ledger-card\{display:grid/);
+  assert.match(css, /\.ledger-card>div\{display:grid;[^}]*grid-template-columns:42px minmax\(0,1fr\) auto/);
+  assert.match(css, /\.ledger-copy b,\.ledger-copy small\{[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
+  assert.match(css, /\.ledger-card>div>em\{[^}]*text-align:right/);
+  assert.match(live, /function ledgerRows\(items, empty\)[\s\S]*?<section class="ledger-card">/);
+});
+
 test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=202610242350/);
+  assert.match(html, /live\.css\?v=202610262200/);
   assert.match(html, /live\.js\?v=202610242550/);
   assert.match(html, /chat-live\.js\?v=202610242400/);
 });
