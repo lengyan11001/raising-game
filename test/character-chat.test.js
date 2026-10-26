@@ -10,6 +10,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const server = read("server.js");
 const db = read("db.js");
 const html = read("platform.html");
+const standaloneHtml = read("chat.html");
 const loader = read("platform.js");
 const chat = read("platform.chat.js");
 const standaloneChat = read("chat.js");
@@ -68,6 +69,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /type: "character_chat"/);
   assert.match(server, /character_chat_refund/);
   assert.match(server, /\/api\/chat\/conversations/);
+});
+
+test("chat assets bypass stale browser caches after deployment", () => {
+  assert.match(html, /platform\.js\?v=chat-batched-20261026-1/);
+  assert.match(standaloneHtml, /chat\.js\?v=chat-batched-20261026-1/);
 });
 
 test("standalone chat opens the created conversation and sends messages", () => {
