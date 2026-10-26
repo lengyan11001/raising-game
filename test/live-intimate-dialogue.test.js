@@ -319,6 +319,15 @@ test("foreplay does not trigger present-tense penetration validation", () => {
   assert.equal(chatSceneStage("操我，别停", history), "intimate");
 });
 
+test("photo and body-display requests stay in foreplay until penetration starts", () => {
+  const history = [
+    { role: "user", content: "我吃好了，鸡巴也被你亲的好硬，现在躺在餐桌上" },
+    { role: "assistant", content: "你这孩子，真是没规矩。" },
+  ];
+  assert.equal(chatSceneStage("我要先拍几张照，把你的骚样记录下来", history), "foreplay");
+  assert.equal(chatIsImmediateIntimateScene("我要先拍几张照，把你的骚样记录下来", history), false);
+});
+
 test("generic seduction replies fail live foreplay persona validation", () => {
   const poseTemplate = "你就喜欢这种姿势，对吧？那就躺好。既然你已经吃饱了，那接下来，就把你的精力都给到我身上。";
   const cameraTemplate = "拿好你的相机。你要拍清楚一点，别让我觉得你在随便抓拍，要把我最动人的样子都定格下来。";

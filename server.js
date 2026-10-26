@@ -17639,7 +17639,7 @@ function chatHasIntimateAction(value = "") {
 function chatIsIntimateForeplayScene(value = "") {
   const text = String(value || "").trim();
   if (!text || chatSceneExitIntent(text) || chatHasIntimateAction(text)) return false;
-  return /(?:鸡巴|龟头|阴茎|阴道|肛门|乳房|奶子|咪咪|下面|身体|腿|腰|臀|胸口|跳蛋|肛塞|湿了|硬了|好硬|发烫|想要|准备好了|没穿|裸着|脱了|躺在床上|躺在桌上|躺在餐桌|趴在|跪着|张开腿|分开腿|给你看|帮我(?:含|舔|摸|亲)|亲得|舔得)/u.test(text);
+  return /(?:鸡巴|龟头|阴茎|阴道|肛门|乳房|奶子|咪咪|下面|身体|腿|腰|臀|胸口|跳蛋|肛塞|湿了|硬了|好硬|发烫|想要|准备好了|没穿|裸着|脱了|躺在床上|躺在桌上|躺在餐桌|趴在|跪着|张开腿|分开腿|给你看|帮我(?:含|舔|摸|亲)|亲得|舔得|拍照|照片|拍几张|拍张|记录(?:一下|下来)?|骚样|现在的样子|这副样子)/u.test(text);
 }
 
 function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
