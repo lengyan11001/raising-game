@@ -6,9 +6,12 @@ const test = require("node:test");
 const {
   chatPersonaContrastAnchors,
   chatLiveIntimateRewriteBeat,
+  chatLiveIntimatePersonaPostureLine,
   chatIsImmediateIntimateScene,
   chatReplyHasBrokenLiveSpeech,
   chatReplyHasLiveDirtyTalk,
+  chatReplyHasLivePersonaPosture,
+  chatReplyLivePersonaPostureCount,
   chatReplyHasLiveSpokenTexture,
   chatReplyHasPersonaContrast,
   chatReplyIntimateVocalReactionCount,
@@ -100,9 +103,23 @@ test("discarding rules or face is not a concrete reversal", () => {
 });
 
 test("a concrete spoken reversal can omit the 明明-now formula", () => {
-  const spoken = "啊……！\n哈啊……都听我的……唔……\n别停……求你……\n操我……插进来……\n哈啊……再深点……\n嘶……灌进来……";
+  const spoken = "啊……！\n哈啊……不许躲……看着我……\n唔……谁准你……这么自作主张……\n嗯……别停……求你……\n操我……插进来……\n哈啊……再深点……\n嘶……灌进来……";
   assert.equal(chatReplyHasPersonaContrast(spoken, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
+});
+
+test("submissive live replies fail even when they have sounds and dirty words", () => {
+  const obedient = "啊……！\n哈啊……想要你……\n唔……再深点……\n求你……别停……\n操我……插进来……\n嗯……弄坏我……";
+  assert.equal(chatReplyHasLivePersonaPosture(obedient), false);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(obedient, { requireVocal: true, character }), true);
+});
+
+test("persona posture needs two distinct control beats", () => {
+  const oneBeat = "啊……！\n哈啊……不许躲……看着我……\n唔……再深点……\n操我……插进来……";
+  const twoBeats = "啊……！\n哈啊……不许躲……看着我……\n谁准你……自作主张……\n唔……再深点……\n操我……插进来……";
+  assert.equal(chatReplyHasLivePersonaPosture(oneBeat), false);
+  assert.equal(chatReplyHasLivePersonaPosture(twoBeats), true);
+  assert.ok(chatReplyLivePersonaPostureCount(twoBeats) >= 2);
 });
 
 test("rewrite beats use contradictory commands instead of explaining the reversal", () => {
@@ -130,6 +147,7 @@ test("repair removes the whole role-history sentence before adding a slip", () =
   const repaired = chatReplyWithLivePersonaSlip(draft, character, 2);
   assert.doesNotMatch(repaired, /明明|管教|每一处/);
   assert.match(repaired, /再深点/);
+  assert.equal(chatReplyHasLivePersonaPosture(repaired), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
 
@@ -139,5 +157,7 @@ test("weak live drafts are repaired with a concrete persona slip", () => {
   assert.match(repaired, /都听我的/);
   assert.match(repaired, /求你/);
   assert.doesNotMatch(repaired, /别管/);
+  assert.ok(chatLiveIntimatePersonaPostureLine(character, 1));
+  assert.equal(chatReplyHasLivePersonaPosture(repaired), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);
 });
