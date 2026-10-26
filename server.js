@@ -18326,13 +18326,15 @@ function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false, c
   // reversal are quality goals, not a reason to replace an otherwise good beat.
   const hasPresentBeat = chatReplyHasIntimateVocalReaction(text)
     && (chatReplyHasBrokenLiveSpeech(text) || chatReplyHasLiveDirtyTalk(text) || chatReplyLiveIntimateProcessCount(text) >= 2);
+  const hasStockPhrase = chatReplyLiveStockPhraseCount(text) > 0;
   return chatReplyCopiesStyleExamples(value, character)
     || chatReplyHasForeignVocalEnglish(value, character)
     || chatReplyStartsWithCannedIntimateVocal(value)
     || chatReplyUsesIntimateCommandTemplate(value)
     || chatReplyLooksLikeLiveIntimateEssay(text)
     || /(?:别管|不管)/u.test(text)
-    || (requireVocal && !hasPresentBeat);
+    || (requireVocal && !hasPresentBeat)
+    || (requireVocal && hasStockPhrase);
 }
 
 function chatReplyLiveIntimateGaps(value = "", character = {}) {
@@ -18406,6 +18408,7 @@ function chatReplyRepairLiveIntimateLocally(value = "") {
     .replace(/把你的力道/gu, "把力气")
     .replace(/按我的节奏/gu, "跟着我")
     .replace(/(?:要的就是这种感觉|哪怕[^。！？!?]{0,14}说不完整)/gu, "")
+    .replace(/[^\n。！？!?]*(?:领地|完全的占满|完全地占满|那股劲儿全给到里面来|你这力道太重了)[^\n。！？!?]*[。！？!?]?/gu, "")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
   if (!text) return "";
