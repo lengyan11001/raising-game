@@ -193,6 +193,14 @@ test("character example lines are preferred over shared fallback language", () =
   assert.doesNotMatch(beat, /^都听我的/);
 });
 
+test("bold non-dominant character repair does not get stuck on contrast validation", () => {
+  const bold = { name: "温芷瑜", personaMd: "对年轻强壮的学生有渴望，坦然、专业、毫无羞耻。", replyStyle: "风骚、开放、知性优雅。" };
+  const draft = "哈啊……！ 唔，你就这么… 把老师弄得…快要碎了。 嗯…别急，慢点…… 啊！ 就把你的鸡巴……全都灌进来。 操，真的好深…… 哈啊——！";
+  const repaired = chatReplyWithLivePersonaSlip(draft, bold, 2);
+  assert.equal(chatReplyHasPersonaContrast(repaired, bold), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character: bold }), false);
+});
+
 test("a non-dominant character is not validated by dominant-only phrases", () => {
   const gentle = { name: "乔安瑜", personaMd: "新婚少妇，性格温柔贤惠，容易害羞，说话轻软，很体贴。", replyStyle: "温柔、含蓄、轻声。" };
   const dominantOnly = "哈啊……！\n啊…谁准你…这么自作主张…\n啊…我让你慢点…啊…再深点…\n唔…操我…别停…\n啊…插进来…";
