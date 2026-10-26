@@ -67,6 +67,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /被顶得说不完整/);
   assert.match(server, /function chatReplyUsesIntimateCommandTemplate/);
   assert.match(server, /function chatReplyStartsWithCannedIntimateVocal/);
+  assert.match(server, /LIVE IMMERSIVE PROCESS/);
+  assert.match(server, /liveSiteChat && immediateIntimacyScene \? 2400/);
+  assert.match(server, /intimateProcess/);
+  assert.match(server, /第一人称承受过程/);
   assert.match(server, /function chatReplyNeedsLiveIntimateRewrite/);
   assert.match(server, /character-chat-live-intimate-rewrite/);
   assert.match(server, /LIVE INTIMATE REWRITE/);
@@ -102,7 +106,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /sentences\.slice\(0, 40\)/);
   assert.doesNotMatch(server, /slice\(0, 720\)/);
   assert.match(server, /immediateIntimacyScene \? \(liveSiteChat \? 0\.95 : 0\.92\) : expandedScene \? 0\.78/);
-  assert.match(server, /simpleGreeting \? 240 : immediateIntimacyScene \|\| expandedScene \? 1200 : 900/);
+  assert.match(server, /simpleGreeting \? 240 : liveSiteChat && immediateIntimacyScene \? 2400 : immediateIntimacyScene \|\| expandedScene \? 1200 : 900/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
   assert.match(server, /type: "character_chat"/);

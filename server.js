@@ -17619,11 +17619,21 @@ function chatIsImmediateIntimateScene(value = "", contextMessages = []) {
     .some((message) => /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|撑开|挤进|摸我|亲我|吻我|脱掉|蹭|磨)/u.test(String(message?.content || "")));
 }
 
-function chatImmediateSceneGuide(value = "", contextMessages = []) {
+function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = false } = {}) {
   if (!chatIsImmediateIntimateScene(value, contextMessages)) return "";
+  const liveGuide = liveSite
+    ? [
+        "LIVE IMMERSIVE PROCESS: This is a live-site roleplay turn. A substantial response is allowed and encouraged when the user asks for sensation, process, pace, or what is happening to her. Write the receiving person's process in coherent first-person prose: what is happening to her body, how she tries to keep control, where her voice breaks, what she orders or admits between waves. Blend spoken lines and first-person physical experience naturally instead of giving only one short breathy sentence.",
+        "LENGTH IS CONTENT-DRIVEN: Do not force a fixed word count, but do not truncate a natural immersive answer into one sentence. Usually develop one continuous beat through several concrete reactions, with the character's own judgment, shame, stubbornness, or need to save face interrupting the pleasure. Avoid repeating the same penetration description or the same vocal opener across turns.",
+        "STILL KEEP THE PERSON: The long passage must remain the configured character, never a generic narrator or interchangeable eager partner. Her status, pride, boundaries, and control struggle must shape what she notices, what she refuses to admit, how she speaks, and when she finally yields.",
+      ]
+    : [];
   return [
     "IMMEDIATE INTIMACY SCENE (answer in the moment, but character identity comes first): The user is not asking for an explanation. They are describing an immediate physical action, sensation, pace, or a direct act of looking back at the scene. Respond as this specific person in the middle of it.",
-    "Answer only with words she says out loud. No parentheses, stage directions, narration, inner thoughts, or action summaries.",
+    liveSite
+      ? "For this live-site turn, you may write an immersive first-person process in the character's own voice. Do not use third-person narration, camera directions, environment descriptions, or a detached action log."
+      : "Answer only with words she says out loud. No parentheses, stage directions, narration, inner thoughts, or action summaries.",
+    ...liveGuide,
     "React from the current moment first. Her first words can be a direct answer, a command, a sharp refusal, a reluctant concession, anger, embarrassment, or open arousal. Do not force a separate resistance beat or make every reply begin with a rhetorical question.",
     "Her personality must show through concrete choices: what she orders him to do, what she refuses, what she makes him admit, what she pretends not to feel, how she keeps him at a distance while letting him closer. Do not write abstract judgments such as 别让我觉得你在旁观我的羞耻 or 你要我承受这种频繁的位移吗.",
     "Do not answer with a metaphor, a rhetorical question, an evaluation of his behavior, an explanation of the relationship, or a sentence about what the moment means. A short line is valid, but if a natural reply has several concrete thoughts, write them out instead of cutting it down.",
@@ -17834,7 +17844,8 @@ function chatReplyUsesIntimateCommandTemplate(value = "") {
 function chatReplyStartsWithCannedIntimateVocal(value = "") {
   const text = String(value || "").trim();
   if (!text) return false;
-  return /^(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,4})(?:哈|嗯|啊|唔|噢|哦)(?:[^。！？!?]{0,4})?[。！？!?，,…]/u.test(text);
+  return /^(?:嗯|唔|啊|哈|噢|哦)(?:[。！？!?，,…]|$)/u.test(text)
+    || /^(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,6})(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,6})?[。！？!?，,…]/u.test(text);
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "") {
@@ -17891,7 +17902,7 @@ function chatSceneStageGuide(stage = "casual") {
   ].join("\n");
 }
 
-function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = [], currentMessages = []) {
+function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = [], currentMessages = [], { liveSite = false, intimateProcess = false } = {}) {
   const character = conversation.character || {};
   const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null, { currentMessages });
   const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 1800);
@@ -17905,19 +17916,23 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const sceneStage = chatSceneStage(latest, currentMessages, relationship);
   const voice = String(character.replyStyle || "").trim();
   const personaCore = String(character.description || character.personaMd || character.persona || character.intro || "").trim();
-  const stageGuide = chatSceneStageGuide(sceneStage);
+  const stageGuide = [chatSceneStageGuide(sceneStage), chatImmediateSceneGuide(latest, currentMessages, { liveSite: liveSite && intimateProcess })].filter(Boolean).join("\n");
   const greetingGuide = isSimpleChatGreeting(latest)
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
     : "";
-  const lengthGuide = asksForExpandedScene
-    ? "对方希望展开一点，可以多写几拍，但仍然只写她说出来的话。"
-    : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
+  const lengthGuide = intimateProcess
+    ? "这一轮可以把一个连续过程写完整：从受到这一下开始，到身体反应、她试图端住、说话被打断、最后仍用她自己的方式收住。不要为凑长度重复同一动作或感受，也不要固定成几百字。"
+    : asksForExpandedScene
+      ? "对方希望展开一点，可以多写几拍，但仍然只写她说出来的话。"
+      : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
   return [
     `你是${character.name || "这个角色"}。你只输出她此刻说出口的话。`,
     personaCore ? `人物底色（这是不可丢失的角色核心，不只是场景说明）：\n${personaCore}` : "",
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
     voice ? `说话方式（最高优先级，保留这个角色独有的判断、边界、要面子和说话节奏；参考态度，不要照抄示例）：\n${voice}` : "",
-    "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
+    intimateProcess
+      ? "当前轮允许第一人称承受过程：可以写身体反应、断续说话、想控制又失控的细节，以及她本人的判断和遮掩；不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
+      : "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
     "人设是她的底色，不是每轮都要复述的设定。先按这个人的身份、面子、判断和边界反应，再进入情欲；不要为了配合场景把她演成任何人都能替换的通用伴侣。",
@@ -18229,13 +18244,15 @@ async function handleSendChatMessage(req, res, conversationId) {
           : `你是${freshCharacterEarly.name}，现在在正常聊天。像真人一样接话，可以有冷、挑剔、嘴硬或一点好奇，先回答眼前的内容，不主动升级亲密。`
       : "";
     const chatMessages = [
-      { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages) },
+      { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages, { liveSite: liveSiteChat, intimateProcess: immediateIntimacyScene }) },
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
-      { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
+      { role: "system", content: liveSiteChat && immediateIntimacyScene
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE IMMERSIVE FORMAT: Reply as the configured character in a coherent first-person immersive passage that can include both spoken words and what she is experiencing as the receiving person. Develop one continuous intimate beat with concrete bodily process, interrupted speech, attempts to keep control, and persona-specific choices. Do not write detached third-person narration, camera directions, environment description, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
-    const chatMaxTokens = simpleGreeting ? 240 : immediateIntimacyScene || expandedScene ? 1200 : 900;
+    const chatMaxTokens = simpleGreeting ? 240 : liveSiteChat && immediateIntimacyScene ? 2400 : immediateIntimacyScene || expandedScene ? 1200 : 900;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
@@ -18251,18 +18268,19 @@ async function handleSendChatMessage(req, res, conversationId) {
     let upstreamResponseId = "";
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
-    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting) && !immediateIntimacyScene });
+    let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: (expandedScene || simpleGreeting || (liveSiteChat && immediateIntimacyScene)) });
     if (liveSiteChat && immediateIntimacyScene && chatReplyNeedsLiveIntimateRewrite(reply)) {
       const rejectedReply = reply;
       console.warn("[character-chat-live-intimate-rewrite]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: rejectedReply.slice(0, 240) }));
       try {
         const retryRaw = await requestChat([
           "LIVE INTIMATE REWRITE: 刚才那一版又用了固定的语气词开场或验收式模板，丢弃那一版，现在重写这一轮。",
-          "禁止用“嗯……哈”“唔……哈”“啊……嗯”这类拟声词组合作为句首；如果这一下确实让她漏出声音，把气音或半截话放在句中被撞断的位置，或者这一轮直接说短句。",
-          "禁止使用“别只是……”“既然……那就……”“那就按你要求的做”等模板。保留顾静涵的面子、判断、强势和边界，让她按自己的性格反应，不要变成通用顺从伴侣。",
-          "只输出她这一轮真正会说出口的话，不要解释为什么重写。",
+          "禁止用“嗯”“啊”“唔”“哈”“噢”“哦”等单字拟声词或“嗯……哈”“唔……哈”“啊……嗯”这类组合作为句首；如果这一下确实让她漏出声音，把气音或半截话放进过程里，或者让第一句直接说具体的话。",
+          "禁止使用“别只是……”“既然……那就……”“那就按你要求的做”等模板。保留角色的面子、判断、强势和边界，让她按自己的性格反应，不要变成通用顺从伴侣。",
+          "这一轮可以写长一点：用第一人称写她正在承受过程时的身体反应、断续的话、想控制又失控的细节，但必须是这个角色自己的视角和选择，不要写第三人称旁白、镜头或环境。",
+          "只输出最终内容，不要解释为什么重写。",
         ].join("\n"), true);
-        const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: false });
+        const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
         if (retryReply && !chatReplyIsDegenerate(retryReply) && !chatReplyNeedsLiveIntimateRewrite(retryReply)) {
           raw = retryRaw;
           reply = retryReply;
