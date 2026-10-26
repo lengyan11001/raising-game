@@ -17624,7 +17624,7 @@ function chatImmediateSceneGuide(value = "", contextMessages = [], { liveSite = 
   const liveGuide = liveSite
     ? [
         "LIVE PRESENT-MOMENT STYLE: This is a live-site roleplay turn. Write in the character's immediate first-person voice, as if she is speaking and reacting right now, not writing a literary scene. A little inner thought is allowed when it exposes her pride, embarrassment, want, or attempt to keep control.",
-        "NATURAL VOCAL REACTION IS REQUIRED: Include at least one natural moan, gasp, broken syllable, or breath caught mid-sentence somewhere in the process, varied for this specific action. Do not use a fixed 嗯……哈 / 唔……哈 opener, and do not add sounds mechanically at every sentence.",
+        "NATURAL VOCAL REACTION IS REQUIRED: Include at least one natural moan, gasp, broken syllable, or breath caught mid-sentence somewhere in the process, varied for this specific action. Do not use a fixed 嗯……哈 / 唔……哈 opener, and do not add sounds mechanically at every sentence. Vary vowels, consonants, swallowed sounds, and incomplete syllables rather than relying on 嗯 or 哈 every turn.",
         "PERSONA IN THE PROCESS: Her control, face-saving, judgment, and shame must shape what she says and what she refuses to admit. Do not replace her with a neutral narrator who merely reports sensations. Her psychological reaction belongs in short, spoken or half-spoken thoughts, not an analytical essay.",
         "LENGTH AND STYLE: Usually keep one developed beat to roughly 2-5 natural sentences or 2 short paragraphs. Write enough concrete process to feel present, but do not turn it into a 300+ character literary essay. Avoid stacked '那种……感', '仿佛/像是/每一寸/深处/神经', abstract summaries, and repeated metaphors. Use plain, physical, colloquial Chinese with short interruptions.",
       ]
@@ -17845,8 +17845,8 @@ function chatReplyUsesIntimateCommandTemplate(value = "") {
 function chatReplyStartsWithCannedIntimateVocal(value = "") {
   const text = String(value || "").trim();
   if (!text) return false;
-  return /^(?:嗯|唔|啊|哈|噢|哦)(?:[。！？!?，,…]|$)/u.test(text)
-    || /^(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,6})(?:嗯|唔|啊|哈|噢|哦)(?:[^。！？!?]{0,6})?[。！？!?，,…]/u.test(text);
+  return /^(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)(?:[。！？!?，,…]|$)/u.test(text)
+    || /^(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)(?:[^。！？!?]{0,6})(?:嗯|唔|啊|哈|噢|哦|呃|嘶|呜|呀)(?:[^。！？!?]{0,6})?[。！？!?，,…]/u.test(text);
 }
 
 function chatReplyHasIntimateVocalReaction(value = "") {
@@ -18297,7 +18297,7 @@ async function handleSendChatMessage(req, res, conversationId) {
         const retryRaw = await requestChat([
           "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
           "用第一人称现场口吻，不要写成文艺小作文。通常 2-5 句或两个短段，写这一下的身体过程、她的一点心里话/嘴硬和被打断的话；禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话，优先写具体动作、气音和短句。",
-          "过程中必须自然出现至少一次叫声、气音或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头。",
+          "过程中必须自然出现至少一次叫声、气音或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头，也不要总用同一个“嗯/哈”，可以是被撞断的字、吸气、闷哼、喉咙里漏出的短音。",
           "保留角色的面子、判断、强势和边界：她可以嘴硬、命令、掩饰羞耻，不能变成通用顺从伴侣。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
           "只输出最终内容，不要解释为什么重写。",
         ].join("\n"), true);
