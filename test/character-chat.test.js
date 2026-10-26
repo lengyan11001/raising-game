@@ -57,6 +57,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /OUTPUT CONTRACT/);
   assert.match(server, /FINAL SPEECH-ONLY FORMAT/);
   assert.match(server, /function chatReplyIsDegenerate/);
+  assert.match(server, /function chatReplyRepeatsRecent/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
   assert.match(server, /function chatMemoryTurnsForPrompt/);
@@ -75,11 +76,12 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /ACTOR AND RESPONSE CHECK/);
   assert.match(server, /Recent replies from you/);
   assert.match(server, /character-chat-empty-reply/);
+  assert.match(server, /character-chat-repeated-reply/);
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
   assert.match(server, /taskId: billingId, requestId: billingId/);
   assert.match(server, /upstreamResponseId: error\.upstreamResponseId/);
   assert.match(server, /const requestChat = \(\) =>/);
-  assert.doesNotMatch(server, /chatRetryCorrection|chatReplyRepeatsRecent|chatReplyUsesTemplate|chatHistoryWithoutTemplates|chatTurnDirective/);
+  assert.doesNotMatch(server, /chatRetryCorrection|chatReplyUsesTemplate|chatHistoryWithoutTemplates|chatTurnDirective/);
   assert.doesNotMatch(server, /既然你|那你就别|你要是敢|我就要把你按|把你的腰部|我要后入了|你自己动/);
   assert.match(server, /message\.role === "user" \|\| !chatReplyIsDegenerate\(normalizeChatReply\(message\.content/);
   assert.match(server, /sentences\.slice\(0, 10\)/);

@@ -17680,6 +17680,15 @@ function chatReplyHasWords(value = "") {
   return /[\p{L}\p{N}]/u.test(String(value || ""));
 }
 
+function chatReplyRepeatsRecent(value = "", recentReplies = []) {
+  const text = chatSpokenOnlyText(String(value || "").trim());
+  if (!text) return false;
+  return (Array.isArray(recentReplies) ? recentReplies : []).some((previous) => {
+    const old = chatSpokenOnlyText(String(previous || "").trim());
+    return old && chatContextSimilarity(text, old) >= 0.72;
+  });
+}
+
 function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
   const text = String(value || "").trim();
   if (!chatReplyHasWords(text)) return true;
@@ -18050,7 +18059,11 @@ async function handleSendChatMessage(req, res, conversationId) {
   if (!dbEnabled()) await writeDb(auth.db);
   try {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
-    const messages = history.slice(-40).map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: normalizeChatReply(message.content, { expanded: false }) || String(message.content || "").replace(/^[)）\s]+/, "").trim() })).filter((message) => message.role === "user" || !chatReplyIsDegenerate(normalizeChatReply(message.content, { expanded: false })));
+    const messages = history.slice(-40).map((message) => (
+      message.role === "user"
+        ? { role: "user", content: String(message.content || "").trim() }
+        : { role: "assistant", content: normalizeChatReply(message.content, { expanded: false }) || String(message.content || "").replace(/^[)）\s]+/, "").trim() }
+    )).filter((message) => message.content && (message.role === "user" || !chatReplyIsDegenerate(normalizeChatReply(message.content, { expanded: false }))));
     if (action === "continue") messages.push({ role: "user", content });
     const latestUserMessage = action === "send" && submittedContents.length > 1
       ? chatBurstPrompt(submittedContents)
@@ -18088,6 +18101,24 @@ async function handleSendChatMessage(req, res, conversationId) {
     let raw = await requestChat();
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
+    const previousAssistantReplies = history.slice(-8).filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-4);
+    if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && chatReplyRepeatsRecent(reply, previousAssistantReplies)) {
+      console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
+      const replacementMessages = [
+        ...chatMessages,
+        { role: "assistant", content: reply },
+        { role: "system", content: "REPLACEMENT REQUIRED: The draft above repeats a recent reply or its sentence structure. Answer the latest user message again with a fresh spoken response. Address the specific action, question, or feeling the user just raised. Do not reuse the draft's opening, reasoning, conditions, threats, action order, or closing line. Return only the character's spoken words." },
+      ];
+      const replacementRaw = usePapayaChat
+        ? await papayaLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.9, chatTemperature + 0.08), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.82, presence_penalty: 0.75 }, { timeoutMs: 45000 })
+        : await byteplusLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.9, chatTemperature + 0.08), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.82, presence_penalty: 0.75 }, { timeoutMs: 45000 });
+      const replacementReply = normalizeChatReply(qwen37FlashResponseText(replacementRaw), { expanded: expandedScene || simpleGreeting });
+      if (!chatReplyIsDegenerate(replacementReply, { simpleGreeting })) {
+        raw = replacementRaw;
+        reply = replacementReply;
+        upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
+      }
+    }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
       console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
