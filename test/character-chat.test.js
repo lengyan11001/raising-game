@@ -69,6 +69,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatImmediateSceneGuide/);
   assert.match(server, /IMMEDIATE INTIMACY SCENE \(highest priority for this turn\)/);
   assert.match(server, /A moan, gasp, sharp exhale, clipped warning, or a few blunt words can be the complete reply/);
+  assert.match(server, /Do not name the sensation as a noun or compare it with an earlier action/);
+  assert.match(server, /IMMEDIATE SCENE FINAL RULE/);
+  assert.match(server, /Begin with a sound or a blunt word/);
+  assert.match(server, /Bad shape: 嗯……那股撑开的压迫感/);
+  assert.match(server, /Good shape: 唔……卡住了……你慢点/);
   assert.match(server, /Do not narrate the body, describe the process, explain pleasure/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
@@ -114,7 +119,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /sentences\.slice\(0, 10\)/);
   assert.match(server, /slice\(0, 720\)/);
   assert.match(server, /immediateIntimacyScene \? 0\.92 : expandedScene \? 0\.78/);
-  assert.match(server, /immediateIntimacyScene \? 360 : expandedScene \? 900/);
+  assert.match(server, /immediateIntimacyScene \? 240 : expandedScene \? 900/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(server, /one clear immediate response/);
   assert.match(server, /One sentence is complete when it answers/);

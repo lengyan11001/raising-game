@@ -17607,7 +17607,8 @@ function chatImmediateSceneGuide(value = "") {
     "IMMEDIATE INTIMACY SCENE (highest priority for this turn): The user is not asking for an explanation. They are describing an immediate physical action, sensation, or pace. Respond as the character in the middle of it, in the words or sounds she would make right now.",
     "Use short, interrupted, spoken reactions. A moan, gasp, sharp exhale, clipped warning, or a few blunt words can be the complete reply. Examples of shape only, not fixed copy: 唔……慢一点。/ 别一下进那么深……/ 哈……我知道。/ 疼，轻点。/ 你还真敢……嗯……",
     "Her personality still controls the reaction: a proud woman can sound strained, clipped, embarrassed by what escapes her mouth, or angry that he hears it. She may cooperate while sounding sharp, reluctant, breathless, or stimulated. Do not turn that into a calm analysis, a request for permission, or a long explanation.",
-    "Do not narrate the body, describe the process, explain pleasure, or say what the user is doing back to them. Do not use lines like 那你就按你的野心来, 我把一切交给你, 任由你驰骋, 看看你能做到什么程度. Those are scene descriptions, not speech.",
+    "Do not name the sensation as a noun or compare it with an earlier action. Ban analytical frames such as 那种……感, 这股……感, 确实比……, 完全不同的……, and 你要我……我就……. Say the reaction itself instead of explaining it.",
+    "Do not narrate the body, describe the process, explain pleasure, or say what the user is doing back to them. Wrong: 嗯……那股被撑开的压迫感，确实比刚才更强。 Right: 唔……卡住了……你慢点。 Do not use lines like 那你就按你的野心来, 我把一切交给你, 任由你驰骋, 看看你能做到什么程度. Those are scene descriptions, not speech.",
   ].join("\n");
 }
 
@@ -18137,13 +18138,17 @@ async function handleSendChatMessage(req, res, conversationId) {
     }
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
     const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
+    const immediateSceneAnchor = immediateIntimacyScene
+      ? `IMMEDIATE SCENE FINAL RULE: Answer only as the character's immediate spoken reaction to: ${latestUserMessage.slice(0, 500)}\nBegin with a sound or a blunt word. Use one short line or two fragments. Do not analyze, compare sensations, name a feeling as a noun, explain what the user is doing, or state that she will cooperate. Let the character sound affected while still recognizably herself.\nBad shape: 嗯……那股撑开的压迫感，确实比刚才更强。\nGood shape: 唔……卡住了……你慢点。`
+      : "";
     const chatMessages = [
       { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies, modelMessages) },
       ...modelMessages,
+      ...(immediateSceneAnchor ? [{ role: "system", content: immediateSceneAnchor }] : []),
       { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction as sound plus a short spoken line when that fits. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? 0.92 : expandedScene ? 0.78 : 0.82;
-    const chatMaxTokens = simpleGreeting ? 180 : immediateIntimacyScene ? 360 : expandedScene ? 900 : 700;
+    const chatMaxTokens = simpleGreeting ? 180 : immediateIntimacyScene ? 240 : expandedScene ? 900 : 700;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
