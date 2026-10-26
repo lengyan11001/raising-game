@@ -97,6 +97,8 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /function queueChatMessage/);
   assert.match(chat, /chatSendBtn\.disabled = false/);
   assert.match(chat, /els\.chatInput\.focus\(\)/);
+  assert.match(chat, /scheduleChatBurstFlush\(\);/);
+  assert.match(chat, /addEventListener\("input"/);
   assert.match(chat, /function flushChatBurst/);
   assert.match(chat, /contents/);
   assert.doesNotMatch(chat, /正在思考/);
@@ -111,6 +113,7 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(standaloneChat, /standaloneChatBursts/);
   assert.doesNotMatch(standaloneChat, /standalone-chat-typing-dots/);
   assert.match(standaloneChat, /1000/);
+  assert.doesNotMatch(standaloneChat, /flushStandaloneChatBurst\(conversationId\)\.catch/);
   assert.match(html, /data-chat-mode="image"/);
   assert.match(chat, /generateChatImage/);
   assert.match(chat, /pollChatImage/);

@@ -707,10 +707,7 @@ function queueChatMessage(content = "") {
     els.chatInput.focus();
   }
   renderChatPanel();
-  if (!state.chatSending) {
-    state.chatNextBurstAt = Date.now() + CHAT_BURST_SETTLE_MS;
-    flushChatBurst().catch(() => {});
-  }
+  scheduleChatBurstFlush();
 }
 
 async function flushChatBurst() {
@@ -813,6 +810,10 @@ els.chatSearch?.addEventListener("input", () => { state.chatSearch = els.chatSea
 els.chatComposer?.addEventListener("submit", (event) => { event.preventDefault(); sendChatMessage(); });
 els.chatInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); }
+});
+els.chatInput?.addEventListener("input", () => {
+  if (!String(els.chatInput?.value || "").trim()) return;
+  if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
 });
 els.chatContinueBtn?.addEventListener("click", () => sendChatMessage({ action: "continue" }));
 els.chatSuggestionBtn?.addEventListener("click", () => { if (els.chatInput) { els.chatInput.value = els.chatSuggestionBtn.textContent || ""; els.chatInput.focus(); } });

@@ -208,11 +208,7 @@
     input.value = "";
     form.dataset.conversationId = conversationId;
     if (burst.timer) window.clearTimeout(burst.timer);
-    if (burst.sending) {
-      burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
-    } else {
-      flushStandaloneChatBurst(conversationId).catch(() => {});
-    }
+    burst.timer = window.setTimeout(() => flushStandaloneChatBurst(conversationId), 1000);
     renderStandaloneChat(conversationId).then(() => {
       const next = app.querySelector("[data-chat-composer]");
       if (next?.dataset) next.dataset.conversationId = conversationId;
