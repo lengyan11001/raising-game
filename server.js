@@ -17583,6 +17583,46 @@ function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
   return false;
 }
 
+function compactChatReply(value = "") {
+  return String(value || "").toLowerCase().replace(/[\s。！？.!?，,、；;：:“”"'（）()【】\[\]…—\-~～]/g, "");
+}
+
+function chatReplyRepeatsRecent(value = "", recentReplies = []) {
+  const current = compactChatReply(value);
+  if (!current) return false;
+  const previous = (Array.isArray(recentReplies) ? recentReplies : []).map(compactChatReply).filter(Boolean).slice(-6);
+  if (!previous.length) return false;
+  const formulaic = [/既然你/g, /那你就别/g, /你要是敢/g, /我就要把你按/g, /让你知道谁才是真正掌控/g, /把你的腰部/g];
+  const formulaCount = formulaic.reduce((count, pattern) => count + ((current.match(pattern) || []).length), 0);
+  if (formulaCount >= 2 && previous.some((item) => formulaic.reduce((count, pattern) => count + ((item.match(pattern) || []).length), 0) >= 2)) return true;
+  for (const item of previous) {
+    if (current === item) return true;
+    const shorterLength = Math.min(current.length, item.length);
+    for (let size = Math.min(16, shorterLength); size >= 10; size -= 1) {
+      for (let index = 0; index <= current.length - size; index += 1) {
+        if (item.includes(current.slice(index, index + size))) return true;
+      }
+    }
+    const currentPairs = new Set(Array.from({ length: Math.max(0, current.length - 1) }, (_, index) => current.slice(index, index + 2)));
+    const previousPairs = new Set(Array.from({ length: Math.max(0, item.length - 1) }, (_, index) => item.slice(index, index + 2)));
+    if (!currentPairs.size || !previousPairs.size) continue;
+    const overlap = [...currentPairs].filter((pair) => previousPairs.has(pair)).length;
+    if (overlap / currentPairs.size >= 0.32) return true;
+  }
+  return false;
+}
+
+function chatRetryCorrection(value = "", recentReplies = []) {
+  const repeated = chatReplyRepeatsRecent(value, recentReplies);
+  return [
+    "RETRY CORRECTION: The previous draft was not acceptable because it was " + (repeated ? "too similar to an earlier reply." : "incomplete or unusable."),
+    "Write a fresh reply to the LATEST USER MESSAGE only.",
+    "Do not reuse the same opening, sentence structure, threat, command, or closing from earlier replies.",
+    "If the user talks about what they want to do to you, respond as the person receiving it: accept, react, or say what you want in your own words. Do not turn it into an instruction back to the user.",
+    "Do not dodge a concrete request with atmosphere. A short direct answer with a different rhythm is better than a long formulaic paragraph.",
+  ].join("\n");
+}
+
 function stripChatStageDirections(value = "") {
   let text = String(value || "")
     .replace(/\r/g, "")
@@ -17614,7 +17654,7 @@ function normalizeChatReply(value = "", { expanded = false } = {}) {
   return chatReplyHasWords(inner) ? inner.slice(0, 180).trim() : "";
 }
 
-function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null) {
+function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = "", characterMemory = null, recentAssistantReplies = []) {
   const character = conversation.character || {};
   const relationshipMemory = chatCharacterMemoryBlock(characterMemory, conversation.user || null);
   const pinnedMemory = [String(conversation.memory || "").trim(), relationshipMemory].filter(Boolean).join("\n").slice(0, 2500);
@@ -17626,6 +17666,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
   const userInstructions = String(conversation.instructions || "").trim().slice(0, 2000);
   const tracker = plainObject(conversation.tracker);
   const latest = String(latestUserMessage || "").trim().slice(0, 1600);
+  const recentReplies = (Array.isArray(recentAssistantReplies) ? recentAssistantReplies : []).map((item) => String(item || "").trim()).filter(Boolean).slice(-4);
   const asksForExpandedScene = chatWantsExpandedScene(latest);
   const styleGuide = {
     balanced: "For a substantive user message, write one complete spoken response of at least two clauses or sentences. A tiny reaction may be short only when it fully answers a tiny message; never reply with a single isolated word after a request, question, or explicit scene direction. Do not land on the same length every turn, and do not pad. Do not write a novel or a speech.",
@@ -17653,6 +17694,9 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "HUMAN CHAT DEFAULT: This is a real text-message conversation, not a novel, essay, customer-service script, or roleplay transcript. Reply as the character's direct spoken message, like a person typing on a phone.",
     "VOICE PRIORITY: If a reply-style block is present (回复口吻 or VOICE OVERRIDE), that block wins over the persona, the character sheet, and every generic example in this prompt. If it is absent, copy the attitude in the character sheet. Different characters must not sound the same. Do not flatten a crude or sharp character into a shy compliant one. Format only: reply with words she would actually send, no narration, no posture, no lighting, no fruit metaphors, no breath lessons.",
     "NATURAL RHYTHM: Match the user's language, mood, and message length. Use colloquial wording, contractions or sentence fragments when natural. Vary sentence length. Do not restate or summarize the user's message, explain your reasoning, or wrap up with a polished conclusion.",
+    "COOPERATION, NOT COMMANDING: Decide what this exact message needs. If it is a question, answer it. If it is a description, react to it. If the user says they want to do something with you, answer as the person receiving it, not as a supervisor issuing another order. Do not reflexively tell the user to do the same thing back to you.",
+    "DO NOT COPY YOUR OWN TEMPLATE: Do not start consecutive replies with 既然..., 那你就别..., 你要是敢..., or 我就要把你... . Do not reuse a threat, closing sentence, posture, rhythm, or signature phrase from your recent replies. Never repeat a previous passage with minor substitutions. Each reply must look like a new text message, not a fill-in-the-blank template.",
+    "AGENCY CHECK: The user's 我/我的 is the user and 你/你的 is you. When the user says 我要后入了 or 我要把你举起来, show your own consent, reaction, sensation, or preference in spoken words. Bad: 那你就别只是在前面发号施令，把你的腰部... Good: 来，慢一点，先顶进来，我受得住。 Do not answer every action with a new command for the user.",
     "Do not use canned openers such as 'I understand', 'That sounds', 'It seems', 'I'm glad', or 'Of course' unless the character would genuinely say them. DEFAULT: do not end with a question. Most replies should make a direct statement or perform the request and stop. Ask at most one question only when a required detail is genuinely missing; never use reflexive questions, rhetorical questions, or 'do you want A or B' choice questions as a conversational hook. A brief reaction or answer without a question is usually better.",
     "For Chinese, sound like a normal private WeChat chat: use natural spoken Chinese and occasional particles such as '嗯', '啊', '吧', or '嘛' only when they fit. Do not write formal, literary, or explanatory Chinese. 用人话，像平时聊天，不要写成小说或旁白。不要铺光影、外貌、衣服、身体、环境。事情用口语直接说，长短看这一句需要多少，不要每轮都一个调。 For English, sound like a casual text message, not polished customer support. 人设只说明你是谁。回复只能是嘴上说的话。不要写衣服怎么动、灯光、身体轮廓。对方催就先接催。",
     asksForExpandedScene
@@ -17662,6 +17706,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     "Keep the current scene and relationship continuous. Do not summarize the whole story, write multiple alternatives, or resolve the user's choices. Never write the user's actions, thoughts, or decisions for them.",
     "End naturally without an automatic question. A direct sentence, reaction, or completed request is a complete reply. Only ask one focused question when necessary information is missing; do not turn every reply into an interrogation or a choice between options.",
     "Never claim to be an AI, break character, or repeat a previous passage.",
+    recentReplies.length ? `Recent replies from you (do not copy their wording, sentence structure, threats, or endings): ${recentReplies.map((item) => item.slice(0, 220)).join(" || ")}` : "",
     Object.keys(tracker).length ? `Current scene state (preserve unless the user changes it): ${JSON.stringify(tracker).slice(0, 3000)}` : "",
     pinnedMemory ? `Pinned memory (use only when relevant): ${pinnedMemory}` : "",
     userInstructions ? `User preferences (follow when compatible with the current request): ${userInstructions}` : "",
@@ -17924,22 +17969,30 @@ async function handleSendChatMessage(req, res, conversationId) {
       conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
     }
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
-    const chatMessages = [{ role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly)) }, ...modelMessages];
+    const recentAssistantReplies = messages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
+    const chatMessages = [{ role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies) }, ...modelMessages];
     const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
-    const requestChat = (retry = false) => (usePapayaChat
-      ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.78 : chatTemperature, max_tokens: chatMaxTokens }, { timeoutMs: 45000 })
-      : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.72 : chatTemperature, max_tokens: chatMaxTokens }, { timeoutMs: 45000 }));
+    const requestChat = (retry = false, rejectedReply = "") => {
+      const requestMessages = retry
+        ? [...chatMessages, { role: "system", content: chatRetryCorrection(rejectedReply, recentAssistantReplies) }]
+        : chatMessages;
+      const tuning = { frequency_penalty: retry ? 0.7 : 0.28, presence_penalty: retry ? 0.6 : 0.22 };
+      return usePapayaChat
+        ? papayaLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 0.86 : chatTemperature, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
+        : byteplusLanguageRequest({ model: chatModel, messages: requestMessages, temperature: retry ? 0.82 : chatTemperature, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });
+    };
     let upstreamResponseId = "";
     let raw = await requestChat(false);
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
-    if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
-      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, attempt: 1, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
-      raw = await requestChat(true);
+    const repeatedReply = chatReplyRepeatsRecent(reply, recentAssistantReplies);
+    if (chatReplyIsDegenerate(reply, { simpleGreeting }) || repeatedReply) {
+      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, attempt: 1, repeatedReply, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      raw = await requestChat(true, reply);
       upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
       reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     }
