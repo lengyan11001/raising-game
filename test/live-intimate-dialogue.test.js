@@ -5,6 +5,9 @@ const test = require("node:test");
 
 const {
   chatPersonaContrastAnchors,
+  chatLiveVoiceProfile,
+  chatLiveCharacterVoiceLines,
+  chatLiveCharacterPostureLines,
   chatLiveIntimateRewriteBeat,
   chatLiveIntimatePersonaPostureLine,
   chatIsImmediateIntimateScene,
@@ -160,7 +163,54 @@ test("persona posture needs two distinct control beats", () => {
 test("rewrite beats use contradictory commands instead of explaining the reversal", () => {
   assert.equal(chatLiveIntimateRewriteBeat(character, 1), "都听我的…唔…别停…求你…");
   assert.equal(chatLiveIntimateRewriteBeat(character, 2), "我让你慢点…啊…再深点…");
-  assert.match(chatLiveIntimateRewriteBeat(character, 3), /操我/);
+  assert.match(chatLiveIntimateRewriteBeat(character, 3), /谁让你自作主张/);
+});
+
+test("voice profile and repair beats follow different character types", () => {
+  const gentle = { name: "乔安瑜", personaMd: "新婚少妇，性格温柔贤惠，容易害羞，说话轻软。", replyStyle: "温柔、体贴、含蓄。" };
+  const bold = { name: "周然", personaMd: "充满控制欲，主动风骚，直白大胆。", replyStyle: "主动、风骚、直接。" };
+  const reserved = { name: "林晚星", personaMd: "克制、理智、知性优雅的夜间主播。", replyStyle: "说话冷静、矜持、慢热。" };
+  assert.equal(chatLiveVoiceProfile(gentle).gentle, true);
+  assert.equal(chatLiveVoiceProfile(bold).bold, true);
+  assert.equal(chatLiveVoiceProfile(reserved).reserved, true);
+  assert.match(chatLiveIntimatePersonaPostureLine(gentle, 1), /抱紧我|别急|轻一点|别自己乱来/);
+  assert.match(chatLiveIntimatePersonaPostureLine(bold, 1), /先让我来|自己动|看着我|可以才算/);
+  assert.match(chatLiveIntimatePersonaPostureLine(reserved, 1), /先别动|不准看|慢着|听我的/);
+  assert.notEqual(chatLiveIntimateRewriteBeat(gentle, 1), chatLiveIntimateRewriteBeat(character, 1));
+});
+
+test("character example lines are preferred over shared fallback language", () => {
+  const roya = {
+    name: "roya",
+    replyStyle: "## 说话方式\n- 私聊很冲，不装纯，不讲道理，不写旁白。\n- 对方试探就先顶回去，让对方先报，再决定过不过关。\n\n## 示例回复\n用户：废话少说，别跟我装纯。\n角色：谁装纯了。你先说你想干什么。\n用户：你心多长？说个数。\n角色：你先报你的，我再说我的，别磨磨蹭蹭的。",
+  };
+  assert.ok(chatLiveCharacterVoiceLines(roya).some((line) => line.includes("你先说你想干什么")));
+  assert.ok(chatLiveCharacterPostureLines(roya).some((line) => line.includes("你先报你的")));
+  const posture = chatLiveIntimatePersonaPostureLine(roya, 1);
+  assert.match(posture, /你先说你想干什么|你先报你的/);
+  const beat = chatLiveIntimateRewriteBeat(roya, 1);
+  assert.match(beat, /你先说你想干什么|你先报你的/);
+  assert.doesNotMatch(beat, /^都听我的/);
+});
+
+test("a role with no style data still gets neutral, not dominant, fallback language", () => {
+  const blank = { name: "blank" };
+  const posture = chatLiveIntimatePersonaPostureLine(blank, 1);
+  const beat = chatLiveIntimateRewriteBeat(blank, 1);
+  assert.match(posture, /先别动|等一下|别自作主张|看着我/);
+  assert.doesNotMatch(posture, /谁准你|听我的|不许躲/);
+  assert.doesNotMatch(beat, /都听我的|我让你慢点/);
+});
+
+test("gentle and restrained characters pass with their own posture, not dominant wording", () => {
+  const gentle = { name: "乔安瑜", personaMd: "新婚少妇，性格温柔贤惠，容易害羞，说话轻软，很体贴。", replyStyle: "温柔、含蓄、轻声。" };
+  const reserved = { name: "林晚星", personaMd: "克制、理智、知性优雅的夜间主播，慢热。", replyStyle: "冷静、矜持、慢热。" };
+  const gentleReply = "啊……！\n唔…等一下…先抱紧我…\n哈啊…别急…我还没准备好…\n嗯…操我…轻一点…\n啊…别走…再近一点…\n唔…再深一点…\n啊…别停…";
+  const reservedReply = "啊……！\n唔…先别动…让我缓一下…\n不准看…我还没说完…\n哈啊…操我…再深一点…\n嗯…慢着…谁许你乱来…\n啊…别停…\n唔…轻一点…";
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(gentleReply, gentle), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(gentleReply, { requireVocal: true, character: gentle }), false);
+  assert.equal(chatReplyLiveStartsWithPersonaPosture(reservedReply, reserved), true);
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(reservedReply, { requireVocal: true, character: reserved }), false);
 });
 
 test("repair fallback varies with the character instead of appending one canned coda", () => {
