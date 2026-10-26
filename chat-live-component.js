@@ -195,7 +195,7 @@ function buildSignal(type, liveId, connId, payload = {}) {
   return JSON.stringify({ type, live_id: String(liveId), conn_id: connId, seq_id: seq, payload });
 }
 
-async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "", memoryBlock = "", userBlock = "", conversationTone = "", engagementBlock = "", spokenPrompt = "", languageModel = "byteplus" } = {}) {
+async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "", memoryBlock = "", userBlock = "", conversationTone = "", engagementBlock = "", spokenPrompt = "", languageModel = "byteplus", site = "" } = {}) {
   const id = String(liveId);
   if (sessions.has(id)) return sessions.get(id);
   const connId = `srv-${crypto.randomBytes(4).toString("hex")}`;
@@ -211,6 +211,7 @@ async function startComponentSession({ liveId, clientSecret, character, language
     conversationTone: String(conversationTone || ""),
     spokenPrompt: String(spokenPrompt || ""),
     languageModel: String(languageModel || "byteplus").toLowerCase() === "papaya" ? "papaya" : "byteplus",
+    site: String(site || "").toLowerCase(),
     nudgeCount: 0,
     nudgeTimer: 0,
     userBlock: String(userBlock || ""),
@@ -467,6 +468,9 @@ async function componentReply(session, userText, options = {}) {
     : proactive
       ? "用户没接话。用一句短话接上次的话题，不要重复上一句，不要自我介绍，不要另起剧情。"
       : "先回用户刚说的这句。不要铺气氛，不要改话题。";
+  const intimateCue = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""))
+    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。直接反应这一下，不要用“唔……哈”“嗯……哈”做固定开头，不要评价对方的能力、表现、诚意、节奏或进度。叫声、气音、被撞断的半句话和身体感受要跟着动作变化，不要套同一条模板。"
+    : "";
   const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
   const strategyBlock = [
     "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
@@ -475,7 +479,7 @@ async function componentReply(session, userText, options = {}) {
   ].join("\n");
   const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
-    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${cue}\n${jsonTail}` },
+    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${intimateCue}\n${cue}\n${jsonTail}` },
     ...componentHistoryForTurn(session.history, proactive ? "" : userText),
     { role: "user", content: proactive ? "（对方没接话）" : userText },
   ];
@@ -497,10 +501,10 @@ async function componentReply(session, userText, options = {}) {
       model: usePapaya ? "carrothub-papaya-1.0" : (process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw"),
       messages,
       max_tokens: 700,
-      temperature: 0.82,
+      temperature: intimateCue ? 0.92 : 0.82,
       top_p: 0.92,
-      frequency_penalty: 0.72,
-      presence_penalty: 0.65,
+      frequency_penalty: intimateCue ? 0.92 : 0.72,
+      presence_penalty: intimateCue ? 0.82 : 0.65,
     }),
   });
   const payload = await response.json().catch(() => ({}));

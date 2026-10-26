@@ -6732,8 +6732,8 @@ function chatLiveEngagementGuide(character = {}, gifts = [], memory = null) {
   ].join("\n");
 }
 
-function chatLiveLegacyPrompt(character = {}, { language = "zh", memory = null, user = null, latest = "" } = {}) {
-  return chatSystemPrompt({
+function chatLiveLegacyPrompt(character = {}, { language = "zh", memory = null, user = null, latest = "", site = "" } = {}) {
+  const prompt = chatSystemPrompt({
     character: {
       name: character.name || "",
       description: String(character.persona || character.personaMd || character.intro || "").trim(),
@@ -6745,6 +6745,11 @@ function chatLiveLegacyPrompt(character = {}, { language = "zh", memory = null, 
     instructions: "",
     user: user || null,
   }, language || character.language || "zh", latest, memory);
+  if (String(site || "").toLowerCase() !== "live") return prompt;
+  return [
+    prompt,
+    "LIVE SITE INTIMACY BEAT: 在成人亲密场景里，她是正在承受动作的那一方。不要站在旁边验收、评分或指挥；不要评价对方的能力、表现、诚意、节奏或进度。叫声不要固定成“唔……哈”或“嗯……哈”，可以有气息、鼻音、短促音节、被撞断的半句话，也不必每轮先叫再说话。",
+  ].join("\n");
 }
 
 function chatLiveReplyStyleBlock(character = {}) {
@@ -7808,9 +7813,10 @@ async function handleCreateChatLiveSession(req, res) {
       memoryBlock: "",
       engagementBlock: "",
       conversationTone: "",
-      spokenPrompt: chatLiveLegacyPrompt(character, { language: character.language || "zh", memory: sessionExclusive ? componentMemory : null, user: auth.user }),
+      spokenPrompt: chatLiveLegacyPrompt(character, { language: character.language || "zh", memory: sessionExclusive ? componentMemory : null, user: auth.user, site: requestTenantDescriptor(req).toolId }),
       language: character.language || "zh",
       languageModel: live.languageModel === "papaya" ? "papaya" : "byteplus",
+      site: requestTenantDescriptor(req).toolId,
       userBlock: chatLiveUserContext(auth.user),
       viduBase: componentCreds.base,
       viduKey: componentCreds.key,
@@ -7891,7 +7897,7 @@ async function handleCreateChatLiveSession(req, res) {
   };
   const privateMemory = sessionExclusive ? await loadChatCharacterMemory(auth.user.id, character.id) : null;
   const memoryBlock = sessionExclusive ? chatCharacterMemoryBlock(privateMemory, auth.user) : "";
-  avatar.persona = chatLiveLegacyPrompt(character, { language: character.language || "zh", memory: privateMemory, user: auth.user });
+  avatar.persona = chatLiveLegacyPrompt(character, { language: character.language || "zh", memory: privateMemory, user: auth.user, site: requestTenantDescriptor(req).toolId });
   if (memoryBlock) avatar.greeting_instruction = "你们已经认识。不要重新自我介绍。用一两句短话接上上次的话题，然后停下来等用户说。不要推进新剧情，不要提礼物。";
   else if (character.greeting) avatar.greeting_instruction = String(character.greeting).trim();
   else avatar.greeting_instruction = "用一两句自然的话打招呼，不要自我介绍，不要提礼物，说完就停。";
@@ -18200,6 +18206,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
     const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
     const sceneStage = chatSceneStage(latestUserMessage, modelMessages, relationshipBeforeReply);
+    const liveSiteChat = requestTenantDescriptor(req).toolId === "live";
     const sceneAnchor = freshCharacterEarly
       ? sceneStage === "intimate"
         ? `你是${freshCharacterEarly.name}，现在正在被进入、被顶弄，是承受这一下的那一方。直接反应这一下的真实感觉，不要用“唔……哈”“嗯……哈”当固定开头，也不必每轮先叫再说话；句子可以被撞断，也不必完整。可以是腰软、发抖、发涨、呼吸乱、受不了、缓不过来、让他慢一点或继续。不要验收或指挥对方，不要评价能力、表现、诚意、节奏，也不要讲身份或关系。`
@@ -18213,13 +18220,15 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
-    const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? 0.92 : expandedScene ? 0.78 : 0.82;
+    const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
     const chatMaxTokens = simpleGreeting ? 240 : immediateIntimacyScene || expandedScene ? 1200 : 900;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
     const chatRequestId = billingId;
     console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
     const requestChat = () => {
-      const tuning = { frequency_penalty: 0.72, presence_penalty: 0.65 };
+      const tuning = liveSiteChat && immediateIntimacyScene
+        ? { frequency_penalty: 0.92, presence_penalty: 0.82 }
+        : { frequency_penalty: 0.72, presence_penalty: 0.65 };
       return usePapayaChat
         ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 })
         : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: chatTemperature, top_p: 0.92, max_tokens: chatMaxTokens, ...tuning }, { timeoutMs: 45000 });

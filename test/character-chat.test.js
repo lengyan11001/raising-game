@@ -77,6 +77,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatMemoryTurnsForPrompt/);
   assert.match(server, /currentMessages/);
   assert.match(chatLiveComponentSource, /componentHistoryForTurn/);
+  assert.match(chatLiveComponentSource, /session\.site === "live"/);
+  assert.match(server, /site: requestTenantDescriptor\(req\)\.toolId/);
+  assert.match(server, /liveSiteChat && immediateIntimacyScene/);
+  assert.match(server, /LIVE SITE INTIMACY BEAT/);
   assert.match(server, /说话方式（参考语气和态度/);
   assert.match(server, /她的人设通过用词、判断和反应露出来/);
   assert.match(server, /每一轮都要有一句和上一轮不同的话/);
@@ -91,7 +95,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /Length is content-driven\. Do not truncate a coherent spoken reply/);
   assert.match(server, /sentences\.slice\(0, 40\)/);
   assert.doesNotMatch(server, /slice\(0, 720\)/);
-  assert.match(server, /immediateIntimacyScene \? 0\.92 : expandedScene \? 0\.78/);
+  assert.match(server, /immediateIntimacyScene \? \(liveSiteChat \? 0\.95 : 0\.92\) : expandedScene \? 0\.78/);
   assert.match(server, /simpleGreeting \? 240 : immediateIntimacyScene \|\| expandedScene \? 1200 : 900/);
   assert.match(server, /const modelMessages = simpleGreeting/);
   assert.match(chat, /language: els\.languageSelect\?\.value \|\| state\.lang/);
