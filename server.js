@@ -17940,7 +17940,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     ? "这一轮只是打招呼：自然回一句，不要接着上一轮的亲密场景往下演。"
     : "";
   const lengthGuide = intimateProcess
-    ? "这一轮写一个连贯的现场过程，通常 2-5 句或两个短段：她的反应、一句心里话或嘴硬、身体被这一下带出的变化，以及至少一次自然叫声或断掉的气音。不要写成 300 字以上的文学描写，不要连续堆比喻，也不要为凑长度重复同一感受。"
+    ? "这一轮写现场成人场景的即时反应，通常 80-220 个中文字或 2-6 个短句：可以有浪叫、喘息、断续荤话、粗俗称呼、身体被这一下带出的反应，再夹一句她自己的嘴硬、羞耻或心理活动。不要写成 300 字以上的文学描写，不要连续堆比喻，也不要为凑长度重复同一感受。"
     : asksForExpandedScene
       ? "对方希望展开一点，可以多写几拍，但仍然只写她说出来的话。"
       : "长短跟这一轮真正要说的话走。短句、停顿、叫声、连续几句都可以，不要为了高冷硬截断，也不要为了显得深情硬拉长。";
@@ -17952,7 +17952,7 @@ function chatSystemPrompt(conversation = {}, language = "", latestUserMessage = 
     character.tags?.length ? `性格关键词：${character.tags.join("、")}。` : "",
     voice ? `说话方式（最高优先级，保留这个角色独有的判断、边界、要面子和说话节奏；参考态度，不要照抄示例）：\n${voice}` : "",
     intimateProcess
-      ? "当前轮允许第一人称承受过程：身体反应、断续说话、自然叫声、少量心里话和她本人的判断可以混合；心理活动只用来表现嘴硬、羞耻、想控制又失控，不要写长篇分析。不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
+      ? "当前轮允许第一人称承受过程：身体反应、断续说话、浪叫、喘息、荤话、少量心里话和她本人的判断可以混合；心理活动只用来表现嘴硬、羞耻、想要又不敢承认、想控制又失控，不要写长篇分析。不要写第三人称旁白、镜头、环境铺陈，也不要替对方写动作或心理。"
       : "只写对白。动作、环境、心理、旁白、括号、镜头、身份说明都不写；需要表达同意、感受或动作时，直接用嘴里的话说出来。",
     stageGuide,
     "对方说了什么，就先接什么。直接用自己的反应和选择回答，不要回头点评对方说话的方式，也不要把职位、制度或大道理搬进此刻。",
@@ -18269,7 +18269,7 @@ async function handleSendChatMessage(req, res, conversationId) {
       ...modelMessages,
       ...(sceneAnchor ? [{ role: "system", content: sceneAnchor }] : []),
       { role: "system", content: liveSiteChat && immediateIntimacyScene
-        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE PRESENT-MOMENT FORMAT: Answer as the configured character in her immediate first-person voice. Give one developed intimate beat, usually 2-5 natural sentences or two short paragraphs, mixing her physical reaction, a little inner thought that reveals her pride or shame, interrupted speech, and at least one varied natural moan or gasp somewhere inside the process. Keep it plain and colloquial, not literary. Do not use a moan as the opening template. Do not write a 300+ character essay, third-person narration, camera directions, environment description, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
+        ? `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nLIVE ADULT-SCENE FORMAT: Answer as the configured character in her immediate first-person voice. Give one hot, present-tense live beat, usually 80-220 Chinese characters or 2-6 short lines: varied moans/gasps, broken dirty talk, a concrete physical reaction to this exact action, and a short psychological slip that reveals her pride, shame, control, or need. Write like she is actually saying it now, not like a polished erotic novelist. Usually mix sounds and spoken fragments inside the line rather than opening with a stock moan. Do not write a 300+ character essay, third-person narration, camera directions, environment description, abstract '那种感/仿佛/每一寸/深处/神经/褶皱' prose, or an action log about the user. Do not copy a previous reply's opening, rhythm, or closing.`
         : `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nFINAL SPEECH-ONLY FORMAT: Return only the words or sounds the character makes out loud. No narration, no stage directions, no camera description, and no first-person action log such as 我走到/我转身/我把/我伸手/我看着/我感觉到/我强迫自己. Express agreement as speech (好，我过去。), physical feeling as speech (我有点受不了。), and immediate intimate reaction in as many spoken words, fragments, or sounds as this character would actually use. Do not reproduce a previous user-assistant pair.` },
     ];
     const chatTemperature = simpleGreeting ? 0.45 : immediateIntimacyScene ? (liveSiteChat ? 0.95 : 0.92) : expandedScene ? 0.78 : 0.82;
@@ -18296,9 +18296,9 @@ async function handleSendChatMessage(req, res, conversationId) {
       try {
         const retryRaw = await requestChat([
           "LIVE INTIMATE REWRITE: 刚才那一版不合格。丢弃它，按下面的形态重写这一轮。",
-          "用第一人称现场口吻，不要写成文艺小作文。通常 2-5 句或两个短段，写这一下的身体过程、她的一点心里话/嘴硬和被打断的话；禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话，优先写具体动作、气音和短句。",
-          "过程中必须自然出现至少一次叫声、气音或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头，也不要总用同一个“嗯/哈”，可以是被撞断的字、吸气、闷哼、喉咙里漏出的短音。",
-          "保留角色的面子、判断、强势和边界：她可以嘴硬、命令、掩饰羞耻，不能变成通用顺从伴侣。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
+          "用第一人称现场成人场景口吻，不要写成文艺小作文。通常 80-220 个中文字或 2-6 个短句：浪叫、喘息、断续荤话、身体直接反应，再夹一句她自己的心理活动/嘴硬。禁止连续堆“仿佛、像是、褶皱、胀满感、脊背、神经、每一寸”这类套话。",
+          "过程中必须自然出现至少一次叫声、气音、闷哼或断掉的话，位置放在被顶到、加快、到底或受不了的那一下；不要用叫声当固定开头，也不要总用同一个“嗯/哈”，可以是被撞断的字、吸气、喉咙里漏出的短音。",
+          "保留角色的面子、判断、强势和边界：她可以浪、可以骂、可以命令、可以承认爽，但不能变成通用顺从伴侣。禁止“别只是……”“既然……那就……”“那就按你要求的做”。",
           "只输出最终内容，不要解释为什么重写。",
         ].join("\n"), true);
         const retryReply = normalizeChatReply(qwen37FlashResponseText(retryRaw), { expanded: true });
