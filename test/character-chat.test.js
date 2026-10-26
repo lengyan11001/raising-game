@@ -69,6 +69,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatImmediateSceneGuide/);
   assert.match(server, /IMMEDIATE INTIMACY SCENE \(answer in the moment, but character identity comes first\)/);
   assert.match(server, /Do not force a separate resistance beat or make every reply begin with a rhetorical question/);
+  assert.match(server, /BEHAVIORAL VOICE, NOT ABSTRACT ATTITUDE/);
+  assert.match(server, /别让我觉得你在旁观我的羞耻/);
   assert.match(server, /Spoken reactions may be a sound, a fragment, or several connected lines/);
   assert.match(server, /Do not reduce the whole reply to a breathy template such as 唔……别急/);
   assert.match(server, /CHARACTER, NOT SELF-EXPOSITION/);
@@ -77,9 +79,10 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /IMMEDIATE SCENE FINAL RULE/);
   assert.match(server, /Begin in the moment/);
   assert.match(server, /answer the act itself/);
+  assert.match(server, /Write concrete spoken behavior, not abstract attitude/);
   assert.match(server, /do not force a rhetorical question or a separate resistance formula/);
-  assert.match(server, /Bad shape: 嗯……那股撑开的压迫感/);
-  assert.match(server, /Better shape: 疼……你当我会由着你乱来/);
+  assert.match(server, /Bad shape: 那你就盯着点看，别让我觉得你在旁观我的羞耻/);
+  assert.match(server, /Better shape: 看就看，别停/);
   assert.match(server, /Do not narrate the body, describe the process, explain pleasure/);
   assert.match(server, /REPLY LENGTH OVERRIDE/);
   assert.match(server, /treat that only as rhythm guidance, never as a cap/);
@@ -101,6 +104,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /how she handles an order/);
   assert.match(server, /mandatory, but subordinate to identity and the reply-length override/);
   assert.match(server, /CHARACTERIZATION WITHOUT SELF-ANNOUNCEMENT/);
+  assert.match(server, /A strong personality is not a reason to write abstract commentary/);
   assert.match(server, /STYLE-SPECIFIC FIRST BEAT/);
   assert.match(server, /Let her hold some of herself back/);
   assert.match(server, /CHARACTER-SHEET DRIFT CHECK/);
