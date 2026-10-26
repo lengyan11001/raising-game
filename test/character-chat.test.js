@@ -45,6 +45,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /function chatReplyIsDegenerate/);
   assert.match(server, /REPLY COMPLETENESS/);
   assert.match(server, /character-chat-degenerate-reply/);
+  assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
+  assert.match(server, /taskId: billingId, requestId: billingId/);
+  assert.match(server, /upstreamResponseId: error\.upstreamResponseId/);
   assert.match(server, /const requestChat = \(retry = false\)/);
   assert.match(server, /if \(chatReplyIsDegenerate\(reply, \{ simpleGreeting \}\)\) \{[\s\S]*?raw = await requestChat\(true\)/);
   assert.match(server, /message\.role === "user" \|\| !chatReplyIsDegenerate\(normalizeChatReply\(message\.content/);

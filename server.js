@@ -17875,7 +17875,7 @@ async function handleSendChatMessage(req, res, conversationId) {
     await insertChatMessageInDb({ id: randomId("msg"), conversationId, userId: auth.user.id, role: "user", content, createdAt: now, updatedAt: now });
   }
   const billingId = randomId("chat-bill");
-  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: BYTEPLUS_LANGUAGE_MODEL } });
+  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { taskId: billingId, requestId: billingId, conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL } });
   if (!dbEnabled()) await writeDb(auth.db);
   try {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
@@ -17898,20 +17898,27 @@ async function handleSendChatMessage(req, res, conversationId) {
     const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
-    console.info("[character-chat-model]", JSON.stringify({ conversationId, model: chatModel }));
+    const chatRequestId = billingId;
+    console.info("[character-chat-model]", JSON.stringify({ conversationId, requestId: chatRequestId, model: chatModel, messages: chatMessages.length, latestUserMessage: latestUserMessage.slice(0, 200) }));
     const requestChat = (retry = false) => (usePapayaChat
       ? papayaLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.78 : chatTemperature, max_tokens: chatMaxTokens })
       : byteplusLanguageRequest({ model: chatModel, messages: chatMessages, temperature: retry ? 0.72 : chatTemperature, max_tokens: chatMaxTokens }));
+    let upstreamResponseId = "";
     let raw = await requestChat(false);
+    upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
-      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, action, attempt: 1, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      console.warn("[character-chat-degenerate-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, attempt: 1, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
       raw = await requestChat(true);
+      upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
       reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
-      console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, action, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
-      throw Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
+      console.warn("[character-chat-empty-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, action, finishReason: raw?.choices?.[0]?.finish_reason || "", usage: raw?.usage || null, reply: String(reply || "").slice(0, 180), raw: String(qwen37FlashResponseText(raw) || "").slice(0, 180) }));
+      const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
+      unusable.requestId = chatRequestId;
+      unusable.upstreamResponseId = upstreamResponseId;
+      throw unusable;
     }
     const now = new Date().toISOString();
     const assistantMessage = { id: randomId("msg"), conversationId, userId: auth.user.id, role: "assistant", content: reply, createdAt: now, updatedAt: now };
@@ -17924,9 +17931,9 @@ async function handleSendChatMessage(req, res, conversationId) {
     refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
     return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), relationship: relationshipBeforeReply, credits: creditsAmount(auth.user.credits), messageCredits: CHAT_MESSAGE_CREDITS });
   } catch (error) {
-    console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
+    console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, requestId: error.requestId || billingId, upstreamResponseId: error.upstreamResponseId || "", action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
     const db = await readDb();
-    await changeUserCredits(db, auth.user.id, CHAT_MESSAGE_CREDITS, "character_chat_refund", { conversationId, billingId, error: error.message || "Chat failed." });
+    await changeUserCredits(db, auth.user.id, CHAT_MESSAGE_CREDITS, "character_chat_refund", { taskId: billingId, requestId: billingId, upstreamResponseId: error.upstreamResponseId || "", conversationId, billingId, error: error.message || "Chat failed." });
     if (!dbEnabled()) await writeDb(db);
     const info = normalizeErrorPayload(error);
     return sendJson(res, error.statusCode || 502, { ok: false, code: info.code || "CHAT_FAILED", message: info.message || "Chat failed." });
