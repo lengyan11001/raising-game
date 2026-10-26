@@ -18114,23 +18114,29 @@ async function handleSendChatMessage(req, res, conversationId) {
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     const previousAssistantReplies = history.filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-40);
-    if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && chatReplyRepeatsRecent(reply, previousAssistantReplies)) {
-      console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
+    const replyNeedsFreshAttempt = (candidate) => chatReplyRepeatsRecent(candidate, previousAssistantReplies) || chatSentenceLooksLikeNarration(candidate);
+    if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && replyNeedsFreshAttempt(reply)) {
+      const reason = chatReplyRepeatsRecent(reply, previousAssistantReplies) ? "repeated" : "narrated";
+      console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reason, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
       const replacementMessages = [
         ...chatMessages,
         { role: "assistant", content: reply },
-        { role: "system", content: "REPLACEMENT REQUIRED: The draft above repeats a recent reply or its sentence structure. Answer the latest user message again with a fresh spoken response. Address the specific action, question, or feeling the user just raised. Do not reuse the draft's opening, reasoning, conditions, threats, action order, or closing line. Return only the character's spoken words." },
+        { role: "system", content: "FRESH ATTEMPT REQUIRED: The draft is rejected. Answer the latest user message again. Return only a short line the character says out loud. Do not reuse the draft's wording, opening, action order, body description, or closing line. Do not narrate movement or posture. Keep the character's pride, judgment, status, and voice; cooperation may be reluctant, dry, sharp, or negotiated rather than instantly eager." },
       ];
       const replacementRaw = usePapayaChat
-        ? await papayaLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.9, chatTemperature + 0.08), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.82, presence_penalty: 0.75 }, { timeoutMs: 45000 })
-        : await byteplusLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.9, chatTemperature + 0.08), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.82, presence_penalty: 0.75 }, { timeoutMs: 45000 });
+        ? await papayaLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.95, chatTemperature + 0.12), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.9, presence_penalty: 0.82 }, { timeoutMs: 45000 })
+        : await byteplusLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.95, chatTemperature + 0.12), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.9, presence_penalty: 0.82 }, { timeoutMs: 45000 });
       const replacementReply = normalizeChatReply(qwen37FlashResponseText(replacementRaw), { expanded: expandedScene || simpleGreeting });
-      if (!chatReplyIsDegenerate(replacementReply, { simpleGreeting }) && !chatReplyRepeatsRecent(replacementReply, previousAssistantReplies)) {
+      if (!chatReplyIsDegenerate(replacementReply, { simpleGreeting }) && !replyNeedsFreshAttempt(replacementReply)) {
         raw = replacementRaw;
         reply = replacementReply;
         upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
       } else {
         console.warn("[character-chat-repeated-reply-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, replacementUpstreamResponseId: String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || ""), reply: String(replacementReply || "").slice(0, 180) }));
+        const unusable = Object.assign(new Error("Chat model kept repeating or narrating the reply."), { statusCode: 502 });
+        unusable.requestId = chatRequestId;
+        unusable.upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
+        throw unusable;
       }
     }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
