@@ -408,6 +408,11 @@ test("planned next-round penetration stays in foreplay until it starts", () => {
   assert.equal(chatSceneStage(planned, history), "foreplay");
   assert.equal(chatIsImmediateIntimateScene("我现在干你", history), true);
   assert.equal(chatIsImmediateIntimateScene("我已经插进来了", history), true);
+  const wholeNight = "我受不了， 我要吃伟哥，干你整个晚上。你别想睡觉了";
+  assert.equal(chatHasIntimateAction(wholeNight), false);
+  assert.equal(chatIsIntimateForeplayScene(wholeNight), true);
+  assert.equal(chatIsImmediateIntimateScene(wholeNight, history), false);
+  assert.equal(chatSceneStage(wholeNight, history), "foreplay");
 });
 
 test("photo and body-display requests stay in foreplay until penetration starts", () => {

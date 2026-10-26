@@ -17638,9 +17638,9 @@ function recentIntimateContext(contextMessages = []) {
 function chatIntimateIntentIsPlanned(value = "") {
   const text = String(value || "").trim();
   if (!text) return false;
-  const planned = /(?:准备|打算|计划|下一轮|再来一轮|等(?:一下|会儿|我)?|待会儿|一会儿|马上要|先把|先让)[^。！？!?]{0,32}(?:干|操|插|顶|上)(?:你|我)/u.test(text);
+  const planned = /(?:(?<!不)(?:准备|打算|计划|想|要)|下一轮|再来一轮|等(?:一下|会儿|我)?|待会儿|一会儿|马上要|先把|先让)[^。！？!?]{0,32}(?:干|操|插|顶|上)(?:你|我)|(?:干|操|插|顶)(?:你|我)[^。！？!?]{0,16}(?:下一轮|下一回|整个晚上|整晚|今晚|待会儿|一会儿)/u.test(text);
   if (!planned) return false;
-  const ongoing = /(?:已经|正在|现在就|这就|当下|此刻)[^。！？!?]{0,20}(?:干|操|插|顶)(?:你|我)|(?:已经|正)(?:插|顶|干|操)(?:进来|进去|到底)/u.test(text);
+  const ongoing = /(?:已经|正在|现在就|这就|当下|此刻)[^。！？!?]{0,20}(?:干|操|插|顶)(?:你|我)|(?:已经|正)(?:插|顶|干|操)(?:进来|进去|到底)|(?:现在|马上|立刻|这就)(?:就)?(?:干|操|插|顶)(?:你|我)/u.test(text);
   return !ongoing;
 }
 
@@ -17652,7 +17652,9 @@ function chatHasIntimateAction(value = "") {
 
 function chatIsIntimateForeplayScene(value = "") {
   const text = String(value || "").trim();
-  if (!text || chatSceneExitIntent(text) || chatHasIntimateAction(text)) return false;
+  if (!text || chatSceneExitIntent(text)) return false;
+  if (chatIntimateIntentIsPlanned(text)) return true;
+  if (chatHasIntimateAction(text)) return false;
   return /(?:鸡巴|龟头|阴茎|阴道|肛门|乳房|奶子|咪咪|下面|身体|腿|腰|臀|胸口|跳蛋|肛塞|湿了|硬了|好硬|发烫|想要|准备好了|没穿|裸着|脱了|躺在床上|躺在桌上|躺在餐桌|趴在|跪着|张开腿|分开腿|给你看|帮我(?:含|舔|摸|亲)|亲得|舔得|拍照|照片|拍几张|拍张|记录(?:一下|下来)?|骚样|现在的样子|这副样子)/u.test(text);
 }
 
