@@ -60,6 +60,8 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /FINAL SPEECH-ONLY FORMAT/);
   assert.match(server, /function chatReplyIsDegenerate/);
   assert.match(server, /function chatReplyRepeatsRecent/);
+  assert.match(server, /function chatReplyUsesRejectedScaffold/);
+  assert.match(server, /chatReplyUsesRejectedScaffold\(candidate, rejectedDraft\)/);
   assert.match(server, /function chatTurnProtocol/);
   assert.match(server, /function chatMessagesForNewTurn/);
   assert.match(server, /function chatMemoryTurnsForPrompt/);
@@ -91,6 +93,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /character-chat-repeated-reply-rejected/);
   assert.match(server, /!replyNeedsFreshAttempt\(replacementReply\)/);
   assert.match(server, /FRESH ATTEMPT REQUIRED/);
+  assert.match(server, /Do not start with 既然, 你要是, 那我就/);
   assert.match(server, /chatSentenceLooksLikeNarration\(candidate\)/);
   assert.match(server, /requestId: chatRequestId, upstreamResponseId/);
   assert.match(server, /taskId: billingId, requestId: billingId/);

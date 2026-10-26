@@ -17696,6 +17696,14 @@ function chatReplyRepeatsRecent(value = "", recentReplies = []) {
   });
 }
 
+function chatReplyUsesRejectedScaffold(value = "", rejected = "") {
+  const text = chatContextComparable(value);
+  const draft = chatContextComparable(rejected);
+  if (!text || !draft) return false;
+  const opening = draft.slice(0, Math.min(8, draft.length));
+  return opening.length >= 4 && text.startsWith(opening);
+}
+
 function chatReplyIsDegenerate(value = "", { simpleGreeting = false } = {}) {
   const text = String(value || "").trim();
   if (!chatReplyHasWords(text)) return true;
@@ -18114,14 +18122,16 @@ async function handleSendChatMessage(req, res, conversationId) {
     upstreamResponseId = String(raw?.id || raw?.request_id || raw?.requestId || raw?.trace_id || raw?.traceId || "");
     let reply = normalizeChatReply(qwen37FlashResponseText(raw), { expanded: expandedScene || simpleGreeting });
     const previousAssistantReplies = history.filter((message) => message.role === "assistant").map((message) => normalizeChatReply(message.content, { expanded: false })).filter(Boolean).slice(-40);
-    const replyNeedsFreshAttempt = (candidate) => chatReplyRepeatsRecent(candidate, previousAssistantReplies) || chatSentenceLooksLikeNarration(candidate);
+    let rejectedDraft = "";
+    const replyNeedsFreshAttempt = (candidate) => chatReplyRepeatsRecent(candidate, previousAssistantReplies) || chatSentenceLooksLikeNarration(candidate) || chatReplyUsesRejectedScaffold(candidate, rejectedDraft);
     if (!chatReplyIsDegenerate(reply, { simpleGreeting }) && replyNeedsFreshAttempt(reply)) {
-      const reason = chatReplyRepeatsRecent(reply, previousAssistantReplies) ? "repeated" : "narrated";
+      const reason = chatReplyRepeatsRecent(reply, previousAssistantReplies) ? "repeated" : chatSentenceLooksLikeNarration(reply) ? "narrated" : "scaffold";
+      rejectedDraft = reply;
       console.warn("[character-chat-repeated-reply]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reason, reply: reply.slice(0, 180), previous: previousAssistantReplies.at(-1)?.slice(0, 180) || "" }));
       const replacementMessages = [
         ...chatMessages,
         { role: "assistant", content: reply },
-        { role: "system", content: "FRESH ATTEMPT REQUIRED: The draft is rejected. Answer the latest user message again. Return only a short line the character says out loud. Do not reuse the draft's wording, opening, action order, body description, or closing line. Do not narrate movement or posture. Keep the character's pride, judgment, status, and voice; cooperation may be reluctant, dry, sharp, or negotiated rather than instantly eager." },
+        { role: "system", content: "FRESH ATTEMPT REQUIRED: The draft is rejected. Answer the latest user message again. Return only a short line the character says out loud. Do not reuse the draft's wording, opening, action order, body description, or closing line. Do not start with 既然, 你要是, 那我就, or an equivalent conditional bargain. Do not narrate movement or posture. Keep the character's pride, judgment, status, and voice; cooperation may be reluctant, dry, sharp, or negotiated rather than instantly eager. Prefer one concrete human first beat: a boundary, a dry agreement, a sharp correction, or a decision to yield." },
       ];
       const replacementRaw = usePapayaChat
         ? await papayaLanguageRequest({ model: chatModel, messages: replacementMessages, temperature: Math.max(0.95, chatTemperature + 0.12), top_p: 0.95, max_tokens: chatMaxTokens, frequency_penalty: 0.9, presence_penalty: 0.82 }, { timeoutMs: 45000 })
