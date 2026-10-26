@@ -52,6 +52,11 @@ test("novelistic euphemisms do not count as direct dirty talk", () => {
   assert.equal(chatReplyNeedsLiveIntimateRewrite(euphemistic, { requireVocal: true, character }), true);
 });
 
+test("literary climax phrasing is rejected even with moans", () => {
+  const literary = "啊……！哈啊……你、你别这么用力…唔…一直顶到最深处…啊…要把我彻底弄坏了…";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(literary, { requireVocal: true, character }), true);
+});
+
 test("the previous production reply is rejected as insufficiently present", () => {
   const previous = "啊……！哈，你这频率快得让人有点跟不上。虽然我明明在心里一直要求你要稳重一点，可你的每一次贯穿都…别只顾着出力了，看着我……唔……快点把你的力道全部灌进来。";
   assert.equal(chatReplyNeedsLiveIntimateRewrite(previous, { requireVocal: true, character }), true);

@@ -17956,7 +17956,7 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const length = [...text].length;
   const literaryHits = (text.match(/(?:仿佛|像是|如同|褶皱|胀实感|胀满感|脊背|脊椎|骨架|神经末梢|每寸|每一寸|极致|叫嚣|承载|淹没|吞没)/gu) || []).length;
   const abstractHits = (text.match(/(?:那种|不断|一点点|一圈圈|缓缓|微微|透亮)/gu) || []).length;
-  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄)/gu) || []).length;
+  const explanatoryHits = (text.match(/(?:简直要|几乎要|说不完整|你想让我|要的就是这种感觉|所有的力道|这股蛮劲|把.*撞碎.*体面|维持.*体面|仪态|端庄|最深处|彻底.{0,6}弄坏|那根粗大的)/gu) || []).length;
   if (literaryHits >= 3) return true;
   if (explanatoryHits >= 1) return true;
   if (length >= 260 && literaryHits + abstractHits >= 6) return true;
@@ -18505,7 +18505,7 @@ async function handleSendChatMessage(req, res, conversationId) {
             "At least five lines must contain a sound such as 啊…, 哈啊…, 唔…, 嘶…, 嗯…, or a syllable swallowed by the next thrust. At least three lines must break off mid-thought with ellipses or a dash, and at least two broken lines must contain real words rather than only moans. The mouth must sound unsteady, not composed.",
             "At least three DIFFERENT hits must be direct, ordinary adult speech for this exact action: 顶到…, 插进来…, 操我…, 好深…, 别停…, 再用力…, 弄坏…, 灌进来… . Use natural spoken words such as 鸡巴/小穴/里面/操我 when they fit; never use euphemistic novel phrasing like '那根粗大的' or abstract sensation nouns.",
             `Use one concrete control-and-surrender clash from this person: ${anchorHint || "her habitual control, pride, rules, distance, or face-saving"}. Put it in her own speech as broken commands that immediately contradict themselves. This attempt's reversal beat: ${reversalBeat} Do not explain it with 平时/原本/现在 formulas. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as the contrast.`,
-            "Banned shapes: 每一寸, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
+            "Banned shapes: 每一寸, 最深处, 那根粗大的, 彻底…弄坏, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 别只是…, 把你的力道…, 按我的节奏…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感.",
             "Do not quote this prompt, explain the persona, or label the reversal. Let the broken words themselves expose the slip.",
             "只输出最终内容，不要解释为什么重写。",
           ].join("\n"), true, { temperature: 0.78, topP: 0.82, maxTokens: 520 });
