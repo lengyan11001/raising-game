@@ -17582,6 +17582,45 @@ function chatTurnProtocol() {
   ].join("\n");
 }
 
+function chatContextComparable(value = "") {
+  return String(value || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function chatContextSimilarity(left = "", right = "") {
+  const a = chatContextComparable(left);
+  const b = chatContextComparable(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length >= 4 && longer.includes(shorter)) return shorter.length / longer.length;
+  const aPairs = new Set(Array.from({ length: Math.max(0, a.length - 1) }, (_, index) => a.slice(index, index + 2)));
+  const bPairs = new Set(Array.from({ length: Math.max(0, b.length - 1) }, (_, index) => b.slice(index, index + 2)));
+  if (!aPairs.size || !bPairs.size) return a === b ? 1 : 0;
+  const overlap = [...aPairs].filter((pair) => bPairs.has(pair)).length;
+  return (2 * overlap) / (aPairs.size + bPairs.size);
+}
+
+function chatMessagesForNewTurn(messages = [], latestUserMessage = "") {
+  const list = (Array.isArray(messages) ? messages : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const lastUserIndex = list.map((message) => message.role).lastIndexOf("user");
+  if (lastUserIndex < 0) return list;
+  const stale = new Set();
+  for (let index = 0; index < lastUserIndex; index += 1) {
+    if (list[index].role !== "user") continue;
+    if (chatContextSimilarity(list[index].content, latestUserMessage) < 0.86) continue;
+    stale.add(index);
+    for (let replyIndex = index + 1; replyIndex < lastUserIndex && list[replyIndex].role === "assistant"; replyIndex += 1) stale.add(replyIndex);
+  }
+  const assistantIndexes = list.map((message, index) => ({ message, index })).filter((item) => item.message.role === "assistant");
+  const lastAssistant = assistantIndexes.at(-1);
+  if (lastAssistant) {
+    const similarReplies = assistantIndexes.filter((item) => chatContextSimilarity(item.message.content, lastAssistant.message.content) >= 0.84);
+    if (similarReplies.length >= 2) similarReplies.forEach((item) => stale.add(item.index));
+  }
+  return list.filter((_, index) => !stale.has(index));
+}
+
 function chatReplyHasWords(value = "") {
   return /[\p{L}\p{N}]/u.test(String(value || ""));
 }
@@ -17939,13 +17978,17 @@ async function handleSendChatMessage(req, res, conversationId) {
     const expandedScene = chatWantsExpandedScene(latestUserMessage);
     const modelMessages = simpleGreeting
       ? [{ role: "user", content: latestUserMessage }]
-      : messages;
+      : chatMessagesForNewTurn(messages, latestUserMessage);
     if (freshCharacterEarly) {
       conversation = { ...conversation, character: { ...(conversation.character || {}), name: freshCharacterEarly.name || conversation.character?.name || "", replyStyle: freshCharacterEarly.replyStyle || conversation.character?.replyStyle || "", description: freshCharacterEarly.description || conversation.character?.description || "", tags: freshCharacterEarly.tags || conversation.character?.tags || [] } };
     }
     const relationshipBeforeReply = await recordEffectiveInteractionDay(auth.user.id, liveCharacterIdEarly);
-    const recentAssistantReplies = messages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
-    const chatMessages = [{ role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies) }, ...modelMessages];
+    const recentAssistantReplies = modelMessages.filter((message) => message.role === "assistant").map((message) => message.content).slice(-4);
+    const chatMessages = [
+      { role: "system", content: chatSystemPrompt({ ...conversation, relationship: relationshipBeforeReply }, responseLanguage, latestUserMessage, await loadChatCharacterMemory(auth.user.id, liveCharacterIdEarly), recentAssistantReplies) },
+      ...modelMessages,
+      { role: "system", content: `CURRENT TURN ANCHOR: The only message to answer now is the latest user turn: ${latestUserMessage.slice(0, 1200)}\nDo not reproduce a previous user-assistant pair. Decide and answer based on this turn's meaning.` },
+    ];
     const chatTemperature = simpleGreeting ? 0.45 : expandedScene ? 0.68 : 0.62;
     const chatMaxTokens = simpleGreeting ? 180 : expandedScene ? 900 : 800;
     const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
