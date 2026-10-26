@@ -17864,6 +17864,24 @@ function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   return length >= 420 && (literaryHits >= 2 || abstractHits >= 7);
 }
 
+function chatReplyAsLiveSpokenBeat(value = "") {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  text = text
+    .replace(/仿佛|像是|如同|就好像|就像/g, "")
+    .replace(/几乎要把我整个人[^。！？!?]*(?:震碎|撞裂开|顶穿|带跑|震散)[。！？!?]?/gu, "")
+    .replace(/[^。！？!?]*(?:每一处|每一寸|每根|所有)[^。！？!?]*(?:神经|感官|褶皱|肌肉|骨骼|骨架|脊椎|脊背)[^。！？!?]*[。！？!?]?/gu, "")
+    .replace(/那种[^。！？!?]*(?:胀满感|饱胀感|拉扯感|酥麻感|压迫感)[^。！？!?]*[。！？!?]?/gu, "")
+    .replace(/正?在(?:不断|一点点|一圈圈|缓缓|微微)[^。！？!?]*[。！？!?]?/gu, "")
+    .replace(/[ 	]{2,}/g, " ")
+    .replace(/[，,]\s*[，,]/g, "，")
+    .trim();
+  if (!chatReplyHasIntimateVocalReaction(text)) {
+    text = `啊……！${text}`;
+  }
+  return text;
+}
+
 function chatReplyHasLiveDirtyTalk(value = "") {
   const text = String(value || "").trim();
   return /(?:操|干|插|顶|射|鸡巴|阴茎|阴道|里面|穴|骚|浪|爽|舒服|疼|轻点|重点|别停|继续|深一点|到底|受不了|要坏|弄坏|水|湿)/u.test(text);
@@ -18318,7 +18336,10 @@ async function handleSendChatMessage(req, res, conversationId) {
           reply = retryReply;
           upstreamResponseId = String(retryRaw?.id || retryRaw?.request_id || retryRaw?.requestId || retryRaw?.trace_id || retryRaw?.traceId || upstreamResponseId);
         } else {
-          console.warn("[character-chat-live-intimate-rewrite-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply || "").slice(0, 240) }));
+          const cleanedReply = chatReplyAsLiveSpokenBeat(retryReply || reply);
+          console.warn("[character-chat-live-intimate-rewrite-cleaned]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(cleanedReply).slice(0, 240) }));
+          if (chatReplyHasWords(cleanedReply)) reply = cleanedReply;
+          else console.warn("[character-chat-live-intimate-rewrite-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: String(retryReply || "").slice(0, 240) }));
         }
       } catch (retryError) {
         console.warn("[character-chat-live-intimate-rewrite-failed]", JSON.stringify({ conversationId, requestId: chatRequestId, message: String(retryError.message || retryError).slice(0, 240) }));
