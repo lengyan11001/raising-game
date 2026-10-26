@@ -104,6 +104,10 @@ test("moans without concrete process or persona contradiction are rejected", () 
   assert.equal(chatReplyNeedsLiveIntimateRewrite(anatomical, { requireVocal: true, character }), true);
   const anatomicalRepair = chatReplyRepairLiveIntimateLocally(anatomical);
   assert.doesNotMatch(anatomicalRepair, /贯穿|骨盆|每一处缝隙|被完全填满|最深处/);
+  const inflated = "唔……！\n哈，既然你这么坚持……啊！\n你就的节奏了，全部——嗯。\n操，你要是敢把这股劲儿全给灌进来的话，我真的会——唔。\n快点，直接把那层皮都撑开……啊！\n别光动着，要完全、彻底地填满我。\n你的每一个动作都要让我感受到那种要把我整个人撞碎的力道……嗯！";
+  assert.equal(chatReplyNeedsLiveIntimateRewrite(inflated, { requireVocal: true, character }), true);
+  const inflatedRepair = chatReplyRepairLiveIntimateLocally(inflated);
+  assert.doesNotMatch(inflatedRepair, /那层皮|撞碎|每一个动作都要|既然你这么坚持/);
 });
 
 test("third-person or incoherent dirty phrasing is rejected", () => {
