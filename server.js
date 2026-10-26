@@ -17856,10 +17856,11 @@ function chatReplyHasIntimateVocalReaction(value = "") {
 
 function chatReplyLooksLikeLiveIntimateEssay(value = "") {
   const text = String(value || "").trim();
-  if ([...text].length < 280) return false;
-  const abstractHits = (text.match(/(?:那种|仿佛|像是|如同|每一寸|深处|不断|极致|叫嚣|承载|淹没|吞没|边界|神经|脊椎|骨架|胀满感|饱胀感)/gu) || []).length;
+  const length = [...text].length;
+  if (length < 300) return false;
+  const abstractHits = (text.match(/(?:那种|仿佛|像是|如同|每一寸|极致|叫嚣|承载|淹没|吞没|边界|神经末梢)/gu) || []).length;
   const simileHits = (text.match(/(?:仿佛|像是|如同)/gu) || []).length;
-  return abstractHits >= 6 || simileHits >= 2;
+  return abstractHits >= 8 || simileHits >= 3 || (length >= 420 && abstractHits >= 5);
 }
 
 function chatReplyNeedsLiveIntimateRewrite(value = "", { requireVocal = false } = {}) {
