@@ -18459,7 +18459,11 @@ function chatReplyLiveIntimateFallback(value = "", character = {}, attempt = 2) 
   const original = String(value || "").trim();
   if (!original || chatReplyIsDegenerate(original)) return "";
   const repaired = chatReplyWithLivePersonaSlip(chatReplyRepairLiveIntimateLocally(original), character, attempt);
-  return chatReplyIsDegenerate(repaired) ? original : repaired.trim();
+  if (chatReplyIsDegenerate(repaired)) return original;
+  // Cleanup must not erase the only concrete process or persona beat and then
+  // call the remainder a successful salvage.
+  if (!chatReplyHasLiveIntimateDelivery(repaired) || !chatReplyHasPersonaContrast(repaired, character)) return "";
+  return repaired.trim();
 }
 
 function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
@@ -18978,16 +18982,20 @@ async function handleSendChatMessage(req, res, conversationId) {
       for (let attempt = 1; !accepted && attempt <= 3; attempt += 1) {
         try {
           const missingQualities = chatReplyLiveIntimateGaps(rejectedReply, liveIntimateCharacter);
+          const retryBehaviorRules = chatPromptBehaviorRules(liveIntimateCharacter.replyStyle);
+          const retryPersonaCore = String(liveIntimateCharacter.personaMd || liveIntimateCharacter.persona || liveIntimateCharacter.description || "").trim().slice(0, 1200);
           const retryRaw = await requestChat([
             `LIVE INTIMATE SUBTITLE REWRITE ${attempt}: Rewrite the rejected version for this exact moment. Output only the character's spoken subtitles; preserve any concrete action that already works.`,
             missingQualities.length ? `THE REJECTED DRAFT WAS MISSING: ${missingQualities.join("; ")}.` : "",
             "Do not treat earlier assistant messages, memory summaries, or any sample dialogue as a phrase bank. Use them only for relationship continuity. Every clause in the final reply must be newly phrased for this turn.",
             "Rewrite only the rejected expression problem. Preserve the original character choice, pace, emotional direction, and level of openness. Do not make her more dominant, more submissive, more explicit, or more emotional than the character and scene justify.",
+            retryPersonaCore ? `PERSONA CORE (highest priority; do not restate it as biography): ${retryPersonaCore}` : "",
+            retryBehaviorRules ? `MANDATORY BEHAVIOR RULES FOR THIS EXACT TURN (must be audible in what she chooses to say):\n${retryBehaviorRules}` : "",
             "Use only what she would actually say out loud in this beat. Natural variation in line count and length is allowed. Avoid polished paragraphs, narrator, explanation, and repeated stock moans.",
             "This is a spoken intimate beat, not a safe paraphrase. Keep at least several real vocal reactions such as 啊/哈啊/唔/嗯 spread through different beats, at least three interrupted spoken fragments with … or —, at least three direct adult words for the current action, and one audible persona contradiction inside the same breath. Use actual present action such as 顶进来/插进来/撑开/灌进来/里面/湿了/夹紧; never use 撞开骨盆/撞碎骨架/内脏 or other anatomical-injury imagery. Do not coach him with 别只是在动/把你的力道集中/毫无章法, do not explain why her body reacts, do not ask 为什么我的身体……, and do not replace this with 领地/完全占满/把那股劲儿全给到里面来.",
             "Keep any direct adult speech that already fits the current action; remove only euphemistic novel phrasing and abstract sensation nouns. Natural spoken words such as 鸡巴/小穴/里面/操我 are allowed when this character would use them.",
             "REPLACE, DO NOT JUST DELETE: build the concrete beat with present-action words (顶进来/插进来/撞进来/撑开/灌进来/里面/湿了/夹紧/别停/再深一点) tied to what he just said. Do not use 贯穿/顶穿/撑裂/撞碎/撞散/推散/骨盆/骨架/骨头/那层皮/每一处缝隙/最深处/被完全填满 as substitutes. Make the character-specific contradiction happen in her spoken choice (order then ask, deny then admit, try to hold control then lose it), not in an explanation. Do not use generic concession formulas such as 既然你这么坚持 or 既然你这么说. Never use pairing/policy language such as 配对/配对清单/制度/任务, and never evaluate his performance with 没给够力.",
-            "CHARACTER CONTINUITY: Keep this person's established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active. Do not force a dominant line or a reversal if it does not fit her; match THIS character's voice and let the reaction remain recognizably hers.",
+            "CHARACTER CONTINUITY: Keep this person's established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active. Do not force a dominant line or a reversal if it does not fit her; match THIS character's voice and let the reaction remain recognizably hers. The contradiction must come from these exact behavior rules, not from a generic dominant/persona template.",
             "Keep her established behavior rules, marriage and family situation, public identity, boundaries, and private conflict active without reciting a biography. Let those facts affect what she chooses to say, refuses, hides, or cannot finish. Never write “别管我的规矩/面子/脸面/我”. No job-title confession. Never say 我是… or 身为…, and never use 仪态, 端庄, or 体面 as explanation.",
             "Banned shapes: 每一寸, 那根粗大的, 彻底…弄坏, 那股蛮劲, 简直要, 几乎要, 说不完整, 你想让我, 要的就是这种感觉, 所有的力道, 撞碎体面, 既然…那就…, 那就按你要求的做, 你这是在…, 你这频率…, 你不仅是…, 似乎…, 那种…感. Do not flatten the beat into 领地/完全占满/把那股劲儿全给到里面来.",
             "Do not quote this prompt, explain the persona, or label the character choice. Keep the established behavior rules and marriage/family situation effective without reciting them as explanation.",
