@@ -30,15 +30,15 @@ test("live intimate validation rejects polished dialogue without spoken texture"
 
 test("generic moans and a shallow contrast phrase are not enough", () => {
   const generic = "明明……再深一点……唔……继续。别管我的仪态了，我真的受不了。";
-  assert.equal(chatReplyHasBrokenLiveSpeech(generic), true);
+  assert.equal(chatReplyHasBrokenLiveSpeech(generic), false);
   assert.equal(chatReplyHasPersonaContrast(generic, character), false);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(generic, { requireVocal: true, character }), true);
 });
 
 test("a concrete character reversal with live dirty talk passes", () => {
-  const valid = "啊……！哈啊……你、你给我慢点……平时都是我让人守规矩，现在居然要开口求你……唔……哈……别停，就那里……再深一点，操我……操我，灌进来……哈啊……不许笑……嘶……";
+  const valid = "啊……！\n哈啊……都听我的……唔……\n别停……求你……\n操我……插进来……\n哈啊……再深点……\n不许笑……嘶……\n灌进来……";
   assert.ok(chatPersonaContrastAnchors(character).includes("社区主任"));
-  assert.equal(chatReplyIntimateVocalReactionCount(valid) >= 2, true);
+  assert.equal(chatReplyIntimateVocalReactionCount(valid) >= 5, true);
   assert.equal(chatReplyHasBrokenLiveSpeech(valid), true);
   assert.equal(chatReplyHasLiveDirtyTalk(valid), true);
   assert.equal(chatReplyHasPersonaContrast(valid, character), true);
@@ -69,21 +69,21 @@ test("discarding rules or face is not a concrete reversal", () => {
 });
 
 test("a concrete spoken reversal can omit the 明明-now formula", () => {
-  const spoken = "啊……！哈啊……慢点……我居然会求你……唔……听我的，别停……操我，再深一点……嘶……灌进来……";
+  const spoken = "啊……！\n哈啊……都听我的……唔……\n别停……求你……\n操我……插进来……\n哈啊……再深点……\n嘶……灌进来……";
   assert.equal(chatReplyHasPersonaContrast(spoken, character), true);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(spoken, { requireVocal: true, character }), false);
 });
 
-test("rewrite beats come from the character's habitual control", () => {
-  assert.equal(chatLiveIntimateRewriteBeat(character, 1), "我平时只让人听我的…唔…现在居然要开口求你…");
-  assert.equal(chatLiveIntimateRewriteBeat(character, 2), "我居然会求你…这不像我…");
-  assert.match(chatLiveIntimateRewriteBeat(character, 3), /我求你了/);
+test("rewrite beats use contradictory commands instead of explaining the reversal", () => {
+  assert.equal(chatLiveIntimateRewriteBeat(character, 1), "都听我的…唔…别停…求你…");
+  assert.equal(chatLiveIntimateRewriteBeat(character, 2), "我让你慢点…啊…再深点…");
+  assert.match(chatLiveIntimateRewriteBeat(character, 3), /操我/);
 });
 
 test("weak live drafts are repaired with a concrete persona slip", () => {
   const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。别管我刚才说的规矩了，就这么……狠狠地、一直顶到底。嘶……快点，再深一点。";
   const repaired = chatReplyWithLivePersonaSlip(draft, character, 1);
-  assert.match(repaired, /我平时只让人听我的/);
+  assert.match(repaired, /都听我的/);
   assert.match(repaired, /求你/);
   assert.doesNotMatch(repaired, /别管/);
   assert.equal(chatReplyNeedsLiveIntimateRewrite(repaired, { requireVocal: true, character }), false);

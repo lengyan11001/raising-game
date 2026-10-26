@@ -86,7 +86,7 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /chatReplyHasLiveSpokenTexture/);
   assert.match(server, /chatReplyHasPersonaContrast/);
   assert.match(server, /LIVE INTIMATE SUBTITLE REWRITE/);
-  assert.match(server, /FORMAT IS MANDATORY: 6-9 lines/);
+  assert.match(server, /FORMAT IS MANDATORY: 7-10 lines/);
   assert.match(server, /LIVE INTIMATE SUBTITLE REWRITE \$\{attempt\}/);
   assert.match(server, /attempt <= 3/);
   assert.match(server, /character-chat-live-intimate-rewrite-exhausted/);
