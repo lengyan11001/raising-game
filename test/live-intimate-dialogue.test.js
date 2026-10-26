@@ -100,6 +100,16 @@ test("rewrite beats use contradictory commands instead of explaining the reversa
   assert.match(chatLiveIntimateRewriteBeat(character, 3), /操我/);
 });
 
+test("repair fallback varies with the character instead of appending one canned coda", () => {
+  const quiet = { name: "A", personaMd: "她很安静，从来不肯先服软。" };
+  const proud = { name: "B", personaMd: "她是强势的社区主任，极重规矩和面子。" };
+  const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。";
+  const first = chatReplyWithLivePersonaSlip(draft, quiet, 1);
+  const second = chatReplyWithLivePersonaSlip(draft, proud, 1);
+  assert.notEqual(first, second);
+  assert.doesNotMatch(first, /哈…操我…插进来…再深点…/);
+});
+
 test("weak live drafts are repaired with a concrete persona slip", () => {
   const draft = "啊……！哈……你要把整根都…唔，全都给我灌进来。别管我刚才说的规矩了，就这么……狠狠地、一直顶到底。嘶……快点，再深一点。";
   const repaired = chatReplyWithLivePersonaSlip(draft, character, 1);

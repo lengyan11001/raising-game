@@ -18047,7 +18047,13 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     .slice(-9);
   if (!lines.length) lines = ["啊…别停…"];
   const slipLine = `啊…${chatLiveIntimateRewriteBeat(character, attempt)}`;
-  const directLine = "哈…操我…插进来…再深点…";
+  const directLines = [
+    "哈…操我…",
+    "唔…插进来…",
+    "嘶…再深点…",
+    "啊…别停…",
+    "嗯…弄坏我…",
+  ];
   lines.splice(Math.max(1, lines.length - 2), 0, slipLine);
   let repaired = lines.join("\n");
   if (chatReplyIntimateVocalReactionCount(repaired) < 5) {
@@ -18055,7 +18061,8 @@ function chatReplyWithLivePersonaSlip(value = "", character = {}, attempt = 1) {
     repaired = lines.join("\n");
   }
   if (chatReplyLiveBrokenSpeechCount(repaired) < 3 || !chatReplyHasLiveDirtyTalk(repaired)) {
-    lines.push(directLine);
+    const marker = chatReplyLiveDirtyTalkCount(repaired);
+    lines.push(...directLines.slice(marker, marker + 2));
     repaired = lines.join("\n");
   }
   return repaired;
