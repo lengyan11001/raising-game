@@ -109,6 +109,9 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
   assert.match(server, /character-chat-repeated-reply/);
   assert.match(server, /history\.filter\(\(message\) => message\.role === "assistant"\)[\s\S]*slice\(-40\)/);
   assert.match(server, /character-chat-repeated-reply-rejected/);
+  assert.match(server, /character-chat-reply-fallback/);
+  assert.match(server, /Style rejection must not become a user-visible 502/);
+  assert.match(server, /const safeFallbacks = \[finalReply, replacementReply, reply\]/);
   assert.match(server, /!replyNeedsFreshAttempt\(replacementReply\)/);
   assert.match(server, /FRESH ATTEMPT REQUIRED/);
   assert.doesNotMatch(server, /replacementMessages = \[\s*\.\.\.chatMessages,\s*\{ role: "assistant", content: reply \}/);

@@ -18185,10 +18185,31 @@ async function handleSendChatMessage(req, res, conversationId) {
         upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
       } else {
         console.warn("[character-chat-repeated-reply-rejected]", JSON.stringify({ conversationId, requestId: chatRequestId, replacementUpstreamResponseId: String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || ""), reply: String(replacementReply || "").slice(0, 180) }));
-        const unusable = Object.assign(new Error("Chat model kept repeating or narrating the reply."), { statusCode: 502 });
-        unusable.requestId = chatRequestId;
-        unusable.upstreamResponseId = String(replacementRaw?.id || replacementRaw?.request_id || replacementRaw?.requestId || replacementRaw?.trace_id || replacementRaw?.traceId || upstreamResponseId);
-        throw unusable;
+        const finalAttemptMessages = [
+          { role: "system", content: "Reply in character with one direct spoken sentence about the user's latest message. No conditions, negotiation, narration, repeated opening, or explanation. State a reaction or decision plainly." },
+          { role: "user", content: latestUserMessage.slice(0, 1200) },
+        ];
+        const finalRaw = usePapayaChat
+          ? await papayaLanguageRequest({ model: chatModel, messages: finalAttemptMessages, temperature: 1.05, top_p: 0.95, max_tokens: Math.min(chatMaxTokens, 240), frequency_penalty: 0.9, presence_penalty: 0.85 }, { timeoutMs: 30000 })
+          : await byteplusLanguageRequest({ model: chatModel, messages: finalAttemptMessages, temperature: 1.05, top_p: 0.95, max_tokens: Math.min(chatMaxTokens, 240), frequency_penalty: 0.9, presence_penalty: 0.85 }, { timeoutMs: 30000 });
+        const finalReply = normalizeChatReply(qwen37FlashResponseText(finalRaw), { expanded: false });
+        if (!chatReplyIsDegenerate(finalReply, { simpleGreeting }) && !replyNeedsFreshAttempt(finalReply)) {
+          raw = finalRaw;
+          reply = finalReply;
+          upstreamResponseId = String(finalRaw?.id || finalRaw?.request_id || finalRaw?.requestId || finalRaw?.trace_id || finalRaw?.traceId || upstreamResponseId);
+        } else {
+          // Style rejection must not become a user-visible 502 or a refunded empty turn.
+          // Keep the best non-empty draft and let the next turn continue naturally.
+          const safeFallbacks = [finalReply, replacementReply, reply].filter((candidate) => !chatReplyIsDegenerate(candidate, { simpleGreeting }));
+          if (!safeFallbacks.length) {
+            const unusable = Object.assign(new Error("Chat model returned an unusable reply."), { statusCode: 502 });
+            unusable.requestId = chatRequestId;
+            unusable.upstreamResponseId = upstreamResponseId;
+            throw unusable;
+          }
+          reply = safeFallbacks[0];
+          console.warn("[character-chat-reply-fallback]", JSON.stringify({ conversationId, requestId: chatRequestId, upstreamResponseId, reply: reply.slice(0, 180) }));
+        }
       }
     }
     if (chatReplyIsDegenerate(reply, { simpleGreeting })) {
