@@ -129,6 +129,18 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, R2\.publicDomain\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
 });
 
+test("generated image R2 failures preserve the successful generation status", () => {
+  const start = server.indexOf("async function saveGeneratedImageFile");
+  const end = server.indexOf("function requireHttpUrl", start + 1);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const source = server.slice(start, end);
+  assert.match(source, /try \{[\s\S]*?uploadStaticAssetToObjectStorage[\s\S]*?catch \(error\) \{/);
+  assert.match(source, /result\.cdnError = error\.message \|\| "Generated image R2 upload failed\."/);
+  assert.match(source, /\[generated-image-r2-upload-failed\]/);
+  assert.doesNotMatch(source, /catch \(error\) \{[\s\S]*?throw error;/);
+});
+
 test("generation record queries never wait for R2 publication", () => {
   assert.match(server, /function generationRecordIsApiTask\(record = \{\}\)/);
   assert.match(server, /if \(record\.localVideoUrl && isSucceededStatus\(status\)\)[\s\S]*?return false;/);

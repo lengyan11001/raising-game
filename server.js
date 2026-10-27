@@ -24556,13 +24556,21 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
     cdnError: "",
   };
   if (publish && generatedOutputStorageEnabled()) {
-    const upload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "images", fileName),
-      bytes,
-      mime: imageMime,
-    });
-    result.cdnImageUrl = upload.publicUrl || "";
-    await markPublishedFile(localImagePath);
+    try {
+      const upload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "images", fileName),
+        bytes,
+        mime: imageMime,
+      });
+      result.cdnImageUrl = upload.publicUrl || "";
+      await markPublishedFile(localImagePath);
+    } catch (error) {
+      // The generated image is already safely stored locally and its upstream
+      // result succeeded. R2 is only the faster advanced-download copy, so a
+      // publication failure must not turn the generation task into a failure.
+      result.cdnError = error.message || "Generated image R2 upload failed.";
+      console.warn("[generated-image-r2-upload-failed]", taskId, result.cdnError);
+    }
   }
   return result;
 }
