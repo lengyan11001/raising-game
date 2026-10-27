@@ -8,6 +8,8 @@
  */
 const tls = require("node:tls");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const PCM_SAMPLE_RATE = 24000;
 const FRAME_BYTES = 960; /* 20ms @24kHz s16le mono */
@@ -195,7 +197,7 @@ function buildSignal(type, liveId, connId, payload = {}) {
   return JSON.stringify({ type, live_id: String(liveId), conn_id: connId, seq_id: seq, payload });
 }
 
-async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "", memoryBlock = "", userBlock = "", conversationTone = "", engagementBlock = "", spokenPrompt = "", languageModel = "byteplus" } = {}) {
+async function startComponentSession({ liveId, clientSecret, character, language = "zh", onEvent = null, viduBase = "", viduKey = "", memoryBlock = "", userBlock = "", conversationTone = "", engagementBlock = "", spokenPrompt = "", languageModel = "byteplus", site = "" } = {}) {
   const id = String(liveId);
   if (sessions.has(id)) return sessions.get(id);
   const connId = `srv-${crypto.randomBytes(4).toString("hex")}`;
@@ -211,6 +213,7 @@ async function startComponentSession({ liveId, clientSecret, character, language
     conversationTone: String(conversationTone || ""),
     spokenPrompt: String(spokenPrompt || ""),
     languageModel: String(languageModel || "byteplus").toLowerCase() === "papaya" ? "papaya" : "byteplus",
+    site: String(site || "").toLowerCase(),
     nudgeCount: 0,
     nudgeTimer: 0,
     userBlock: String(userBlock || ""),
@@ -342,6 +345,71 @@ function normalizeEmotion(value) {
   return EMOTION_ALIAS[key] || EMOTION_ALIAS[String(value || "").trim()] || "neutral";
 }
 
+function componentContextComparable(value = "") {
+  return String(value || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function componentContextSimilarity(left = "", right = "") {
+  const a = componentContextComparable(left);
+  const b = componentContextComparable(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length >= 4 && longer.includes(shorter)) return shorter.length / longer.length;
+  const aPairs = new Set(Array.from({ length: Math.max(0, a.length - 1) }, (_, index) => a.slice(index, index + 2)));
+  const bPairs = new Set(Array.from({ length: Math.max(0, b.length - 1) }, (_, index) => b.slice(index, index + 2)));
+  if (!aPairs.size || !bPairs.size) return a === b ? 1 : 0;
+  const overlap = [...aPairs].filter((pair) => bPairs.has(pair)).length;
+  return (2 * overlap) / (aPairs.size + bPairs.size);
+}
+
+function componentReplySkeleton(value = "") {
+  const compact = componentContextComparable(value);
+  return { head: compact.slice(0, 4), tail: compact.slice(-10) };
+}
+
+function componentHistoryHasRepeatedScaffold(history = []) {
+  const replies = (Array.isArray(history) ? history : []).filter((message) => message?.role === "assistant").map((message) => componentReplySkeleton(message.content)).filter((item) => item.head);
+  for (let left = 0; left < replies.length; left += 1) {
+    for (let right = left + 1; right < replies.length; right += 1) {
+      if (replies[left].head === replies[right].head || replies[left].tail === replies[right].tail) return true;
+    }
+  }
+  return false;
+}
+
+function componentHistoryForTurn(history = [], userText = "") {
+  const raw = (Array.isArray(history) ? history : []).filter((message) => message && ["user", "assistant"].includes(message.role));
+  const list = [];
+  for (const message of raw) {
+    const previous = list.at(-1);
+    if (message.role === "user" && previous?.role === "user" && componentContextSimilarity(previous.content, message.content) >= 0.72) {
+      list[list.length - 1] = message;
+      continue;
+    }
+    list.push(message);
+  }
+  const stale = new Set();
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index].role !== "user") continue;
+    if (componentContextSimilarity(list[index].content, userText) < 0.72) continue;
+    stale.add(index);
+    if (list[index + 1]?.role === "assistant") stale.add(index + 1);
+  }
+  const assistants = list.map((message, index) => ({ message, index })).filter((item) => item.message.role === "assistant");
+  const last = assistants.at(-1);
+  if (last) {
+    const similar = assistants.filter((item) => componentContextSimilarity(item.message.content, last.message.content) >= 0.72);
+    if (similar.length >= 2) similar.forEach((item) => stale.add(item.index));
+  }
+  const filtered = list.filter((_, index) => !stale.has(index));
+  const latest = filtered.at(-1);
+  const current = latest?.role === "user" ? [latest] : [];
+  if (componentHistoryHasRepeatedScaffold(filtered)) return current;
+  return [...filtered.slice(0, current.length ? -1 : undefined).slice(-8), ...current];
+}
+
 function splitComponentSpeech(raw) {
   const text = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   try {
@@ -358,6 +426,231 @@ function splitComponentSpeech(raw) {
     };
   } catch {}
   return { say: String(raw || "").replace(/\s+/g, " ").trim(), action: "", emotion: "neutral", rate: 1, volume: 50, pitch: 1 };
+}
+
+/* ---------------- 口播分轨：可见文本不动，只把独立叫声交给长音合成 ---------------- */
+const COMPONENT_VOCAL_TOKENS = ["哈啊", "啊哈", "嗯啊", "唔嗯", "啊", "嗯", "唔", "哈", "呃", "嘶", "呜", "噢", "哦", "呀"];
+const COMPONENT_VOCAL_BOUNDARY = /[\s，。！？、；：,.!?;:…—~～"'“”‘’（）()【】\[\]《》<>-]/u;
+const COMPONENT_VOCAL_PAUSE = /[\s，。！？、；：,.!?;:…—~～"'“”‘’（）()【】\[\]《》<>-]/u;
+const COMPONENT_MOAN_CACHE = new Map();
+
+function componentVocalAt(text, index) {
+  for (const token of COMPONENT_VOCAL_TOKENS) {
+    if (text.startsWith(token, index)) return token;
+  }
+  return "";
+}
+
+function componentVocalBoundaryAt(text, index) {
+  return index < 0 || index >= text.length || COMPONENT_VOCAL_BOUNDARY.test(text[index]);
+}
+
+function componentVocalShape(value = "") {
+  const text = String(value || "");
+  if (/[嘶呃噢哦]/u.test(text)) return "gasp";
+  if (/哈/u.test(text)) return "breath";
+  if (/[唔嗯呜]/u.test(text)) return "nasal";
+  return "open";
+}
+
+function componentVocalIntensity(value = "") {
+  const text = String(value || "");
+  const repeated = (text.match(/[啊嗯唔哈呃嘶呜噢哦呀]/gu) || []).length;
+  const breaks = (text.match(/[…—]/gu) || []).length;
+  return Math.max(1, Math.min(3, 1 + (repeated > 1 ? 1 : 0) + (breaks > 1 ? 1 : 0)));
+}
+
+function splitComponentAudioParts(raw) {
+  const text = String(raw || "");
+  const parts = [];
+  let index = 0;
+  let speechStart = 0;
+  const pushSpeech = (end) => {
+    const value = text.slice(speechStart, end);
+    if (!value.trim()) return;
+    const previous = parts.at(-1);
+    if (previous?.kind === "speech") previous.text += value;
+    else parts.push({ kind: "speech", text: value });
+  };
+  while (index < text.length) {
+    if (!componentVocalBoundaryAt(text, index - 1)) {
+      index += 1;
+      continue;
+    }
+    const first = componentVocalAt(text, index);
+    if (!first) {
+      index += 1;
+      continue;
+    }
+    let runEnd = index;
+    while (true) {
+      const token = componentVocalAt(text, runEnd);
+      if (!token) break;
+      runEnd += token.length;
+      let spacedEnd = runEnd;
+      while (spacedEnd < text.length && /[ \t]/u.test(text[spacedEnd])) spacedEnd += 1;
+      if (componentVocalAt(text, spacedEnd)) runEnd = spacedEnd;
+      else break;
+    }
+    if (!componentVocalBoundaryAt(text, runEnd)) {
+      index += first.length;
+      continue;
+    }
+    let end = runEnd;
+    while (end < text.length && COMPONENT_VOCAL_PAUSE.test(text[end])) end += 1;
+    const vocalText = text.slice(index, end).trim();
+    if (!vocalText) break;
+    pushSpeech(index);
+    parts.push({ kind: "vocal", text: vocalText, shape: componentVocalShape(vocalText), intensity: componentVocalIntensity(vocalText) });
+    index = end;
+    speechStart = end;
+  }
+  pushSpeech(text.length);
+  return parts;
+}
+
+function componentHash(value = "") {
+  let hash = 2166136261;
+  for (const char of String(value)) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function componentPausePcm(ms = 80) {
+  return Buffer.alloc(Math.max(0, Math.round((Number(ms) || 0) * PCM_SAMPLE_RATE / 1000)) * 2);
+}
+
+function decodeComponentWav(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 44 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") return null;
+  let offset = 12;
+  let format = null;
+  let data = null;
+  while (offset + 8 <= buffer.length) {
+    const id = buffer.toString("ascii", offset, offset + 4);
+    const size = buffer.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    const end = Math.min(buffer.length, start + size);
+    if (id === "fmt " && size >= 16) {
+      format = {
+        audioFormat: buffer.readUInt16LE(start),
+        channels: buffer.readUInt16LE(start + 2),
+        sampleRate: buffer.readUInt32LE(start + 4),
+        bitsPerSample: buffer.readUInt16LE(start + 14),
+      };
+    } else if (id === "data") {
+      data = buffer.slice(start, end);
+    }
+    offset = start + size + (size % 2);
+  }
+  if (!format || !data || format.audioFormat !== 1 || format.bitsPerSample !== 16 || format.channels < 1) return null;
+  const frames = Math.floor(data.length / (format.channels * 2));
+  const mono = new Float32Array(frames);
+  for (let frame = 0; frame < frames; frame += 1) {
+    let sample = 0;
+    for (let channel = 0; channel < format.channels; channel += 1) {
+      sample += data.readInt16LE((frame * format.channels + channel) * 2) / 32768;
+    }
+    mono[frame] = sample / format.channels;
+  }
+  return { ...format, samples: mono };
+}
+
+function resampleComponentPcm(samples, sourceRate, targetRate = PCM_SAMPLE_RATE) {
+  if (!samples?.length || !sourceRate) return Buffer.alloc(0);
+  const outputLength = Math.max(1, Math.round(samples.length * targetRate / sourceRate));
+  const pcm = Buffer.alloc(outputLength * 2);
+  for (let index = 0; index < outputLength; index += 1) {
+    const source = index * sourceRate / targetRate;
+    const left = Math.min(samples.length - 1, Math.floor(source));
+    const right = Math.min(samples.length - 1, left + 1);
+    const mix = source - left;
+    const sample = samples[left] * (1 - mix) + samples[right] * mix;
+    pcm.writeInt16LE(Math.max(-1, Math.min(1, sample)) * 32767, index * 2);
+  }
+  return pcm;
+}
+
+function componentMoanSample(voice, shape) {
+  const dir = String(process.env.CHAT_LIVE_MOAN_DIR || "").trim();
+  if (!dir) return null;
+  const safeVoice = String(voice || "default").replace(/[^\w.-]+/g, "_").slice(0, 100);
+  const safeShape = String(shape || "open").replace(/[^\w.-]+/g, "_").slice(0, 40);
+  const candidates = [`${safeVoice}-${safeShape}.wav`, `${safeShape}.wav`, `${safeVoice}.wav`];
+  for (const name of candidates) {
+    const file = path.join(dir, name);
+    const cacheKey = `${file}:${safeShape}`;
+    if (COMPONENT_MOAN_CACHE.has(cacheKey)) return COMPONENT_MOAN_CACHE.get(cacheKey);
+    try {
+      const decoded = decodeComponentWav(fs.readFileSync(file));
+      if (!decoded) continue;
+      const pcm = resampleComponentPcm(decoded.samples, decoded.sampleRate);
+      if (pcm.length >= PCM_SAMPLE_RATE * 0.25) {
+        COMPONENT_MOAN_CACHE.set(cacheKey, pcm);
+        return pcm;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function buildComponentVocalPcm(part, voice = "longanyang") {
+  const text = String(part?.text || part || "");
+  const shape = part?.shape || componentVocalShape(text);
+  const intensity = Math.max(1, Math.min(3, Number(part?.intensity) || componentVocalIntensity(text)));
+  const sampled = componentMoanSample(voice, shape);
+  if (sampled) return sampled;
+  const seed = componentHash(`${voice}:${text}:${shape}:${intensity}`);
+  let randomState = seed || 1;
+  const rand = () => {
+    let value = randomState = (randomState + 0x9e3779b9) >>> 0;
+    value ^= value << 13;
+    value ^= value >>> 17;
+    value ^= value << 5;
+    return (value >>> 0) / 4294967296;
+  };
+  const baseDuration = shape === "gasp" ? 0.78 : shape === "nasal" ? 1.15 : 1.35;
+  const duration = Math.min(3.1, baseDuration + intensity * 0.32 + (seed % 17) / 100);
+  const length = Math.round(duration * PCM_SAMPLE_RATE);
+  const pcm = Buffer.alloc(length * 2);
+  const femaleBias = /(?:huan|qi|xia|yue|nan|meng|tian|wei|jing|lin|xin|yao)/i.test(String(voice || "")) ? 1 : 0.82;
+  const basePitch = (shape === "gasp" ? 205 : shape === "nasal" ? 188 : 205) * femaleBias + (seed % 31) - 15;
+  const formants = shape === "nasal" || /唔|嗯|呜/u.test(text)
+    ? [350, 1050, 2250]
+    : shape === "gasp"
+      ? [620, 1400, 2500]
+      : [760, 1280, 2650];
+  const harmonicLevel = shape === "gasp" ? 0.42 : shape === "nasal" ? 0.7 : 0.78;
+  let phase = 0;
+  let noiseState = 0;
+  for (let index = 0; index < length; index += 1) {
+    const t = index / PCM_SAMPLE_RATE;
+    const u = index / Math.max(1, length - 1);
+    const attack = Math.min(1, u / 0.075);
+    const release = Math.min(1, (1 - u) / 0.3);
+    const envelope = Math.sin(Math.PI / 2 * Math.max(0, Math.min(1, attack))) * Math.sin(Math.PI / 2 * Math.max(0, Math.min(1, release)));
+    const arch = Math.sin(Math.PI * u) ** 0.34;
+    const tremolo = 1 + (0.045 + intensity * 0.018) * Math.sin(2 * Math.PI * (3.8 + intensity * 0.55) * t + (seed % 1000) / 50000);
+    const f0 = basePitch * (0.9 + arch * 0.2 - u * 0.1) * tremolo
+      + Math.sin(2 * Math.PI * (4.7 + intensity * 0.35) * t) * (2.5 + intensity);
+    phase += 2 * Math.PI * f0 / PCM_SAMPLE_RATE;
+    let tonal = 0;
+    for (let harmonic = 1; harmonic <= 11; harmonic += 1) {
+      const frequency = f0 * harmonic;
+      const first = 1 / (1 + ((frequency - formants[0]) / 240) ** 2);
+      const second = 1 / (1 + ((frequency - formants[1]) / 420) ** 2);
+      const third = 1 / (1 + ((frequency - formants[2]) / 720) ** 2);
+      const weight = (0.1 + first * 0.64 + second * 0.36 + third * 0.13) / Math.pow(harmonic, 0.62);
+      tonal += Math.sin(phase * harmonic) * weight;
+    }
+    const rawNoise = rand() * 2 - 1;
+    noiseState = noiseState * 0.82 + rawNoise * 0.18;
+    const breath = (rawNoise * 0.55 + noiseState * 0.45) * (shape === "gasp" ? 0.16 : 0.055 + intensity * 0.012) * arch;
+    const sample = Math.tanh((tonal * harmonicLevel + breath) * envelope * (0.6 + intensity * 0.1));
+    pcm.writeInt16LE(Math.round(Math.max(-1, Math.min(1, sample)) * 32767), index * 2);
+  }
+  return pcm;
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -402,11 +695,19 @@ async function componentReply(session, userText, options = {}) {
     : proactive
       ? "用户没接话。用一句短话接上次的话题，不要重复上一句，不要自我介绍，不要另起剧情。"
       : "先回用户刚说的这句。不要铺气氛，不要改话题。";
+  const intimateCue = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""))
+    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。直接反应这一下，不要用“唔……哈”“嗯……哈”做固定开头，不要评价对方的能力、表现、诚意、节奏或进度。叫声、气音、被撞断的半句话和身体感受要跟着动作变化，不要套同一条模板。"
+    : "";
   const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
+  const strategyBlock = [
+    "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
+    "先决定回复功能，再决定措辞。不要反问用户同一个请求，不要把用户对角色做的事改写成用户命令，不要沿用上一条回复的句式、威胁、收尾或动作顺序。",
+    "禁止把回复写成重复的条件威胁结构（例如连续使用“既然……”“你要是……”“我就要把你……”）。先说出动作、回答或感受，再按角色态度收住。",
+  ].join("\n");
   const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
-    { role: "system", content: `${basePrompt}\n${cue}\n${jsonTail}` },
-    ...session.history.slice(-40),
+    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${intimateCue}\n${cue}\n${jsonTail}` },
+    ...componentHistoryForTurn(session.history, proactive ? "" : userText),
     { role: "user", content: proactive ? "（对方没接话）" : userText },
   ];
   const usePapaya = session.languageModel === "papaya";
@@ -426,8 +727,11 @@ async function componentReply(session, userText, options = {}) {
     body: JSON.stringify({
       model: usePapaya ? "carrothub-papaya-1.0" : (process.env.BYTEPLUS_LANGUAGE_MODEL || "ep-20260827122554-8fsgw"),
       messages,
-      max_tokens: 800,
-      temperature: 0.62,
+      max_tokens: 700,
+      temperature: intimateCue ? 0.92 : 0.82,
+      top_p: 0.92,
+      frequency_penalty: intimateCue ? 0.92 : 0.72,
+      presence_penalty: intimateCue ? 0.82 : 0.65,
     }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -600,13 +904,21 @@ async function componentSpeechPcm(text, voice, options = {}) {
   const model = "cosyvoice-v3-flash";
   const requested = String(voice || "").trim() || "longanyang";
   const delivery = speechDelivery(options);
-  const speak = (voiceName, withInstruction) => cosyvoiceWsPcm(text, voiceName, model, {
-    rate: delivery.rate,
-    volume: delivery.volume,
-    pitch: delivery.pitch,
-    instruction: withInstruction ? delivery.instruction : "",
-    onStream: options.onStream,
-  });
+  const speak = async (voiceName, withInstruction) => {
+    let stream = null;
+    try {
+      return await cosyvoiceWsPcm(text, voiceName, model, {
+        rate: delivery.rate,
+        volume: delivery.volume,
+        pitch: delivery.pitch,
+        instruction: withInstruction ? delivery.instruction : "",
+        onStream(next) { stream = next; options.onStream?.(next); },
+      });
+    } catch (error) {
+      if (stream) options.onStream?.(null);
+      throw error;
+    }
+  };
   try {
     return await speak(requested, Boolean(delivery.instruction));
   } catch (error) {
@@ -617,6 +929,48 @@ async function componentSpeechPcm(text, voice, options = {}) {
     log("tts voice failed", requested, error.message);
     throw error;
   }
+}
+
+async function componentReplyPcm(reply, voice, options = {}) {
+  const text = String(reply || "").trim();
+  const parts = splitComponentAudioParts(text);
+  const hasVocal = parts.some((part) => part.kind === "vocal");
+  const speechPcm = options.speechPcm || componentSpeechPcm;
+  if (!hasVocal) {
+    return {
+      pcm: await speechPcm(text, voice, options),
+      parts,
+      segmented: false,
+    };
+  }
+  const chunks = [];
+  let speechParts = 0;
+  let vocalParts = 0;
+  for (const part of parts) {
+    if (options.shouldContinue && !options.shouldContinue()) {
+      return { pcm: Buffer.alloc(0), parts, segmented: true, cancelled: true };
+    }
+    if (part.kind === "vocal") {
+      if (chunks.length && chunks.at(-1)?.length) chunks.push(componentPausePcm(90));
+      chunks.push(buildComponentVocalPcm(part, voice));
+      chunks.push(componentPausePcm(70));
+      vocalParts += 1;
+      continue;
+    }
+    const speech = String(part.text || "").trim();
+    if (!speech) continue;
+    const pcm = await speechPcm(speech, voice, options);
+    if (options.shouldContinue && !options.shouldContinue()) {
+      return { pcm: Buffer.alloc(0), parts, segmented: true, cancelled: true };
+    }
+    chunks.push(pcm);
+    chunks.push(componentPausePcm(60));
+    speechParts += 1;
+  }
+  const pcm = Buffer.concat(chunks);
+  if (!pcm.length) throw new Error("TTS 没有返回音频。");
+  log("tts segmented", { speechParts, vocalParts, pcmMs: pcmDurationMs(pcm.length) });
+  return { pcm, parts, segmented: true };
 }
 /* ---------------- 对外：一轮对话 ---------------- */
 function componentNotReady(message = "还在接通，这句话还没发出去。") {
@@ -686,19 +1040,32 @@ async function runComponentSay(session, userText, options = {}) {
     const action = speech.action;
     if (session.speakTurn !== turn) return reply;
     const componentVoice = session.character?.componentVoiceType || (session.character?.voiceProvider === "dashscope_cosyvoice" ? session.character?.voiceType : "") || "longanyang";
-    const pcm = await componentSpeechPcm(reply, componentVoice, {
+    const ttsOptions = {
       emotion: speech.emotion,
       rate: speech.rate,
       volume: speech.volume,
       pitch: speech.pitch,
+      shouldContinue: () => session.speakTurn === turn && sessions.has(String(liveId)),
       onStream(stream) {
+        if (!stream) {
+          session.tts = null;
+          return;
+        }
         if (session.speakTurn !== turn) {
           stream.cancel();
           return;
         }
         session.tts = stream;
       },
-    });
+    };
+    let pcm;
+    try {
+      pcm = (await componentReplyPcm(reply, componentVoice, ttsOptions)).pcm;
+    } catch (error) {
+      if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
+      log("tts segmented fallback", session.liveId, error.message);
+      pcm = await componentSpeechPcm(reply, componentVoice, ttsOptions);
+    }
     if (session.tts) session.tts = null;
     if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
     const remain = audioRemainingMs(session);
@@ -792,4 +1159,10 @@ module.exports = {
   componentSay,
   componentApplyLook,
   hasComponentSession: (liveId) => sessions.has(String(liveId)),
+  __test: {
+    splitComponentAudioParts,
+    buildComponentVocalPcm,
+    componentReplyPcm,
+    pcmDurationMs,
+  },
 };
