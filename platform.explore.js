@@ -92,7 +92,6 @@ function setTab(tab) {
     window.history.replaceState(null, "", nextUrl);
   }
   if (nextTab !== "history") {
-    stopHistoryRefresh();
     disconnectHistoryLoadMoreObserver();
     historyRecordsSignature = "";
   }
@@ -147,7 +146,7 @@ function setTab(tab) {
     renderAdvanced();
     if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
-    if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
+    if (state.advancedSideTab === "result" && state.user && state.advancedResultRecords?.length) refreshAdvancedResultRecord();
   }
   if (nextTab === "workflow") {
     renderWorkflowPanel();
@@ -941,7 +940,6 @@ function showPlayfluxSubmittedHistory(record = null) {
     renderHistory((state.historyRecords || []).slice(0, state.historyRecordsLimit || 8));
   }
   loadHistory({ page: 1, refresh: true, silent: true }).catch(() => {});
-  if (taskId) scheduleHistoryRefresh({ delayMs: 3000, force: true });
 }
 
 function playfluxTemplatePrompt(template = {}) {
@@ -1286,7 +1284,6 @@ async function submitPlayfluxTemplate(template = {}, root) {
       }
       state.advancedResultTaskId = taskId || payload.record?.taskId || "";
       playfluxTemplateStatus(root, "Submitted.");
-      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       showPlayfluxSubmittedHistory(payload.record || (taskId ? {
         ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
         status: payload.task?.status || "submitted",
@@ -1320,7 +1317,6 @@ async function submitPlayfluxTemplate(template = {}, root) {
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
       playfluxTemplateStatus(root, "Submitted.");
-      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
         ...playfluxTemplateRecordBase(effectiveTemplate, state.advancedResultTaskId, provider),
         status: payload.task?.status || "submitted",
@@ -1352,7 +1348,6 @@ async function submitPlayfluxTemplate(template = {}, root) {
     }
     state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
     playfluxTemplateStatus(root, "Submitted.");
-    if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
       ...playfluxTemplateRecordBase(effectiveTemplate, state.advancedResultTaskId, provider),
       status: payload.task?.status || "submitted",

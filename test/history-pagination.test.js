@@ -14,21 +14,20 @@ test("history keeps the page the visitor is reading", () => {
   // The reader's page is the default for every history load.
   assert.match(create, /function currentHistoryPage\(\) \{\s*return Math\.max\(1, Number\(state\.historyRecordsPage \|\| 1\) \|\| 1\);\s*\}/);
   assert.match(create, /async function loadHistory\(\{\s*silent = false,\s*refresh = false,\s*page = currentHistoryPage\(\),/);
-  // The timed history refresh no longer forces page 1 on a paged layout.
-  const scheduled = create.match(/function scheduleHistoryRefresh\([\s\S]*?\n\}/)?.[0] || "";
-  assert.doesNotMatch(scheduled, /page: 1/);
-  assert.match(scheduled, /page: isMobileHistoryLayout\(\) \? 1 : currentHistoryPage\(\)/);
+  // Background refresh is disabled; page preservation applies to loads that
+  // are explicitly triggered by navigation, paging, or user actions.
+  assert.doesNotMatch(create, /function scheduleHistoryRefresh\(/);
+  assert.doesNotMatch(create, /setTimeout\([\s\S]{0,200}loadHistory\(\{\s*silent: true,\s*refresh: true/s);
   // Deleting a record reloads the same page instead of jumping to the first one.
   assert.match(create, /await loadHistory\(\{ silent: true, page: currentHistoryPage\(\), preserveMobile: true \}\)/);
 });
 
-test("the completion poller never drags a reader back to page 1", () => {
+test("history completion does not run in the background", () => {
   const poller = ui.match(/function syncGenerationCompletionRefresh\(\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(poller, "syncGenerationCompletionRefresh should exist");
-  assert.doesNotMatch(poller, /page: 1, preserveMobile/);
-  assert.match(poller, /const desktopPage = typeof currentHistoryPage === "function" \? currentHistoryPage\(\) : 1;/);
-  assert.match(poller, /const mobile = typeof isMobileHistoryLayout === "function" && isMobileHistoryLayout\(\);/);
-  assert.match(poller, /page: mobile \? 1 : desktopPage/);
+  assert.doesNotMatch(poller, /setInterval/);
+  assert.doesNotMatch(poller, /loadHistory\(/);
+  assert.doesNotMatch(create, /delayMs: 15000/);
 });
 
 test("a page that disappeared steps back instead of rendering empty", () => {

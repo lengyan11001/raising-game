@@ -47,15 +47,9 @@ test("Wan detail and background status refreshes never wait for video downloads"
   assert.doesNotMatch(detail, /refreshWan27GenerationRecord\(record, \{ download: true/);
 });
 
-test("history detail polling updates the current page without fetching the list twice", () => {
-  const start = platformCreate.indexOf("async function refreshPendingHistoryRecords");
-  const end = platformCreate.indexOf("async function requestVideoFullscreen", start + 1);
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  const source = platformCreate.slice(start, end);
-  assert.match(source, /refreshedByTaskId/);
-  assert.match(source, /state\.historyRecords = .*\.map/s);
-  assert.doesNotMatch(source, /loadHistory\(/);
+test("history no longer polls details in the background", () => {
+  assert.doesNotMatch(platformCreate, /async function refreshPendingHistoryRecords/);
+  assert.doesNotMatch(platformCreate, /scheduleHistoryRefresh\(/);
 });
 
 test("generation detail uses lightweight auth and does not reload the full database", () => {
@@ -95,4 +89,24 @@ test("R2 upload delays do not downgrade completed upstream tasks to processing",
   const source = server.slice(start, end);
   assert.doesNotMatch(source, /status:\s*"processing"/);
   assert.match(source, /return settleSeedanceGenerationRecord\(record, reason\)/);
+});
+
+test("result and history do not self-poll after the initial request", () => {
+  const create = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
+  const ui = fs.readFileSync(path.join(__dirname, "..", "platform.ui.js"), "utf8");
+  const explore = fs.readFileSync(path.join(__dirname, "..", "platform.explore.js"), "utf8");
+  assert.doesNotMatch(create, /function scheduleAdvancedResultRefresh\(/);
+  assert.doesNotMatch(create, /scheduleHistoryRefresh\(\{ delayMs: 15000/);
+  assert.match(create, /refreshAdvancedResultRecord\(\);/);
+  const completion = ui.slice(ui.indexOf("function syncGenerationCompletionRefresh"), ui.indexOf("function isTerminalGenerationStatus"));
+  assert.doesNotMatch(completion, /setInterval/);
+  assert.doesNotMatch(explore, /scheduleAdvancedResultRefresh/);
+});
+
+test("external API results still expose the matching provider URL first", () => {
+  const start = server.indexOf("const publicVideoUrl =");
+  const end = server.indexOf("const includeStoredVideoUrls", start);
+  const source = server.slice(start, end);
+  assert.match(source, /providerOnlyOutputs \|\| providerOnlyVideoUrl/);
+  assert.match(source, /providerVideoUrl \|\| cdnUrl \|\| localUrl/);
 });

@@ -55,6 +55,8 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
     // Only seed the result panel when no history load is already on its way:
     // loadHistory calls setUser, which re-renders this panel, so loading from
     // here without that guard reloads history in a loop.
+    // Result is loaded on entry, never on a background loop. Refreshing here
+    // picks up delayed R2 readiness without putting sustained load on the API.
     if (
       state.user
       && !historyLoading
@@ -64,10 +66,7 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
     ) {
       loadHistory({ silent: true, refresh: true, page: currentHistoryPage() });
     }
-    const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
-    if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
-      scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
-    }
+    if (state.user && state.advancedResultRecords?.length) refreshAdvancedResultRecord();
   }
   if (syncMobile) setAdvancedMobileTab(next, { silent: true, skipSideTab: true });
   refreshIcons();
@@ -419,31 +418,23 @@ function mergeAdvancedResultRecord(record = {}) {
   state.advancedResultRecords = [record, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
 }
 
-function advancedResultPendingTaskIds() {
+function advancedResultRefreshTaskIds() {
   const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
-  const recordById = new Map(records.map((record) => [String(record.taskId || ""), record]));
   const taskIds = [];
-  const pushTaskId = (taskId, record = null) => {
+  const pushTaskId = (taskId) => {
     const id = String(taskId || "").trim();
     if (!id || id.startsWith("pending-") || taskIds.includes(id)) return;
-    const current = record || recordById.get(id);
-    // A terminal provider status does not necessarily mean the browser-ready
-    // preview is complete. Continue polling succeeded video records until the
-    // poster URL arrives (video upload and poster upload can finish separately).
-    if (current && isTerminalGenerationStatus(current.status) && !isPendingGenerationRecord(current)) return;
     taskIds.push(id);
   };
   pushTaskId(state.advancedResultTaskId);
-  records.forEach((record) => {
-    if (!isTerminalGenerationStatus(record.status)) pushTaskId(record.taskId, record);
-  });
+  records.forEach((record) => pushTaskId(record.taskId));
   return taskIds.slice(0, 6);
 }
 
 function syncAdvancedResultTaskId() {
-  const pendingTaskIds = advancedResultPendingTaskIds();
-  state.advancedResultTaskId = pendingTaskIds[0] || "";
-  return pendingTaskIds;
+  const taskIds = advancedResultRefreshTaskIds();
+  state.advancedResultTaskId = taskIds[0] || "";
+  return taskIds;
 }
 
 function advancedResultHistoryFallbackRecords() {
@@ -598,19 +589,9 @@ function stopAdvancedResultRefresh() {
   state.advancedResultTimer = 0;
 }
 
-function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
-  if (state.tab !== "advanced") return;
-  if (!advancedResultPendingTaskIds().length) return;
-  if (state.advancedResultTimer && !force) return;
-  stopAdvancedResultRefresh();
-  state.advancedResultTimer = window.setTimeout(() => {
-    state.advancedResultTimer = 0;
-    refreshAdvancedResultRecord();
-  }, delayMs);
-}
-
 async function refreshAdvancedResultRecord() {
-  const taskIds = advancedResultPendingTaskIds();
+  stopAdvancedResultRefresh();
+  const taskIds = advancedResultRefreshTaskIds();
   if (!taskIds.length || state.advancedResultLoading || state.tab !== "advanced") return;
   state.advancedResultLoading = true;
   let rendered = false;
@@ -648,7 +629,6 @@ async function refreshAdvancedResultRecord() {
     }
   } finally {
     state.advancedResultLoading = false;
-    if (advancedResultPendingTaskIds().length) scheduleAdvancedResultRefresh({ delayMs: 5000, force: true });
   }
 }
 
@@ -2144,7 +2124,6 @@ async function submitAdvancedGenerate() {
       clearAdvancedCreationInputs();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
-      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 800, force: true });
     } catch (error) {
       state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
         record.taskId === pendingTaskId
@@ -2315,7 +2294,6 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = "";
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
-      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
       if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
@@ -2764,8 +2742,6 @@ async function submitAdvancedGenerate() {
     clearAdvancedCreationInputs();
     setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
-    scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
-    scheduleHistoryRefresh({ delayMs: 8000, force: true });
   } catch (error) {
     if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
     state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
@@ -3637,7 +3613,6 @@ async function openAssetExtendDialog(asset = {}) {
     },
   });
   if (result === "confirm") {
-    scheduleHistoryRefresh({ delayMs: 8000, force: true });
   }
 }
 
@@ -3683,7 +3658,6 @@ async function openAssetVideoExtendDialog(videoAsset = {}) {
     },
   });
   if (result === "confirm") {
-    scheduleHistoryRefresh({ delayMs: 8000, force: true });
   }
 }
 
@@ -3756,7 +3730,6 @@ async function openAssetReplaceDialog(videoAsset = {}) {
     },
   });
   if (result === "confirm") {
-    scheduleHistoryRefresh({ delayMs: 8000, force: true });
   }
 }
 
@@ -5252,72 +5225,10 @@ async function deleteHistoryRecord(taskId = "", button = null) {
 }
 
 function isPendingGenerationRecord(record = {}) {
-  // A completed provider result is immediately usable. R2 mirroring and poster
-  // generation continue in the background without holding the UI in polling.
   if (generationVideoUrl(record)) return false;
   if (generationImageResultUrl(record)) return false;
   return !["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
     .includes(String(record.status || "").toLowerCase().trim());
-}
-
-function generationRecordTime(record = {}) {
-  const value = Date.parse(record.updatedAt || record.createdAt || "");
-  return Number.isFinite(value) ? value : 0;
-}
-
-function isRecentPendingGenerationRecord(record = {}) {
-  if (!isPendingGenerationRecord(record) || !record.taskId) return false;
-  const time = generationRecordTime(record);
-  return !time || Date.now() - time <= HISTORY_PENDING_REFRESH_MAX_AGE_MS;
-}
-
-function canRefreshHistoryRecordDetail(record = {}) {
-  if (!isRecentPendingGenerationRecord(record)) return false;
-  const taskId = String(record.taskId || "");
-  if (!taskId || historyDetailRefreshInFlight.has(taskId)) return false;
-  const lastRefreshAt = historyDetailRefreshAt.get(taskId) || 0;
-  return Date.now() - lastRefreshAt >= HISTORY_DETAIL_REFRESH_COOLDOWN_MS;
-}
-
-async function refreshPendingHistoryRecords(records = []) {
-  if (state.tab !== "history" || !state.user) return;
-  const candidates = records
-    .filter(canRefreshHistoryRecordDetail)
-    .sort((left, right) => generationRecordTime(right) - generationRecordTime(left))
-    .slice(0, HISTORY_DETAIL_REFRESH_LIMIT);
-  if (!candidates.length) return;
-
-  const startedAt = Date.now();
-  candidates.forEach((record) => {
-    const taskId = String(record.taskId || "");
-    historyDetailRefreshAt.set(taskId, startedAt);
-    historyDetailRefreshInFlight.add(taskId);
-  });
-
-  const settled = await Promise.allSettled(candidates.map((record) => (
-    requestJson(`/api/generation-records/${encodeURIComponent(record.taskId)}`)
-  )));
-
-  candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
-  if (state.tab !== "history" || !state.user) return;
-  const refreshedByTaskId = new Map(settled
-    .filter((result) => result.status === "fulfilled" && result.value?.record?.taskId)
-    .map((result) => [String(result.value.record.taskId), result.value.record]));
-  if (!refreshedByTaskId.size) return;
-  const previousRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
-  const previousScrollTop = els.historyList?.scrollTop || 0;
-  state.historyRecords = (state.historyRecords || []).map((record) => (
-    refreshedByTaskId.get(String(record.taskId || "")) || record
-  ));
-  notifyGenerationCompletionChanges(previousRecords, state.historyRecords);
-  const nextSignature = generationRecordsSignature(state.historyRecords);
-  if (nextSignature !== historyRecordsSignature) {
-    renderHistory(state.historyRecords);
-    historyRecordsSignature = nextSignature;
-    if (els.historyList) els.historyList.scrollTop = previousScrollTop;
-  }
-  if (state.historyRecords.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
-  else stopHistoryRefresh();
 }
 
 async function requestVideoFullscreen(video) {
@@ -5330,30 +5241,6 @@ async function requestVideoFullscreen(video) {
   } catch {
     video.controls = true;
   }
-}
-
-function stopHistoryRefresh() {
-  if (historyRefreshTimer) window.clearTimeout(historyRefreshTimer);
-  historyRefreshTimer = null;
-}
-
-function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
-  if (historyRefreshTimer && !force) return;
-  stopHistoryRefresh();
-  if (state.tab !== "history" || !state.user) return;
-  historyRefreshTimer = window.setTimeout(() => {
-    historyRefreshTimer = null;
-    if (state.tab !== "history") return;
-    // A background refresh must never yank the visitor back to page 1. The mobile
-    // list merges new results into the top, every other layout reloads the page
-    // that is already on screen.
-    loadHistory({
-      silent: true,
-      refresh: true,
-      page: isMobileHistoryLayout() ? 1 : currentHistoryPage(),
-      preserveMobile: true,
-    });
-  }, delayMs);
 }
 
 function currentHistoryPage() {
@@ -5369,14 +5256,12 @@ async function loadHistory({
 } = {}) {
   if (!els.historyList) return;
   if (!state.user) {
-    stopHistoryRefresh();
-    historyRecordsSignature = "";
+      historyRecordsSignature = "";
     renderHistory([]);
     return;
   }
   if (historyLoading || historyRefreshInFlight) {
     if (append) return;
-    scheduleHistoryRefresh({ delayMs: 5000, force: true });
     return;
   }
   historyLoading = true;
@@ -5404,8 +5289,7 @@ async function loadHistory({
     // showing an empty list.
     const lastPage = Math.max(1, Number(payload.totalPages || 1) || 1);
     if (!append && !shouldPreserve && requestedPage > lastPage) {
-      stopHistoryRefresh();
-      // Wait for this call to release its in-flight guard before reloading, so a
+          // Wait for this call to release its in-flight guard before reloading, so a
       // step-back can never overlap the request that discovered the dead page.
       window.setTimeout(() => {
         loadHistory({ silent, refresh, page: lastPage, preserveMobile }).catch(() => {});
@@ -5429,12 +5313,8 @@ async function loadHistory({
     if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
       renderAdvancedResultPanel();
     }
-    refreshPendingHistoryRecords(records);
-    if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
-    else stopHistoryRefresh();
-  } catch (error) {
+    } catch (error) {
     if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;
-    scheduleHistoryRefresh({ delayMs: 30000, force: true });
   } finally {
     historyLoading = false;
     historyRefreshInFlight = false;

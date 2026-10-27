@@ -22965,8 +22965,8 @@ function publicGenerationRecord(record = {}, options = {}) {
   // the durable R2 mirror catches up. R2 readiness controls the advanced
   // download action only; it must not rewrite task status to processing or
   // hide a result that the upstream has already completed.
-  const publicVideoUrl = (providerOnlyOutputs || providerOnlyVideoUrl) && providerVideoUrl
-    ? providerVideoUrl
+  const publicVideoUrl = providerOnlyOutputs || providerOnlyVideoUrl
+    ? (providerVideoUrl || cdnUrl || localUrl)
     : (providerVideoUrl || cdnUrl || localUrl);
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
