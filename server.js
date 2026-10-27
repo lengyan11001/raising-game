@@ -49774,29 +49774,33 @@ async function stalledGenerationRefundExists(record = {}, refundType = stalledGe
 
 async function failStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
   return withStalledGenerationRepairLock(record.taskId, async () => {
-    if (!isStalledGenerationRecordCandidate(record, 0) && !isActiveGenerationStatus(record.status)) return record;
-    const provider = String(record.provider || "").toLowerCase();
-    const billingStatus = String(record.billingStatus || "").toLowerCase();
-    const preDeducted = creditsAmount(record.preDeductedCredits || 0);
-    if (preDeducted > 0 && billingStatus === "pre_deducted" && STALLED_GENERATION_REFUND_PROVIDERS.has(provider)) {
-      const failed = await upsertGenerationRecord({
-        taskId: record.taskId,
-        status: "failed",
-        awaitingUpstreamTask: false,
-        error: record.error || "Generation stalled without a terminal upstream result. The pre-deducted credits were refunded.",
-        failedAt: record.failedAt || new Date().toISOString(),
-        lastUpdateReason: reason,
-      });
-      return refundPreDeductedStalledGenerationRecord(failed, reason);
-    }
-    return upsertGenerationRecord({
+    return failStalledGenerationRecordUnlocked(record, reason);
+  });
+}
+
+async function failStalledGenerationRecordUnlocked(record = {}, reason = "stalled-generation-repair") {
+  if (!isStalledGenerationRecordCandidate(record, 0) && !isActiveGenerationStatus(record.status)) return record;
+  const provider = String(record.provider || "").toLowerCase();
+  const billingStatus = String(record.billingStatus || "").toLowerCase();
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  if (preDeducted > 0 && billingStatus === "pre_deducted" && STALLED_GENERATION_REFUND_PROVIDERS.has(provider)) {
+    const failed = await upsertGenerationRecord({
       taskId: record.taskId,
       status: "failed",
       awaitingUpstreamTask: false,
-      error: record.error || "Generation stalled without a terminal upstream result.",
+      error: record.error || "Generation stalled without a terminal upstream result. The pre-deducted credits were refunded.",
       failedAt: record.failedAt || new Date().toISOString(),
       lastUpdateReason: reason,
     });
+    return refundPreDeductedStalledGenerationRecord(failed, reason);
+  }
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    status: "failed",
+    awaitingUpstreamTask: false,
+    error: record.error || "Generation stalled without a terminal upstream result.",
+    failedAt: record.failedAt || new Date().toISOString(),
+    lastUpdateReason: reason,
   });
 }
 
@@ -49848,7 +49852,7 @@ async function repairStalledGenerationRecords({ apply = false, staleMs = 2 * 60 
         let current = record;
         if (record.upstreamTaskId) current = await refreshGenerationRecordStatus(record);
         const terminal = isSucceededStatus(current.status) || isFailedStatus(current.status);
-        if (!terminal) current = await failStalledGenerationRecord(current, "stalled-generation-repair");
+        if (!terminal) current = await failStalledGenerationRecordUnlocked(current, "stalled-generation-repair");
         if (isFailedStatus(current.status) && current.billingStatus === "pre_deducted") {
           current = await refundPreDeductedStalledGenerationRecord(current, "stalled-generation-repair");
         }
