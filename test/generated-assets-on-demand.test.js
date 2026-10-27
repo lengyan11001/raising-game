@@ -47,6 +47,8 @@ test("advanced download eligibility does not require a pre-existing R2 copy", ()
   assert.match(ui, /record\?\.r2DownloadReady \|\| record\?\.advancedDownloadAvailable/);
   assert.match(create, /const advancedDownloadState = record\?\.r2DownloadReady \? "ready" : "idle"/);
   assert.match(explore, /const advancedDownloadState = record\?\.r2DownloadReady \? "ready" : "idle"/);
+  assert.match(create, /download2 可下载/);
+  assert.match(explore, /download2 可下载/);
 });
 
 test("advanced download button exposes transferring and ready states", () => {
@@ -54,9 +56,9 @@ test("advanced download button exposes transferring and ready states", () => {
   assert.match(state, /status === "transferring"/);
   assert.match(state, /status === "ready"/);
   assert.match(state, /status === "failed"/);
-  assert.match(state, /转存中/);
-  assert.match(state, /可下载/);
-  assert.match(state, /重试转存/);
+  assert.match(state, /download2 转存中/);
+  assert.match(state, /download2 可下载/);
+  assert.match(state, /download2 重试/);
   assert.match(create, /setAdvancedDownloadButtonState\(button, "transferring"\)/);
   assert.match(create, /setAdvancedDownloadButtonState\(button, ok \? "ready" : "failed"\)/);
   assert.match(explore, /setAdvancedDownloadButtonState\(button, "transferring"\)/);

@@ -3834,7 +3834,7 @@ function openHistoryDetail(index) {
         ` : ""}
         ${videoUrl || imageResultUrl ? `
           <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
-            <i data-lucide="gauge"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "可下载" : "Ready") : t("history.advancedDownload"))}
+            <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
           </button>
         ` : ""}
       </header>

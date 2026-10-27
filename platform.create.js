@@ -523,7 +523,7 @@ function renderAdvancedResultPanel() {
             ` : ""}
             ${videoUrl || imageUrl ? `
               <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
-                <i data-lucide="gauge"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "可下载" : "Ready") : t("history.advancedDownload"))}
+                <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
               </button>
             ` : ""}
             <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
@@ -4825,7 +4825,7 @@ function renderHistory(records = []) {
         </button>
       ` : ""}
       <button class="history-download history-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
-        <i data-lucide="gauge"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "可下载" : "Ready") : t("history.advancedDownload"))}
+        <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
       </button>
       <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}

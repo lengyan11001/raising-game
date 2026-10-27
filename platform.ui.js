@@ -1333,15 +1333,15 @@ function setAdvancedDownloadButtonState(button, status = "idle") {
   button.classList.toggle("is-ready", status === "ready");
   if (status === "transferring") {
     button.disabled = true;
-    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(zh ? "转存中" : "Preparing")}`;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(zh ? "download2 转存中" : "Preparing download2")}`;
   } else if (status === "ready") {
     button.disabled = false;
-    button.innerHTML = `<i data-lucide="gauge"></i>${escapeHtml(zh ? "可下载" : "Ready")}`;
+    button.innerHTML = `<i data-lucide="cloud-download"></i>${escapeHtml(zh ? "download2 可下载" : "download2 available")}`;
   } else if (status === "failed") {
     button.disabled = false;
-    button.innerHTML = `<i data-lucide="circle-alert"></i>${escapeHtml(zh ? "重试转存" : "Retry")}`;
+    button.innerHTML = `<i data-lucide="circle-alert"></i>${escapeHtml(zh ? "download2 重试" : "Retry download2")}`;
   } else {
-    button.innerHTML = `<i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}`;
+    button.innerHTML = `<i data-lucide="cloud-download"></i>${escapeHtml(t("history.advancedDownload"))}`;
   }
   refreshIcons();
 }
