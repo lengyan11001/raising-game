@@ -23538,6 +23538,46 @@ async function enrichAdminGenerationRecordMedia(record = {}, db = null) {
   return { ...record, mediaAssets: assets.map(enrich) };
 }
 
+async function ensureGenerationRecordImageR2Published(record = {}, { allowObjectStorageUpload = true } = {}) {
+  if (!record?.taskId || generationRecordIsApiTask(record)) return record;
+  let current = await recoverGenerationRecordR2Urls(record);
+  if (String(current.cdnImageUrl || "").trim() || (Array.isArray(current.cdnImageUrls) && current.cdnImageUrls.some((item) => String(item || "").trim()))) return current;
+  if (!allowObjectStorageUpload || !generatedOutputStorageEnabled()) return current;
+  const localImagePath = String(current.localImagePath || localDownloadPathFromRecord(current, false)).trim();
+  if (!localImagePath) return current;
+  let bytes;
+  try {
+    bytes = await fs.readFile(localImagePath);
+  } catch {
+    return current;
+  }
+  const fileName = path.basename(localImagePath);
+  const mime = imageMimeFromKnownPath(fileName) || "image/png";
+  try {
+    const upload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "images", fileName),
+      bytes,
+      mime,
+    });
+    await markPublishedFile(localImagePath);
+    current = await upsertGenerationRecord({
+      taskId: current.taskId,
+      cdnImageUrl: upload.publicUrl || "",
+      cdnImageUrls: upload.publicUrl ? [upload.publicUrl] : [],
+      imageResultUrl: upload.publicUrl || current.imageResultUrl || current.localImageUrl || "",
+      cdnError: "",
+      lastUpdateReason: "r2-image-record-recovered",
+    });
+    console.log("[generation-record-r2-recovered]", current.taskId, ["cdnImageUrl"]);
+  } catch (error) {
+    await upsertGenerationRecord({
+      taskId: current.taskId,
+      cdnError: error.message || "Generated image R2 upload failed.",
+    }).catch(() => {});
+  }
+  return current;
+}
+
 async function recoverGenerationRecordR2Urls(record = {}) {
   if (!record?.taskId || !generatedOutputStorageEnabled() || generationRecordIsApiTask(record)) return record;
   const taskId = storagePathSegment(record.taskId, "generation");
@@ -23580,6 +23620,16 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 function generationRecordNeedsMediaMaintenance(record = {}) {
   if (DISABLE_GENERATED_R2_STORAGE || generationRecordR2Expired(record)) return false;
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
+  if (isImageGenerationRecord(record)) {
+    const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
+    const hasR2Image = Boolean(String(record.cdnImageUrl || "").trim() || cdnImages.some((item) => String(item || "").trim()));
+    const hasLocalImage = Boolean(
+      String(record.localImagePath || "").trim()
+      || String(record.localImageUrl || "").trim()
+      || String(record.imageResultUrl || "").trim()
+    );
+    return hasLocalImage && generatedOutputStorageEnabled() && !hasR2Image;
+  }
   if (!record.localVideoUrl) return !record.cdnVideoUrl;
   return !record.localPosterUrl
     || !record.playbackOptimizedAt
@@ -23596,9 +23646,13 @@ function generationRecordCanRetryR2(record = {}) {
 
 function queueGenerationRecordMediaMaintenance(record = {}) {
   if (!generationRecordNeedsMediaMaintenance(record)) return false;
-  const needsR2 = generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
+  const needsImageR2 = isImageGenerationRecord(record)
+    && generatedOutputStorageEnabled()
+    && !String(record.cdnImageUrl || "").trim()
+    && !(Array.isArray(record.cdnImageUrls) && record.cdnImageUrls.some((item) => String(item || "").trim()));
+  const needsR2 = needsImageR2 || generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
   const allowObjectStorageUpload = needsR2 && generationRecordCanRetryR2(record);
-  if (!allowObjectStorageUpload && needsR2 && record.localPosterUrl && record.playbackOptimizedAt) return false;
+  if (!allowObjectStorageUpload && needsR2 && !needsImageR2 && record.localPosterUrl && record.playbackOptimizedAt) return false;
   const taskId = String(record.taskId || "");
   if (!taskId || generatedMediaMaintenanceQueued.has(taskId)) return false;
   generatedMediaMaintenanceQueued.add(taskId);
@@ -23621,7 +23675,11 @@ async function drainGenerationRecordMediaMaintenance() {
         if (!generationRecordNeedsMediaMaintenance(current)) continue;
         const allowObjectStorageUpload = item.allowObjectStorageUpload && generationRecordCanRetryR2(current);
         const retryCount = Number(current.cdnRetryCount || 0) + (allowObjectStorageUpload ? 1 : 0);
-        await ensureGenerationRecordMediaOptimized(current, { allowObjectStorageUpload });
+        if (isImageGenerationRecord(current)) {
+          await ensureGenerationRecordImageR2Published(current, { allowObjectStorageUpload });
+        } else {
+          await ensureGenerationRecordMediaOptimized(current, { allowObjectStorageUpload });
+        }
         if (allowObjectStorageUpload) {
           await upsertGenerationRecord({
             taskId,

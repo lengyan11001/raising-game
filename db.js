@@ -3337,7 +3337,11 @@ async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {})
       AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
       AND (
         (COALESCE(payload->>'cdnVideoUrl', '') = '' AND (COALESCE(payload->>'localVideoUrl', '') <> '' OR COALESCE(payload->>'remoteVideoUrl', '') <> ''))
-        OR (COALESCE(payload->>'cdnImageUrl', '') = '' AND (COALESCE(payload->>'localImageUrl', '') <> '' OR COALESCE(payload->>'remoteImageUrl', '') <> ''))
+        OR (COALESCE(payload->>'cdnImageUrl', '') = '' AND (
+          COALESCE(payload->>'localImageUrl', '') <> ''
+          OR COALESCE(payload->>'localImagePath', '') <> ''
+          OR COALESCE(payload->>'remoteImageUrl', '') <> ''
+        ))
       )
     ORDER BY updated_at DESC
     LIMIT $1

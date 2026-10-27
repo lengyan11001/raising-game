@@ -89,12 +89,14 @@ test("server rehydrates cleaned user-upload assets before upstream reuse", async
 test("generation records recover delayed R2 publication automatically", async () => {
   const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
   assert.match(server, /async function recoverGenerationRecordR2Urls\(/);
+  assert.match(server, /async function ensureGenerationRecordImageR2Published\(/);
   assert.match(server, /findUploadedR2Object\(objectStoragePath\("generated", "videos"/);
   assert.match(server, /startGenerationRecordMediaRecoveryScheduler\(\);/);
   assert.match(server, /setInterval\(\(\) => scanGenerationRecordMediaRecovery\("timer"\), 5 \* 60 \* 1000\)/);
   assert.match(server, /getGenerationRecordsNeedingR2RecoveryFromDb\(\{ limit: 100 \}\)/);
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /async function getGenerationRecordsNeedingR2RecoveryFromDb\(/);
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /updated_at > NOW\(\) - INTERVAL '48 hours'/);
+  assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /payload->>'localImagePath'/);
 });
 
 test("expired generated media is terminal and never retried from provider URLs", async () => {
