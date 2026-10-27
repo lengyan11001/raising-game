@@ -24548,9 +24548,9 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
   return captured ? { localPosterPath, localPosterUrl } : { localPosterPath: "", localPosterUrl: "" };
 }
 
-async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
+async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "", force = false } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-  if (!generatedOutputStorageEnabled()) return result;
+  if (!objectStorageEnabled() || (!force && !generatedOutputStorageEnabled())) return result;
   const errors = [];
   if (localVideoPath) {
     try {
@@ -24619,7 +24619,7 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
 }
 
 async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false } = {}) {
-  if (!generatedOutputStorageEnabled() || (GENERATED_ASSETS_ON_DEMAND && !forceLocal)) {
+  if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
     const existing = taskId ? await getGenerationRecord(taskId).catch(() => null) : null;
     return {
       localVideoPath: existing?.localVideoPath || "",
@@ -24765,7 +24765,7 @@ function imageFileName(taskId, mime = "image/png") {
 }
 
 async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publish = true, forceLocal = false } = {}) {
-  if (!generatedOutputStorageEnabled() || (GENERATED_ASSETS_ON_DEMAND && !forceLocal)) {
+  if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
     return {
       localImagePath: "",
       localImageUrl: "",
@@ -24807,7 +24807,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
 }
 
 async function saveRemoteGeneratedImage(taskId, imageUrl, { mime = "image/png", publish = true, forceLocal = false } = {}) {
-  if (!generatedOutputStorageEnabled() || (GENERATED_ASSETS_ON_DEMAND && !forceLocal)) {
+  if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
     return {
       localImagePath: "",
       localImageUrl: "",
@@ -47866,7 +47866,7 @@ function generationRecordProviderDownloadTarget(record = {}) {
 }
 
 async function prepareGenerationRecordAdvancedDownload(record = {}) {
-  if (!generatedOutputStorageEnabled() || !isSucceededStatus(record.status)) return record;
+  if (!objectStorageEnabled() || !isSucceededStatus(record.status)) return record;
   const providerTarget = generationRecordProviderDownloadTarget(record);
   if (!providerTarget?.url) return record;
   if (generationRecordHasR2Download(record)) return record;
@@ -47884,6 +47884,7 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       taskId: existing.taskId,
       localVideoPath: localVideo.localVideoPath,
       localPosterPath: poster.localPosterPath,
+      force: true,
     });
     if (!cdn.cdnVideoUrl) {
       const error = new Error(cdn.cdnError || "R2 upload failed.");

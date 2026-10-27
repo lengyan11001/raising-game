@@ -21,10 +21,10 @@ test("generated media defaults to on-demand storage", () => {
 
 test("generated video and image helpers defer local writes until forced", () => {
   const video = server.slice(server.indexOf("async function downloadGeneratedVideo"), server.indexOf("function imageFileName"));
-  assert.match(video, /GENERATED_ASSETS_ON_DEMAND && !forceLocal/);
+  assert.match(video, /!forceLocal && \(!generatedOutputStorageEnabled\(\) \|\| GENERATED_ASSETS_ON_DEMAND\)/);
   const image = server.slice(server.indexOf("async function saveGeneratedImageFile"), server.indexOf("async function saveRemoteGeneratedImage"));
-  assert.match(image, /GENERATED_ASSETS_ON_DEMAND && !forceLocal/);
-  assert.match(server, /async function saveRemoteGeneratedImage[\s\S]*?GENERATED_ASSETS_ON_DEMAND && !forceLocal/);
+  assert.match(image, /!forceLocal && \(!generatedOutputStorageEnabled\(\) \|\| GENERATED_ASSETS_ON_DEMAND\)/);
+  assert.match(server, /async function saveRemoteGeneratedImage[\s\S]*?!forceLocal && \(!generatedOutputStorageEnabled\(\) \|\| GENERATED_ASSETS_ON_DEMAND\)/);
 });
 
 test("advanced download preparation forces a local transient copy and R2 upload", () => {
@@ -38,6 +38,8 @@ test("advanced download preparation forces a local transient copy and R2 upload"
   assert.match(prepare, /saveGeneratedImageFile\(existing\.taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
   assert.match(prepare, /uploadStaticAssetToObjectStorage\(/);
   assert.match(prepare, /markPublishedFileSafely\(saved\.localImagePath\)/);
+  assert.match(prepare, /if \(!objectStorageEnabled\(\) \|\| !isSucceededStatus\(record\.status\)\) return record;/);
+  assert.match(prepare, /force: true,/);
 });
 
 test("advanced download eligibility does not require a pre-existing R2 copy", () => {
