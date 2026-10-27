@@ -1080,7 +1080,7 @@ const R2_UPLOAD_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_UPLO
 const R2_UPLOAD_RETRY_BASE_DELAY_MS = Math.max(250, Math.min(10000, Number(process.env.R2_UPLOAD_RETRY_BASE_DELAY_MS || 1000) || 1000));
 const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_PUBLIC_READY_RETRY_COUNT || 4) || 4));
 const R2_MULTIPART_THRESHOLD_BYTES = Math.max(8 * 1024 * 1024, Number(process.env.R2_MULTIPART_THRESHOLD_BYTES || 8 * 1024 * 1024) || 8 * 1024 * 1024);
-const R2_MULTIPART_PART_SIZE_BYTES = Math.max(5 * 1024 * 1024, Number(process.env.R2_MULTIPART_PART_SIZE_BYTES || 8 * 1024 * 1024) || 8 * 1024 * 1024);
+const R2_MULTIPART_PART_SIZE_BYTES = Math.max(5 * 1024 * 1024, Number(process.env.R2_MULTIPART_PART_SIZE_BYTES || 5 * 1024 * 1024) || 5 * 1024 * 1024);
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 // Generated outputs are intentionally served from the provider URL. User
 // uploads still use the configured object storage so upstream APIs can read
@@ -15291,7 +15291,7 @@ async function uploadR2Multipart({ key, bytes, mime }) {
   const parts = new Array(partCount);
   try {
     let nextPart = 0;
-    const concurrency = Math.max(1, Math.min(4, Number(process.env.R2_MULTIPART_CONCURRENCY || 3) || 3));
+    const concurrency = Math.max(1, Math.min(4, Number(process.env.R2_MULTIPART_CONCURRENCY || 2) || 2));
     const worker = async () => {
       while (true) {
         const index = nextPart;
