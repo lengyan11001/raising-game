@@ -49716,7 +49716,7 @@ function stalledGenerationRefundType(record = {}) {
 async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
   const billingStatus = String(record.billingStatus || "").toLowerCase();
-  if (preDeducted <= 0 || billingStatus === "refunded" || billingStatus === "free" || record.finalCredits === 0) return record;
+  if (preDeducted <= 0 || billingStatus !== "pre_deducted" || record.finalCredits === 0) return record;
   const refundType = stalledGenerationRefundType(record);
   const alreadyRefunded = await stalledGenerationRefundExists(record, refundType);
   if (!alreadyRefunded) {
@@ -49753,19 +49753,22 @@ async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "s
 
 async function stalledGenerationRefundExists(record = {}, refundType = stalledGenerationRefundType(record)) {
   if (!record.taskId) return false;
+  const refundTypes = refundType === "asset_image_modify_refund"
+    ? ["asset_image_modify_refund", "character_image_modify_refund"]
+    : [refundType];
   if (dbEnabled()) {
     const { rows } = await dbQuery(`
       SELECT 1
       FROM app_credit_ledger
-      WHERE type = $1
+      WHERE type = ANY($1::text[])
         AND meta->>'taskId' = $2
       LIMIT 1
-    `, [String(refundType || ""), String(record.taskId || "")]);
+    `, [refundTypes, String(record.taskId || "")]);
     return rows.length > 0;
   }
   const db = await readDb();
   return (db.creditLedger || []).some((entry) => (
-    entry.type === refundType && String(entry.meta?.taskId || "") === String(record.taskId || "")
+    refundTypes.includes(entry.type) && String(entry.meta?.taskId || "") === String(record.taskId || "")
   ));
 }
 

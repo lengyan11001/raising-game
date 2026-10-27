@@ -33,7 +33,8 @@ test("stalled repair is idempotent for pre-deducted refunds", () => {
   assert.match(server, /const stalledGenerationRepairLocks = new Set\(\)/);
   assert.match(server, /withStalledGenerationRepairLock\(record\.taskId/);
   assert.match(server, /async function stalledGenerationRefundExists/);
-  assert.match(server, /type = \$1[\s\S]*?meta->>'taskId' = \$2/);
+  assert.match(server, /billingStatus !== "pre_deducted"/);
+  assert.match(server, /type = ANY\(\$1::text\[\]\)[\s\S]*?meta->>'taskId' = \$2/);
   assert.match(server, /if \(!alreadyRefunded\)[\s\S]*?changeUserCredits/);
   assert.match(server, /billingStatus: "refunded"/);
 });
