@@ -49659,6 +49659,223 @@ function startStaleSubmitGenerationRecordScheduler() {
 
 let activeGenerationScanRunning = false;
 
+const STALLED_GENERATION_ACTIVE_STATUSES = new Set([
+  "submitting",
+  "preparing",
+  "submitted",
+  "queued",
+  "pending",
+  "running",
+  "processing",
+  "generating",
+]);
+
+const STALLED_GENERATION_REFUND_PROVIDERS = new Set([
+  "seedance",
+  "seedance-nsfw",
+  "seedance25",
+  SEEDANCE25_DIRECT_PROVIDER,
+  "aliyun-wan30",
+  "aliyun-wan27",
+  "aliyun-wan27-image",
+  "aliyun-happyhorse",
+  "apiz",
+  "seedream5-image",
+  "qwen-image3",
+]);
+
+const stalledGenerationRepairLocks = new Set();
+
+async function withStalledGenerationRepairLock(taskId = "", callback = async () => null) {
+  const key = String(taskId || "").trim();
+  if (!key) return callback();
+  if (stalledGenerationRepairLocks.has(key)) {
+    throw new Error(`Generation record ${key} is already being repaired.`);
+  }
+  stalledGenerationRepairLocks.add(key);
+  try {
+    return await callback();
+  } finally {
+    stalledGenerationRepairLocks.delete(key);
+  }
+}
+
+function isStalledGenerationRecordCandidate(record = {}, staleMs = 2 * 60 * 60 * 1000) {
+  if (!record?.taskId || !record.userId || record.deletedAt) return false;
+  if (!STALLED_GENERATION_ACTIVE_STATUSES.has(String(record.status || "").toLowerCase())) return false;
+  const createdMs = generationRecordCreatedTime(record);
+  return Boolean(createdMs) && Date.now() - createdMs >= Math.max(0, Number(staleMs || 0));
+}
+
+function stalledGenerationRefundType(record = {}) {
+  return String(record.provider || "").toLowerCase() === "aliyun-wan27-image"
+    ? "asset_image_modify_refund"
+    : "generation_refund";
+}
+
+async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const billingStatus = String(record.billingStatus || "").toLowerCase();
+  if (preDeducted <= 0 || billingStatus === "refunded" || billingStatus === "free" || record.finalCredits === 0) return record;
+  const refundType = stalledGenerationRefundType(record);
+  const alreadyRefunded = await stalledGenerationRefundExists(record, refundType);
+  if (!alreadyRefunded) {
+    const db = await readDb();
+    await changeUserCredits(db, record.userId, preDeducted, refundType, {
+      taskId: record.taskId,
+      provider: record.provider || "",
+      reason,
+      preDeducted,
+      finalCredits: 0,
+    });
+    await recordSubtokenAdjustment(record, {
+      taskId: record.taskId,
+      type: refundType,
+      amount: -preDeducted,
+      meta: { provider: record.provider || "", reason, preDeducted },
+    });
+    if (!dbEnabled()) await writeDb(db);
+  }
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    status: "failed",
+    awaitingUpstreamTask: false,
+    failedAt: record.failedAt || new Date().toISOString(),
+    finalCredits: 0,
+    originalFinalCredits: 0,
+    billingStatus: "refunded",
+    billingSettledAt: new Date().toISOString(),
+    billingError: "",
+    error: record.error || `Generation stalled without a terminal upstream result. The pre-deducted credits were ${alreadyRefunded ? "already refunded" : "refunded"}.`,
+    lastUpdateReason: reason,
+  });
+}
+
+async function stalledGenerationRefundExists(record = {}, refundType = stalledGenerationRefundType(record)) {
+  if (!record.taskId) return false;
+  if (dbEnabled()) {
+    const { rows } = await dbQuery(`
+      SELECT 1
+      FROM app_credit_ledger
+      WHERE type = $1
+        AND meta->>'taskId' = $2
+      LIMIT 1
+    `, [String(refundType || ""), String(record.taskId || "")]);
+    return rows.length > 0;
+  }
+  const db = await readDb();
+  return (db.creditLedger || []).some((entry) => (
+    entry.type === refundType && String(entry.meta?.taskId || "") === String(record.taskId || "")
+  ));
+}
+
+async function failStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
+  return withStalledGenerationRepairLock(record.taskId, async () => {
+    if (!isStalledGenerationRecordCandidate(record, 0) && !isActiveGenerationStatus(record.status)) return record;
+    const provider = String(record.provider || "").toLowerCase();
+    const billingStatus = String(record.billingStatus || "").toLowerCase();
+    const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+    if (preDeducted > 0 && billingStatus === "pre_deducted" && STALLED_GENERATION_REFUND_PROVIDERS.has(provider)) {
+      const failed = await upsertGenerationRecord({
+        taskId: record.taskId,
+        status: "failed",
+        awaitingUpstreamTask: false,
+        error: record.error || "Generation stalled without a terminal upstream result. The pre-deducted credits were refunded.",
+        failedAt: record.failedAt || new Date().toISOString(),
+        lastUpdateReason: reason,
+      });
+      return refundPreDeductedStalledGenerationRecord(failed, reason);
+    }
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: record.error || "Generation stalled without a terminal upstream result.",
+      failedAt: record.failedAt || new Date().toISOString(),
+      lastUpdateReason: reason,
+    });
+  });
+}
+
+async function listStalledGenerationRecordsForRepair({ staleMs = 2 * 60 * 60 * 1000, limit = 100, taskIds = [] } = {}) {
+  const ids = [...new Set((Array.isArray(taskIds) ? taskIds : []).map((value) => String(value || "").trim()).filter(Boolean))];
+  if (ids.length) {
+    const records = await Promise.all(ids.map((taskId) => getGenerationRecord(taskId)));
+    return records.filter((record) => record && record.taskId);
+  }
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for stalled generation record repair.");
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(Number(limit || 100) || 100)));
+  const { rows } = await dbQuery(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) = ANY($1::text[])
+      AND COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) <= NOW() - ($2::int * INTERVAL '1 millisecond')
+    ORDER BY COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) ASC
+    LIMIT $3
+  `, [[...STALLED_GENERATION_ACTIVE_STATUSES], Math.max(0, Number(staleMs || 0)), safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function repairStalledGenerationRecords({ apply = false, staleMs = 2 * 60 * 60 * 1000, limit = 100, taskIds = [] } = {}) {
+  const records = await listStalledGenerationRecordsForRepair({ staleMs, limit, taskIds });
+  const results = [];
+  for (const record of records) {
+    const ageMs = Math.max(0, Date.now() - generationRecordCreatedTime(record));
+    const base = {
+      taskId: record.taskId,
+      userId: record.userId,
+      provider: record.provider || "",
+      status: record.status || "",
+      billingStatus: record.billingStatus || "",
+      preDeductedCredits: creditsAmount(record.preDeductedCredits || 0),
+      ageHours: Math.round((ageMs / 3600000) * 10) / 10,
+      hasUpstreamTaskId: Boolean(record.upstreamTaskId),
+      refundAlreadyRecorded: await stalledGenerationRefundExists(record),
+    };
+    if (!apply) {
+      results.push({
+        ...base,
+        action: record.upstreamTaskId ? "query-upstream-then-terminalize" : "fail-and-refund-if-pre-deducted",
+      });
+      continue;
+    }
+    try {
+      const nextRecord = await withStalledGenerationRepairLock(record.taskId, async () => {
+        let current = record;
+        if (record.upstreamTaskId) current = await refreshGenerationRecordStatus(record);
+        const terminal = isSucceededStatus(current.status) || isFailedStatus(current.status);
+        if (!terminal) current = await failStalledGenerationRecord(current, "stalled-generation-repair");
+        if (isFailedStatus(current.status) && current.billingStatus === "pre_deducted") {
+          current = await refundPreDeductedStalledGenerationRecord(current, "stalled-generation-repair");
+        }
+        return current;
+      });
+      results.push({
+        ...base,
+        action: "repaired",
+        finalStatus: nextRecord.status || "",
+        finalBillingStatus: nextRecord.billingStatus || "",
+        error: String(nextRecord.error || "").slice(0, 240),
+      });
+    } catch (error) {
+      results.push({
+        ...base,
+        action: "failed-to-repair",
+        error: String(error.message || error).slice(0, 240),
+      });
+    }
+  }
+  return {
+    apply: Boolean(apply),
+    staleMs: Math.max(0, Number(staleMs || 0)),
+    scanned: records.length,
+    repaired: results.filter((item) => item.action === "repaired").length,
+    failed: results.filter((item) => item.action === "failed-to-repair").length,
+    results,
+  };
+}
+
 function isActiveGenerationRecordForScan(record = {}) {
   if (!record?.taskId) return false;
   const status = String(record.status || "").toLowerCase();
@@ -49750,6 +49967,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  repairStalledGenerationRecords,
+  listStalledGenerationRecordsForRepair,
+  isStalledGenerationRecordCandidate,
+  failStalledGenerationRecord,
   chatPersonaContrastAnchors,
   chatPromptReplyStyle,
   chatPromptBehaviorRules,
