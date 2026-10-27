@@ -497,6 +497,7 @@ function renderAdvancedResultPanel() {
     const ratio = record.ratio || record.params?.ratio || "16:9";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
     const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
+    const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
     const media = resultExpired
       ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
       : videoUrl
@@ -521,8 +522,8 @@ function renderAdvancedResultPanel() {
               </button>
             ` : ""}
             ${videoUrl || imageUrl ? `
-              <button class="history-download advanced-result-r2-download" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" ${canAdvancedDownload ? "" : "disabled"}>
-                <i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}
+              <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+                <i data-lucide="gauge"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "可下载" : "Ready") : t("history.advancedDownload"))}
               </button>
             ` : ""}
             <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
@@ -567,9 +568,11 @@ function renderAdvancedResultPanel() {
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-r2-download]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultR2Download || 0)];
-      downloadGenerationRecord(record, { advanced: true });
+      setAdvancedDownloadButtonState(button, "transferring");
+      const ok = await downloadGenerationRecord(record, { advanced: true });
+      setAdvancedDownloadButtonState(button, ok ? "ready" : "failed");
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
@@ -4775,6 +4778,7 @@ function renderHistory(records = []) {
     const imageFetchPriority = index === 0 ? "high" : "auto";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
     const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
+    const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
     const isUndressHistory = isTenantTool("undress");
     const recordStatusClass = statusClass(record.status);
     const recordStatusLabel = statusLabel(record.status);
@@ -4820,8 +4824,8 @@ function renderHistory(records = []) {
           <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
         </button>
       ` : ""}
-      <button class="history-download history-r2-download" type="button" data-history-r2-download="${escapeHtml(String(index))}" ${canAdvancedDownload ? "" : "disabled"}>
-        <i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}
+      <button class="history-download history-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+        <i data-lucide="gauge"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "可下载" : "Ready") : t("history.advancedDownload"))}
       </button>
       <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
@@ -4962,12 +4966,9 @@ function renderHistory(records = []) {
   els.historyList.querySelectorAll("[data-history-r2-download]").forEach((button) => {
     button.addEventListener("click", async () => {
       const record = sortedRecords[Number(button.dataset.historyR2Download || 0)];
-      button.disabled = true;
-      try {
-        await downloadGenerationRecord(record, { advanced: true });
-      } finally {
-        button.disabled = !canAdvancedDownloadGenerationRecord(record);
-      }
+      setAdvancedDownloadButtonState(button, "transferring");
+      const ok = await downloadGenerationRecord(record, { advanced: true });
+      setAdvancedDownloadButtonState(button, ok ? "ready" : "failed");
     });
   });
   els.historyList.querySelectorAll("[data-history-replace]").forEach((button) => {

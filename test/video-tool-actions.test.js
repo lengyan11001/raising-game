@@ -100,7 +100,7 @@ test("image face swap uses Wan2.7 Image Pro with target image before face refere
   assert.match(server, /source: `\$\{isImageAction \? "image" : "video"\}-tool-\$\{action\}`/);
   assert.match(server, /userAssetIds: assetIds/);
   assert.match(server, /targetImageAssetId: targetImageAsset\?\.id \|\| ""/);
-  assert.match(server, /imageResultUrl: savedImage\.cdnImageUrl \|\| savedImage\.localImageUrl/);
+  assert.match(server, /imageResultUrl: generationImageResultUrl\(\{ remoteImageUrl: imageUrl \}, savedImage\)/);
   assert.match(frontend, /targetImageAssetId: targetImageAsset\?\.id \|\| undefined/);
 });
 

@@ -84,7 +84,7 @@ test("locked free results expose no media and cannot be downloaded or added to a
   assert.match(publicView, /publicRecord\.mediaAssets = \[\]/);
   assert.match(publicView, /publicRecord\.prompt = ""/);
   assert.match(server, /code: "RESULT_LOCKED"/);
-  assert.match(server, /saveGeneratedImageFile\(taskId, downloaded\.bytes, mime, \{ publish: !freeImageGeneration \}\)/);
+  assert.match(server, /saveGeneratedImageFile\(taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
   assert.match(server, /lockedRecord\?\.resultLocked === true/);
   assert.match(server, /objectStoragePath\("generated", "images", fileName\)/);
   assert.match(server, /async function handleUnlockUndressToolResult/);
@@ -265,9 +265,10 @@ test("Undress results expose a download action only after the result is unlocked
   assert.doesNotMatch(server, /left\[0\]\.localeCompare\(right\[0\]\)/);
   assert.match(server, /source: signedUrl \? "r2_signed" : "authenticated_proxy"/);
   assert.match(ui, /href = payload\.url/);
-  assert.match(ui, /directSignedDownload = payload\.source === "r2_signed"/);
-  assert.match(ui, /if \(directSignedDownload\) \{[\s\S]*?triggerBrowserDownload\(href, fileName\)[\s\S]*?return;/);
-  assert.match(ui, /await saveDownloadFromFetch\(href\.startsWith\("\/api\/"\) \? href : legacyHref, fileName\)/);
+  assert.match(ui, /download-url\?quality=r2/);
+  assert.match(ui, /await saveDownloadFromFetch\(href, fileName\)/);
+  assert.match(history, /setAdvancedDownloadButtonState\(button, "transferring"\)/);
+  assert.match(history, /setAdvancedDownloadButtonState\(button, ok \? "ready" : "failed"\)/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
   assert.match(html, /platform\.js\?v=[a-z0-9-]+/);
 });

@@ -1317,10 +1317,44 @@ function canDownloadGenerationRecord(record = {}) {
 
 function canAdvancedDownloadGenerationRecord(record = {}) {
   return Boolean(
-    record?.r2DownloadReady
+    !isGenerationResultExpired(record)
+    && record?.resultLocked !== true
     && String(record?.taskId || "").trim()
+    && (record?.r2DownloadReady || record?.advancedDownloadAvailable)
     && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl)
   );
+}
+
+function setAdvancedDownloadButtonState(button, status = "idle") {
+  if (!button) return;
+  const zh = state.lang === "zh";
+  button.dataset.downloadState = status;
+  button.classList.toggle("is-transferring", status === "transferring");
+  button.classList.toggle("is-ready", status === "ready");
+  if (status === "transferring") {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(zh ? "转存中" : "Preparing")}`;
+  } else if (status === "ready") {
+    button.disabled = false;
+    button.innerHTML = `<i data-lucide="gauge"></i>${escapeHtml(zh ? "可下载" : "Ready")}`;
+  } else if (status === "failed") {
+    button.disabled = false;
+    button.innerHTML = `<i data-lucide="circle-alert"></i>${escapeHtml(zh ? "重试转存" : "Retry")}`;
+  } else {
+    button.innerHTML = `<i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}`;
+  }
+  refreshIcons();
+}
+
+function showAdvancedDownloadError(error) {
+  const message = String(error?.message || error || "").trim();
+  if (!message) return;
+  void showInlineDialog({
+    title: state.lang === "zh" ? "高级下载暂不可用" : "Advanced download unavailable",
+    body: `<p class="job-note">${escapeHtml(message)}</p>`,
+    confirmText: t("common.close"),
+    onConfirm: async () => {},
+  });
 }
 
 function triggerBrowserDownload(href, fileName, options = {}) {
@@ -1362,6 +1396,17 @@ async function saveDownloadFromFetch(href = "", fileName = "generation") {
 }
 
 async function downloadGenerationRecord(record = {}, { advanced = false } = {}) {
+  try {
+    await downloadGenerationRecordInternal(record, { advanced });
+    return true;
+  } catch (error) {
+    if (advanced) showAdvancedDownloadError(error);
+    else console.warn("[generation-download-failed]", error?.message || error);
+    return false;
+  }
+}
+
+async function downloadGenerationRecordInternal(record = {}, { advanced = false } = {}) {
   let href = generationRecordDownloadHref(record);
   if (!advanced && href && !href.startsWith("/api/")) return triggerBrowserDownload(href, generationRecordDownloadName(record), { newTab: true });
   let fileName = generationRecordDownloadName(record);
@@ -1373,7 +1418,7 @@ async function downloadGenerationRecord(record = {}, { advanced = false } = {}) 
   // Open a browser tab immediately. Fetching the whole media file through
   // fetch()+blob made the click appear unresponsive until the download had
   // completely finished. The browser can stream the upstream/R2 URL itself.
-  const popup = window.open("about:blank", "_blank");
+  const popup = advanced ? null : window.open("about:blank", "_blank");
   const openHref = (url) => {
     const target = String(url || "").trim();
     if (!target) return;
@@ -1384,36 +1429,38 @@ async function downloadGenerationRecord(record = {}, { advanced = false } = {}) 
     window.open(target, "_blank");
   };
 
-  // A URL already present in the record is authoritative: R2 first, then the
-  // provider URL. Do not wait for a presign request before giving feedback.
+  // Advanced downloads always resolve server-side first. A provider URL in
+  // the record is not a durable download and must never bypass the on-demand
+  // R2 preparation step.
+  if (advanced && taskId && !taskId.startsWith("pending-")) {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url?quality=r2`);
+    href = String(payload.url || "").trim();
+    fileName = payload.fileName || fileName;
+    if (!href) throw new Error(payload.message || "高级下载暂时不可用。");
+    await saveDownloadFromFetch(href, fileName);
+    return;
+  }
+
+  // Standard downloads intentionally use the provider asset whenever it is
+  // available. Do not wait for a presign request in that path.
   if (href && !href.startsWith("/api/")) {
     openHref(href);
     return;
   }
   if (taskId && !taskId.startsWith("pending-")) {
     try {
-      const query = advanced ? "?quality=r2" : "";
-      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url${query}`);
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {
         href = payload.url;
         fileName = payload.fileName || fileName;
-        if (advanced && payload.source === "r2_signed") {
-          await saveDownloadFromFetch(href, fileName);
-          return;
-        }
       }
-      const directSignedDownload = payload.source === "r2_signed";
-      if (directSignedDownload) {
+      if (payload.source === "r2_signed") {
         triggerBrowserDownload(href, fileName);
         return;
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
-  }
-  if (advanced) {
-    await saveDownloadFromFetch(href.startsWith("/api/") ? href : legacyHref, fileName);
-    return;
   }
   openHref(href || legacyHref);
 }

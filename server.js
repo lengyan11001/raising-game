@@ -1082,6 +1082,7 @@ const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R
 const R2_MULTIPART_THRESHOLD_BYTES = Math.max(8 * 1024 * 1024, Number(process.env.R2_MULTIPART_THRESHOLD_BYTES || 8 * 1024 * 1024) || 8 * 1024 * 1024);
 const R2_MULTIPART_PART_SIZE_BYTES = Math.max(5 * 1024 * 1024, Number(process.env.R2_MULTIPART_PART_SIZE_BYTES || 5 * 1024 * 1024) || 5 * 1024 * 1024);
 const R2_UPLOAD_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.R2_UPLOAD_CONCURRENCY || 2) || 2));
+const GENERATED_ASSETS_ON_DEMAND = /^(1|true|yes|on)$/i.test(String(process.env.GENERATED_ASSETS_ON_DEMAND || "true"));
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 // Generated outputs are intentionally served from the provider URL. User
 // uploads still use the configured object storage so upstream APIs can read
@@ -19990,16 +19991,14 @@ async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query"
     }, reason);
   }
   let savedImage = null;
-  if (!record.localImageUrl && imageUrl) {
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "edited image", maxBytes: 20 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    savedImage = await saveGeneratedImageFile(record.taskId, downloaded.bytes, mime);
+  if (!record.localImageUrl && imageUrl && !GENERATED_ASSETS_ON_DEMAND) {
+    savedImage = await saveRemoteGeneratedImage(record.taskId, imageUrl);
   }
   return updateAssetImageModifyRecord(record.taskId, {
     upstreamTaskId: task.taskId || queryTaskId,
     status: "succeeded",
     awaitingUpstreamTask: false,
-    imageResultUrl: savedImage?.cdnImageUrl || savedImage?.localImageUrl || record.imageResultUrl || record.localImageUrl || "",
+    imageResultUrl: savedImage?.cdnImageUrl || imageUrl || record.imageResultUrl || record.localImageUrl || "",
     localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
     localImagePath: savedImage?.localImagePath || record.localImagePath || "",
     cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
@@ -23053,7 +23052,7 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
     providerOnlyImageUrl: externalApiCaller,
     includeStoredImageUrls: !externalApiCaller,
     includeUpstreamPayload: !externalApiCaller,
-    requireR2Ready: !externalApiCaller && objectStorageEnabled(),
+    requireR2Ready: !externalApiCaller && objectStorageEnabled() && !GENERATED_ASSETS_ON_DEMAND,
   };
 }
 
@@ -23213,6 +23212,12 @@ function publicGenerationRecord(record = {}, options = {}) {
     error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
     r2DownloadReady: Boolean(String(record.cdnVideoUrl || record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim()),
+    advancedDownloadAvailable: Boolean(
+      isSucceededStatus(record.status)
+      && record.resultLocked !== true
+      && !generationRecordR2Expired(record)
+      && Boolean(generationRecordProviderDownloadTarget(record)?.url)
+    ),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
@@ -23396,7 +23401,10 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
-    return Boolean(record.taskId) && !record.localVideoUrl;
+    return Boolean(record.taskId)
+      && !record.localVideoUrl
+      && !record.cdnVideoUrl
+      && !generationRecordProviderVideoUrl(record);
   }
   if (String(record.provider || "").toLowerCase() === "seedance" && record.source === "advanced-seedance") {
     return Boolean(record.upstreamTaskId) && !String(record.upstreamTaskId).startsWith("demo-");
@@ -23549,7 +23557,7 @@ function drainGenerationRecordRefreshQueue() {
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
-  if (DISABLE_GENERATED_R2_STORAGE) return record;
+  if (DISABLE_GENERATED_R2_STORAGE || GENERATED_ASSETS_ON_DEMAND) return record;
   if (!record?.taskId) return record;
   const recovered = await recoverGenerationRecordR2Urls(record);
   if (!recovered?.localVideoUrl) return recovered;
@@ -23622,6 +23630,7 @@ let generatedMediaMaintenanceRunning = false;
 const generatedVideoDownloadQueued = new Set();
 
 function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download") {
+  if (GENERATED_ASSETS_ON_DEMAND) return false;
   const cleanTaskId = String(taskId || "").trim();
   const remote = String(remoteVideoUrl || "").trim();
   if (!cleanTaskId || !remote || generatedVideoDownloadQueued.has(cleanTaskId)) return false;
@@ -23784,6 +23793,7 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 function generationRecordNeedsMediaMaintenance(record = {}) {
   if (DISABLE_GENERATED_R2_STORAGE || generationRecordR2Expired(record)) return false;
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
+  if (GENERATED_ASSETS_ON_DEMAND) return false;
   if (isImageGenerationRecord(record)) {
     const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
     const hasR2Image = Boolean(String(record.cdnImageUrl || "").trim() || cdnImages.some((item) => String(item || "").trim()));
@@ -24131,17 +24141,15 @@ async function refreshGenerationRecordStatus(record = {}) {
           record.localImageUrl,
         ].map((value) => String(value || "").trim()).filter(Boolean))];
         const savedImages = [];
-        if (imageUrl && storedImageUrls.length < remoteImageUrls.length) {
+        if (!GENERATED_ASSETS_ON_DEMAND && imageUrl && storedImageUrls.length < remoteImageUrls.length) {
           for (let index = 0; index < remoteImageUrls.length; index += 1) {
-            const downloaded = await downloadRemoteFileToBuffer(remoteImageUrls[index], { label: `gateway image ${index + 1}`, maxBytes: 30 * 1024 * 1024 });
-            const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-            savedImages.push(await saveGeneratedImageFile(index ? `${record.taskId}-${index + 1}` : record.taskId, downloaded.bytes, mime));
+            savedImages.push(await saveRemoteGeneratedImage(index ? `${record.taskId}-${index + 1}` : record.taskId, remoteImageUrls[index]));
           }
         }
         const localImageUrls = savedImages.length ? savedImages.map((item) => item.localImageUrl).filter(Boolean) : (record.localImageUrls || []);
         const cdnImageUrls = savedImages.length ? savedImages.map((item) => item.cdnImageUrl).filter(Boolean) : (record.cdnImageUrls || []);
         const resultImageUrls = savedImages.length
-          ? savedImages.map((item) => item.cdnImageUrl || item.localImageUrl).filter(Boolean)
+          ? savedImages.map((item, index) => item.cdnImageUrl || remoteImageUrls[index] || item.localImageUrl).filter(Boolean)
           : (record.imageResultUrls?.length ? record.imageResultUrls : storedImageUrls.length ? storedImageUrls : remoteImageUrls);
         const savedImage = savedImages[0] || null;
         return await updateAssetImageModifyRecord(record.taskId, {
@@ -24610,17 +24618,18 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
   return true;
 }
 
-async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
-  if (!generatedOutputStorageEnabled()) {
+async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false } = {}) {
+  if (!generatedOutputStorageEnabled() || (GENERATED_ASSETS_ON_DEMAND && !forceLocal)) {
+    const existing = taskId ? await getGenerationRecord(taskId).catch(() => null) : null;
     return {
-      localVideoPath: "",
-      localVideoUrl: "",
-      localPosterPath: "",
-      localPosterUrl: "",
-      cdnVideoUrl: "",
-      cdnPosterUrl: "",
-      cdnError: "",
-      playbackOptimizedAt: "",
+      localVideoPath: existing?.localVideoPath || "",
+      localVideoUrl: existing?.localVideoUrl || "",
+      localPosterPath: existing?.localPosterPath || "",
+      localPosterUrl: existing?.localPosterUrl || "",
+      cdnVideoUrl: existing?.cdnVideoUrl || "",
+      cdnPosterUrl: existing?.cdnPosterUrl || "",
+      cdnError: existing?.cdnError || "",
+      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
     };
   }
   const existing = await getGenerationRecord(taskId);
@@ -24635,10 +24644,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
       const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
       if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
         let optimized = existing;
-        // Do not return a completed task before its durable R2 copy exists.
-        // The previous path queued this upload in the background, which made
-        // the UI show a finished record with no preview/download URL.
-        if (!generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
+        if (!GENERATED_ASSETS_ON_DEMAND && !generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
           const cdn = await uploadGeneratedMediaToObjectStorage({
             taskId,
             localVideoPath: existingVideoPath,
@@ -24659,7 +24665,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
             });
           }
         }
-        if (!generationRecordIsApiTask(optimized) && generationRecordNeedsMediaMaintenance(optimized)) queueGenerationRecordMediaMaintenance(optimized);
+        if (!GENERATED_ASSETS_ON_DEMAND && !generationRecordIsApiTask(optimized) && generationRecordNeedsMediaMaintenance(optimized)) queueGenerationRecordMediaMaintenance(optimized);
         return {
           localVideoPath: optimized.localVideoPath || existingVideoPath,
           localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
@@ -24737,7 +24743,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   }
   if (!fastStartReady && lastDownloadError) throw lastDownloadError;
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = generatedOutputStorageEnabled()
+  const cdn = !GENERATED_ASSETS_ON_DEMAND && generatedOutputStorageEnabled()
     ? await uploadGeneratedMediaToObjectStorage({
       taskId,
       localVideoPath,
@@ -24758,8 +24764,8 @@ function imageFileName(taskId, mime = "image/png") {
   return `${String(taskId || randomId("img")).replace(/[^a-z0-9_-]/gi, "_")}${imageExtFromMime(mime)}`;
 }
 
-async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publish = true } = {}) {
-  if (!generatedOutputStorageEnabled()) {
+async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publish = true, forceLocal = false } = {}) {
+  if (!generatedOutputStorageEnabled() || (GENERATED_ASSETS_ON_DEMAND && !forceLocal)) {
     return {
       localImagePath: "",
       localImageUrl: "",
@@ -24779,7 +24785,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
     cdnImageUrl: "",
     cdnError: "",
   };
-  if (publish && generatedOutputStorageEnabled()) {
+  if (publish && !GENERATED_ASSETS_ON_DEMAND && generatedOutputStorageEnabled()) {
     try {
       const upload = await uploadStaticAssetToObjectStorage({
         key: objectStoragePath("generated", "images", fileName),
@@ -24798,6 +24804,20 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
     }
   }
   return result;
+}
+
+async function saveRemoteGeneratedImage(taskId, imageUrl, { mime = "image/png", publish = true, forceLocal = false } = {}) {
+  if (!generatedOutputStorageEnabled() || (GENERATED_ASSETS_ON_DEMAND && !forceLocal)) {
+    return {
+      localImagePath: "",
+      localImageUrl: "",
+      cdnImageUrl: "",
+      cdnError: "",
+    };
+  }
+  const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "generated image", maxBytes: 30 * 1024 * 1024 });
+  const imageMime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : mime;
+  return saveGeneratedImageFile(taskId, downloaded.bytes, imageMime, { publish, forceLocal });
 }
 
 function requireHttpUrl(value = "", label = "URL") {
@@ -24971,7 +24991,7 @@ async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "
     }
     const remote = generationRecordProviderVideoUrl(record) || record.remoteVideoUrl || String(videoUrl || "");
     if (remote && isPublicHttpUrl(remote)) {
-      const downloaded = await downloadGeneratedVideo(record.taskId, remote);
+      const downloaded = await downloadGeneratedVideo(record.taskId, remote, { forceLocal: true });
       if (downloaded.localVideoPath) return { filePath: downloaded.localVideoPath, record };
     }
   }
@@ -25647,9 +25667,14 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
   const recordBeforeSave = await getGenerationRecord(taskId);
   const preDeductedCredits = creditsAmount(recordBeforeSave?.preDeductedCredits || 0);
   const freeImageGeneration = recordBeforeSave?.freeImageGeneration === true && preDeductedCredits <= 0;
-  const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
-  const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-  const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: !freeImageGeneration });
+  let savedImage = { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" };
+  if (freeImageGeneration) {
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
+  } else if (!GENERATED_ASSETS_ON_DEMAND) {
+    savedImage = await saveRemoteGeneratedImage(taskId, imageUrl, { publish: true });
+  }
   let lockedPreview = {};
   if (freeImageGeneration) {
     try {
@@ -25666,7 +25691,7 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
     status: "succeeded",
     awaitingUpstreamTask: false,
     upstreamTaskId,
-    imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+    imageResultUrl: generationImageResultUrl({ remoteImageUrl: imageUrl }, savedImage),
     localImageUrl: savedImage.localImageUrl,
     localImagePath: savedImage.localImagePath,
     cdnImageUrl: savedImage.cdnImageUrl,
@@ -31470,14 +31495,14 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       throw error;
     }
 
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image", maxBytes: 30 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    const savedImage = GENERATED_ASSETS_ON_DEMAND
+      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
+      : await saveRemoteGeneratedImage(taskId, imageUrl);
     await upsertGenerationRecord({
       taskId,
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      imageResultUrl: savedImage.cdnImageUrl || imageUrl,
       localImageUrl: savedImage.localImageUrl,
       localImagePath: savedImage.localImagePath,
       cdnImageUrl: savedImage.cdnImageUrl,
@@ -32272,12 +32297,14 @@ async function runQwenImage3GenerationJob(job = {}) {
     const remoteImageUrls = qwenImage3OutputUrls(raw);
     if (!remoteImageUrls.length) throw Object.assign(new Error("Qwen Image 3.0 returned no image."), { statusCode: 502, payload: raw });
     const savedImages = [];
-    for (let index = 0; index < remoteImageUrls.length; index += 1) {
-      const downloaded = await downloadRemoteFileToBuffer(remoteImageUrls[index], { label: `qwen image ${index + 1}`, maxBytes: 30 * 1024 * 1024 });
-      const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-      savedImages.push(await saveGeneratedImageFile(index ? `${taskId}-${index + 1}` : taskId, downloaded.bytes, mime));
+    if (!GENERATED_ASSETS_ON_DEMAND) {
+      for (let index = 0; index < remoteImageUrls.length; index += 1) {
+        savedImages.push(await saveRemoteGeneratedImage(index ? `${taskId}-${index + 1}` : taskId, remoteImageUrls[index]));
+      }
     }
-    const resultUrls = savedImages.map((item) => item.cdnImageUrl || item.localImageUrl).filter(Boolean);
+    const resultUrls = savedImages.length
+      ? savedImages.map((item, index) => item.cdnImageUrl || remoteImageUrls[index] || item.localImageUrl).filter(Boolean)
+      : remoteImageUrls;
     await upsertGenerationRecord({
       taskId,
       upstreamTaskId: String(raw.request_id || raw.requestId || ""),
@@ -32613,14 +32640,14 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
       error.payload = submitted.raw;
       throw error;
     }
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "z-image image", maxBytes: 30 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    const savedImage = GENERATED_ASSETS_ON_DEMAND
+      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
+      : await saveRemoteGeneratedImage(taskId, imageUrl);
     await upsertGenerationRecord({
       taskId,
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      imageResultUrl: savedImage.cdnImageUrl || imageUrl,
       localImageUrl: savedImage.localImageUrl,
       localImagePath: savedImage.localImagePath,
       cdnImageUrl: savedImage.cdnImageUrl,
@@ -32640,7 +32667,7 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
       async: false,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      imageUrl: publicRecord.imageResultUrl || savedImage?.localImageUrl || "",
       user: userView(latestUser),
       pricing,
       cost,
@@ -41936,13 +41963,13 @@ async function handleGenerateUserCharacterImage(req, res) {
       error.payload = submitted.raw;
       throw error;
     }
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "character image", maxBytes: 20 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    const savedImage = GENERATED_ASSETS_ON_DEMAND
+      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
+      : await saveRemoteGeneratedImage(taskId, imageUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      imageResultUrl: savedImage.cdnImageUrl || imageUrl,
       localImageUrl: savedImage.localImageUrl,
       localImagePath: savedImage.localImagePath,
       cdnImageUrl: savedImage.cdnImageUrl,
@@ -41960,7 +41987,7 @@ async function handleGenerateUserCharacterImage(req, res) {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      imageUrl: publicRecord.imageResultUrl || savedImage?.localImageUrl || "",
       user: userView(latestUser),
       pricing,
       cost,
@@ -42127,13 +42154,13 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       error.payload = submitted.raw;
       throw error;
     }
-    const downloaded = await downloadRemoteFileToBuffer(resultUrl, { label: "character modified image", maxBytes: 20 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    const savedImage = GENERATED_ASSETS_ON_DEMAND
+      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
+      : await saveRemoteGeneratedImage(taskId, resultUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      imageResultUrl: savedImage.cdnImageUrl || resultUrl,
       localImageUrl: savedImage.localImageUrl,
       localImagePath: savedImage.localImagePath,
       cdnImageUrl: savedImage.cdnImageUrl,
@@ -42151,7 +42178,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      imageUrl: publicRecord.imageResultUrl || savedImage?.localImageUrl || "",
       sourceCharacter: { id: character.id || "", name: character.name || "", imageUrl },
       user: userView(latestUser),
       pricing,
@@ -42528,13 +42555,13 @@ async function handleWan27ImageEdit(req, res) {
       error.payload = submitted.raw;
       throw error;
     }
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "edited image", maxBytes: 20 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    const savedImage = GENERATED_ASSETS_ON_DEMAND
+      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
+      : await saveRemoteGeneratedImage(taskId, imageUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      imageResultUrl: savedImage.cdnImageUrl || imageUrl,
       localImageUrl: savedImage.localImageUrl,
       localImagePath: savedImage.localImagePath,
       cdnImageUrl: savedImage.cdnImageUrl,
@@ -42552,7 +42579,7 @@ async function handleWan27ImageEdit(req, res) {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      imageUrl: publicRecord.imageResultUrl || savedImage?.localImageUrl || "",
       sourceAssets: sourceAssets.map(publicUserAsset),
       sourceAsset: sourceAssets[0] ? publicUserAsset(sourceAssets[0]) : null,
       sourceImageUrls: referenceUrls,
@@ -42813,13 +42840,13 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       error.payload = submitted.raw;
       throw error;
     }
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "modified image", maxBytes: 20 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    const savedImage = GENERATED_ASSETS_ON_DEMAND
+      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
+      : await saveRemoteGeneratedImage(taskId, imageUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      imageResultUrl: savedImage.cdnImageUrl || imageUrl,
       localImageUrl: savedImage.localImageUrl,
       localImagePath: savedImage.localImagePath,
       cdnImageUrl: savedImage.cdnImageUrl,
@@ -42837,7 +42864,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      imageUrl: publicRecord.imageResultUrl || savedImage?.localImageUrl || "",
       sourceAsset: publicUserAsset(asset),
       user: userView(latestUser),
       pricing,
@@ -47804,6 +47831,121 @@ function generationRecordDownloadTarget(record = {}, { r2Only = false } = {}) {
   return null;
 }
 
+function generationRecordProviderDownloadTarget(record = {}) {
+  if (record.resultLocked === true) return null;
+  const providerVideoUrl = generationRecordProviderVideoUrl(record);
+  if (providerVideoUrl) {
+    const mime = videoMimeFromKnownPath(providerVideoUrl) || "video/mp4";
+    const ext = videoExtFromMime(mime, providerVideoUrl);
+    return {
+      kind: "video",
+      url: providerVideoUrl,
+      mime,
+      fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
+    };
+  }
+  const providerImageUrls = [...new Set([
+    ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
+    ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.upstreamImageUrl,
+  ].map((item) => String(item || "").trim()).filter((item) => isPublicHttpUrl(item)))];
+  const providerImageUrl = providerImageUrls[0] || generationRecordProviderImageUrl(record);
+  if (!providerImageUrl) return null;
+  if (!isSucceededStatus(record.status) && !providerVideoUrl) return null;
+  const mime = imageMimeFromKnownPath(providerImageUrl) || "image/png";
+  const ext = imageExtFromMime(mime);
+  return {
+    kind: "image",
+    url: providerImageUrl,
+    urls: providerImageUrls.length ? providerImageUrls : [providerImageUrl],
+    mime,
+    fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
+  };
+}
+
+async function prepareGenerationRecordAdvancedDownload(record = {}) {
+  if (!generatedOutputStorageEnabled() || !isSucceededStatus(record.status)) return record;
+  const providerTarget = generationRecordProviderDownloadTarget(record);
+  if (!providerTarget?.url) return record;
+  if (generationRecordHasR2Download(record)) return record;
+
+  const existing = await getGenerationRecord(record.taskId);
+  if (!existing) return record;
+  if (generationRecordHasR2Download(existing)) return existing;
+
+  if (providerTarget.kind === "video") {
+    const localVideo = await downloadGeneratedVideo(existing.taskId, providerTarget.url, { forceLocal: true });
+    const poster = localVideo.localVideoPath
+      ? await createGeneratedVideoPoster(existing.taskId, localVideo.localVideoPath)
+      : { localPosterPath: "", localPosterUrl: "" };
+    const cdn = await uploadGeneratedMediaToObjectStorage({
+      taskId: existing.taskId,
+      localVideoPath: localVideo.localVideoPath,
+      localPosterPath: poster.localPosterPath,
+    });
+    if (!cdn.cdnVideoUrl) {
+      const error = new Error(cdn.cdnError || "R2 upload failed.");
+      error.statusCode = 502;
+      error.code = "R2_UPLOAD_FAILED";
+      throw error;
+    }
+    return upsertGenerationRecord({
+      taskId: existing.taskId,
+      localVideoUrl: localVideo.localVideoUrl,
+      localVideoPath: localVideo.localVideoPath,
+      localPosterUrl: poster.localPosterUrl,
+      localPosterPath: poster.localPosterPath,
+      playbackOptimizedAt: localVideo.playbackOptimizedAt || new Date().toISOString(),
+      cdnVideoUrl: cdn.cdnVideoUrl,
+      cdnPosterUrl: cdn.cdnPosterUrl,
+      cdnError: "",
+      remoteVideoUrl: existing.remoteVideoUrl || providerTarget.url,
+    });
+  }
+
+  const downloaded = await downloadRemoteFileToBuffer(providerTarget.url, { label: "advanced download image", maxBytes: 30 * 1024 * 1024 });
+  const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : providerTarget.mime;
+  const saved = await saveGeneratedImageFile(existing.taskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
+  const upload = await uploadStaticAssetToObjectStorage({
+    key: objectStoragePath("generated", "images", path.basename(saved.localImagePath)),
+    bytes: downloaded.bytes,
+    mime,
+  });
+  if (!upload.publicUrl) {
+    const error = new Error("R2 upload completed without a public URL.");
+    error.statusCode = 502;
+    error.code = "R2_UPLOAD_FAILED";
+    throw error;
+  }
+  await markPublishedFileSafely(saved.localImagePath);
+  return upsertGenerationRecord({
+    taskId: existing.taskId,
+    localImageUrl: saved.localImageUrl,
+    localImagePath: saved.localImagePath,
+    imageResultUrl: upload.publicUrl,
+    cdnImageUrl: upload.publicUrl,
+    cdnImageUrls: [upload.publicUrl],
+    cdnError: "",
+    remoteImageUrl: existing.remoteImageUrl || providerTarget.url,
+  });
+}
+
+function generationImageResultUrl(record = {}, savedImage = null) {
+  return String(
+    savedImage?.cdnImageUrl
+    || generationRecordProviderImageUrl(record)
+    || record.remoteImageUrl
+    || record.providerImageUrl
+    || record.upstreamImageUrl
+    || savedImage?.localImageUrl
+    || record.localImageUrl
+    || record.imageResultUrl
+    || "",
+  ).trim();
+}
+
 function generationRecordHasR2Download(record = {}) {
   return Boolean(generationRecordDownloadTarget(record, { r2Only: true })?.url);
 }
@@ -47886,12 +48028,23 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
   const r2Only = String(url?.searchParams?.get("quality") || "").toLowerCase() === "r2";
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const record = await getGenerationRecord(taskId);
+  let record = await getGenerationRecord(taskId);
   if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
     return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   }
   if (record.resultLocked === true) {
     return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
+  }
+  if (r2Only && !generationRecordHasR2Download(record)) {
+    try {
+      record = await prepareGenerationRecordAdvancedDownload(record);
+    } catch (error) {
+      return sendJson(res, Number(error.statusCode) || 502, {
+        ok: false,
+        code: error.code || "ADVANCED_DOWNLOAD_FAILED",
+        message: error.message || "Advanced download preparation failed.",
+      });
+    }
   }
   const target = generationRecordDownloadTarget(record, { r2Only });
   if (!target?.url && !target?.localPath) {
@@ -47909,12 +48062,23 @@ async function handleDownloadGenerationRecord(req, res, taskId, url = null) {
   const r2Only = String(url?.searchParams?.get("quality") || "").toLowerCase() === "r2";
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const record = await getGenerationRecord(taskId);
+  let record = await getGenerationRecord(taskId);
   if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
     return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   }
   if (record.resultLocked === true) {
     return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
+  }
+  if (r2Only && !generationRecordHasR2Download(record)) {
+    try {
+      record = await prepareGenerationRecordAdvancedDownload(record);
+    } catch (error) {
+      return sendJson(res, Number(error.statusCode) || 502, {
+        ok: false,
+        code: error.code || "ADVANCED_DOWNLOAD_FAILED",
+        message: error.message || "Advanced download preparation failed.",
+      });
+    }
   }
   const target = generationRecordDownloadTarget(record, { r2Only });
   if (!target?.url && !target?.localPath) {

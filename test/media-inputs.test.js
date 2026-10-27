@@ -163,7 +163,7 @@ test("generation record queries never wait for R2 publication", () => {
   assert.match(server, /generationRecordIsApiTask\(record\)\) return false/);
   assert.match(server, /if \(record\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(record\)/);
   assert.match(server, /if \(nextRecord\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(nextRecord\)/);
-  assert.match(server, /if \(download && !generationRecordIsApiTask\(record\)/);
+  assert.match(server, /if \(download && generatedOutputStorageEnabled\(\) && !generationRecordIsApiTask\(record\)/);
   assert.match(server, /if \(generationRecordIsApiTask\(existing \|\| \{\}\)\)/);
 });
 

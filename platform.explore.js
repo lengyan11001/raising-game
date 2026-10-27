@@ -3819,6 +3819,7 @@ function openHistoryDetail(index) {
   const videos = recordVideoAssets(record);
   const canDownload = canDownloadGenerationRecord(record);
   const canAdvancedDownload = canAdvancedDownloadGenerationRecord(record);
+  const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
@@ -3832,8 +3833,8 @@ function openHistoryDetail(index) {
           </button>
         ` : ""}
         ${videoUrl || imageResultUrl ? `
-          <button class="history-download history-detail-r2-download" type="button" data-history-detail-r2-download ${canAdvancedDownload ? "" : "disabled"}>
-            <i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}
+          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+            <i data-lucide="gauge"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "可下载" : "Ready") : t("history.advancedDownload"))}
           </button>
         ` : ""}
       </header>
@@ -3877,12 +3878,11 @@ function openHistoryDetail(index) {
   els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
     downloadGenerationRecord(record);
   });
-  els.historyDetailBody.querySelector("[data-history-detail-r2-download]")?.addEventListener("click", (event) => {
+  els.historyDetailBody.querySelector("[data-history-detail-r2-download]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
-    button.disabled = true;
-    downloadGenerationRecord(record, { advanced: true }).finally(() => {
-      button.disabled = !canAdvancedDownloadGenerationRecord(record);
-    });
+    setAdvancedDownloadButtonState(button, "transferring");
+    const ok = await downloadGenerationRecord(record, { advanced: true });
+    setAdvancedDownloadButtonState(button, ok ? "ready" : "failed");
   });
   const detailVideo = els.historyDetailBody.querySelector("[data-history-detail-result-video]");
   if (detailVideo && localVideoUrl && videoUrl && localVideoUrl !== videoUrl) {

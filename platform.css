@@ -8283,6 +8283,18 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-color: rgba(183,121,31,.52);
   background: #fffbeb;
 }
+.history-r2-download.is-transferring svg,
+.advanced-result-r2-download.is-transferring svg,
+.history-detail-r2-download.is-transferring svg {
+  animation: spin .8s linear infinite;
+}
+.history-r2-download.is-ready,
+.advanced-result-r2-download.is-ready,
+.history-detail-r2-download.is-ready {
+  color: #15803d;
+  border-color: rgba(21,128,61,.32);
+  background: rgba(240,253,244,.84);
+}
 .history-icon-action { min-width: 36px; padding: 0 8px; }
 .history-regenerate {
   color: var(--ink);
