@@ -1081,6 +1081,7 @@ const R2_UPLOAD_RETRY_BASE_DELAY_MS = Math.max(250, Math.min(10000, Number(proce
 const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_PUBLIC_READY_RETRY_COUNT || 4) || 4));
 const R2_MULTIPART_THRESHOLD_BYTES = Math.max(8 * 1024 * 1024, Number(process.env.R2_MULTIPART_THRESHOLD_BYTES || 8 * 1024 * 1024) || 8 * 1024 * 1024);
 const R2_MULTIPART_PART_SIZE_BYTES = Math.max(5 * 1024 * 1024, Number(process.env.R2_MULTIPART_PART_SIZE_BYTES || 5 * 1024 * 1024) || 5 * 1024 * 1024);
+const R2_UPLOAD_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.R2_UPLOAD_CONCURRENCY || 2) || 2));
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 // Generated outputs are intentionally served from the provider URL. User
 // uploads still use the configured object storage so upstream APIs can read
@@ -15180,6 +15181,30 @@ function r2PublicUrlForKey(key = "") {
   return value ? `${R2.publicDomain.replace(/\/$/, "")}/${value}` : "";
 }
 
+let r2UploadQueueActive = 0;
+const r2UploadQueue = [];
+
+function scheduleR2UploadQueueDrain() {
+  while (r2UploadQueueActive < R2_UPLOAD_CONCURRENCY && r2UploadQueue.length) {
+    const item = r2UploadQueue.shift();
+    r2UploadQueueActive += 1;
+    Promise.resolve()
+      .then(item.run)
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        r2UploadQueueActive -= 1;
+        scheduleR2UploadQueueDrain();
+      });
+  }
+}
+
+function withR2UploadSlot(run) {
+  return new Promise((resolve, reject) => {
+    r2UploadQueue.push({ run, resolve, reject });
+    scheduleR2UploadQueueDrain();
+  });
+}
+
 async function findUploadedR2Object(key = "") {
   const publicUrl = r2PublicUrlForKey(key);
   if (!publicUrl) return null;
@@ -15356,65 +15381,66 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_BUCKET", R2.bucket);
   requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
 
-  if ((bytes?.byteLength ?? bytes?.length ?? 0) >= R2_MULTIPART_THRESHOLD_BYTES) {
-    return uploadR2Multipart({ key, bytes, mime });
-  }
-
-  const uploadTimeoutMs = r2UploadTimeoutMs(bytes?.byteLength ?? bytes?.length ?? 0);
-  let lastError = null;
-  for (let attempt = 1; attempt <= R2_UPLOAD_RETRY_COUNT; attempt += 1) {
-    try {
-      const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
-      const response = await fetch(auth.url, {
-        method: "PUT",
-        headers: auth.headers,
-        body: bytes,
-        signal: AbortSignal.timeout(uploadTimeoutMs),
-      });
-      const text = await response.text();
-      if (response.ok) {
-        const result = {
-          key,
-          r2Url: auth.url,
-          publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
-        };
-        if (await waitForR2PublicObject(result.publicUrl)) return result;
-        const error = new Error(`R2 object uploaded but public URL is not ready: ${result.publicUrl}`);
-        error.statusCode = 502;
-        error.retryable = true;
-        lastError = error;
-      }
-      else {
-        const error = new Error(`R2 upload failed: ${response.status} ${text}`);
-        error.statusCode = 502;
-        error.retryable = response.status === 429 || response.status >= 500;
-        lastError = error;
-        if (error.retryable) {
-          const published = await findUploadedR2Object(key);
-          if (published && await waitForR2PublicObject(published.publicUrl)) return published;
-        }
-        if (attempt >= R2_UPLOAD_RETRY_COUNT || !error.retryable) throw error;
-      }
-    } catch (error) {
-      const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
-      if (timeout) {
-        const published = await findUploadedR2Object(key);
-        if (published) return published;
-      }
-      const uploadError = timeout ? new Error(`R2 upload timed out after ${Math.ceil(uploadTimeoutMs / 1000)} seconds.`) : error;
-      if (timeout) {
-        uploadError.code = "R2_UPLOAD_TIMEOUT";
-        uploadError.retryable = false;
-      }
-      if (!uploadError.statusCode) uploadError.statusCode = 502;
-      lastError = uploadError;
-      if (attempt >= R2_UPLOAD_RETRY_COUNT || uploadError.retryable === false || uploadError.statusCode !== 502) throw uploadError;
+  return withR2UploadSlot(async () => {
+    if ((bytes?.byteLength ?? bytes?.length ?? 0) >= R2_MULTIPART_THRESHOLD_BYTES) {
+      return uploadR2Multipart({ key, bytes, mime });
     }
-    await delay(Math.min(10000, R2_UPLOAD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)));
-  }
-  throw lastError || new Error("R2 upload failed.");
-}
 
+    const uploadTimeoutMs = r2UploadTimeoutMs(bytes?.byteLength ?? bytes?.length ?? 0);
+    let lastError = null;
+    for (let attempt = 1; attempt <= R2_UPLOAD_RETRY_COUNT; attempt += 1) {
+      try {
+        const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
+        const response = await fetch(auth.url, {
+          method: "PUT",
+          headers: auth.headers,
+          body: bytes,
+          signal: AbortSignal.timeout(uploadTimeoutMs),
+        });
+        const text = await response.text();
+        if (response.ok) {
+          const result = {
+            key,
+            r2Url: auth.url,
+            publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
+          };
+          if (await waitForR2PublicObject(result.publicUrl)) return result;
+          const error = new Error(`R2 object uploaded but public URL is not ready: ${result.publicUrl}`);
+          error.statusCode = 502;
+          error.retryable = true;
+          lastError = error;
+        }
+        else {
+          const error = new Error(`R2 upload failed: ${response.status} ${text}`);
+          error.statusCode = 502;
+          error.retryable = response.status === 429 || response.status >= 500;
+          lastError = error;
+          if (error.retryable) {
+            const published = await findUploadedR2Object(key);
+            if (published && await waitForR2PublicObject(published.publicUrl)) return published;
+          }
+          if (attempt >= R2_UPLOAD_RETRY_COUNT || !error.retryable) throw error;
+        }
+      } catch (error) {
+        const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+        if (timeout) {
+          const published = await findUploadedR2Object(key);
+          if (published) return published;
+        }
+        const uploadError = timeout ? new Error(`R2 upload timed out after ${Math.ceil(uploadTimeoutMs / 1000)} seconds.`) : error;
+        if (timeout) {
+          uploadError.code = "R2_UPLOAD_TIMEOUT";
+          uploadError.retryable = false;
+        }
+        if (!uploadError.statusCode) uploadError.statusCode = 502;
+        lastError = uploadError;
+        if (attempt >= R2_UPLOAD_RETRY_COUNT || uploadError.retryable === false || uploadError.statusCode !== 502) throw uploadError;
+      }
+      await delay(Math.min(10000, R2_UPLOAD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)));
+    }
+    throw lastError || new Error("R2 upload failed.");
+  });
+}
 async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
   return uploadStaticAssetToR2({ key, bytes, mime });
 }

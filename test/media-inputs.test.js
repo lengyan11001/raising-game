@@ -149,6 +149,7 @@ test("large R2 uploads use resumable multipart requests", () => {
   assert.match(server, /partNumber, uploadId/);
   assert.match(server, /<CompleteMultipartUpload>/);
   assert.match(server, /method: "DELETE", key, query: \{ uploadId \}/);
+  assert.match(server, /return withR2UploadSlot\(async \(\) =>/);
   assert.match(server, /if \(\(bytes\?\.byteLength \?\? bytes\?\.length \?\? 0\) >= R2_MULTIPART_THRESHOLD_BYTES\)/);
 });
 
