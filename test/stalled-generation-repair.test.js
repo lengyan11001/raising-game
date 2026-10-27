@@ -34,7 +34,8 @@ test("stalled repair is idempotent for pre-deducted refunds", () => {
   assert.match(server, /withStalledGenerationRepairLock\(record\.taskId/);
   assert.match(server, /failStalledGenerationRecordUnlocked\(current, "stalled-generation-repair"\)/);
   assert.match(server, /async function stalledGenerationRefundExists/);
-  assert.match(server, /\["pre_deducted", "settled"\]\.includes\(billingStatus\)/);
+  assert.match(server, /allowSettledRefund: true/);
+  assert.match(server, /if \(billingStatus === "pre_deducted"\)/);
   assert.match(server, /previousBillingStatus: billingStatus/);
   assert.match(server, /type = ANY\(\$1::text\[\]\)[\s\S]*?meta->>'taskId' = \$2/);
   assert.match(server, /if \(!alreadyRefunded\)[\s\S]*?changeUserCredits/);

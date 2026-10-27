@@ -49713,14 +49713,22 @@ function stalledGenerationRefundType(record = {}) {
     : "generation_refund";
 }
 
-async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
+async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "stalled-generation-repair", { allowSettledRefund = false } = {}) {
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
   const billingStatus = String(record.billingStatus || "").toLowerCase();
   const finalCredits = record.finalCredits === undefined || record.finalCredits === null
     ? preDeducted
     : creditsAmount(record.finalCredits || 0);
-  if (preDeducted <= 0 || finalCredits <= 0) return record;
-  if (!["pre_deducted", "settled"].includes(billingStatus)) return record;
+  if (preDeducted <= 0) return record;
+  if (billingStatus === "pre_deducted") {
+    // The pre-deduction is still outstanding regardless of a partial final estimate.
+  } else if (billingStatus === "settled" && allowSettledRefund) {
+    // Historical settled records may already have finalCredits=0 while the
+    // customer was charged the full pre-deducted amount. The maintenance
+    // command explicitly opts into this legacy repair.
+  } else {
+    return record;
+  }
   const refundType = stalledGenerationRefundType(record);
   const alreadyRefunded = await stalledGenerationRefundExists(record, refundType);
   if (!alreadyRefunded) {
@@ -49860,7 +49868,7 @@ async function repairStalledGenerationRecords({ apply = false, staleMs = 2 * 60 
         const terminal = isSucceededStatus(current.status) || isFailedStatus(current.status);
         if (!terminal) current = await failStalledGenerationRecordUnlocked(current, "stalled-generation-repair");
         if (isFailedStatus(current.status) && ["pre_deducted", "settled"].includes(String(current.billingStatus || "").toLowerCase())) {
-          current = await refundPreDeductedStalledGenerationRecord(current, "stalled-generation-repair");
+          current = await refundPreDeductedStalledGenerationRecord(current, "stalled-generation-repair", { allowSettledRefund: true });
         }
         return current;
       });
