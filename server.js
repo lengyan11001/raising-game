@@ -49716,7 +49716,11 @@ function stalledGenerationRefundType(record = {}) {
 async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
   const billingStatus = String(record.billingStatus || "").toLowerCase();
-  if (preDeducted <= 0 || billingStatus !== "pre_deducted" || record.finalCredits === 0) return record;
+  const finalCredits = record.finalCredits === undefined || record.finalCredits === null
+    ? preDeducted
+    : creditsAmount(record.finalCredits || 0);
+  if (preDeducted <= 0 || finalCredits <= 0) return record;
+  if (!["pre_deducted", "settled"].includes(billingStatus)) return record;
   const refundType = stalledGenerationRefundType(record);
   const alreadyRefunded = await stalledGenerationRefundExists(record, refundType);
   if (!alreadyRefunded) {
@@ -49727,12 +49731,14 @@ async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "s
       reason,
       preDeducted,
       finalCredits: 0,
+      refundedCredits: preDeducted,
+      previousBillingStatus: billingStatus,
     });
     await recordSubtokenAdjustment(record, {
       taskId: record.taskId,
       type: refundType,
       amount: -preDeducted,
-      meta: { provider: record.provider || "", reason, preDeducted },
+      meta: { provider: record.provider || "", reason, preDeducted, previousBillingStatus: billingStatus },
     });
     if (!dbEnabled()) await writeDb(db);
   }
@@ -49783,7 +49789,7 @@ async function failStalledGenerationRecordUnlocked(record = {}, reason = "stalle
   const provider = String(record.provider || "").toLowerCase();
   const billingStatus = String(record.billingStatus || "").toLowerCase();
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
-  if (preDeducted > 0 && billingStatus === "pre_deducted" && STALLED_GENERATION_REFUND_PROVIDERS.has(provider)) {
+  if (preDeducted > 0 && ["pre_deducted", "settled"].includes(billingStatus) && STALLED_GENERATION_REFUND_PROVIDERS.has(provider)) {
     const failed = await upsertGenerationRecord({
       taskId: record.taskId,
       status: "failed",
@@ -49853,7 +49859,7 @@ async function repairStalledGenerationRecords({ apply = false, staleMs = 2 * 60 
         if (record.upstreamTaskId) current = await refreshGenerationRecordStatus(record);
         const terminal = isSucceededStatus(current.status) || isFailedStatus(current.status);
         if (!terminal) current = await failStalledGenerationRecordUnlocked(current, "stalled-generation-repair");
-        if (isFailedStatus(current.status) && current.billingStatus === "pre_deducted") {
+        if (isFailedStatus(current.status) && ["pre_deducted", "settled"].includes(String(current.billingStatus || "").toLowerCase())) {
           current = await refundPreDeductedStalledGenerationRecord(current, "stalled-generation-repair");
         }
         return current;

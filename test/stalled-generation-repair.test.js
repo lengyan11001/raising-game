@@ -34,7 +34,8 @@ test("stalled repair is idempotent for pre-deducted refunds", () => {
   assert.match(server, /withStalledGenerationRepairLock\(record\.taskId/);
   assert.match(server, /failStalledGenerationRecordUnlocked\(current, "stalled-generation-repair"\)/);
   assert.match(server, /async function stalledGenerationRefundExists/);
-  assert.match(server, /billingStatus !== "pre_deducted"/);
+  assert.match(server, /\["pre_deducted", "settled"\]\.includes\(billingStatus\)/);
+  assert.match(server, /previousBillingStatus: billingStatus/);
   assert.match(server, /type = ANY\(\$1::text\[\]\)[\s\S]*?meta->>'taskId' = \$2/);
   assert.match(server, /if \(!alreadyRefunded\)[\s\S]*?changeUserCredits/);
   assert.match(server, /billingStatus: "refunded"/);
@@ -46,5 +47,5 @@ test("stalled repair script defaults to dry-run and supports targeted apply", ()
   assert.match(script, /--apply/);
   assert.match(script, /--task-id/);
   assert.match(script, /DATABASE_URL is required/);
-  assert.match(script, /summary\.results\.map\(\(\{ userId, \.\.\.item \}\) => item\)/);
+  assert.match(script, /summary\.results\.map\(\(\{ userId, refundAlreadyRecorded, \.\.\.item \}\) => item\)/);
 });

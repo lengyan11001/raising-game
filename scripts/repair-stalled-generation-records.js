@@ -80,7 +80,7 @@ async function main() {
   });
   const safeSummary = {
     ...summary,
-    results: summary.results.map(({ userId, ...item }) => item),
+    results: summary.results.map(({ userId, refundAlreadyRecorded, ...item }) => item),
   };
   console.log(JSON.stringify(safeSummary, null, 2));
   if (summary.failed) process.exitCode = 1;
