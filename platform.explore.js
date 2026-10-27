@@ -3823,6 +3823,7 @@ function openHistoryDetail(index) {
   const images = recordImageAssets(record);
   const videos = recordVideoAssets(record);
   const canDownload = canDownloadGenerationRecord(record);
+  const canAdvancedDownload = canAdvancedDownloadGenerationRecord(record);
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
@@ -3833,6 +3834,11 @@ function openHistoryDetail(index) {
         ${canDownload ? `
           <button class="history-download history-detail-download" type="button" data-history-detail-download>
             <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+          </button>
+        ` : ""}
+        ${videoUrl || imageResultUrl ? `
+          <button class="history-download history-detail-r2-download" type="button" data-history-detail-r2-download ${canAdvancedDownload ? "" : "disabled"}>
+            <i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}
           </button>
         ` : ""}
       </header>
@@ -3875,6 +3881,13 @@ function openHistoryDetail(index) {
   `;
   els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
     downloadGenerationRecord(record);
+  });
+  els.historyDetailBody.querySelector("[data-history-detail-r2-download]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    downloadGenerationRecord(record, { advanced: true }).finally(() => {
+      button.disabled = !canAdvancedDownloadGenerationRecord(record);
+    });
   });
   const detailVideo = els.historyDetailBody.querySelector("[data-history-detail-result-video]");
   if (detailVideo && localVideoUrl && videoUrl && localVideoUrl !== videoUrl) {

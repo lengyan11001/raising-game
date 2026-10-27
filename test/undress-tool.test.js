@@ -37,7 +37,7 @@ test("undress.14vips.com is an isolated tenant without API or asset-library acce
 
 test("tool public requests avoid loading the full home catalog and anonymous database snapshot", () => {
   assert.match(server, /async function readAppConfig\(\{ includeHomeItems = true \} = \{\}\)/);
-  assert.match(server, /readAppConfig\(\{ includeHomeItems: !tenantOptions\.toolOnly \}\)/);
+  assert.match(server, /config = await readAppConfig\(\{ includeHomeItems \}\)/);
   assert.match(server, /tenantOptions\.toolOnly \? Promise\.resolve\(""\) : getKvUpdatedAt\("app_config"\)/);
   const publicConfigHandler = server.slice(
     server.indexOf('if (req.method === "GET" && url.pathname === "/api/config/public")'),
@@ -197,7 +197,7 @@ test("image-to-video clones the reference Wan2.7 task and uses configured pricin
   assert.match(runner, /resolution: "720P"/);
   assert.match(runner, /ratio: "9:16"/);
   assert.match(runner, /generateAudio: true/);
-  assert.match(runner, /prompt_extend: false/);
+  assert.match(runner, /prompt_extend: true/);
   assert.match(videoTools, /她脱掉衣服，全裸露出胸部用手抚摸一只胸，并微笑着说：今天又是美好的一天/);
   assert.doesNotMatch(videoTools, /Negative prompt:/);
   assert.match(server, /job\.action === "undress-image-video"[\s\S]*?runVideoToolUndressImageVideo/);
@@ -269,7 +269,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(ui, /if \(directSignedDownload\) \{[\s\S]*?triggerBrowserDownload\(href, fileName\)[\s\S]*?return;/);
   assert.match(ui, /await saveDownloadFromFetch\(href\.startsWith\("\/api\/"\) \? href : legacyHref, fileName\)/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
-  assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
+  assert.match(html, /platform\.js\?v=[a-z0-9-]+/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {

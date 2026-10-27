@@ -22961,18 +22961,17 @@ function publicGenerationRecord(record = {}, options = {}) {
   // Provider URLs are intentionally treated as usable for their validity
   // window; the R2 mirror will take over automatically on a later refresh.
   const gateNewR2 = requireR2Ready && generatedOutputStorageEnabled() && generationRecordRequiresR2Publication(record);
+  // A finished generation is usable immediately from the provider URL while
+  // the durable R2 mirror catches up. R2 readiness controls the advanced
+  // download action only; it must not rewrite task status to processing or
+  // hide a result that the upstream has already completed.
   const publicVideoUrl = (providerOnlyOutputs || providerOnlyVideoUrl) && providerVideoUrl
     ? providerVideoUrl
-    : (gateNewR2
-      ? cdnUrl
-      : (cdnUrl || providerVideoUrl || (r2PublicationPending ? "" : localUrl)));
+    : (providerVideoUrl || cdnUrl || localUrl);
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
   const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
-  const preferredPosterBase = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
-  const preferredPosterUrl = r2PublicationPending && !record.cdnPosterUrl && !providerPosterUrl
-    ? ""
-    : preferredPosterBase;
+  const preferredPosterUrl = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const publicImageUrl = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrl
@@ -23050,6 +23049,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     usage: listGenerationRecordValue(record.usage || null),
     error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
+    r2DownloadReady: Boolean(String(record.cdnVideoUrl || record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim()),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
@@ -23065,27 +23065,13 @@ function publicGenerationRecord(record = {}, options = {}) {
       : "",
   };
   if (gateNewR2 && !generationRecordIsApiTask(record) && !isChatCompletionGenerationRecord(record)) {
-    if (r2PublicationPending) {
-      publicRecord.status = "running";
-      publicRecord.videoUrl = "";
-      publicRecord.downloadUrl = "";
-      publicRecord.providerVideoUrl = "";
-      publicRecord.upstreamVideoUrl = "";
-      publicRecord.remoteVideoUrl = "";
-      publicRecord.posterUrl = "";
-      publicRecord.imageResultUrl = "";
-      publicRecord.imageResultUrls = [];
-      publicRecord.providerImageUrl = "";
-      publicRecord.providerImageUrls = [];
-      publicRecord.upstreamImageUrl = "";
-      publicRecord.remoteImageUrl = "";
-    } else if (generationRecordIsVideoOutput(record)) {
+    if (generationRecordIsVideoOutput(record) && !r2PublicationPending) {
       publicRecord.videoUrl = cdnUrl;
       publicRecord.downloadUrl = cdnUrl;
       publicRecord.providerVideoUrl = "";
       publicRecord.upstreamVideoUrl = "";
       publicRecord.remoteVideoUrl = "";
-    } else if (isImageGenerationRecord(record)) {
+    } else if (isImageGenerationRecord(record) && !r2PublicationPending) {
       const readyImages = [...new Set([
         ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
         record.cdnImageUrl,
@@ -23100,13 +23086,10 @@ function publicGenerationRecord(record = {}, options = {}) {
     }
   }
   if (includeStoredVideoUrls) {
-    // Keep all browser media hidden until the durable R2 copy is published.
-    // Otherwise the UI sees localVideoUrl and starts preview/download while
-    // the record is still deliberately gated as processing.
-    publicRecord.localVideoUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.localVideoUrl || ""));
-    publicRecord.cdnVideoUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.cdnVideoUrl || ""));
-    publicRecord.localPosterUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.localPosterUrl || ""));
-    publicRecord.cdnPosterUrl = r2PublicationPending ? "" : (providerOnlyOutputs ? "" : String(record.cdnPosterUrl || ""));
+    publicRecord.localVideoUrl = providerOnlyOutputs ? "" : String(record.localVideoUrl || "");
+    publicRecord.cdnVideoUrl = providerOnlyOutputs ? "" : String(record.cdnVideoUrl || "");
+    publicRecord.localPosterUrl = providerOnlyOutputs ? "" : String(record.localPosterUrl || "");
+    publicRecord.cdnPosterUrl = providerOnlyOutputs ? "" : String(record.cdnPosterUrl || "");
   }
   if (includeStoredImageUrls) {
     publicRecord.localImageUrl = providerOnlyOutputs ? "" : String(record.localImageUrl || "");
@@ -23242,11 +23225,8 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (record.localVideoUrl && isSucceededStatus(status)) {
-    // A browser-facing task is not ready just because the local download
-    // finished. Keep polling while the durable R2 copy is still missing.
-    if (objectStorageEnabled() && !generationRecordIsApiTask(record) && !String(record.cdnVideoUrl || "").trim()) {
-      return Boolean(record.upstreamTaskId || record.taskId);
-    }
+    // R2 publication is asynchronous media maintenance. It must not keep an
+    // already completed task in the status-refresh loop.
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
     return false;
   }
@@ -47561,40 +47541,38 @@ function localDownloadPathFromRecord(record = {}, isVideo = true, url = "") {
   return "";
 }
 
-function generationRecordDownloadTarget(record = {}) {
-  const siteMirror = generatedOutputStorageEnabled() && !generationRecordIsApiTask(record) && generationRecordRequiresR2Publication(record);
-  if (siteMirror && (generationRecordIsVideoOutput(record) || isImageGenerationRecord(record)) && generationRecordR2PublicationPending(record)) {
-    return null;
-  }
-  const videoUrl = siteMirror
-    ? String(record.cdnVideoUrl || "").trim()
-    : generationRecordVideoUrl(record, { preferProviderVideoUrl: false });
-  if (videoUrl && (!siteMirror || generationRecordIsVideoOutput(record) || String(record.cdnVideoUrl || "").trim())) {
+function generationRecordDownloadTarget(record = {}, { r2Only = false } = {}) {
+  const cdnVideoUrl = String(record.cdnVideoUrl || "").trim();
+  const cdnImageUrl = String(record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim();
+  const videoUrl = r2Only ? cdnVideoUrl : generationRecordVideoUrl(record, { preferProviderVideoUrl: true });
+  if (videoUrl) {
     const mime = videoMimeFromKnownPath(videoUrl) || "video/mp4";
     const ext = videoExtFromMime(mime, videoUrl);
     return {
-      url: siteMirror ? String(record.cdnVideoUrl || "").trim() : videoUrl,
-      localPath: siteMirror ? "" : localDownloadPathFromRecord(record, true, videoUrl),
-      objectStorageUrl: String(record.cdnVideoUrl || "").trim(),
+      url: videoUrl,
+      localPath: r2Only ? "" : localDownloadPathFromRecord(record, true, videoUrl),
+      objectStorageUrl: cdnVideoUrl,
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
   }
-  const imageUrl = siteMirror
-    ? String(record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim()
-    : generationRecordImageUrl(record);
+  const imageUrl = r2Only ? cdnImageUrl : (generationRecordProviderImageUrl(record) || generationRecordImageUrl(record));
   if (imageUrl) {
     const mime = imageMimeFromKnownPath(imageUrl) || "image/png";
     const ext = imageExtFromMime(mime);
     return {
       url: imageUrl,
-      localPath: localDownloadPathFromRecord(record, false, imageUrl),
-      objectStorageUrl: String(record.cdnImageUrl || "").trim(),
+      localPath: r2Only ? "" : localDownloadPathFromRecord(record, false, imageUrl),
+      objectStorageUrl: cdnImageUrl,
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
   }
   return null;
+}
+
+function generationRecordHasR2Download(record = {}) {
+  return Boolean(generationRecordDownloadTarget(record, { r2Only: true })?.url);
 }
 
 function awsQueryEncode(value = "") {
@@ -47671,7 +47649,8 @@ function generationRecordDownloadUrlPayload(target = {}, fallbackUrl = "") {
   };
 }
 
-async function handleGenerationRecordDownloadUrl(req, res, taskId) {
+async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
+  const r2Only = String(url?.searchParams?.get("quality") || "").toLowerCase() === "r2";
   const auth = await requireUser(req, res);
   if (!auth) return;
   const record = await getGenerationRecord(taskId);
@@ -47681,15 +47660,20 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId) {
   if (record.resultLocked === true) {
     return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
   }
-  const target = generationRecordDownloadTarget(record);
+  const target = generationRecordDownloadTarget(record, { r2Only });
   if (!target?.url && !target?.localPath) {
-    return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
+    return sendJson(res, r2Only ? 409 : 404, {
+      ok: false,
+      code: r2Only ? "R2_DOWNLOAD_NOT_READY" : "GENERATED_MEDIA_UNAVAILABLE",
+      message: r2Only ? "Advanced R2 download is not ready yet." : "Generated media is not available.",
+    });
   }
-  const fallbackUrl = `/api/generation-records/${encodeURIComponent(taskId)}/download`;
+  const fallbackUrl = `/api/generation-records/${encodeURIComponent(taskId)}/download${r2Only ? "?quality=r2" : ""}`;
   return sendJson(res, 200, { ok: true, ...generationRecordDownloadUrlPayload(target, fallbackUrl) });
 }
 
-async function handleDownloadGenerationRecord(req, res, taskId) {
+async function handleDownloadGenerationRecord(req, res, taskId, url = null) {
+  const r2Only = String(url?.searchParams?.get("quality") || "").toLowerCase() === "r2";
   const auth = await requireUser(req, res);
   if (!auth) return;
   const record = await getGenerationRecord(taskId);
@@ -47699,9 +47683,13 @@ async function handleDownloadGenerationRecord(req, res, taskId) {
   if (record.resultLocked === true) {
     return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
   }
-  const target = generationRecordDownloadTarget(record);
+  const target = generationRecordDownloadTarget(record, { r2Only });
   if (!target?.url && !target?.localPath) {
-    return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
+    return sendJson(res, r2Only ? 409 : 404, {
+      ok: false,
+      code: r2Only ? "R2_DOWNLOAD_NOT_READY" : "GENERATED_MEDIA_UNAVAILABLE",
+      message: r2Only ? "Advanced R2 download is not ready yet." : "Generated media is not available.",
+    });
   }
 
   const headers = {
@@ -49547,12 +49535,12 @@ async function handleRequest(req, res) {
 
     const downloadUrlGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download-url$/);
     if (req.method === "GET" && downloadUrlGenerationRecordMatch) {
-      return await handleGenerationRecordDownloadUrl(req, res, decodeURIComponent(downloadUrlGenerationRecordMatch[1]));
+      return await handleGenerationRecordDownloadUrl(req, res, decodeURIComponent(downloadUrlGenerationRecordMatch[1]), url);
     }
 
     const downloadGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download$/);
     if ((req.method === "GET" || req.method === "HEAD") && downloadGenerationRecordMatch) {
-      return await handleDownloadGenerationRecord(req, res, decodeURIComponent(downloadGenerationRecordMatch[1]));
+      return await handleDownloadGenerationRecord(req, res, decodeURIComponent(downloadGenerationRecordMatch[1]), url);
     }
 
     const generationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)$/);

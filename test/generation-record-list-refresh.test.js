@@ -65,12 +65,26 @@ test("generation detail uses lightweight auth and does not reload the full datab
   assert.doesNotMatch(detail, /await readDb\(\)/);
 });
 
-test("R2-gated records do not expose local media before publication", () => {
+test("completed records stay complete while R2 publication catches up", () => {
   const start = server.indexOf("function publicGenerationRecord");
   const end = server.indexOf("function generationRecordTime", start + 1);
   const source = server.slice(start, end);
-  assert.match(source, /publicRecord\.localVideoUrl = r2PublicationPending \? ""/);
-  assert.match(source, /publicRecord\.localPosterUrl = r2PublicationPending \? ""/);
+  assert.match(source, /const publicVideoUrl = .*?providerVideoUrl \|\| cdnUrl \|\| localUrl/s);
+  assert.match(source, /r2DownloadReady:/);
+  assert.doesNotMatch(source, /publicRecord\.status = "running"/);
+  assert.doesNotMatch(source, /publicRecord\.videoUrl = ""/);
+  assert.doesNotMatch(source, /publicRecord\.localVideoUrl = r2PublicationPending \? ""/);
+});
+
+test("advanced downloads are R2-only while standard downloads use the original asset", () => {
+  const targetSource = server.slice(
+    server.indexOf("function generationRecordDownloadTarget"),
+    server.indexOf("function awsQueryEncode"),
+  );
+  assert.match(targetSource, /r2Only/);
+  assert.match(targetSource, /r2Only \? cdnVideoUrl : generationRecordVideoUrl\(record, \{ preferProviderVideoUrl: true \}\)/);
+  assert.match(server, /r2Only \? 409 : 404/);
+  assert.match(server, /const fallbackUrl = `\/api\/generation-records\/\$\{encodeURIComponent\(taskId\)\}\/download\$\{r2Only \? "\?quality=r2" : ""\}`/);
 });
 
 test("R2 upload delays do not downgrade completed upstream tasks to processing", () => {

@@ -57,7 +57,7 @@ test("generated files expire only after R2 publication is marked", async (t) => 
 test("server schedules hourly local-media cleanup and marks R2 outputs", async () => {
   const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
   assert.match(server, /startLocalMediaCleanupScheduler\(\);/);
-  assert.match(server, /setInterval\(\(\) => cleanupStaleLocalMedia\(\), 60 \* 60 \* 1000\)/);
+  assert.match(server, /setInterval\(\(\) => cleanupStaleLocalMedia\(\), 5 \* 60 \* 1000\)/);
   assert.match(server, /await markPublishedFile\(localVideoPath\)/);
   assert.match(server, /await markPublishedFile\(localPosterPath\)/);
   assert.match(server, /await markPublishedFile\(localImagePath\)/);

@@ -8266,8 +8266,22 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   background: #fff;
 }
 .history-download:disabled {
-  cursor: wait;
-  opacity: .68;
+  cursor: not-allowed;
+  opacity: .42;
+  filter: grayscale(.35);
+}
+.history-r2-download,
+.advanced-result-r2-download,
+.history-detail-r2-download {
+  color: #b7791f;
+  border-color: rgba(183,121,31,.28);
+  background: rgba(255,251,235,.78);
+}
+.history-r2-download:hover:not(:disabled),
+.advanced-result-r2-download:hover:not(:disabled),
+.history-detail-r2-download:hover:not(:disabled) {
+  border-color: rgba(183,121,31,.52);
+  background: #fffbeb;
 }
 .history-icon-action { min-width: 36px; padding: 0 8px; }
 .history-regenerate {

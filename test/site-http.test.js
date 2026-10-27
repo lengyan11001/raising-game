@@ -61,7 +61,7 @@ test("HTTPS responses receive HSTS and the shared security policy", () => {
 });
 
 test("large public catalogs use edge caching while authenticated config stays private", () => {
-  assert.match(serverSource, /function sendJson\(res, statusCode, payload, \{ cacheControl = "no-store" \} = \{\}\)/);
+  assert.match(fs.readFileSync(path.resolve(__dirname, "..", "lib-http.js"), "utf8"), /function sendJson\(res, statusCode, payload, \{ cacheControl = "no-store" \} = \{\}\)/);
   assert.match(serverSource, /public, max-age=30, s-maxage=30, stale-while-revalidate=120/);
   assert.match(serverSource, /private, no-store/);
   assert.match(serverSource, /public, max-age=300, s-maxage=300, stale-while-revalidate=3600/);

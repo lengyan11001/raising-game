@@ -1291,8 +1291,11 @@ function generationPosterUrl(record) {
 }
 
 function generationRecordDownloadHref(record = {}) {
-  const cdnUrl = record?.cdnVideoUrl || record?.cdnImageUrl || "";
-  const mediaUrl = cdnUrl || generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
+  // Standard downloads intentionally prefer the original provider asset. The
+  // R2 copy is used by the separate advanced-download action.
+  const providerUrl = record?.remoteVideoUrl || record?.providerVideoUrl || record?.upstreamVideoUrl
+    || record?.remoteImageUrl || record?.providerImageUrl || record?.upstreamImageUrl || "";
+  const mediaUrl = providerUrl || generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
   if (mediaUrl) return mediaUrl;
   const taskId = String(record?.taskId || "").trim();
   return taskId && !taskId.startsWith("pending-")
@@ -1310,6 +1313,14 @@ function generationRecordDownloadName(record = {}) {
 
 function canDownloadGenerationRecord(record = {}) {
   return Boolean(generationRecordDownloadHref(record) && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl));
+}
+
+function canAdvancedDownloadGenerationRecord(record = {}) {
+  return Boolean(
+    record?.r2DownloadReady
+    && String(record?.taskId || "").trim()
+    && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl)
+  );
 }
 
 function triggerBrowserDownload(href, fileName, options = {}) {
@@ -1350,9 +1361,9 @@ async function saveDownloadFromFetch(href = "", fileName = "generation") {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
 }
 
-async function downloadGenerationRecord(record = {}) {
+async function downloadGenerationRecord(record = {}, { advanced = false } = {}) {
   let href = generationRecordDownloadHref(record);
-  if (!href) return;
+  if (!advanced && href && !href.startsWith("/api/")) return triggerBrowserDownload(href, generationRecordDownloadName(record), { newTab: true });
   let fileName = generationRecordDownloadName(record);
   const taskId = String(record?.taskId || "").trim();
   const legacyHref = taskId && !taskId.startsWith("pending-")
@@ -1381,14 +1392,28 @@ async function downloadGenerationRecord(record = {}) {
   }
   if (taskId && !taskId.startsWith("pending-")) {
     try {
-      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
+      const query = advanced ? "?quality=r2" : "";
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url${query}`);
       if (payload.url) {
         href = payload.url;
         fileName = payload.fileName || fileName;
+        if (advanced && payload.source === "r2_signed") {
+          await saveDownloadFromFetch(href, fileName);
+          return;
+        }
+      }
+      const directSignedDownload = payload.source === "r2_signed";
+      if (directSignedDownload) {
+        triggerBrowserDownload(href, fileName);
+        return;
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
+  }
+  if (advanced) {
+    await saveDownloadFromFetch(href.startsWith("/api/") ? href : legacyHref, fileName);
+    return;
   }
   openHref(href || legacyHref);
 }

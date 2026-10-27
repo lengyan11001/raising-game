@@ -505,6 +505,7 @@ function renderAdvancedResultPanel() {
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
     const ratio = record.ratio || record.params?.ratio || "16:9";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
+    const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
     const media = resultExpired
       ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
       : videoUrl
@@ -526,6 +527,11 @@ function renderAdvancedResultPanel() {
             ${canDownload ? `
               <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
                 <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+              </button>
+            ` : ""}
+            ${videoUrl || imageUrl ? `
+              <button class="history-download advanced-result-r2-download" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" ${canAdvancedDownload ? "" : "disabled"}>
+                <i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}
               </button>
             ` : ""}
             <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
@@ -567,6 +573,12 @@ function renderAdvancedResultPanel() {
     button.addEventListener("click", () => {
       const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultDownload || 0)];
       downloadGenerationRecord(record);
+    });
+  });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-r2-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultR2Download || 0)];
+      downloadGenerationRecord(record, { advanced: true });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
@@ -4789,6 +4801,7 @@ function renderHistory(records = []) {
     const imageLoading = index === 0 ? "eager" : "lazy";
     const imageFetchPriority = index === 0 ? "high" : "auto";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
+    const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
     const isUndressHistory = isTenantTool("undress");
     const recordStatusClass = statusClass(record.status);
     const recordStatusLabel = statusLabel(record.status);
@@ -4834,6 +4847,9 @@ function renderHistory(records = []) {
           <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
         </button>
       ` : ""}
+      <button class="history-download history-r2-download" type="button" data-history-r2-download="${escapeHtml(String(index))}" ${canAdvancedDownload ? "" : "disabled"}>
+        <i data-lucide="gauge"></i>${escapeHtml(t("history.advancedDownload"))}
+      </button>
       <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
       </button>
@@ -4967,6 +4983,17 @@ function renderHistory(records = []) {
         await downloadGenerationRecord(record);
       } finally {
         button.disabled = false;
+      }
+    });
+  });
+  els.historyList.querySelectorAll("[data-history-r2-download]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const record = sortedRecords[Number(button.dataset.historyR2Download || 0)];
+      button.disabled = true;
+      try {
+        await downloadGenerationRecord(record, { advanced: true });
+      } finally {
+        button.disabled = !canAdvancedDownloadGenerationRecord(record);
       }
     });
   });
@@ -5225,10 +5252,9 @@ async function deleteHistoryRecord(taskId = "", button = null) {
 }
 
 function isPendingGenerationRecord(record = {}) {
-  // Video publication and poster generation are separate asynchronous steps.
-  // Keep polling while a playable URL exists but its preview image has not
-  // arrived yet, otherwise the result card can remain stuck without media.
-  if (generationVideoUrl(record)) return !generationPosterUrl(record);
+  // A completed provider result is immediately usable. R2 mirroring and poster
+  // generation continue in the background without holding the UI in polling.
+  if (generationVideoUrl(record)) return false;
   if (generationImageResultUrl(record)) return false;
   return !["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
     .includes(String(record.status || "").toLowerCase().trim());
