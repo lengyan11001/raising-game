@@ -107,6 +107,7 @@ const {
 const {
   LOCAL_MEDIA_RETENTION_MS,
   markPublishedFile,
+  markPublishedFileSafely,
   removeExpiredFiles,
   removeExpiredPublishedFiles,
 } = require("./local-media-retention");
@@ -23559,7 +23560,8 @@ async function ensureGenerationRecordImageR2Published(record = {}, { allowObject
       bytes,
       mime,
     });
-    await markPublishedFile(localImagePath);
+    const marker = await markPublishedFileSafely(localImagePath);
+    if (!marker) console.warn("[generated-image-r2-ready-marker-failed]", current.taskId, localImagePath);
     current = await upsertGenerationRecord({
       taskId: current.taskId,
       cdnImageUrl: upload.publicUrl || "",
@@ -24390,7 +24392,8 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
         mime: videoMimeFromPath(localVideoPath),
       });
       result.cdnVideoUrl = videoUpload.publicUrl;
-      await markPublishedFile(localVideoPath);
+      const marker = await markPublishedFileSafely(localVideoPath);
+      if (!marker) console.warn("[generated-video-r2-ready-marker-failed]", taskId, localVideoPath);
     } catch (error) {
       errors.push(error.message || "Generated video R2 upload failed.");
       console.warn("[generated-video-r2-upload-failed]", taskId, error.message || error);
@@ -24405,7 +24408,8 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
         mime: "image/jpeg",
       });
       result.cdnPosterUrl = posterUpload.publicUrl;
-      await markPublishedFile(localPosterPath);
+      const marker = await markPublishedFileSafely(localPosterPath);
+      if (!marker) console.warn("[generated-poster-r2-ready-marker-failed]", taskId, localPosterPath);
     } catch (error) {
       errors.push(error.message || "Generated poster R2 upload failed.");
       console.warn("[generated-poster-r2-upload-failed]", taskId, error.message || error);
@@ -24621,7 +24625,8 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
         mime: imageMime,
       });
       result.cdnImageUrl = upload.publicUrl || "";
-      await markPublishedFile(localImagePath);
+      const marker = await markPublishedFileSafely(localImagePath);
+      if (!marker) console.warn("[generated-image-r2-ready-marker-failed]", taskId, localImagePath);
     } catch (error) {
       // The generated image is already safely stored locally and its upstream
       // result succeeded. R2 is only the faster advanced-download copy, so a

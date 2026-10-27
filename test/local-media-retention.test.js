@@ -8,6 +8,7 @@ const test = require("node:test");
 const {
   LOCAL_MEDIA_RETENTION_MS,
   markPublishedFile,
+  markPublishedFileSafely,
   removeExpiredFiles,
   removeExpiredPublishedFiles,
 } = require("../local-media-retention");
@@ -54,13 +55,22 @@ test("generated files expire only after R2 publication is marked", async (t) => 
   await fs.access(localOnly);
 });
 
+test("R2 marker failures never invalidate an already uploaded file", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "generated-marker-failure-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const missing = path.join(root, "missing", "image.png");
+
+  assert.equal(await markPublishedFileSafely(missing), "");
+});
+
 test("server schedules hourly local-media cleanup and marks R2 outputs", async () => {
   const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
   assert.match(server, /startLocalMediaCleanupScheduler\(\);/);
   assert.match(server, /setInterval\(\(\) => cleanupStaleLocalMedia\(\), 5 \* 60 \* 1000\)/);
-  assert.match(server, /await markPublishedFile\(localVideoPath\)/);
-  assert.match(server, /await markPublishedFile\(localPosterPath\)/);
-  assert.match(server, /await markPublishedFile\(localImagePath\)/);
+  assert.match(server, /await markPublishedFileSafely\(localVideoPath\)/);
+  assert.match(server, /await markPublishedFileSafely\(localPosterPath\)/);
+  assert.match(server, /await markPublishedFileSafely\(localImagePath\)/);
+  assert.match(server, /generated-(?:video|poster|image)-r2-ready-marker-failed/);
 });
 
 test("server rehydrates cleaned user-upload assets before upstream reuse", async () => {

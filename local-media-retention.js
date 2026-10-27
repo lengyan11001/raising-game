@@ -64,6 +64,16 @@ async function markPublishedFile(filePath) {
   return markerPath;
 }
 
+async function markPublishedFileSafely(filePath) {
+  try {
+    return await markPublishedFile(filePath);
+  } catch {
+    // The upload already succeeded. A marker failure must not turn it into a
+    // failed publication; the 24-hour unmarked-file sweep is the fallback.
+    return "";
+  }
+}
+
 async function removeExpiredPublishedFiles(rootDirs, cutoffMs) {
   const summary = { files: 0, bytes: 0 };
   for (const rootDir of rootDirs) {
@@ -88,6 +98,7 @@ module.exports = {
   LOCAL_MEDIA_RETENTION_MS,
   PUBLISHED_MARKER_SUFFIX,
   markPublishedFile,
+  markPublishedFileSafely,
   removeExpiredFiles,
   removeExpiredPublishedFiles,
 };
