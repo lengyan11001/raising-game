@@ -141,6 +141,17 @@ test("generated image R2 failures preserve the successful generation status", ()
   assert.doesNotMatch(source, /catch \(error\) \{[\s\S]*?throw error;/);
 });
 
+test("large R2 uploads use resumable multipart requests", () => {
+  assert.match(server, /const R2_MULTIPART_THRESHOLD_BYTES/);
+  assert.match(server, /const R2_MULTIPART_PART_SIZE_BYTES/);
+  assert.match(server, /async function uploadR2Multipart\(/);
+  assert.match(server, /query: \{ uploads: "" \}/);
+  assert.match(server, /partNumber, uploadId/);
+  assert.match(server, /<CompleteMultipartUpload>/);
+  assert.match(server, /method: "DELETE", key, query: \{ uploadId \}/);
+  assert.match(server, /if \(\(bytes\?\.byteLength \?\? bytes\?\.length \?\? 0\) >= R2_MULTIPART_THRESHOLD_BYTES\)/);
+});
+
 test("generation record queries never wait for R2 publication", () => {
   assert.match(server, /function generationRecordIsApiTask\(record = \{\}\)/);
   assert.match(server, /if \(record\.localVideoUrl && isSucceededStatus\(status\)\)[\s\S]*?return false;/);

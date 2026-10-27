@@ -1079,6 +1079,8 @@ const R2_UPLOAD_MIN_BYTES_PER_SECOND = Math.max(64 * 1024, Number(process.env.R2
 const R2_UPLOAD_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_UPLOAD_RETRY_COUNT || 5) || 5));
 const R2_UPLOAD_RETRY_BASE_DELAY_MS = Math.max(250, Math.min(10000, Number(process.env.R2_UPLOAD_RETRY_BASE_DELAY_MS || 1000) || 1000));
 const R2_PUBLIC_READY_RETRY_COUNT = Math.max(1, Math.min(6, Number(process.env.R2_PUBLIC_READY_RETRY_COUNT || 4) || 4));
+const R2_MULTIPART_THRESHOLD_BYTES = Math.max(8 * 1024 * 1024, Number(process.env.R2_MULTIPART_THRESHOLD_BYTES || 8 * 1024 * 1024) || 8 * 1024 * 1024);
+const R2_MULTIPART_PART_SIZE_BYTES = Math.max(5 * 1024 * 1024, Number(process.env.R2_MULTIPART_PART_SIZE_BYTES || 8 * 1024 * 1024) || 8 * 1024 * 1024);
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 // Generated outputs are intentionally served from the provider URL. User
 // uploads still use the configured object storage so upstream APIs can read
@@ -15070,7 +15072,17 @@ function r2EndpointUrl() {
   return new URL(/^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`);
 }
 
-function makeR2Auth({ method, key, body, contentType }) {
+function canonicalR2Query(query = {}) {
+  return Object.entries(query)
+    .flatMap(([key, value]) => (Array.isArray(value) ? value.map((item) => [key, item]) : [[key, value]]))
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(([key, value]) => [String(key), String(value)])
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue))
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+}
+
+function makeR2Auth({ method, key, body, contentType, query = {} }) {
   const endpoint = r2EndpointUrl();
   if (!endpoint) {
     const error = new Error("Missing R2_ENDPOINT");
@@ -15080,6 +15092,7 @@ function makeR2Auth({ method, key, body, contentType }) {
   const { xDate, date } = amzDate();
   const payloadHash = sha256Hex(body);
   const canonicalUri = `/${encodeURIComponent(R2.bucket)}/${encodePathname(key)}`;
+  const canonicalQuery = canonicalR2Query(query);
   const headers = {
     "content-type": contentType,
     host: endpoint.host,
@@ -15089,13 +15102,13 @@ function makeR2Auth({ method, key, body, contentType }) {
   const sortedKeys = Object.keys(headers).sort();
   const signedHeaders = sortedKeys.join(";");
   const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
-  const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join("\n");
   const scope = `${date}/${R2.region || "auto"}/s3/aws4_request`;
   const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
   const signature = hmac(signAwsKey(R2.secretKey, date, R2.region || "auto", "s3"), stringToSign, "hex");
 
   return {
-    url: `${endpoint.protocol}//${endpoint.host}${canonicalUri}`,
+    url: `${endpoint.protocol}//${endpoint.host}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`,
     headers: {
       ...headers,
       authorization: `AWS4-HMAC-SHA256 Credential=${R2.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
@@ -15217,12 +15230,135 @@ async function waitForR2PublicObject(publicUrl = "") {
   return false;
 }
 
+function r2ResponseError(label, response, text = "") {
+  const error = new Error(`${label}: ${response.status} ${text}`.trim());
+  error.statusCode = 502;
+  error.retryable = response.status === 429 || response.status >= 500;
+  return error;
+}
+
+async function r2SignedRequest({ method, key, body = Buffer.alloc(0), contentType = "application/octet-stream", query = {}, timeoutMs = R2_UPLOAD_TIMEOUT_MS }) {
+  const auth = makeR2Auth({ method, key, body, contentType, query });
+  const response = await fetch(auth.url, {
+    method,
+    headers: auth.headers,
+    body: method === "GET" || method === "HEAD" ? undefined : body,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await response.text();
+  if (!response.ok) throw r2ResponseError(`R2 ${method} failed`, response, text);
+  return { response, text, auth };
+}
+
+async function r2RequestWithRetries(requestFactory, label = "R2 request") {
+  let lastError = null;
+  for (let attempt = 1; attempt <= R2_UPLOAD_RETRY_COUNT; attempt += 1) {
+    try {
+      return await requestFactory(attempt);
+    } catch (error) {
+      lastError = error;
+      const retryable = error?.retryable !== false && (error?.name === "TimeoutError" || error?.name === "AbortError" || !error?.statusCode || error.statusCode === 502);
+      if (!retryable || attempt >= R2_UPLOAD_RETRY_COUNT) throw error;
+      console.warn("[r2-upload-retry]", label, `attempt=${attempt}`, error.message || error);
+      await delay(Math.min(10000, R2_UPLOAD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastError || new Error(`${label} failed.`);
+}
+
+function xmlText(value = "") {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+async function uploadR2Multipart({ key, bytes, mime }) {
+  const partSize = Math.max(5 * 1024 * 1024, R2_MULTIPART_PART_SIZE_BYTES);
+  const partCount = Math.ceil(bytes.length / partSize);
+  const started = Date.now();
+  console.log("[r2-multipart-start]", key, { bytes: bytes.length, partSize, partCount });
+
+  const created = await r2RequestWithRetries(
+    () => r2SignedRequest({
+      method: "POST",
+      key,
+      contentType: mime || "application/octet-stream",
+      query: { uploads: "" },
+    }),
+    `multipart-start ${key}`,
+  );
+  const uploadId = String(created.text.match(/<UploadId>([^<]+)<\/UploadId>/i)?.[1] || "").trim();
+  if (!uploadId) throw new Error("R2 multipart upload did not return an upload id.");
+
+  const parts = new Array(partCount);
+  try {
+    let nextPart = 0;
+    const concurrency = Math.max(1, Math.min(4, Number(process.env.R2_MULTIPART_CONCURRENCY || 3) || 3));
+    const worker = async () => {
+      while (true) {
+        const index = nextPart;
+        nextPart += 1;
+        if (index >= partCount) return;
+        const partNumber = index + 1;
+        const body = bytes.subarray(index * partSize, Math.min(bytes.length, (index + 1) * partSize));
+        const result = await r2RequestWithRetries(
+          () => r2SignedRequest({
+            method: "PUT",
+            key,
+            body,
+            contentType: mime || "application/octet-stream",
+            query: { partNumber, uploadId },
+            timeoutMs: r2UploadTimeoutMs(body.length),
+          }),
+          `multipart-part ${key} ${partNumber}/${partCount}`,
+        );
+        const etag = String(result.response.headers.get("etag") || "").trim();
+        if (!etag) throw new Error(`R2 multipart part ${partNumber} returned no ETag.`);
+        parts[index] = { partNumber, etag };
+        console.log("[r2-multipart-part]", key, `${partNumber}/${partCount}`, `${Math.round(body.length / 1024)}KB`);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, partCount) }, () => worker()));
+
+    const completeXml = Buffer.from(
+      `<CompleteMultipartUpload>${parts.map((part) => `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${xmlText(part.etag)}</ETag></Part>`).join("")}</CompleteMultipartUpload>`,
+      "utf8",
+    );
+    try {
+      await r2RequestWithRetries(
+        () => r2SignedRequest({
+          method: "POST",
+          key,
+          body: completeXml,
+          contentType: "application/xml",
+          query: { uploadId },
+          timeoutMs: Math.max(R2_UPLOAD_TIMEOUT_MS, 60000),
+        }),
+        `multipart-complete ${key}`,
+      );
+    } catch (error) {
+      const found = await findUploadedR2Object(key);
+      if (!found) throw error;
+    }
+
+    const publicUrl = r2PublicUrlForKey(key);
+    if (!(await waitForR2PublicObject(publicUrl))) throw new Error(`R2 multipart upload completed but public URL is not ready: ${publicUrl}`);
+    console.log("[r2-multipart-complete]", key, { bytes: bytes.length, seconds: Math.round((Date.now() - started) / 100) / 10 });
+    return { key, publicUrl };
+  } catch (error) {
+    await r2SignedRequest({ method: "DELETE", key, query: { uploadId } }).catch(() => {});
+    throw error;
+  }
+}
+
 async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
   requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
   requireValue("R2_ENDPOINT", R2.endpoint);
   requireValue("R2_BUCKET", R2.bucket);
   requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
+
+  if ((bytes?.byteLength ?? bytes?.length ?? 0) >= R2_MULTIPART_THRESHOLD_BYTES) {
+    return uploadR2Multipart({ key, bytes, mime });
+  }
 
   const uploadTimeoutMs = r2UploadTimeoutMs(bytes?.byteLength ?? bytes?.length ?? 0);
   let lastError = null;
