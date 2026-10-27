@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -11,6 +13,20 @@ const {
     pcmDurationMs,
   },
 } = require("../chat-live-component.js");
+
+const MOAN_DIR = path.join(__dirname, "..", "assets", "chat-live", "moans");
+const VOICES = [
+  "longanhuan",
+  "longhua_v3",
+  "longwan_v3",
+  "longyingmu_v3",
+  "longyingtao_v3",
+  "longanli_v3",
+  "longanyang",
+  "longanya_v3",
+  "longanqin_v3",
+  "longyingxiao_v3",
+];
 
 test("standalone moan tokens are split without changing visible words", () => {
   const reply = "啊……！\n哈啊……别只顾着快，把你的鸡巴更深一点地灌进来……唔。";
@@ -74,4 +90,27 @@ test("synthetic moan PCM is long and non-silent", () => {
   let energy = 0;
   for (let index = 0; index < pcm.length; index += 2) energy += Math.abs(pcm.readInt16LE(index));
   assert.ok(energy > 0);
+});
+
+test("every active component voice has a complete long-vocal sample set", () => {
+  for (const voice of VOICES) {
+    for (const shape of ["open", "nasal", "breath", "gasp"]) {
+      for (const level of [1, 2, 3]) {
+        const file = path.join(MOAN_DIR, `${voice}-${shape}-${level}.wav`);
+        assert.ok(fs.existsSync(file), `missing ${file}`);
+        const wav = fs.readFileSync(file);
+        assert.equal(wav.toString("ascii", 0, 4), "RIFF");
+        assert.equal(wav.readUInt32LE(24), 24000);
+        assert.equal(wav.readUInt16LE(22), 1);
+        const ms = Math.round((wav.length - 44) / 2 / 24000 * 1000);
+        assert.ok(ms >= 1000 && ms <= 3000, `${file} duration ${ms}ms`);
+      }
+    }
+  }
+});
+
+test("the legacy fallback voice has real samples instead of a generic waveform", () => {
+  const file = path.join(MOAN_DIR, "longanyang-open-2.wav");
+  assert.ok(fs.existsSync(file));
+  assert.ok(fs.readFileSync(file).length > 24000 * 2);
 });

@@ -572,25 +572,38 @@ function resampleComponentPcm(samples, sourceRate, targetRate = PCM_SAMPLE_RATE)
   return pcm;
 }
 
-function componentMoanSample(voice, shape) {
-  const dir = String(process.env.CHAT_LIVE_MOAN_DIR || "").trim();
-  if (!dir) return null;
+function componentMoanDirs() {
+  const configured = String(process.env.CHAT_LIVE_MOAN_DIR || "").trim();
+  return configured ? [configured] : [path.join(__dirname, "assets", "chat-live", "moans")];
+}
+
+function componentMoanSample(voice, shape, intensity = 1) {
+  const dirs = componentMoanDirs();
   const safeVoice = String(voice || "default").replace(/[^\w.-]+/g, "_").slice(0, 100);
   const safeShape = String(shape || "open").replace(/[^\w.-]+/g, "_").slice(0, 40);
-  const candidates = [`${safeVoice}-${safeShape}.wav`, `${safeShape}.wav`, `${safeVoice}.wav`];
-  for (const name of candidates) {
-    const file = path.join(dir, name);
-    const cacheKey = `${file}:${safeShape}`;
-    if (COMPONENT_MOAN_CACHE.has(cacheKey)) return COMPONENT_MOAN_CACHE.get(cacheKey);
-    try {
-      const decoded = decodeComponentWav(fs.readFileSync(file));
-      if (!decoded) continue;
-      const pcm = resampleComponentPcm(decoded.samples, decoded.sampleRate);
-      if (pcm.length >= PCM_SAMPLE_RATE * 0.25) {
-        COMPONENT_MOAN_CACHE.set(cacheKey, pcm);
-        return pcm;
-      }
-    } catch {}
+  const level = Math.max(1, Math.min(3, Math.round(Number(intensity) || 1)));
+  const names = [
+    `${safeVoice}-${safeShape}-${level}.wav`,
+    `${safeVoice}-${safeShape}.wav`,
+    `${safeShape}-${level}.wav`,
+    `${safeShape}.wav`,
+    `${safeVoice}.wav`,
+  ];
+  for (const dir of dirs) {
+    for (const name of names) {
+      const file = path.join(dir, name);
+      const cacheKey = `${file}:${safeShape}:${level}`;
+      if (COMPONENT_MOAN_CACHE.has(cacheKey)) return COMPONENT_MOAN_CACHE.get(cacheKey);
+      try {
+        const decoded = decodeComponentWav(fs.readFileSync(file));
+        if (!decoded) continue;
+        const pcm = resampleComponentPcm(decoded.samples, decoded.sampleRate);
+        if (pcm.length >= PCM_SAMPLE_RATE * 0.25) {
+          COMPONENT_MOAN_CACHE.set(cacheKey, pcm);
+          return pcm;
+        }
+      } catch {}
+    }
   }
   return null;
 }
@@ -599,7 +612,7 @@ function buildComponentVocalPcm(part, voice = "longanyang") {
   const text = String(part?.text || part || "");
   const shape = part?.shape || componentVocalShape(text);
   const intensity = Math.max(1, Math.min(3, Number(part?.intensity) || componentVocalIntensity(text)));
-  const sampled = componentMoanSample(voice, shape);
+  const sampled = componentMoanSample(voice, shape, intensity);
   if (sampled) return sampled;
   const seed = componentHash(`${voice}:${text}:${shape}:${intensity}`);
   let randomState = seed || 1;
@@ -1163,6 +1176,8 @@ module.exports = {
     splitComponentAudioParts,
     buildComponentVocalPcm,
     componentReplyPcm,
+    componentSpeechPcm,
+    componentMoanSample,
     pcmDurationMs,
   },
 };
