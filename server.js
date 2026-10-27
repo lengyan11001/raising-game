@@ -24104,7 +24104,7 @@ function isSucceededStatus(status) {
 }
 
 function isFailedStatus(status) {
-  return ["failed", "error", "cancelled", "canceled", "image_failed"].includes(String(status || "").toLowerCase());
+  return ["failed", "error", "cancelled", "canceled", "image_failed", "unknown"].includes(String(status || "").toLowerCase());
 }
 
 function isActiveGenerationStatus(status) {
