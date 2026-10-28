@@ -410,22 +410,56 @@ function componentHistoryForTurn(history = [], userText = "") {
   return [...filtered.slice(0, current.length ? -1 : undefined).slice(-8), ...current];
 }
 
+function cleanComponentSay(value = "") {
+  return String(value || "")
+    .replace(/<\|?channel\|?>[\s\S]*?(?=<\|?\/channel\|?>|$)/gi, " ")
+    .replace(/<\|?\/channel\|?>/gi, " ")
+    .replace(/<(?:br|\/div|\/p)>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/```(?:json)?[\s\S]*?```/gi, " ")
+    .replace(/[（(][^）)]{0,40}[）)]/g, "")
+    .replace(/\*[^*]+\*/g, "")
+    .replace(/\{\s*$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseLooseJsonObject(text = "") {
+  const value = String(text || "").trim();
+  const candidates = [value];
+  const start = value.indexOf("{");
+  if (start >= 0) candidates.push(value.slice(start));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim());
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  const sayMatch = value.match(/"say"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  const actionMatch = value.match(/"action"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  const emotionMatch = value.match(/"emotion"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  if (!sayMatch) return null;
+  const decode = (raw = "") => {
+    try { return JSON.parse(`"${raw}"`); } catch { return raw.replace(/\\"/g, '"').replace(/\\\\/g, "\\"); }
+  };
+  return { say: decode(sayMatch[1]), action: actionMatch ? decode(actionMatch[1]) : "", emotion: emotionMatch ? decode(emotionMatch[1]) : "" };
+}
+
 function splitComponentSpeech(raw) {
-  const text = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  try {
-    const parsed = JSON.parse(text);
-    const say = String(parsed.say || parsed.reply || "").replace(/[（(][^）)]{0,40}[）)]/g, "").replace(/\*[^*]+\*/g, "").replace(/\s+/g, " ").trim();
+  const text = String(raw || "").trim();
+  const parsed = parseLooseJsonObject(text);
+  if (parsed) {
     const action = String(parsed.action || parsed.expression || "").replace(/[\r\n]+/g, " ").trim().slice(0, 24);
     return {
-      say,
+      say: cleanComponentSay(parsed.say || parsed.reply || ""),
       action,
       emotion: normalizeEmotion(parsed.emotion || parsed.mood),
       rate: clampNumber(parsed.rate, 0.5, 2, 1),
       volume: clampNumber(parsed.volume, 0, 100, 50),
       pitch: clampNumber(parsed.pitch, 0.5, 2, 1),
     };
-  } catch {}
-  return { say: String(raw || "").replace(/\s+/g, " ").trim(), action: "", emotion: "neutral", rate: 1, volume: 50, pitch: 1 };
+  }
+  return { say: cleanComponentSay(raw), action: "", emotion: "neutral", rate: 1, volume: 50, pitch: 1 };
 }
 
 /* ---------------- 口播分轨：可见文本不动，只把独立叫声交给长音合成 ---------------- */
@@ -433,6 +467,7 @@ const COMPONENT_VOCAL_TOKENS = ["哈啊", "啊哈", "嗯啊", "唔嗯", "啊", "
 const COMPONENT_VOCAL_BOUNDARY = /[\s，。！？、；：,.!?;:…—~～"'“”‘’（）()【】\[\]《》<>-]/u;
 const COMPONENT_VOCAL_PAUSE = /[\s，。！？、；：,.!?;:…—~～"'“”‘’（）()【】\[\]《》<>-]/u;
 const COMPONENT_MOAN_CACHE = new Map();
+const COMPONENT_VOCAL_LAST_SAMPLE = new Map();
 
 function componentVocalAt(text, index) {
   for (const token of COMPONENT_VOCAL_TOKENS) {
@@ -608,11 +643,122 @@ function componentMoanSample(voice, shape, intensity = 1) {
   return null;
 }
 
+function componentSampleSignature(pcm, from = 0, to = pcm.length) {
+  let hash = 2166136261;
+  for (let index = from; index < to; index += 2) {
+    hash ^= pcm.readInt16LE(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function componentSampleFingerprint(pcm) {
+  if (!pcm?.length) return "";
+  const quarter = Math.max(1, Math.floor(pcm.length / 8));
+  return [0, quarter * 3, quarter * 5, Math.max(0, pcm.length - quarter)]
+    .map((offset) => componentSampleSignature(pcm, offset, Math.min(pcm.length, offset + quarter)))
+    .join(":");
+}
+
+function componentSampleEnergy(pcm) {
+  let peak = 0;
+  let sum = 0;
+  for (let index = 0; index < pcm.length; index += 2) {
+    const sample = Math.abs(pcm.readInt16LE(index));
+    peak = Math.max(peak, sample);
+    sum += sample;
+  }
+  return { peak, rms: sum / Math.max(1, pcm.length / 2) };
+}
+
+function componentNormalizePcm(pcm, targetPeak = 13500) {
+  if (!pcm?.length) return pcm;
+  const { peak } = componentSampleEnergy(pcm);
+  if (!peak) return pcm;
+  const gain = Math.max(0.25, Math.min(2.2, targetPeak / peak));
+  if (Math.abs(gain - 1) < 0.02) return pcm;
+  const out = Buffer.from(pcm);
+  for (let index = 0; index < out.length; index += 2) {
+    out.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(out.readInt16LE(index) * gain))), index);
+  }
+  return out;
+}
+
+function componentSampleTail(pcm) {
+  const frames = Math.floor(pcm.length / 2);
+  const fade = Math.max(1, Math.min(frames, Math.round(PCM_SAMPLE_RATE * 0.18)));
+  const out = Buffer.from(pcm.subarray((frames - fade) * 2));
+  for (let index = 0; index < out.length; index += 2) {
+    out.writeInt16LE(Math.round(out.readInt16LE(index) * (1 - index / (out.length - 2 || 1))), index);
+  }
+  return out;
+}
+
+function componentSampleTailEnergy(pcm) {
+  const tail = componentSampleTail(pcm);
+  return componentSampleEnergy(tail).rms;
+}
+
+function componentResamplePcm(pcm, ratio) {
+  if (!pcm?.length || !Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.006) return pcm;
+  const frames = Math.floor(pcm.length / 2);
+  const outputFrames = Math.max(1, Math.round(frames / ratio));
+  const out = Buffer.alloc(outputFrames * 2);
+  for (let index = 0; index < outputFrames; index += 1) {
+    const source = index * ratio;
+    const left = Math.min(frames - 1, Math.floor(source));
+    const right = Math.min(frames - 1, left + 1);
+    const mix = source - left;
+    const sample = pcm.readInt16LE(left * 2) * (1 - mix) + pcm.readInt16LE(right * 2) * mix;
+    out.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(sample))), index * 2);
+  }
+  return out;
+}
+
+function componentVocalVariant(voice, shape, intensity, text, state) {
+  const base = componentMoanSample(voice, shape, intensity);
+  if (!base) return null;
+  const seed = componentHash(`${voice}:${text}:${shape}:${intensity}`);
+  let randomState = seed || 1;
+  const rand = () => {
+    let value = randomState = (randomState + 0x9e3779b9) >>> 0;
+    value ^= value << 13;
+    value ^= value >>> 17;
+    value ^= value << 5;
+    return (value >>> 0) / 4294967296;
+  };
+  const fingerprint = componentSampleFingerprint(base);
+  const previous = state.previous.get(shape);
+  const rate = 0.935 + rand() * 0.125;
+  let varied = componentResamplePcm(base, rate);
+  if (fingerprint && previous?.fingerprint === fingerprint && varied.length > PCM_SAMPLE_RATE * 0.55) {
+    const offset = Math.floor(varied.length * (0.16 + rand() * 0.18) / 2) * 2;
+    varied = Buffer.concat([varied.subarray(offset), varied.subarray(0, offset)]);
+  }
+  const gain = 0.9 + rand() * 0.2;
+  const { peak } = componentSampleEnergy(varied);
+  if (peak > 0) {
+    const appliedGain = Math.max(0.4, Math.min(1.4, gain * 12500 / peak));
+    const out = Buffer.from(varied);
+    for (let index = 0; index < out.length; index += 2) {
+      out.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(out.readInt16LE(index) * appliedGain))), index);
+    }
+    varied = out;
+  }
+  if (previous?.fingerprint === fingerprint) state.repeats += 1;
+  else state.repeats = 0;
+  state.previous.set(shape, { fingerprint });
+  return componentNormalizePcm(varied);
+}
+
 function buildComponentVocalPcm(part, voice = "longanyang") {
   const text = String(part?.text || part || "");
   const shape = part?.shape || componentVocalShape(text);
   const intensity = Math.max(1, Math.min(3, Number(part?.intensity) || componentVocalIntensity(text)));
-  const sampled = componentMoanSample(voice, shape, intensity);
+  const key = `${voice}:${shape}`;
+  if (!COMPONENT_VOCAL_LAST_SAMPLE.has(key)) COMPONENT_VOCAL_LAST_SAMPLE.set(key, { previous: new Map(), repeats: 0 });
+  const state = COMPONENT_VOCAL_LAST_SAMPLE.get(key);
+  const sampled = componentVocalVariant(voice, shape, intensity, text, state);
   if (sampled) return sampled;
   const seed = componentHash(`${voice}:${text}:${shape}:${intensity}`);
   let randomState = seed || 1;
@@ -752,7 +898,9 @@ async function componentReply(session, userText, options = {}) {
   if (!response.ok) throw new Error(payload?.error?.message || `LLM HTTP ${response.status}`);
   const reply = payload?.choices?.[0]?.message?.content || payload?.choices?.[0]?.text || "";
   const speech = splitComponentSpeech(reply);
-  if (!speech.say) speech.say = proactive ? "嗯。" : "你说。";
+  if (!speech.say || (/^[\s\p{P}\p{S}]+$/u.test(speech.say) && speech.say.length < 3)) {
+    speech.say = proactive ? "嗯。" : "你说。";
+  }
   session.history.push({ role: "user", content: userText }, { role: "assistant", content: speech.say });
   if (session.history.length > 36) session.history.splice(0, session.history.length - 36);
   return speech;
@@ -1178,6 +1326,8 @@ module.exports = {
     buildComponentVocalPcm,
     componentReplyPcm,
     componentSpeechPcm,
+    splitComponentSpeech,
+    cleanComponentSay,
     componentMoanSample,
     pcmDurationMs,
   },

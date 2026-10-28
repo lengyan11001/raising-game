@@ -56,7 +56,6 @@
     liveStoryLocationId: "",
     liveStoryStage: "casual",
     liveStoryLastSwitchAt: 0,
-    liveStoryTransition: null,
     liveStorySwitching: false,
     liveStoryRetryTimer: 0,
     liveStoryPendingDirector: null,
@@ -157,8 +156,6 @@
 .chat-live-shell { position:relative; width:min(980px,100%); height:min(92vh,760px); display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr); gap:0; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:18px; background:#0b0d12; color:#f8fafc; }
 .chat-live-stage { position:relative; background:#05060a; display:flex; align-items:center; justify-content:center; }
 .chat-live-stage video { width:100%; height:100%; object-fit:cover; background:#05060a; }
-.chat-live-story-transition { position:absolute; inset:0; z-index:7; width:100%; height:100%; object-fit:cover; background:#05060a; opacity:1; transition:opacity .38s ease; pointer-events:none; }
-.chat-live-story-transition.is-out { opacity:0; }
 .chat-live-placeholder { position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#94a3b8; text-align:center; padding:20px; background:#05060a; }
 .chat-live-call-avatar { position:relative; width:148px; height:148px; display:grid; place-items:center; }
 .chat-live-call-avatar img { width:112px; height:112px; border-radius:50%; object-fit:cover; position:relative; z-index:1; border:3px solid rgba(255,255,255,.92); box-shadow:0 10px 28px rgba(0,0,0,.35); }
@@ -1910,69 +1907,30 @@
     };
   }
 
-  function liveStoryTransitionUrl(fromId = "", toId = "") {
-    const story = liveStory();
-    if (!story || !fromId || !toId || fromId === toId) return "";
-    return (story.transitions || []).find((item) => item.from === fromId && item.to === toId)?.videoUrl || "";
-  }
-
-  async function playLiveStoryTransition(url = "") {
-    if (!url) throw new Error("这个方向还没有配置过场视频。");
-    if (!state.overlay?.stage) throw new Error("通话画面还没有准备好。");
-    const previous = state.liveStoryTransition;
-    if (previous?.root) {
-      try { previous.root.remove(); } catch {}
+  function liveStorySceneLook(director = {}, location = {}) {
+    if (director?.look?.imageUrl) {
+      return {
+        id: String(director.look.id || `story-look-${Date.now().toString(36)}`),
+        kind: ["garment", "object", "background"].includes(String(director.look.kind || ""))
+          ? String(director.look.kind)
+          : "background",
+        name: director.look.name || "画面素材",
+        imageUrl: director.look.imageUrl,
+        userText: director.look.userText || `使用参考图里的画面素材：${director.look.name || "这个素材"}。`,
+      };
     }
-    const video = document.createElement("video");
-    video.className = "chat-live-story-transition";
-    video.src = url;
-    video.muted = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.preload = "auto";
-    video.setAttribute("playsinline", "true");
-    state.overlay.stage.appendChild(video);
-    state.liveStoryTransition = { root: video };
-    try {
-      await new Promise((resolve, reject) => {
-        let settled = false;
-        let retryTimer = 0;
-        const cleanup = () => {
-          if (retryTimer) window.clearTimeout(retryTimer);
-          retryTimer = 0;
-        };
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          resolve();
-        };
-        const fail = () => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error("过场视频没有加载成功，已留在原场景。"));
-        };
-        const start = () => {
-          if (settled) return;
-          const played = video.play();
-          if (played && typeof played.catch === "function") played.catch(() => {
-            /* Autoplay may be blocked. Keep the transition video mounted and
-               retry instead of silently replacing it with a still image. */
-            if (!settled) retryTimer = window.setTimeout(start, 220);
-          });
-        };
-        video.addEventListener("ended", finish, { once: true });
-        video.addEventListener("error", fail, { once: true });
-        start();
-      });
-    } finally {
-      video.classList.add("is-out");
-      window.setTimeout(() => {
-        try { video.remove(); } catch {}
-        if (state.liveStoryTransition?.root === video) state.liveStoryTransition = null;
-      }, 420);
+    if (director?.lookId && director?.lookImageUrl) {
+      return {
+        id: String(director.lookId),
+        kind: ["garment", "object", "background"].includes(String(director.look?.kind || ""))
+          ? String(director.lookKind)
+          : "background",
+        name: director.look?.name || "画面素材",
+        imageUrl: director.lookImageUrl,
+        userText: director.look?.userText || `使用参考图里的画面素材。`,
+      };
     }
+    return liveStoryActionLook(director, location);
   }
 
   async function confirmLiveStoryState(story = {}, director = {}, locationId = "") {
@@ -2018,11 +1976,10 @@
     const location = liveStoryLocation(locationId);
     if (!location) return;
     const previousLocationId = String(state.liveStoryLocationId || story.initialLocationId || "");
-    const transitionUrls = Array.isArray(director.transitionUrls) && director.transitionUrls.length
-      ? director.transitionUrls.map(String).filter(Boolean)
-      : [String(director.transitionUrl || liveStoryTransitionUrl(previousLocationId, locationId) || "")].filter(Boolean);
     const locationLook = liveStoryLookForLocation(location);
-    const actionLook = initial ? null : liveStoryActionLook(director, location);
+    const actionLook = initial && !director.look?.imageUrl && !director.lookImageUrl
+      ? null
+      : liveStorySceneLook(director, location);
     const targetLook = actionLook || locationLook;
     const currentLookId = String(state.lookStack[state.lookStack.length - 1] || "");
     if (!targetLook || state.ended) return;
@@ -2044,14 +2001,8 @@
       }
       return;
     }
-    if (locationChanged && !transitionUrls.length) {
-      if (retry) scheduleLiveStoryRetry(director, 1800);
-      appendLine("sys", "这个方向还没有配置过场视频，先留在原场景。");
-      return;
-    }
     state.liveStorySwitching = true;
     try {
-      for (const transitionUrl of transitionUrls) await playLiveStoryTransition(transitionUrl);
       await sendLookOperation({ look: targetLook });
       state.lookStack = [targetLook.id];
       if (initial) hidePlaceholder();
@@ -2060,6 +2011,17 @@
       state.liveStoryLastSwitchAt = Date.now();
       await confirmLiveStoryState(story, director, locationId);
     } catch (error) {
+      const sessionEnded = String(error?.code || "") === "PROMPT_OP_LIVE_NOT_ACTIVE"
+        || String(error?.code || "") === "CHAT_LIVE_ENDED"
+        || /会话已经结束|会话不存在/.test(String(error?.message || ""));
+      if (sessionEnded) {
+        state.liveStoryPendingDirector = null;
+        if (state.liveStoryRetryTimer) window.clearTimeout(state.liveStoryRetryTimer);
+        state.liveStoryRetryTimer = 0;
+        failLookWait("会话已经结束。");
+        await finishSession("upstream_hangup", "画面切换时会话已结束");
+        return;
+      }
       if (!state.ended) appendLine("sys", error.message || "场景画面暂时没有切过去。");
       if (retry && !state.ended) scheduleLiveStoryRetry(director, 1800);
     } finally {
@@ -2093,7 +2055,7 @@
     syncLookRail();
     try {
       if (componentSession) {
-        const body = remove ? { op: "remove" } : undress ? { op: "undress" } : { lookId: look?.id || "" };
+        const body = remove ? { op: "remove" } : undress ? { op: "undress" } : { lookId: look?.id || "", sessionId: state.session?.id || "" };
         body.id = operationId;
         await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/look`, {
           method: "POST",

@@ -10,6 +10,8 @@ const {
     splitComponentAudioParts,
     buildComponentVocalPcm,
     componentReplyPcm,
+    splitComponentSpeech,
+    cleanComponentSay,
     pcmDurationMs,
   },
 } = require("../chat-live-component.js");
@@ -27,6 +29,19 @@ const VOICES = [
   "longanqin_v3",
   "longyingxiao_v3",
 ];
+
+test("component speech strips leaked channel markers and JSON fields", () => {
+  const leaked = '{"say":"好啊，那我们就去洗手间吧。不过……你是不是还没从刚才的余韵里缓过神来？</div> {"action":"","emotion":"happy","rate":1.2,"volume":65,"pitch":1}';
+  const speech = splitComponentSpeech(leaked);
+  assert.match(speech.say, /^好啊，那我们就去洗手间吧。/);
+  assert.doesNotMatch(speech.say, /div|action|emotion|rate|volume|pitch|\{/i);
+  assert.equal(speech.emotion, "happy");
+
+  const channelLeak = '<|channel>thought <|channel|>```json {"say":"你过来一点。","action":"","emotion":"happy"} ```';
+  const cleaned = splitComponentSpeech(channelLeak);
+  assert.equal(cleaned.say, "你过来一点。");
+  assert.equal(cleanComponentSay("只是台词。"), "只是台词。");
+});
 
 test("standalone moan tokens are split without changing visible words", () => {
   const reply = "啊……！\n哈啊……别只顾着快，把你的鸡巴更深一点地灌进来……唔。";
