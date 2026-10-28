@@ -12,6 +12,11 @@ const {
 const serverSource = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
 const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
 
+test("admin entry and assets bypass CDN caching while previews roll out", () => {
+  assert.match(serverSource, /const frontendNames = \[\"\/admin\.html\", \"\/admin\.css\", \"\/admin\.js\"/);
+  assert.match(serverSource, /isFrontendAsset \|\| isHtml[\s\S]*?no-store, no-cache, must-revalidate, max-age=0/);
+});
+
 test("public security headers cover browser-facing responses", () => {
   assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /frame-ancestors 'none'/);
   assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /https:\/\/oauth\.telegram\.org/);

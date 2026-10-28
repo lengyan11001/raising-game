@@ -9,7 +9,6 @@ const vm = require("node:vm");
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "..", "admin.css"), "utf8");
 const html = fs.readFileSync(path.join(__dirname, "..", "admin.html"), "utf8");
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 
 function extractFunction(name) {
   const start = admin.indexOf(`function ${name}(`);
@@ -110,5 +109,4 @@ test("admin entry busts cached preview assets and disables edge caching", () => 
   assert.match(html, /admin\.js\?v=20261028-media-preview-1/);
   assert.match(admin, /function adminMediaPreviewTrigger/);
   assert.match(css, /\.adm-media-lightbox/);
-  assert.match(server, /"\/admin\.html", "\/admin\.css", "\/admin\.js"/);
 });
