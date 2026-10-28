@@ -66,7 +66,9 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
     ) {
       loadHistory({ silent: true, refresh: true, page: currentHistoryPage() });
     }
-    if (state.user && state.advancedResultRecords?.length) refreshAdvancedResultRecord();
+    // Result is refreshed once on entry/login, never on a background loop.
+    // The server detail replaces any stale cached or fallback status.
+    if (state.user) refreshAdvancedResultRecord();
   }
   if (syncMobile) setAdvancedMobileTab(next, { silent: true, skipSideTab: true });
   refreshIcons();
@@ -415,7 +417,11 @@ function renderAdvancedAssets(assets) {
 function mergeAdvancedResultRecord(record = {}) {
   if (!record?.taskId) return;
   const existing = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
-  state.advancedResultRecords = [record, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
+  const previous = existing.find((item) => item.taskId === record.taskId);
+  // Detail responses are authoritative. Preserve fields omitted by a partial
+  // update, but always take the latest server status and download readiness.
+  const merged = previous ? { ...previous, ...record } : record;
+  state.advancedResultRecords = [merged, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
 }
 
 function advancedResultRefreshTaskIds() {
@@ -428,6 +434,10 @@ function advancedResultRefreshTaskIds() {
   };
   pushTaskId(state.advancedResultTaskId);
   records.forEach((record) => pushTaskId(record.taskId));
+  // A cached history row can be the only record after login or page reload.
+  // Refresh that row once from its detail endpoint instead of trusting stale
+  // status stored in the browser.
+  advancedResultHistoryFallbackRecords().forEach((record) => pushTaskId(record.taskId));
   return taskIds.slice(0, 6);
 }
 
@@ -5313,6 +5323,9 @@ async function loadHistory({
     }
     if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
       renderAdvancedResultPanel();
+      // History is only a list snapshot. Once it supplies the fallback task,
+      // fetch its detail once so a stale list status cannot survive login.
+      if (state.user) refreshAdvancedResultRecord();
     }
     } catch (error) {
     if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;

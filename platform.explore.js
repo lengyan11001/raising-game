@@ -146,7 +146,8 @@ function setTab(tab) {
     renderAdvanced();
     if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
-    if (state.advancedSideTab === "result" && state.user && state.advancedResultRecords?.length) refreshAdvancedResultRecord();
+    // renderAdvanced/setAdvancedSideTab schedules one authoritative detail
+    // refresh on entry. Do not add a second request here.
   }
   if (nextTab === "workflow") {
     renderWorkflowPanel();
