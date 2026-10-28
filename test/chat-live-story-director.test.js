@@ -156,6 +156,8 @@ test("admin and client wire story editing and director playback", () => {
   assert.match(client, /playLiveStoryTransition/);
   assert.match(client, /sent\?\.director/);
   assert.match(client, /chat-live-story-transition/);
+  assert.match(client, /video\.addEventListener\("error", finish/);
+  assert.doesNotMatch(client, /video\.play\(\)\.catch\(done\)/);
   assert.match(client, /scheduleLiveStoryRetry/);
   assert.match(client, /applyLiveStoryDirector\(pending, \{ retry: true \}\)/);
   assert.match(client, /if \(!targetLook \|\| state\.ended\) return;/);

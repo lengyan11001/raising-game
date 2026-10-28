@@ -1933,11 +1933,28 @@
     state.overlay.stage.appendChild(video);
     state.liveStoryTransition = { root: video };
     await new Promise((resolve) => {
-      const done = () => resolve();
-      video.addEventListener("ended", done, { once: true });
-      video.addEventListener("error", done, { once: true });
-      window.setTimeout(done, 6000);
-      video.play().catch(done);
+      let settled = false;
+      let finished = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const start = () => {
+        if (settled || finished) return;
+        const played = video.play();
+        if (played && typeof played.catch === "function") played.catch(() => {
+          /* Autoplay may be blocked. Keep the transition video mounted and wait
+             for a user gesture instead of silently replacing it with an image. */
+          state.liveStoryRetryTimer = window.setTimeout(start, 220);
+        });
+      };
+      video.addEventListener("ended", () => {
+        finished = true;
+        finish();
+      }, { once: true });
+      video.addEventListener("error", finish, { once: true });
+      start();
     });
     video.classList.add("is-out");
     window.setTimeout(() => {
