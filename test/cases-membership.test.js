@@ -12,7 +12,7 @@ function caseLibraryUpstreamHelpersFromFrontend() {
   const end = frontend.indexOf("\nfunction caseLibraryTitle", start);
   assert.ok(start >= 0 && end > start, "case upstream helpers should be present");
   return new Function("const state = { lang: 'zh' };\n" + `${frontend.slice(start, end)}
-return { CASE_LIBRARY_UPSTREAM_MODELS, caseLibraryUpstream, caseLibraryUpstreamLabel, caseLibraryFallbackLabel };`)();
+return { CASE_LIBRARY_UPSTREAM_MODELS, caseLibraryUpstream };`)();
 }
 
 function showcaseCasesViewFromServer() {
@@ -31,15 +31,13 @@ test("case library exposes the upstream model for every showcase model", () => {
   const modelKeys = [...new Set(cases.map((item) => item.model_key))].sort();
 
   assert.deepEqual(modelKeys, Object.keys(helpers.CASE_LIBRARY_UPSTREAM_MODELS).sort());
-  assert.equal(helpers.caseLibraryUpstream({ model_key: "berry-1.0" }).upstream, "w3.0-video");
-  assert.equal(helpers.caseLibraryUpstream({ model_key: "berry-1.0-turbo" }).upstream, "w3.0-video-prime");
-  assert.equal(helpers.caseLibraryUpstream({ model_key: "wan2.7-i2v-spicy" }).upstream, "wan2.7-i2v-spicy");
-  assert.match(helpers.caseLibraryUpstreamLabel({ model_key: "berry-1.0-turbo" }), /w3\.0-video-prime/);
-  assert.match(helpers.caseLibraryUpstreamLabel({ model_key: "wan2.7-i2v-spicy" }, { includeFallback: true }), /wan2\.7-i2v-2026-04-25/);
-  assert.equal(helpers.caseLibraryUpstream({ model_key: "unknown" }), null);
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "berry-1.0" }), "w3.0-video");
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "berry-1.0-turbo" }), "w3.0-video-prime");
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "wan2.7-i2v-spicy" }), "wan2.7-i2v-spicy");
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "unknown" }), "");
   assert.match(frontend, /case-library-upstream/);
-  assert.match(frontend, /caseLibraryUpstream\(item\)\?\.upstream/);
-  assert.match(frontend, /caseLibraryUpstreamLabel\(item\)/);
+  assert.match(frontend, /caseLibraryUpstream\(item\)/);
+  assert.doesNotMatch(frontend, /caseLibraryUpstreamLabel/);
   assert.match(frontend, /caseDetailUpstream/);
   assert.match(html, /id="caseDetailUpstream"/);
 });

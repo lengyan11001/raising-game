@@ -10,48 +10,12 @@ let caseLibraryActiveItem = null;
 const CASE_LIBRARY_PAGE_SIZE = 24;
 const CASE_LIBRARY_CATEGORY_ORDER = ["image_gen", "i2v", "image_edit", "swap"];
 const CASE_LIBRARY_UPSTREAM_MODELS = Object.freeze({
-  "berry-1.0": {
-    provider: "Mulerouter",
-    vendor: "carrothub",
-    upstream: "w3.0-video",
-    label: "W3.0",
-    fallback: "",
-  },
-  "berry-1.0-turbo": {
-    provider: "Mulerouter",
-    vendor: "carrothub",
-    upstream: "w3.0-video-prime",
-    label: "W3.0 Prime",
-    fallback: "",
-  },
-  "wan2.7-i2v-spicy": {
-    provider: "Mulerouter",
-    vendor: "carrothub",
-    upstream: "wan2.7-i2v-spicy",
-    label: "Wan 2.7 i2v Spicy",
-    fallback: { zh: "阿里 wan2.7-i2v-2026-04-25", en: "Alibaba wan2.7-i2v-2026-04-25" },
-  },
-  "qwen-image-edit-spicy": {
-    provider: "Mulerouter",
-    vendor: "carrothub",
-    upstream: "qwen-image-edit-spicy",
-    label: "Qwen Image Edit Spicy",
-    fallback: { zh: "阿里 Wan2.7 Image", en: "Alibaba Wan2.7 Image" },
-  },
-  "z-image-spicy-pro": {
-    provider: "Mulerouter",
-    vendor: "carrothub",
-    upstream: "z-image-spicy-pro",
-    label: "Z-Image Spicy Pro",
-    fallback: { zh: "阿里 Wan2.7 Image", en: "Alibaba Wan2.7 Image" },
-  },
-  "z-image-spicy": {
-    provider: "Mulerouter",
-    vendor: "carrothub",
-    upstream: "z-image-spicy",
-    label: "Z-Image Spicy",
-    fallback: "",
-  },
+  "berry-1.0": "w3.0-video",
+  "berry-1.0-turbo": "w3.0-video-prime",
+  "wan2.7-i2v-spicy": "wan2.7-i2v-spicy",
+  "qwen-image-edit-spicy": "qwen-image-edit-spicy",
+  "z-image-spicy-pro": "z-image-spicy-pro",
+  "z-image-spicy": "z-image-spicy",
 });
 
 function caseLibraryLanguage() {
@@ -83,25 +47,7 @@ function caseLibraryModelLabel(item = {}) {
 }
 
 function caseLibraryUpstream(item = {}) {
-  return CASE_LIBRARY_UPSTREAM_MODELS[String(item.model_key || "")] || null;
-}
-
-function caseLibraryFallbackLabel(upstream = null) {
-  if (!upstream?.fallback) return "";
-  return caseLibraryLanguage() === "zh" ? String(upstream.fallback.zh || "") : String(upstream.fallback.en || upstream.fallback.zh || "");
-}
-
-function caseLibraryUpstreamLabel(item = {}, options = {}) {
-  const upstream = caseLibraryUpstream(item);
-  if (!upstream) return "";
-  const lang = caseLibraryLanguage();
-  const main = `${upstream.provider} · ${upstream.upstream}`;
-  const prefix = lang === "zh" ? "上游 " : "Upstream ";
-  const fallback = caseLibraryFallbackLabel(upstream);
-  if (!options.includeFallback || !fallback) return `${prefix}${main}`;
-  return lang === "zh"
-    ? `${prefix}${main}（备用：${fallback}）`
-    : `${prefix}${main} (fallback: ${fallback})`;
+  return CASE_LIBRARY_UPSTREAM_MODELS[String(item.model_key || "")] || "";
 }
 
 function caseLibraryTitle(item = {}) {
@@ -121,11 +67,7 @@ function caseLibraryMatches(item = {}) {
     item.prompt,
     item.model_label,
     item.model_key,
-    caseLibraryUpstream(item)?.provider,
-    caseLibraryUpstream(item)?.vendor,
-    caseLibraryUpstream(item)?.upstream,
-    caseLibraryUpstream(item)?.label,
-    caseLibraryFallbackLabel(caseLibraryUpstream(item)),
+    caseLibraryUpstream(item),
     ...(Array.isArray(item.tags) ? item.tags : []),
   ].join("\n").toLowerCase().includes(needle);
 }
@@ -187,7 +129,7 @@ function renderCaseLibraryCards(reset = false) {
             <span>${escapeHtml(t("case.lockedPrompt"))}</span>
             <span class="case-library-card-meta">
               <small>${escapeHtml(caseLibraryModelLabel(item))}</small>
-              ${caseLibraryUpstream(item) ? `<span class="case-library-upstream">${escapeHtml(caseLibraryUpstreamLabel(item))}</span>` : ""}
+              ${caseLibraryUpstream(item) ? `<span class="case-library-upstream">${escapeHtml(caseLibraryUpstream(item))}</span>` : ""}
             </span>
             <button class="case-library-unlock" type="button" data-case-unlock>${escapeHtml(state.user ? t("case.unlockCta") : t("case.unlockLogin"))}</button>
           </span>
@@ -208,7 +150,7 @@ function renderCaseLibraryCards(reset = false) {
           <span>${escapeHtml(prompt || t("case.prompt"))}</span>
           <span class="case-library-card-meta">
             <small>${escapeHtml([caseLibraryModelLabel(item), item.created_at_str].filter(Boolean).join(" · "))}</small>
-            ${caseLibraryUpstream(item) ? `<span class="case-library-upstream">${escapeHtml(caseLibraryUpstreamLabel(item))}</span>` : ""}
+            ${caseLibraryUpstream(item) ? `<span class="case-library-upstream">${escapeHtml(caseLibraryUpstream(item))}</span>` : ""}
           </span>
         </span>
       </button>`;
@@ -258,14 +200,8 @@ function openCaseLibraryItem(item = null) {
   if (title) title.textContent = caseLibraryTitle(item);
   if (model) model.textContent = caseLibraryModelLabel(item);
   if (upstream) {
-    const detail = caseLibraryUpstream(item);
-    const fallback = caseLibraryFallbackLabel(detail);
-    upstream.hidden = !detail;
-    upstream.textContent = detail
-      ? (caseLibraryLanguage() === "zh"
-        ? `上游模型：${detail.provider} / ${detail.vendor} / ${detail.upstream}（${detail.label}）${fallback ? `；不兼容时备用：${fallback}` : ""}`
-        : `Upstream model: ${detail.provider} / ${detail.vendor} / ${detail.upstream} (${detail.label})${fallback ? `; fallback: ${fallback}` : ""}`)
-      : "";
+    upstream.textContent = caseLibraryUpstream(item);
+    upstream.hidden = !upstream.textContent;
   }
   if (media) {
     media.innerHTML = `
