@@ -4010,6 +4010,64 @@ function readChatLiveAudioFile(file) {
   });
 }
 
+function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "" } = {}) {
+  const isVideo = kind === "video";
+  const accept = isVideo ? "video/mp4,video/webm,video/quicktime" : "image/png,image/jpeg,image/webp";
+  return `<div class="chat-live-story-asset">
+    <input type="hidden" ${escapeHtml(attribute)} value="${escapeHtml(url)}" />
+    <input type="file" accept="${accept}" data-story-file="${isVideo ? "video" : "image"}" hidden />
+    <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-story-pick>${url ? "更换" : "上传"}</button>
+    <small data-story-file-name>${url ? "已上传" : (isVideo ? "未上传视频" : "未上传图片")}</small>
+  </div>`;
+}
+
+function bindChatLiveStoryAssetUploads(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-story-pick]").forEach((button) => {
+    button.onclick = () => button.closest(".chat-live-story-asset")?.querySelector("[data-story-file]")?.click();
+  });
+  root.querySelectorAll("[data-story-file]").forEach((input) => {
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const isVideo = input.dataset.storyFile === "video";
+      const type = String(file.type || "").toLowerCase();
+      if (isVideo) {
+        if (!["video/mp4", "video/webm", "video/quicktime"].includes(type) || file.size > 80 * 1024 * 1024) {
+          toast("过场视频只支持 80MB 以内的 MP4、WEBM、MOV。", "error");
+          input.value = "";
+          return;
+        }
+      } else if (!["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(type) || file.size > 8 * 1024 * 1024) {
+        toast("场景图只支持 8MB 以内的 PNG、JPG、WEBP。", "error");
+        input.value = "";
+        return;
+      }
+      const asset = input.closest(".chat-live-story-asset");
+      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image], [data-story-transition-video]");
+      const button = asset?.querySelector("[data-story-pick]");
+      const status = asset?.querySelector("[data-story-file-name]");
+      if (button) button.disabled = true;
+      try {
+        const result = await api("/api/admin/chat-live/assets", {
+          method: "POST",
+          body: { dataUrl: await readChatLiveAssetFile(file), kind: isVideo ? "private-video" : "look" },
+        });
+        if (!result.url || !hidden) throw new Error("上传成功但没有返回素材。");
+        hidden.value = result.url;
+        if (status) status.textContent = "已上传";
+        if (button) button.textContent = "更换";
+        toast(isVideo ? "过场视频已上传。" : "场景图已上传。", "success");
+      } catch (error) {
+        toast(error.message || "上传失败。", "error");
+      } finally {
+        input.value = "";
+        if (button) button.disabled = false;
+      }
+    };
+  });
+}
+
 function readChatLivePersonaMarkdown(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -4140,6 +4198,40 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const value = character || {};
   const privateResources = Array.isArray(value.album) && value.album.length ? value.album : (Array.isArray(value.privateResources) ? value.privateResources.map((item) => ({ ...item, locked: true })) : []);
   const privateRows = privateResources.map((item, index) => chatLiveAlbumCardHtml(item, index)).join("");
+  const liveStory = value.liveStory && typeof value.liveStory === "object" ? value.liveStory : {};
+  const storyLocations = Array.isArray(liveStory.locations) ? liveStory.locations : [];
+  const storyActions = Array.isArray(liveStory.actions) ? liveStory.actions : [];
+  const storyTransitions = Array.isArray(liveStory.transitions) ? liveStory.transitions : [];
+  const storyStageOptions = [["casual", "日常"], ["flirting", "暧昧"], ["foreplay", "前戏"], ["intimate", "亲密"], ["aftercare", "余韵"]];
+  const storyLocationOptionsFor = (selectedId = "") => storyLocations
+    .filter((item) => item.id)
+    .map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.name || item.id)}</option>`)
+    .join("");
+  const storyLocationRows = storyLocations.map((item, index) => `
+    <div class="chat-live-story-row" data-story-location>
+      <input data-story-location-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 living_room" />
+      <input data-story-location-name value="${escapeHtml(item.name || "")}" placeholder="名称，例如 客厅沙发" />
+      <input data-story-location-keywords value="${escapeHtml(item.keywords || "")}" placeholder="关键词，例如 客厅、沙发、茶几" />
+      ${chatLiveStoryAssetField({ attribute: "data-story-location-image", kind: "image", url: item.imageUrl || "" })}
+      <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
+    </div>`).join("");
+  const storyActionRows = storyActions.map((item, index) => `
+    <div class="chat-live-story-row is-action" data-story-action>
+      <input data-story-action-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 kiss" />
+      <input data-story-action-name value="${escapeHtml(item.name || "")}" placeholder="名称，例如 接吻" />
+      ${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image", url: item.imageUrl || "" })}
+      <input data-story-action-text value="${escapeHtml(item.action || "")}" placeholder="动作说明，例如 kissing on sofa" />
+      <div class="chat-live-story-multi">${storyStageOptions.map(([id, label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" ${item.stages?.includes(id) ? "checked" : ""} />${label}</label>`).join("")}</div>
+      <div class="chat-live-story-multi">${storyLocations.map((location) => `<label><input type="checkbox" data-story-action-location value="${escapeHtml(location.id)}" ${item.locations?.includes(location.id) ? "checked" : ""} />${escapeHtml(location.name || location.id)}</label>`).join("")}</div>
+      <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
+    </div>`).join("");
+  const storyTransitionRows = storyTransitions.map((item, index) => `
+    <div class="chat-live-story-row" data-story-transition>
+      <select data-story-transition-from>${storyLocationOptionsFor(item.from)}</select>
+      <select data-story-transition-to>${storyLocationOptionsFor(item.to)}</select>
+      ${chatLiveStoryAssetField({ attribute: "data-story-transition-video", kind: "video", url: item.videoUrl || "" })}
+      <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
+    </div>`).join("");
   return `
     <div id="chatLiveCharacterForm" class="chat-live-editor">
       <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
@@ -4210,6 +4302,24 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
         </div>
         <div id="chatLivePrivateResources">
           <div class="chat-live-album-grid" id="chatLiveAlbumGrid">${privateRows || `<p class="adm-muted chat-live-album-empty">还没有相册素材。</p>`}</div>
+        </div>
+      </section>
+      <section class="adm-card" id="chatLiveStoryCard">
+        <div class="adm-card-head"><div><h3>固定场景 / 阶段 / 动作</h3><p class="adm-muted">地点和阶段分开配置：任何地点都可以用于任何阶段。动作图只在对应阶段和地点被选中；过场视频由前端叠层播放，Vidu 只切静态画面。</p></div></div>
+        <div class="chat-live-story-editor">
+          <div class="chat-live-story-head">
+            <label class="adm-check"><input id="chatLiveStoryEnabled" type="checkbox" ${liveStory.enabled === true || storyLocations.length ? "checked" : ""} /> 启用固定场景导演</label>
+            <label>切换冷却秒数 <input id="chatLiveStoryCooldown" type="number" min="0" max="900" value="${escapeHtml(String(liveStory.switchCooldownSeconds ?? 60))}" /></label>
+          </div>
+          <h4>地点</h4>
+          <div id="chatLiveStoryLocations">${storyLocationRows || `<p class="adm-muted">还没有地点。先在下面添加客厅、厨房、卧室。</p>`}</div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddLocation">添加地点</button>
+          <h4>动作关键帧</h4>
+          <div id="chatLiveStoryActions">${storyActionRows || `<p class="adm-muted">还没有动作图。动作可用 Wan 案例作参考，再生成角色对应关键帧。</p>`}</div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddAction">添加动作</button>
+          <h4>过场视频</h4>
+          <div id="chatLiveStoryTransitions">${storyTransitionRows || `<p class="adm-muted">可配置厨房到客厅等固定过场；没有视频时直接切背景。</p>`}</div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddTransition">添加过场</button>
         </div>
       </section>
       <section class="adm-card">
@@ -4633,6 +4743,29 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
         locked: row.querySelector("[data-private-locked]")?.checked === true,
         enabled: true,
       })).filter((item) => item.url),
+      liveStory: {
+        enabled: root.querySelector("#chatLiveStoryEnabled")?.checked === true,
+        switchCooldownSeconds: Number(root.querySelector("#chatLiveStoryCooldown")?.value || 60),
+        locations: Array.from(root.querySelectorAll("[data-story-location]")).map((row) => ({
+          id: row.querySelector("[data-story-location-id]")?.value || "",
+          name: row.querySelector("[data-story-location-name]")?.value || "",
+          keywords: row.querySelector("[data-story-location-keywords]")?.value || "",
+          imageUrl: row.querySelector("[data-story-location-image]")?.value || "",
+        })).filter((item) => item.id && item.name),
+        actions: Array.from(root.querySelectorAll("[data-story-action]")).map((row) => ({
+          id: row.querySelector("[data-story-action-id]")?.value || "",
+          name: row.querySelector("[data-story-action-name]")?.value || "",
+          imageUrl: row.querySelector("[data-story-action-image]")?.value || "",
+          action: row.querySelector("[data-story-action-text]")?.value || "",
+          stages: Array.from(row.querySelectorAll("[data-story-action-stage]:checked")).map((input) => input.value),
+          locations: Array.from(row.querySelectorAll("[data-story-action-location]:checked")).map((input) => input.value),
+        })).filter((item) => item.id && item.name),
+        transitions: Array.from(root.querySelectorAll("[data-story-transition]")).map((row) => ({
+          from: row.querySelector("[data-story-transition-from]")?.value || "",
+          to: row.querySelector("[data-story-transition-to]")?.value || "",
+          videoUrl: row.querySelector("[data-story-transition-video]")?.value || "",
+        })).filter((item) => item.from && item.to && item.videoUrl),
+      },
     };
   };
   let saveInFlight = null;
@@ -4680,6 +4813,7 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
     </section>`;
   refreshIcons();
   bindChatLiveAssetUploads(box());
+  bindChatLiveStoryAssetUploads(box());
   if (current?.id && box()) box().dataset.savedId = current.id;
   document.getElementById("chatLiveEditorBack")?.addEventListener("click", () => {
     chatLiveEditorSession += 1;
@@ -4698,6 +4832,76 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
       if (button) button.disabled = false;
     }
   });
+  const storyRoot = box().querySelector("#chatLiveStoryCard");
+  const storyLocationsRoot = () => box().querySelector("#chatLiveStoryLocations");
+  const storyActionsRoot = () => box().querySelector("#chatLiveStoryActions");
+  const storyTransitionsRoot = () => box().querySelector("#chatLiveStoryTransitions");
+  const storyLocationOptionsHtml = () => Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => {
+    const id = row.querySelector("[data-story-location-id]")?.value || "";
+    const name = row.querySelector("[data-story-location-name]")?.value || id;
+    return id ? `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>` : "";
+  }).join("");
+  const storyLocationChoices = () => Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => ({
+    id: row.querySelector("[data-story-location-id]")?.value || "",
+    name: row.querySelector("[data-story-location-name]")?.value || "",
+  })).filter((item) => item.id);
+  const syncStoryLocationChoices = () => {
+    const choices = storyLocationChoices();
+    storyRoot?.querySelectorAll("[data-story-action]").forEach((row) => {
+      const container = row.querySelector(".chat-live-story-multi:last-of-type");
+      if (!container) return;
+      const checkedIds = new Set(Array.from(container.querySelectorAll("[data-story-action-location]:checked")).map((input) => input.value));
+      container.innerHTML = choices.map((location) => `<label><input type="checkbox" data-story-action-location value="${escapeHtml(location.id)}" ${checkedIds.has(location.id) ? "checked" : ""} />${escapeHtml(location.name || location.id)}</label>`).join("");
+    });
+  };
+  const bindStoryRemove = () => storyRoot?.querySelectorAll("[data-story-remove]").forEach((button) => {
+    button.onclick = () => {
+      button.closest(".chat-live-story-row")?.remove();
+      syncStoryLocationChoices();
+    };
+  });
+  const bindStoryInputs = () => {
+    storyRoot?.querySelectorAll("[data-story-location-id], [data-story-location-name]").forEach((input) => {
+      input.oninput = () => {
+        const options = storyLocationOptionsHtml();
+        storyRoot.querySelectorAll("[data-story-transition-from], [data-story-transition-to]").forEach((select) => {
+          const previous = select.value;
+          select.innerHTML = options;
+          if (previous) select.value = previous;
+        });
+        syncStoryLocationChoices();
+      };
+    });
+    bindStoryRemove();
+  };
+  storyRoot?.querySelector("#chatLiveStoryAddLocation")?.addEventListener("click", () => {
+    storyLocationsRoot()?.querySelector(".adm-muted")?.remove();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="chat-live-story-row" data-story-location><input data-story-location-id placeholder="ID，例如 living_room" /><input data-story-location-name placeholder="名称，例如 客厅沙发" /><input data-story-location-keywords placeholder="关键词，例如 客厅、沙发、茶几" />${chatLiveStoryAssetField({ attribute: "data-story-location-image", kind: "image" })}<button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
+    storyLocationsRoot()?.appendChild(wrap.firstElementChild);
+    bindStoryInputs();
+    bindChatLiveStoryAssetUploads(storyLocationsRoot());
+    syncStoryLocationChoices();
+  });
+  storyRoot?.querySelector("#chatLiveStoryAddAction")?.addEventListener("click", () => {
+    storyActionsRoot()?.querySelector(".adm-muted")?.remove();
+    const locations = storyLocationOptionsHtml();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="chat-live-story-row is-action" data-story-action><input data-story-action-id placeholder="ID，例如 kiss" /><input data-story-action-name placeholder="名称，例如 接吻" />${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image" })}<input data-story-action-text placeholder="动作说明，例如 kissing on sofa" /><div class="chat-live-story-multi">${[["casual","日常"],["flirting","暧昧"],["foreplay","前戏"],["intimate","亲密"],["aftercare","余韵"]].map(([id,label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" />${label}</label>`).join("")}</div><div class="chat-live-story-multi">${Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => { const id = row.querySelector("[data-story-location-id]")?.value || ""; const name = row.querySelector("[data-story-location-name]")?.value || id; return id ? `<label><input type="checkbox" data-story-action-location value="${escapeHtml(id)}" />${escapeHtml(name)}</label>` : ""; }).join("")}</div><button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
+    storyActionsRoot()?.appendChild(wrap.firstElementChild);
+    bindStoryInputs();
+    bindChatLiveStoryAssetUploads(storyActionsRoot());
+  });
+  storyRoot?.querySelector("#chatLiveStoryAddTransition")?.addEventListener("click", () => {
+    storyTransitionsRoot()?.querySelector(".adm-muted")?.remove();
+    const locations = storyLocationOptionsHtml();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="chat-live-story-row" data-story-transition><select data-story-transition-from>${locations}</select><select data-story-transition-to>${locations}</select>${chatLiveStoryAssetField({ attribute: "data-story-transition-video", kind: "video" })}<button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
+    storyTransitionsRoot()?.appendChild(wrap.firstElementChild);
+    bindStoryInputs();
+    bindChatLiveStoryAssetUploads(storyTransitionsRoot());
+  });
+  bindStoryInputs();
   const privateRoot = box().querySelector("#chatLivePrivateResources");
   const albumGrid = () => box().querySelector("#chatLiveAlbumGrid");
   const clearAlbumEmpty = () => albumGrid()?.querySelector(".chat-live-album-empty")?.remove();

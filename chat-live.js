@@ -53,6 +53,13 @@
     overlayControlsBound: false,
     unloadGuardBound: false,
     lookSwitching: false,
+    liveStoryLocationId: "",
+    liveStoryStage: "casual",
+    liveStoryLastSwitchAt: 0,
+    liveStoryTransition: null,
+    liveStorySwitching: false,
+    liveStoryRetryTimer: 0,
+    liveStoryPendingDirector: null,
   };
 
   const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
@@ -150,6 +157,8 @@
 .chat-live-shell { position:relative; width:min(980px,100%); height:min(92vh,760px); display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr); gap:0; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:18px; background:#0b0d12; color:#f8fafc; }
 .chat-live-stage { position:relative; background:#05060a; display:flex; align-items:center; justify-content:center; }
 .chat-live-stage video { width:100%; height:100%; object-fit:cover; background:#05060a; }
+.chat-live-story-transition { position:absolute; inset:0; z-index:7; width:100%; height:100%; object-fit:cover; background:#05060a; opacity:1; transition:opacity .38s ease; pointer-events:none; }
+.chat-live-story-transition.is-out { opacity:0; }
 .chat-live-placeholder { position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#94a3b8; text-align:center; padding:20px; background:#05060a; }
 .chat-live-call-avatar { position:relative; width:148px; height:148px; display:grid; place-items:center; }
 .chat-live-call-avatar img { width:112px; height:112px; border-radius:50%; object-fit:cover; position:relative; z-index:1; border:3px solid rgba(255,255,255,.92); box-shadow:0 10px 28px rgba(0,0,0,.35); }
@@ -555,7 +564,7 @@
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
 
-    state.overlay = { root: overlay, video, placeholder, callLabel, callDetail, badge, timer, rate, caption, log, input, sendBtn, muteBtn, hangBtn, cost, voiceBtn, closeBtn, failExit, listen, lookRail, lookToggle, toast, giftBtn, picker: null };
+    state.overlay = { root: overlay, stage, video, placeholder, callLabel, callDetail, badge, timer, rate, caption, log, input, sendBtn, muteBtn, hangBtn, cost, voiceBtn, closeBtn, failExit, listen, lookRail, lookToggle, toast, giftBtn, picker: null };
     overlay.addEventListener("click", (event) => {
       if (!state.lookMenuOpen) return;
       if (event.target.closest(".chat-live-looks, .chat-live-look-toggle")) return;
@@ -1868,6 +1877,135 @@
     state.overlay.root.appendChild(picker); state.overlay.picker = picker;
   }
 
+  function liveStory() {
+    const story = state.character?.liveStory;
+    return story && story.enabled && Array.isArray(story.locations) && story.locations.length ? story : null;
+  }
+
+  function liveStoryLocation(id = "") {
+    const story = liveStory();
+    if (!story) return null;
+    return story.locations.find((item) => item.id === String(id || "")) || null;
+  }
+
+  function liveStoryLookForLocation(location = {}) {
+    if (!location?.imageUrl) return null;
+    return {
+      id: location.lookId || `story-location-${location.id}`,
+      kind: "background",
+      name: location.name || "场景",
+      imageUrl: location.imageUrl,
+      userText: `把画面背景切换成${location.name || "这个场景"}，保持人物和镜头连续。`,
+    };
+  }
+
+  function liveStoryActionLook(director = {}, location = {}) {
+    if (!director?.imageUrl) return null;
+    return {
+      id: `story-action-${director.actionId || "scene"}`,
+      kind: "background",
+      name: director.actionName || "动作",
+      imageUrl: director.imageUrl,
+      userText: director.userText || `按照参考图改成这个动作：${director.action || director.actionName || ""}。保持当前场景${location?.name || ""}。`,
+    };
+  }
+
+  function liveStoryTransitionUrl(fromId = "", toId = "") {
+    const story = liveStory();
+    if (!story || !fromId || !toId || fromId === toId) return "";
+    return (story.transitions || []).find((item) => item.from === fromId && item.to === toId)?.videoUrl || "";
+  }
+
+  async function playLiveStoryTransition(url = "") {
+    if (!url || !state.overlay?.stage) return;
+    const previous = state.liveStoryTransition;
+    if (previous?.root) {
+      try { previous.root.remove(); } catch {}
+    }
+    const video = document.createElement("video");
+    video.className = "chat-live-story-transition";
+    video.src = url;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.setAttribute("playsinline", "true");
+    state.overlay.stage.appendChild(video);
+    state.liveStoryTransition = { root: video };
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      video.addEventListener("ended", done, { once: true });
+      video.addEventListener("error", done, { once: true });
+      window.setTimeout(done, 6000);
+      video.play().catch(done);
+    });
+    video.classList.add("is-out");
+    window.setTimeout(() => {
+      try { video.remove(); } catch {}
+      if (state.liveStoryTransition?.root === video) state.liveStoryTransition = null;
+    }, 420);
+  }
+
+  function scheduleLiveStoryRetry(director = {}, delayMs = 1200) {
+    if (state.ended || !director) return;
+    state.liveStoryPendingDirector = director;
+    if (state.liveStoryRetryTimer) window.clearTimeout(state.liveStoryRetryTimer);
+    state.liveStoryRetryTimer = window.setTimeout(() => {
+      state.liveStoryRetryTimer = 0;
+      const pending = state.liveStoryPendingDirector;
+      state.liveStoryPendingDirector = null;
+      if (pending && !state.ended) applyLiveStoryDirector(pending, { retry: true }).catch(() => {});
+    }, Math.max(300, Number(delayMs || 0) || 0));
+  }
+
+  async function applyLiveStoryDirector(director = {}, { retry = true } = {}) {
+    const story = liveStory();
+    if (!story || !director) return;
+    const locationId = String(director.locationId || state.liveStoryLocationId || story.initialLocationId || "");
+    const location = liveStoryLocation(locationId);
+    if (!location) return;
+    const previousLocationId = String(state.liveStoryLocationId || story.initialLocationId || "");
+    const transitionUrl = String(director.transitionUrl || liveStoryTransitionUrl(previousLocationId, locationId) || "");
+    const locationLook = liveStoryLookForLocation(location);
+    const actionLook = liveStoryActionLook(director, location);
+    const targetLook = actionLook || locationLook;
+    const currentLookId = String(state.lookStack[state.lookStack.length - 1] || "");
+    if (!targetLook || state.ended) return;
+    if (!lookChannelReady() || state.lookBusy || state.liveStorySwitching) {
+      if (retry) scheduleLiveStoryRetry(director, state.liveStorySwitching ? 900 : 1200);
+      return;
+    }
+    const cooldownMs = Math.max(0, Number(story.switchCooldownSeconds || 0) || 0) * 1000;
+    const now = Date.now();
+    const locationChanged = previousLocationId && previousLocationId !== locationId;
+    const shouldSwitch = targetLook.id !== (state.lookStack[state.lookStack.length - 1] || "")
+      && (!locationChanged || now - state.liveStoryLastSwitchAt >= cooldownMs);
+    if (!shouldSwitch) {
+      if (targetLook.id === currentLookId) {
+        state.liveStoryLocationId = locationId;
+        state.liveStoryStage = String(director.stage || state.liveStoryStage || "casual");
+      } else if (retry && locationChanged) {
+        scheduleLiveStoryRetry(director, Math.max(300, cooldownMs - (now - state.liveStoryLastSwitchAt)));
+      }
+      return;
+    }
+    state.liveStorySwitching = true;
+    try {
+      if (transitionUrl) await playLiveStoryTransition(transitionUrl);
+      await sendLookOperation({ look: targetLook });
+      state.lookStack = [targetLook.id];
+      state.liveStoryLocationId = locationId;
+      state.liveStoryStage = String(director.stage || state.liveStoryStage || "casual");
+      state.liveStoryLastSwitchAt = Date.now();
+    } catch (error) {
+      if (!state.ended) appendLine("sys", error.message || "场景画面暂时没有切过去。");
+      if (retry && !state.ended) scheduleLiveStoryRetry(director, 1800);
+    } finally {
+      state.liveStorySwitching = false;
+      syncLookRail();
+    }
+  }
+
   function looksOf(kind) {
     const own = Array.isArray(state.character?.looks) ? state.character.looks : null;
     const source = own || (Array.isArray(state.config?.looks) ? state.config.looks : []);
@@ -2149,6 +2287,12 @@
     if (!character) throw new Error("角色不存在。");
     if (!authToken()) throw new Error("请先登录再开始在线聊天。");
     state.character = character;
+    state.liveStoryLocationId = String(character.liveStory?.initialLocationId || "");
+    state.liveStoryStage = "casual";
+    state.liveStoryLastSwitchAt = 0;
+    state.liveStoryPendingDirector = null;
+    if (state.liveStoryRetryTimer) window.clearTimeout(state.liveStoryRetryTimer);
+    state.liveStoryRetryTimer = 0;
     state.inRoom = Boolean(openOptions.roomId || openOptions.sharedRoom === true);
     state.roomId = String(openOptions.roomId || "");
     state.ended = false;
@@ -2170,6 +2314,9 @@
     state.controlReconnectAttempted = false;
     state.lookBusy = false;
     state.lookOperation = null;
+    state.liveStoryPendingDirector = null;
+    if (state.liveStoryRetryTimer) window.clearTimeout(state.liveStoryRetryTimer);
+    state.liveStoryRetryTimer = 0;
     state.billableStartedAt = 0;
     state.lookStack = [];
     state.forceFreshRtc = openOptions.freshRtc === true || state.forceFreshRtc === true;
@@ -2223,7 +2370,8 @@
           for (let attempt = 0; attempt < 4; attempt += 1) {
             if (state.ended || state.session?.id !== sessionId) return;
             try {
-              await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/say`, { method: "POST", body: JSON.stringify({ text: value }) });
+              const sent = await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(sessionId)}/say`, { method: "POST", body: JSON.stringify({ text: value }) });
+              if (sent?.director) applyLiveStoryDirector(sent.director).catch(() => {});
               last = null;
               break;
             } catch (error) {

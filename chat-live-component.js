@@ -702,6 +702,7 @@ async function componentReply(session, userText, options = {}) {
   const proactive = options.proactive === true;
   const opening = options.opening === true;
   const userBlock = session.userBlock || "";
+  const storyBlock = options.storyBlock || "";
   const userInfo = userBlock ? "\n对方资料：" + userBlock.replace(/\n/g, "；") : "";
   const cue = opening
     ? "刚接通。用一两句自然的话根据对方资料打招呼，可以根据对方的名字称呼ta，不要自我介绍，不要提礼物，不要开新剧情，说完就停。" + userInfo
@@ -719,7 +720,7 @@ async function componentReply(session, userText, options = {}) {
   ].join("\n");
   const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
-    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${intimateCue}\n${cue}\n${jsonTail}` },
+    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${intimateCue}\n${storyBlock}\n${cue}\n${jsonTail}` },
     ...componentHistoryForTurn(session.history, proactive ? "" : userText),
     { role: "user", content: proactive ? "（对方没接话）" : userText },
   ];
@@ -1048,7 +1049,7 @@ async function runComponentSay(session, userText, options = {}) {
     if (options.memoryBlock) session.memoryBlock = String(options.memoryBlock);
     if (options.userBlock) session.userBlock = String(options.userBlock);
     if (options.engagementBlock) session.engagementBlock = String(options.engagementBlock);
-    const speech = await componentReply(session, userText, { proactive, opening: options.opening === true });
+    const speech = await componentReply(session, userText, { proactive, opening: options.opening === true, storyBlock: options.storyBlock });
     const reply = speech.say;
     const action = speech.action;
     if (session.speakTurn !== turn) return reply;

@@ -11,6 +11,7 @@ const fixtures = {
   live: { model: "vidu-s2", callMode: "video", maxMinutes: 10 },
   character: { avatarUrl: "https://example.test/avatar.png" },
   avatar: { name: "test" },
+  avatarImageUrl: "https://example.test/avatar.png",
   ARTC_APP_ID: "app",
   pusherId: "pusher",
   channelId: "channel",

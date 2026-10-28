@@ -6264,6 +6264,276 @@ function normalizeChatLiveTags(value) {
     .map((item) => item.slice(0, 24));
 }
 
+const CHAT_LIVE_STORY_STAGES = ["casual", "flirting", "foreplay", "intimate", "aftercare"];
+const CHAT_LIVE_STORY_STAGE_LABELS = {
+  casual: "日常",
+  flirting: "暧昧",
+  foreplay: "前戏",
+  intimate: "亲密",
+  aftercare: "余韵",
+};
+
+function normalizeChatLiveStoryUrl(value = "") {
+  const url = String(value || "").trim().slice(0, 1000);
+  if (!url) return "";
+  if (/^https:\/\/\S+$/i.test(url) || /^\/assets\/[^\s]+$/i.test(url)) return url;
+  return "";
+}
+
+function normalizeChatLiveStoryId(value = "", fallback = "") {
+  return String(value || fallback || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64) || fallback;
+}
+
+function normalizeChatLiveStory(raw = {}, existing = null) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw
+    : (existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {});
+  const seenLocations = new Set();
+  const locations = (Array.isArray(source.locations) ? source.locations : []).slice(0, 12).map((item, index) => {
+    const id = normalizeChatLiveStoryId(item?.id, `location-${index + 1}`);
+    if (!id || seenLocations.has(id)) return null;
+    seenLocations.add(id);
+    return {
+      id,
+      name: String(item?.name || `场景 ${index + 1}`).trim().slice(0, 40),
+      description: String(item?.description || "").trim().slice(0, 240),
+      keywords: String(item?.keywords || "").trim().slice(0, 240),
+      imageUrl: normalizeChatLiveStoryUrl(item?.imageUrl || item?.lookImageUrl),
+      lookId: String(item?.lookId || `story-location-${id}`).trim().slice(0, 80),
+      entryTransitions: Object.fromEntries(Object.entries(item?.entryTransitions && typeof item.entryTransitions === "object" ? item.entryTransitions : {})
+        .map(([from, url]) => [normalizeChatLiveStoryId(from), normalizeChatLiveStoryUrl(url)])
+        .filter(([from, url]) => from && url)
+        .slice(0, 12)),
+    };
+  }).filter(Boolean);
+  const locationIds = new Set(locations.map((item) => item.id));
+  const stages = (Array.isArray(source.stages) && source.stages.length ? source.stages : CHAT_LIVE_STORY_STAGES)
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter((item, index, list) => CHAT_LIVE_STORY_STAGES.includes(item) && list.indexOf(item) === index)
+    .slice(0, CHAT_LIVE_STORY_STAGES.length);
+  const actions = (Array.isArray(source.actions) ? source.actions : []).slice(0, 120).map((item, index) => {
+    const id = normalizeChatLiveStoryId(item?.id, `action-${index + 1}`);
+    if (!id) return null;
+    const allowedStages = (Array.isArray(item?.stages) ? item.stages : [item?.stage])
+      .map((stage) => String(stage || "").trim().toLowerCase())
+      .filter((stage) => CHAT_LIVE_STORY_STAGES.includes(stage));
+    const allowedLocations = (Array.isArray(item?.locations) ? item.locations : [])
+      .map((location) => normalizeChatLiveStoryId(location))
+      .filter((location) => locationIds.has(location));
+    return {
+      id,
+      name: String(item?.name || `动作 ${index + 1}`).trim().slice(0, 40),
+      stages: allowedStages.length ? [...new Set(allowedStages)] : CHAT_LIVE_STORY_STAGES.slice(),
+      locations: allowedLocations.length ? [...new Set(allowedLocations)] : [...locationIds],
+      imageUrl: normalizeChatLiveStoryUrl(item?.imageUrl || item?.thumbnailUrl),
+      videoUrl: normalizeChatLiveStoryUrl(item?.videoUrl),
+      action: String(item?.action || item?.prompt || item?.name || "").trim().slice(0, 160),
+      userText: String(item?.userText || "").trim().slice(0, 200),
+    };
+  }).filter(Boolean);
+  const seenTransitions = new Set();
+  const transitions = (Array.isArray(source.transitions) ? source.transitions : []).slice(0, 30).map((item) => {
+    const from = normalizeChatLiveStoryId(item?.from);
+    const to = normalizeChatLiveStoryId(item?.to);
+    const videoUrl = normalizeChatLiveStoryUrl(item?.videoUrl);
+    const key = `${from}:${to}`;
+    if (!from || !to || !videoUrl || from === to || !locationIds.has(from) || !locationIds.has(to) || seenTransitions.has(key)) return null;
+    seenTransitions.add(key);
+    return { from, to, videoUrl };
+  }).filter(Boolean);
+  const initialLocationId = locationIds.has(normalizeChatLiveStoryId(source.initialLocationId))
+    ? normalizeChatLiveStoryId(source.initialLocationId)
+    : (locations[0]?.id || "");
+  const switchCooldownRaw = Number(source.switchCooldownSeconds);
+  return {
+    enabled: source.enabled === true || (locations.length > 0 && source.enabled !== false),
+    initialLocationId,
+    switchCooldownSeconds: Number.isFinite(switchCooldownRaw) ? Math.max(0, Math.min(900, Math.round(switchCooldownRaw))) : 60,
+    stages: stages.length ? stages : CHAT_LIVE_STORY_STAGES.slice(),
+    locations,
+    actions,
+    transitions,
+  };
+}
+
+function chatLiveStoryLocation(story = {}, locationId = "") {
+  const id = normalizeChatLiveStoryId(locationId);
+  return (Array.isArray(story.locations) ? story.locations : []).find((item) => item.id === id) || null;
+}
+
+function chatLiveStoryAction(story = {}, actionId = "") {
+  const id = normalizeChatLiveStoryId(actionId);
+  return (Array.isArray(story.actions) ? story.actions : []).find((item) => item.id === id) || null;
+}
+
+function chatLiveStoryTransition(story = {}, fromId = "", toId = "") {
+  const from = normalizeChatLiveStoryId(fromId);
+  const to = normalizeChatLiveStoryId(toId);
+  if (!from || !to || from === to) return "";
+  return (Array.isArray(story.transitions) ? story.transitions : []).find((item) => item.from === from && item.to === to)?.videoUrl
+    || chatLiveStoryLocation(story, to)?.entryTransitions?.[from]
+    || "";
+}
+
+function publicChatLiveStory(raw = {}) {
+  const story = normalizeChatLiveStory(raw);
+  if (!story.enabled || !story.locations.length) return null;
+  return {
+    enabled: true,
+    initialLocationId: story.initialLocationId,
+    switchCooldownSeconds: story.switchCooldownSeconds,
+    stages: story.stages.map((id) => ({ id, label: CHAT_LIVE_STORY_STAGE_LABELS[id] || id })),
+    locations: story.locations.map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      imageUrl: item.imageUrl,
+      lookId: item.lookId,
+    })),
+    actions: story.actions.map((item) => ({
+      id: item.id,
+      name: item.name,
+      stages: item.stages,
+      locations: item.locations,
+      imageUrl: item.imageUrl,
+      videoUrl: item.videoUrl,
+      action: item.action,
+    })),
+    transitions: story.transitions.map((item) => ({ from: item.from, to: item.to, videoUrl: item.videoUrl })),
+  };
+}
+
+function chatLiveStoryStageForText(text = "", currentStage = "casual", history = []) {
+  const latest = String(text || "").trim();
+  const mapped = chatSceneStage(latest, Array.isArray(history) ? history : [], null);
+  if (mapped && CHAT_LIVE_STORY_STAGES.includes(mapped)) return mapped;
+  return CHAT_LIVE_STORY_STAGES.includes(currentStage) ? currentStage : "casual";
+}
+
+const CHAT_LIVE_STORY_LOCATION_ALIASES = {
+  kitchen: ["厨房", "灶台", "做饭"],
+  living_room: ["客厅", "沙发", "茶几"],
+  bedroom: ["卧室", "床上", "床边", "枕头"],
+  bathroom: ["浴室", "卫生间", "淋浴", "浴缸"],
+  balcony: ["阳台", "露台"],
+  study: ["书房", "书桌"],
+  dining_room: ["餐厅", "餐桌"],
+  entryway: ["玄关", "门口"],
+};
+
+function chatLiveStoryLocationKeywords(location = {}) {
+  const id = normalizeChatLiveStoryId(location.id);
+  const values = [
+    location.name,
+    id.replace(/[_-]+/g, " "),
+    ...String(location.keywords || "").split(/[,，、\n]/),
+    ...String(location.description || "").split(/[,，、。；;:：\n]/),
+    ...(CHAT_LIVE_STORY_LOCATION_ALIASES[id] || []),
+  ];
+  return [...new Set(values.map((item) => String(item || "").trim().toLowerCase()).filter((item) => item.length >= 2))]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 20);
+}
+
+function chatLiveStoryLocationForText(story = {}, text = "", currentLocationId = "") {
+  const normalizedText = String(text || "").trim().toLowerCase();
+  if (!normalizedText) return "";
+  const matches = [];
+  for (const location of Array.isArray(story.locations) ? story.locations : []) {
+    for (const keyword of chatLiveStoryLocationKeywords(location)) {
+      let from = 0;
+      while (from < normalizedText.length) {
+        const index = normalizedText.indexOf(keyword, from);
+        if (index < 0) break;
+        const before = normalizedText.slice(Math.max(0, index - 8), index);
+        const negated = /(?:不去|别去|不要去|不想去|不回|别回|不要回|离开)[^，。！？!?]{0,4}$/u.test(before);
+        if (!negated) matches.push({ id: location.id, keyword, index, length: keyword.length });
+        from = index + keyword.length;
+      }
+    }
+  }
+  if (!matches.length) return "";
+  matches.sort((a, b) => b.length - a.length || a.index - b.index);
+  const best = matches[0];
+  /* Prefer the current room when phrases mention both it and a merely visible
+     adjacent area, unless the longer match names a different destination. */
+  const current = normalizeChatLiveStoryId(currentLocationId);
+  if (best.id === current) return current;
+  return best.id;
+}
+
+function chatLiveStoryDirectorSelection(story = {}, { text = "", currentStage = "casual", currentLocationId = "", recentActionIds = [], history = [], lastSwitchAt = 0 } = {}) {
+  const normalized = normalizeChatLiveStory(story);
+  if (!normalized.enabled || !normalized.locations.length) return null;
+  const stage = chatLiveStoryStageForText(text, currentStage, history);
+  const currentId = normalized.locations.some((item) => item.id === normalizeChatLiveStoryId(currentLocationId))
+    ? normalizeChatLiveStoryId(currentLocationId)
+    : normalized.initialLocationId;
+  const requestedLocationId = chatLiveStoryLocationForText(normalized, text, currentId) || currentId;
+  const numericLastSwitchAt = Number(lastSwitchAt);
+  const parsedLastSwitchAt = Number.isFinite(numericLastSwitchAt) && numericLastSwitchAt > 0
+    ? numericLastSwitchAt
+    : Date.parse(String(lastSwitchAt || ""));
+  const elapsedMs = Number.isFinite(parsedLastSwitchAt) && parsedLastSwitchAt > 0
+    ? Date.now() - parsedLastSwitchAt
+    : Number.POSITIVE_INFINITY;
+  const cooldownMs = Math.max(0, Number(normalized.switchCooldownSeconds || 0) || 0) * 1000;
+  const locationChanged = Boolean(currentId && requestedLocationId && requestedLocationId !== currentId);
+  const locationId = locationChanged && elapsedMs < cooldownMs ? currentId : requestedLocationId;
+  const blockedByCooldown = locationChanged && locationId !== requestedLocationId;
+  const candidates = normalized.actions.filter((item) => item.locations.includes(locationId)
+    && item.stages.includes(stage)
+    && item.imageUrl);
+  const recent = new Set((Array.isArray(recentActionIds) ? recentActionIds : []).slice(-3));
+  const fresh = candidates.filter((item) => !recent.has(item.id));
+  const pool = fresh.length ? fresh : candidates;
+  const action = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  return {
+    stage,
+    stageLabel: CHAT_LIVE_STORY_STAGE_LABELS[stage] || stage,
+    locationId,
+    previousLocationId: currentId,
+    requestedLocationId,
+    locationChanged: locationId !== currentId,
+    blockedByCooldown,
+    transitionUrl: locationChanged && locationId !== currentId ? chatLiveStoryTransition(normalized, currentId, locationId) : "",
+    actionId: action?.id || "",
+    actionName: action?.name || "",
+    action: action?.action || "",
+    imageUrl: action?.imageUrl || "",
+    userText: action?.userText || (action ? `按照参考图改成这个动作：${action.action || action.name}` : ""),
+  };
+}
+
+async function saveChatLiveStoryState(sessionId = "", state = {}) {
+  const id = String(sessionId || "").trim();
+  if (!id) return null;
+  const updatedAt = new Date().toISOString();
+  const locationId = normalizeChatLiveStoryId(state.locationId);
+  const stage = CHAT_LIVE_STORY_STAGES.includes(String(state.stage || "")) ? String(state.stage) : "casual";
+  const recentActionIds = (Array.isArray(state.recentActionIds) ? state.recentActionIds : [])
+    .map((item) => normalizeChatLiveStoryId(item))
+    .filter(Boolean)
+    .slice(-8);
+  const lastSwitchAt = String(state.lastSwitchAt || "").trim().slice(0, 40);
+  const { rows } = await dbQuery(`
+    UPDATE app_chat_live_sessions
+    SET payload = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(COALESCE(payload, '{}'::jsonb), '{liveStoryLocationId}', to_jsonb($2::text), true),
+                '{liveStoryStage}', to_jsonb($3::text), true),
+              '{liveStoryRecentActionIds}', $4::jsonb, true),
+            '{liveStoryLastSwitchAt}', to_jsonb($5::text), true),
+          '{updatedAt}', to_jsonb($6::text), true),
+        updated_at = $6::timestamptz
+    WHERE id = $1
+    RETURNING payload
+  `, [id, locationId, stage, JSON.stringify(recentActionIds), lastSwitchAt, updatedAt]);
+  return rows[0]?.payload || null;
+}
+
 function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const name = String(body.name ?? existing?.name ?? "").trim().slice(0, 60);
   const avatarUrl = String(body.avatarUrl ?? body.avatar_image_url ?? existing?.avatarUrl ?? "").trim().slice(0, 600);
@@ -6333,6 +6603,7 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     enabled: enabledRaw === undefined ? (existing ? existing.enabled !== false : false) : !(enabledRaw === false || String(enabledRaw) === "false"),
     album,
     privateResources,
+    liveStory: normalizeChatLiveStory(body.liveStory ?? existing?.liveStory ?? {}, existing?.liveStory),
   };
 }
 
@@ -6511,6 +6782,20 @@ function chatLiveCharacterValidationError(character = {}, existing = null) {
   if (!character.componentVoiceType) return "请选择组件版音色。";
   const regionError = chatLiveVoiceRegionError(character.voiceProvider);
   if (regionError) return regionError;
+  const story = normalizeChatLiveStory(character.liveStory || {});
+  if (story.enabled) {
+    if (!story.locations.length) return "请至少添加一个场景，并上传场景背景图。";
+    const missingLocation = story.locations.find((item) => !item.imageUrl);
+    if (missingLocation) return `场景「${missingLocation.name}」请上传场景背景图。`;
+    const missingAction = story.actions.find((item) => !item.imageUrl);
+    if (missingAction) return `动作「${missingAction.name}」请上传动作关键帧图。`;
+    const asset = [
+      ...story.locations.map((item) => ({ url: item.imageUrl, label: "场景背景图" })),
+      ...story.actions.map((item) => ({ url: item.imageUrl, label: "动作关键帧图" })),
+      ...story.transitions.map((item) => ({ url: item.videoUrl, label: "过场视频" })),
+    ].find((item) => item.url && !isManagedChatLiveAssetUrl(item.url));
+    if (asset) return `${asset.label}请用上传控件上传，不要粘贴外部地址。`;
+  }
   return "";
 }
 
@@ -6809,6 +7094,7 @@ function publicChatLiveCharacter(character = {}) {
     album: publicChatLiveAlbum(character, false).filter((item) => !item.locked).map((item) => item.url),
     sortOrder: Number(character.sortOrder || 0) || 0,
     ...(undressImageUrl ? { undressImageUrl } : {}),
+    ...(publicChatLiveStory(character.liveStory) ? { liveStory: publicChatLiveStory(character.liveStory) } : {}),
     ...(character.embedMerchantId ? { looks: (Array.isArray(character.embedLooks) ? character.embedLooks : []).map(publicChatLiveLook) } : {}),
   };
 }
@@ -8546,14 +8832,36 @@ async function handleChatLiveSay(req, res, sessionId = "") {
       await publishChatLiveRoomEvent(session, { role: "user", content: text, userId: auth.user.id }).catch(() => {});
     }
     const sayMemory = await loadChatCharacterMemory(auth.user.id, session.characterId);
+    const character = await getChatLiveCharacterInDb(session.characterId);
+    const director = chatLiveStoryDirectorSelection(character?.liveStory, {
+      text,
+      currentStage: session.liveStoryStage || "casual",
+      currentLocationId: session.liveStoryLocationId || "",
+      recentActionIds: session.liveStoryRecentActionIds || [],
+      history: Array.isArray(sayMemory?.turns) ? sayMemory.turns : [],
+      lastSwitchAt: session.liveStoryLastSwitchAt || 0,
+    });
+    const storyBlock = director
+      ? `\nCURRENT LIVE SCENE: location=${director.locationId}; stage=${director.stageLabel}; suggested physical beat=${director.action || "none"}. The physical beat is direction only, never spoken narration. Keep the character in this location and stage unless the user explicitly changes it; do not invent a jump to another room.`
+      : "";
     const reply = await chatLiveComponent.componentSay(session.liveId, text, {
       room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false),
       memoryBlock: chatCharacterMemoryBlock(sayMemory, auth.user),
       userBlock: chatLiveUserContext(auth.user),
+      storyBlock,
     });
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "user", text, "component");
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "assistant", reply, "component");
-    return sendJson(res, 200, { ok: true, reply: "" });
+    if (director) {
+      const recent = [...(Array.isArray(session.liveStoryRecentActionIds) ? session.liveStoryRecentActionIds : []), director.actionId].filter(Boolean).slice(-8);
+      await saveChatLiveStoryState(session.id, {
+        locationId: director.locationId,
+        stage: director.stage,
+        recentActionIds: recent,
+        lastSwitchAt: director.locationChanged ? new Date().toISOString() : (session.liveStoryLastSwitchAt || ""),
+      }).catch(() => {});
+    }
+    return sendJson(res, 200, { ok: true, reply: "", director });
   } catch (error) {
     const status = Number(error?.statusCode || 424);
     console.warn("[chat-live-say]", JSON.stringify({
@@ -8712,6 +9020,24 @@ async function handleChatLiveLook(req, res, sessionId = "") {
     const lookId = String(body.lookId || "").trim();
     const live = chatLiveConfigValue(await readAppConfig());
     let look = live.looks.find((item) => item.id === lookId && item.enabled !== false);
+    if (!look && lookId.startsWith("story-")) {
+      const character = await getChatLiveCharacterInDb(session.characterId);
+      const story = normalizeChatLiveStory(character?.liveStory || {});
+      const location = story.locations.find((item) => (item.lookId || `story-location-${item.id}`) === lookId);
+      const action = story.actions.find((item) => `story-action-${item.id}` === lookId);
+      const scene = action || location;
+      if (scene?.imageUrl) {
+        look = {
+          id: lookId,
+          kind: "background",
+          name: action ? action.name : location?.name,
+          imageUrl: scene.imageUrl,
+          userText: action?.userText || (action
+            ? `按照参考图改成这个动作：${action.action || action.name}。保持当前场景${location?.name || ""}。`
+            : `把画面背景切换成${location?.name || "这个场景"}，保持人物和镜头连续。`),
+        };
+      }
+    }
     if (!look && lookId.startsWith("embed-look-")) {
       const character = await getChatLiveCharacterInDb(session.characterId);
       look = (Array.isArray(character?.embedLooks) ? character.embedLooks : []).find((item) => item.id === lookId);
