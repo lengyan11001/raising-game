@@ -142,8 +142,8 @@ const DEFAULT_TOPUP_PACKAGES = [
   { id: "usd-30", amount: 30, credits: 3100, currency: "USD" },
   { id: "usd-50", amount: 50, credits: 5500, currency: "USD" },
   { id: "usd-100", amount: 100, credits: 12000, currency: "USD" },
-  { id: "usd-200", amount: 200, credits: 25000, currency: "USD" },
-  { id: "usd-500", amount: 500, credits: 65000, currency: "USD" },
+  { id: "usd-200", amount: 200, credits: 24000, currency: "USD" },
+  { id: "usd-500", amount: 500, credits: 60000, currency: "USD" },
 ];
 const DEFAULT_TOOL_TOPUP_PACKAGES = [
   { id: "tool-usd-10", amount: 10, credits: 1000, currency: "USD" },

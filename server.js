@@ -616,8 +616,8 @@ const TOPUP_PACKAGES = Object.freeze([
   Object.freeze({ id: "usd-30", amount: 30, credits: 3100 }),
   Object.freeze({ id: "usd-50", amount: 50, credits: 5500 }),
   Object.freeze({ id: "usd-100", amount: 100, credits: 12000 }),
-  Object.freeze({ id: "usd-200", amount: 200, credits: 25000 }),
-  Object.freeze({ id: "usd-500", amount: 500, credits: 65000 }),
+  Object.freeze({ id: "usd-200", amount: 200, credits: 24000 }),
+  Object.freeze({ id: "usd-500", amount: 500, credits: 60000 }),
 ]);
 const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.PAYPAL_CNY_CENTS_PER_UNIT ||

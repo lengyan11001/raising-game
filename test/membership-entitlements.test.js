@@ -123,3 +123,13 @@ test("activation codes are hashed, owner-scoped and redeemed transactionally", (
   assert.match(db, /UNIQUE INDEX IF NOT EXISTS app_membership_activation_redemptions_code_user_uidx/);
   assert.match(db, /FOR UPDATE/);
 });
+
+test("membership top-up bonuses are capped at 20 percent", () => {
+  const server = read("server.js");
+  const config = read("platform.config.js");
+  assert.match(server, /id:\s*"usd-200", amount: 200, credits: 24000/);
+  assert.match(server, /id:\s*"usd-500", amount: 500, credits: 60000/);
+  assert.match(config, /id: "usd-200", amount: 200, credits: 24000/);
+  assert.match(config, /id: "usd-500", amount: 500, credits: 60000/);
+  assert.doesNotMatch(server, /id:\s*"usd-500", amount: 500, credits: 65000/);
+});
