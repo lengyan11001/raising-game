@@ -6,6 +6,15 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
+function caseLibraryUpstreamHelpersFromFrontend() {
+  const frontend = read("platform.cases.js");
+  const start = frontend.indexOf("const CASE_LIBRARY_UPSTREAM_MODELS");
+  const end = frontend.indexOf("\nfunction caseLibraryTitle", start);
+  assert.ok(start >= 0 && end > start, "case upstream helpers should be present");
+  return new Function("const state = { lang: 'zh' };\n" + `${frontend.slice(start, end)}
+return { CASE_LIBRARY_UPSTREAM_MODELS, caseLibraryUpstream, caseLibraryUpstreamLabel, caseLibraryFallbackLabel };`)();
+}
+
 function showcaseCasesViewFromServer() {
   const server = read("server.js");
   const start = server.indexOf("const SHOWCASE_CASE_TITLE_TERMS");
@@ -13,6 +22,27 @@ function showcaseCasesViewFromServer() {
   assert.ok(start >= 0 && end > start, "case view and title helpers should be present");
   return new Function("const SHOWCASE_CASES_PREVIEW_LIMIT = 2;\n" + `${server.slice(start, end + 2)}\nreturn { showcaseCasesView, showcaseCaseTitle };`)();
 }
+
+test("case library exposes the upstream model for every showcase model", () => {
+  const frontend = read("platform.cases.js");
+  const html = read("platform.html");
+  const cases = JSON.parse(read("assets/showcase/spicy/cases.json"));
+  const helpers = caseLibraryUpstreamHelpersFromFrontend();
+  const modelKeys = [...new Set(cases.map((item) => item.model_key))].sort();
+
+  assert.deepEqual(modelKeys, Object.keys(helpers.CASE_LIBRARY_UPSTREAM_MODELS).sort());
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "berry-1.0" }).upstream, "w3.0-video");
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "berry-1.0-turbo" }).upstream, "w3.0-video-prime");
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "wan2.7-i2v-spicy" }).upstream, "wan2.7-i2v-spicy");
+  assert.match(helpers.caseLibraryUpstreamLabel({ model_key: "berry-1.0-turbo" }), /w3\.0-video-prime/);
+  assert.match(helpers.caseLibraryUpstreamLabel({ model_key: "wan2.7-i2v-spicy" }, { includeFallback: true }), /wan2\.7-i2v-2026-04-25/);
+  assert.equal(helpers.caseLibraryUpstream({ model_key: "unknown" }), null);
+  assert.match(frontend, /case-library-upstream/);
+  assert.match(frontend, /caseLibraryUpstream\(item\)\?\.upstream/);
+  assert.match(frontend, /caseLibraryUpstreamLabel\(item\)/);
+  assert.match(frontend, /caseDetailUpstream/);
+  assert.match(html, /id="caseDetailUpstream"/);
+});
 
 test("case API returns every case while withholding locked case content", () => {
   const server = read("server.js");
