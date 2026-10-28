@@ -45,6 +45,8 @@ test("admin media preview selects images, videos, and audio without autoplaying 
   assert.match(video, /<video src="https:\/\/cdn\.test\/a\.mp4#t=0\.1" muted playsinline preload="metadata"><\/video>/);
   assert.doesNotMatch(video, /controls|autoplay/);
   assert.match(video, /data-media-kind="video"/);
+  assert.match(video, /adm-media-preview-play/);
+  assert.match(video, /<span class="adm-media-preview-badge">播放<\/span>/);
 
   const ratioVideo = adminMediaPreviewTrigger({
     url: "https://cdn.test/a.mp4",
@@ -61,6 +63,8 @@ test("admin media preview selects images, videos, and audio without autoplaying 
 
 test("all live chat material editors render a preview trigger", () => {
   assert.match(admin, /function chatLiveStoryAssetField[\s\S]*?data-story-preview[\s\S]*?adminMediaPreviewTrigger/);
+  assert.match(admin, /function chatLiveStoryAssetField[\s\S]*?data-story-open-preview[\s\S]*?预览播放/);
+  assert.match(admin, /data-story-open-preview[\s\S]*?openAdminMediaPreview/);
   assert.match(admin, /function chatLiveAlbumCardHtml[\s\S]*?adminMediaPreviewTrigger/);
   assert.match(admin, /function chatLiveLookCard[\s\S]*?adminMediaPreviewTrigger/);
   assert.match(admin, /function chatLiveGiftsHtml[\s\S]*?data-gift-preview[\s\S]*?adminMediaPreviewTrigger/);
@@ -83,7 +87,7 @@ test("story image and transition video previews refresh after upload and clear o
   assert.match(source, /const previewUrl = URL\.createObjectURL\(file\)/);
   assert.match(source, /preview\.innerHTML = adminMediaPreviewTrigger\(\{ url: previewUrl/);
   assert.match(source, /preview\.innerHTML = adminMediaPreviewTrigger\(\{ url: result\.url/);
-  assert.match(source, /preview\.innerHTML = adminMediaPreviewTrigger\(\{ url: hidden\?\.value/);
+  assert.match(source, /hidden\?\.value[\s\S]*?adminMediaPreviewTrigger\(\{ url: hidden\.value/);
   assert.match(source, /URL\.revokeObjectURL\(previewUrl\)/);
   assert.match(source, /kind: isVideo \? "private-video" : "look"/);
   assert.doesNotMatch(source, /imageUrl\s*=\s*result\.url/);
@@ -97,6 +101,8 @@ test("media lightbox supports full-size image and playable video previews", () =
   assert.match(admin, /addEventListener\("keydown"[\s\S]*?Escape/);
   assert.match(css, /\.adm-media-lightbox\s*\{[\s\S]*?position:\s*fixed/);
   assert.match(css, /\.adm-media-preview-trigger img,[\s\S]*?object-fit:\s*cover/);
+  assert.match(css, /\.adm-media-preview-play\s*\{[\s\S]*?position:\s*absolute/);
+  assert.match(css, /\.adm-story-media-empty\s*\{/);
   assert.match(css, /\.chat-live-story-preview[\s\S]*?aspect-ratio:\s*16\s*\/\s*10/);
   assert.match(css, /\.adm-record-thumb-preview\s*\{[\s\S]*?display:\s*inline-block/);
   assert.match(css, /\.platform-mini-preview-link\s*\{[\s\S]*?width:\s*58px/);
@@ -105,8 +111,8 @@ test("media lightbox supports full-size image and playable video previews", () =
 });
 
 test("admin entry busts cached preview assets and disables edge caching", () => {
-  assert.match(html, /admin\.css\?v=20261028-media-preview-1/);
-  assert.match(html, /admin\.js\?v=20261028-media-preview-1/);
+  assert.match(html, /admin\.css\?v=20261028-media-preview-2/);
+  assert.match(html, /admin\.js\?v=20261028-media-preview-2/);
   assert.match(admin, /function adminMediaPreviewTrigger/);
   assert.match(css, /\.adm-media-lightbox/);
 });

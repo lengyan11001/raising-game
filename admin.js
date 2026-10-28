@@ -4002,9 +4002,9 @@ function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", class
   const posterAttr = posterSource ? ` poster="${escapeHtml(posterSource)}"` : "";
   const styleAttr = String(style || "").trim() ? ` style="${escapeHtml(style)}"` : "";
   const media = type === "video"
-    ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video>`
+    ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
     : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
-  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">预览</span></button>`;
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
 }
 
 function closeAdminMediaPreview() {
@@ -4116,13 +4116,18 @@ function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "", lab
   const isVideo = kind === "video";
   const accept = isVideo ? "video/mp4,video/webm,video/quicktime" : "image/png,image/jpeg,image/webp";
   const mediaLabel = label || (isVideo ? "过场视频" : "场景素材");
+  const preview = url
+    ? adminMediaPreviewTrigger({ url, kind: isVideo ? "video" : "image", label: mediaLabel, className: "adm-story-media-preview" })
+    : `<span class="adm-story-media-empty">${isVideo ? "未上传视频" : "未上传图片"}</span>`;
+  const actionText = url ? (isVideo ? "预览播放" : "查看大图") : "预览";
   return `<div class="chat-live-story-asset" data-story-asset-kind="${isVideo ? "video" : "image"}">
     <input type="hidden" ${escapeHtml(attribute)} value="${escapeHtml(url)}" />
     <input type="file" accept="${accept}" data-story-file="${isVideo ? "video" : "image"}" hidden />
-    <div class="chat-live-story-preview" data-story-preview>${adminMediaPreviewTrigger({ url, kind: isVideo ? "video" : "image", label: mediaLabel })}</div>
+    <div class="chat-live-story-preview" data-story-preview>${preview}</div>
     <div class="chat-live-story-asset-actions">
       <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-story-pick>${url ? "更换" : "上传"}</button>
-      <small data-story-file-name>${url ? "已上传" : (isVideo ? "未上传视频" : "未上传图片")}</small>
+      <button class="adm-btn adm-btn-sm" type="button" data-story-open-preview ${url ? "" : "disabled"}>${actionText}</button>
+      <small data-story-file-name>${url ? "已上传，点击预览" : (isVideo ? "未上传视频" : "未上传图片")}</small>
     </div>
   </div>`;
 }
@@ -4131,6 +4136,21 @@ function bindChatLiveStoryAssetUploads(root) {
   if (!root) return;
   root.querySelectorAll("[data-story-pick]").forEach((button) => {
     button.onclick = () => button.closest(".chat-live-story-asset")?.querySelector("[data-story-file]")?.click();
+  });
+  root.querySelectorAll("[data-story-open-preview]").forEach((button) => {
+    button.onclick = () => {
+      const asset = button.closest(".chat-live-story-asset");
+      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image], [data-story-transition-video]");
+      const input = asset?.querySelector("[data-story-file]");
+      const isVideo = input?.dataset.storyFile === "video";
+      const url = hidden?.value || "";
+      if (!url) return;
+      openAdminMediaPreview({
+        url,
+        kind: isVideo ? "video" : "image",
+        label: asset?.querySelector("[data-story-preview] [data-media-label]")?.getAttribute("data-media-label") || (isVideo ? "过场视频" : "场景素材"),
+      });
+    };
   });
   root.querySelectorAll("[data-story-file]").forEach((input) => {
     input.onchange = async () => {
@@ -4153,8 +4173,10 @@ function bindChatLiveStoryAssetUploads(root) {
       const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image], [data-story-transition-video]");
       const preview = asset?.querySelector("[data-story-preview]");
       const button = asset?.querySelector("[data-story-pick]");
+      const previewButton = asset?.querySelector("[data-story-open-preview]");
       const status = asset?.querySelector("[data-story-file-name]");
       if (button) button.disabled = true;
+      if (previewButton) previewButton.disabled = true;
       const previewUrl = URL.createObjectURL(file);
       if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: previewUrl, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
       try {
@@ -4165,11 +4187,22 @@ function bindChatLiveStoryAssetUploads(root) {
         if (!result.url || !hidden) throw new Error("上传成功但没有返回素材。");
         hidden.value = result.url;
         if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
-        if (status) status.textContent = "已上传";
+        if (status) status.textContent = "已上传，点击预览";
         if (button) button.textContent = "更换";
+        if (previewButton) {
+          previewButton.disabled = false;
+          previewButton.textContent = isVideo ? "预览播放" : "查看大图";
+        }
+        refreshIcons();
         toast(isVideo ? "过场视频已上传。" : "场景图已上传。", "success");
       } catch (error) {
-        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: hidden?.value || "", kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
+        if (preview) preview.innerHTML = hidden?.value
+          ? adminMediaPreviewTrigger({ url: hidden.value, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" })
+          : `<span class="adm-story-media-empty">${isVideo ? "未上传视频" : "未上传图片"}</span>`;
+        if (previewButton) {
+          previewButton.disabled = !hidden?.value;
+          previewButton.textContent = hidden?.value ? (isVideo ? "预览播放" : "查看大图") : "预览";
+        }
         toast(error.message || "上传失败。", "error");
       } finally {
         URL.revokeObjectURL(previewUrl);
