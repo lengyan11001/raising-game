@@ -40,6 +40,8 @@ test("advanced download preparation forces a local transient copy and R2 upload"
   assert.match(prepare, /markPublishedFileSafely\(saved\.localImagePath\)/);
   assert.match(prepare, /if \(!objectStorageEnabled\(\) \|\| !isSucceededStatus\(record\.status\)\) return record;/);
   assert.match(prepare, /force: true,/);
+  assert.match(prepare, /updateGenerationRecordAdvancedDownloadInDb\(existing\.taskId, \{/);
+  assert.doesNotMatch(prepare, /return upsertGenerationRecord\(\{\s*taskId: existing\.taskId/);
 });
 
 test("advanced download eligibility does not require a pre-existing R2 copy", () => {

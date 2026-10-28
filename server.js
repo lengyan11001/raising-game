@@ -228,6 +228,7 @@ const {
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
+  updateGenerationRecordAdvancedDownloadInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,
@@ -47892,8 +47893,7 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       error.code = "R2_UPLOAD_FAILED";
       throw error;
     }
-    return upsertGenerationRecord({
-      taskId: existing.taskId,
+    return updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
       localVideoUrl: localVideo.localVideoUrl,
       localVideoPath: localVideo.localVideoPath,
       localPosterUrl: poster.localPosterUrl,
@@ -47902,7 +47902,9 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       cdnVideoUrl: cdn.cdnVideoUrl,
       cdnPosterUrl: cdn.cdnPosterUrl,
       cdnError: "",
-      remoteVideoUrl: existing.remoteVideoUrl || providerTarget.url,
+      advancedDownloadPreparedAt: new Date().toISOString(),
+      advancedDownloadStatus: "ready",
+      advancedDownloadError: "",
     });
   }
 
@@ -47921,15 +47923,16 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     throw error;
   }
   await markPublishedFileSafely(saved.localImagePath);
-  return upsertGenerationRecord({
-    taskId: existing.taskId,
+  return updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
     localImageUrl: saved.localImageUrl,
     localImagePath: saved.localImagePath,
     imageResultUrl: upload.publicUrl,
     cdnImageUrl: upload.publicUrl,
     cdnImageUrls: [upload.publicUrl],
     cdnError: "",
-    remoteImageUrl: existing.remoteImageUrl || providerTarget.url,
+    advancedDownloadPreparedAt: new Date().toISOString(),
+    advancedDownloadStatus: "ready",
+    advancedDownloadError: "",
   });
 }
 

@@ -3537,6 +3537,47 @@ async function upsertGenerationRecordInDb(nextRecord) {
   return rows[0]?.payload || null;
 }
 
+async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) throw new Error("Generation record taskId is required");
+  const allowedKeys = [
+    "localVideoUrl",
+    "localVideoPath",
+    "localPosterUrl",
+    "localPosterPath",
+    "playbackOptimizedAt",
+    "cdnVideoUrl",
+    "cdnPosterUrl",
+    "cdnImageUrl",
+    "cdnImageUrls",
+    "localImageUrl",
+    "localImagePath",
+    "imageResultUrl",
+    "cdnError",
+    "advancedDownloadPreparedAt",
+    "advancedDownloadStatus",
+    "advancedDownloadError",
+  ];
+  const patch = Object.fromEntries(
+    allowedKeys
+      .filter((key) => Object.prototype.hasOwnProperty.call(updates || {}, key))
+      .map((key) => [key, updates[key]]),
+  );
+  if (!Object.keys(patch).length) return getGenerationRecordFromDb(id);
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_generation_records
+      SET payload = payload || $2::jsonb
+      WHERE task_id = $1
+      RETURNING payload
+    `,
+    [id, JSON.stringify(patch)],
+  );
+  return rows[0]?.payload || null;
+}
+
 async function replaceGenerationRecordsInDb(records) {
   if (!dbEnabled()) return null;
   if (!Array.isArray(records)) return [];
@@ -4204,6 +4245,7 @@ module.exports = {
   getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
+  updateGenerationRecordAdvancedDownloadInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,
