@@ -6327,6 +6327,8 @@ function normalizeChatLiveStory(raw = {}, existing = null) {
       locations: allowedLocations.length ? [...new Set(allowedLocations)] : [...locationIds],
       imageUrl: normalizeChatLiveStoryUrl(item?.imageUrl || item?.thumbnailUrl),
       videoUrl: normalizeChatLiveStoryUrl(item?.videoUrl),
+      spot: String(item?.spot || "").trim().slice(0, 40),
+      poseLabel: String(item?.poseLabel || "").trim().slice(0, 60),
       action: String(item?.action || item?.prompt || item?.name || "").trim().slice(0, 160),
       userText: String(item?.userText || "").trim().slice(0, 200),
     };
@@ -6434,6 +6436,8 @@ function publicChatLiveStory(raw = {}) {
       locations: item.locations,
       imageUrl: item.imageUrl,
       videoUrl: item.videoUrl,
+      spot: item.spot,
+      poseLabel: item.poseLabel,
       action: item.action,
     })),
     transitions: story.transitions.map((item) => ({ from: item.from, to: item.to, videoUrl: item.videoUrl })),
@@ -6544,6 +6548,8 @@ function chatLiveStoryDirectorSelection(story = {}, { text = "", currentStage = 
     actionId: action?.id || "",
     actionName: action?.name || "",
     action: action?.action || "",
+    spot: action?.spot || "",
+    poseLabel: action?.poseLabel || "",
     imageUrl: action?.imageUrl || "",
     userText: action?.userText || (action ? `按照参考图改成这个动作：${action.action || action.name}` : ""),
   };

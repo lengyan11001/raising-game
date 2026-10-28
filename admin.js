@@ -4132,6 +4132,13 @@ function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "", lab
   </div>`;
 }
 
+function chatLiveStoryActionPositionFields(item = {}) {
+  return `<div class="chat-live-story-action-labels">
+    <input data-story-action-spot value="${escapeHtml(item.spot || "")}" placeholder="具体位置，例如 客厅沙发 / 餐桌" />
+    <input data-story-action-pose value="${escapeHtml(item.poseLabel || "")}" placeholder="姿势，例如 侧卧 / 伏身 / 坐姿" />
+  </div>`;
+}
+
 function bindChatLiveStoryAssetUploads(root) {
   if (!root) return;
   root.querySelectorAll("[data-story-pick]").forEach((button) => {
@@ -4347,6 +4354,9 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const storyActions = Array.isArray(liveStory.actions) ? liveStory.actions : [];
   const storyTransitions = Array.isArray(liveStory.transitions) ? liveStory.transitions : [];
   const storyStageOptions = [["casual", "日常"], ["flirting", "暧昧"], ["foreplay", "前戏"], ["intimate", "亲密"], ["aftercare", "余韵"]];
+  const storyInitialLocationId = storyLocations.some((item) => item.id === liveStory.initialLocationId)
+    ? liveStory.initialLocationId
+    : (storyLocations[0]?.id || "");
   const storyLocationOptionsFor = (selectedId = "") => storyLocations
     .filter((item) => item.id)
     .map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.name || item.id)}</option>`)
@@ -4361,8 +4371,9 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
     </div>`).join("");
   const storyActionRows = storyActions.map((item, index) => `
     <div class="chat-live-story-row is-action" data-story-action>
-      <input data-story-action-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 kiss" />
-      <input data-story-action-name value="${escapeHtml(item.name || "")}" placeholder="名称，例如 接吻" />
+      <input data-story-action-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 sofa_recline" />
+      <input data-story-action-name value="${escapeHtml(item.name || "")}" placeholder="名称，例如 沙发侧卧" />
+      ${chatLiveStoryActionPositionFields(item)}
       ${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image", url: item.imageUrl || "" })}
       <input data-story-action-text value="${escapeHtml(item.action || "")}" placeholder="动作说明，例如 kissing on sofa" />
       <div class="chat-live-story-multi">${storyStageOptions.map(([id, label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" ${item.stages?.includes(id) ? "checked" : ""} />${label}</label>`).join("")}</div>
@@ -4449,18 +4460,20 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
         </div>
       </section>
       <section class="adm-card" id="chatLiveStoryCard">
-        <div class="adm-card-head"><div><h3>固定场景 / 阶段 / 动作</h3><p class="adm-muted">地点和阶段分开配置：任何地点都可以用于任何阶段。动作图只在对应阶段和地点被选中；过场视频由前端叠层播放，Vidu 只切静态画面。</p></div></div>
+        <div class="adm-card-head"><div><h3>固定场景 / 阶段 / 动作</h3><p class="adm-muted">地点实景用于进入房间和过场后的背景；动作关键帧必须固定在同一地点，并只出现同一位女性。同一地点、同一阶段可以添加多张不同位置和姿势的单人图，例如沙发坐姿、沙发侧卧、餐桌伏身。不得出现男性、第二个人、镜像人物或多余手脚。</p></div></div>
         <div class="chat-live-story-editor">
           <div class="chat-live-story-head">
             <label class="adm-check"><input id="chatLiveStoryEnabled" type="checkbox" ${liveStory.enabled === true || storyLocations.length ? "checked" : ""} /> 启用固定场景导演</label>
+            <label>默认进入场景 <select id="chatLiveStoryInitialLocation">${storyLocations.length ? storyLocations.map((location) => `<option value="${escapeHtml(location.id)}" ${location.id === storyInitialLocationId ? "selected" : ""}>${escapeHtml(location.name || location.id)}</option>`).join("") : `<option value="">先添加地点</option>`}</select></label>
             <label>切换冷却秒数 <input id="chatLiveStoryCooldown" type="number" min="0" max="900" value="${escapeHtml(String(liveStory.switchCooldownSeconds ?? 60))}" /></label>
           </div>
           <h4>地点</h4>
           <div id="chatLiveStoryLocations">${storyLocationRows || `<p class="adm-muted">还没有地点。先在下面添加客厅、厨房、卧室。</p>`}</div>
           <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddLocation">添加地点</button>
-          <h4>动作关键帧</h4>
-          <div id="chatLiveStoryActions">${storyActionRows || `<p class="adm-muted">还没有动作图。动作可用 Wan 案例作参考，再生成角色对应关键帧。</p>`}</div>
+          <h4>动作关键帧 / 单人姿势</h4>
+          <div id="chatLiveStoryActions">${storyActionRows || `<p class="adm-muted">还没有动作图。请按“房间 → 具体位置 → 阶段 → 姿势”逐张添加，同一阶段允许多张。</p>`}</div>
           <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddAction">添加动作</button>
+          <p class="adm-muted">命名示例：sofa_sit_casual / sofa_recline_flirting / table_leaning_flirting / counter_bend_intimate / bed_curl_aftercare。每张图只能有一位女性，固定家具和房间构图。</p>
           <h4>过场视频</h4>
           <div id="chatLiveStoryTransitions">${storyTransitionRows || `<p class="adm-muted">切换地点必须先配置并播放过场视频；没有视频时不会切到新场景。</p>`}</div>
           <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddTransition">添加过场</button>
@@ -4889,6 +4902,7 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
       })).filter((item) => item.url),
       liveStory: {
         enabled: root.querySelector("#chatLiveStoryEnabled")?.checked === true,
+        initialLocationId: root.querySelector("#chatLiveStoryInitialLocation")?.value || "",
         switchCooldownSeconds: Number(root.querySelector("#chatLiveStoryCooldown")?.value || 60),
         locations: Array.from(root.querySelectorAll("[data-story-location]")).map((row) => ({
           id: row.querySelector("[data-story-location-id]")?.value || "",
@@ -4899,6 +4913,8 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
         actions: Array.from(root.querySelectorAll("[data-story-action]")).map((row) => ({
           id: row.querySelector("[data-story-action-id]")?.value || "",
           name: row.querySelector("[data-story-action-name]")?.value || "",
+          spot: row.querySelector("[data-story-action-spot]")?.value || "",
+          poseLabel: row.querySelector("[data-story-action-pose]")?.value || "",
           imageUrl: row.querySelector("[data-story-action-image]")?.value || "",
           action: row.querySelector("[data-story-action-text]")?.value || "",
           stages: Array.from(row.querySelectorAll("[data-story-action-stage]:checked")).map((input) => input.value),
@@ -5013,6 +5029,12 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
           select.innerHTML = options;
           if (previous) select.value = previous;
         });
+        const initial = storyRoot.querySelector("#chatLiveStoryInitialLocation");
+        if (initial) {
+          const previous = initial.value;
+          initial.innerHTML = options || `<option value="">先添加地点</option>`;
+          if (previous) initial.value = previous;
+        }
         syncStoryLocationChoices();
       };
     });
@@ -5031,7 +5053,7 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
     storyActionsRoot()?.querySelector(".adm-muted")?.remove();
     const locations = storyLocationOptionsHtml();
     const wrap = document.createElement("div");
-    wrap.innerHTML = `<div class="chat-live-story-row is-action" data-story-action><input data-story-action-id placeholder="ID，例如 kiss" /><input data-story-action-name placeholder="名称，例如 接吻" />${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image" })}<input data-story-action-text placeholder="动作说明，例如 kissing on sofa" /><div class="chat-live-story-multi">${[["casual","日常"],["flirting","暧昧"],["foreplay","前戏"],["intimate","亲密"],["aftercare","余韵"]].map(([id,label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" />${label}</label>`).join("")}</div><div class="chat-live-story-multi">${Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => { const id = row.querySelector("[data-story-location-id]")?.value || ""; const name = row.querySelector("[data-story-location-name]")?.value || id; return id ? `<label><input type="checkbox" data-story-action-location value="${escapeHtml(id)}" />${escapeHtml(name)}</label>` : ""; }).join("")}</div><button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
+    wrap.innerHTML = `<div class="chat-live-story-row is-action" data-story-action><input data-story-action-id placeholder="ID，例如 sofa_recline" /><input data-story-action-name placeholder="名称，例如 沙发侧卧" />${chatLiveStoryActionPositionFields()}${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image" })}<input data-story-action-text placeholder="动作说明，例如 reclining alone on the living room sofa" /><div class="chat-live-story-multi">${[["casual","日常"],["flirting","暧昧"],["foreplay","前戏"],["intimate","亲密"],["aftercare","余韵"]].map(([id,label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" />${label}</label>`).join("")}</div><div class="chat-live-story-multi">${Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => { const id = row.querySelector("[data-story-location-id]")?.value || ""; const name = row.querySelector("[data-story-location-name]")?.value || id; return id ? `<label><input type="checkbox" data-story-action-location value="${escapeHtml(id)}" />${escapeHtml(name)}</label>` : ""; }).join("")}</div><button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
     storyActionsRoot()?.appendChild(wrap.firstElementChild);
     bindStoryInputs();
     bindChatLiveStoryAssetUploads(storyActionsRoot());

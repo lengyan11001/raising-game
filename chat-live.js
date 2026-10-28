@@ -2011,7 +2011,7 @@
     }, Math.max(300, Number(delayMs || 0) || 0));
   }
 
-  async function applyLiveStoryDirector(director = {}, { retry = true } = {}) {
+  async function applyLiveStoryDirector(director = {}, { retry = true, initial = false } = {}) {
     const story = liveStory();
     if (!story || !director) return;
     const locationId = String(director.locationId || state.liveStoryLocationId || story.initialLocationId || "");
@@ -2022,7 +2022,7 @@
       ? director.transitionUrls.map(String).filter(Boolean)
       : [String(director.transitionUrl || liveStoryTransitionUrl(previousLocationId, locationId) || "")].filter(Boolean);
     const locationLook = liveStoryLookForLocation(location);
-    const actionLook = liveStoryActionLook(director, location);
+    const actionLook = initial ? null : liveStoryActionLook(director, location);
     const targetLook = actionLook || locationLook;
     const currentLookId = String(state.lookStack[state.lookStack.length - 1] || "");
     if (!targetLook || state.ended) return;
@@ -2054,6 +2054,7 @@
       for (const transitionUrl of transitionUrls) await playLiveStoryTransition(transitionUrl);
       await sendLookOperation({ look: targetLook });
       state.lookStack = [targetLook.id];
+      if (initial) hidePlaceholder();
       state.liveStoryLocationId = locationId;
       state.liveStoryStage = String(director.stage || state.liveStoryStage || "casual");
       state.liveStoryLastSwitchAt = Date.now();
@@ -2578,6 +2579,17 @@
       } else {
         await Promise.all([connectSignaling(payload.session), joinRtc(payload.session)]);
         if (!state.ended) appendLine("sys", "正在通话中，请直接说话或打字。");
+      }
+      const story = liveStory();
+      if (story) {
+        const initialLocation = liveStoryLocation(story.initialLocationId) || story.locations[0];
+        if (initialLocation) {
+          state.liveStoryLocationId = initialLocation.id;
+          applyLiveStoryDirector({
+            locationId: initialLocation.id,
+            stage: "casual",
+          }, { initial: true }).catch(() => {});
+        }
       }
     } catch (error) {
       const message = String(error?.message || "接入实时音视频失败").replace(/\s+/g, " ").trim().slice(0, 160);

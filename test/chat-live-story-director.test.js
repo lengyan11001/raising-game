@@ -58,8 +58,8 @@ const storyFixture = {
     { id: "bedroom", name: "卧室", imageUrl: "https://example.test/bedroom.jpg" },
   ],
   actions: [
-    { id: "kiss", name: "接吻", imageUrl: "https://example.test/kiss.jpg", action: "kissing", stages: ["flirting", "foreplay"], locations: ["kitchen", "living_room"] },
-    { id: "intimate_sofa", name: "沙发亲密", imageUrl: "https://example.test/sofa.jpg", action: "intimate on sofa", stages: ["intimate"], locations: ["living_room"] },
+    { id: "kiss", name: "接吻", spot: "料理台前", poseLabel: "侧身靠近", imageUrl: "https://example.test/kiss.jpg", action: "kissing", stages: ["flirting", "foreplay"], locations: ["kitchen", "living_room"] },
+    { id: "intimate_sofa", name: "沙发亲密", spot: "客厅沙发", poseLabel: "侧卧", imageUrl: "https://example.test/sofa.jpg", action: "intimate on sofa", stages: ["intimate"], locations: ["living_room"] },
   ],
   transitions: [
     { from: "kitchen", to: "living_room", videoUrl: "https://example.test/kitchen-to-living.mp4" },
@@ -187,13 +187,48 @@ test("public story omits private prompt fields and keeps render data", () => {
   assert.equal(view.locations[1].name, "客厅沙发");
   assert.equal(view.locations[2].name, "卧室");
   assert.equal(view.actions[0].action, "kissing");
+  assert.equal(view.actions[0].spot, "料理台前");
+  assert.equal(view.actions[0].poseLabel, "侧身靠近");
   assert.equal("userText" in view.actions[0], false);
+});
+
+test("same location and stage can select different solo poses", () => {
+  const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
+  const story = normalizeChatLiveStory({
+    ...storyFixture,
+    switchCooldownSeconds: 0,
+    actions: [
+      { id: "sofa_sit", name: "沙发坐姿", spot: "客厅沙发", poseLabel: "坐姿", imageUrl: "https://example.test/sofa-sit.jpg", stages: ["flirting"], locations: ["living_room"] },
+      { id: "sofa_recline", name: "沙发侧卧", spot: "客厅沙发", poseLabel: "侧卧", imageUrl: "https://example.test/sofa-recline.jpg", stages: ["flirting"], locations: ["living_room"] },
+    ],
+  });
+  const selection = chatLiveStoryDirectorSelection(story, {
+    text: "想和你暧昧一下",
+    currentStage: "casual",
+    currentLocationId: "living_room",
+    recentActionIds: ["sofa_sit"],
+  });
+  assert.equal(selection.actionId, "sofa_recline");
+  assert.equal(selection.spot, "客厅沙发");
+  assert.equal(selection.poseLabel, "侧卧");
+});
+
+test("entering a room applies the location look before any action image", () => {
+  assert.match(client, /async function applyLiveStoryDirector\(director = \{\}, \{ retry = true, initial = false \} = \{\}\)/);
+  assert.match(client, /const actionLook = initial \? null : liveStoryActionLook/);
+  assert.match(client, /initialLocationId/);
+  assert.match(client, /\}, \{ initial: true \}\)/);
+  assert.match(client, /state\.liveStoryLocationId = initialLocation\.id/);
 });
 
 test("admin and client wire story editing and director playback", () => {
   assert.match(admin, /固定场景 \/ 阶段 \/ 动作/);
   assert.match(admin, /liveStory: \{/);
   assert.match(admin, /data-story-action-stage/);
+  assert.match(admin, /data-story-action-spot/);
+  assert.match(admin, /data-story-action-pose/);
+  assert.match(admin, /chatLiveStoryInitialLocation/);
+  assert.match(admin, /同一地点、同一阶段可以添加多张不同位置和姿势的单人图/);
   assert.match(client, /applyLiveStoryDirector/);
   assert.match(client, /playLiveStoryTransition/);
   assert.match(client, /sent\?\.director/);
