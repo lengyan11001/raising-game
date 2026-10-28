@@ -32,3 +32,30 @@ test("fresh server detail overrides stale local task status", () => {
 test("advanced result entry has no duplicate detail request", () => {
   assert.doesNotMatch(explore, /renderAdvancedResultPanel\(\);\s*if \(state\.advancedSideTab === "result" && state\.user && state\.advancedResultRecords\?\.length\) refreshAdvancedResultRecord\(\);/);
 });
+
+test("pending results use one low-frequency timeout instead of an interval", () => {
+  assert.match(create, /const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 \* 1000;/);
+  assert.match(create, /function scheduleAdvancedResultRefresh\(\) \{/);
+  assert.match(create, /advancedResultPendingRecords\(\)\.length/);
+  assert.match(create, /window\.setTimeout\(\(\) => \{[\s\S]*?refreshAdvancedResultRecord\(\);[\s\S]*?ADVANCED_RESULT_POLL_INTERVAL_MS/);
+  assert.doesNotMatch(create, /setInterval\([\s\S]{0,120}refreshAdvancedResultRecord/);
+});
+
+test("pending history without media can seed the result panel and polling", () => {
+  const fallback = create.match(/function advancedResultHistoryFallbackRecords\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(fallback, "advancedResultHistoryFallbackRecords should exist");
+  assert.match(fallback, /isPendingGenerationRecord\(record\)/);
+});
+
+test("polling stops when the result has no pending tasks", () => {
+  const schedule = create.match(/function scheduleAdvancedResultRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(schedule, "scheduleAdvancedResultRefresh should exist");
+  assert.match(schedule, /!advancedResultPendingRecords\(\)\.length\) return;/);
+  assert.match(schedule, /state\.advancedResultTimer = window\.setTimeout/);
+});
+
+test("logout and leaving advanced stop pending-result polling", () => {
+  assert.match(explore, /if \(nextTab !== "advanced"\) \{[\s\S]*?stopAdvancedResultRefresh\(\);/);
+  const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
+  assert.match(ui, /if \(userChanged && typeof stopAdvancedResultRefresh === "function"\) stopAdvancedResultRefresh\(\);/);
+});

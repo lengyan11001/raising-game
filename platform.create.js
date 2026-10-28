@@ -66,8 +66,9 @@ function setAdvancedSideTab(tab = "result", { silent = false, syncMobile = false
     ) {
       loadHistory({ silent: true, refresh: true, page: currentHistoryPage() });
     }
-    // Result is refreshed once on entry/login, never on a background loop.
-    // The server detail replaces any stale cached or fallback status.
+    // The server detail replaces stale cached/fallback status on entry. If
+    // anything is still pending, refreshAdvancedResultRecord schedules one
+    // low-frequency follow-up while the Result panel remains open.
     if (state.user) refreshAdvancedResultRecord();
   }
   if (syncMobile) setAdvancedMobileTab(next, { silent: true, skipSideTab: true });
@@ -449,7 +450,14 @@ function syncAdvancedResultTaskId() {
 
 function advancedResultHistoryFallbackRecords() {
   return (Array.isArray(state.historyRecords) ? state.historyRecords : [])
-    .filter((record) => generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || record?.textResult || record?.responseText)
+    .filter((record) => (
+      isPendingGenerationRecord(record)
+      || generationVideoUrl(record)
+      || generationImageResultUrl(record)
+      || record?.downloadUrl
+      || record?.textResult
+      || record?.responseText
+    ))
     .slice(0, 1);
 }
 
@@ -597,13 +605,42 @@ function renderAdvancedResultPanel() {
   refreshIcons();
 }
 
+const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 * 1000;
+
+function advancedResultPendingRecords() {
+  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  const fallback = advancedResultHistoryFallbackRecords();
+  const seen = new Set();
+  return [...records, ...fallback].filter((record) => {
+    const taskId = String(record?.taskId || "").trim();
+    if (!taskId || taskId.startsWith("pending-") || seen.has(taskId)) return false;
+    seen.add(taskId);
+    return isPendingGenerationRecord(record);
+  });
+}
+
 function stopAdvancedResultRefresh() {
   if (state.advancedResultTimer) window.clearTimeout(state.advancedResultTimer);
   state.advancedResultTimer = 0;
 }
 
+function scheduleAdvancedResultRefresh() {
+  stopAdvancedResultRefresh();
+  if (
+    !state.user
+    || state.tab !== "advanced"
+    || state.advancedSideTab !== "result"
+    || !advancedResultPendingRecords().length
+  ) return;
+  state.advancedResultTimer = window.setTimeout(() => {
+    state.advancedResultTimer = 0;
+    refreshAdvancedResultRecord();
+  }, ADVANCED_RESULT_POLL_INTERVAL_MS);
+}
+
 async function refreshAdvancedResultRecord() {
   stopAdvancedResultRefresh();
+  if (!state.user) return;
   const taskIds = advancedResultRefreshTaskIds();
   if (!taskIds.length || state.advancedResultLoading || state.tab !== "advanced") return;
   state.advancedResultLoading = true;
@@ -642,6 +679,9 @@ async function refreshAdvancedResultRecord() {
     }
   } finally {
     state.advancedResultLoading = false;
+    // Failed detail requests keep a pending record pending, so schedule the
+    // next one-minute retry without creating overlapping requests.
+    scheduleAdvancedResultRefresh();
   }
 }
 

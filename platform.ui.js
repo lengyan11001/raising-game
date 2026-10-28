@@ -617,6 +617,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   const previousUserId = state.user?.id || "";
   const nextUserId = user?.id || "";
   const userChanged = nextUserId !== previousUserId;
+  if (userChanged && typeof stopAdvancedResultRefresh === "function") stopAdvancedResultRefresh();
   state.user = user || null;
   renderHomePanel();
   if (userChanged) state.generationCompletionPrimed = false;
