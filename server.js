@@ -6375,6 +6375,43 @@ function chatLiveStoryTransition(story = {}, fromId = "", toId = "") {
     || "";
 }
 
+function chatLiveStoryTransitionPath(story = {}, fromId = "", toId = "") {
+  const from = normalizeChatLiveStoryId(fromId);
+  const to = normalizeChatLiveStoryId(toId);
+  if (!from || !to) return [];
+  if (from === to) return [];
+  const locations = Array.isArray(story.locations) ? story.locations : [];
+  const locationIds = new Set(locations.map((item) => item.id));
+  if (!locationIds.has(from) || !locationIds.has(to)) return [];
+  const edges = new Map();
+  const addEdge = (start, end, videoUrl) => {
+    const a = normalizeChatLiveStoryId(start);
+    const b = normalizeChatLiveStoryId(end);
+    const url = normalizeChatLiveStoryUrl(videoUrl);
+    if (!a || !b || a === b || !url || !locationIds.has(a) || !locationIds.has(b)) return;
+    if (!edges.has(a)) edges.set(a, []);
+    const list = edges.get(a);
+    if (!list.some((item) => item.to === b)) list.push({ to: b, videoUrl: url });
+  };
+  for (const item of Array.isArray(story.transitions) ? story.transitions : []) addEdge(item.from, item.to, item.videoUrl);
+  for (const location of locations) {
+    for (const [start, videoUrl] of Object.entries(location.entryTransitions || {})) addEdge(start, location.id, videoUrl);
+  }
+  const queue = [{ id: from, urls: [] }];
+  const seen = new Set([from]);
+  while (queue.length) {
+    const current = queue.shift();
+    for (const edge of edges.get(current.id) || []) {
+      if (seen.has(edge.to)) continue;
+      const urls = [...current.urls, edge.videoUrl];
+      if (edge.to === to) return urls;
+      seen.add(edge.to);
+      queue.push({ id: edge.to, urls });
+    }
+  }
+  return [];
+}
+
 function publicChatLiveStory(raw = {}) {
   const story = normalizeChatLiveStory(raw);
   if (!story.enabled || !story.locations.length) return null;
@@ -6478,9 +6515,14 @@ function chatLiveStoryDirectorSelection(story = {}, { text = "", currentStage = 
     ? Date.now() - parsedLastSwitchAt
     : Number.POSITIVE_INFINITY;
   const cooldownMs = Math.max(0, Number(normalized.switchCooldownSeconds || 0) || 0) * 1000;
-  const locationChanged = Boolean(currentId && requestedLocationId && requestedLocationId !== currentId);
-  const locationId = locationChanged && elapsedMs < cooldownMs ? currentId : requestedLocationId;
-  const blockedByCooldown = locationChanged && locationId !== requestedLocationId;
+  const requestedLocationChanged = Boolean(currentId && requestedLocationId && requestedLocationId !== currentId);
+  const blockedByCooldown = requestedLocationChanged && elapsedMs < cooldownMs;
+  const transitionUrls = requestedLocationChanged && !blockedByCooldown
+    ? chatLiveStoryTransitionPath(normalized, currentId, requestedLocationId)
+    : [];
+  const blockedByMissingTransition = requestedLocationChanged && !blockedByCooldown && !transitionUrls.length;
+  const locationId = blockedByCooldown || blockedByMissingTransition ? currentId : requestedLocationId;
+  const locationChanged = locationId !== currentId;
   const candidates = normalized.actions.filter((item) => item.locations.includes(locationId)
     && item.stages.includes(stage)
     && item.imageUrl);
@@ -6494,9 +6536,11 @@ function chatLiveStoryDirectorSelection(story = {}, { text = "", currentStage = 
     locationId,
     previousLocationId: currentId,
     requestedLocationId,
-    locationChanged: locationId !== currentId,
+    locationChanged,
     blockedByCooldown,
-    transitionUrl: locationChanged && locationId !== currentId ? chatLiveStoryTransition(normalized, currentId, locationId) : "",
+    blockedByMissingTransition,
+    transitionUrls,
+    transitionUrl: transitionUrls[0] || "",
     actionId: action?.id || "",
     actionName: action?.name || "",
     action: action?.action || "",
@@ -6789,6 +6833,7 @@ function chatLiveCharacterValidationError(character = {}, existing = null) {
     if (missingLocation) return `场景「${missingLocation.name}」请上传场景背景图。`;
     const missingAction = story.actions.find((item) => !item.imageUrl);
     if (missingAction) return `动作「${missingAction.name}」请上传动作关键帧图。`;
+    if (!story.transitions.length) return "切换地点必须先上传至少一条过场视频。";
     const asset = [
       ...story.locations.map((item) => ({ url: item.imageUrl, label: "场景背景图" })),
       ...story.actions.map((item) => ({ url: item.imageUrl, label: "动作关键帧图" })),
@@ -8818,6 +8863,58 @@ async function handleReportChatLiveSessionIssue(req, res, sessionId = "") {
   return sendJson(res, 200, { ok: true, stored });
 }
 
+async function handleSaveChatLiveStoryState(req, res, sessionId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
+  if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+  if (session.mode !== "component") return sendJson(res, 400, { ok: false, code: "NOT_COMPONENT_SESSION", message: "该会话不是组件版。" });
+  if (session.settled === true || ["ended", "closed", "failed"].includes(String(session.status || ""))) {
+    return sendJson(res, 409, { ok: false, message: "会话已经结束。" });
+  }
+  const body = await readJson(req).catch(() => ({}));
+  const character = await getChatLiveCharacterInDb(session.characterId);
+  const story = normalizeChatLiveStory(character?.liveStory || {});
+  if (!story.enabled || !story.locations.length) return sendJson(res, 422, { ok: false, message: "这个角色没有启用固定场景。" });
+  const targetLocationId = normalizeChatLiveStoryId(body.locationId);
+  const targetLocation = chatLiveStoryLocation(story, targetLocationId);
+  if (!targetLocation) return sendJson(res, 422, { ok: false, message: "目标场景不存在。" });
+  const currentLocationId = story.locations.some((item) => item.id === normalizeChatLiveStoryId(session.liveStoryLocationId))
+    ? normalizeChatLiveStoryId(session.liveStoryLocationId)
+    : story.initialLocationId;
+  if (targetLocationId !== currentLocationId && !chatLiveStoryTransitionPath(story, currentLocationId, targetLocationId).length) {
+    return sendJson(res, 422, { ok: false, code: "STORY_TRANSITION_REQUIRED", message: "这个方向还没有配置过场视频，不能切换场景。" });
+  }
+  const stage = CHAT_LIVE_STORY_STAGES.includes(String(body.stage || "")) ? String(body.stage) : "casual";
+  const actionId = normalizeChatLiveStoryId(body.actionId);
+  const action = chatLiveStoryAction(story, actionId);
+  if (actionId && (!action || !action.locations.includes(targetLocationId) || !action.stages.includes(stage))) {
+    return sendJson(res, 422, { ok: false, message: "动作和当前场景或阶段不匹配。" });
+  }
+  const recent = [
+    ...(Array.isArray(session.liveStoryRecentActionIds) ? session.liveStoryRecentActionIds : []),
+    action?.id || "",
+  ].filter(Boolean).slice(-8);
+  const saved = await saveChatLiveStoryState(session.id, {
+    locationId: targetLocationId,
+    stage,
+    recentActionIds: recent,
+    lastSwitchAt: body.lastSwitchAt || new Date().toISOString(),
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    story: {
+      locationId: targetLocationId,
+      stage,
+      recentActionIds: (Array.isArray(saved?.liveStoryRecentActionIds) ? saved.liveStoryRecentActionIds : recent)
+        .map((item) => normalizeChatLiveStoryId(item))
+        .filter(Boolean)
+        .slice(-8),
+      lastSwitchAt: saved?.liveStoryLastSwitchAt || "",
+    },
+  });
+}
+
 async function handleChatLiveSay(req, res, sessionId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -8854,11 +8951,13 @@ async function handleChatLiveSay(req, res, sessionId = "") {
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "assistant", reply, "component");
     if (director) {
       const recent = [...(Array.isArray(session.liveStoryRecentActionIds) ? session.liveStoryRecentActionIds : []), director.actionId].filter(Boolean).slice(-8);
+      /* A room change is only a proposal until the client has played every
+         required transition video and successfully switched the live frame. */
       await saveChatLiveStoryState(session.id, {
-        locationId: director.locationId,
+        locationId: director.locationChanged ? director.previousLocationId : director.locationId,
         stage: director.stage,
         recentActionIds: recent,
-        lastSwitchAt: director.locationChanged ? new Date().toISOString() : (session.liveStoryLastSwitchAt || ""),
+        lastSwitchAt: session.liveStoryLastSwitchAt || "",
       }).catch(() => {});
     }
     return sendJson(res, 200, { ok: true, reply: "", director });
@@ -49461,6 +49560,10 @@ async function handleRequest(req, res) {
     const chatLiveVoiceMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/voice$/);
     if (req.method === "POST" && chatLiveVoiceMatch) {
       return await handleChatLiveVoice(req, res, decodeURIComponent(chatLiveVoiceMatch[1]));
+    }
+    const chatLiveStoryStateMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/story-state$/);
+    if (req.method === "POST" && chatLiveStoryStateMatch) {
+      return await handleSaveChatLiveStoryState(req, res, decodeURIComponent(chatLiveStoryStateMatch[1]));
     }
     const chatLiveSayMatch = url.pathname.match(/^\/api\/chat-live\/sessions\/([^/]+)\/say$/);
     if (req.method === "POST" && chatLiveSayMatch) {

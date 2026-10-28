@@ -4318,7 +4318,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
           <div id="chatLiveStoryActions">${storyActionRows || `<p class="adm-muted">还没有动作图。动作可用 Wan 案例作参考，再生成角色对应关键帧。</p>`}</div>
           <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddAction">添加动作</button>
           <h4>过场视频</h4>
-          <div id="chatLiveStoryTransitions">${storyTransitionRows || `<p class="adm-muted">可配置厨房到客厅等固定过场；没有视频时直接切背景。</p>`}</div>
+          <div id="chatLiveStoryTransitions">${storyTransitionRows || `<p class="adm-muted">切换地点必须先配置并播放过场视频；没有视频时不会切到新场景。</p>`}</div>
           <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddTransition">添加过场</button>
         </div>
       </section>

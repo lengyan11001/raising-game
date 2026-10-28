@@ -1917,7 +1917,8 @@
   }
 
   async function playLiveStoryTransition(url = "") {
-    if (!url || !state.overlay?.stage) return;
+    if (!url) throw new Error("这个方向还没有配置过场视频。");
+    if (!state.overlay?.stage) throw new Error("通话画面还没有准备好。");
     const previous = state.liveStoryTransition;
     if (previous?.root) {
       try { previous.root.remove(); } catch {}
@@ -1932,35 +1933,70 @@
     video.setAttribute("playsinline", "true");
     state.overlay.stage.appendChild(video);
     state.liveStoryTransition = { root: video };
-    await new Promise((resolve) => {
-      let settled = false;
-      let finished = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
-      const start = () => {
-        if (settled || finished) return;
-        const played = video.play();
-        if (played && typeof played.catch === "function") played.catch(() => {
-          /* Autoplay may be blocked. Keep the transition video mounted and wait
-             for a user gesture instead of silently replacing it with an image. */
-          state.liveStoryRetryTimer = window.setTimeout(start, 220);
+    try {
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        let retryTimer = 0;
+        const cleanup = () => {
+          if (retryTimer) window.clearTimeout(retryTimer);
+          retryTimer = 0;
+        };
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve();
+        };
+        const fail = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error("过场视频没有加载成功，已留在原场景。"));
+        };
+        const start = () => {
+          if (settled) return;
+          const played = video.play();
+          if (played && typeof played.catch === "function") played.catch(() => {
+            /* Autoplay may be blocked. Keep the transition video mounted and
+               retry instead of silently replacing it with a still image. */
+            if (!settled) retryTimer = window.setTimeout(start, 220);
+          });
+        };
+        video.addEventListener("ended", finish, { once: true });
+        video.addEventListener("error", fail, { once: true });
+        start();
+      });
+    } finally {
+      video.classList.add("is-out");
+      window.setTimeout(() => {
+        try { video.remove(); } catch {}
+        if (state.liveStoryTransition?.root === video) state.liveStoryTransition = null;
+      }, 420);
+    }
+  }
+
+  async function confirmLiveStoryState(story = {}, director = {}, locationId = "") {
+    if (!state.session?.id || !director) return;
+    const body = {
+      locationId,
+      stage: String(director.stage || state.liveStoryStage || "casual"),
+      actionId: String(director.actionId || ""),
+      lastSwitchAt: new Date().toISOString(),
+    };
+    let last = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/story-state`, {
+          method: "POST",
+          body: JSON.stringify(body),
         });
-      };
-      video.addEventListener("ended", () => {
-        finished = true;
-        finish();
-      }, { once: true });
-      video.addEventListener("error", finish, { once: true });
-      start();
-    });
-    video.classList.add("is-out");
-    window.setTimeout(() => {
-      try { video.remove(); } catch {}
-      if (state.liveStoryTransition?.root === video) state.liveStoryTransition = null;
-    }, 420);
+        return;
+      } catch (error) {
+        last = error;
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+      }
+    }
+    if (last) appendLine("sys", "场景画面已切换，但这次记录没有保存成功。");
   }
 
   function scheduleLiveStoryRetry(director = {}, delayMs = 1200) {
@@ -1982,7 +2018,9 @@
     const location = liveStoryLocation(locationId);
     if (!location) return;
     const previousLocationId = String(state.liveStoryLocationId || story.initialLocationId || "");
-    const transitionUrl = String(director.transitionUrl || liveStoryTransitionUrl(previousLocationId, locationId) || "");
+    const transitionUrls = Array.isArray(director.transitionUrls) && director.transitionUrls.length
+      ? director.transitionUrls.map(String).filter(Boolean)
+      : [String(director.transitionUrl || liveStoryTransitionUrl(previousLocationId, locationId) || "")].filter(Boolean);
     const locationLook = liveStoryLookForLocation(location);
     const actionLook = liveStoryActionLook(director, location);
     const targetLook = actionLook || locationLook;
@@ -2006,14 +2044,20 @@
       }
       return;
     }
+    if (locationChanged && !transitionUrls.length) {
+      if (retry) scheduleLiveStoryRetry(director, 1800);
+      appendLine("sys", "这个方向还没有配置过场视频，先留在原场景。");
+      return;
+    }
     state.liveStorySwitching = true;
     try {
-      if (transitionUrl) await playLiveStoryTransition(transitionUrl);
+      for (const transitionUrl of transitionUrls) await playLiveStoryTransition(transitionUrl);
       await sendLookOperation({ look: targetLook });
       state.lookStack = [targetLook.id];
       state.liveStoryLocationId = locationId;
       state.liveStoryStage = String(director.stage || state.liveStoryStage || "casual");
       state.liveStoryLastSwitchAt = Date.now();
+      await confirmLiveStoryState(story, director, locationId);
     } catch (error) {
       if (!state.ended) appendLine("sys", error.message || "场景画面暂时没有切过去。");
       if (retry && !state.ended) scheduleLiveStoryRetry(director, 1800);

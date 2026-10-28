@@ -28,12 +28,13 @@ function loadStoryFunctions() {
     extractFunction("chatLiveStoryLocation"),
     extractFunction("chatLiveStoryAction"),
     extractFunction("chatLiveStoryTransition"),
+    extractFunction("chatLiveStoryTransitionPath"),
     extractFunction("publicChatLiveStory"),
     extractFunction("chatLiveStoryStageForText"),
     extractFunction("chatLiveStoryLocationKeywords"),
     extractFunction("chatLiveStoryLocationForText"),
     extractFunction("chatLiveStoryDirectorSelection"),
-    'module.exports = { normalizeChatLiveStory, chatLiveStoryDirectorSelection, publicChatLiveStory, chatLiveStoryTransition, chatLiveStoryLocationForText };',
+    'module.exports = { normalizeChatLiveStory, chatLiveStoryDirectorSelection, publicChatLiveStory, chatLiveStoryTransition, chatLiveStoryTransitionPath, chatLiveStoryLocationForText };',
   ].join("\n");
   const sandbox = { module: { exports: {} }, exports: {}, console, Math };
   const patched = code.replace(/function chatLiveStoryStageForText[\s\S]*?\n}/, `function chatLiveStoryStageForText(text = "", currentStage = "casual") {
@@ -54,18 +55,22 @@ const storyFixture = {
   locations: [
     { id: "kitchen", name: "厨房", imageUrl: "https://example.test/kitchen.jpg" },
     { id: "living_room", name: "客厅沙发", imageUrl: "https://example.test/living.jpg" },
+    { id: "bedroom", name: "卧室", imageUrl: "https://example.test/bedroom.jpg" },
   ],
   actions: [
     { id: "kiss", name: "接吻", imageUrl: "https://example.test/kiss.jpg", action: "kissing", stages: ["flirting", "foreplay"], locations: ["kitchen", "living_room"] },
     { id: "intimate_sofa", name: "沙发亲密", imageUrl: "https://example.test/sofa.jpg", action: "intimate on sofa", stages: ["intimate"], locations: ["living_room"] },
   ],
-  transitions: [{ from: "kitchen", to: "living_room", videoUrl: "https://example.test/kitchen-to-living.mp4" }],
+  transitions: [
+    { from: "kitchen", to: "living_room", videoUrl: "https://example.test/kitchen-to-living.mp4" },
+    { from: "living_room", to: "bedroom", videoUrl: "https://example.test/living-to-bedroom.mp4" },
+  ],
 };
 
 test("every location is independent from stage, including intimate scenes in the living room", () => {
   const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
   const story = normalizeChatLiveStory(storyFixture);
-  assert.deepEqual(Array.from(story.locations, (item) => item.id), ["kitchen", "living_room"]);
+  assert.deepEqual(Array.from(story.locations, (item) => item.id), ["kitchen", "living_room", "bedroom"]);
   assert.deepEqual(Array.from(story.stages), ["casual", "flirting", "foreplay", "intimate", "aftercare"]);
   const selection = chatLiveStoryDirectorSelection(story, {
     text: "我已经插进去了，别停",
@@ -99,6 +104,42 @@ test("transition lookup supports explicit and location-entry transition videos",
   const story = normalizeChatLiveStory(storyFixture);
   assert.equal(chatLiveStoryTransition(story, "kitchen", "living_room"), "https://example.test/kitchen-to-living.mp4");
   assert.equal(chatLiveStoryTransition(story, "living_room", "kitchen"), "");
+});
+
+test("transition path is continuous and a direct jump needs every intermediate video", () => {
+  const { normalizeChatLiveStory, chatLiveStoryTransitionPath, chatLiveStoryDirectorSelection } = loadStoryFunctions();
+  const story = normalizeChatLiveStory(storyFixture);
+  assert.deepEqual(Array.from(chatLiveStoryTransitionPath(story, "kitchen", "bedroom")), [
+    "https://example.test/kitchen-to-living.mp4",
+    "https://example.test/living-to-bedroom.mp4",
+  ]);
+  const selection = chatLiveStoryDirectorSelection(story, {
+    text: "去卧室",
+    currentStage: "casual",
+    currentLocationId: "kitchen",
+    lastSwitchAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  assert.equal(selection.locationId, "bedroom");
+  assert.equal(selection.transitionUrl, "https://example.test/kitchen-to-living.mp4");
+  assert.deepEqual(Array.from(selection.transitionUrls), [
+    "https://example.test/kitchen-to-living.mp4",
+    "https://example.test/living-to-bedroom.mp4",
+  ]);
+});
+
+test("missing return transition blocks the room change instead of falling back to an image", () => {
+  const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
+  const story = normalizeChatLiveStory(storyFixture);
+  const selection = chatLiveStoryDirectorSelection(story, {
+    text: "回厨房",
+    currentStage: "casual",
+    currentLocationId: "living_room",
+    lastSwitchAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  assert.equal(selection.locationId, "living_room");
+  assert.equal(selection.locationChanged, false);
+  assert.equal(selection.blockedByMissingTransition, true);
+  assert.deepEqual(Array.from(selection.transitionUrls), []);
 });
 
 test("location keywords switch rooms but negated mentions do not", () => {
@@ -144,6 +185,7 @@ test("public story omits private prompt fields and keeps render data", () => {
   const view = publicChatLiveStory(storyFixture);
   assert.equal(view.initialLocationId, "living_room");
   assert.equal(view.locations[1].name, "客厅沙发");
+  assert.equal(view.locations[2].name, "卧室");
   assert.equal(view.actions[0].action, "kissing");
   assert.equal("userText" in view.actions[0], false);
 });
@@ -156,7 +198,7 @@ test("admin and client wire story editing and director playback", () => {
   assert.match(client, /playLiveStoryTransition/);
   assert.match(client, /sent\?\.director/);
   assert.match(client, /chat-live-story-transition/);
-  assert.match(client, /video\.addEventListener\("error", finish/);
+  assert.match(client, /video\.addEventListener\("error", fail/);
   assert.doesNotMatch(client, /video\.play\(\)\.catch\(done\)/);
   assert.match(client, /scheduleLiveStoryRetry/);
   assert.match(client, /applyLiveStoryDirector\(pending, \{ retry: true \}\)/);
@@ -171,6 +213,12 @@ test("admin and client wire story editing and director playback", () => {
   assert.match(admin, /data-story-location-image[\s\S]{0,500}filter\(\(item\) => item\.id && item\.name\)/);
   assert.doesNotMatch(admin, /filter\(\(item\) => item\.id && item\.name && item\.imageUrl\)/);
   assert.match(client, /director\.transitionUrl/);
+  assert.match(client, /director\.transitionUrls/);
+  assert.match(client, /confirmLiveStoryState/);
+  assert.match(client, /story-state/);
+  assert.match(server, /handleSaveChatLiveStoryState/);
+  assert.match(server, /STORY_TRANSITION_REQUIRED/);
+  assert.match(server, /blockedByMissingTransition/);
   assert.match(admin, /data-story-file/);
   assert.match(server, /if \(!embedLook && !isManagedChatLiveAssetUrl\(look\.imageUrl\)\)/);
   assert.doesNotMatch(server, /managedStoryAsset/);
