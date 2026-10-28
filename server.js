@@ -49193,7 +49193,7 @@ async function serveStatic(req, res, url) {
 
     const isHtml = contentType === "text/html";
     const isVersionedAsset = Boolean(url.searchParams.get("v"));
-    const frontendNames = ["/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js"];
+    const frontendNames = ["/admin.html", "/admin.css", "/admin.js", "/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js"];
     const isFrontendAsset = frontendNames.includes(pathname)
       || PLATFORM_ASSET_FILES.some((fileName) => pathname === `/${fileName}`)
       || ((liveTenantRequest || chatTenantRequest) && [".html", ".js", ".css"].includes(path.extname(pathname).toLowerCase()));

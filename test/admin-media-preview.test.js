@@ -8,6 +8,8 @@ const vm = require("node:vm");
 
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "..", "admin.css"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "admin.html"), "utf8");
+const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 
 function extractFunction(name) {
   const start = admin.indexOf(`function ${name}(`);
@@ -101,4 +103,12 @@ test("media lightbox supports full-size image and playable video previews", () =
   assert.match(css, /\.platform-mini-preview-link\s*\{[\s\S]*?width:\s*58px/);
   assert.match(css, /\.adm-avatar-preview\s*\{[\s\S]*?width:\s*38px/);
   assert.match(css, /\.adm-geo-sample-card > \.adm-media-preview-trigger\s*\{[\s\S]*?aspect-ratio:\s*9\s*\/\s*13/);
+});
+
+test("admin entry busts cached preview assets and disables edge caching", () => {
+  assert.match(html, /admin\.css\?v=20261028-media-preview-1/);
+  assert.match(html, /admin\.js\?v=20261028-media-preview-1/);
+  assert.match(admin, /function adminMediaPreviewTrigger/);
+  assert.match(css, /\.adm-media-lightbox/);
+  assert.match(server, /"\/admin\.html", "\/admin\.css", "\/admin\.js"/);
 });
