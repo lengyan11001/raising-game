@@ -57,7 +57,7 @@ test("normal words containing a vocal character stay in speech", () => {
   assert.deepEqual(parts, [{ kind: "speech", text: "好啊，我知道。" }]);
 });
 
-test("standalone vocal replies generate sustained PCM without CosyVoice", async () => {
+test("standalone vocal replies generate short natural PCM without CosyVoice", async () => {
   let ttsCalls = 0;
   const result = await componentReplyPcm("啊……嗯——唔。", "longanhuan", {
     speechPcm: async () => {
@@ -67,7 +67,10 @@ test("standalone vocal replies generate sustained PCM without CosyVoice", async 
   });
   assert.equal(ttsCalls, 0);
   assert.equal(result.segmented, true);
-  assert.ok(pcmDurationMs(result.pcm.length) >= 1200, "moan audio should be sustained, not a short syllable");
+  const parts = splitComponentAudioParts("啊……嗯——唔。");
+  assert.deepEqual(parts.map((part) => part.kind), ["vocal", "vocal", "vocal"]);
+  assert.ok(pcmDurationMs(result.pcm.length) >= 700);
+  assert.ok(pcmDurationMs(result.pcm.length) <= 3100, `moan audio too long: ${pcmDurationMs(result.pcm.length)}ms`);
 });
 
 test("mixed replies send only spoken text to CosyVoice", async () => {
@@ -99,15 +102,16 @@ test("turn cancellation stops before a later speech segment is synthesized", asy
   assert.deepEqual(spoken, ["别停……"]);
 });
 
-test("synthetic moan PCM is long and non-silent", () => {
+test("synthetic moan PCM is short, smooth, and non-silent", () => {
   const pcm = buildComponentVocalPcm({ text: "啊……", shape: "open", intensity: 2 }, "longanhuan");
-  assert.ok(pcmDurationMs(pcm.length) >= 1500);
+  const ms = pcmDurationMs(pcm.length);
+  assert.ok(ms >= 250 && ms <= 1000, `unexpected moan duration ${ms}ms`);
   let energy = 0;
   for (let index = 0; index < pcm.length; index += 2) energy += Math.abs(pcm.readInt16LE(index));
   assert.ok(energy > 0);
 });
 
-test("every active component voice has a complete long-vocal sample set", () => {
+test("every active component voice has a complete short-vocal sample set", () => {
   for (const voice of VOICES) {
     for (const shape of ["open", "nasal", "breath", "gasp"]) {
       for (const level of [1, 2, 3]) {
@@ -118,7 +122,7 @@ test("every active component voice has a complete long-vocal sample set", () => 
         assert.equal(wav.readUInt32LE(24), 24000);
         assert.equal(wav.readUInt16LE(22), 1);
         const ms = Math.round((wav.length - 44) / 2 / 24000 * 1000);
-        assert.ok(ms >= 1000 && ms <= 3000, `${file} duration ${ms}ms`);
+        assert.ok(ms >= 250 && ms <= 1000, `${file} duration ${ms}ms`);
       }
     }
   }
@@ -127,5 +131,11 @@ test("every active component voice has a complete long-vocal sample set", () => 
 test("the legacy fallback voice has real samples instead of a generic waveform", () => {
   const file = path.join(MOAN_DIR, "longanyang-open-2.wav");
   assert.ok(fs.existsSync(file));
-  assert.ok(fs.readFileSync(file).length > 24000 * 2);
+  assert.ok(fs.readFileSync(file).length > 24000 / 4 * 2);
+});
+
+test("moan builder keeps natural clips instead of reversing or padding tails", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "scripts", "build_chat_live_moans.js"), "utf8");
+  assert.doesNotMatch(source, /tailStart|vibrato/);
+  assert.match(source, /short instead of padding/);
 });
