@@ -545,11 +545,12 @@ function scheduleAdminRecordPoll(records = [], load) {
 function videoOrPoster(item) {
   const video = item.videoUrl || item.localVideoUrl || "";
   const poster = item.posterUrl || item.localImageUrl || "";
+  const label = item.name || item.title || item.sceneName || (video ? "视频素材" : "图片素材");
   if (video) {
-    return `<video src="${escapeHtml(video)}" controls preload="metadata" playsinline poster="${escapeHtml(poster)}"></video>`;
+    return adminMediaPreviewTrigger({ url: video, kind: "video", label, poster, className: "adm-card-media-preview" });
   }
   if (poster) {
-    return `<img src="${escapeHtml(poster)}" alt="" />`;
+    return adminMediaPreviewTrigger({ url: poster, kind: "image", label, className: "adm-card-media-preview" });
   }
   return `<div class="adm-empty"><i data-lucide="image-off"></i><p>暂无素材</p></div>`;
 }
@@ -2201,11 +2202,25 @@ function generationRecordRowHtml(record, index) {
       ${record.model ? `<em title="${escapeHtml(record.model)}">${escapeHtml(shortText(record.model, 34))}</em>` : ""}
     </div>
   `;
-  const resultCell = video
-    ? (poster ? `<img class="adm-record-thumb" src="${escapeHtml(poster)}" alt="" loading="lazy" style="${escapeHtml(ratioStyle)}" />` : `<span class="adm-record-video-chip" style="${escapeHtml(ratioStyle)}"><i data-lucide="video"></i></span>`)
-    : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" loading="lazy" />`
-      : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" loading="lazy" />`
-        : remoteVideo ? '<span class="adm-muted">仅远程链接</span>' : '<span class="adm-muted">暂无结果</span>';
+  const resultPreviewUrl = video || remoteVideo;
+  const resultCell = resultPreviewUrl
+    ? adminMediaPreviewTrigger({
+      url: resultPreviewUrl,
+      kind: "video",
+      label,
+      poster,
+      className: "adm-record-thumb adm-record-thumb-preview",
+      style: ratioStyle,
+    })
+    : imageResult || record.imageUrl
+      ? adminMediaPreviewTrigger({
+        url: imageResult || record.imageUrl,
+        kind: "image",
+        label,
+        className: "adm-record-thumb adm-record-thumb-preview",
+        style: ratioStyle,
+      })
+      : '<span class="adm-muted">暂无结果</span>';
   return `
     <tr>
       <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
@@ -3935,7 +3950,7 @@ function chatLiveCharacterRow(character = {}) {
     <tr>
       <td>
         <div class="adm-user-cell">
-          <img class="adm-avatar" src="${escapeHtml(character.portraitUrl || character.avatarUrl || "")}" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:8px" />
+          ${adminMediaPreviewTrigger({ url: character.portraitUrl || character.avatarUrl || "", kind: "image", label: `${character.name || "角色"}形象图`, className: "adm-avatar adm-avatar-preview" })}
           <div>
             <strong>${escapeHtml(character.name || "-")}</strong>
             <div class="adm-muted">${escapeHtml((character.tags || []).join(" · ") || character.intro || "")}</div>
@@ -3967,13 +3982,100 @@ function chatLiveVoiceProviders(defaults = {}, current = "") {
 }
 
 
+function adminMediaPreviewType(url = "", kind = "") {
+  const hint = String(kind || "").toLowerCase();
+  if (/video|transition/.test(hint)) return "video";
+  if (/audio|ambient-music/.test(hint)) return "audio";
+  const clean = String(url || "").split(/[?#]/, 1)[0].toLowerCase();
+  if (/\.(mp4|webm|mov|m4v)$/.test(clean)) return "video";
+  if (/\.(mp3|wav|ogg|m4a)$/.test(clean)) return "audio";
+  return "image";
+}
+
+function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "" } = {}) {
+  const source = String(url || "").trim();
+  if (!source) return '<span class="adm-media-preview-empty">未上传</span>';
+  const type = adminMediaPreviewType(source, kind);
+  if (type === "audio") return `<audio class="adm-media-preview-audio" src="${escapeHtml(source)}" controls preload="metadata"></audio>`;
+  const thumbSource = type === "video" && !source.includes("#") ? `${source}#t=0.1` : source;
+  const posterSource = type === "video" ? String(poster || "").trim() : "";
+  const posterAttr = posterSource ? ` poster="${escapeHtml(posterSource)}"` : "";
+  const styleAttr = String(style || "").trim() ? ` style="${escapeHtml(style)}"` : "";
+  const media = type === "video"
+    ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video>`
+    : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">预览</span></button>`;
+}
+
+function closeAdminMediaPreview() {
+  document.querySelectorAll(".adm-media-lightbox").forEach((node) => {
+    node.querySelectorAll("video, audio").forEach((media) => {
+      try { media.pause(); } catch { /* ignore */ }
+      media.removeAttribute("src");
+      try { media.load(); } catch { /* ignore */ }
+    });
+    node.remove();
+  });
+  document.body.classList.remove("has-adm-media-preview");
+}
+
+function openAdminMediaPreview({ url = "", kind = "image", label = "素材" } = {}) {
+  const source = String(url || "").trim();
+  if (!source) return;
+  closeAdminMediaPreview();
+  const type = adminMediaPreviewType(source, kind);
+  const media = type === "video"
+    ? `<video src="${escapeHtml(source)}" controls autoplay playsinline preload="metadata"></video>`
+    : type === "audio"
+      ? `<audio src="${escapeHtml(source)}" controls autoplay preload="metadata"></audio>`
+      : `<img src="${escapeHtml(source)}" alt="${escapeHtml(label || "素材")}" />`;
+  const lightbox = document.createElement("div");
+  lightbox.className = "adm-media-lightbox";
+  lightbox.setAttribute("role", "dialog");
+  lightbox.setAttribute("aria-modal", "true");
+  lightbox.setAttribute("aria-label", `预览${label || "素材"}`);
+  lightbox.innerHTML = `<button type="button" class="adm-media-lightbox-close" aria-label="关闭预览"><i data-lucide="x"></i></button>${media}<span class="adm-media-lightbox-caption">${escapeHtml(label || "素材")}</span>`;
+  const close = () => {
+    lightbox.querySelectorAll("video, audio").forEach((node) => {
+      try { node.pause(); } catch { /* ignore */ }
+      node.removeAttribute("src");
+      try { node.load(); } catch { /* ignore */ }
+    });
+    lightbox.remove();
+    document.body.classList.remove("has-adm-media-preview");
+    document.removeEventListener("keydown", onKeyDown);
+  };
+  const onKeyDown = (event) => { if (event.key === "Escape") close(); };
+  lightbox.addEventListener("click", (event) => {
+    if (event.target === lightbox || event.target.closest(".adm-media-lightbox-close")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  document.body.appendChild(lightbox);
+  document.body.classList.add("has-adm-media-preview");
+  refreshIcons();
+  const mediaNode = lightbox.querySelector("video, audio");
+  if (mediaNode?.play) mediaNode.play().catch(() => {});
+}
+
+if (!window.__adminMediaPreviewBound) {
+  window.__adminMediaPreviewBound = true;
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-admin-media-preview]");
+    if (!trigger) return;
+    event.preventDefault();
+    openAdminMediaPreview({
+      url: trigger.dataset.mediaUrl || "",
+      kind: trigger.dataset.mediaKind || "",
+      label: trigger.dataset.mediaLabel || "素材",
+    });
+  });
+}
+
 function chatLiveAssetField({ id, label, url = "", hint = "", clearable = false, kind = "" } = {}) {
   const isAudio = kind === "ambient-music";
-  const preview = url
-    ? (isAudio
-      ? `<audio src="${escapeHtml(url)}" controls></audio>`
-      : `<img src="${escapeHtml(url)}" alt="" draggable="false" />`)
-    : `<span>未上传</span>`;
+  const preview = isAudio
+    ? adminMediaPreviewTrigger({ url, kind: "ambient-music", label })
+    : adminMediaPreviewTrigger({ url, kind, label });
   const accept = isAudio ? "audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/*" : "image/png,image/jpeg,image/webp";
   const acceptHint = isAudio ? "MP3、WAV、OGG、M4A，15MB 以内。" : hint;
   return `
@@ -4010,14 +4112,18 @@ function readChatLiveAudioFile(file) {
   });
 }
 
-function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "" } = {}) {
+function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "", label = "" } = {}) {
   const isVideo = kind === "video";
   const accept = isVideo ? "video/mp4,video/webm,video/quicktime" : "image/png,image/jpeg,image/webp";
-  return `<div class="chat-live-story-asset">
+  const mediaLabel = label || (isVideo ? "过场视频" : "场景素材");
+  return `<div class="chat-live-story-asset" data-story-asset-kind="${isVideo ? "video" : "image"}">
     <input type="hidden" ${escapeHtml(attribute)} value="${escapeHtml(url)}" />
     <input type="file" accept="${accept}" data-story-file="${isVideo ? "video" : "image"}" hidden />
-    <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-story-pick>${url ? "更换" : "上传"}</button>
-    <small data-story-file-name>${url ? "已上传" : (isVideo ? "未上传视频" : "未上传图片")}</small>
+    <div class="chat-live-story-preview" data-story-preview>${adminMediaPreviewTrigger({ url, kind: isVideo ? "video" : "image", label: mediaLabel })}</div>
+    <div class="chat-live-story-asset-actions">
+      <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-story-pick>${url ? "更换" : "上传"}</button>
+      <small data-story-file-name>${url ? "已上传" : (isVideo ? "未上传视频" : "未上传图片")}</small>
+    </div>
   </div>`;
 }
 
@@ -4045,9 +4151,12 @@ function bindChatLiveStoryAssetUploads(root) {
       }
       const asset = input.closest(".chat-live-story-asset");
       const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image], [data-story-transition-video]");
+      const preview = asset?.querySelector("[data-story-preview]");
       const button = asset?.querySelector("[data-story-pick]");
       const status = asset?.querySelector("[data-story-file-name]");
       if (button) button.disabled = true;
+      const previewUrl = URL.createObjectURL(file);
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: previewUrl, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
       try {
         const result = await api("/api/admin/chat-live/assets", {
           method: "POST",
@@ -4055,12 +4164,15 @@ function bindChatLiveStoryAssetUploads(root) {
         });
         if (!result.url || !hidden) throw new Error("上传成功但没有返回素材。");
         hidden.value = result.url;
+        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
         if (status) status.textContent = "已上传";
         if (button) button.textContent = "更换";
         toast(isVideo ? "过场视频已上传。" : "场景图已上传。", "success");
       } catch (error) {
+        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: hidden?.value || "", kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
         toast(error.message || "上传失败。", "error");
       } finally {
+        URL.revokeObjectURL(previewUrl);
         input.value = "";
         if (button) button.disabled = false;
       }
@@ -4092,8 +4204,9 @@ function bindChatLiveAssetUploads(root) {
     const box = previewOf(id);
     if (!box) return;
     const field = box.closest("[data-asset-field]");
-    const isAudio = field?.getAttribute("data-asset-kind") === "ambient-music";
-    box.innerHTML = url ? (isAudio ? `<audio src="${escapeHtml(url)}" controls></audio>` : `<img src="${escapeHtml(url)}" alt="" draggable="false" />`) : `<span>未上传</span>`;
+    const kind = field?.getAttribute("data-asset-kind") || "";
+    const label = field?.querySelector(".chat-live-media-meta strong")?.textContent || "素材";
+    box.innerHTML = adminMediaPreviewTrigger({ url, kind: kind === "ambient-music" ? kind : "image", label });
   };
   root.querySelectorAll("[data-asset-pick]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -4142,25 +4255,27 @@ function bindChatLiveAssetUploads(root) {
       const id = input.dataset.assetFile;
       const pick = root.querySelector(`[data-asset-pick="${id}"]`);
       if (pick) pick.disabled = true;
+      const localUrl = URL.createObjectURL(file);
       try {
-        const localUrl = URL.createObjectURL(file);
         setPreview(id, localUrl);
         const dataUrl = isAudio ? await readChatLiveAudioFile(file) : await readChatLiveAssetFile(file);
         const explicitKind = input.closest("[data-asset-field]")?.getAttribute("data-asset-kind") || "";
         const kind = explicitKind || (id === "chatLivePortraitUrl" ? "portrait" : "avatar");
         const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind } });
+        if (!result.url) throw new Error("上传成功但没有返回素材。");
         const hidden = root.querySelector(`#${id}`);
         if (hidden) {
-          hidden.value = result.url || "";
+          hidden.value = result.url;
           hidden.dispatchEvent(new Event("change"));
         }
-        if (!result.url) throw new Error("上传成功但没有返回素材。");
+        setPreview(id, result.url);
         toast(isAudio ? "音频已上传。" : "图片已上传。", "success");
       } catch (error) {
         const hidden = root.querySelector(`#${id}`);
         setPreview(id, hidden?.value || "");
         toast(error.message || "上传失败。", "error");
       } finally {
+        URL.revokeObjectURL(localUrl);
         if (pick) pick.disabled = false;
       }
     });
@@ -4172,11 +4287,7 @@ function chatLiveAlbumCardHtml(item = {}, index = 0) {
   const type = item.type === "video" ? "video" : "image";
   const url = String(item.url || "");
   const preview = item.previewUrl || url;
-  const media = preview
-    ? (type === "video"
-      ? `<video src="${escapeHtml(preview)}" muted playsinline></video>`
-      : `<img src="${escapeHtml(preview)}" alt="" draggable="false" />`)
-    : `<span>未上传</span>`;
+  const media = adminMediaPreviewTrigger({ url: preview, kind: type, label: item.name || "相册素材" });
   return `
     <article class="chat-live-album-card chat-live-private-row" data-private-id="${escapeHtml(item.id || `album-${Date.now()}-${index}`)}">
       <div class="chat-live-album-thumb" data-private-preview>${media}</div>
@@ -4632,7 +4743,7 @@ function bindChatLiveUndress(box, getCharacter, isAlive = () => true) {
     const generating = String(current?.undressStatus || "") === "generating";
     const ready = chatLiveUndressReady(current) && !dirtyAvatar;
     preview.innerHTML = ready
-      ? `<img src="${escapeHtml(current.undressImageUrl)}" alt="" draggable="false" />`
+      ? adminMediaPreviewTrigger({ url: current.undressImageUrl, kind: "image", label: "Undress 图", className: "chat-live-undress-preview-link" })
       : `<span>${generating ? "生成中" : "未生成"}</span>`;
     button.disabled = false;
     if (!savedAvatar && !formAvatar) {
@@ -4912,6 +5023,17 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
         if (!albumGrid()?.querySelector(".chat-live-private-row")) albumGrid().innerHTML = `<p class="adm-muted chat-live-album-empty">还没有相册素材。</p>`;
       };
     });
+    privateRoot?.querySelectorAll(".chat-live-private-row").forEach((row) => {
+      const type = row.querySelector("[data-private-type]");
+      const paint = () => {
+        const preview = row.querySelector("[data-private-preview]");
+        const url = row.querySelector("[data-private-url]")?.value || "";
+        const label = row.querySelector("[data-private-name]")?.value || "相册素材";
+        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url, kind: type?.value || "", label });
+      };
+      type.onchange = paint;
+      row.querySelector("[data-private-name]")?.addEventListener("input", paint);
+    });
   };
   const insertAlbumCard = (item) => {
     clearAlbumEmpty();
@@ -4936,11 +5058,15 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
       const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl: await readChatLiveAssetFile(file), kind: type === "video" ? "private-video" : "private-image" } });
       const hidden = row.querySelector("[data-private-url]");
       if (hidden) hidden.value = result.url || "";
+      const preview = row.querySelector("[data-private-preview]");
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url || "", kind: type, label: file.name });
       row.classList.remove("is-uploading");
       if (!result.url) throw new Error("上传成功但没有返回地址。");
     } catch (error) {
       row.remove();
       toast(error.message || `${file.name} 上传失败。`, "error");
+    } finally {
+      URL.revokeObjectURL(previewUrl);
     }
   };
   box().querySelector("#chatLiveAlbumBatchBtn")?.addEventListener("click", () => box().querySelector("#chatLiveAlbumBatch")?.click());
@@ -5055,7 +5181,7 @@ function chatLiveLookCard(look = {}) {
   const enabled = look.enabled !== false;
   return `
     <article class="chat-live-look-card ${enabled ? "" : "is-off"}">
-      <img src="${escapeHtml(look.imageUrl || "")}" alt="" draggable="false" />
+      ${adminMediaPreviewTrigger({ url: look.imageUrl || "", kind: "image", label: look.name || "画面素材", className: "chat-live-look-preview" })}
       <strong>${escapeHtml(look.name || "未命名")}</strong>
       <small class="adm-muted">${escapeHtml(chatLiveLookKindLabel(look.kind))} · ${enabled ? "启用" : "停用"}</small>
       <div class="chat-live-look-actions">
@@ -5327,12 +5453,15 @@ function chatLiveSessionRow(session = {}) {
 
 function chatLiveGiftsHtml(gifts = []) {
   return (gifts || []).map((gift, index) => `<div class="adm-form-row chat-live-gift-admin" data-gift-id="${escapeHtml(gift.id || "")}">
-    <span>礼物 ${index + 1}</span><div style="display:grid;grid-template-columns:1fr 110px 1.4fr 1.5fr auto;gap:8px;align-items:center;width:100%">
-      <input data-gift-name value="${escapeHtml(gift.name || "")}" placeholder="名称" />
-      <input data-gift-credits type="number" min="1" value="${escapeHtml(String(gift.credits || 1))}" placeholder="积分" />
-      <div style="display:flex;gap:6px;align-items:center"><input data-gift-image value="${escapeHtml(gift.imageUrl || "")}" placeholder="GIF 图片地址" /><input data-gift-file type="file" accept="image/gif,image/png,image/webp,image/jpeg" style="max-width:150px" /></div>
-      <input data-gift-text value="${escapeHtml(gift.userText || "")}" placeholder="发给角色的文案" />
-      <label><input data-gift-enabled type="checkbox" ${gift.enabled === false ? "" : "checked"} />启用</label>
+    <span>礼物 ${index + 1}</span><div class="chat-live-gift-body">
+      <div class="chat-live-gift-preview" data-gift-preview>${adminMediaPreviewTrigger({ url: gift.imageUrl || "", kind: "image", label: gift.name || "礼物素材" })}</div>
+      <div class="chat-live-gift-fields">
+        <input data-gift-name value="${escapeHtml(gift.name || "")}" placeholder="名称" />
+        <input data-gift-credits type="number" min="1" value="${escapeHtml(String(gift.credits || 1))}" placeholder="积分" />
+        <div class="chat-live-gift-upload"><input data-gift-image value="${escapeHtml(gift.imageUrl || "")}" placeholder="GIF 图片地址" /><input data-gift-file type="file" accept="image/gif,image/png,image/webp,image/jpeg" /></div>
+        <input data-gift-text value="${escapeHtml(gift.userText || "")}" placeholder="发给角色的文案" />
+        <label class="adm-check"><input data-gift-enabled type="checkbox" ${gift.enabled === false ? "" : "checked"} />启用</label>
+      </div>
     </div></div>`).join("");
 }
 
@@ -5501,10 +5630,21 @@ async function renderChatLive() {
       const dataUrl = await readChatLiveAssetFile(file);
       const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind: "gift" } });
       const field = row?.querySelector("[data-gift-image]"); if (field) field.value = result.url || "";
+      const preview = row?.querySelector("[data-gift-preview]"); if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url || "", kind: "image", label: row?.querySelector("[data-gift-name]")?.value || file.name });
       toast("礼物动图已上传。", "success");
     } catch (error) { toast(error.message || "上传失败。", "error"); }
     finally { input.disabled = false; }
   }));
+  els.adminContent.querySelectorAll(".chat-live-gift-admin").forEach((row) => {
+    const paint = () => {
+      const preview = row.querySelector("[data-gift-preview]");
+      const url = row.querySelector("[data-gift-image]")?.value || "";
+      const label = row.querySelector("[data-gift-name]")?.value || "礼物素材";
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url, kind: "image", label });
+    };
+    row.querySelector("[data-gift-image]")?.addEventListener("input", paint);
+    row.querySelector("[data-gift-name]")?.addEventListener("input", paint);
+  });
   els.adminContent.querySelectorAll("[data-chat-live-look-edit]").forEach((button) => button.addEventListener("click", () => {
     const target = looks.find((item) => item.id === button.dataset.chatLiveLookEdit) || null;
     if (target) openChatLiveLookDialog(target);
@@ -5832,9 +5972,17 @@ function advancedCaseCategoryOptions(selected = "") {
 }
 
 function platformTemplatePreview(template = {}) {
-  const src = template.coverUrl || template.previewUrl || "";
+  const preview = String(template.previewUrl || "").trim();
+  const cover = String(template.coverUrl || "").trim();
+  const src = preview || cover;
   if (!src) return '<div class="platform-mini-preview"><i data-lucide="image"></i></div>';
-  return `<img class="platform-mini-preview" src="${escapeHtml(src)}" alt="" loading="lazy" />`;
+  return adminMediaPreviewTrigger({
+    url: src,
+    kind: isVideoUrl(preview) ? "video" : "image",
+    label: template.title || "模板素材",
+    className: "platform-mini-preview-link",
+    poster: cover,
+  });
 }
 
 function isVideoUrl(url = "") {
@@ -7722,9 +7870,10 @@ function renderGeoCheckRow(check = {}, result = null) {
 
 function renderGeoSampleCard(item = {}) {
   const tags = (item.tags || []).slice(0, 4);
+  const preview = adminMediaPreviewTrigger({ url: item.posterUrl || "", kind: "image", label: item.name || item.id || "角色" });
   return `
     <article class="adm-geo-sample-card">
-      <img src="${escapeHtml(item.posterUrl || "")}" alt="${escapeHtml(item.name || "")}" loading="lazy" />
+      ${preview}
       <div>
         <strong>${escapeHtml(item.name || item.id || "角色")}</strong>
         <span>${escapeHtml(item.videoCount || 0)} 个视频</span>
