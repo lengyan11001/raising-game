@@ -50,7 +50,7 @@ test("pending history without media can seed the result panel and polling", () =
 test("polling stops when the result has no pending tasks", () => {
   const schedule = create.match(/function scheduleAdvancedResultRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(schedule, "scheduleAdvancedResultRefresh should exist");
-  assert.match(schedule, /!advancedResultPendingRecords\(\)\.length\) return;/);
+  assert.match(schedule, /\|\| !advancedResultPendingRecords\(\)\.length\s*\) return;/);
   assert.match(schedule, /state\.advancedResultTimer = window\.setTimeout/);
 });
 
