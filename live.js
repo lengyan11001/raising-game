@@ -327,25 +327,27 @@
     const gifts = Number(u?.giftReceived ?? u?.giftsReceived ?? 0) || 0;
     const companion = state.companionLevel || u?.companionLevel || null;
     const menu = [
-      ["creator", "pen", "创作者中心", "管理角色与素材"],
-      ["creator-income", "gift", "创作者收益", "角色被使用产生的收益"],
-      ["wallet", "wallet", "钱包与消费记录", "充值与消费明细"],
+      ["creator", "pen", "创作者中心", u ? "管理角色与素材" : "登录后管理角色与素材"],
+      ["creator-income", "gift", "创作者收益", u ? "角色被使用产生的收益" : "登录后查看收益"],
+      ["wallet", "wallet", "钱包与消费记录", u ? "充值与消费明细" : "登录后查看积分明细"],
       ["privacy", "gear", "隐私与安全", "数据与账号说明"],
       ["feedback", "chat", "问题反馈", "提交后会收到站内信回复"],
-      ["level", "crown", "陪伴等级", companion?.level || ""],
-      ["edit-profile", "user", "编辑资料", "头像、昵称与兴趣标签"],
-      ["referral", "share", "邀请好友", ""],
-      ["rooms", "users", "我的陪伴房间", ""]
+      ["level", "crown", "陪伴等级", u ? (companion?.level || "") : "登录后查看"],
+      ["edit-profile", "user", "编辑资料", u ? "头像、昵称与兴趣标签" : "登录后完善资料"],
+      ["referral", "share", "邀请好友", u ? "" : "登录后邀请好友"],
+      ["rooms", "users", "我的陪伴房间", u ? "" : "登录后查看房间"]
     ].map(([action, glyph, title, value]) => `<a href="#profile/${action}" role="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><span class="profile-menu-copy"><b>${title}</b>${value ? `<small>${esc(value)}</small>` : ""}</span><em>${uiIcon("chev")}</em></a>`).join("");
-    app.innerHTML = `<main class="live-page profile-page"><header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "完善资料后显示在这里")}</p><small>${esc(u?.bio || "登录后完善你的资料")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : ""}</header>${u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button type="button" data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button type="button" data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button type="button" data-action="gift">${uiIcon("gift")}礼物记录</button><button type="button" data-action="topup">${uiIcon("wallet")}充值</button></div></section><section class="profile-menu" data-profile-menu>${menu}</section><nav class="profile-legal-links" aria-label="隐私与反馈"><a href="#profile/privacy" data-menu-action="privacy">隐私协议</a><span>·</span><a href="#profile/feedback" data-menu-action="feedback">问题反馈</a></nav><p class="profile-foot">Vipeak · 2026</p><button type="button" class="logout-link" data-action="account">退出登录</button>` : `<div class="empty-state"><h2>登录后查看个人中心</h2><p>登录后可以管理资料、会员和钱包。</p><button type="button" class="video-button" data-action="login">登录 / 注册</button></div>`}</main>${nav("profile")}`;
+    const header = `<header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "登录后查看你的资料")}</p><small>${esc(u?.bio || "登录后管理角色、收益与账户信息")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : `<button type="button" class="profile-login-card" data-action="login"><span>${uiIcon("user")}</span><div><b>登录 / 注册</b><small>登录后使用创作者中心、收益与反馈</small></div><em>${uiIcon("chev")}</em></button>`}</header>`;
+    const account = u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button type="button" data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button type="button" data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button type="button" data-action="gift">${uiIcon("gift")}礼物记录</button><button type="button" data-action="topup">${uiIcon("wallet")}充值</button></div></section>` : "";
+    app.innerHTML = `<main class="live-page profile-page">${header}${account}<section class="profile-menu" data-profile-menu>${menu}</section><nav class="profile-legal-links" aria-label="隐私与反馈"><a href="#profile/privacy" data-action="privacy" data-menu-action="privacy">隐私协议</a><span>·</span><a href="#profile/feedback" data-action="feedback" data-menu-action="feedback">问题反馈</a></nav><p class="profile-foot">Vipeak · 2026</p>${u ? `<button type="button" class="logout-link" data-action="account">退出登录</button>` : ""}</main>${nav("profile")}`;
     bindProfileMenuActions();
   }
 
   function openProfileMenuAction(action) {
     if (!action) return;
-    if (action === "creator") { state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
-    if (action === "creator-income") { state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
-    if (action === "feedback") { state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
+    if (action === "creator") { if (!token() || !state.user) return askLogin(); state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
+    if (action === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (action === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
     if (action === "privacy") return showPrivacy();
     if (action === "wallet") { state.pageReturn = "profile"; return showRecharge(); }
     if (action === "level") return showLevel();
@@ -375,7 +377,7 @@
       let startY = null;
       let lastTouchActionAt = 0;
       const run = (event) => {
-        if (Date.now() - lastTouchActionAt < 700) return;
+        if (event.type === "click" && Date.now() - lastTouchActionAt < 700) return;
         event.stopPropagation();
         try {
           openProfileMenuAction(link.dataset.menuAction);
@@ -401,8 +403,8 @@
         }
         startX = null;
         startY = null;
-        lastTouchActionAt = Date.now();
         run(event);
+        lastTouchActionAt = Date.now();
       }, { passive: false });
       link.addEventListener("click", run);
     });
@@ -1820,7 +1822,15 @@
     catch (e) { app.innerHTML = `<div class="empty-state"><h2>暂时无法加载</h2><p>${esc(e.message)}</p></div>`; }
     if (loadToken && loadToken === token()) {
       try {
-        state.user = (await api("/api/auth/me")).user;
+        const session = await api("/api/auth/me");
+        state.user = session.user || null;
+        if (!state.user) {
+          localStorage.removeItem(TOKEN_KEY);
+          state.companionLevel = null;
+          state.billing = null;
+          render();
+          return;
+        }
         state.companionLevel = state.user?.companionLevel || null;
         try { state.billing = (await api("/api/billing/summary")).billing || null; } catch {}
         const [notifications, checkin, income, feedback] = await Promise.allSettled([
@@ -1841,7 +1851,16 @@
         let contacts = [];
         try { contacts = (await api("/api/chat-live/contacts")).contacts || []; } catch {}
         state.conversations = groupCharacterThreads(listed, contacts);
-      } catch {}
+      } catch (error) {
+        if (error.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          state.user = null;
+          state.companionLevel = null;
+          state.billing = null;
+          render();
+          return;
+        }
+      }
       if (loadToken === token()) render();
     }
   }
@@ -1934,8 +1953,8 @@ document.addEventListener("click", async (e) => {
     if (a === "checkin-claim") return claimCheckin();
     if (a === "settings") return showSettings();
     if (a === "system-messages") return openSystemMessages();
-    if (a === "creator-income") { state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
-    if (a === "feedback") { state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
+    if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (a === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
     if (a === "feedback-refresh") return loadFeedback(true);
     if (a === "back-subpage") { clearProfileHash(); state.page = state.subpageBack || "profile"; render(); return; }
     if (a === "settings-ios") { referralToast("iOS 版正在准备中，可先使用网页版"); return; }
@@ -1950,7 +1969,7 @@ document.addEventListener("click", async (e) => {
     if (a === "back-home") { state.category = ""; state.role = null; state.page = "home"; render(); return; }
     if (a === "back-profile") { clearProfileHash(); state.page = "profile"; render(); return; }
     if (a === "edit-profile") { state.page = "edit-profile"; render(); return; }
-    if (a === "creator") { state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
+    if (a === "creator") { if (!token() || !state.user) return askLogin(); state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
     if (a === "creator-new") { openCreatorEditor(""); return; }
     if (a === "creator-edit") { openCreatorEditor(e.target.closest("[data-id]")?.dataset.id || ""); return; }
     if (a === "creator-save") { saveCreator(); return; }
