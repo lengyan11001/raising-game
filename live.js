@@ -1283,15 +1283,26 @@
       } catch {}
     }
   }
+  function creatorIncomeTypeText(type) {
+    return ({ video_view_earning: "视频通话分成", withdrawal_hold: "提现冻结", withdrawal_refund: "提现退回" })[type] || "创作者账本";
+  }
+  function creatorWithdrawalStatusText(status) {
+    return ({ processing: "审核中", paid: "已打款", rejected: "已拒绝" })[status] || status || "审核中";
+  }
   function showCreatorIncome() {
     if (!token()) return askLogin();
     state.page = "creator-income";
     state.subpageBack = "profile";
-    const income = state.creatorIncome || { totalCredits: 0, giftCount: 0, records: [] };
-    const giftCredits = Number(income.totalCredits || 0);
-    const estimatedCredits = Math.round(giftCredits * 0.7 * 100) / 100;
-    const rows = (income.records || []).map((item) => ({ title: `${item.giftName || "礼物"} · ${item.characterName || "角色"}`, meta: moneyTime(item.createdAt), amount: `-${creditText(item.credits)}`, kind: "gift" }));
-    subpage("创作者收益", `<section class="income-hero"><span>预计创作收益 · 按实际礼物消耗估算</span><strong>${creditText(estimatedCredits)} <small>积分</small></strong><p>累计礼物消耗 ${creditText(giftCredits)} 积分 · ${Number(income.giftCount || 0).toLocaleString("zh-CN")} 次</p></section><section class="income-settlement"><div><span>结算比例</span><b>70%</b></div><div><span>结算周期</span><b>T+7</b></div><div><span>结算状态</span><b>以管理后台为准</b></div></section><section class="income-note"><span>${uiIcon("crown")}</span><p>单笔收益按用户实际充值金额 × 70% 计算，订单退款或异常交易会相应扣减。这里展示的是根据真实礼物消耗计算的预计收益，不是可提现余额；最终结算和到账状态以管理后台为准。</p></section><p class="section-label">收益来源记录</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载收益记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有角色礼物收益。")}<p class="pay-foot">数据来自当前账号创建且未删除的角色，金额单位统一为积分。</p>`);
+    const income = state.creatorIncome || { availableCredits: 0, totalEarnedCredits: 0, withdrawnCredits: 0, lockedCredits: 0, earningCount: 0, earningRate: .3, records: [], withdrawals: [] };
+    const rows = (income.records || []).map((item) => {
+      const earning = String(item.type || "") === "video_view_earning";
+      const title = earning ? `${item.characterName || "角色"} · 视频通话分成` : creatorIncomeTypeText(item.type);
+      const detail = earning ? `实扣 ${creditText(item.sourceCredits)} 积分 × ${Math.round(Number(item.earningRate || .3) * 100)}%` : moneyTime(item.createdAt);
+      return { title, meta: `${detail} · ${moneyTime(item.createdAt)}`, amount: `${Number(item.credits || 0) >= 0 ? "+" : ""}${creditText(item.credits)}`, kind: earning ? "crown" : "wallet" };
+    });
+    const withdrawals = (income.withdrawals || []).map((item) => `<article class="creator-withdrawal-row"><div><b>${esc(creditText(item.amountCredits))} 积分</b><small>${esc(item.network || "USDT")} · ${esc(item.withdrawalAddress || "")}</small></div><span class="creator-withdrawal-status ${esc(item.status || "processing")}">${esc(creatorWithdrawalStatusText(item.status))}</span><small>${esc(moneyTime(item.createdAt))}${item.txHash ? ` · ${esc(item.txHash)}` : ""}${item.rejectionReason ? ` · ${esc(item.rejectionReason)}` : ""}</small></article>`).join("");
+    const available = Number(income.availableCredits || 0);
+    subpage("创作者收益", `<section class="income-hero"><span>可提现积分</span><strong>${creditText(available)} <small>积分</small></strong><p>累计收益 ${creditText(income.totalEarnedCredits)} 积分 · 已提现 ${creditText(income.withdrawnCredits)} 积分 · ${Number(income.earningCount || 0).toLocaleString("zh-CN")} 次分成</p></section><section class="income-settlement"><div><span>分成比例</span><b>${Math.round(Number(income.earningRate || .3) * 100)}%</b></div><div><span>审核中</span><b>${creditText(income.lockedCredits)} 积分</b></div><div><span>提现网络</span><b>USDT</b></div></section><section class="income-note"><span>${uiIcon("crown")}</span><p>视频通话实际扣除的积分，30% 作为角色创作者可提现收益。该收益独立计算，不累计到普通积分余额；提现通过 USDT 打款，需填写收款地址并等待后台审核。</p></section><section class="creator-withdraw-card"><div class="creator-withdraw-head"><div><b>申请提现</b><small>最低提现 2000 积分（20 USDT），提交后从可提现余额冻结</small></div><button type="button" data-action="creator-income-refresh">刷新</button></div><form data-creator-withdraw-form><label>提现积分<input name="amountCredits" type="number" min="2000" step="0.000001" value="${esc(available >= 2000 ? creditText(available) : "2000")}" placeholder="填写提现积分" required></label><label>USDT 网络<select name="network"><option value="USDT-TRC20">USDT · TRC20</option><option value="USDT-ERC20">USDT · ERC20</option><option value="USDT-BEP20">USDT · BEP20</option></select></label><label>USDT 收款地址<input name="address" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="20" maxlength="128" placeholder="填写你的 USDT 钱包地址" required></label><button class="pay-cta" type="submit" ${available >= 2000 ? "" : "disabled"}>提交提现申请</button><p class="form-message" data-creator-withdraw-message></p></form></section><p class="section-label">收益流水</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载收益记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有视频通话收益。")}<p class="section-label">提现记录</p>${withdrawals ? `<section class="creator-withdrawal-list">${withdrawals}</section>` : '<div class="empty-state"><p>还没有提现申请。</p></div>'}<p class="pay-foot">收益数据来自 PostgreSQL 创作者独立账本，不会累加到普通积分余额。</p>`);
   }
   async function loadCreatorIncome(force = false) {
     if (!token()) return null;
@@ -1301,7 +1312,7 @@
     if (state.page === "creator-income") showCreatorIncome();
     try {
       const result = await api("/api/live/creator-income?limit=50");
-      state.creatorIncome = result.income || { totalCredits: 0, giftCount: 0, records: [] };
+      state.creatorIncome = result.income || { availableCredits: 0, totalEarnedCredits: 0, withdrawnCredits: 0, lockedCredits: 0, earningCount: 0, earningRate: .3, records: [], withdrawals: [] };
       return state.creatorIncome;
     } catch (error) {
       state.creatorIncomeError = error.message || "创作者收益加载失败";
@@ -1378,7 +1389,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>免费试看</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内免文字费</small></div><em>0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>按秒计费 · 会员 8 折</small></div><em class="blue">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>按秒计费 · 会员 8 折</small></div><em class="gold">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>按秒计费 · 进房即开始计时</small></div><em class="green">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">计费规则以页面说明为准</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>免费试看</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内免文字费</small></div><em>0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>按秒计费 · 会员 8 折</small></div><em class="blue">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>按秒计费 · 创作者分成 30%</small></div><em class="gold">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>按秒计费 · 进房即开始计时</small></div><em class="green">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">视频通话实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
     loadRecentSpend();
   }
 
@@ -1954,6 +1965,7 @@ document.addEventListener("click", async (e) => {
     if (a === "settings") return showSettings();
     if (a === "system-messages") return openSystemMessages();
     if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (a === "creator-income-refresh") { loadCreatorIncome(true); return; }
     if (a === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
     if (a === "feedback-refresh") return loadFeedback(true);
     if (a === "back-subpage") { clearProfileHash(); state.page = state.subpageBack || "profile"; render(); return; }
@@ -2111,6 +2123,31 @@ document.addEventListener("click", async (e) => {
       const note = textForm.querySelector("[data-text-error]");
       if (note) note.textContent = "";
       queueTextChatMessage(conversationId, content);
+      return;
+    }
+    const creatorWithdrawForm = e.target.closest("[data-creator-withdraw-form]");
+    if (creatorWithdrawForm) {
+      e.preventDefault();
+      const button = creatorWithdrawForm.querySelector("button[type=submit]");
+      const note = creatorWithdrawForm.querySelector("[data-creator-withdraw-message]");
+      const amountCredits = Number(creatorWithdrawForm.amountCredits.value || 0);
+      const network = creatorWithdrawForm.network.value;
+      const address = creatorWithdrawForm.address.value.trim();
+      if (!(amountCredits >= 2000)) { if (note) note.textContent = "最低提现 2000 积分（20 USDT）。"; return; }
+      if (amountCredits > Number(state.creatorIncome?.availableCredits || 0)) { if (note) note.textContent = "提现积分不能超过可提现余额。"; return; }
+      if (button) button.disabled = true;
+      if (note) note.textContent = "正在提交…";
+      try {
+        const result = await api("/api/live/creator-withdrawals", { method: "POST", body: JSON.stringify({ amountCredits, network, address }) });
+        state.creatorIncome = result.income || state.creatorIncome;
+        referralToast("提现申请已提交，等待后台审核");
+        if (state.page === "creator-income") showCreatorIncome();
+      } catch (error) {
+        if (note) note.textContent = error.message || "提交失败，请稍后重试";
+      } finally {
+        const current = document.querySelector("[data-creator-withdraw-form] button[type=submit]");
+        if (current) current.disabled = !(Number(state.creatorIncome?.availableCredits || 0) >= 2000);
+      }
       return;
     }
     const feedbackForm = e.target.closest("[data-feedback-form]");

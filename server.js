@@ -165,7 +165,13 @@ const {
   getLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
-  listCreatorGiftIncomeInDb,
+  recordCreatorVideoViewEarningInDb,
+  getCreatorIncomeInDb,
+  createCreatorWithdrawalInDb,
+  listCreatorWithdrawalsInDb,
+  getAdminCreatorDataInDb,
+  getAdminCreatorWithdrawalsPageFromDb,
+  updateCreatorWithdrawalInDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,
@@ -8641,7 +8647,23 @@ async function waitForChatLiveUpstreamEnd(liveId, region = "", timeoutMs = 60000
 
 async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   if (!session?.id) return null;
-  if (session.status === "ended" && session.settled === true) return session;
+  if (session.status === "ended" && session.settled === true) {
+    const settledCredits = Number(session.chargedCredits || 0);
+    if (settledCredits > 0) {
+      try {
+        await recordCreatorVideoViewEarningInDb({
+          sessionId: session.id,
+          viewerUserId: session.userId,
+          characterId: session.characterId,
+          sourceCredits: settledCredits,
+          earningRate: 0.3,
+        });
+      } catch (error) {
+        console.warn("[creator-earning] retry failed", session.id, error?.message || error);
+      }
+    }
+    return session;
+  }
   let detail = null;
   let upstreamError = "";
   if (session.liveId) {
@@ -8738,6 +8760,23 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
     endedAt: shouldFinalize ? (session.endedAt || latest?.endedAt || now) : (session.endedAt || latest?.endedAt || ""),
     updatedAt: now,
   });
+  // Creator royalties are based on the credits actually settled for this call.
+  // Prepaid holds are settled to the final capped amount before this point.
+  // The ledger is keyed by session ID, so retries cannot split twice.
+  const earningSourceCredits = Number(updated?.chargedCredits || 0);
+  if (shouldFinalize && earningSourceCredits > 0) {
+    try {
+      await recordCreatorVideoViewEarningInDb({
+        sessionId: session.id,
+        viewerUserId: session.userId,
+        characterId: session.characterId,
+        sourceCredits: earningSourceCredits,
+        earningRate: 0.3,
+      });
+    } catch (error) {
+      console.warn("[creator-earning] record failed", session.id, error?.message || error);
+    }
+  }
   return updated;
 }
 
@@ -38982,8 +39021,70 @@ async function handleGetLiveCreatorIncome(req, res, url) {
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "创作者收益需要数据库服务。" });
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 50)));
-  const income = await listCreatorGiftIncomeInDb(auth.user.id, limit);
-  return sendJson(res, 200, { ok: true, income: income || { totalCredits: 0, giftCount: 0, records: [] } });
+  const income = await getCreatorIncomeInDb(auth.user.id, limit);
+  if (!income) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "创作者收益需要数据库服务。" });
+  return sendJson(res, 200, { ok: true, income });
+}
+
+async function handleCreateLiveCreatorWithdrawal(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "提现需要数据库服务。" });
+  const body = await readJson(req).catch(() => ({}));
+  const withdrawal = await createCreatorWithdrawalInDb({
+    userId: auth.user.id,
+    amountCredits: body.amountCredits ?? body.amount ?? 0,
+    network: body.network || "USDT-TRC20",
+    address: body.address || body.walletAddress || "",
+  });
+  const income = await getCreatorIncomeInDb(auth.user.id, 50);
+  return sendJson(res, 200, { ok: true, withdrawal, income });
+}
+
+async function handleListLiveCreatorWithdrawals(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "提现记录需要数据库服务。" });
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 20)));
+  const withdrawals = await listCreatorWithdrawalsInDb(auth.user.id, limit);
+  return sendJson(res, 200, { ok: true, withdrawals });
+}
+
+async function handleAdminGetCreatorData(req, res, url) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "创作者数据需要数据库服务。" });
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const queryText = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim();
+  const data = await getAdminCreatorDataInDb({ page: paging.page, limit: paging.limit, queryText });
+  return sendJson(res, 200, { ok: true, ...(data || { creators: [], total: 0, page: 1, limit: paging.limit, totalPages: 1 }) });
+}
+
+async function handleAdminListCreatorWithdrawals(req, res, url) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "创作者提现需要数据库服务。" });
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
+  const queryText = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim();
+  const data = await getAdminCreatorWithdrawalsPageFromDb({ page: paging.page, limit: paging.limit, status, queryText });
+  return sendJson(res, 200, { ok: true, ...(data || { withdrawals: [], total: 0, page: 1, limit: paging.limit, totalPages: 1 }) });
+}
+
+async function handleAdminUpdateCreatorWithdrawal(req, res, withdrawalId) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "创作者提现需要数据库服务。" });
+  const body = await readJson(req).catch(() => ({}));
+  const withdrawal = await updateCreatorWithdrawalInDb({
+    id: decodeURIComponent(String(withdrawalId || "")),
+    status: body.status,
+    txHash: body.txHash,
+    note: body.note,
+    rejectionReason: body.rejectionReason || body.note,
+    adminUserId: auth.user.id,
+  });
+  return sendJson(res, 200, { ok: true, withdrawal });
 }
 
 function telegramSupportEnabled() {
@@ -50050,6 +50151,12 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/live/creator-income") {
       return await handleGetLiveCreatorIncome(req, res, url);
     }
+    if (req.method === "GET" && url.pathname === "/api/live/creator-withdrawals") {
+      return await handleListLiveCreatorWithdrawals(req, res, url);
+    }
+    if (req.method === "POST" && url.pathname === "/api/live/creator-withdrawals") {
+      return await handleCreateLiveCreatorWithdrawal(req, res);
+    }
 
     if (req.method === "GET" && url.pathname === "/api/access/subtokens") {
       if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
@@ -50526,6 +50633,11 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/admin/referral-withdrawals") return await handleAdminListReferralWithdrawals(req, res, url);
     const adminReferralWithdrawalMatch = url.pathname.match(/^\/api\/admin\/referral-withdrawals\/([^/]+)$/);
     if (req.method === "PATCH" && adminReferralWithdrawalMatch) return await handleAdminUpdateReferralWithdrawal(req, res, adminReferralWithdrawalMatch[1]);
+
+    if (req.method === "GET" && url.pathname === "/api/admin/creator-data") return await handleAdminGetCreatorData(req, res, url);
+    if (req.method === "GET" && url.pathname === "/api/admin/creator-withdrawals") return await handleAdminListCreatorWithdrawals(req, res, url);
+    const adminCreatorWithdrawalMatch = url.pathname.match(/^\/api\/admin\/creator-withdrawals\/([^/]+)$/);
+    if (req.method === "PATCH" && adminCreatorWithdrawalMatch) return await handleAdminUpdateCreatorWithdrawal(req, res, adminCreatorWithdrawalMatch[1]);
 
     if (req.method === "GET" && url.pathname === "/api/admin/recharge-ledger") {
       return await handleAdminListRechargeLedger(req, res, url);

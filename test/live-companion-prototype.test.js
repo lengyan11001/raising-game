@@ -86,8 +86,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026102906/);
-  assert.match(html, /live\.js\?v=2026102906/);
+  assert.match(html, /live\.css\?v=2026102908/);
+  assert.match(html, /live\.js\?v=2026102908/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
 });
 

@@ -1,6 +1,7 @@
 const { Pool } = require("pg");
 
 const DEFAULT_TENANT_ID = "main";
+const CREATOR_WITHDRAWAL_MIN_CREDITS = 2000;
 
 function normalizeTenantId(value = DEFAULT_TENANT_ID) {
   const cleaned = String(value || DEFAULT_TENANT_ID)
@@ -209,6 +210,77 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
   await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_creator_earning_ledger (
+      id TEXT PRIMARY KEY,
+      creator_user_id TEXT NOT NULL DEFAULT '',
+      viewer_user_id TEXT NOT NULL DEFAULT '',
+      character_id TEXT NOT NULL DEFAULT '',
+      session_id TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '',
+      source_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      earning_rate NUMERIC(12, 6) NOT NULL DEFAULT 0,
+      delta_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_creator_earning_ledger
+    ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS viewer_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS session_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS source_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS earning_rate NUMERIC(12, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS delta_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx
+      ON app_creator_earning_ledger (type, session_id)
+      WHERE type = 'video_view_earning' AND session_id <> '';
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_creator_withdrawals (
+      id TEXT PRIMARY KEY,
+      creator_user_id TEXT NOT NULL DEFAULT '',
+      amount_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      network TEXT NOT NULL DEFAULT 'USDT-TRC20',
+      withdrawal_address TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'processing',
+      tx_hash TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      rejection_reason TEXT NOT NULL DEFAULT '',
+      reviewed_by_user_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMPTZ
+    );
+  `);
+  await query(`ALTER TABLE app_creator_withdrawals
+    ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS amount_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'USDT-TRC20',
+    ADD COLUMN IF NOT EXISTS withdrawal_address TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
+    ADD COLUMN IF NOT EXISTS tx_hash TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reviewed_by_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_creator_created_idx ON app_creator_withdrawals (creator_user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_status_created_idx ON app_creator_withdrawals (status, created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_billing_plans (
       id TEXT PRIMARY KEY,
@@ -3386,46 +3458,377 @@ async function getLiveCheckinSummaryInDb(userId = "", checkinDate = "") {
   return { checkedIn: Boolean(today), today, streak, recentDates: [...dates].slice(0, 30) };
 }
 
-async function listCreatorGiftIncomeInDb(userId = "", limit = 50) {
+function creatorLedgerId(prefix = "creator") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function creatorEarningFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    creatorUserId: String(row.creator_user_id || payload.creatorUserId || ""),
+    viewerUserId: String(row.viewer_user_id || payload.viewerUserId || ""),
+    characterId: String(row.character_id || payload.characterId || ""),
+    sessionId: String(row.session_id || payload.sessionId || ""),
+    type: String(row.type || payload.type || ""),
+    sourceCredits: creditNumber(row.source_credits ?? payload.sourceCredits ?? 0),
+    earningRate: Number(row.earning_rate ?? payload.earningRate ?? 0),
+    deltaCredits: creditNumber(row.delta_credits ?? payload.deltaCredits ?? 0),
+    balanceAfter: creditNumber(row.balance_after ?? payload.balanceAfter ?? 0),
+    meta: row.meta && typeof row.meta === "object" ? row.meta : (payload.meta || {}),
+    createdAt: toIsoString(row.created_at || payload.createdAt || ""),
+  };
+}
+
+function creatorWithdrawalFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    creatorUserId: String(row.creator_user_id || payload.creatorUserId || ""),
+    amountCredits: creditNumber(row.amount_credits ?? payload.amountCredits ?? 0),
+    network: String(row.network || payload.network || "USDT-TRC20"),
+    withdrawalAddress: String(row.withdrawal_address || payload.withdrawalAddress || ""),
+    status: String(row.status || payload.status || "processing"),
+    txHash: String(row.tx_hash || payload.txHash || ""),
+    note: String(row.note || payload.note || ""),
+    rejectionReason: String(row.rejection_reason || payload.rejectionReason || ""),
+    reviewedByUserId: String(row.reviewed_by_user_id || payload.reviewedByUserId || ""),
+    createdAt: toIsoString(row.created_at || payload.createdAt || ""),
+    updatedAt: toIsoString(row.updated_at || payload.updatedAt || ""),
+    processedAt: toIsoString(row.processed_at || payload.processedAt || ""),
+  };
+}
+
+async function createCreatorEarningEntry(client, { creatorUserId, viewerUserId = "", characterId = "", sessionId = "", type, sourceCredits = 0, earningRate = 0, deltaCredits = 0, meta = {}, payload = {} }) {
+  const cleanCreatorUserId = String(creatorUserId || "").trim();
+  const amount = creditNumber(deltaCredits || 0);
+  if (!cleanCreatorUserId || !type || amount === 0) return null;
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`creator-ledger:${cleanCreatorUserId}`]);
+  const balanceResult = await client.query(`SELECT COALESCE(SUM(delta_credits), 0)::numeric AS balance FROM app_creator_earning_ledger WHERE creator_user_id = $1`, [cleanCreatorUserId]);
+  const balanceAfter = creditNumber(Number(balanceResult.rows[0]?.balance || 0) + amount);
+  const id = creatorLedgerId(type.replace(/[^a-z0-9]+/gi, "-"));
+  const now = new Date().toISOString();
+  const recordPayload = { id, creatorUserId: cleanCreatorUserId, viewerUserId, characterId, sessionId, type, sourceCredits, earningRate, deltaCredits: amount, balanceAfter, meta, createdAt: now };
+  const { rows } = await client.query(`
+    INSERT INTO app_creator_earning_ledger(
+      id, creator_user_id, viewer_user_id, character_id, session_id, type,
+      source_credits, earning_rate, delta_credits, balance_after, meta, payload, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::numeric, $11::jsonb, $12::jsonb, $13::timestamptz)
+    RETURNING *
+  `, [id, cleanCreatorUserId, String(viewerUserId || ""), String(characterId || ""), String(sessionId || ""), String(type), Number(sourceCredits || 0), Number(earningRate || 0), amount, balanceAfter, JSON.stringify(meta || {}), JSON.stringify(recordPayload), now]);
+  return rows[0] ? {
+    ...recordPayload,
+    id: String(rows[0].id),
+    sourceCredits: creditNumber(rows[0].source_credits),
+    earningRate: Number(rows[0].earning_rate || 0),
+    deltaCredits: creditNumber(rows[0].delta_credits),
+    balanceAfter: creditNumber(rows[0].balance_after),
+  } : recordPayload;
+}
+
+async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId = "", characterId = "", sourceCredits = 0, earningRate = 0.3 } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanSessionId = String(sessionId || "").trim();
+  const cleanViewerUserId = String(viewerUserId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  const source = creditNumber(sourceCredits || 0);
+  const rate = Math.max(0, Math.min(1, Number(earningRate || 0.3) || 0.3));
+  if (!cleanSessionId || !cleanViewerUserId || !cleanCharacterId || source <= 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const characterResult = await client.query(`SELECT payload FROM app_chat_live_characters WHERE id = $1`, [cleanCharacterId]);
+    const character = characterResult.rows[0]?.payload || null;
+    const creatorUserId = String(character?.createdByUserId || "").trim();
+    if (!creatorUserId || creatorUserId === cleanViewerUserId) {
+      await client.query("COMMIT");
+      return null;
+    }
+    const existing = await client.query(`SELECT * FROM app_creator_earning_ledger WHERE type = 'video_view_earning' AND session_id = $1 LIMIT 1`, [cleanSessionId]);
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return creatorEarningFromRow(existing.rows[0]);
+    }
+    const earning = creditNumber(source * rate);
+    if (earning <= 0) {
+      await client.query("COMMIT");
+      return null;
+    }
+    const record = await createCreatorEarningEntry(client, {
+      creatorUserId,
+      viewerUserId: cleanViewerUserId,
+      characterId: cleanCharacterId,
+      sessionId: cleanSessionId,
+      type: "video_view_earning",
+      sourceCredits: source,
+      earningRate: rate,
+      deltaCredits: earning,
+      meta: { sessionId: cleanSessionId, characterId: cleanCharacterId, characterName: character?.name || "", viewerUserId: cleanViewerUserId, sourceCredits: source, earningRate: rate },
+    });
+    await client.query("COMMIT");
+    return record;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (String(error.code || "") === "23505") return null;
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getCreatorIncomeInDb(userId = "", limit = 50) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const [ledgerResult, withdrawalResult, summaryResult] = await Promise.all([
+    query(`
+      SELECT l.*, COALESCE(c.payload->>'name', l.meta->>'characterName', '') AS character_name
+      FROM app_creator_earning_ledger l
+      LEFT JOIN app_chat_live_characters c ON c.id = l.character_id
+      WHERE l.creator_user_id = $1
+      ORDER BY l.created_at DESC
+      LIMIT $2
+    `, [cleanUserId, safeLimit]),
+    query(`SELECT * FROM app_creator_withdrawals WHERE creator_user_id = $1 ORDER BY created_at DESC LIMIT $2`, [cleanUserId, safeLimit]),
+    query(`
+      SELECT
+        COALESCE(SUM(delta_credits), 0)::numeric AS available_credits,
+        COALESCE(SUM(CASE WHEN type = 'video_view_earning' THEN delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
+        COUNT(*) FILTER (WHERE type = 'video_view_earning')::int AS earning_count
+      FROM app_creator_earning_ledger
+      WHERE creator_user_id = $1
+    `, [cleanUserId]),
+  ]);
+  const withdrawalTotals = await query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_credits ELSE 0 END), 0)::numeric AS withdrawn_credits,
+      COALESCE(SUM(CASE WHEN status = 'processing' THEN amount_credits ELSE 0 END), 0)::numeric AS locked_credits
+    FROM app_creator_withdrawals WHERE creator_user_id = $1
+  `, [cleanUserId]);
+  const records = ledgerResult.rows.map((row) => ({
+    id: String(row.id || ""),
+    type: String(row.type || ""),
+    credits: creditNumber(row.delta_credits || 0),
+    sourceCredits: creditNumber(row.source_credits || 0),
+    earningRate: Number(row.earning_rate || 0),
+    balanceAfter: creditNumber(row.balance_after || 0),
+    characterId: String(row.character_id || ""),
+    characterName: String(row.character_name || row.meta?.characterName || ""),
+    sessionId: String(row.session_id || ""),
+    createdAt: toIsoString(row.created_at || ""),
+  }));
+  const summary = summaryResult.rows[0] || {};
+  const totals = withdrawalTotals.rows[0] || {};
+  return {
+    availableCredits: creditNumber(summary.available_credits || 0),
+    totalEarnedCredits: creditNumber(summary.total_earned_credits || 0),
+    withdrawnCredits: creditNumber(totals.withdrawn_credits || 0),
+    lockedCredits: creditNumber(totals.locked_credits || 0),
+    earningCount: Number(summary.earning_count || 0),
+    earningRate: 0.3,
+    records,
+    withdrawals: withdrawalResult.rows.map(creatorWithdrawalFromRow),
+  };
+}
+
+async function createCreatorWithdrawalInDb({ userId = "", amountCredits = 0, network = "USDT-TRC20", address = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const amount = creditNumber(amountCredits || 0);
+  const cleanNetwork = String(network || "USDT-TRC20").trim().toUpperCase();
+  const cleanAddress = String(address || "").trim();
+  const allowedNetworks = new Set(["USDT-TRC20", "USDT-ERC20", "USDT-BEP20"]);
+  if (!cleanUserId) throw Object.assign(new Error("用户信息缺失。"), { statusCode: 401 });
+  if (!(amount >= CREATOR_WITHDRAWAL_MIN_CREDITS)) throw Object.assign(new Error("最低提现 2000 积分（20 USDT）。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_AMOUNT" });
+  if (!allowedNetworks.has(cleanNetwork)) throw Object.assign(new Error("仅支持 USDT 提现网络。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_NETWORK" });
+  if (!/^[A-Za-z0-9]{20,128}$/.test(cleanAddress)) throw Object.assign(new Error("请填写有效的 USDT 收款地址。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_ADDRESS" });
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`creator-ledger:${cleanUserId}`]);
+    const balanceResult = await client.query(`SELECT COALESCE(SUM(delta_credits), 0)::numeric AS balance FROM app_creator_earning_ledger WHERE creator_user_id = $1`, [cleanUserId]);
+    const available = creditNumber(balanceResult.rows[0]?.balance || 0);
+    if (available < amount) throw Object.assign(new Error("可提现积分不足。"), { statusCode: 409, code: "INSUFFICIENT_CREATOR_CREDITS" });
+    const id = creatorLedgerId("creator-withdrawal");
+    const now = new Date().toISOString();
+    const withdrawal = {
+      id,
+      creatorUserId: cleanUserId,
+      amountCredits: amount,
+      network: cleanNetwork,
+      withdrawalAddress: cleanAddress,
+      status: "processing",
+      txHash: "",
+      note: "",
+      rejectionReason: "",
+      reviewedByUserId: "",
+      createdAt: now,
+      updatedAt: now,
+      processedAt: "",
+    };
+    await client.query(`
+      INSERT INTO app_creator_withdrawals(
+        id, creator_user_id, amount_credits, network, withdrawal_address, status, tx_hash, note,
+        rejection_reason, reviewed_by_user_id, payload, created_at, updated_at, processed_at
+      ) VALUES ($1, $2, $3::numeric, $4, $5, 'processing', '', '', '', '', $6::jsonb, $7::timestamptz, $7::timestamptz, NULL)
+    `, [id, cleanUserId, amount, cleanNetwork, cleanAddress, JSON.stringify(withdrawal), now]);
+    await createCreatorEarningEntry(client, {
+      creatorUserId: cleanUserId,
+      type: "withdrawal_hold",
+      deltaCredits: -amount,
+      meta: { withdrawalId: id, network: cleanNetwork, address: cleanAddress },
+    });
+    await client.query("COMMIT");
+    return withdrawal;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listCreatorWithdrawalsInDb(userId = "", limit = 20) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  const { rows } = await query(`SELECT * FROM app_creator_withdrawals WHERE creator_user_id = $1 ORDER BY created_at DESC LIMIT $2`, [String(userId || ""), safeLimit]);
+  return rows.map(creatorWithdrawalFromRow);
+}
+
+async function getAdminCreatorDataInDb({ page = 1, limit = 20, queryText = "" } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
-  const cleanUserId = String(userId || "").trim();
-  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
   const { rows } = await query(`
     SELECT
-      l.id, l.delta, l.created_at, l.meta,
-      COALESCE(c.payload->>'name', l.meta->>'characterName', '') AS character_name
-    FROM app_credit_ledger l
-    JOIN app_chat_live_characters c ON c.id = COALESCE(l.meta->>'characterId', '')
-    WHERE c.payload->>'createdByUserId' = $1
-      AND c.deleted_at IS NULL
-      AND LOWER(l.type) LIKE '%gift%'
-      AND l.delta < 0
-    ORDER BY l.created_at DESC
-    LIMIT $2
-  `, [cleanUserId, safeLimit]);
-  const totals = await query(`
-    SELECT COALESCE(SUM(ABS(l.delta)), 0)::numeric AS total, COUNT(*)::int AS count
-    FROM app_credit_ledger l
-    JOIN app_chat_live_characters c ON c.id = COALESCE(l.meta->>'characterId', '')
-    WHERE c.payload->>'createdByUserId' = $1
-      AND c.deleted_at IS NULL
-      AND LOWER(l.type) LIKE '%gift%'
-      AND l.delta < 0
-  `, [cleanUserId]);
-  const records = rows.map((row) => ({
-    id: String(row.id || ""),
-    credits: creditNumber(Math.abs(Number(row.delta || 0))),
-    characterName: String(row.character_name || ""),
-    giftName: String(row.meta?.giftName || "礼物"),
-    characterId: String(row.meta?.characterId || ""),
-    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
-  }));
+      l.creator_user_id,
+      COALESCE(u.username, l.creator_user_id) AS username,
+      COALESCE(SUM(CASE WHEN l.type = 'video_view_earning' THEN l.delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
+      COALESCE(SUM(l.delta_credits), 0)::numeric AS available_credits,
+      COUNT(*) FILTER (WHERE l.type = 'video_view_earning')::int AS earning_count,
+      COUNT(DISTINCT l.character_id) FILTER (WHERE l.type = 'video_view_earning' AND l.character_id <> '')::int AS character_count,
+      MAX(l.created_at) AS last_earning_at,
+      COUNT(*) OVER()::int AS total_count
+    FROM app_creator_earning_ledger l
+    LEFT JOIN app_users u ON u.id = l.creator_user_id
+    WHERE ($1 = '' OR LOWER(CONCAT_WS(' ', l.creator_user_id, u.username, l.character_id)) LIKE '%' || $1 || '%')
+    GROUP BY l.creator_user_id, u.username
+    ORDER BY total_earned_credits DESC, last_earning_at DESC
+    LIMIT $2 OFFSET $3
+  `, [q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
   return {
-    totalCredits: creditNumber(totals.rows[0]?.total || 0),
-    giftCount: Number(totals.rows[0]?.count || 0),
-    records,
+    creators: rows.map((row) => ({
+      creatorUserId: String(row.creator_user_id || ""),
+      username: String(row.username || row.creator_user_id || ""),
+      totalEarnedCredits: creditNumber(row.total_earned_credits || 0),
+      availableCredits: creditNumber(row.available_credits || 0),
+      earningCount: Number(row.earning_count || 0),
+      characterCount: Number(row.character_count || 0),
+      lastEarningAt: toIsoString(row.last_earning_at || ""),
+    })),
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
   };
+}
+
+async function getAdminCreatorWithdrawalsPageFromDb({ page = 1, limit = 20, status = "", queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT w.*, COALESCE(u.username, w.creator_user_id) AS username, COUNT(*) OVER()::int AS total_count
+    FROM app_creator_withdrawals w
+    LEFT JOIN app_users u ON u.id = w.creator_user_id
+    WHERE ($1 = '' OR LOWER(w.status) = $1)
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', w.id, w.creator_user_id, u.username, w.withdrawal_address, w.tx_hash, w.status)) LIKE '%' || $2 || '%')
+    ORDER BY w.created_at DESC
+    LIMIT $3 OFFSET $4
+  `, [cleanStatus, q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  return {
+    withdrawals: rows.map((row) => ({ ...creatorWithdrawalFromRow(row), username: String(row.username || "") })),
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+}
+
+async function updateCreatorWithdrawalInDb({ id = "", status = "", txHash = "", note = "", rejectionReason = "", adminUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const nextStatus = String(status || "").trim().toLowerCase();
+  if (!cleanId || !["paid", "rejected"].includes(nextStatus)) throw Object.assign(new Error("提现审核状态无效。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_STATUS" });
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const withdrawalResult = await client.query(`SELECT * FROM app_creator_withdrawals WHERE id = $1 FOR UPDATE`, [cleanId]);
+    const row = withdrawalResult.rows[0];
+    if (!row) throw Object.assign(new Error("提现申请不存在。"), { statusCode: 404, code: "CREATOR_WITHDRAWAL_NOT_FOUND" });
+    const current = creatorWithdrawalFromRow(row);
+    if (current.status === "paid") throw Object.assign(new Error("已打款的提现不能重复审核。"), { statusCode: 409, code: "CREATOR_WITHDRAWAL_ALREADY_PAID" });
+    if (current.status !== "processing") throw Object.assign(new Error("该提现申请已处理。"), { statusCode: 409, code: "CREATOR_WITHDRAWAL_ALREADY_REVIEWED" });
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`creator-ledger:${current.creatorUserId}`]);
+    const now = new Date().toISOString();
+    const cleanTxHash = String(txHash || "").trim().slice(0, 200);
+    const cleanNote = String(note || "").trim().slice(0, 500);
+    const cleanReason = String(rejectionReason || note || "").trim().slice(0, 500);
+    if (nextStatus === "paid" && !cleanTxHash) throw Object.assign(new Error("打款后必须填写 USDT 交易哈希。"), { statusCode: 400, code: "WITHDRAWAL_TX_HASH_REQUIRED" });
+    if (nextStatus === "rejected" && !cleanReason) throw Object.assign(new Error("拒绝提现必须填写原因。"), { statusCode: 400, code: "WITHDRAWAL_REJECTION_REASON_REQUIRED" });
+    const updatedResult = await client.query(`
+      UPDATE app_creator_withdrawals
+      SET status = $2,
+          tx_hash = $3,
+          note = $4,
+          rejection_reason = $5,
+          reviewed_by_user_id = $6,
+          processed_at = $7::timestamptz,
+          updated_at = $7::timestamptz,
+          payload = payload || jsonb_build_object(
+            'status', $2::text,
+            'txHash', $3::text,
+            'note', $4::text,
+            'rejectionReason', $5::text,
+            'reviewedByUserId', $6::text,
+            'processedAt', $7::text,
+            'updatedAt', $7::text
+          )
+      WHERE id = $1
+      RETURNING *
+    `, [cleanId, nextStatus, cleanTxHash, cleanNote, cleanReason, String(adminUserId || ""), now]);
+    if (nextStatus === "rejected") {
+      await createCreatorEarningEntry(client, {
+        creatorUserId: current.creatorUserId,
+        type: "withdrawal_refund",
+        deltaCredits: current.amountCredits,
+        meta: { withdrawalId: cleanId, rejectionReason: cleanReason, adminUserId: String(adminUserId || "") },
+      });
+    }
+    await client.query("COMMIT");
+    return creatorWithdrawalFromRow(updatedResult.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function listUserSupportMessagesInDb(userId = "", limit = 30) {
@@ -4511,7 +4914,13 @@ module.exports = {
   createLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
-  listCreatorGiftIncomeInDb,
+  recordCreatorVideoViewEarningInDb,
+  getCreatorIncomeInDb,
+  createCreatorWithdrawalInDb,
+  listCreatorWithdrawalsInDb,
+  getAdminCreatorDataInDb,
+  getAdminCreatorWithdrawalsPageFromDb,
+  updateCreatorWithdrawalInDb,
   createUserSupportMessageInDb,
   updateUserSupportMessageInDb,
   hasReferralRewardInDb,

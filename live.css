@@ -717,6 +717,30 @@
 .income-settlement span,.income-settlement b{display:block}
 .income-settlement span{color:rgba(255,255,255,.35);font-size:9px}
 .income-settlement b{margin-top:5px;color:#ffda8c;font-size:11px;font-weight:600}
+.creator-withdraw-card{margin:14px 20px 0;padding:15px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(255,255,255,.035)}
+.creator-withdraw-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}
+.creator-withdraw-head b,.creator-withdraw-head small{display:block}
+.creator-withdraw-head b{font-size:13px}
+.creator-withdraw-head small{margin-top:4px;color:rgba(255,255,255,.38);font-size:9px;line-height:1.5}
+.creator-withdraw-head button{padding:0;border:0;background:transparent;color:#ff9eba;font-size:10px}
+.creator-withdraw-card form{display:grid;gap:11px}
+.creator-withdraw-card label{display:grid;gap:6px;color:rgba(255,255,255,.58);font-size:10px}
+.creator-withdraw-card input,.creator-withdraw-card select{width:100%;height:42px;box-sizing:border-box;border:1px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(0,0,0,.18);color:#fff;padding:0 11px;font:inherit;font-size:12px;outline:none}
+.creator-withdraw-card input:focus,.creator-withdraw-card select:focus{border-color:rgba(255,196,92,.55)}
+.creator-withdraw-card select option{background:#211a20;color:#fff}
+.creator-withdraw-card .pay-cta{margin:2px 0 0;width:100%}
+.creator-withdraw-card .pay-cta:disabled{background:rgba(255,255,255,.06);color:rgba(255,255,255,.3);box-shadow:none}
+.creator-withdraw-card .form-message{min-height:14px;margin:0;color:#ff9eba;font-size:10px;text-align:center}
+.creator-withdrawal-list{display:grid;gap:8px;margin:0 20px}
+.creator-withdrawal-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:9px;background:rgba(255,255,255,.025)}
+.creator-withdrawal-row>div{min-width:0}
+.creator-withdrawal-row b,.creator-withdrawal-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.creator-withdrawal-row b{color:#fff;font-size:11px}
+.creator-withdrawal-row div small,.creator-withdrawal-row>small{color:rgba(255,255,255,.35);font-size:9px}
+.creator-withdrawal-row>div small{margin-top:4px}
+.creator-withdrawal-status{align-self:start;padding:3px 7px;border-radius:99px;background:rgba(255,196,92,.12);color:#ffd580;font-size:9px}
+.creator-withdrawal-status.paid{background:rgba(70,209,143,.12);color:#7de2b1}
+.creator-withdrawal-status.rejected{background:rgba(255,88,116,.12);color:#ff9bad}
 .feedback-form{margin:16px 20px 22px;padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(255,255,255,.035)}
 .feedback-form label{display:block;margin-bottom:13px;color:rgba(255,255,255,.55);font-size:11px}
 .feedback-form select,.feedback-form textarea{display:block;width:100%;margin-top:7px;padding:11px 12px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:#0f0f15;color:#fff;font:inherit;font-size:12px}
@@ -768,7 +792,7 @@
 @keyframes gift-spark{0%{opacity:0;transform:translate(0,0) scale(.2)}18%{opacity:1}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(1.1)}}
 @keyframes gift-copy-small{0%,12%{opacity:0;transform:translateY(8px)}26%,76%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-6px)}}
 @keyframes gift-copy-name{0%,18%{opacity:0;transform:scale(.72)}30%{opacity:1;transform:scale(1.08)}40%,76%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-8px) scale(1)}}
-@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-streak,.checkin-week,.checkin-claim,.feedback-form,.income-hero,.income-note,.income-settlement{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-week{gap:2px;padding-left:6px;padding-right:6px}.detail-header{padding-left:12px;padding-right:12px}}
+@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-streak,.checkin-week,.checkin-claim,.feedback-form,.income-hero,.income-note,.income-settlement,.creator-withdraw-card,.creator-withdrawal-list{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-week{gap:2px;padding-left:6px;padding-right:6px}.detail-header{padding-left:12px;padding-right:12px}}
 @media(prefers-reduced-motion:reduce){
   .live-gift-effect,.live-gift-effect::before,.live-gift-art,.live-gift-caption small,.live-gift-caption b{animation:none;opacity:1;transform:translate(-50%,-50%)}
   .live-gift-effect{animation:gift-effect-reduced 1.8s ease both;transform:translateX(-50%)}

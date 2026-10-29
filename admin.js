@@ -32,6 +32,7 @@ function pricingMultiplierText(value) {
 }
 
 const ROUTES = [
+  { id: "creator-data", title: "创作者数据", render: renderCreatorData },
   { id: "withdrawals", title: "提现审核", render: renderWithdrawals },
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
   { id: "characters", title: "角色管理", render: renderCharacters },
@@ -3458,6 +3459,98 @@ async function renderWithdrawals(pageArg = null, limitArg = null) {
     if (action === "rejected") { note = window.prompt("拒绝原因（可选）", "") || ""; } else { txHash = window.prompt("人工打款交易哈希（可选）", "") || ""; }
     button.disabled = true;
     try { await api(`/api/admin/referral-withdrawals/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: action === "rejected" ? "rejected" : "paid", txHash, note } }); toast("提现记录已更新"); renderWithdrawals(page, limit); } catch (error) { toast(error.message || String(error), "error"); button.disabled = false; }
+  }));
+}
+
+/* ============ CREATOR DATA ============ */
+async function renderCreatorData(pageArg = null, limitArg = null) {
+  const routeId = "creator-data";
+  if (!isActiveRoute(routeId)) return;
+  const savedPager = JSON.parse(sessionStorage.getItem("admCreatorDataPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admCreatorDataQuery") || "";
+  const withdrawalStatus = sessionStorage.getItem("admCreatorWithdrawalStatus") || "";
+  const creatorParams = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) creatorParams.set("q", q);
+  const withdrawalParams = new URLSearchParams({ page: "1", limit: "50" });
+  if (withdrawalStatus) withdrawalParams.set("status", withdrawalStatus);
+  if (q) withdrawalParams.set("q", q);
+  const [creatorPayload, withdrawalPayload] = await Promise.all([
+    api(`/api/admin/creator-data?${creatorParams.toString()}`),
+    api(`/api/admin/creator-withdrawals?${withdrawalParams.toString()}`),
+  ]);
+  if (!isActiveRoute(routeId)) return;
+  sessionStorage.setItem("admCreatorDataPager", JSON.stringify({ page: creatorPayload.page || page, limit: creatorPayload.limit || limit }));
+  const creators = creatorPayload.creators || [];
+  const withdrawals = withdrawalPayload.withdrawals || [];
+  const totalEarned = creators.reduce((sum, item) => sum + Number(item.totalEarnedCredits || 0), 0);
+  const totalAvailable = creators.reduce((sum, item) => sum + Number(item.availableCredits || 0), 0);
+  const processing = withdrawals.filter((item) => String(item.status || "") === "processing");
+  const withdrawalRows = withdrawals.length ? withdrawals.map((item) => {
+    const status = String(item.status || "processing");
+    return `<tr data-creator-withdrawal-id="${escapeHtml(item.id)}"><td>${fmtDate(item.createdAt)}</td><td><strong>${escapeHtml(item.username || item.creatorUserId || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(item.creatorUserId || "")}</span></td><td><strong>${escapeHtml(Number(item.amountCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</strong></td><td>${escapeHtml(item.network || "USDT")}<br/><span class="adm-muted adm-mono adm-truncate" title="${escapeHtml(item.withdrawalAddress || "")}">${escapeHtml(item.withdrawalAddress || "-")}</span></td><td>${statusPill(status)}</td><td class="adm-mono adm-truncate" title="${escapeHtml(item.txHash || "")}">${escapeHtml(item.txHash || "-")}</td><td><div class="adm-row-actions">${status === "processing" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-creator-withdraw-action="paid" type="button">已打款</button><button class="adm-btn adm-btn-sm adm-btn-danger" data-creator-withdraw-action="rejected" type="button">拒绝</button>` : `<span class="adm-muted">已审核</span>`}</div></td></tr>`;
+  }).join("") : "";
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head"><div><h2>创作者数据</h2><p class="adm-muted">查看角色视频通话分成收益，并审核 USDT 提现。创作者收益独立于普通积分余额。</p></div><button class="adm-btn adm-btn-ghost" id="creatorDataRefresh" type="button"><i data-lucide="refresh-cw"></i>刷新</button></div>
+      <div class="adm-stats adm-stats-4">
+        ${statCard("当前页累计收益", totalEarned.toLocaleString("zh-CN", { maximumFractionDigits: 6 }), "积分", "badge-dollar-sign", "rose")}
+        ${statCard("当前页可提现", totalAvailable.toLocaleString("zh-CN", { maximumFractionDigits: 6 }), "积分", "wallet", "mint")}
+        ${statCard("待审核提现", processing.length, "最近 50 笔申请", "clock-3", "amber")}
+        ${statCard("分成比例", "30%", "视频通话实扣积分", "percent", "violet")}
+      </div>
+      <div class="adm-card" style="margin-bottom:18px"><div class="adm-card-head"><div><h3>创作者收益</h3><p class="adm-muted">按用户、角色或创作者 ID 搜索。</p></div><form class="adm-list-filters" id="creatorDataFilterForm"><input id="creatorDataQuery" type="search" value="${escapeHtml(q)}" placeholder="搜索创作者 / 角色 ID" /><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div><div class="adm-card-body adm-table-wrap">${creators.length ? `<table class="adm-table"><thead><tr><th>创作者</th><th>累计收益</th><th>可提现</th><th>分成次数</th><th>角色数</th><th>最近收益</th></tr></thead><tbody>${creators.map((item) => `<tr><td><strong>${escapeHtml(item.username || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(item.creatorUserId || "")}</span></td><td><strong>${escapeHtml(Number(item.totalEarnedCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</strong></td><td>${escapeHtml(Number(item.availableCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</td><td>${Number(item.earningCount || 0)}</td><td>${Number(item.characterCount || 0)}</td><td>${fmtDate(item.lastEarningAt)}</td></tr>`).join("")}</tbody></table>` : `<div class="adm-empty"><i data-lucide="badge-dollar-sign"></i><p>还没有创作者收益数据</p></div>`}</div>${adminPagerHtml(creatorPayload)}</div>
+      <div class="adm-card"><div class="adm-card-head"><div><h3>USDT 提现审核</h3><p class="adm-muted">打款必须填写链上交易哈希；拒绝必须填写原因，积分会自动退回可提现余额。</p></div><form class="adm-list-filters" id="creatorWithdrawalFilterForm"><select id="creatorWithdrawalStatus"><option value="">全部状态</option><option value="processing" ${withdrawalStatus === "processing" ? "selected" : ""}>审核中</option><option value="paid" ${withdrawalStatus === "paid" ? "selected" : ""}>已打款</option><option value="rejected" ${withdrawalStatus === "rejected" ? "selected" : ""}>已拒绝</option></select><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div><div class="adm-card-body adm-table-wrap">${withdrawalRows ? `<table class="adm-table"><thead><tr><th>申请时间</th><th>创作者</th><th>提现积分</th><th>USDT 网络 / 地址</th><th>状态</th><th>交易哈希</th><th>操作</th></tr></thead><tbody>${withdrawalRows}</tbody></table>` : `<div class="adm-empty"><i data-lucide="hand-coins"></i><p>暂无创作者提现申请</p></div>`}</div></div>
+    </section>`;
+  refreshIcons();
+  bindAdminPager(els.adminContent, creatorPayload, ({ page: nextPage, limit: nextLimit }) => renderCreatorData(nextPage, nextLimit).catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelector("#creatorDataRefresh")?.addEventListener("click", () => renderCreatorData(page, limit).catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelector("#creatorDataFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sessionStorage.setItem("admCreatorDataQuery", els.adminContent.querySelector("#creatorDataQuery")?.value.trim() || "");
+    renderCreatorData(1, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  els.adminContent.querySelector("#creatorWithdrawalFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sessionStorage.setItem("admCreatorWithdrawalStatus", els.adminContent.querySelector("#creatorWithdrawalStatus")?.value || "");
+    renderCreatorData(page, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  els.adminContent.querySelectorAll("[data-creator-withdraw-action]").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest("tr[data-creator-withdrawal-id]");
+    const id = row?.dataset.creatorWithdrawalId;
+    if (!id) return;
+    const action = button.dataset.creatorWithdrawAction;
+    const status = action === "paid" ? "paid" : "rejected";
+    const result = await openDialog({
+      title: status === "paid" ? "确认已打款" : "拒绝提现申请",
+      body: status === "paid"
+        ? `<label class="adm-form-row"><span>USDT 交易哈希</span><input name="txHash" required placeholder="填写链上交易哈希" /></label><label class="adm-form-row"><span>备注（可选）</span><textarea name="note" rows="3"></textarea></label><p class="adm-muted">请先完成链上打款，再填写真实交易哈希。提交后不可修改。</p>`
+        : `<label class="adm-form-row"><span>拒绝原因</span><textarea name="rejectionReason" rows="4" required placeholder="填写拒绝原因，积分将退回可提现余额"></textarea></label>`,
+      confirmText: status === "paid" ? "确认已打款" : "确认拒绝",
+      onConfirm: async () => {
+        const review = {
+          txHash: String(els.dialogBody.querySelector('[name="txHash"]')?.value || "").trim(),
+          note: String(els.dialogBody.querySelector('[name="note"]')?.value || "").trim(),
+          rejectionReason: String(els.dialogBody.querySelector('[name="rejectionReason"]')?.value || "").trim(),
+        };
+        if (status === "paid" && !review.txHash) throw new Error("请填写 USDT 交易哈希。");
+        if (status === "rejected" && !review.rejectionReason) throw new Error("请填写拒绝原因。");
+        await api(`/api/admin/creator-withdrawals/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: { status, ...review },
+        });
+      },
+    });
+    if (result !== "confirm") return;
+    button.disabled = true;
+    try {
+      toast(status === "paid" ? "已标记打款" : "已拒绝并退回可提现积分", "success");
+      await renderCreatorData(page, limit);
+    } catch (error) {
+      toast(error.message || String(error), "error");
+      button.disabled = false;
+    }
   }));
 }
 
