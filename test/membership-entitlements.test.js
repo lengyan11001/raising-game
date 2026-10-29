@@ -134,11 +134,18 @@ test("membership top-up bonuses are capped at 20 percent", () => {
   assert.doesNotMatch(server, /id:\s*"usd-500", amount: 500, credits: 65000/);
 });
 
-test("admin membership code reveal has an explicit one-click copy button", () => {
+test("admin membership code list exposes a persistent one-click copy button", () => {
   const admin = read("admin.js");
   const css = read("admin.css");
-  assert.match(admin, /adm-membership-code-item[^`]*data-copy-membership-code/);
+  const db = read("db.js");
+  const server = read("server.js");
+  assert.match(db, /code_value TEXT NOT NULL DEFAULT ''/);
+  assert.match(db, /INSERT INTO app_membership_activation_codes[\s\S]*?code_value/);
+  assert.match(db, /code: String\(row\.code_value \|\| ""\)/);
+  assert.match(server, /codeHash: membershipActivationCodeHash\(code\),[\s\S]*?code,/);
+  assert.match(admin, /adm-membership-code-cell[\s\S]*?data-copy-membership-code=/);
   assert.match(admin, /<i data-lucide="copy"><\/i>复制<\/button>/);
   assert.match(admin, /copyText\(button\.dataset\.copyMembershipCode \|\| "", "激活码已复制。"\)/);
-  assert.match(css, /\.adm-membership-code-item \.adm-btn \{ flex: 0 0 auto; \}/);
+  assert.doesNotMatch(admin, /newMembershipCodes|本次创建的明文码/);
+  assert.match(css, /\.adm-membership-code-cell \.adm-btn \{ flex: 0 0 auto; \}/);
 });

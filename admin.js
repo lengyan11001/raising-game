@@ -69,7 +69,6 @@ const state = {
   config: null,
   route: "dashboard",
   cache: {},
-  newMembershipCodes: [],
 };
 
 let adminHistoryPollTimer = null;
@@ -3014,17 +3013,16 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
   const payload = await api(`/api/admin/membership-codes?${params.toString()}`);
   if (!isActiveRoute("membership-codes")) return;
   const codes = payload.codes || [];
-  const revealed = Array.isArray(state.newMembershipCodes) ? state.newMembershipCodes : [];
   sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>会员激活码</h2>
-          <p class="adm-muted">创建 Creator Membership 激活码。明文只在创建后展示一次，数据库仅保存哈希。</p>
+          <p class="adm-muted">创建 Creator Membership 激活码。每个码都可在下方记录中直接复制。</p>
         </div>
         <form class="adm-list-filters" id="membershipCodesFilterForm">
-          <input id="membershipCodesSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索前缀 / 备注 / ID" />
+          <input id="membershipCodesSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索会员码 / 备注 / ID" />
           <select id="membershipCodesStatusFilter">
             <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
             <option value="active" ${status === "active" ? "selected" : ""}>可用</option>
@@ -3035,48 +3033,33 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
         </form>
       </div>
 
-      <div class="adm-grid adm-grid-2 adm-membership-code-layout">
-        <article class="adm-card">
-          <div class="adm-card-head"><h3>创建激活码</h3><span class="adm-muted">单次最多 100 个</span></div>
-          <form class="adm-card-body" id="membershipCodeCreateForm">
-            <div class="adm-grid adm-grid-2">
-              <label class="adm-form-row"><span>创建数量</span><input id="membershipCodeCount" type="number" min="1" max="100" step="1" value="1" required /></label>
-              <label class="adm-form-row"><span>每个码可激活人数</span><input id="membershipCodeMaxRedemptions" type="number" min="1" max="10000" step="1" value="1" required /></label>
-            </div>
-            <label class="adm-form-row"><span>有效期（可不填）</span><input id="membershipCodeExpiresAt" type="datetime-local" /></label>
-            <label class="adm-form-row"><span>备注</span><textarea id="membershipCodeNotes" maxlength="500" rows="3" placeholder="例如：渠道合作 / 客服补发"></textarea></label>
-            <div class="adm-form-actions">
-              <button class="adm-btn adm-btn-primary" id="membershipCodeCreateBtn" type="submit"><i data-lucide="ticket-plus"></i>创建激活码</button>
-            </div>
-          </form>
-        </article>
-
-        <article class="adm-card adm-membership-code-reveal" ${revealed.length ? "" : "hidden"}>
-          <div class="adm-card-head">
-            <div><h3>本次创建的明文码</h3><span class="adm-muted">关闭或刷新后无法再次查看</span></div>
-            <div class="adm-form-actions">
-              <button class="adm-btn adm-btn-sm adm-btn-ghost" id="copyAllMembershipCodesBtn" type="button"><i data-lucide="copy"></i>复制全部</button>
-              <button class="adm-btn adm-btn-sm adm-btn-ghost" id="clearMembershipCodesRevealBtn" type="button"><i data-lucide="x"></i>隐藏</button>
-            </div>
+      <article class="adm-card">
+        <div class="adm-card-head"><h3>创建激活码</h3><span class="adm-muted">单次最多 100 个</span></div>
+        <form class="adm-card-body" id="membershipCodeCreateForm">
+          <div class="adm-grid adm-grid-2">
+            <label class="adm-form-row"><span>创建数量</span><input id="membershipCodeCount" type="number" min="1" max="100" step="1" value="1" required /></label>
+            <label class="adm-form-row"><span>每个码可激活人数</span><input id="membershipCodeMaxRedemptions" type="number" min="1" max="10000" step="1" value="1" required /></label>
           </div>
-          <div class="adm-card-body adm-membership-code-list">
-            ${revealed.map((record) => `<div class="adm-membership-code-item"><code>${escapeHtml(record.code || "")}</code><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-copy-membership-code="${escapeHtml(record.code || "")}"><i data-lucide="copy"></i>复制</button></div>`).join("")}
+          <label class="adm-form-row"><span>有效期（可不填）</span><input id="membershipCodeExpiresAt" type="datetime-local" /></label>
+          <label class="adm-form-row"><span>备注</span><textarea id="membershipCodeNotes" maxlength="500" rows="3" placeholder="例如：渠道合作 / 客服补发"></textarea></label>
+          <div class="adm-form-actions">
+            <button class="adm-btn adm-btn-primary" id="membershipCodeCreateBtn" type="submit"><i data-lucide="ticket-plus"></i>创建激活码</button>
           </div>
-        </article>
-      </div>
+        </form>
+      </article>
 
       <article class="adm-card">
         <div class="adm-card-head"><h3>激活码记录</h3><span class="adm-muted">共 ${escapeHtml(payload.total || 0)} 条</span></div>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-membership-code-table">
-            <thead><tr><th>码前缀</th><th>状态</th><th>已使用 / 上限</th><th>有效期</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>会员码</th><th>状态</th><th>已使用 / 上限</th><th>有效期</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
             <tbody>
               ${codes.length ? codes.map((record) => {
                 const codeStatus = String(record.status || "active").toLowerCase();
                 const nextStatus = codeStatus === "active" ? "disabled" : codeStatus === "disabled" ? "active" : "";
                 return `
                   <tr data-id="${escapeHtml(record.id || "")}">
-                    <td><strong class="adm-mono">${escapeHtml(record.codePrefix || "VIP-")}****</strong><br/><span class="adm-muted adm-mono">${escapeHtml(record.id || "")}</span></td>
+                    <td><div class="adm-membership-code-cell">${record.code ? `<div><code>${escapeHtml(record.code)}</code><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-copy-membership-code="${escapeHtml(record.code)}"><i data-lucide="copy"></i>复制</button></div>` : `<div><span class="adm-muted">历史码不可恢复</span><span class="adm-muted adm-mono">${escapeHtml(record.codePrefix || "VIP-")}****</span></div>`}<span class="adm-muted adm-mono adm-membership-code-id">${escapeHtml(record.id || "")}</span></div></td>
                     <td>${statusPill(codeStatus)}</td>
                     <td><strong>${escapeHtml(record.redemptionCount || 0)}</strong> / ${escapeHtml(record.maxRedemptions || 1)}</td>
                     <td>${record.expiresAt ? fmtDate(record.expiresAt) : "永久"}</td>
@@ -3122,8 +3105,8 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
           notes: els.adminContent.querySelector("#membershipCodeNotes")?.value.trim() || "",
         },
       });
-      state.newMembershipCodes = (created.codes || []).filter((record) => record.code);
-      toast(`已创建 ${state.newMembershipCodes.length} 个激活码。`, "success");
+      toast(`已创建 ${(created.codes || []).length} 个激活码。`, "success");
+      sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: 1, limit }));
       await renderMembershipCodes(1, limit);
     } catch (error) {
       toast(error.message || String(error), "error");
@@ -3132,13 +3115,6 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
   });
   els.adminContent.querySelectorAll("[data-copy-membership-code]").forEach((button) => {
     button.addEventListener("click", () => copyText(button.dataset.copyMembershipCode || "", "激活码已复制。"));
-  });
-  els.adminContent.querySelector("#copyAllMembershipCodesBtn")?.addEventListener("click", () => {
-    copyText(revealed.map((record) => record.code).filter(Boolean).join("\n"), "全部激活码已复制。");
-  });
-  els.adminContent.querySelector("#clearMembershipCodesRevealBtn")?.addEventListener("click", () => {
-    state.newMembershipCodes = [];
-    renderMembershipCodes(page, limit).catch((err) => renderRouteError("membership-codes", err));
   });
   els.adminContent.querySelectorAll("tr[data-id] [data-membership-code-status]").forEach((button) => {
     button.addEventListener("click", async () => {

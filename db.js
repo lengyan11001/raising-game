@@ -254,6 +254,7 @@ async function ensureSchemaInner() {
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
       code_hash TEXT NOT NULL,
+      code_value TEXT NOT NULL DEFAULT '',
       code_prefix TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active',
       expires_at TIMESTAMPTZ,
@@ -265,6 +266,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await query(`ALTER TABLE app_membership_activation_codes ADD COLUMN IF NOT EXISTS code_value TEXT NOT NULL DEFAULT '';`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_codes_hash_uidx
       ON app_membership_activation_codes (tenant_id, code_hash);
@@ -898,6 +900,7 @@ function membershipActivationCodeFromRow(row = {}) {
   return {
     id: String(row.id || ""),
     tenantId: normalizeTenantId(row.tenant_id || DEFAULT_TENANT_ID),
+    code: String(row.code_value || ""),
     codePrefix: String(row.code_prefix || ""),
     status: String(row.status || "active"),
     expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "",
@@ -1649,15 +1652,16 @@ async function createMembershipActivationCodesInDb(codes = []) {
       const { rows } = await client.query(
         `
           INSERT INTO app_membership_activation_codes (
-            id, tenant_id, code_hash, code_prefix, status, expires_at, max_redemptions,
+            id, tenant_id, code_hash, code_value, code_prefix, status, expires_at, max_redemptions,
             redemption_count, notes, created_by_user_id, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, 'active', $5::timestamptz, $6, 0, $7, $8, $9::timestamptz, $9::timestamptz)
+          ) VALUES ($1, $2, $3, $4, $5, 'active', $6::timestamptz, $7, 0, $8, $9, $10::timestamptz, $10::timestamptz)
           RETURNING *
         `,
         [
           String(record.id),
           tenantId,
           String(record.codeHash),
+          String(record.code || ""),
           String(record.codePrefix || ""),
           record.expiresAt || null,
           Math.max(1, Math.min(10000, Math.trunc(Number(record.maxRedemptions || 1) || 1))),
@@ -1692,7 +1696,7 @@ async function listMembershipActivationCodesInDb(tenantId = DEFAULT_TENANT_ID, {
       FROM app_membership_activation_codes
       WHERE tenant_id = $1
         AND ($2 = '' OR status = $2)
-        AND ($3 = '' OR LOWER(CONCAT_WS(' ', code_prefix, notes, id)) LIKE '%' || $3 || '%')
+        AND ($3 = '' OR LOWER(CONCAT_WS(' ', code_value, code_prefix, notes, id)) LIKE '%' || $3 || '%')
       ORDER BY created_at DESC
       LIMIT $4 OFFSET $5
     `,

@@ -38670,6 +38670,7 @@ async function handleAdminCreateMembershipActivationCodes(req, res) {
     id: randomId("membership-code"),
     tenantId: DEFAULT_TENANT_ID,
     codeHash: membershipActivationCodeHash(code),
+    code,
     codePrefix: code.slice(0, 9),
     expiresAt,
     maxRedemptions,
@@ -38679,7 +38680,7 @@ async function handleAdminCreateMembershipActivationCodes(req, res) {
   })));
   return sendJson(res, 200, {
     ok: true,
-    codes: created.map((record, index) => ({ ...record, code: rawCodes[index] })),
+    codes: created,
   });
 }
 
