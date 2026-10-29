@@ -3493,12 +3493,12 @@ async function renderCreatorData(pageArg = null, limitArg = null) {
   }).join("") : "";
   els.adminContent.innerHTML = `
     <section class="adm-page">
-      <div class="adm-page-head"><div><h2>创作者数据</h2><p class="adm-muted">查看角色视频通话分成收益，并审核 USDT 提现。创作者收益独立于普通积分余额。</p></div><button class="adm-btn adm-btn-ghost" id="creatorDataRefresh" type="button"><i data-lucide="refresh-cw"></i>刷新</button></div>
+      <div class="adm-page-head"><div><h2>创作者数据</h2><p class="adm-muted">查看「创作」页公开角色的聊天、视频通话、礼物分成收益，并审核 USDT 提现。创作者收益独立于普通积分余额。</p></div><button class="adm-btn adm-btn-ghost" id="creatorDataRefresh" type="button"><i data-lucide="refresh-cw"></i>刷新</button></div>
       <div class="adm-stats adm-stats-4">
         ${statCard("当前页累计收益", totalEarned.toLocaleString("zh-CN", { maximumFractionDigits: 6 }), "积分", "badge-dollar-sign", "rose")}
         ${statCard("当前页可提现", totalAvailable.toLocaleString("zh-CN", { maximumFractionDigits: 6 }), "积分", "wallet", "mint")}
         ${statCard("待审核提现", processing.length, "最近 50 笔申请", "clock-3", "amber")}
-        ${statCard("分成比例", "30%", "视频通话实扣积分", "percent", "violet")}
+        ${statCard("分成比例", "30%", "聊天 / 视频通话 / 礼物实扣积分", "percent", "violet")}
       </div>
       <div class="adm-card" style="margin-bottom:18px"><div class="adm-card-head"><div><h3>创作者收益</h3><p class="adm-muted">按用户、角色或创作者 ID 搜索。</p></div><form class="adm-list-filters" id="creatorDataFilterForm"><input id="creatorDataQuery" type="search" value="${escapeHtml(q)}" placeholder="搜索创作者 / 角色 ID" /><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div><div class="adm-card-body adm-table-wrap">${creators.length ? `<table class="adm-table"><thead><tr><th>创作者</th><th>累计收益</th><th>可提现</th><th>分成次数</th><th>角色数</th><th>最近收益</th></tr></thead><tbody>${creators.map((item) => `<tr><td><strong>${escapeHtml(item.username || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(item.creatorUserId || "")}</span></td><td><strong>${escapeHtml(Number(item.totalEarnedCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</strong></td><td>${escapeHtml(Number(item.availableCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</td><td>${Number(item.earningCount || 0)}</td><td>${Number(item.characterCount || 0)}</td><td>${fmtDate(item.lastEarningAt)}</td></tr>`).join("")}</tbody></table>` : `<div class="adm-empty"><i data-lucide="badge-dollar-sign"></i><p>还没有创作者收益数据</p></div>`}</div>${adminPagerHtml(creatorPayload)}</div>
       <div class="adm-card"><div class="adm-card-head"><div><h3>USDT 提现审核</h3><p class="adm-muted">打款必须填写链上交易哈希；拒绝必须填写原因，积分会自动退回可提现余额。</p></div><form class="adm-list-filters" id="creatorWithdrawalFilterForm"><select id="creatorWithdrawalStatus"><option value="">全部状态</option><option value="processing" ${withdrawalStatus === "processing" ? "selected" : ""}>审核中</option><option value="paid" ${withdrawalStatus === "paid" ? "selected" : ""}>已打款</option><option value="rejected" ${withdrawalStatus === "rejected" ? "selected" : ""}>已拒绝</option></select><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div><div class="adm-card-body adm-table-wrap">${withdrawalRows ? `<table class="adm-table"><thead><tr><th>申请时间</th><th>创作者</th><th>提现积分</th><th>USDT 网络 / 地址</th><th>状态</th><th>交易哈希</th><th>操作</th></tr></thead><tbody>${withdrawalRows}</tbody></table>` : `<div class="adm-empty"><i data-lucide="hand-coins"></i><p>暂无创作者提现申请</p></div>`}</div></div>
@@ -5352,6 +5352,14 @@ function chatLiveModeLabel(mode) {
   return mode === "component" ? "组件版" : "实时版";
 }
 
+function chatLiveBillingSourceLabel(source) {
+  return ({
+    terminal_upstream: "Vidu 终态权威",
+    shared_viewer_local: "观众本地进房时长",
+    local_session: "本地会话",
+  })[String(source || "")] || String(source || "—");
+}
+
 function chatLiveDurationLabel(seconds) {
   const total = Math.max(0, Math.round(Number(seconds) || 0));
   const minutes = Math.floor(total / 60);
@@ -5430,7 +5438,7 @@ function chatLiveDetailRow(label, value) {
 }
 
 function chatLiveOperationLabel(operation = {}) {
-  return ({ undress: "Undress", switch_look: "切换素材", remove_look: "撤销画面", video_ready: "首帧计时" })[String(operation.action || "")] || operation.action || "操作";
+  return ({ undress: "Undress", switch_look: "切换素材", remove_look: "撤销画面", video_ready: "首帧诊断" })[String(operation.action || "")] || operation.action || "操作";
 }
 
 function chatLiveSessionDetailHtml(session = {}) {
@@ -5475,12 +5483,19 @@ function chatLiveSessionDetailHtml(session = {}) {
       ${chatLiveDetailRow("上游 trace_id", session.upstreamTraceId || "—")}
       ${chatLiveDetailRow("上游积分", String(session.upstreamCredits ?? 0))}
       ${chatLiveDetailRow("上游错误", session.upstreamError || "—")}
-      ${chatLiveDetailRow("免费秒数", String(session.freeSeconds ?? 0))}
+      ${chatLiveDetailRow("本会话免费额度", String(session.freeAllowanceSeconds ?? session.freeSeconds ?? 0))}
+      ${chatLiveDetailRow("本会话已分配免费", String(session.freeAllocatedSeconds ?? 0))}
+      ${chatLiveDetailRow("本会话已用免费", String(session.freeUsedSeconds ?? 0))}
+      ${chatLiveDetailRow("用户剩余免费", String(session.freeRemainingSeconds ?? 0))}
       ${chatLiveDetailRow("预付秒数", String(session.prepaidSeconds ?? 0))}
       ${chatLiveDetailRow("预付积分", String(session.prepaidCredits ?? 0))}
       ${chatLiveDetailRow("退款积分", String(session.refundedCredits ?? 0))}
-      ${chatLiveDetailRow("开始计费", session.billableStartedAt ? fmtDate(session.billableStartedAt) : "未显示画面")}
+      ${chatLiveDetailRow("开始计费", session.billableStartedAt ? fmtDate(session.billableStartedAt) : "未开始")}
+      ${chatLiveDetailRow("计费来源", chatLiveBillingSourceLabel(session.billingSource))}
       ${chatLiveDetailRow("售价/分钟", String(session.saleCreditsPerMinute ?? 0))}
+      ${chatLiveDetailRow("上游计费秒数", String(session.upstreamBilledSeconds ?? 0))}
+      ${chatLiveDetailRow("主播上游计费秒数", String(session.hostUpstreamBilledSeconds ?? 0))}
+      ${chatLiveDetailRow("产品计费上限（秒）", String(session.billingLimitSeconds ?? 0))}
       ${chatLiveDetailRow("计费秒数", String(session.billedSeconds ?? 0))}
       ${chatLiveDetailRow("应扣积分", String(session.chargeExpected ?? 0))}
       ${chatLiveDetailRow("实扣积分", String(session.chargedCredits ?? 0))}
@@ -5596,7 +5611,7 @@ async function renderChatLive() {
           <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
           <div class="adm-form-row"><span>卖价</span><input id="chatLiveSale" type="number" min="0" value="${escapeHtml(String(pricing.saleCreditsPerMinute ?? 0))}" /><small class="adm-muted">0 = 未定价，此时前台不允许开播。</small></div>
           <div class="adm-form-row"><span>多人房间价</span><input id="chatLiveSharedSale" type="number" min="0" value="${escapeHtml(String(pricing.sharedRoomSaleCreditsPerMinute || ""))}" placeholder="留空则与单人卖价相同" /><small class="adm-muted">每个进入房间的人都按这个价格扣。留空或 0 = 跟单人卖价一样，当前生效 ${escapeHtml(String(Number(pricing.sharedRoomSaleCreditsPerMinute || 0) > 0 ? pricing.sharedRoomSaleCreditsPerMinute : (pricing.saleCreditsPerMinute || 0)))} 积分/分钟。</small></div>
-          <div class="adm-form-row"><span>免费时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /></div>
+          <div class="adm-form-row"><span>每个用户免费总时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /><small class="adm-muted">按用户累计，不再每次连接重新赠送。进房即开始消耗；免费额度剩余不足 10 秒时，会按差额预扣付费时长，余额不足则不能进入。</small></div>
           <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
           <div class="adm-form-row"><span>模型版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
           <div class="adm-form-row"><span>语言模型</span><select id="chatLiveLanguageModel"><option value="byteplus" ${(pricing.languageModel||"byteplus")!=="papaya"?"selected":""}>当前模型（BytePlus）</option><option value="papaya" ${(pricing.languageModel||"")==="papaya"?"selected":""}>Papaya 1.0</option></select><small class="adm-muted">只影响组件版视频对话。实时版仍走 Vidu 内置模型。改完后新开的通话生效。</small></div>

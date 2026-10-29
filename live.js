@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -65,7 +65,7 @@
   }
 
   const COPY = {
-    zh: { back: "返回", swipe: "左右滑动看更多", shuffle: "换一批", emptyRoles: "暂时没有符合条件的角色", brandSub: "遇见你的专属伴侣", loginTitle: "登录后继续", loginNote: "使用已有账号，或注册一个新账号。", google: "使用 Google 继续", album: "TA 的相册", topics: "她擅长的话题", locked: "订阅后解锁", private: "私密", online: "在线 · 随时可以开始聊天", call: "拨打视频", share: "推荐获收益", voiceIntro: "语音介绍", freeListen: "试听免费", billing: "查看计费规则", vipTitle: "私密互动与私密相册", vipLocked: "订阅 VIP 后解锁", vipOpen: "已解锁", unlock: "解锁", emptyAlbum: "还没有相册", filterTitle: "筛选推荐", age: "年龄", gender: "性别", style: "陪伴风格", any: "不限", female: "女生", male: "男生", reset: "重置", apply: "查看结果", years: "岁" },
+    zh: { back: "返回", swipe: "左右滑动看更多", shuffle: "换一批", emptyRoles: "暂时没有符合条件的角色", brandSub: "遇见你的专属伴侣", loginTitle: "登录后继续", loginNote: "使用已有账号，或注册一个新账号。", google: "使用 Google 继续", album: "TA 的相册", topics: "人物标签", locked: "订阅后解锁", private: "私密", online: "在线 · 随时可以开始聊天", call: "拨打视频", share: "推荐获收益", voiceIntro: "语音介绍", freeListen: "试听免费", billing: "查看计费规则", vipTitle: "私密互动与私密相册", vipLocked: "订阅 VIP 后解锁", vipOpen: "已解锁", unlock: "解锁", emptyAlbum: "还没有相册", filterTitle: "筛选推荐", age: "年龄", gender: "性别", style: "陪伴风格", any: "不限", female: "女生", male: "男生", reset: "重置", apply: "查看结果", years: "岁" },
     en: { back: "Back", swipe: "Swipe for more", shuffle: "Shuffle", emptyRoles: "No matching characters", brandSub: "Meet your companion", loginTitle: "Sign in to continue", loginNote: "Use an existing account, or create one.", google: "Continue with Google", album: "Album", topics: "Topics", locked: "Unlock with VIP", private: "Private", online: "Online · ready to chat", call: "Video call", share: "Share", voiceIntro: "Voice intro", freeListen: "Free preview", billing: "Billing", vipTitle: "Private chat and album", vipLocked: "Unlock with VIP", vipOpen: "Unlocked", unlock: "Unlock", emptyAlbum: "No album yet", filterTitle: "Filters", age: "Age", gender: "Gender", style: "Style", any: "Any", female: "Women", male: "Men", reset: "Reset", apply: "Show results", years: "" },
     ja: { back: "戻る", swipe: "横にスワイプ", shuffle: "別の6人", emptyRoles: "条件に合う相手がいません", brandSub: "あなただけの相手に出会う", loginTitle: "ログインして続ける", loginNote: "既存アカウント、または新規登録。", google: "Google で続ける", album: "アルバム", topics: "得意な話題", locked: "VIPで解除", private: "非公開", online: "オンライン · すぐ話せます", call: "ビデオ通話", share: "シェア", voiceIntro: "音声紹介", freeListen: "無料", billing: "料金", vipTitle: "非公開の交流とアルバム", vipLocked: "VIPで解除", vipOpen: "解除済み", unlock: "解除", emptyAlbum: "アルバムはまだありません", filterTitle: "絞り込み", age: "年齢", gender: "性別", style: "スタイル", any: "指定なし", female: "女性", male: "男性", reset: "リセット", apply: "結果を見る", years: "歳" },
   };
@@ -327,8 +327,8 @@
     const gifts = Number(u?.giftReceived ?? u?.giftsReceived ?? 0) || 0;
     const companion = state.companionLevel || u?.companionLevel || null;
     const menu = [
-      ["creator", "pen", "创作者中心", u ? "管理角色与素材" : "登录后管理角色与素材"],
-      ["creator-income", "gift", "创作者收益", u ? "角色被使用产生的收益" : "登录后查看收益"],
+      ...(u?.role === "admin" ? [["creator", "pen", "创作者中心", "内部平台角色维护，不参与分成"]] : []),
+      ["creator-income", "gift", "创作者收益", u ? "「创作」页公开角色的独立收益" : "登录后查看收益"],
       ["wallet", "wallet", "钱包与消费记录", u ? "充值与消费明细" : "登录后查看积分明细"],
       ["privacy", "gear", "隐私与安全", "数据与账号说明"],
       ["feedback", "chat", "问题反馈", "提交后会收到站内信回复"],
@@ -345,7 +345,11 @@
 
   function openProfileMenuAction(action) {
     if (!action) return;
-    if (action === "creator") { if (!token() || !state.user) return askLogin(); state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
+    if (action === "creator") {
+      if (!token() || !state.user) return askLogin();
+      if (state.user.role !== "admin") { referralToast("创作者中心仅供平台管理员使用"); return; }
+      state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return;
+    }
     if (action === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
     if (action === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
     if (action === "privacy") return showPrivacy();
@@ -522,69 +526,130 @@
   }
 
   function createDraft() {
-    if (!state.createDraft) state.createDraft = { name: "", callMe: "", intro: "", tags: [], relation: "朋友", visibility: "private", voiceType: "", avatarUrl: "" };
+    if (!state.createDraft) state.createDraft = { name: "", callMe: "", intro: "", tags: [], relation: "朋友", visibility: "private", voiceType: "", componentVoiceType: "", avatarUrl: "", personaMd: "" };
     return state.createDraft;
   }
   function createCards() {
-    const list = state.creatorList || [];
+    const list = state.createCharacters || [];
     if (!state.user) {
       app.innerHTML = `<main class="live-page create-page"><header class="create-head"><div><h1>创作</h1><p>Ta 都在这里</p></div></header><div class="empty-state"><h2>登录后开始创作</h2><p>写下一个 Ta，从一句开场白开始。</p><button class="video-button" data-action="login">登录 / 注册</button></div></main>${nav("create")}`;
       return;
     }
-    app.innerHTML = `<main class="live-page create-page"><header class="create-head"><div><h1>创作</h1><p>Ta 都在这里</p></div><button type="button" class="create-entry" data-action="create-new">＋ 创建</button></header><section class="create-section"><div class="create-section-title"><b>我的角色卡</b><span>共 ${list.length} 张</span></div>${list.length ? `<div class="create-card-grid">${list.map((item) => `<button type="button" class="create-card-item" data-action="creator-edit" data-id="${esc(item.id)}"><div class="create-card-photo">${media(item.portraitUrl || item.avatarUrl, item.name || "角色卡")}<span>${item.enabled === false ? "仅自己" : "公开"}</span></div><b>${esc(item.name || "未命名")}</b><small>${esc(item.intro || item.greeting || "在等你开口的第一句话")}</small></button>`).join("")}</div>` : `<div class="create-empty">${uiIcon("magic")}<p>还没有角色卡，点右上角「创建」写下第一个 Ta</p><button type="button" data-action="create-new">＋ 创建第一张</button></div>`}</section></main>${nav("create")}`;
+    app.innerHTML = `<main class="live-page create-page"><header class="create-head"><div><h1>创作</h1><p>Ta 都在这里</p></div><button type="button" class="create-entry" data-action="create-new">＋ 创建</button></header><section class="create-section"><div class="create-section-title"><b>我的角色卡</b><span>共 ${list.length} 张</span></div>${state.createLoading ? '<p class="create-muted">加载中…</p>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}${list.length ? `<div class="create-card-grid">${list.map((item) => `<article class="create-card-item"><button type="button" class="create-card-main" data-action="create-edit" data-id="${esc(item.id)}"><div class="create-card-photo">${media(item.portraitUrl || item.avatarUrl, item.name || "角色卡")}<span>${item.communityVisibility === "public" ? "公开" : "仅自己"}</span></div><b>${esc(item.name || "未命名")}</b><small>${esc(item.intro || item.greeting || "在等你开口的第一句话")}</small></button><div class="create-card-actions"><button type="button" class="create-card-share" data-action="create-share" data-id="${esc(item.id)}">${item.communityVisibility === "public" ? "分享角色" : "设为公开后分享"}</button><button type="button" class="create-card-delete" data-action="create-delete" data-id="${esc(item.id)}">删除</button></div></article>`).join("")}</div>` : `<div class="create-empty"><h2>这不是聊天记录<br><em>这是关系</em></h2><div class="create-empty-gap"><p>AI 给了 Ta 说话的能力<br><em>是你让 Ta 有了情感</em></p></div><p class="create-empty-guide">角色是你写的，世界是你定的。<br>现实得不到的，在这里可以统统满足。</p><small>伴侣、爱慕对象、虚拟人物 创作你想聊的一切对象。</small><button type="button" data-action="create-new">创建角色 →</button></div>`}</section></main>${nav("create")}`;
   }
-  async function openCreateEditor() {
+  async function loadCreateCharacters(force = false) {
+    if (!token()) return;
+    if (!force && state.createLoading) return;
+    state.createLoading = true;
+    state.createError = "";
+    try {
+      const data = await api("/api/chat-live/community/characters");
+      state.createCharacters = data.characters || [];
+    } catch (error) {
+      state.createError = error.message || "加载失败";
+    } finally {
+      state.createLoading = false;
+      if (state.page === "create") render();
+    }
+  }
+  async function openCreateEditor(id = "") {
     if (!token()) return askLogin();
     state.page = "create-edit";
-    state.createDraft = { name: "", callMe: "", intro: "", tags: [], relation: "朋友", visibility: "private", voiceType: "", avatarUrl: "" };
+    state.createEditingId = id || "";
+    state.createFocusVisibility = Boolean(id && state.createFocusVisibility);
+    state.createDraft = { name: "", callMe: "", intro: "", tags: [], relation: "朋友", visibility: "private", voiceType: "", componentVoiceType: "", avatarUrl: "", personaMd: "" };
     state.createError = "";
     state.createLoading = true;
     render();
     try {
-      const [chars, realtime, component] = await Promise.all([api("/api/chat-live/creator/characters"), api("/api/chat-live/creator/voices?scope=realtime"), api("/api/chat-live/creator/voices?scope=component")]);
-      state.creatorList = chars.characters || [];
+      const [chars, realtime, component] = await Promise.all([api("/api/chat-live/community/characters"), api("/api/chat-live/creator/voices?scope=realtime"), api("/api/chat-live/creator/voices?scope=component")]);
+      state.createCharacters = chars.characters || [];
+      const existing = id ? state.createCharacters.find((item) => String(item.id) === String(id)) : null;
+      if (existing) {
+        state.createDraft = {
+          ...existing,
+          callMe: "",
+          relation: "朋友",
+          visibility: existing.communityVisibility === "public" ? "public" : "private",
+          avatarUrl: existing.avatarUrl || existing.portraitUrl || "",
+        };
+      }
       state.creatorVoices = { realtime: realtime.voices || [], component: component.voices || [] };
       const firstVoice = state.creatorVoices.realtime[0];
       const firstComponentVoice = state.creatorVoices.component[0];
-      state.createDraft.voiceType = String(firstVoice?.id || firstVoice?.voice || firstVoice?.voiceType || "");
-      state.createDraft.componentVoiceType = String(firstComponentVoice?.id || firstComponentVoice?.voice || firstComponentVoice?.voiceType || "");
+      state.createDraft.voiceType = state.createDraft.voiceType || String(firstVoice?.id || firstVoice?.voice || firstVoice?.voiceType || "");
+      state.createDraft.componentVoiceType = state.createDraft.componentVoiceType || String(firstComponentVoice?.id || firstComponentVoice?.voice || firstComponentVoice?.voiceType || "");
     } catch (error) { state.createError = error.message || "加载失败"; }
     state.createLoading = false;
-    if (state.page === "create-edit") render();
+    if (state.page === "create-edit") {
+      render();
+      if (state.createFocusVisibility) {
+        requestAnimationFrame(() => document.querySelector("#create-visibility-block")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+      }
+    }
   }
   function createEditor() {
     const d = createDraft();
-    const voices = (state.creatorVoices?.realtime || []).slice(0, 4);
-    const tags = ["温柔", "直球", "慢热", "幽默", "偏爱", "克制"];
-    const relations = ["刚认识", "朋友", "邻居", "搭档"];
-    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>创建角色卡</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-preview">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>${uiIcon("magic")}</span>`}<div><b>${esc(d.name || "小满")}</b><p>${esc(d.intro || "在等你开口的第一句话")}</p></div><em>${d.visibility === "public" ? "公开" : "草稿"}</em></section><section class="create-block"><div class="create-block-head"><b>形象</b><small>一张让人记住 Ta 的脸</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<b>${d.avatarUrl ? "更换形象" : "上传形象"}</b><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><label>Ta 的名字<input name="name" maxlength="20" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 20</small></div><label>Ta 怎么叫你<input name="callMe" maxlength="20" value="${esc(d.callMe)}" placeholder="例如：阿南" /></label><label>一句话介绍 Ta<textarea name="intro" maxlength="80" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 80</small></div></section><section class="create-block"><div class="create-block-head"><b>标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>选一个 Ta 的声音</small></div><div class="create-options voice">${voices.length ? voices.map((voice, index) => { const id = String(voice.id || voice.voice || voice.voiceType || ""); const name = voice.name || voice.label || id || `声音 ${index + 1}`; return `<button type="button" data-create-voice="${esc(id)}" class="${d.voiceType === id ? "selected" : ""}">▷ ${esc(name)}</button>`; }).join("") : '<span class="create-muted">声音正在准备中</span>'}</div></section><section class="create-block"><div class="create-block-head"><b>关系设定</b><small>Ta 从哪里认识你</small></div><div class="create-options">${relations.map((relation) => `<button type="button" data-create-relation="${relation}" class="${d.relation === relation ? "selected" : ""}">${relation}</button>`).join("")}</div></section><section class="create-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div></section><p class="create-foot-note">角色卡的可见范围随时可以再调整</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "创建中…" : "创建角色卡"}</button></form></main>`;
+    const voices = (state.creatorVoices?.realtime || []).slice(0, 6);
+    const componentVoices = (state.creatorVoices?.component || []).slice(0, 6);
+    const tags = ["温柔", "直率", "慢热", "爱开玩笑", "理性", "黏人"];
+    const lockedGender = Boolean(state.createEditingId);
+    const gender = d.gender === "male" ? "male" : (d.gender === "female" ? "female" : "");
+    const voiceButtons = (list, key, fallback) => list.length
+      ? list.map((voice, index) => {
+        const id = String(voice.id || voice.voice || voice.voiceType || "");
+        const name = voice.name || voice.label || id || `${fallback} ${index + 1}`;
+        return `<button type="button" data-create-${key}="${esc(id)}" class="${d[key === "voice" ? "voiceType" : "componentVoiceType"] === id ? "selected" : ""}">▷ ${esc(name)}</button>`;
+      }).join("")
+      : `<span class="create-muted">${fallback}正在准备中</span>`;
+    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona">自动生成</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>最多 240 字</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>实时声音（必选）</small></div><div class="create-options voice">${voiceButtons(voices, "voice", "实时声音")}</div><div class="create-block-head create-second-voice-head"><b>组件声音</b><small>用于房间和组件模式（必选）</small></div><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "组件声音")}</div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
   }
   function readCreateDraftFromForm() {
     const form = document.querySelector("[data-create-form]");
     const draft = createDraft();
     if (!form) return draft;
     draft.name = form.name.value.trim();
-    draft.callMe = form.callMe.value.trim();
+    draft.gender = form.gender?.value || draft.gender || "";
     draft.intro = form.intro.value.trim();
+    draft.greeting = form.greeting.value.trim();
+    draft.personaMd = form.personaMd.value.trim();
     return draft;
   }
   async function saveCreateCard() {
+    const editing = Boolean(state.createEditingId);
     const d = readCreateDraftFromForm();
+    const shareAfterSave = Boolean(state.createFocusVisibility || d.visibility === "public");
     if (!d.name) { state.createError = "请填写 Ta 的名字"; createEditor(); return; }
+    if (!d.gender && !state.createEditingId) { state.createError = "请选择 Ta 的性别"; createEditor(); return; }
     if (!d.avatarUrl) { state.createError = "请先上传 Ta 的形象图"; createEditor(); return; }
+    if (!d.intro) { state.createError = "请填写一句话介绍"; createEditor(); return; }
+    if (!d.greeting) { state.createError = "请填写开场白"; createEditor(); return; }
+    if (!d.personaMd) { state.createError = "请填写人物设定"; createEditor(); return; }
     if (!d.voiceType || !d.componentVoiceType) { state.createError = "音色还在加载，请稍后重试"; createEditor(); return; }
     state.createBusy = true;
     createEditor();
-    const persona = [`关系起点：${d.relation || "刚认识"}`, d.callMe ? `称呼用户为：${d.callMe}` : "", d.intro].filter(Boolean).join("\n");
-    const body = { name: d.name, age: 23, occupation: "", language: "zh", tags: d.tags, sortOrder: 0, intro: d.intro, greeting: d.intro, linkName: "", mode: "", personaEnhance: false, sharedRoomEnabled: false, enabled: d.visibility === "public", personaMd: persona, persona, replyStyle: persona, voiceType: d.voiceType, componentVoiceType: d.componentVoiceType, voiceProvider: "", album: [], avatarUrl: d.avatarUrl, portraitUrl: d.avatarUrl };
+    const persona = d.personaMd;
+    const body = { ...(state.createEditingId ? { id: state.createEditingId } : {}), name: d.name, age: Number(d.age || 23), gender: d.gender, occupation: d.occupation || "", language: "zh", tags: d.tags, sortOrder: Number(d.sortOrder || 0), intro: d.intro, greeting: d.greeting, linkName: "", mode: d.mode || "", personaEnhance: false, sharedRoomEnabled: d.visibility === "public", visibility: d.visibility, personaMd: persona, persona, replyStyle: persona, voiceType: d.voiceType, componentVoiceType: d.componentVoiceType, voiceProvider: "", album: Array.isArray(d.album) ? d.album : [], avatarUrl: d.avatarUrl, portraitUrl: d.avatarUrl };
     try {
-      const saved = await api("/api/chat-live/creator/characters", { method: "POST", body: JSON.stringify(body) });
-      state.creatorList = [saved.character, ...(state.creatorList || []).filter((item) => item.id !== saved.character?.id)];
+      const saved = state.createEditingId
+        ? await api(`/api/chat-live/community/characters/${encodeURIComponent(state.createEditingId)}`, { method: "PUT", body: JSON.stringify(body) })
+        : await api("/api/chat-live/community/characters", { method: "POST", body: JSON.stringify(body) });
+      state.createCharacters = [saved.character, ...(state.createCharacters || []).filter((item) => item.id !== saved.character?.id)];
       state.page = "create";
+      state.createEditingId = "";
+      state.createFocusVisibility = false;
       state.createBusy = false;
       state.createError = "";
       render();
-      referralToast("角色卡已创建");
+      if (saved.character?.communityVisibility === "public") {
+        state.role = saved.character;
+        referralToast("角色已公开，现在可以分享给其他用户");
+        await openSharePoster();
+      } else if (shareAfterSave) {
+        referralToast("角色仍为仅自己，选择「公开」后才能分享");
+      } else {
+        referralToast(editing ? "角色卡已保存" : "角色卡已创建");
+      }
     } catch (error) {
       state.createBusy = false;
       state.createError = error.message || "创建失败";
@@ -609,22 +674,25 @@
     };
   }
   function isLiveMember() {
-    return Boolean(state.config?.membership?.active || state.billing?.subscription?.status === "active");
+    const subscription = state.billing?.subscription;
+    const end = Date.parse(subscription?.currentPeriodEnd || "");
+    return Boolean(state.config?.membership?.active || (String(subscription?.status || "").toLowerCase() === "active" && (!Number.isFinite(end) || end > Date.now())));
   }
 
   function roleDetail(c) {
     const member = isLiveMember();
     const rate = Number(state.config?.pricing?.saleCreditsPerMinute || 0) || 0;
+    const canShareEarnings = Boolean(c.ownedByViewer && c.creatorRoyaltyEligible);
     const parts = albumParts(c);
     const resources = parts.priv;
     const publicPhotos = parts.urls;
     const lockedCount = resources.length;
     const totalCount = publicPhotos.length + lockedCount;
     const preview = publicPhotos.slice(0, lockedCount ? 3 : 4);
-    const topic = (c.tags || []).map((x) => `<span class="topic-pill">${esc(x)}</span>`).join("") || '<span class="detail-empty">暂无配置话题</span>';
+    const topic = (c.tags || []).map((x) => `<span class="topic-pill">${esc(x)}</span>`).join("") || '<span class="detail-empty">暂无人物标签</span>';
     const albumCells = preview.map((url) => `<button class="album-cell" data-action="open-album" data-photo="${esc(url)}">${media(url, c.name || "相册")}</button>`).join("");
     const lockedCell = lockedCount ? `<button class="album-cell is-locked" data-action="${member ? "open-album" : "unlock-private"}"><span class="lock-shade"><b>私密</b><small>${lockedCount} 张</small></span></button>` : "";
-    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${media(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span><button class="refer-earn" data-action="share-role">推荐获收益</button></div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>共 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<span class="detail-empty">还没有相册</span>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
+    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${media(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span>${canShareEarnings ? '<button class="refer-earn" data-action="share-role">分享角色</button>' : ""}</div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>共 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
   }
 
 
@@ -648,8 +716,10 @@
   }
   function openShareSheet() {
     document.querySelector("[data-role-sheet]")?.remove();
-    const name = state.role?.name || "\u89d2\u8272";
-    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-action="close-sheet"><div class="language-sheet album-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>TA的相册</h3><span>共 ${total} 张</span></div><div class="album-sheet-grid">${cells}${locks}</div><button class="sheet-close" data-action="close-sheet">关闭</button></div></div>`)
+    const role = state.role || {};
+    const name = role.name || "角色";
+    const link = shareLink();
+    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-action="close-sheet"><div class="language-sheet share-role-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>分享角色</h3><button data-action="close-sheet" aria-label="关闭">×</button></div><div class="share-role-card"><span>${rolePhoto(role) ? `<img src="${esc(rolePhoto(role))}" alt="">` : "TA"}</span><div><b>${esc(name)}</b><small>公开角色被其他用户实际扣费使用时，创作者获得 30% 分成</small></div></div><button class="share-copy-link" type="button" data-action="copy-role-link">复制角色链接</button><p class="share-role-url">${esc(link)}</p><div class="share-role-actions"><button type="button" data-action="report-role">举报角色</button><button type="button" data-action="close-sheet">关闭</button></div><p data-sheet-note></p></div></div>`);
     ensureReferral();
   }
   function qrDataUrl(value) {
@@ -793,7 +863,7 @@
     const cover = rolePhoto(role);
     document.querySelector("[data-unlock-modal]")?.remove();
     const count = Array.isArray(role.privateResources) ? role.privateResources.length : 0;
-    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop unlock-backdrop" data-unlock-modal data-action="close-unlock"><div class="private-lock-card" data-sheet><div class="private-lock-preview">${cover ? `<img src="${esc(cover)}" alt="">` : ""}<span class="private-lock-icon">锁</span></div><h3>解锁私密照片</h3><p>${esc(role.name || "TA")} 有 ${count} 张私密照片。订阅 VIP 后可以查看，未开通前保持锁定。</p><button class="primary-button" data-action="vip">立即解锁</button><button class="ghost-button" data-action="close-unlock">稍后再说</button></div></div>`);
+    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop unlock-backdrop" data-unlock-modal data-action="close-unlock"><div class="private-lock-card" data-sheet><div class="private-lock-preview">${cover ? `<img src="${esc(cover)}" alt="">` : ""}<span class="private-lock-icon">锁</span></div><h3>解锁私密相册</h3><p>${esc(role.name || "TA")} 有 ${count} 张私密照片。订阅 VIP 后可以查看，未开通前保持锁定。</p><button class="primary-button" data-action="vip">立即解锁</button><button class="ghost-button" data-action="close-unlock">稍后再说</button></div></div>`);
   }
   async function openTextChat(conversationId) {
     if (!token()) return askLogin();
@@ -1215,6 +1285,24 @@
     state.page = "role-detail";
     render();
   }
+  async function openSharedRole(id) {
+    const key = String(id || "").trim();
+    if (!key) return false;
+    let role = (state.chars || []).find((item) => String(item.id) === key) || null;
+    if (!role) {
+      try {
+        const result = await api(`/api/chat-live/characters/${encodeURIComponent(key)}`);
+        role = result.character || null;
+      } catch (error) {
+        referralToast(error.status === 404 ? "这个角色未公开或已失效" : (error.message || "角色加载失败"));
+        return false;
+      }
+    }
+    if (!role) return false;
+    if (!(state.chars || []).some((item) => String(item.id) === String(role.id))) state.chars.push(role);
+    openRole(role);
+    return true;
+  }
   function intervalLabel(plan) {
     return ({ month: "月", quarter: "季", year: "年", lifetime: "永久" })[String(plan?.intervalUnit || "month")] || "期";
   }
@@ -1284,7 +1372,7 @@
     }
   }
   function creatorIncomeTypeText(type) {
-    return ({ video_view_earning: "视频通话分成", withdrawal_hold: "提现冻结", withdrawal_refund: "提现退回" })[type] || "创作者账本";
+    return ({ video_view_earning: "视频通话分成", text_chat_earning: "文字聊天分成", text_gift_earning: "文字礼物分成", video_gift_earning: "视频礼物分成", withdrawal_hold: "提现冻结", withdrawal_refund: "提现退回" })[type] || "创作者账本";
   }
   function creatorWithdrawalStatusText(status) {
     return ({ processing: "审核中", paid: "已打款", rejected: "已拒绝" })[status] || status || "审核中";
@@ -1295,14 +1383,14 @@
     state.subpageBack = "profile";
     const income = state.creatorIncome || { availableCredits: 0, totalEarnedCredits: 0, withdrawnCredits: 0, lockedCredits: 0, earningCount: 0, earningRate: .3, records: [], withdrawals: [] };
     const rows = (income.records || []).map((item) => {
-      const earning = String(item.type || "") === "video_view_earning";
-      const title = earning ? `${item.characterName || "角色"} · 视频通话分成` : creatorIncomeTypeText(item.type);
+      const earning = /_earning$/.test(String(item.type || ""));
+      const title = earning ? `${item.characterName || "角色"} · ${creatorIncomeTypeText(item.type)}` : creatorIncomeTypeText(item.type);
       const detail = earning ? `实扣 ${creditText(item.sourceCredits)} 积分 × ${Math.round(Number(item.earningRate || .3) * 100)}%` : moneyTime(item.createdAt);
       return { title, meta: `${detail} · ${moneyTime(item.createdAt)}`, amount: `${Number(item.credits || 0) >= 0 ? "+" : ""}${creditText(item.credits)}`, kind: earning ? "crown" : "wallet" };
     });
     const withdrawals = (income.withdrawals || []).map((item) => `<article class="creator-withdrawal-row"><div><b>${esc(creditText(item.amountCredits))} 积分</b><small>${esc(item.network || "USDT")} · ${esc(item.withdrawalAddress || "")}</small></div><span class="creator-withdrawal-status ${esc(item.status || "processing")}">${esc(creatorWithdrawalStatusText(item.status))}</span><small>${esc(moneyTime(item.createdAt))}${item.txHash ? ` · ${esc(item.txHash)}` : ""}${item.rejectionReason ? ` · ${esc(item.rejectionReason)}` : ""}</small></article>`).join("");
     const available = Number(income.availableCredits || 0);
-    subpage("创作者收益", `<section class="income-hero"><span>可提现积分</span><strong>${creditText(available)} <small>积分</small></strong><p>累计收益 ${creditText(income.totalEarnedCredits)} 积分 · 已提现 ${creditText(income.withdrawnCredits)} 积分 · ${Number(income.earningCount || 0).toLocaleString("zh-CN")} 次分成</p></section><section class="income-settlement"><div><span>分成比例</span><b>${Math.round(Number(income.earningRate || .3) * 100)}%</b></div><div><span>审核中</span><b>${creditText(income.lockedCredits)} 积分</b></div><div><span>提现网络</span><b>USDT</b></div></section><section class="income-note"><span>${uiIcon("crown")}</span><p>视频通话实际扣除的积分，30% 作为角色创作者可提现收益。该收益独立计算，不累计到普通积分余额；提现通过 USDT 打款，需填写收款地址并等待后台审核。</p></section><section class="creator-withdraw-card"><div class="creator-withdraw-head"><div><b>申请提现</b><small>最低提现 2000 积分（20 USDT），提交后从可提现余额冻结</small></div><button type="button" data-action="creator-income-refresh">刷新</button></div><form data-creator-withdraw-form><label>提现积分<input name="amountCredits" type="number" min="2000" step="0.000001" value="${esc(available >= 2000 ? creditText(available) : "2000")}" placeholder="填写提现积分" required></label><label>USDT 网络<select name="network"><option value="USDT-TRC20">USDT · TRC20</option><option value="USDT-ERC20">USDT · ERC20</option><option value="USDT-BEP20">USDT · BEP20</option></select></label><label>USDT 收款地址<input name="address" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="20" maxlength="128" placeholder="填写你的 USDT 钱包地址" required></label><button class="pay-cta" type="submit" ${available >= 2000 ? "" : "disabled"}>提交提现申请</button><p class="form-message" data-creator-withdraw-message></p></form></section><p class="section-label">收益流水</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载收益记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有视频通话收益。")}<p class="section-label">提现记录</p>${withdrawals ? `<section class="creator-withdrawal-list">${withdrawals}</section>` : '<div class="empty-state"><p>还没有提现申请。</p></div>'}<p class="pay-foot">收益数据来自 PostgreSQL 创作者独立账本，不会累加到普通积分余额。</p>`);
+    subpage("创作者收益", `<section class="income-hero"><span>可提现积分</span><strong>${creditText(available)} <small>积分</small></strong><p>累计收益 ${creditText(income.totalEarnedCredits)} 积分 · 已提现 ${creditText(income.withdrawnCredits)} 积分 · ${Number(income.earningCount || 0).toLocaleString("zh-CN")} 次分成</p></section><section class="income-settlement"><div><span>分成比例</span><b>${Math.round(Number(income.earningRate || .3) * 100)}%</b></div><div><span>审核中</span><b>${creditText(income.lockedCredits)} 积分</b></div><div><span>提现网络</span><b>USDT</b></div></section><section class="income-note"><span>${uiIcon("crown")}</span><p>仅「创作」页创建的公开角色，在其他用户实际扣费聊天、视频通话或送礼物时，按实扣积分的 30% 计入创作者可提现收益；内部创作者中心角色不参与分成。该收益独立计算，不累计到普通积分余额；提现通过 USDT 打款，需填写收款地址并等待后台审核。</p></section><section class="creator-withdraw-card"><div class="creator-withdraw-head"><div><b>申请提现</b><small>最低提现 2000 积分（20 USDT），提交后从可提现余额冻结</small></div><button type="button" data-action="creator-income-refresh">刷新</button></div><form data-creator-withdraw-form><label>提现积分<input name="amountCredits" type="number" min="2000" step="0.000001" value="${esc(available >= 2000 ? creditText(available) : "2000")}" placeholder="填写提现积分" required></label><label>USDT 网络<select name="network"><option value="USDT-TRC20">USDT · TRC20</option><option value="USDT-ERC20">USDT · ERC20</option><option value="USDT-BEP20">USDT · BEP20</option></select></label><label>USDT 收款地址<input name="address" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="20" maxlength="128" placeholder="填写你的 USDT 钱包地址" required></label><button class="pay-cta" type="submit" ${available >= 2000 ? "" : "disabled"}>提交提现申请</button><p class="form-message" data-creator-withdraw-message></p></form></section><p class="section-label">收益流水</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载收益记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有创作者收益流水。")}<p class="section-label">提现记录</p>${withdrawals ? `<section class="creator-withdrawal-list">${withdrawals}</section>` : '<div class="empty-state"><p>还没有提现申请。</p></div>'}<p class="pay-foot">收益数据来自 PostgreSQL 创作者独立账本，不会累加到普通积分余额。</p>`);
   }
   async function loadCreatorIncome(force = false) {
     if (!token()) return null;
@@ -1362,7 +1450,7 @@
 
   function vip(){
     const plans=(state.billing?.plans?.length?state.billing.plans:(state.config?.membership?.plans||[])).slice().sort((a,b)=>Number(a.amount)-Number(b.amount));
-    const active=state.config?.membership?.active||state.billing?.subscription?.status==="active";
+    const active=isLiveMember();
     const picked=plans.find((plan)=>String(plan.intervalUnit)==="year")||plans[plans.length-1]||plans[0];
     const week=plans.find((plan)=>String(plan.intervalUnit)==="week");
     const cards=plans.map((plan)=>{
@@ -1373,7 +1461,7 @@
     const freeSeconds=Number(state.config?.pricing?.freeSeconds||0)||0;
     const rateText=rate>0?`${creditText(rate)} 积分/分钟`:"以实际计费为准";
     const freeText=freeSeconds>0?`${freeSeconds} 秒`:"以实际计费为准";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>订阅与权益</h1><button type="button" class="head-link" data-action="wallet">消费记录</button></header><section class="pay-hero"><div class="vip-card-title"><span>♔</span><div><strong>Vipeak VIP</strong><small>${active?"订阅已生效":"单次购买 · 解锁隐私互动"}</small></div></div><h2>${active?"会员权益正在生效":"开通即解锁隐私互动，和 TA 聊得更近一点"}</h2>${active?'<div class="vip-pills"><span>隐私互动已解锁</span></div>':""}</section><div class="plan-label-row"><p class="section-label">选择套餐</p><span data-plan-tip>${esc(picked?planHint(picked):"选择一个套餐")}</span></div><div class="pay-plans pay-plans-3">${cards}</div><button type="button" class="pay-cta" data-action="subscribe-selected">${picked?`立即开通 $${moneyText(picked.amount)} ${planShort(picked)}`:"立即开通"}</button><p class="pay-status" data-pay-status></p><p class="section-label">会员权益</p><section class="benefit-rows"><div><div><b>解锁隐私互动</b><small>私密相册与私密画面</small></div><em class="ok">已含</em></div><div><div><b>私密内容</b><small>角色详情里的锁定内容</small></div><em class="ok">已含</em></div><div><div><b>视频通话</b><small>会员不把通话改成免费，余额不够会挂断</small></div><em>${rateText}</em></div><div><div><b>免费试看</b><small>每个连接开始后</small></div><em>${freeText}</em></div><div><div><b>房间一起看</b><small>进入已有房间，不重复创建上游</small></div><em class="ok">可用</em></div></section></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>订阅与权益</h1><button type="button" class="head-link" data-action="wallet">消费记录</button></header><section class="pay-hero"><div class="vip-card-title"><span>♔</span><div><strong>Vipeak VIP</strong><small>${active?"订阅已生效":"单次购买 · 解锁隐私互动"}</small></div></div><h2>${active?"会员权益正在生效":"开通即解锁隐私互动，和 TA 聊得更近一点"}</h2>${active?'<div class="vip-pills"><span>隐私互动已解锁</span></div>':""}</section><div class="plan-label-row"><p class="section-label">选择套餐</p><span data-plan-tip>${esc(picked?planHint(picked):"选择一个套餐")}</span></div><div class="pay-plans pay-plans-3">${cards}</div><button type="button" class="pay-cta" data-action="subscribe-selected">${picked?`立即开通 $${moneyText(picked.amount)} ${planShort(picked)}`:"立即开通"}</button><p class="pay-status" data-pay-status></p><p class="section-label">会员权益</p><section class="benefit-rows"><div><div><b>解锁隐私互动</b><small>私密相册与专属陪伴模式</small></div><em class="ok benefit-value">已含</em></div><div><div><b>文字私信不限条</b><small>0.5 积分/条，会员期内不计费</small></div><em class="benefit-value">免费</em></div><div><div><b>语音 / 视频 8 折</b><small>语音 2 → 1.6，视频 5 → 4</small></div><em class="benefit-value">8 折</em></div><div><div><b>开设房间</b><small>可创建专属多人互动房间，房间 5 → 4</small></div><em class="benefit-value">8 折</em></div><div><div><b>专属身份标识</b><small>房间与私信里的金色会员标识</small></div><em class="ok benefit-value">已含</em></div></section></main>`;
   }
   function showRecharge(){
     state.pageReturn=state.pageReturn||(state.page==="role-detail"?"role-detail":(state.page==="vip"?"vip":"profile"));
@@ -1389,7 +1477,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>免费试看</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内免文字费</small></div><em>0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>按秒计费 · 会员 8 折</small></div><em class="blue">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>按秒计费 · 创作者分成 30%</small></div><em class="gold">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>按秒计费 · 进房即开始计时</small></div><em class="green">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">视频通话实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>累计免费</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 → 1.6</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 → 4</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 → 4</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
     loadRecentSpend();
   }
 
@@ -1400,6 +1488,7 @@
     return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
   }
   function textMessageCredits() {
+    if (isLiveMember()) return 0;
     return Math.max(0, Number(state.config?.pricing?.textMessageCredits || 0) || 0);
   }
   function spendName(item) {
@@ -1611,6 +1700,38 @@
     const note = character.intro || character.greeting || character.description || "现在可以开始视频约会";
     return `<article class="date-card"><div class="date-cover">${media(rolePhoto(character), `${character.name || "角色"}的封面`)}</div><div class="date-copy"><div class="date-name">${esc(character.name || "角色")}</div>${meta ? `<div class="date-meta">${esc(meta)}</div>` : ""}<p>${esc(note)}</p><div class="date-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><div class="date-actions"><button type="button" class="date-home" data-role-id="${esc(character.id)}">${media(rolePhoto(character), "头像")}<span>主页</span></button><button type="button" class="date-call" data-call-id="${esc(character.id)}">▣ 激情视频</button></div></div></article>`;
   }
+  function roomCreateSheet() {
+    document.querySelector("[data-room-create-sheet]")?.remove();
+    if (!token() || !state.user) return askLogin();
+    if (!isLiveMember()) {
+      referralToast("会员可创建专属多人互动房间");
+      state.pageReturn = "rooms";
+      state.page = "vip";
+      ensureBilling().finally(() => { if (state.page === "vip") render(); });
+      return;
+    }
+    const eligible = (state.createCharacters || []).filter((item) => item.communityVisibility === "public" && item.sharedRoomEnabled !== false);
+    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-room-create-sheet data-action="close-sheet"><div class="language-sheet room-create-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>开设房间</h3><button data-action="close-sheet" aria-label="关闭">×</button></div><p class="create-muted">选择一张自己的公开角色卡，开设会员专属多人房间。</p><div class="room-create-list">${eligible.length ? eligible.map((item) => `<button type="button" class="room-create-choice" data-action="create-community-room" data-id="${esc(item.id)}"><span>${media(item.portraitUrl || item.avatarUrl, item.name || "角色")}</span><div><b>${esc(item.name || "未命名")}</b><small>${esc(item.intro || "公开角色")}</small></div><em>开房 ›</em></button>`).join("") : '<div class="empty-state"><h2>还没有可开房的角色</h2><p>先在「创作」页创建并公开一个角色。</p><button class="video-button" data-action="create-new">去创作</button></div>'}</div></div></div>`);
+    loadCreateCharacters().catch(() => {});
+  }
+  async function createCommunityRoom(id) {
+    const character = (state.createCharacters || []).find((item) => String(item.id) === String(id));
+    if (!character) return referralToast("角色还没加载完成，请稍后重试");
+    const button = document.querySelector(`[data-action="create-community-room"][data-id="${CSS.escape(String(id))}"]`);
+    if (button) button.disabled = true;
+    try {
+      const result = await api(`/api/chat-live/rooms`, { method: "POST", body: JSON.stringify({ characterId: String(id) }) });
+      const roomId = String(result.room?.id || "");
+      if (!roomId) throw new Error("房间创建结果不完整，请刷新后重试");
+      document.querySelector("[data-room-create-sheet]")?.remove();
+      referralToast("房间已创建，正在为你接通");
+      await load({ quiet: true });
+      await openCall(String(id), roomId, !roomId);
+    } catch (error) {
+      if (button) button.disabled = false;
+      referralToast(error.message || "开房失败，请稍后重试");
+    }
+  }
   function showRooms(from) {
     if (from) state.roomsFrom = from;
     state.page = "rooms";
@@ -1620,7 +1741,7 @@
     const list = tab === "single"
       ? `<section class="date-panel"><div class="date-head"><p>♡ 1V1 私密互动，双向选择</p><span><i></i>${single.length} 人在线</span></div>${single.length ? `<div class="date-list">${single.map(dateCard).join("")}</div>` : `<div class="empty-state"><h2>没有可约会的角色</h2><p>换个筛选，或者先看看直播间。</p></div>`}<p class="room-end">没有更多可约会的角色了</p></section>`
       : `<section class="plaza-panel"><p class="plaza-note">◉ 正在直播 · 点开即刻进入</p>${multi.length ? `<div class="plaza-grid">${multi.map(plazaCard).join("")}</div>` : `<div class="empty-state"><h2>还没有直播间</h2><p>有人开了共享房间后会出现在这里。</p></div>`}<p class="room-end">没有更多房间了</p></section>`;
-    app.innerHTML = `<main class="live-page rooms-page"><header class="rooms-top"><button class="icon-button" data-action="back-rooms" aria-label="返回">${uiIcon("back")}</button><h1>私密房间</h1><button type="button" class="rooms-filter" data-action="filter">${filterText()}</button></header><nav class="room-segment"><button type="button" class="${tab === "multi" ? "selected" : ""}" data-room-tab="multi">直播间</button><button type="button" class="${tab === "single" ? "selected" : ""}" data-room-tab="single">视频约会</button></nav>${list}</main>${nav(state.roomsFrom === "profile" ? "profile" : (state.roomsFrom === "home" ? "home" : "messages"))}`;
+    app.innerHTML = `<main class="live-page rooms-page"><header class="rooms-top"><button class="icon-button" data-action="back-rooms" aria-label="返回">${uiIcon("back")}</button><h1>私密房间</h1><div class="rooms-head-actions"><button type="button" class="rooms-create" data-action="open-room-create">＋ 开房</button><button type="button" class="rooms-filter" data-action="filter">${filterText()}</button></div></header><nav class="room-segment"><button type="button" class="${tab === "multi" ? "selected" : ""}" data-room-tab="multi">直播间</button><button type="button" class="${tab === "single" ? "selected" : ""}" data-room-tab="single">视频约会</button></nav>${list}</main>${nav(state.roomsFrom === "profile" ? "profile" : (state.roomsFrom === "home" ? "home" : "messages"))}`;
   }
   function showPrivacy() {
     state.page = "privacy";
@@ -1663,8 +1784,12 @@
       app.innerHTML = `<main class="live-page edit-page"><header class="edit-header"><button data-action="back-profile">返回</button><h1>创作者</h1><span></span></header><section class="edit-section"><p>登录后可以上传自己的角色。</p><button class="primary-button" data-action="ask-login">登录</button></section></main>`;
       return;
     }
+    if (state.user.role !== "admin") {
+      app.innerHTML = `<main class="live-page edit-page"><header class="edit-header"><button data-action="back-profile">返回</button><h1>创作者</h1><span></span></header><section class="edit-section"><p>创作者中心仅供平台管理员使用。</p></section></main>`;
+      return;
+    }
     const list = state.creatorList || [];
-    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header"><button data-action="back-profile">返回</button><h1>创作者</h1><button data-action="creator-new">新建</button></header><section class="edit-section"><p class="creator-note">配置和后台在线聊天角色一样。角色会记录为你创建，上架后会出现在首页。</p>${state.creatorError ? `<p class="creator-error">${esc(state.creatorError)}</p>` : ""}${state.creatorLoading ? `<p>加载中…</p>` : ""}${list.length ? `<div class="creator-list">${list.map((item) => `<button type="button" class="creator-card" data-action="creator-edit" data-id="${esc(item.id)}"><img src="${esc(item.portraitUrl || item.avatarUrl || "")}" alt="" /><div><b>${esc(item.name || "未命名")}</b><small>${item.enabled === false ? "已下架" : "已上架"} · ${esc(item.createdByUsername || "")}</small></div></button>`).join("")}</div>` : `<p>还没有角色。</p>`}</section></main>`;
+    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header"><button data-action="back-profile">返回</button><h1>创作者</h1><button data-action="creator-new">新建</button></header><section class="edit-section"><p class="creator-note">内部创作者中心，用于维护平台角色。这里的角色不参与创作分成；用户从「创作」页创建并公开分享的角色才会产生分成。</p>${state.creatorError ? `<p class="creator-error">${esc(state.creatorError)}</p>` : ""}${state.creatorLoading ? `<p>加载中…</p>` : ""}${list.length ? `<div class="creator-list">${list.map((item) => `<button type="button" class="creator-card" data-action="creator-edit" data-id="${esc(item.id)}"><img src="${esc(item.portraitUrl || item.avatarUrl || "")}" alt="" /><div><b>${esc(item.name || "未命名")}</b><small>${item.enabled === false ? "已下架" : "已上架"} · ${esc(item.createdByUsername || "")}</small></div></button>`).join("")}</div>` : `<p>还没有角色。</p>`}</section></main>`;
   }
   function creatorVoiceOptions(list, selected) {
     const rows = Array.isArray(list) ? list : [];
@@ -1679,6 +1804,7 @@
   }
   async function openCreatorEditor(id = "") {
     if (!token()) return askLogin();
+    if (state.user?.role !== "admin") { referralToast("创作者中心仅供平台管理员使用"); return; }
     state.page = "creator-edit";
     state.creatorDraft = null;
     state.creatorError = "";
@@ -1773,7 +1899,7 @@
   }
 
 
-  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.creatorList && !state.creatorLoading) loadCreator(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "settings") showSettings(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
+  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.createCharacters.length && !state.createLoading) loadCreateCharacters(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "settings") showSettings(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
 
   function groupCharacterThreads(listed, contacts) {
     const groups = new Map();
@@ -1942,10 +2068,14 @@ document.addEventListener("click", async (e) => {
     if (filterButton) { state.filters[filterButton.dataset.filterKey] = filterButton.dataset.filterValue || ""; filterButton.parentElement?.querySelectorAll("[data-filter-key]").forEach((button) => button.classList.toggle("selected", button === filterButton)); return; }
     const lang = e.target.closest("[data-language]")?.dataset.language;
     if (lang) { state.language = lang; localStorage.setItem("vipeakLanguage", lang); render(); return; }
+    const createGender = e.target.closest("[data-create-gender]")?.dataset.createGender;
+    if (createGender && !state.createEditingId) { readCreateDraftFromForm(); createDraft().gender = createGender; createEditor(); return; }
     const createTag = e.target.closest("[data-create-tag]")?.dataset.createTag;
     if (createTag) { readCreateDraftFromForm(); const d = createDraft(); d.tags = d.tags.includes(createTag) ? d.tags.filter((x) => x !== createTag) : (d.tags.length >= 3 ? d.tags : [...d.tags, createTag]); createEditor(); return; }
     const createVoice = e.target.closest("[data-create-voice]")?.dataset.createVoice;
     if (createVoice) { readCreateDraftFromForm(); createDraft().voiceType = createVoice; createEditor(); return; }
+    const createComponentVoice = e.target.closest("[data-create-component-voice]")?.dataset.createComponentVoice;
+    if (createComponentVoice) { readCreateDraftFromForm(); createDraft().componentVoiceType = createComponentVoice; createEditor(); return; }
     const createRelation = e.target.closest("[data-create-relation]")?.dataset.createRelation;
     if (createRelation) { readCreateDraftFromForm(); createDraft().relation = createRelation; createEditor(); return; }
     const createVisibility = e.target.closest("[data-create-visibility]")?.dataset.createVisibility;
@@ -1981,14 +2111,54 @@ document.addEventListener("click", async (e) => {
     if (a === "back-home") { state.category = ""; state.role = null; state.page = "home"; render(); return; }
     if (a === "back-profile") { clearProfileHash(); state.page = "profile"; render(); return; }
     if (a === "edit-profile") { state.page = "edit-profile"; render(); return; }
-    if (a === "creator") { if (!token() || !state.user) return askLogin(); state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
+    if (a === "creator") return openProfileMenuAction("creator");
     if (a === "creator-new") { openCreatorEditor(""); return; }
     if (a === "creator-edit") { openCreatorEditor(e.target.closest("[data-id]")?.dataset.id || ""); return; }
     if (a === "creator-save") { saveCreator(); return; }
     if (a === "creator-undress") { const id = state.creatorDraft?.id; if (!id) { const note = document.querySelector("[data-creator-status]"); if (note) note.textContent = "请先保存角色。"; return; } api(`/api/chat-live/creator/characters/${encodeURIComponent(id)}/undress`, { method: "POST", body: "{}" }).then(() => { const note = document.querySelector("[data-creator-status]"); if (note) note.textContent = "私密图生成中。"; }).catch((error) => { const note = document.querySelector("[data-creator-status]"); if (note) note.textContent = error.message || "生成失败"; }); return; }
     if (a === "creator-album-remove") { const row = e.target.closest(".creator-album-row"); row?.remove(); return; }
-    if (a === "create-new") { openCreateEditor(); return; }
-    if (a === "create-close") { state.page = "create"; state.createDraft = null; state.createBusy = false; render(); return; }
+    if (a === "open-room-create") { roomCreateSheet(); return; }
+    if (a === "create-community-room") { await createCommunityRoom(e.target.closest("[data-id]")?.dataset.id || ""); return; }
+    if (a === "create-new") { state.createFocusVisibility = false; openCreateEditor(); return; }
+    if (a === "create-edit") { state.createFocusVisibility = false; openCreateEditor(e.target.closest("[data-id]")?.dataset.id || ""); return; }
+    if (a === "create-share") {
+      const id = e.target.closest("[data-id]")?.dataset.id || "";
+      const role = (state.createCharacters || []).find((item) => String(item.id) === String(id));
+      if (!role) return referralToast("角色还没加载完成，请稍后重试");
+      if (role.communityVisibility !== "public") {
+        state.createFocusVisibility = true;
+        await openCreateEditor(id);
+        referralToast("设为「公开并分享」并保存后，即可分享角色");
+        return;
+      }
+      state.role = role;
+      openSharePoster();
+      return;
+    }
+    if (a === "create-delete") {
+      const id = e.target.closest("[data-id]")?.dataset.id || "";
+      if (!id || !window.confirm("确定删除这个角色？删除后分享链接也会失效。")) return;
+      try {
+        await api(`/api/chat-live/community/characters/${encodeURIComponent(id)}`, { method: "DELETE" });
+        state.createCharacters = (state.createCharacters || []).filter((item) => String(item.id) !== String(id));
+        if (String(state.role?.id || "") === String(id)) state.role = null;
+        if (state.page === "create") render();
+        referralToast("角色已删除");
+      } catch (error) {
+        referralToast(error.message || "删除失败，请稍后重试");
+      }
+      return;
+    }
+    if (a === "create-auto-persona") {
+      readCreateDraftFromForm();
+      const d = createDraft();
+      const tags = Array.isArray(d.tags) && d.tags.length ? d.tags.join("、") : "自然、真诚";
+      const gender = d.gender === "male" ? "男生" : (d.gender === "female" ? "女生" : "角色");
+      d.personaMd = `${d.name || "Ta"}，${gender}。${d.intro || "有自己的生活，也有想认真聊下去的人"}。性格${tags}。和用户像熟悉的朋友一样聊天，口语自然，不说教，不写旁白，不替用户做决定。`.slice(0, 240);
+      createEditor();
+      return;
+    }
+    if (a === "create-close") { state.page = "create"; state.createDraft = null; state.createEditingId = ""; state.createFocusVisibility = false; state.createBusy = false; render(); return; }
     if (a === "back-relationship") { state.page = state.relationshipReturn || "text-chat"; render(); return; }
     if (a === "toggle-relationship-stages") { state.relationshipStagesOpen = state.relationshipStagesOpen === false; render(); return; }
     if (a === "back-level") { state.page = "profile"; render(); return; }
@@ -2047,7 +2217,7 @@ document.addEventListener("click", async (e) => {
       const cells = photos.map((url) => `<button class="album-item" data-action="view-photo" data-photo="${esc(url)}"><img src="${esc(url)}" alt=""></button>`).join("");
       const locks = priv.map((item) => member && item.url ? `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}"><img src="${esc(item.url)}" alt=""></button>` : `<button class="album-item is-locked" data-action="unlock-private"><span class="lock-shade"><b>私密</b><small>订阅后查看</small></span></button>`).join("");
       const total = photos.length + priv.length;
-      app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-action="close-sheet"><div class="language-sheet album-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>TA 的相册</h3><button data-action="close-sheet">×</button></div><div class="album-sheet-grid">${cells}${locks || '<p class="detail-empty">还没有相册</p>'}</div></div></div>`);
+      app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-action="close-sheet"><div class="language-sheet album-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>TA 的相册</h3><button data-action="close-sheet">×</button></div><div class="album-sheet-grid">${cells}${locks}${(cells || locks) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></div></div>`);
       return;
     }
     if (a === "view-photo") {
@@ -2093,8 +2263,9 @@ document.addEventListener("click", async (e) => {
   app.addEventListener("input", (e) => {
     const form = e.target.closest("[data-create-form]");
     if (!form) return;
-    if (e.target.name === "name") { const count = form.querySelector("[data-create-name-count]"); if (count) count.textContent = `${e.target.value.length} / 20`; const preview = form.querySelector(".create-preview b"); if (preview) preview.textContent = e.target.value || "小满"; }
-    if (e.target.name === "intro") { const count = form.querySelector("[data-create-intro-count]"); if (count) count.textContent = `${e.target.value.length} / 80`; const preview = form.querySelector(".create-preview p"); if (preview) preview.textContent = e.target.value || "在等你开口的第一句话"; }
+    if (e.target.name === "name") { const count = form.querySelector("[data-create-name-count]"); if (count) count.textContent = `${e.target.value.length} / 12`; const preview = form.querySelector(".create-preview b"); if (preview) preview.textContent = e.target.value || "小满"; }
+    if (e.target.name === "intro") { const count = form.querySelector("[data-create-intro-count]"); if (count) count.textContent = `${e.target.value.length} / 60`; const preview = form.querySelector(".create-preview p"); if (preview) preview.textContent = e.target.value || "在等你开口的第一句话"; }
+    if (e.target.name === "personaMd") { const count = form.querySelector("[data-create-persona-count]"); if (count) count.textContent = `${e.target.value.length} / 240`; }
   });
   document.addEventListener("submit", async (e) => {
     const createForm = e.target.closest("[data-create-form]");
@@ -2191,17 +2362,11 @@ document.addEventListener("click", async (e) => {
     initCompanionGuide();
     if (profileRouteFromHash()) return;
     const match = location.hash.match(/^#role\/(.+)$/);
-    if (!match) return;
-    const id = decodeURIComponent(match[1]);
-    const role = state.chars.find((item) => String(item.id) === id);
-    if (role) openRole(role);
+    if (match) openSharedRole(decodeURIComponent(match[1]));
   });
   window.addEventListener("hashchange", () => {
     if (profileRouteFromHash()) return;
     const match = location.hash.match(/^#role\/(.+)$/);
-    if (!match) return;
-    const id = decodeURIComponent(match[1]);
-    const role = state.chars.find((item) => String(item.id) === id);
-    if (role) openRole(role);
+    if (match) openSharedRole(decodeURIComponent(match[1]));
   });
 })();

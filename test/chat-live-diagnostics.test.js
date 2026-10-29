@@ -18,12 +18,45 @@ test("upstream Vidu balance exhaustion is not treated as the user's wallet balan
   assert.match(client, /if \(noCredits\) showCreditGuide\(\);/);
 });
 
-test("chat live sessions use first-frame billing and preserve legacy sessions", () => {
-  assert.ok((server.match(/billingPolicy: "first_frame"/g) || []).length >= 2);
-  assert.match(server, /const billingPolicy = session\.billingPolicy \|\| latest\?\.billingPolicy \|\| ""/);
-  assert.match(server, /const billedSeconds = billingPolicy === "first_frame"/);
-  assert.match(server, /const billedSeconds = session\.billingPolicy === "first_frame"/);
-  assert.match(client, /state\.billableStartedAt \? `\$\{mm\}:\$\{ss\}` : "--:--"/);
+test("chat live sessions bill from entry and keep first frame as diagnostics only", () => {
+  assert.ok((server.match(/billingPolicy: "entry"/g) || []).length >= 2);
+  assert.doesNotMatch(server, /billingPolicy: "first_frame"/);
+  assert.doesNotMatch(server, /provisionalBilledSeconds/);
+  assert.match(server, /const terminalBillingKnown = Boolean\(detail\) && terminalStatus && billingEvidence\.known/);
+  assert.match(server, /upstreamBilledSeconds: settlement\.billingEvidence\.seconds/);
+  assert.match(server, /const billedSeconds = session\.sharedRoomViewer === true[\s\S]*?session\.billingPolicy === "entry"/);
+  assert.match(client, /function applyChatLiveBillableStart\(session = \{\}\)/);
+  assert.match(client, /const raw = session\?\.billableStartedAt \|\| session\?\.createdAt \|\| ""/);
+  assert.match(client, /state\.billableStartedAt = startedMs/);
+  assert.match(client, /videoReadyReported: false/);
+  assert.match(client, /if \(state\.videoReadyReported \|\| state\.ended \|\| !state\.session\?\.id\) return;/);
+  assert.match(client, /state\.videoReadyReported = true;/);
+  assert.match(client, /state\.session = payload\.session;\n    applyChatLiveBillableStart\(payload\.session\)/);
+  assert.doesNotMatch(client, /function startTimer\(\) \{\n    state\.startedAt = Date\.now\(\);\n    state\.billableStartedAt = 0;/);
+  assert.doesNotMatch(client, /if \(state\.billableStartedAt \|\| state\.ended \|\| !state\.session\?\.id\) return;/);
+  assert.match(client, /state\.overlay\.timer\.textContent = state\.billableStartedAt \? `\$\{mm\}:\$\{ss\}` : "--:--"/);
+  assert.match(client, /const seconds = state\.billableStartedAt \? Math\.floor\(\(Date\.now\(\) - state\.billableStartedAt\) \/ 1000\) : 0/);
+});
+
+test("first-frame readiness never creates or replaces the billing start", () => {
+  const readyBlock = server.match(/async function handleMarkChatLiveReady\([\s\S]*?\n}\n\nasync function handleReportChatLiveOperation/)[0];
+  assert.match(readyBlock, /first frame is a diagnostic milestone only/i);
+  assert.match(readyBlock, /phase: "first_frame"/);
+  assert.doesNotMatch(readyBlock, /jsonb_set\(payload, '\{billableStartedAt\}'/);
+  assert.doesNotMatch(readyBlock, /const startedAt = new Date/);
+  assert.match(client, /进房即开始计时/);
+});
+
+test("all chat-live entry responses expose the server billing start", () => {
+  const joinBlock = server.match(/async function handleJoinChatLiveRoom\([\s\S]*?\n}\n\nasync function handleListChatLiveRoomMessages/)[0];
+  const createBlock = server.match(/async function handleCreateChatLiveSession\([\s\S]*?\n}\n\nfunction sanitizeChatLiveDiagnosticText/)[0];
+  assert.match(joinBlock, /billableStartedAt: viewer\.billableStartedAt/);
+  assert.match(joinBlock, /createdAt: viewer\.createdAt \|\| viewer\.billableStartedAt/);
+  assert.match(joinBlock, /saleCreditsPerMinute: viewer\.saleCreditsPerMinute/);
+  assert.match(joinBlock, /costCreditsPerMinute: viewer\.costCreditsPerMinute/);
+  assert.doesNotMatch(joinBlock, /saleCreditsPerMinute: 0|costCreditsPerMinute: 0/);
+  assert.ok((createBlock.match(/billableStartedAt: session\.billableStartedAt/g) || []).length >= 2);
+  assert.ok((createBlock.match(/createdAt: session\.createdAt \|\| session\.billableStartedAt/g) || []).length >= 2);
 });
 
 test("chat live operation diagnostics persist bounded success and failure details", () => {

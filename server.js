@@ -165,6 +165,7 @@ const {
   getLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
+  recordCreatorUsageEarningInDb,
   recordCreatorVideoViewEarningInDb,
   getCreatorIncomeInDb,
   createCreatorWithdrawalInDb,
@@ -189,6 +190,7 @@ const {
   upsertGuideStateInDb,
   listChatMessagesInDb,
   insertChatMessageInDb,
+  insertChatMessagesIfAbsentInDb,
   updateChatMessageInDb,
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
@@ -201,8 +203,13 @@ const {
   getChatLiveSessionByLiveIdInDb,
   getChatCharacterMemoryInDb,
   upsertChatCharacterMemoryInDb,
-  updateChatLiveSessionInDb,
+  withChatLiveSessionSettlementLockInDb,
+  allocateChatLiveFreeSecondsInDb,
+  finalizeChatLiveFreeAllocationInDb,
+  cancelChatLiveFreeAllocationInDb,
+  cleanupOrphanedChatLiveFreeAllocationsInDb,
   listChatLiveSessionsInDb,
+  listUnsettledChatLiveSessionsInDb,
   upsertChatLiveRoomInDb,
   getChatLiveRoomInDb,
   listChatLiveRoomsInDb,
@@ -502,6 +509,7 @@ const CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE = 90;
 const CHAT_LIVE_BILLING_BLOCK_SECONDS = 10;
 const CHAT_LIVE_BILLING_TARGET_SECONDS = 30;
 const CHAT_LIVE_BILLING_TICK_MS = 5000;
+const CHAT_LIVE_UPSTREAM_TERMINAL_STATUSES = new Set(["ended", "failed", "closed"]);
 const chatLiveBillingLocks = new Set();
 const chatLiveSockets = new Map();
 /* 组件版（外接我们自己的 ASR/LLM/TTS）需要自建 RTC 频道：阿里云 ARTC */
@@ -6025,6 +6033,11 @@ function chatLiveSharedRoomSaleCredits(live = {}) {
   return Number(live.saleCreditsPerMinute || 0) || 0;
 }
 
+function liveMemberSaleCredits(credits, isMember = false) {
+  const value = Number(credits || 0) || 0;
+  return isMember ? creditsAmount(value * 0.8) : creditsAmount(value);
+}
+
 function chatLiveConfigValue(config = {}) {
   const live = normalizeChatLiveConfig((config && config.platform && config.platform.chatLive) || {});
   chatLiveRegionCache = live.region === "cn" ? "cn" : "overseas";
@@ -6734,6 +6747,8 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const ambientMusicUrl = /^https?:\/\//i.test(ambientMusicUrlRaw) ? ambientMusicUrlRaw : "";
   const companionStyle = ["温柔治愈", "元气活力", "知性深夜"].includes(companionStyleRaw) ? companionStyleRaw : "";
   const tags = normalizeChatLiveTags(body.tags ?? existing?.tags ?? []);
+  const requestedVisibility = String(body.communityVisibility ?? body.visibility ?? existing?.communityVisibility ?? "").trim().toLowerCase();
+  const communityVisibility = requestedVisibility === "public" ? "public" : "private";
   const sortOrderRaw = Number(body.sortOrder ?? body.sort_order ?? existing?.sortOrder ?? 0);
   const enabledRaw = body.enabled ?? existing?.enabled;
   const albumSource = Array.isArray(body.album) ? body.album : (Array.isArray(body.privateResources) ? body.privateResources.map((item) => ({ ...item, locked: item?.locked !== false })) : null);
@@ -6770,6 +6785,8 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     companionStyle,
     ambientMusicUrl,
     tags,
+    communityVisibility,
+    communityShareEnabled: body.communityShareEnabled === true || String(body.communityShareEnabled) === "true",
     personaEnhance: String(body.personaEnhance ?? existing?.personaEnhance ?? "") === "true" || body.personaEnhance === true || existing?.personaEnhance === true,
     sharedRoomEnabled: body.sharedRoomEnabled === undefined ? existing?.sharedRoomEnabled === true : (body.sharedRoomEnabled === true || String(body.sharedRoomEnabled) === "true"),
     sortOrder: Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0,
@@ -7255,6 +7272,8 @@ function publicChatLiveCharacter(character = {}) {
     avatarUrl: character.avatarUrl || "",
     portraitUrl: character.portraitUrl || character.avatarUrl || "",
     tags: Array.isArray(character.tags) ? character.tags : [],
+    communityVisibility: character.communityVisibility === "public" ? "public" : "private",
+    communityShareEnabled: character.communityShareEnabled === true,
     language: character.language || "zh",
     age: profile.age,
     occupation: String(character.occupation || "").slice(0, 40),
@@ -7271,10 +7290,16 @@ function publicChatLiveCharacter(character = {}) {
   };
 }
 
-function publicChatLiveCharacterForRequest(character = {}, hasMembership = false) {
+function publicChatLiveCharacterForRequest(character = {}, hasMembership = false, user = null) {
   const value = publicChatLiveCharacter(character);
   if (!hasMembership) delete value.undressImageUrl;
   value.album = publicChatLiveAlbum(character, hasMembership).filter((item) => !item.locked).map((item) => item.url);
+  /* These are computed server-side so the client never has to infer royalty
+     eligibility from mutable presentation fields. */
+  value.ownedByViewer = Boolean(user?.id)
+    && String(character?.createdByUserId || "") === String(user.id);
+  value.creatorRoyaltyEligible = communityChatLiveCharacterIsPublic(character)
+    && Boolean(String(character?.createdByUserId || "").trim());
   return value;
 }
 
@@ -7398,7 +7423,8 @@ async function handlePublicChatLiveRooms(req, res) {
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "房间服务暂时不可用。" });
-  const characters = (await listChatLiveCharactersInDb({ includeDisabled: false })).filter((character) => !character?.embedMerchantId);
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: false }))
+    .filter((character) => publicChatLiveCharacterIsPubliclyListed(character));
   const rooms = await ensureAutoChatLiveRooms(characters, live);
   const visible = rooms
     .map((room) => ({ ...publicChatLiveRoom(room, room.character), pending: room.pending === true || !room.id }))
@@ -7408,6 +7434,270 @@ async function handlePublicChatLiveRooms(req, res) {
       return Number(a.character?.sortOrder || 0) - Number(b.character?.sortOrder || 0);
     });
   return sendJson(res, 200, { ok: true, threshold: 0, basis: "room_headcount", sharedRoomSaleCreditsPerMinute: chatLiveSharedRoomSaleCredits(live), rooms: visible });
+}
+
+async function handleCreatePublicChatLiveRoom(req, res) {
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "房间服务暂时不可用。" });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const characterId = String(body.characterId || "").trim();
+  if (!characterId) return sendJson(res, 422, { ok: false, message: "缺少角色 ID。" });
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
+  const subscription = await getUserSubscriptionInDb(auth.user.id, requestTenantId(req));
+  if (!liveMembershipActive(subscription)) {
+    return sendJson(res, 402, { ok: false, code: "CHAT_LIVE_MEMBERSHIP_REQUIRED", message: "开设房间是会员权益，请先订阅会员。" });
+  }
+  const character = await getChatLiveCharacterInDb(characterId);
+  if (!character || character.deletedAt || !communityOwnsChatLiveCharacter(character, auth.user)) {
+    return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "只能用自己的创作角色开房。" });
+  }
+  if (!communityChatLiveCharacterIsPublic(character) || character.sharedRoomEnabled !== true) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_ROOM_NOT_SHAREABLE", message: "请先公开角色并开启分享房间。" });
+  }
+  const rooms = await listChatLiveRoomsInDb({ enabledOnly: false, limit: 200 });
+  const existing = rooms.find((room) => String(room?.characterId || "") === characterId
+    && (!room?.createdByUserId || String(room.createdByUserId) === String(auth.user.id))) || null;
+  const now = new Date().toISOString();
+  const room = await upsertChatLiveRoomInDb({
+    ...(existing || {}),
+    id: existing?.id || randomId("room"),
+    characterId,
+    title: existing?.title || `${character.name || "角色"}的陪伴房`,
+    description: existing?.description || `${character.name || "角色"}的公开陪伴房，和大家一起聊天。`,
+    mode: "video",
+    priceCreditsPerMinute: chatLiveSharedRoomSaleCredits(live),
+    activeCount: Number(existing?.activeCount || 0) || 0,
+    shareSupported: true,
+    autoGenerated: existing?.autoGenerated === true,
+    createdByUserId: String(character.createdByUserId || auth.user.id),
+    createdByUsername: String(character.createdByUsername || auth.user.username || auth.user.nickname || ""),
+    enabled: true,
+    active: true,
+    status: "active",
+    sortOrder: Number(character.sortOrder || 0) || 0,
+    updatedAt: now,
+    createdAt: existing?.createdAt || now,
+  });
+  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(room, character) });
+}
+
+function chatLiveFreeAllocationSeconds(session = {}) {
+  if (session.freeAllocationVersion === "cumulative_v1") {
+    const finalized = session.freeAllocationFinalized === true || Boolean(session.freeAllocationFinalizedAt);
+    return Math.max(0, Number(finalized ? session.freeUsedSeconds : session.freeAllocatedSeconds || 0) || 0);
+  }
+  // Legacy sessions were created with a per-connection free window.
+  return Math.max(0, Number(session.freeSeconds || 0) || 0);
+}
+
+async function refreshChatLiveAuthUser(auth, req = null) {
+  if (!auth?.user?.id) return auth;
+  const fresh = await getUserByIdInDb(auth.user.id);
+  if (!fresh) {
+    const error = new Error("User not found for chat-live billing.");
+    error.statusCode = 404;
+    throw error;
+  }
+  auth.user = fresh;
+  if (auth.db) {
+    auth.db.users = Array.isArray(auth.db.users) ? auth.db.users : [];
+    const index = auth.db.users.findIndex((item) => String(item.id || "") === String(fresh.id || ""));
+    if (index >= 0) auth.db.users[index] = fresh;
+    else auth.db.users.push(fresh);
+  }
+  return auth;
+}
+
+async function prepareChatLiveFreeEntry({
+  auth,
+  req,
+  sessionId,
+  configuredFreeSeconds = 0,
+  saleCreditsPerMinute = 0,
+  requestedFreeSeconds = null,
+  productMaxMinutes = 10,
+  liveId = "pending",
+} = {}) {
+  if (!auth?.user?.id) throw new Error("Chat-live entry requires an authenticated user");
+  await refreshChatLiveAuthUser(auth, req);
+  const tenantId = requestTenantId(req);
+  const configured = Math.max(0, Math.round(Number(configuredFreeSeconds || 0) || 0));
+  const productLimitSeconds = chatLiveBillableLimitSeconds({ maxMinutes: productMaxMinutes });
+  const requested = Math.max(0, Math.round(Number(
+    requestedFreeSeconds == null ? Math.min(configured, productLimitSeconds) : requestedFreeSeconds,
+  ) || 0));
+  const allocation = await allocateChatLiveFreeSecondsInDb({
+    tenantId,
+    userId: auth.user.id,
+    sessionId,
+    configuredSeconds: configured,
+    requestedSeconds: requested,
+  });
+  const freeAllocatedSeconds = Math.max(0, Number(allocation?.allocatedSeconds || 0) || 0);
+  const freeRemainingSeconds = Math.max(0, Number(allocation?.remainingSeconds || 0) || 0);
+  let initialHold = null;
+  /*
+   * The first billing block is ten seconds total. Free time covers its first
+   * part and the user must be able to reserve the remainder before Vidu is
+   * called. This removes the gap where a session with only a few free seconds
+   * left could start watching without any paid coverage.
+   */
+  const initialPrepaidSeconds = Math.max(
+    0,
+    CHAT_LIVE_BILLING_BLOCK_SECONDS - Math.min(freeAllocatedSeconds, CHAT_LIVE_BILLING_BLOCK_SECONDS),
+  );
+  if (initialPrepaidSeconds > 0) {
+    try {
+      await refreshChatLiveAuthUser(auth, req);
+      initialHold = await reserveChatLiveBlock(auth, {
+        id: sessionId,
+        liveId,
+        saleCreditsPerMinute,
+      }, initialPrepaidSeconds);
+    } catch (error) {
+      await cancelChatLiveFreeAllocationInDb(sessionId).catch((rollbackError) => {
+        console.warn("[chat-live-entry-rollback-failed]", "free_allocation", sessionId, sanitizeChatLiveDiagnosticText(rollbackError?.message || rollbackError));
+      });
+      const insufficient = error?.statusCode === 402 || error?.code === "INSUFFICIENT_CREDITS";
+      const wrapped = new Error(insufficient
+        ? "FREE_TIME_EXHAUSTED_AND_INSUFFICIENT_CREDITS"
+        : (error?.message || "CHAT_LIVE_ENTRY_FAILED"));
+      wrapped.statusCode = insufficient ? 402 : (error?.statusCode || 500);
+      wrapped.code = insufficient ? "CHAT_LIVE_INSUFFICIENT_CREDITS" : (error?.code || "CHAT_LIVE_ENTRY_FAILED");
+      wrapped.cost = insufficient
+        ? chatLiveBlockCredits({ saleCreditsPerMinute }, initialPrepaidSeconds)
+        : error?.cost;
+      wrapped.credits = Number(auth?.user?.credits || 0) || 0;
+      throw wrapped;
+    }
+  }
+  return {
+    tenantId,
+    configuredFreeSeconds: Math.max(0, Number(allocation?.configuredSeconds ?? configured) || 0),
+    freeAllocatedSeconds,
+    freeRemainingSeconds,
+    freeAllocationExhausted: allocation?.exhausted === true,
+    initialPrepaidSeconds,
+    initialHold,
+  };
+}
+
+async function rollbackChatLiveEntryAllocation(sessionId = "", auth = null, hold = null, session = null) {
+  let freeAllocationReleased = false;
+  try {
+    freeAllocationReleased = await cancelChatLiveFreeAllocationInDb(sessionId);
+  } catch (error) {
+    console.warn("[chat-live-entry-rollback-failed]", "free_allocation", sessionId, sanitizeChatLiveDiagnosticText(error?.message || error));
+  }
+  if (hold) {
+    try {
+      await refundChatLiveHold(auth, session || { id: sessionId, liveId: "pending" }, hold.credits, hold.holdId);
+    } catch (error) {
+      console.warn("[chat-live-entry-rollback-failed]", "prepaid_hold", sessionId, sanitizeChatLiveDiagnosticText(error?.message || error));
+    }
+  }
+  return { freeAllocationReleased };
+}
+
+async function createChatLiveSessionWithEntryRecovery(session = {}, {
+  auth = null,
+  hold = null,
+  componentLiveId = "",
+  afterCreate = null,
+  afterFailure = null,
+} = {}) {
+  let persisted = null;
+  try {
+    persisted = await createChatLiveSessionInDb(session);
+    /*
+     * The session row is the billing boundary. Once it exists, a failure in
+     * room/UI side effects must not release the free allocation or present the
+     * entry as failed: Vidu may already be billable. Keep the row and record
+     * the side-effect failure for settlement/support instead.
+     */
+    if (typeof afterCreate === "function") {
+      try {
+        await afterCreate(persisted);
+      } catch (postCreateError) {
+        const failure = sanitizeChatLiveDiagnosticText(postCreateError?.message || "session_post_create_failed");
+        await withChatLiveSessionSettlementLockInDb(persisted.id, async (lockedSession) => {
+          if (!lockedSession) return { session: null, value: null };
+          const next = {
+            ...lockedSession,
+            postCreateError: failure,
+            diagnostics: appendChatLiveDiagnostic(lockedSession, {
+              phase: "entry",
+              event: "post_create_failed",
+              data: { message: failure },
+            }),
+            updatedAt: new Date().toISOString(),
+          };
+          return { session: next, value: next };
+        }).catch((diagnosticError) => {
+          console.warn("[chat-live-entry-recovery]", "post_create_diagnostic", persisted.id, sanitizeChatLiveDiagnosticText(diagnosticError?.message || diagnosticError));
+        });
+      }
+    }
+    return persisted;
+  } catch (error) {
+    /*
+     * A persisted session is already a billing boundary. A downstream error
+     * must never fall through to allocation rollback or prepaid refund.
+     */
+    if (persisted?.id) {
+      console.warn("[chat-live-entry-recovery]", "persisted_session_kept", persisted.id, sanitizeChatLiveDiagnosticText(error?.message || error));
+      return persisted;
+    }
+    if (componentLiveId) {
+      try { chatLiveComponent.stopComponentSession?.(componentLiveId); } catch {}
+    }
+    const stored = persisted || await getChatLiveSessionInDb(session?.id || "").catch(() => null);
+    if (stored?.id) {
+      const endedAt = new Date().toISOString();
+      const entryRecoveryError = sanitizeChatLiveDiagnosticText(error?.message || "session_create_failed");
+      /*
+       * Creation can fail after Vidu has already accepted a live and another
+       * callback has settled the session. Re-read under the same lock as
+       * settlement and only write failure fields while the session is still
+       * unsettled. A committed billing result is immutable except for support
+       * diagnostics.
+       */
+      await withChatLiveSessionSettlementLockInDb(stored.id, async (lockedSession) => {
+        const current = lockedSession || stored;
+        const settled = current.settled === true || String(current.settled || "").toLowerCase() === "true";
+        const next = settled
+          ? {
+              ...current,
+              entryRecoveryError,
+              updatedAt: endedAt,
+            }
+          : {
+              ...current,
+              status: "failed",
+              settled: true,
+              settledAt: current.settledAt || endedAt,
+              endedAt: current.endedAt || endedAt,
+              endReason: current.endReason || "session_create_failed",
+              entryRecoveryError,
+              holdSettled: true,
+              updatedAt: endedAt,
+            };
+        return { session: next, value: next };
+      });
+    }
+    if (typeof afterFailure === "function") {
+      await afterFailure(stored || session, error).catch(() => {});
+    }
+    await rollbackChatLiveEntryAllocation(session?.id || "", auth, hold, {
+      ...(stored || {}),
+      id: session?.id || stored?.id || "",
+      liveId: stored?.liveId || session?.liveId || "pending",
+    });
+    throw error;
+  }
 }
 
 async function handleJoinChatLiveRoom(req, res, roomId = "") {
@@ -7422,10 +7712,11 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
     return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ROOM_EMPTY", message: "房间还没有人，正在为你接通。" });
   }
   const character = await getChatLiveCharacterInDb(room.characterId);
-  if (!character || character.enabled === false) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  if (!publicChatLiveCharacterIsPubliclyListed(character)) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在、未公开或未启用。" });
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
-  const salePerMinute = chatLiveSharedRoomSaleCredits(live);
+  const roomSubscription = await getUserSubscriptionInDb(auth.user.id, requestTenantId(req));
+  const salePerMinute = liveMemberSaleCredits(chatLiveSharedRoomSaleCredits(live), liveMembershipActive(roomSubscription));
   if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "多人房间价格未配置。" });
   const activeSessions = await listChatLiveSessionsInDb({ userId: auth.user.id, limit: 10 }).catch(() => []);
   for (const item of activeSessions.filter((row) => chatLiveSessionStillOpen(row))) {
@@ -7435,18 +7726,33 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
   const channelId = String(host.channel.channelId);
   const viewerId = `room-${String(auth.user.id).slice(0, 20)}-${crypto.randomBytes(3).toString("hex")}`.slice(0, 32);
   const now = new Date().toISOString();
-  const balance = Number(auth.user?.credits || 0);
-  const freeSeconds = Number(live.freeSeconds || 0) || 0;
-  const initialPrepaidSeconds = freeSeconds > 0 ? 0 : CHAT_LIVE_BILLING_BLOCK_SECONDS;
-  let initialHold = null;
-  if (initialPrepaidSeconds > 0) {
-    try {
-      initialHold = await reserveChatLiveBlock(auth, { id: sessionId, liveId: host.liveId, saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds);
-    } catch (error) {
-      return sendJson(res, 402, insufficientCreditsPayload(chatLiveBlockCredits({ saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds), balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
+  let entry;
+  try {
+    entry = await prepareChatLiveFreeEntry({
+      auth,
+      req,
+      sessionId,
+      configuredFreeSeconds: live.freeSeconds,
+      productMaxMinutes: live.maxMinutes,
+      saleCreditsPerMinute: salePerMinute,
+      liveId: host.liveId,
+    });
+  } catch (error) {
+    if (error?.statusCode === 402) {
+      return sendJson(res, 402, insufficientCreditsPayload(error.cost || 0, error.credits || 0, {
+        code: "CHAT_LIVE_INSUFFICIENT_CREDITS",
+        message: "免费时长已用完或不足以覆盖完整计费块，且当前积分不足，无法进入直播间。",
+      }));
     }
+    throw error;
   }
-  const viewer = await createChatLiveSessionInDb({
+  const balance = Number(auth.user?.credits || 0);
+  const freeSeconds = entry.configuredFreeSeconds;
+  const freeAllocatedSeconds = entry.freeAllocatedSeconds;
+  const freeRemainingSeconds = entry.freeRemainingSeconds;
+  const initialPrepaidSeconds = entry.initialPrepaidSeconds;
+  const initialHold = entry.initialHold;
+  const viewer = await createChatLiveSessionWithEntryRecovery({
     id: sessionId,
     userId: auth.user.id,
     characterId: character.id,
@@ -7467,19 +7773,65 @@ async function handleJoinChatLiveRoom(req, res, roomId = "") {
     costCreditsPerMinute: live.costCreditsPerMinute,
     maxMinutes: live.maxMinutes,
     freeSeconds,
-    billingPolicy: "first_frame",
+    freeAllowanceSeconds: freeSeconds,
+    freeAllocatedSeconds,
+    freeUsedSeconds: 0,
+    freeRemainingSeconds,
+    freeAllocationVersion: "cumulative_v1",
+    freeAllocationFinalized: false,
+    billingPolicy: "entry",
     billingVersion: "prepaid_v1",
     prepaidSeconds: initialHold?.seconds || 0,
     prepaidCredits: initialHold?.credits || 0,
     holdSequence: initialHold?.holdSequence || 0,
     holdSettled: false,
+    billableStartedAt: now,
     createdAt: now,
     updatedAt: now,
+  }, {
+    auth,
+    hold: initialHold,
+    afterCreate: async (created) => {
+      try {
+        await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
+        await publishChatLiveRoomEvent(created, { role: "system", content: `${String(created.username || auth.user.username || "有人")} 进入了房间`, userId: auth.user.id }).catch((error) => {
+          console.warn("[chat-live-entry-recovery]", "join event failed", created?.id || sessionId, sanitizeChatLiveDiagnosticText(error?.message || error));
+        });
+      } catch (error) {
+        console.warn("[chat-live-entry-recovery]", "join event failed", created?.id || sessionId, sanitizeChatLiveDiagnosticText(error?.message || error));
+        throw error;
+      }
+    },
+    afterFailure: async (failed) => clearChatLiveRoomSessionLink(roomId, failed?.id || sessionId),
   });
-  await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
-  await publishChatLiveRoomEvent(viewer, { role: "system", content: `${String(viewer.username || auth.user.username || "有人")} 进入了房间`, userId: auth.user.id }).catch(() => {});
-  const messages = await listChatLiveRoomMessagesInDb(roomId, 100);
-  return sendJson(res, 200, { ok: true, room: publicChatLiveRoom(room, character), session: { id: viewer.id, mode: viewer.mode, liveId: viewer.liveId, status: viewer.status, rtc: viewer.rtc, saleCreditsPerMinute: 0, costCreditsPerMinute: 0, maxMinutes: viewer.maxMinutes, freeSeconds: viewer.freeSeconds, model: viewer.model, avatarMode: "default" }, character: publicChatLiveCharacter(character), messages });
+  const messages = await listChatLiveRoomMessagesInDb(roomId, 100).catch(() => []);
+  return sendJson(res, 200, {
+    ok: true,
+    room: publicChatLiveRoom(room, character),
+    session: {
+      id: viewer.id,
+      mode: viewer.mode,
+      liveId: viewer.liveId,
+      status: viewer.status,
+      rtc: viewer.rtc,
+      saleCreditsPerMinute: viewer.saleCreditsPerMinute,
+      costCreditsPerMinute: viewer.costCreditsPerMinute,
+      maxMinutes: viewer.maxMinutes,
+      freeSeconds: viewer.freeSeconds,
+      freeAllowanceSeconds: viewer.freeAllowanceSeconds,
+      freeAllocatedSeconds: viewer.freeAllocatedSeconds,
+      freeUsedSeconds: viewer.freeUsedSeconds,
+      freeRemainingSeconds: viewer.freeRemainingSeconds,
+      freeAllocationVersion: viewer.freeAllocationVersion,
+      freeAllocationFinalized: viewer.freeAllocationFinalized === true,
+      model: viewer.model,
+      avatarMode: "default",
+      billableStartedAt: viewer.billableStartedAt,
+      createdAt: viewer.createdAt || viewer.billableStartedAt,
+    },
+    character: publicChatLiveCharacter(character),
+    messages,
+  });
 }
 
 async function handleListChatLiveRoomMessages(req, res, roomId = "") {
@@ -7500,7 +7852,19 @@ async function handleChatLiveRoomMessage(req, res, roomId = "") {
   const content = String(body.content || body.text || "").trim().slice(0, 500);
   if (!content) return sendJson(res, 422, { ok: false, message: "消息不能为空。" });
   await upsertChatLiveRoomMemberInDb({ roomId, userId: auth.user.id, role: "viewer" });
-  const message = await insertChatLiveRoomMessageInDb({ roomId, userId: auth.user.id, role: "user", content });
+  const subscription = await getUserSubscriptionInDb(auth.user.id, requestTenantId(req));
+  const member = liveMembershipActive(subscription);
+  const message = await insertChatLiveRoomMessageInDb({
+    roomId,
+    userId: auth.user.id,
+    role: "user",
+    content,
+    payload: {
+      name: String(auth.user.username || auth.user.nickname || "我").slice(0, 40),
+      member,
+      isMember: member,
+    },
+  });
   return sendJson(res, 201, { ok: true, message });
 }
 
@@ -7511,16 +7875,39 @@ async function handlePublicChatLiveCharacters(req, res) {
   const auth = await getAuth(req, { loadDb: false });
   const subscription = auth?.user ? await getUserSubscriptionInDb(auth.user.id, requestTenantId(req)) : null;
   const hasMembership = liveMembershipActive(subscription);
-  const characters = (await listChatLiveCharactersInDb({ includeDisabled: false })).filter((character) => !character?.embedMerchantId);
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: false }))
+    .filter((character) => publicChatLiveCharacterIsVisible(character, auth?.user || null));
   return sendJson(res, 200, {
     ok: true,
     enabled: true,
     pricing: livePricingView(live),
     membership: { active: hasMembership, plans: (await listBillingPlansInDb(requestTenantId(req))).filter((plan) => /^plan-tool-chat-(weekly|monthly|quarterly|yearly)$/.test(plan.id)).map(publicBillingPlan) },
     topupPackages: toolTopupPackagesForPlan((await listBillingPlansInDb(requestTenantId(req))).find((plan) => /^plan-tool-chat-(weekly|monthly|quarterly|yearly)$/.test(plan.id)) || null),
-    characters: characters.map((character) => ({ ...publicChatLiveCharacterForRequest(character, hasMembership), privateResources: publicChatLivePrivateResources(character, hasMembership) })),
+    characters: characters.map((character) => ({ ...publicChatLiveCharacterForRequest(character, hasMembership, auth?.user || null), privateResources: publicChatLivePrivateResources(character, hasMembership) })),
     looks: enabledChatLiveLooks(live),
     gifts: enabledChatLiveGifts(live),
+  });
+}
+
+async function handlePublicChatLiveCharacter(req, res, characterId = "") {
+  const id = String(characterId || "").trim();
+  if (!id) return sendJson(res, 400, { ok: false, message: "缺少角色 ID。" });
+  const config = await readAppConfig();
+  const live = chatLiveConfigValue(config);
+  if (!live.enabled) return sendJson(res, 404, { ok: false, message: "角色不存在或已关闭。" });
+  const auth = await getAuth(req, { loadDb: false });
+  const character = await getChatLiveCharacterInDb(id);
+  if (!character || character.deletedAt || !publicChatLiveCharacterIsVisible(character, auth?.user || null)) {
+    return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未公开。" });
+  }
+  const subscription = auth?.user ? await getUserSubscriptionInDb(auth.user.id, requestTenantId(req)) : null;
+  const hasMembership = liveMembershipActive(subscription);
+  return sendJson(res, 200, {
+    ok: true,
+    character: {
+      ...publicChatLiveCharacterForRequest(character, hasMembership, auth?.user || null),
+      privateResources: publicChatLivePrivateResources(character, hasMembership),
+    },
   });
 }
 
@@ -7614,7 +8001,8 @@ async function handleAdminChatLiveCharacters(req, res) {
   if (!auth) return;
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
-  const characters = await listChatLiveCharactersInDb({ includeDisabled: true });
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: true }))
+    .filter((character) => character?.source !== "community");
   return sendJson(res, 200, {
     ok: true,
     pricing: livePricingView(live),
@@ -7636,7 +8024,30 @@ async function handleAdminChatLiveCharacters(req, res) {
 }
 
 function creatorOwnsChatLiveCharacter(character, user) {
-  return Boolean(character) && String(character.createdByUserId || "") === String(user?.id || "");
+  return Boolean(character)
+    && character.source !== "community"
+    && String(character.createdByUserId || "") === String(user?.id || "");
+}
+
+function communityChatLiveCharacterIsPublic(character = {}) {
+  return character?.source === "community"
+    && character?.communityShareEnabled === true
+    && character?.communityVisibility === "public"
+    && character?.enabled !== false
+    && !character?.embedMerchantId;
+}
+
+function publicChatLiveCharacterIsPubliclyListed(character = {}) {
+  if (character?.embedMerchantId) return false;
+  if (character?.source === "community") return communityChatLiveCharacterIsPublic(character);
+  return character?.enabled !== false;
+}
+
+function publicChatLiveCharacterIsVisible(character = {}, user = null) {
+  if (publicChatLiveCharacterIsPubliclyListed(character)) return true;
+  return Boolean(user?.id)
+    && character?.source === "community"
+    && String(character?.createdByUserId || "") === String(user.id);
 }
 
 function creatorChatLiveCharacterView(character = {}) {
@@ -7650,6 +8061,9 @@ function creatorChatLiveCharacterView(character = {}) {
     occupation: character.occupation || "",
     language: character.language || "zh",
     tags: Array.isArray(character.tags) ? character.tags : [],
+    gender: character.gender || "",
+    communityVisibility: character.communityVisibility === "public" ? "public" : "private",
+    communityShareEnabled: character.communityShareEnabled === true,
     sortOrder: Number(character.sortOrder || 0) || 0,
     greeting: character.greeting || "",
     linkName: character.linkName || "",
@@ -7675,32 +8089,79 @@ function creatorChatLiveCharacterView(character = {}) {
 }
 
 async function handleCreatorChatLiveCharacters(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireAdmin(req, res);
   if (!auth) return;
   const userId = String(auth.user?.id || "");
   const characters = (await listChatLiveCharactersInDb({ includeDisabled: true }))
-    .filter((item) => String(item?.createdByUserId || "") === userId)
+    .filter((item) => item?.source !== "community" && String(item?.createdByUserId || "") === userId)
     .map(creatorChatLiveCharacterView);
   return sendJson(res, 200, { ok: true, characters });
 }
 
-async function handleCreatorSaveChatLiveCharacter(req, res, characterId = "") {
+function communityChatLiveCharacterView(character = {}) {
+  return {
+    ...creatorChatLiveCharacterView(character),
+    communityVisibility: character.communityVisibility === "public" ? "public" : "private",
+    communityShareEnabled: character.communityShareEnabled === true,
+  };
+}
+
+function communityOwnsChatLiveCharacter(character, user) {
+  return Boolean(character)
+    && character.source === "community"
+    && String(character.createdByUserId || "") === String(user?.id || "");
+}
+
+async function handleCommunityChatLiveCharacters(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const userId = String(auth.user?.id || "");
+  const characters = (await listChatLiveCharactersInDb({ includeDisabled: true }))
+    .filter((item) => item?.source === "community" && String(item?.createdByUserId || "") === userId)
+    .map(communityChatLiveCharacterView);
+  return sendJson(res, 200, { ok: true, characters });
+}
+
+async function handleCommunityDeleteChatLiveCharacter(req, res, characterId = "") {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const id = String(characterId || "").trim();
+  if (!id) return sendJson(res, 400, { ok: false, message: "缺少角色 ID。" });
+  const existing = await getChatLiveCharacterInDb(id);
+  if (!existing || existing.deletedAt) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  if (!communityOwnsChatLiveCharacter(existing, auth.user)) {
+    return sendJson(res, 403, { ok: false, message: "只能删除自己创作的角色。" });
+  }
+  const removed = await softDeleteChatLiveCharacterInDb(id);
+  if (!removed) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  return sendJson(res, 200, { ok: true, character: communityChatLiveCharacterView(removed) });
+}
+
+async function handleCommunitySaveChatLiveCharacter(req, res, characterId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
-  const id = String(characterId || "").trim();
+  const id = String(characterId || body.id || "").trim();
   const existing = id ? await getChatLiveCharacterInDb(id) : null;
   if (id && !existing) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
-  if (existing && !creatorOwnsChatLiveCharacter(existing, auth.user)) {
-    return sendJson(res, 403, { ok: false, message: "只能修改自己创建的角色。" });
+  if (existing && !communityOwnsChatLiveCharacter(existing, auth.user)) {
+    return sendJson(res, 403, { ok: false, message: "只能修改创作页创建的角色。" });
   }
   if (!existing) {
     const owned = (await listChatLiveCharactersInDb({ includeDisabled: true }))
-      .filter((item) => String(item?.createdByUserId || "") === String(auth.user?.id || ""));
+      .filter((item) => String(item?.createdByUserId || "") === String(auth.user?.id || "") && item?.communityShareEnabled === true);
     if (owned.length >= 30) return sendJson(res, 422, { ok: false, message: "最多创建 30 个角色。" });
   }
-  const payload = normalizeChatLiveCharacterPayload(body, existing);
-  payload.enabled = existing ? existing.enabled !== false : false;
+  const requestedVisibility = String(body.visibility ?? body.communityVisibility ?? existing?.communityVisibility ?? "private").trim().toLowerCase();
+  const communityVisibility = requestedVisibility === "public" ? "public" : "private";
+  const payload = normalizeChatLiveCharacterPayload({
+    ...body,
+    communityVisibility,
+    communityShareEnabled: true,
+  }, existing);
+  payload.communityVisibility = communityVisibility;
+  payload.communityShareEnabled = true;
+  payload.enabled = communityVisibility === "public";
   const invalid = chatLiveCharacterValidationError(payload, existing);
   if (invalid) return sendJson(res, 422, { ok: false, code: "INVALID_CHAT_LIVE_CHARACTER", message: invalid });
   const now = new Date().toISOString();
@@ -7713,7 +8174,57 @@ async function handleCreatorSaveChatLiveCharacter(req, res, characterId = "") {
     updatedBy: auth.user?.username || auth.user?.id || "",
     createdByUserId: existing?.createdByUserId || auth.user?.id || "",
     createdByUsername: existing?.createdByUsername || auth.user?.username || auth.user?.nickname || "",
-    source: existing?.source || "creator",
+    source: "community",
+  };
+  if (String(existing?.avatarUrl || "") !== String(payload.avatarUrl || "")) {
+    character.undressImageUrl = "";
+    character.undressSourceAvatarUrl = "";
+    character.undressStatus = "";
+    character.undressError = "";
+    character.undressGeneratedAt = "";
+    character.undressStartedAt = "";
+    character.undressTaskId = "";
+  }
+  const saved = await upsertChatLiveCharacterInDb(character);
+  return sendJson(res, 200, { ok: true, character: communityChatLiveCharacterView(saved) });
+}
+
+async function handleCreatorSaveChatLiveCharacter(req, res, characterId = "") {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const id = String(characterId || "").trim();
+  const existing = id ? await getChatLiveCharacterInDb(id) : null;
+  if (id && !existing) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  if (existing && !creatorOwnsChatLiveCharacter(existing, auth.user)) {
+    return sendJson(res, 403, { ok: false, message: "只能修改自己创建的角色。" });
+  }
+  if (existing?.communityShareEnabled === true) {
+    return sendJson(res, 409, { ok: false, message: "创作页创建的角色请在「创作」页维护。" });
+  }
+  if (!existing) {
+    const owned = (await listChatLiveCharactersInDb({ includeDisabled: true }))
+      .filter((item) => String(item?.createdByUserId || "") === String(auth.user?.id || "") && item?.communityShareEnabled !== true);
+    if (owned.length >= 30) return sendJson(res, 422, { ok: false, message: "最多创建 30 个内部角色。" });
+  }
+  const payload = normalizeChatLiveCharacterPayload(body, existing);
+  payload.enabled = existing ? existing.enabled !== false : false;
+  /* Internal creator-center characters are never community royalty sources. */
+  payload.communityShareEnabled = false;
+  payload.communityVisibility = "private";
+  const invalid = chatLiveCharacterValidationError(payload, existing);
+  if (invalid) return sendJson(res, 422, { ok: false, code: "INVALID_CHAT_LIVE_CHARACTER", message: invalid });
+  const now = new Date().toISOString();
+  const character = {
+    ...(existing || {}),
+    ...payload,
+    id: existing?.id || randomId("chatlive-char"),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    updatedBy: auth.user?.username || auth.user?.id || "",
+    createdByUserId: existing?.createdByUserId || auth.user?.id || "",
+    createdByUsername: existing?.createdByUsername || auth.user?.username || auth.user?.nickname || "",
+    source: "creator",
   };
   if (String(existing?.avatarUrl || "") !== String(payload.avatarUrl || "")) {
     character.undressImageUrl = "";
@@ -7746,8 +8257,12 @@ async function handleCreatorGenerateChatLiveUndress(req, res, characterId = "") 
   const id = String(characterId || "").trim();
   const character = id ? await getChatLiveCharacterInDb(id) : null;
   if (!character) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
-  if (!creatorOwnsChatLiveCharacter(character, auth.user)) return sendJson(res, 403, { ok: false, message: "只能操作自己创建的角色。" });
-  return handleAdminGenerateChatLiveUndress(req, res, id, { auth });
+  const isCommunity = character.source === "community";
+  const owns = isCommunity
+    ? communityOwnsChatLiveCharacter(character, auth.user)
+    : creatorOwnsChatLiveCharacter(character, auth.user);
+  if (!owns) return sendJson(res, 403, { ok: false, message: "只能操作自己创建的角色。" });
+  return handleAdminGenerateChatLiveUndress(req, res, id, { auth, allowCommunity: isCommunity });
 }
 
 async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
@@ -7757,7 +8272,12 @@ async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
   const id = String(characterId || body.id || "").trim();
   const existing = id ? await getChatLiveCharacterInDb(id) : null;
   if (characterId && !existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  if (existing?.source === "community") {
+    return sendJson(res, 409, { ok: false, code: "COMMUNITY_CHARACTER_ADMIN_READONLY", message: "用户创作角色请在「创作」页维护，后台不能修改。" });
+  }
   const payload = normalizeChatLiveCharacterPayload(body, existing);
+  payload.communityShareEnabled = false;
+  payload.communityVisibility = "private";
   await chatLiveConfigValue(await readAppConfig());
   const invalid = chatLiveCharacterValidationError(payload, existing);
   if (invalid) return sendJson(res, 422, { ok: false, code: "INVALID_CHAT_LIVE_CHARACTER", message: invalid });
@@ -7769,6 +8289,7 @@ async function handleAdminSaveChatLiveCharacter(req, res, characterId = "") {
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     updatedBy: auth.user?.username || auth.user?.id || "",
+    source: existing?.source || "admin",
   };
   if (String(existing?.avatarUrl || "") !== String(payload.avatarUrl || "")) {
     character.undressImageUrl = "";
@@ -7790,6 +8311,7 @@ async function handleAdminShelfChatLiveCharacter(req, res, characterId = "") {
   if (!id) return sendJson(res, 400, { ok: false, message: "缺少角色 ID。" });
   const existing = await getChatLiveCharacterInDb(id);
   if (!existing) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  if (existing.source === "community") return sendJson(res, 409, { ok: false, code: "COMMUNITY_CHARACTER_ADMIN_READONLY", message: "用户创作角色请在「创作」页维护。" });
   const body = await readJson(req).catch(() => ({}));
   const enabled = body && Object.prototype.hasOwnProperty.call(body || {}, "enabled") ? body.enabled !== false : existing.enabled === false;
   const saved = await upsertChatLiveCharacterInDb({
@@ -7805,6 +8327,8 @@ async function handleAdminDeleteChatLiveCharacter(req, res, characterId = "") {
   if (!auth) return;
   const id = String(characterId || "").trim();
   if (!id) return sendJson(res, 400, { ok: false, message: "缺少角色 ID。" });
+  const existing = await getChatLiveCharacterInDb(id);
+  if (existing?.source === "community") return sendJson(res, 409, { ok: false, code: "COMMUNITY_CHARACTER_ADMIN_READONLY", message: "用户创作角色请在「创作」页维护。" });
   const removed = await softDeleteChatLiveCharacterInDb(id);
   if (!removed) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
   return sendJson(res, 200, { ok: true, character: removed });
@@ -7898,6 +8422,13 @@ async function handleAdminGenerateChatLiveUndress(req, res, characterId = "", op
   const id = String(characterId || "").trim();
   const character = id ? await getChatLiveCharacterInDb(id) : null;
   if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  if (character.source === "community" && options.allowCommunity !== true) {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "COMMUNITY_CHARACTER_ADMIN_READONLY",
+      message: "用户创作角色请在「创作」页维护。"
+    });
+  }
   const avatarUrl = String(character.avatarUrl || "").trim();
   if (!avatarUrl || !isManagedChatLiveAssetUrl(avatarUrl)) {
     return sendJson(res, 422, { ok: false, message: "请先保存形象图，再用上传控件上传。" });
@@ -8092,12 +8623,17 @@ async function publishChatLiveRoomEvent(session = {}, { role = "system", content
   const text = String(content || "").trim().slice(0, 500);
   if (!roomId || !text) return null;
   const name = String(session?.username || "").trim().slice(0, 40) || "有人";
+  const memberUserId = String(userId || session?.userId || "");
+  const subscription = memberUserId
+    ? await getUserSubscriptionInDb(memberUserId, session?.tenantId || DEFAULT_TENANT_ID).catch(() => null)
+    : null;
+  const member = liveMembershipActive(subscription);
   return insertChatLiveRoomMessageInDb({
     roomId,
-    userId: String(userId || session?.userId || ""),
+    userId: memberUserId,
     role,
     content: text,
-    payload: { name },
+    payload: { name, member, isMember: member },
   });
 }
 
@@ -8115,6 +8651,29 @@ async function linkChatLiveSessionToRoom(roomId = "", session = {}) {
     activeCount: session.exclusive === true ? Number(room.activeCount || 0) : Math.max(1, Number(room.activeCount || 0)),
     updatedAt: new Date().toISOString(),
   });
+}
+
+/*
+ * Session creation can persist the session and then fail while linking or
+ * publishing it. Clear the room pointer only when it still belongs to that
+ * failed session; a newer session must never be removed by a stale rollback.
+ */
+async function clearChatLiveRoomSessionLink(roomId = "", sessionId = "") {
+  const id = String(roomId || "").trim();
+  const failedSessionId = String(sessionId || "").trim();
+  if (!id || !failedSessionId) return false;
+  const room = await getChatLiveRoomInDb(id).catch(() => null);
+  if (!room || String(room.currentSessionId || "") !== failedSessionId) return false;
+  await upsertChatLiveRoomInDb({
+    ...room,
+    currentSessionId: "",
+    currentLiveId: "",
+    currentMode: "",
+    shareSupported: false,
+    activeCount: 0,
+    updatedAt: new Date().toISOString(),
+  });
+  return true;
 }
 
 async function handleListChatLiveContacts(req, res) {
@@ -8145,17 +8704,35 @@ async function releaseChatLiveForReconnect(session = {}) {
     try { chatLiveComponent.stopComponentSession?.(session.liveId); } catch {}
   }
   const endedAt = new Date().toISOString();
-  await updateChatLiveSessionInDb({
-    ...session,
-    status: "ended",
-    settled: false,
-    endedAt,
-    endReason: session.endReason || "replaced_by_reconnect",
-    updatedAt: endedAt,
-  }).catch(() => {});
-  settleChatLiveSessionById(session.id).catch((error) => {
-    console.warn("[chat-live-replace]", JSON.stringify({ sessionId: session.id, message: String(error?.message || error).slice(0, 180) }));
+  await withChatLiveSessionSettlementLockInDb(session.id, async (lockedSession) => {
+    const current = lockedSession || session;
+    if (current.settled === true || String(current.settled || "").toLowerCase() === "true") {
+      return { session: null, value: current };
+    }
+    const next = {
+      ...current,
+      status: "ended",
+      settled: false,
+      endedAt: current.endedAt || endedAt,
+      endReason: current.endReason || "replaced_by_reconnect",
+      endedByReconnectAt: endedAt,
+      updatedAt: endedAt,
+    };
+    return { session: next, value: next };
   });
+  /*
+   * Free time is cumulative per user. The old allocation remains reserved
+   * until settlement releases any unused seconds, so the replacement
+   * connection must not allocate its entry allowance before this finishes.
+   */
+  const settled = await settleChatLiveSessionById(session.id);
+  const committed = settled?.settled === true || String(settled?.settled || "").toLowerCase() === "true";
+  if (!committed) {
+    const error = new Error("上一场直播还未完成结算，请稍后再进入。");
+    error.code = "CHAT_LIVE_PREVIOUS_SESSION_SETTLEMENT_PENDING";
+    error.statusCode = 503;
+    throw error;
+  }
 }
 
 function chatLiveSessionStillOpen(item = {}, embedExternalUserId = "") {
@@ -8179,12 +8756,22 @@ async function handleCreateChatLiveSession(req, res) {
   const character = await getChatLiveCharacterInDb(String(body.characterId || room?.characterId || "").trim());
   if (roomId && character && String(room.characterId || "") !== String(character.id || "")) return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_ROOM_CHARACTER_MISMATCH", message: "房间角色已变化，请刷新后再试。" });
   const embedCharacterOk = Boolean(auth.embed) && String(character?.embedMerchantId || "") === String(auth.user.id) && String(auth.embed.characterId || "") === String(character?.id || "");
-  if (!character || (character.enabled === false && !embedCharacterOk)) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未启用。" });
+  const characterVisible = publicChatLiveCharacterIsVisible(character, auth.user);
+  if (!character || (!characterVisible && !embedCharacterOk)) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在、未公开或未启用。" });
   if (auth.embed && !embedCharacterOk) return sendJson(res, 403, { ok: false, code: "EMBED_CHARACTER_MISMATCH", message: "这张接入票不能打开这个角色。" });
   const wantsSharedRoom = body.sharedRoom === true || String(body.sharedRoom) === "true" || Boolean(roomId);
   if (auth.embed && wantsSharedRoom) return sendJson(res, 422, { ok: false, code: "EMBED_SHARED_ROOM_UNSUPPORTED", message: "嵌入接入当前只支持一对一通话。" });
   if (wantsSharedRoom && character.sharedRoomEnabled !== true) {
     return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_SHARED_ROOM_DISABLED", message: "这个角色没有开放多人房间。" });
+  }
+  if (wantsSharedRoom && roomId && String(room.createdByUserId || "") !== String(auth.user.id)) {
+    return sendJson(res, 403, { ok: false, code: "CHAT_LIVE_ROOM_HOST_FORBIDDEN", message: "只有房间创建者可以开启主播会话。" });
+  }
+  if (wantsSharedRoom && roomId && room.currentSessionId) {
+    const existingHost = await getChatLiveSessionInDb(String(room.currentSessionId));
+    if (chatLiveSessionStillOpen(existingHost)) {
+      return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ROOM_OCCUPIED", message: "房间已经有人开始了，请直接加入房间。" });
+    }
   }
   const sessionExclusive = !wantsSharedRoom;
   const config = await readAppConfig();
@@ -8203,7 +8790,8 @@ async function handleCreateChatLiveSession(req, res) {
   }
   if (!viduCredentialsForRegion(live.region).key) return sendJson(res, 503, { ok: false, code: "VIDU_NOT_CONFIGURED", message: "在线聊天暂未开通。" });
   if (!live.enabled) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_DISABLED", message: "在线聊天暂未开放。" });
-  const salePerMinute = wantsSharedRoom ? chatLiveSharedRoomSaleCredits(live) : Number(live.saleCreditsPerMinute || 0);
+  const liveMember = liveMembershipActive(liveSubscription);
+  const salePerMinute = liveMemberSaleCredits(wantsSharedRoom ? chatLiveSharedRoomSaleCredits(live) : Number(live.saleCreditsPerMinute || 0), liveMember);
   if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "在线聊天价格未配置。" });
   const conversationMode = wantsSharedRoom ? "component" : (String(character.mode || live.defaultMode || "realtime") === "component" ? "component" : "realtime");
   if (conversationMode === "component" && (!ARTC_APP_ID || !ARTC_APP_KEY)) {
@@ -8213,7 +8801,6 @@ async function handleCreateChatLiveSession(req, res) {
       message: "该角色配置为「外接 LLM（组件版）」，但服务器还没配置自建 RTC（缺 ARTC_APP_ID / ARTC_APP_KEY）。",
     });
   }
-  const balance = Number(auth.user?.credits || 0);
   const activeSessions = await listChatLiveSessionsInDb({ userId: auth.user.id, limit: 10 }).catch(() => []);
   /* Older rows stored settled as the JSON string "true". Treat both forms as
      settled so a stale waiting row cannot block a new character connection. */
@@ -8222,19 +8809,41 @@ async function handleCreateChatLiveSession(req, res) {
     await releaseChatLiveForReconnect(item);
   }
   const initialSessionId = randomId("chatlive");
-  /* Replacing a live connection must not grant the configured free runway a
-     second time. The new Vidu live is a fresh connection, but it is still the
-     same user interaction and starts on paid prepaid blocks. */
-  const effectiveFreeSeconds = replacingSession ? 0 : live.freeSeconds;
-  const initialPrepaidSeconds = effectiveFreeSeconds > 0 ? 0 : CHAT_LIVE_BILLING_BLOCK_SECONDS;
-  let initialHold = null;
-  if (initialPrepaidSeconds > 0) {
-    try {
-      initialHold = await reserveChatLiveBlock(auth, { id: initialSessionId, liveId: "pending", saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds);
-    } catch (error) {
-      return sendJson(res, 402, insufficientCreditsPayload(chatLiveBlockCredits({ saleCreditsPerMinute: salePerMinute }, initialPrepaidSeconds), balance, { code: "CHAT_LIVE_INSUFFICIENT_CREDITS" }));
+  /*
+   * Free time is a user-level allowance, not a per-connection window. The
+   * database allocates at most the remaining allowance to this session and
+   * reserves an initial paid block only when no free seconds remain.
+   */
+  let entry;
+  try {
+    entry = await prepareChatLiveFreeEntry({
+      auth,
+      req,
+      sessionId: initialSessionId,
+      configuredFreeSeconds: live.freeSeconds,
+      productMaxMinutes: live.maxMinutes,
+      saleCreditsPerMinute: salePerMinute,
+      liveId: "pending",
+    });
+  } catch (error) {
+    if (error?.statusCode === 402) {
+      return sendJson(res, 402, insufficientCreditsPayload(error.cost || 0, error.credits || 0, {
+        code: "CHAT_LIVE_INSUFFICIENT_CREDITS",
+        message: "免费时长已用完或不足以覆盖完整计费块，且当前积分不足，无法进入直播间。",
+      }));
     }
+    return sendJson(res, error?.statusCode || 500, {
+      ok: false,
+      code: error?.code || "CHAT_LIVE_ENTRY_FAILED",
+      message: error?.message || "进入直播间失败。",
+    });
   }
+  const balance = Number(auth.user?.credits || 0);
+  const effectiveFreeSeconds = entry.configuredFreeSeconds;
+  const freeAllocatedSeconds = entry.freeAllocatedSeconds;
+  const freeRemainingSeconds = entry.freeRemainingSeconds;
+  const initialPrepaidSeconds = entry.initialPrepaidSeconds;
+  const initialHold = entry.initialHold;
 
   /* —— 组件版：我们自建 RTC 频道，Vidu 只把数字人推进来 —— */
   if (conversationMode === "component") {
@@ -8264,7 +8873,7 @@ async function handleCreateChatLiveSession(req, res) {
         },
       }, { characterId: character.id, model: live.model, callMode: "video" });
     } catch (error) {
-      if (initialHold) await refundChatLiveHold(auth, { id: sessionId, liveId: "pending" }, initialHold.credits, initialHold.holdId).catch(() => {});
+      await rollbackChatLiveEntryAllocation(sessionId, auth, initialHold, { id: sessionId, liveId: "pending" });
       return sendChatLiveCreateError(res, error);
     }
     const now = new Date().toISOString();
@@ -8288,7 +8897,8 @@ async function handleCreateChatLiveSession(req, res) {
       viduBase: componentCreds.base,
       viduKey: componentCreds.key,
     }).catch((error) => console.warn("[chat-live-component] start failed", error.message || error));
-    const session = await createChatLiveSessionInDb({
+    const componentLiveId = String(upstream?.live?.id || "");
+    const session = await createChatLiveSessionWithEntryRecovery({
       id: sessionId,
       userId: auth.user.id,
       characterId: character.id,
@@ -8317,19 +8927,40 @@ async function handleCreateChatLiveSession(req, res) {
       saleCreditsPerMinute: salePerMinute,
       maxMinutes: live.maxMinutes,
       freeSeconds: effectiveFreeSeconds,
+      freeAllowanceSeconds: effectiveFreeSeconds,
+      freeAllocatedSeconds,
+      freeUsedSeconds: 0,
+      freeRemainingSeconds,
+      freeAllocationVersion: "cumulative_v1",
+      freeAllocationFinalized: false,
       avatarMode,
       model: live.model,
       callMode: "video",
-      billingPolicy: "first_frame",
+      billingPolicy: "entry",
       prepaidSeconds: initialHold?.seconds || 0,
       prepaidCredits: initialHold?.credits || 0,
       holdSequence: initialHold?.holdSequence || 0,
       holdSettled: false,
+      billableStartedAt: now,
       createdAt: now,
       updatedAt: now,
+    }, {
+      auth,
+      hold: initialHold,
+      componentLiveId,
+      afterCreate: async (created) => {
+        try {
+          await linkChatLiveSessionToRoom(roomId, created);
+          if (roomId) await publishChatLiveRoomEvent({ ...created, roomId }, { role: "system", content: `${String(created.username || "有人")} 进入了房间`, userId: created.userId }).catch((error) => {
+            console.warn("[chat-live-entry-recovery]", "component join event failed", created?.id || sessionId, sanitizeChatLiveDiagnosticText(error?.message || error));
+          });
+        } catch (error) {
+          console.warn("[chat-live-entry-recovery]", "component join event failed", created?.id || sessionId, sanitizeChatLiveDiagnosticText(error?.message || error));
+          throw error;
+        }
+      },
+      afterFailure: async (failed) => clearChatLiveRoomSessionLink(roomId, failed?.id || sessionId),
     });
-    await linkChatLiveSessionToRoom(roomId, session);
-    if (roomId) await publishChatLiveRoomEvent({ ...session, roomId }, { role: "system", content: `${String(session.username || "有人")} 进入了房间`, userId: session.userId }).catch(() => {});
     return sendJson(res, 201, {
       ok: true,
       session: {
@@ -8348,8 +8979,16 @@ async function handleCreateChatLiveSession(req, res) {
         saleCreditsPerMinute: salePerMinute,
         costCreditsPerMinute: live.costCreditsPerMinute,
         maxMinutes: live.maxMinutes,
-        freeSeconds: live.freeSeconds,
+        freeSeconds: session.freeSeconds,
+        freeAllowanceSeconds: session.freeAllowanceSeconds,
+        freeAllocatedSeconds: session.freeAllocatedSeconds,
+        freeUsedSeconds: session.freeUsedSeconds,
+        freeRemainingSeconds: session.freeRemainingSeconds,
+        freeAllocationVersion: session.freeAllocationVersion,
+        freeAllocationFinalized: session.freeAllocationFinalized === true,
         model: live.model,
+        billableStartedAt: session.billableStartedAt,
+        createdAt: session.createdAt || session.billableStartedAt,
       },
       character: publicChatLiveCharacter(character),
     });
@@ -8372,6 +9011,7 @@ async function handleCreateChatLiveSession(req, res) {
   if (!live.videoChatEnabled) avatar.farewell_enabled = false;
   const voiceRegionError = chatLiveVoiceRegionError(character.voiceProvider);
   if (voiceRegionError) {
+    await rollbackChatLiveEntryAllocation(initialSessionId, auth, initialHold, { id: initialSessionId, liveId: "pending" });
     return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_VOICE_REGION", message: voiceRegionError });
   }
   const voiceProviderName = String(character.voiceProvider || "qwen_omni");
@@ -8401,14 +9041,14 @@ async function handleCreateChatLiveSession(req, res) {
       body: realtimeBody,
     }, { characterId: character.id, model: live.model, callMode: live.callMode });
   } catch (error) {
-    if (initialHold) await refundChatLiveHold(auth, { id: initialSessionId, liveId: "pending" }, initialHold.credits, initialHold.holdId).catch(() => {});
+    await rollbackChatLiveEntryAllocation(initialSessionId, auth, initialHold, { id: initialSessionId, liveId: "pending" });
     return sendChatLiveCreateError(res, error);
   }
 
   const now = new Date().toISOString();
   const upstreamLive = upstream?.live || upstream || {};
   const upstreamTraceId = String(upstreamLive.trace_id || upstream?.trace_id || upstreamLive.traceId || "").slice(0, 100);
-  const session = await createChatLiveSessionInDb({
+  const session = await createChatLiveSessionWithEntryRecovery({
     id: initialSessionId,
     userId: auth.user.id,
     characterId: character.id,
@@ -8422,15 +9062,22 @@ async function handleCreateChatLiveSession(req, res) {
     saleCreditsPerMinute: salePerMinute,
     maxMinutes: live.maxMinutes,
     freeSeconds: effectiveFreeSeconds,
+    freeAllowanceSeconds: effectiveFreeSeconds,
+    freeAllocatedSeconds,
+    freeUsedSeconds: 0,
+    freeRemainingSeconds,
+    freeAllocationVersion: "cumulative_v1",
+    freeAllocationFinalized: false,
     avatarMode,
     model: live.model,
     callMode: live.callMode,
-    billingPolicy: "first_frame",
+    billingPolicy: "entry",
     billingVersion: "prepaid_v1",
     prepaidSeconds: initialHold?.seconds || 0,
     prepaidCredits: initialHold?.credits || 0,
     holdSequence: initialHold?.holdSequence || 0,
     holdSettled: false,
+    billableStartedAt: now,
     voiceProvider: upstream?.live?.voice_model?.provider || character.voiceProvider || "",
     upstreamTraceId,
     diagnostics: [chatLiveDiagnosticEvent({ liveId: String(upstreamLive.id || ""), upstreamTraceId }, {
@@ -8449,9 +9096,14 @@ async function handleCreateChatLiveSession(req, res) {
     viduRegion: live.region === "cn" ? "cn" : "overseas",
     createdAt: now,
     updatedAt: now,
+  }, {
+    auth,
+    hold: initialHold,
+    afterCreate: async (created) => {
+      await linkChatLiveSessionToRoom(roomId, created);
+    },
+    afterFailure: async (failed) => clearChatLiveRoomSessionLink(roomId, failed?.id || initialSessionId),
   });
-
-  await linkChatLiveSessionToRoom(roomId, session);
   return sendJson(res, 201, {
     ok: true,
     session: {
@@ -8466,8 +9118,16 @@ async function handleCreateChatLiveSession(req, res) {
       saleCreditsPerMinute: salePerMinute,
       costCreditsPerMinute: live.costCreditsPerMinute,
       maxMinutes: live.maxMinutes,
-      freeSeconds: effectiveFreeSeconds,
+      freeSeconds: session.freeSeconds,
+      freeAllowanceSeconds: session.freeAllowanceSeconds,
+      freeAllocatedSeconds: session.freeAllocatedSeconds,
+      freeUsedSeconds: session.freeUsedSeconds,
+      freeRemainingSeconds: session.freeRemainingSeconds,
+      freeAllocationVersion: session.freeAllocationVersion,
+      freeAllocationFinalized: session.freeAllocationFinalized === true,
       avatarMode,
+      billableStartedAt: session.billableStartedAt,
+      createdAt: session.createdAt || session.billableStartedAt,
       wsPath: `/api/chat-live/ws?session=${encodeURIComponent(session.id)}`,
     },
     character: publicChatLiveCharacter(character),
@@ -8529,26 +9189,115 @@ function mergeChatLiveIssues(...groups) {
 }
 
 function chatLiveChargeExpected(session = {}, billedSeconds = null) {
-  const seconds = billedSeconds == null
-    ? Math.max(0, Number(session.billedSeconds || 0) || 0)
-    : Math.max(0, Number(billedSeconds || 0) || 0);
-  const freeSeconds = Math.max(0, Number(session.freeSeconds || 0) || 0);
+  const freeSeconds = chatLiveFreeAllocationSeconds(session);
   const salePerMinute = Math.max(0, Number(session.saleCreditsPerMinute || 0) || 0);
-  const chargeableSeconds = Math.max(0, seconds - freeSeconds);
+  const chargeableSeconds = billedSeconds == null
+    ? Math.max(0, Number(session.chargeableSeconds ?? Math.max(0, (Number(session.billedSeconds || 0) || 0) - freeSeconds)) || 0)
+    : Math.max(0, (Number(billedSeconds || 0) || 0) - freeSeconds);
   if (!(salePerMinute > 0 && chargeableSeconds > 0)) return 0;
   return Math.max(1, Math.ceil(chargeCreditsFromSeconds(chargeableSeconds, salePerMinute)));
 }
 
-async function saveChatLiveSessionIssues(sessionId, issues) {
-  const normalized = normalizeChatLiveIssues(issues);
-  await dbQuery(
-    `UPDATE app_chat_live_sessions
-     SET payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{issues}', $2::jsonb, true),
-         updated_at = NOW()
-     WHERE id = $1`,
-    [String(sessionId || ""), JSON.stringify(normalized)],
+function chatLiveBillableLimitSeconds(session = {}) {
+  const rawMaxMinutes = Number(session.maxMinutes || 0);
+  const maxMinutes = Number.isFinite(rawMaxMinutes) && rawMaxMinutes > 0
+    ? Math.min(120, Math.max(1, rawMaxMinutes))
+    : 10;
+  return Math.max(60, Math.round(maxMinutes * 60));
+}
+
+/* Shared-room viewers share the host's upstream live id. Vidu therefore
+   reports the host's whole broadcast duration, not the viewer's stay. Their
+   billable duration must come exclusively from the local entry/exit clock. */
+function chatLiveLocalBillableSeconds(session = {}, now = Date.now()) {
+  const startMs = Date.parse(session.billableStartedAt || session.createdAt || "");
+  if (!Number.isFinite(startMs)) return 0;
+  const endedMs = Date.parse(session.endedAt || "");
+  const endMs = Number.isFinite(endedMs) ? endedMs : Number(now);
+  if (!Number.isFinite(endMs)) return 0;
+  return Math.min(
+    chatLiveBillableLimitSeconds(session),
+    Math.max(0, Math.floor((endMs - startMs) / 1000)),
   );
-  return normalized;
+}
+
+/* Vidu's billed_seconds is the authoritative upstream duration, but the
+   customer-facing product limit is maxMinutes from the session snapshot.
+   Keep the raw upstream value for diagnostics and cap only the sellable
+   duration. The result must not depend on how many prepaid blocks happened
+   to be reserved before the live ended. */
+function chatLiveSettlementBilling(session = {}, upstreamBilledSeconds = 0) {
+  const rawUpstreamSeconds = Number(upstreamBilledSeconds || 0);
+  const upstreamSeconds = Number.isFinite(rawUpstreamSeconds) ? Math.max(0, rawUpstreamSeconds) : 0;
+  const billingLimitSeconds = chatLiveBillableLimitSeconds(session);
+  const cappedUpstreamSeconds = Math.min(upstreamSeconds, billingLimitSeconds);
+  const freeSeconds = chatLiveFreeAllocationSeconds(session);
+  const chargeableSeconds = Math.max(0, cappedUpstreamSeconds - freeSeconds);
+  const rawSalePerMinute = Number(session.saleCreditsPerMinute || 0);
+  const salePerMinute = Number.isFinite(rawSalePerMinute) ? Math.max(0, rawSalePerMinute) : 0;
+  const chargeCredits = salePerMinute > 0 && chargeableSeconds > 0
+    ? Math.max(1, Math.ceil(chargeCreditsFromSeconds(chargeableSeconds, salePerMinute)))
+    : 0;
+  return {
+    upstreamSeconds,
+    billingLimitSeconds,
+    cappedUpstreamSeconds,
+    freeSeconds,
+    chargeableSeconds,
+    chargeCredits,
+  };
+}
+
+/* User-facing duration is always capped by the product limit. The raw Vidu
+   value remains available separately for support diagnostics; it must never be
+   rendered as the customer's billed duration. */
+function chatLiveDisplayBilling(session = {}, upstreamBilledSeconds = null) {
+  const billingLimitSeconds = chatLiveBillableLimitSeconds(session);
+  const rawUpstream = upstreamBilledSeconds == null
+    ? Number(session.upstreamBilledSeconds ?? session.billedSeconds ?? 0)
+    : Number(upstreamBilledSeconds);
+  const upstreamSeconds = Number.isFinite(rawUpstream) ? Math.max(0, rawUpstream) : 0;
+  const readyMs = Date.parse(session.billableStartedAt || "");
+  const endedMs = Date.parse(session.endedAt || "");
+  const visibleNowMs = Number.isFinite(endedMs) ? endedMs : Date.now();
+  const wallSeconds = Number.isFinite(readyMs)
+    ? Math.max(0, Math.floor((visibleNowMs - readyMs) / 1000))
+    : 0;
+  const visibleSeconds = Math.min(billingLimitSeconds, wallSeconds);
+  const cappedUpstreamSeconds = Math.min(billingLimitSeconds, upstreamSeconds);
+  const billedSeconds = session.sharedRoomViewer === true
+    ? chatLiveLocalBillableSeconds(session)
+    : (session.billingPolicy === "entry"
+      ? (cappedUpstreamSeconds > 0 ? Math.min(cappedUpstreamSeconds, visibleSeconds) : visibleSeconds)
+      : cappedUpstreamSeconds);
+  return {
+    upstreamSeconds,
+    billingLimitSeconds,
+    visibleSeconds,
+    cappedUpstreamSeconds,
+    billedSeconds,
+  };
+}
+
+function chatLiveSettlementLedgerAdjustment(ledgerTotals = null, chargeCredits = 0) {
+  const rawExpected = Number(chargeCredits || 0);
+  const expected = Number.isFinite(rawExpected)
+    ? Math.max(0, Math.round(rawExpected * 10000) / 10000)
+    : 0;
+  if (!ledgerTotals) {
+    return { known: false, expected, actual: 0, chargeDue: 0, refundDue: 0, matches: false };
+  }
+  const rawActual = Number(ledgerTotals.netCharge || 0);
+  const actual = Number.isFinite(rawActual) ? Math.round(rawActual * 10000) / 10000 : 0;
+  const difference = Math.round((expected - actual) * 10000) / 10000;
+  return {
+    known: true,
+    expected,
+    actual,
+    chargeDue: Math.max(0, difference),
+    refundDue: Math.max(0, -difference),
+    matches: Math.abs(difference) < 0.0001,
+  };
 }
 
 async function appendChatLiveOperation(sessionId, operation = {}) {
@@ -8571,25 +9320,67 @@ async function appendChatLiveOperation(sessionId, operation = {}) {
   return normalizeChatLiveOperations(result.rows[0]?.operations);
 }
 
+async function appendChatLiveDiagnosticInDb(sessionId = "", event = {}) {
+  const id = String(sessionId || "").trim();
+  if (!id) return [];
+  const entry = chatLiveDiagnosticEvent(event, event);
+  const result = await dbQuery(`
+    UPDATE app_chat_live_sessions
+    SET payload = jsonb_set(
+          COALESCE(payload, '{}'::jsonb),
+          '{diagnostics}',
+          (SELECT COALESCE(jsonb_agg(value ORDER BY ord), '[]'::jsonb)
+           FROM jsonb_array_elements(COALESCE(payload->'diagnostics', '[]'::jsonb) || $2::jsonb)
+             WITH ORDINALITY AS entries(value, ord)
+           WHERE ord >= GREATEST(
+             1,
+             jsonb_array_length(COALESCE(payload->'diagnostics', '[]'::jsonb)) + 2 - 30
+           )),
+          true
+        ),
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING payload->'diagnostics' AS diagnostics
+  `, [id, JSON.stringify([entry])]);
+  return Array.isArray(result.rows[0]?.diagnostics) ? result.rows[0].diagnostics : [];
+}
+
+async function touchChatLiveSessionInDb(sessionId = "") {
+  const id = String(sessionId || "").trim();
+  if (!id) return false;
+  const result = await dbQuery(`
+    UPDATE app_chat_live_sessions
+    SET updated_at = NOW()
+    WHERE id = $1
+      AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1')
+      AND COALESCE(payload->>'status', '') NOT IN ('ended', 'closed', 'failed')
+    RETURNING id
+  `, [id]);
+  return Boolean(result.rows[0]?.id);
+}
+
 async function handleMarkChatLiveReady(req, res, sessionId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const id = String(sessionId || "").trim();
   const session = await getChatLiveSessionInDb(id);
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
-  if (!session.billableStartedAt) {
-    const startedAt = new Date().toISOString();
-    const result = await dbQuery(`UPDATE app_chat_live_sessions
-      SET payload = jsonb_set(payload, '{billableStartedAt}', to_jsonb($2::text), true), updated_at = NOW()
-      WHERE id = $1 AND NOT (payload ? 'billableStartedAt') AND status NOT IN ('ended', 'closed', 'failed')
-      RETURNING id`, [id, startedAt]);
-    if (result.rowCount) {
-      await appendChatLiveOperation(id, { id: `ready-${Date.now().toString(36)}`, action: "video_ready", phase: "success", success: true, message: "首个有效画面已到达", at: startedAt });
-      const latest = await getChatLiveSessionInDb(id).catch(() => null);
-      if (latest) await updateChatLiveSessionInDb({ ...latest, diagnostics: appendChatLiveDiagnostic(latest, { phase: "first_frame", event: "video_ready", data: { source: "client", billableStartedAt: startedAt } }), updatedAt: new Date().toISOString() });
-    }
-  }
-  return sendJson(res, 200, { ok: true, billableStartedAt: (await getChatLiveSessionInDb(id))?.billableStartedAt || session.billableStartedAt });
+  /*
+   * First frame is a diagnostic milestone only. Billing starts when the
+   * entry response is created, so this endpoint must never create or replace
+   * billableStartedAt, even for a legacy row that lacks the field.
+   */
+  const observedAt = new Date().toISOString();
+  await appendChatLiveOperation(id, { id: `ready-${Date.now().toString(36)}`, action: "video_ready", phase: "success", success: true, message: "首个有效画面已到达", at: observedAt });
+  await appendChatLiveDiagnosticInDb(id, {
+    liveId: session.liveId,
+    traceId: session.upstreamTraceId,
+    phase: "first_frame",
+    event: "video_ready",
+    data: { source: "client", observedAt, billableStartedAt: session.billableStartedAt || "" },
+  });
+  const latest = await getChatLiveSessionInDb(id).catch(() => null);
+  return sendJson(res, 200, { ok: true, billableStartedAt: latest?.billableStartedAt || session.billableStartedAt || "" });
 }
 
 async function handleReportChatLiveOperation(req, res, sessionId = "") {
@@ -8603,7 +9394,7 @@ async function handleReportChatLiveOperation(req, res, sessionId = "") {
   const action = String(body?.action || "look").slice(0, 32);
   const phase = String(body?.phase || "result").slice(0, 24);
   if (action === "presence" && phase === "heartbeat" && session.settled !== true && !["ended", "closed", "failed"].includes(String(session.status || ""))) {
-    await updateChatLiveSessionInDb({ ...session, updatedAt: new Date().toISOString() });
+    await touchChatLiveSessionInDb(id);
   }
   const operations = await appendChatLiveOperation(id, {
     id: operationId,
@@ -8616,18 +9407,99 @@ async function handleReportChatLiveOperation(req, res, sessionId = "") {
     at: new Date().toISOString(),
   });
   if (["rtc_subscribe", "client", "client_watch", "transport", "proxy_signal", "proxy_ack"].includes(String(body?.phase || ""))) {
-    const latest = await getChatLiveSessionInDb(id).catch(() => null);
-    if (latest) await updateChatLiveSessionInDb({
-      ...latest,
-      diagnostics: appendChatLiveDiagnostic(latest, {
-        phase: String(body?.phase || "runtime"),
-        event: String(body?.action || "operation"),
-        data: { success: body?.success, code: body?.code || "", message: body?.message || "", kind: body?.kind || "", details: body?.details || null },
-      }),
-      updatedAt: new Date().toISOString(),
+    await appendChatLiveDiagnosticInDb(id, {
+      liveId: session.liveId,
+      traceId: session.upstreamTraceId,
+      phase: String(body?.phase || "runtime"),
+      event: String(body?.action || "operation"),
+      data: { success: body?.success, code: body?.code || "", message: body?.message || "", kind: body?.kind || "", details: body?.details || null },
     });
   }
   return sendJson(res, 200, { ok: true, operationId, operations });
+}
+
+function normalizeChatLiveUpstreamStatus(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function chatLiveUpstreamIsTerminal(value = "") {
+  return CHAT_LIVE_UPSTREAM_TERMINAL_STATUSES.has(normalizeChatLiveUpstreamStatus(value));
+}
+
+function chatLiveUpstreamBillingEvidence(payload = {}) {
+  const liveInfo = payload?.live || payload || {};
+  const hasSnakeCase = Object.prototype.hasOwnProperty.call(liveInfo, "billed_seconds");
+  const hasCamelCase = Object.prototype.hasOwnProperty.call(liveInfo, "billedSeconds");
+  const raw = hasSnakeCase ? liveInfo.billed_seconds : liveInfo.billedSeconds;
+  if ((!hasSnakeCase && !hasCamelCase) || raw === null || raw === undefined || (typeof raw === "string" && !raw.trim())) {
+    return { known: false, seconds: 0 };
+  }
+  if (!["number", "string"].includes(typeof raw)) return { known: false, seconds: 0 };
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (typeof raw === "string" && !/^\d+(?:\.\d+)?$/.test(text)) return { known: false, seconds: 0 };
+  const seconds = Number(typeof raw === "string" ? text : raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return { known: false, seconds: 0 };
+  return { known: true, seconds };
+}
+
+function chatLiveUpstreamEndedAt(payload = {}) {
+  const liveInfo = payload?.live || payload || {};
+  const raw = liveInfo.ended_at || liveInfo.end_time || liveInfo.endedAt || liveInfo.endTime || "";
+  if (!raw) return "";
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+}
+
+/* Display must use the same finality gate as settlement. An in-progress or
+   malformed upstream snapshot is diagnostics only and cannot replace the
+   already stored duration. A settled session may use its stored raw value when
+   a later upstream query is temporarily unavailable. */
+function chatLiveDisplayUpstreamEvidence(session = {}, detail = null) {
+  const liveInfo = detail?.live || detail || {};
+  const evidence = chatLiveUpstreamBillingEvidence(liveInfo);
+  const terminalBillingKnown = Boolean(detail)
+    && chatLiveUpstreamIsTerminal(liveInfo.status || "")
+    && evidence.known;
+  if (terminalBillingKnown) {
+    return { known: true, seconds: evidence.seconds, source: "terminal_upstream" };
+  }
+  const settled = session.settled === true || String(session.settled || "").toLowerCase() === "true";
+  if (settled) {
+    const storedSeconds = Math.max(0, Number(session.upstreamBilledSeconds ?? session.billedSeconds ?? 0) || 0);
+    return { known: true, seconds: storedSeconds, source: "settled_session" };
+  }
+  return { known: false, seconds: 0, source: "" };
+}
+
+/*
+ * Chat-live billing is final only after Vidu explicitly reports a terminal
+ * status together with an authoritative billed_seconds value. A wait timeout,
+ * an on_live snapshot, a client endedAt, or a local age limit must never settle
+ * a live session.
+ */
+function chatLiveSettlementDecision({ session = {}, detail = null, now = Date.now() } = {}) {
+  const liveInfo = detail?.live || detail || {};
+  const upstreamStatus = normalizeChatLiveUpstreamStatus(liveInfo.status || "");
+  const terminalStatus = chatLiveUpstreamIsTerminal(upstreamStatus);
+  const billingEvidence = chatLiveUpstreamBillingEvidence(liveInfo);
+  const hasLiveId = Boolean(session.liveId);
+  const sharedRoomViewer = session.sharedRoomViewer === true;
+  const terminalBillingKnown = Boolean(detail) && terminalStatus && billingEvidence.known;
+  const shouldFinalize = sharedRoomViewer || !hasLiveId || terminalBillingKnown;
+  const localBilledSeconds = sharedRoomViewer ? chatLiveLocalBillableSeconds(session, now) : 0;
+  return {
+    liveInfo,
+    upstreamStatus,
+    terminalStatus,
+    terminalBillingKnown,
+    billingEvidence,
+    shouldFinalize,
+    finalBilledSeconds: sharedRoomViewer
+      ? localBilledSeconds
+      : (hasLiveId ? billingEvidence.seconds : 0),
+    billingSource: sharedRoomViewer ? "shared_viewer_local" : (hasLiveId ? "terminal_upstream" : "local_session"),
+    upstreamEndedAt: !sharedRoomViewer && hasLiveId && terminalBillingKnown ? chatLiveUpstreamEndedAt(liveInfo) : "",
+  };
 }
 
 async function waitForChatLiveUpstreamEnd(liveId, region = "", timeoutMs = 60000) {
@@ -8637,147 +9509,345 @@ async function waitForChatLiveUpstreamEnd(liveId, region = "", timeoutMs = 60000
     try {
       last = await viduLiveRequest('/live/v1/lives/' + encodeURIComponent(liveId), { timeoutMs: 20000, region });
       const info = last?.live || last || {};
-      if (["ended", "ending", "failed", "closed"].includes(String(info.status || "").toLowerCase())) return last;
+      if (chatLiveUpstreamIsTerminal(info.status)) return last;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(250, deadline - Date.now()))));
   }
-  if (last && typeof last === "object") { last.__waitTimedOut = true; if (last.live && typeof last.live === "object") last.live.__waitTimedOut = true; }
   return last;
+}
+
+async function chatLiveLedgerTotalsInDb(session = {}) {
+  if (!dbEnabled() || !session?.id || !session?.userId) return null;
+  const result = await dbQuery(`
+    SELECT
+      COALESCE(SUM(delta), 0)::numeric AS net_delta,
+      COALESCE(SUM(CASE WHEN type = 'chat_live_hold' AND delta < 0 THEN -delta ELSE 0 END), 0)::numeric AS hold_debits,
+      COALESCE(SUM(CASE WHEN type IN ('chat_live_hold_refund', 'chat_live_hold_subtoken_refund', 'chat_live_settlement_refund', 'chat_live_settlement_subtoken_refund') AND delta > 0 THEN delta ELSE 0 END), 0)::numeric AS hold_refund_credits,
+      COALESCE(SUM(CASE WHEN type IN ('chat_live', 'chat_live_settlement') AND delta < 0 THEN -delta ELSE 0 END), 0)::numeric AS final_debits,
+      COUNT(*) FILTER (WHERE type IN ('chat_live', 'chat_live_settlement') AND delta < 0)::int AS final_events,
+      COUNT(*) FILTER (WHERE type = 'chat_live_settlement_refund' AND delta > 0)::int AS settlement_refund_events,
+      COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0)::numeric AS refunded_credits
+    FROM app_credit_ledger
+    WHERE user_id = $1
+      AND type LIKE 'chat_live%'
+      AND type NOT LIKE '%gift%'
+      AND COALESCE(
+        NULLIF(meta->>'sessionId', ''),
+        NULLIF(regexp_replace(COALESCE(meta->>'taskId', ''), ':(hold|hold-refund):.*$', ''), '')
+      ) = $2
+  `, [String(session.userId), String(session.id)]);
+  const netDelta = Number(result.rows[0]?.net_delta || 0) || 0;
+  const netCharge = Math.round(-netDelta * 10000) / 10000;
+  return {
+    netDelta,
+    netCharge,
+    chargedCredits: Math.max(0, netCharge),
+    refundedCredits: Math.round(Math.max(0, Number(result.rows[0]?.refunded_credits || 0) || 0) * 10000) / 10000,
+    holdDebits: Math.round(Math.max(0, Number(result.rows[0]?.hold_debits || 0) || 0) * 10000) / 10000,
+    holdRefundCredits: Math.round(Math.max(0, Number(result.rows[0]?.hold_refund_credits || 0) || 0) * 10000) / 10000,
+    finalDebits: Math.round(Math.max(0, Number(result.rows[0]?.final_debits || 0) || 0) * 10000) / 10000,
+    finalEvents: Math.max(0, Number(result.rows[0]?.final_events || 0) || 0),
+    settlementRefundEvents: Math.max(0, Number(result.rows[0]?.settlement_refund_events || 0) || 0),
+  };
+}
+
+/*
+ * Prepaid holds are real debits in app_credit_ledger. Refund only the unused
+ * portion of hold debits; never derive a refund from stale session fields.
+ * Existing refund rows make this idempotent across retries and processes.
+ */
+function chatLiveHoldRefundDue(ledgerTotals = null, chargeCredits = 0) {
+  if (!ledgerTotals) return 0;
+  const holdNet = Math.max(0,
+    (Number(ledgerTotals.holdDebits || 0) || 0)
+      - (Number(ledgerTotals.holdRefundCredits || 0) || 0));
+  if ((Number(ledgerTotals.finalDebits || 0) || 0) > 0.0001) return Math.round(holdNet * 10000) / 10000;
+  const finalCharge = Math.max(0, Number(chargeCredits || 0) || 0);
+  return Math.round(Math.max(0, holdNet - finalCharge) * 10000) / 10000;
+}
+
+function chatLiveLedgerMatchesCharge(ledgerTotals = null, chargeCredits = 0) {
+  if (!ledgerTotals) return false;
+  const expected = Math.max(0, Number(chargeCredits || 0) || 0);
+  const actual = Number(ledgerTotals.netCharge || 0) || 0;
+  return Math.abs(actual - expected) < 0.0001;
 }
 
 async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   if (!session?.id) return null;
-  if (session.status === "ended" && session.settled === true) {
-    const settledCredits = Number(session.chargedCredits || 0);
+  const initialLatest = await getChatLiveSessionInDb(session.id).catch(() => null);
+  const requestedEndedAt = String(session.endedAt || "").trim();
+  const initial = {
+    ...(initialLatest || session),
+    endedAt: initialLatest?.endedAt || requestedEndedAt || "",
+  };
+  if (initial.status === "ended" && initial.settled === true) {
+    const settledCredits = Number(initial.chargedCredits || 0);
     if (settledCredits > 0) {
       try {
         await recordCreatorVideoViewEarningInDb({
-          sessionId: session.id,
-          viewerUserId: session.userId,
-          characterId: session.characterId,
+          sessionId: initial.id,
+          viewerUserId: initial.userId,
+          characterId: initial.characterId,
           sourceCredits: settledCredits,
           earningRate: 0.3,
         });
       } catch (error) {
-        console.warn("[creator-earning] retry failed", session.id, error?.message || error);
+        console.warn("[creator-earning] retry failed", initial.id, error?.message || error);
       }
     }
-    return session;
+    return initial;
   }
   let detail = null;
   let upstreamError = "";
-  if (session.liveId) {
+  if (initial.liveId && initial.sharedRoomViewer !== true) {
     try {
-      detail = await waitForChatLiveUpstreamEnd(session.liveId, session.viduRegion || "", 60000);
+      detail = await waitForChatLiveUpstreamEnd(initial.liveId, initial.viduRegion || "", 60000);
     } catch (error) {
       detail = null;
       const code = String(error?.code || "").trim();
       upstreamError = sanitizeChatLiveDiagnosticText(code ? `${code}: ${error?.message || "upstream_query_failed"}` : (error?.message || "upstream_query_failed"));
     }
   }
-  const liveInfo = detail?.live || detail || {};
-  const upstreamStatus = String(liveInfo.status || "");
-  const terminalStatus = ["ended", "ending"].includes(upstreamStatus) || liveInfo.__waitTimedOut === true;
-  const startedMs = Date.parse(session.createdAt || "");
-  const maxAgeMs = Math.max(60, Number(session.maxMinutes || 0) || 10) * 60 * 1000 + 120000;
-  const abandoned = Number.isFinite(startedMs) && Date.now() - startedMs > maxAgeMs;
-  const upstreamBilledSeconds = Math.max(0, Number(liveInfo.billed_seconds ?? session.upstreamBilledSeconds ?? session.billedSeconds ?? 0) || 0);
-  const upstreamCredits = Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0);
-  const latest = await getChatLiveSessionInDb(session.id).catch(() => null);
-  let diagnostics = Array.isArray(latest?.diagnostics || session.diagnostics) ? [...(latest?.diagnostics || session.diagnostics)] : [];
-  diagnostics = appendChatLiveDiagnostic({ ...session, ...latest }, {
-    phase: "settlement",
-    event: "vidu_final_status",
-    traceId: liveInfo.trace_id || detail?.trace_id || "",
-    liveId: session.liveId,
-    data: { response: chatLiveUpstreamSummary(detail, 200), terminalStatus, abandoned },
-  });
-  const billableStartMs = Date.parse(latest?.billableStartedAt || session.billableStartedAt || "");
-  const billableEndMs = Date.parse(session.endedAt || latest?.endedAt || "");
-  const billableElapsedSeconds = Number.isFinite(billableStartMs)
-    ? Math.max(0, Math.floor(((Number.isFinite(billableEndMs) ? billableEndMs : Date.now()) - billableStartMs) / 1000))
-    : 0;
-  const billingPolicy = session.billingPolicy || latest?.billingPolicy || "";
-  const billedSeconds = billingPolicy === "first_frame"
-    ? (upstreamBilledSeconds > 0 ? (billableStartMs ? Math.min(upstreamBilledSeconds, billableElapsedSeconds) : upstreamBilledSeconds) : billableElapsedSeconds)
-    : upstreamBilledSeconds;
-  const prepaidSeconds = Math.max(0, Number(latest?.prepaidSeconds ?? session.prepaidSeconds ?? 0) || 0);
-  const observedSeconds = billedSeconds;
-  const cappedBilledSeconds = prepaidSeconds > 0 ? Math.min(observedSeconds, prepaidSeconds + Number(session.freeSeconds || 0)) : observedSeconds;
-  const salePerMinute = Number(session.saleCreditsPerMinute || 0) || 0;
-  const chargeableSeconds = Math.max(0, Math.min(cappedBilledSeconds - Number(session.freeSeconds || 0), prepaidSeconds > 0 ? prepaidSeconds : Number.MAX_SAFE_INTEGER));
-  const chargeCredits = salePerMinute > 0 && chargeableSeconds > 0
-    ? Math.max(1, Math.ceil((chargeCreditsFromSeconds(chargeableSeconds, salePerMinute))))
-    : 0;
-  /* 浏览器被直接关掉时 Vidu 可能还在 on_live：这时先把当前秒数记下来，
-     等它真正结束（或超过单次最长时长兜底）再结算，避免少扣或重复扣。 */
-  const shouldFinalize = terminalStatus || abandoned || !session.liveId;
-  let charged = 0;
-  let chargeError = "";
-  const prepaidFieldPresent = Object.prototype.hasOwnProperty.call(session, "prepaidCredits") || Object.prototype.hasOwnProperty.call(latest || {}, "prepaidCredits");
-  if (chargeCredits > 0 && !session.charged && shouldFinalize && (!(Number(session.prepaidCredits || 0) > 0) && prepaidFieldPresent)) {
-    if (!auth) {
-      chargeError = "找不到用户，未能扣费";
-    } else {
-      const chargedResult = await chargeChatLiveSession(auth, session, chargeCredits);
-      if (chargedResult?.ok) charged = chargeCredits;
-      else chargeError = chargedResult?.error || "扣费失败";
+  /*
+   * Upstream polling happens outside the database lock so an API timeout does
+   * not hold a transaction open. The read/reconcile/charge/refund/write phase
+   * is serialized per session: a slow retry cannot overwrite a newer settled
+   * snapshot, and concurrent callbacks cannot split the same hold twice.
+   */
+  const lockedResult = await withChatLiveSessionSettlementLockInDb(initial.id, async (lockedSession) => {
+    const current = lockedSession
+      ? { ...lockedSession, endedAt: lockedSession.endedAt || requestedEndedAt || "" }
+      : initial;
+    if (current.status === "ended" && current.settled === true) {
+      return { session: null, value: { session: current, settlementCommitted: true } };
     }
-  }
-  const now = new Date().toISOString();
-  let refundedCredits = Number(session.refundedCredits || 0) || 0;
-  if (shouldFinalize && Number(session.prepaidCredits || 0) > 0 && session.holdSettled !== true && auth) {
-    const refund = Math.max(0, Number(session.prepaidCredits || 0) - chargeCredits);
-    if (refund > 0) await refundChatLiveHold(auth, session, refund, 'final-' + session.id).catch(() => {});
-    refundedCredits = refund;
-  }
-  const issues = mergeChatLiveIssues(latest?.issues, session.issues);
-  const preservedUpstreamStatus = upstreamStatus || session.upstreamStatus || latest?.upstreamStatus || "";
-  const preservedUpstreamError = upstreamError || (detail ? "" : (session.upstreamError || latest?.upstreamError || ""));
-  const preservedChargeError = chargeError || ((session.charged === true || charged > 0) ? "" : (session.chargeError || latest?.chargeError || ""));
-  const updated = await updateChatLiveSessionInDb({
-    ...session,
-    ...latest,
-    status: shouldFinalize ? "ended" : (session.status || "waiting"),
-    billedSeconds: cappedBilledSeconds,
-    upstreamBilledSeconds,
-    billableStartedAt: latest?.billableStartedAt || session.billableStartedAt || "",
-    operations: normalizeChatLiveOperations(latest?.operations || session.operations),
-    upstreamCredits,
-    upstreamStatus: preservedUpstreamStatus,
-    upstreamError: preservedUpstreamError,
-    chargeError: preservedChargeError,
-    chargedCredits: Number(session.chargedCredits || 0) + (Number(session.prepaidCredits || 0) > 0 ? chargeCredits : charged),
-    charged: session.charged === true || charged > 0 || chargeCredits > 0,
-    refundedCredits,
-    holdSettled: shouldFinalize ? true : session.holdSettled === true,
-    settled: shouldFinalize,
-    endReason: liveInfo.close_reason || session.endReason || latest?.endReason || "",
-    clientEndReason: session.clientEndReason || latest?.clientEndReason || "",
-    clientEndNote: session.clientEndNote || latest?.clientEndNote || "",
-    issues,
-    diagnostics,
-    endedAt: shouldFinalize ? (session.endedAt || latest?.endedAt || now) : (session.endedAt || latest?.endedAt || ""),
-    updatedAt: now,
+    const settlement = chatLiveSettlementDecision({ session: current, detail });
+    const { liveInfo, upstreamStatus, terminalStatus, terminalBillingKnown, shouldFinalize, billingSource } = settlement;
+    const startedMs = Date.parse(current.createdAt || "");
+    const maxAgeMs = chatLiveBillableLimitSeconds(current) * 1000 + 120000;
+    const localAgeExceeded = Number.isFinite(startedMs) && Date.now() - startedMs > maxAgeMs;
+    const observedUpstreamBilledSeconds = Math.max(0, Number(current.upstreamBilledSeconds ?? current.billedSeconds ?? 0) || 0);
+    const observedHostUpstreamBilledSeconds = Math.max(
+      0,
+      Number(current.hostUpstreamBilledSeconds ?? 0) || 0,
+      current.sharedRoomViewer === true ? observedUpstreamBilledSeconds : 0,
+      current.sharedRoomViewer === true && settlement.billingEvidence.known ? settlement.billingEvidence.seconds : 0,
+    );
+    const upstreamBilledSeconds = current.sharedRoomViewer === true
+      ? 0
+      : (settlement.billingEvidence.known ? settlement.billingEvidence.seconds : observedUpstreamBilledSeconds);
+    const hostUpstreamBilledSeconds = current.sharedRoomViewer === true
+      ? observedHostUpstreamBilledSeconds
+      : Math.max(0, Number(current.hostUpstreamBilledSeconds || 0) || 0);
+    const upstreamCredits = Math.max(0, Number(liveInfo.credits_cost ?? current.upstreamCredits ?? 0) || 0);
+    const finalUpstreamSeconds = shouldFinalize
+      ? (settlement.billingSource === "shared_viewer_local"
+        ? settlement.finalBilledSeconds
+        : (current.liveId ? settlement.finalBilledSeconds : Math.max(0, Number(current.billedSeconds || 0) || 0)))
+      : Math.max(0, Number(current.billedSeconds || 0) || 0);
+    let billingSession = current;
+    if (shouldFinalize && current.freeAllocationVersion === "cumulative_v1") {
+      const finalized = await finalizeChatLiveFreeAllocationInDb(
+        current.id,
+        Math.min(
+          chatLiveBillableLimitSeconds(current),
+          finalUpstreamSeconds,
+          Math.max(0, Number(current.freeAllocatedSeconds || 0) || 0),
+        ),
+        client,
+      );
+      if (finalized.found) {
+        billingSession = {
+          ...current,
+          freeAllowanceSeconds: finalized.configuredSeconds,
+          freeAllocatedSeconds: finalized.allocatedSeconds,
+          freeUsedSeconds: finalized.allocatedSeconds,
+          freeRemainingSeconds: finalized.remainingSeconds,
+          freeAllocationFinalized: true,
+          freeAllocationFinalizedAt: current.freeAllocationFinalizedAt || new Date().toISOString(),
+        };
+      }
+    }
+    const billing = chatLiveSettlementBilling(billingSession, finalUpstreamSeconds);
+    let diagnostics = Array.isArray(current.diagnostics) ? [...current.diagnostics] : [];
+    diagnostics = appendChatLiveDiagnostic(current, {
+      phase: "settlement",
+      event: "vidu_final_status",
+      traceId: liveInfo.trace_id || detail?.trace_id || "",
+      liveId: current.liveId,
+      data: {
+        response: chatLiveUpstreamSummary(detail, 200),
+        terminalStatus,
+        terminalBillingKnown,
+        shouldFinalize,
+        billingSource,
+        localAgeExceeded,
+        upstreamBilledSeconds: settlement.billingEvidence.seconds,
+        localBillableSeconds: settlement.billingSource === "shared_viewer_local" ? settlement.finalBilledSeconds : undefined,
+        billingLimitSeconds: billing.billingLimitSeconds,
+        cappedUpstreamSeconds: billing.cappedUpstreamSeconds,
+        chargeableSeconds: billing.chargeableSeconds,
+        chargeCredits: billing.chargeCredits,
+      },
+    });
+    const now = new Date().toISOString();
+    let ledgerTotals = null;
+    let ledgerAdjustment = chatLiveSettlementLedgerAdjustment(null, billing.chargeCredits);
+    let settlementError = "";
+    let finalChargedCredits = Math.max(0, Number(current.chargedCredits || 0) || 0);
+    let refundedCredits = Math.max(0, Number(current.refundedCredits || 0) || 0);
+    if (shouldFinalize) {
+      if (!auth && billing.chargeCredits > 0) {
+        settlementError = "找不到用户，未能完成结算对账";
+      } else if (auth) {
+        ledgerTotals = await chatLiveLedgerTotalsInDb(current).catch(() => null);
+        ledgerAdjustment = chatLiveSettlementLedgerAdjustment(ledgerTotals, billing.chargeCredits);
+        if (!ledgerTotals) {
+          settlementError = "结算账本读取失败，稍后重试";
+        } else {
+          try {
+            if (ledgerAdjustment.chargeDue > 0) {
+              await chargeChatLiveSettlementBalance(
+                auth,
+                {
+                  ...current,
+                  chargeableSeconds: billing.chargeableSeconds,
+                  upstreamBilledSeconds,
+                  hostUpstreamBilledSeconds,
+                  billingSource,
+                },
+                ledgerAdjustment.chargeDue,
+                ledgerTotals.finalEvents,
+              );
+            } else if (ledgerAdjustment.refundDue > 0) {
+              await refundChatLiveSettlementCredits(
+                auth,
+                current,
+                ledgerAdjustment.refundDue,
+                ledgerTotals.settlementRefundEvents,
+              );
+            }
+          } catch (error) {
+            settlementError = sanitizeChatLiveDiagnosticText(error?.message || "结算账本调整失败");
+          }
+          ledgerTotals = await chatLiveLedgerTotalsInDb(current).catch(() => null);
+          ledgerAdjustment = chatLiveSettlementLedgerAdjustment(ledgerTotals, billing.chargeCredits);
+          if (ledgerTotals) {
+            finalChargedCredits = Math.max(0, Number(ledgerTotals.chargedCredits || 0) || 0);
+            refundedCredits = Math.max(0, Number(ledgerTotals.refundedCredits || 0) || 0);
+          }
+        }
+      }
+    }
+    const canFinalizeBilling = shouldFinalize && (auth ? ledgerAdjustment.matches : billing.chargeCredits <= 0);
+    if (shouldFinalize && !canFinalizeBilling && !settlementError) {
+      settlementError = `结算账本未对齐：应扣 ${ledgerAdjustment.expected}，实际净扣 ${ledgerAdjustment.actual}`;
+    }
+    const issues = mergeChatLiveIssues(current.issues);
+    const preservedUpstreamStatus = upstreamStatus || current.upstreamStatus || "";
+    const preservedUpstreamError = upstreamError || (detail ? "" : (current.upstreamError || ""));
+    const preservedChargeError = canFinalizeBilling
+      ? ""
+      : (settlementError || current.chargeError || "");
+    const updated = {
+      ...billingSession,
+      status: canFinalizeBilling ? "ended" : (billingSession.status || "waiting"),
+      billedSeconds: canFinalizeBilling ? billing.cappedUpstreamSeconds : Math.max(0, Number(current.billedSeconds || 0) || 0),
+      upstreamBilledSeconds,
+      hostUpstreamBilledSeconds,
+      billingSource,
+      billingLimitSeconds: billing.billingLimitSeconds,
+      chargeableSeconds: canFinalizeBilling ? billing.chargeableSeconds : Math.max(0, Number(current.chargeableSeconds || 0) || 0),
+      billableStartedAt: current.billableStartedAt || "",
+      operations: normalizeChatLiveOperations(current.operations),
+      upstreamCredits,
+      upstreamStatus: preservedUpstreamStatus,
+      upstreamError: preservedUpstreamError,
+      chargeError: preservedChargeError,
+      chargedCredits: finalChargedCredits,
+      charged: canFinalizeBilling ? finalChargedCredits > 0 : current.charged === true,
+      refundedCredits,
+      holdSettled: canFinalizeBilling ? true : current.holdSettled === true,
+      settled: canFinalizeBilling,
+      endReason: liveInfo.close_reason || current.endReason || "",
+      clientEndReason: current.clientEndReason || "",
+      clientEndNote: current.clientEndNote || "",
+      issues,
+      diagnostics,
+      upstreamEndedAt: settlement.upstreamEndedAt || current.upstreamEndedAt || "",
+      endedAt: canFinalizeBilling
+        ? (settlement.billingSource === "shared_viewer_local"
+          ? (current.endedAt || now)
+          : (settlement.upstreamEndedAt || current.endedAt || now))
+        : (current.endedAt || ""),
+      updatedAt: now,
+    };
+    return { session: updated, value: { session: updated, settlementCommitted: canFinalizeBilling } };
   });
+  if (!lockedResult?.session) return null;
+  const updated = lockedResult.session;
   // Creator royalties are based on the credits actually settled for this call.
-  // Prepaid holds are settled to the final capped amount before this point.
-  // The ledger is keyed by session ID, so retries cannot split twice.
+  // Recording happens after the session transaction commits; the creator
+  // ledger is keyed by session ID, so retries cannot split earnings twice.
   const earningSourceCredits = Number(updated?.chargedCredits || 0);
-  if (shouldFinalize && earningSourceCredits > 0) {
+  if (lockedResult.settlementCommitted === true && earningSourceCredits > 0) {
     try {
       await recordCreatorVideoViewEarningInDb({
-        sessionId: session.id,
-        viewerUserId: session.userId,
-        characterId: session.characterId,
+        sessionId: updated.id,
+        viewerUserId: updated.userId,
+        characterId: updated.characterId,
         sourceCredits: earningSourceCredits,
         earningRate: 0.3,
       });
     } catch (error) {
-      console.warn("[creator-earning] record failed", session.id, error?.message || error);
+      console.warn("[creator-earning] record failed", updated.id, error?.message || error);
     }
   }
   return updated;
+}
+
+async function chargeChatLiveSettlementBalance(auth, session = {}, credits = 0, priorFinalEvents = 0) {
+  const amount = Math.max(0, Math.round(Number(credits || 0) * 10000) / 10000);
+  if (!(amount > 0)) return;
+  const attempt = Math.max(1, Number(priorFinalEvents || 0) + 1);
+  const taskId = `${session.id}:settlement:${attempt}`;
+  await chargeUserWithSubtoken(auth, {
+    cost: amount,
+    type: "chat_live_settlement",
+    taskId,
+    meta: {
+      taskId,
+      sessionId: session.id,
+      liveId: session.liveId,
+      characterId: session.characterId,
+      seconds: session.chargeableSeconds,
+      upstreamBilledSeconds: session.upstreamBilledSeconds,
+      model: session.model,
+      externalUserId: session.externalUserId || "",
+    },
+  });
+}
+
+async function refundChatLiveSettlementCredits(auth, session = {}, credits = 0, priorRefundEvents = 0) {
+  const amount = Math.max(0, Math.round(Number(credits || 0) * 10000) / 10000);
+  if (!(amount > 0) || !auth?.user?.id) return;
+  const attempt = Math.max(1, Number(priorRefundEvents || 0) + 1);
+  const taskId = `${session.id}:settlement-refund:${attempt}`;
+  await changeUserCredits(auth.db, auth.user.id, amount, "chat_live_settlement_refund", {
+    taskId,
+    sessionId: session.id,
+    liveId: session.liveId,
+    refundId: taskId,
+  });
+  try {
+    await recordSubtokenAdjustment(auth, {
+      taskId,
+      type: "chat_live_settlement_refund",
+      amount: -amount,
+      meta: { taskId, sessionId: session.id, liveId: session.liveId },
+    });
+  } catch {}
 }
 
 function chargeCreditsFromSeconds(seconds, creditsPerMinute) {
@@ -8805,6 +9875,28 @@ function chatLiveBlockCredits(session = {}, seconds = CHAT_LIVE_BILLING_BLOCK_SE
   return Math.max(1, Math.ceil(chargeCreditsFromSeconds(seconds, rate)));
 }
 
+/*
+ * Free seconds are consumed before paid coverage. prepaidSeconds is therefore
+ * measured on the paid clock, not on total session time. Keeping this mapping
+ * in one helper prevents the monitor and API from closing a session while the
+ * user still has unused prepaid seconds.
+ */
+function chatLivePaidCoverageStatus(session = {}, observedLiveSeconds = 0) {
+  const observed = Math.max(0, Math.floor(Number(observedLiveSeconds || 0) || 0));
+  const freeSeconds = chatLiveFreeAllocationSeconds(session);
+  const paidSeconds = Math.max(0, observed - freeSeconds);
+  const prepaidSeconds = Math.max(0, Number(session.prepaidSeconds || 0) || 0);
+  const paidCoverageRemainingSeconds = Math.max(0, prepaidSeconds - paidSeconds);
+  return {
+    observedLiveSeconds: observed,
+    freeSeconds,
+    paidSeconds,
+    prepaidSeconds,
+    paidCoverageRemainingSeconds,
+    hasPaidCoverage: paidCoverageRemainingSeconds > 0,
+  };
+}
+
 async function reserveChatLiveBlock(auth, session = {}, seconds = CHAT_LIVE_BILLING_BLOCK_SECONDS) {
   const holdSequence = Math.max(0, Number(session.holdSequence || 0) || 0) + 1;
   const credits = chatLiveBlockCredits(session, seconds);
@@ -8823,7 +9915,7 @@ async function refundChatLiveHold(auth, session = {}, credits = 0, holdId = '') 
   if (!(amount > 0) || !auth?.user?.id) return;
   const refundId = session.id + ':hold-refund:' + (holdId || Date.now());
   await changeUserCredits(auth.db, auth.user.id, amount, 'chat_live_hold_refund', { taskId: refundId, liveId: session.liveId, sessionId: session.id, holdId, refundId });
-  try { await recordSubtokenAdjustment(auth, { taskId: refundId, type: 'chat_live_hold_refund', amount, meta: { taskId: refundId, liveId: session.liveId, holdId, refundId } }); } catch {}
+  try { await recordSubtokenAdjustment(auth, { taskId: refundId, type: 'chat_live_hold_refund', amount: -amount, meta: { taskId: refundId, liveId: session.liveId, holdId, refundId } }); } catch {}
 }
 
 async function closeChatLiveForInsufficientCredits(session = {}) {
@@ -8839,99 +9931,238 @@ async function monitorChatLiveSession(session = {}) {
   try {
     const detail = await viduLiveRequest('/live/v1/lives/' + encodeURIComponent(session.liveId), { timeoutMs: 12000, region: session.viduRegion || '' });
     const liveInfo = detail?.live || detail || {};
-    let diagnosticSession = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
-    let diagnostics = appendChatLiveDiagnostic(diagnosticSession, {
-      phase: "upstream_poll",
-      event: "vidu_live_status",
-      traceId: liveInfo.trace_id || detail?.trace_id || "",
-      liveId: session.liveId,
-      data: { response: chatLiveUpstreamSummary(detail, 200) },
-    });
-    const upstreamSeconds = Math.max(0, Number(liveInfo.billed_seconds ?? 0) || 0);
-    const liveStatus = String(liveInfo.status || "").toLowerCase();
-    const liveStartedMs = Date.parse(session.createdAt || "");
-    const wallLiveSeconds = ["on_live", "live", "running", "active", "started", "starting", "connected"].includes(liveStatus) && Number.isFinite(liveStartedMs)
-      ? Math.max(0, Math.floor((Date.now() - liveStartedMs) / 1000))
-      : 0;
-    // Vidu may report billed_seconds only after the live ends. Keep the free
-    // runway and prepaid checks moving from the observed live wall time, while
-    // preserving Vidu's final billed_seconds for settlement.
-    const observedLiveSeconds = Math.max(upstreamSeconds, wallLiveSeconds);
-    const freeSeconds = Math.max(0, Number(session.freeSeconds || 0) || 0);
-    const paidSeconds = Math.max(0, observedLiveSeconds - freeSeconds);
+    const billingEvidence = chatLiveUpstreamBillingEvidence(liveInfo);
+    const upstreamSeconds = billingEvidence.seconds;
+    const liveStatus = normalizeChatLiveUpstreamStatus(liveInfo.status || "");
+    const terminalStatus = chatLiveUpstreamIsTerminal(liveStatus);
     const auth = await chatLiveSettlementAuth(session.userId);
-    if (freeSeconds > 0 && observedLiveSeconds < Math.max(0, freeSeconds - 15)) {
-      const waiting = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
-      return await updateChatLiveSessionInDb({ ...waiting, upstreamBilledSeconds: upstreamSeconds, billedSeconds: upstreamSeconds, diagnostics, updatedAt: new Date().toISOString() });
-    }
-    const target = Math.min(Math.max(0, Number(session.maxMinutes || 10) * 60), paidSeconds + CHAT_LIVE_BILLING_TARGET_SECONDS);
-    let latest = await getChatLiveSessionInDb(session.id).catch(() => session) || session;
-    diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
-      phase: "billing",
-      event: "balance_check",
-      data: {
-        observedLiveSeconds,
-        upstreamBilledSeconds: upstreamSeconds,
-        paidSeconds,
-        prepaidSeconds: latest.prepaidSeconds || 0,
-        prepaidCredits: latest.prepaidCredits || 0,
-        balance: Number(auth?.user?.credits || 0) || 0,
-        decision: "checking_renewal",
-      },
-    });
-    if (!latest.billableStartedAt && upstreamSeconds > 0) latest.billableStartedAt = new Date().toISOString();
-    latest.upstreamBilledSeconds = upstreamSeconds;
-    latest.billedSeconds = upstreamSeconds;
-    latest.billingObservedAt = new Date().toISOString();
-    let prepaidSeconds = Math.max(0, Number(latest.prepaidSeconds || 0) || 0);
-    let prepaidCredits = Math.max(0, Number(latest.prepaidCredits || 0) || 0);
-    while (auth && prepaidSeconds - paidSeconds <= 15 && prepaidSeconds < target) {
-      const block = Math.min(CHAT_LIVE_BILLING_BLOCK_SECONDS, target - prepaidSeconds);
-      try {
-        const hold = await reserveChatLiveBlock(auth, latest, block);
-        diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
-          phase: "billing",
-          event: "prepaid_block_reserved",
-          data: { seconds: hold.seconds, credits: hold.credits, holdSequence: hold.holdSequence, balanceAfter: Number(auth?.user?.credits || 0) || 0 },
-        });
-        prepaidSeconds += hold.seconds;
-        prepaidCredits += hold.credits;
-        latest.holdSequence = hold.holdSequence;
-      } catch (error) {
-        diagnostics = appendChatLiveDiagnostic({ ...latest, diagnostics }, {
-          phase: "billing",
-          event: "prepaid_block_rejected",
-          data: { requestedSeconds: block, requestedCredits: chatLiveBlockCredits(latest, block), balance: Number(auth?.user?.credits || 0) || 0, error: error?.message || "", stillInFreeWindow: observedLiveSeconds < freeSeconds },
-        });
-        if (observedLiveSeconds < freeSeconds) {
-          latest.chargeError = "";
-          break;
-        }
-        latest.billingBlocked = true;
-        latest.chargeError = error?.message || '积分不足，已停止续费';
-        latest.endReason = 'insufficient_credits';
-        const blocked = await updateChatLiveSessionInDb({
-          ...latest,
-          prepaidSeconds,
-          prepaidCredits,
-          diagnostics,
-          status: 'ended',
-          settled: false,
-          holdSettled: false,
-          endedAt: latest.endedAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        await closeChatLiveForInsufficientCredits(latest);
-        /* Return all unused prepaid blocks immediately. The normal settlement
-           path is idempotent and records the refund ledger entry. */
-        return await settleChatLiveSessionById(blocked.id).catch(() => blocked);
+    /*
+     * A monitor tick and a final settlement can race. Serialize the balance
+     * check, hold reservation, and session snapshot with the same per-session
+     * advisory lock used by settlement. Upstream polling stays outside the
+     * transaction, and settlement is triggered only after the lock commits.
+     */
+    const result = await withChatLiveSessionSettlementLockInDb(session.id, async (lockedSession) => {
+      const current = lockedSession || session;
+      if (current.settled === true || !current.liveId) {
+        return { session: null, value: { session: current, shouldSettle: false, closeInsufficient: false } };
       }
+      const liveStartedMs = Date.parse(current.billableStartedAt || current.createdAt || "");
+      const activeLiveStatus = ["on_live", "live", "running", "active", "started", "starting", "connected"].includes(liveStatus);
+      const sharedRoomViewer = current.sharedRoomViewer === true;
+      const hasWallClock = (sharedRoomViewer || activeLiveStatus) && Number.isFinite(liveStartedMs);
+      const wallLiveSeconds = hasWallClock
+        ? Math.max(0, Math.floor((Date.now() - liveStartedMs) / 1000))
+        : 0;
+      let diagnostics = appendChatLiveDiagnostic(current, {
+        phase: "upstream_poll",
+        event: "vidu_live_status",
+        traceId: liveInfo.trace_id || detail?.trace_id || "",
+        liveId: session.liveId,
+        data: { response: chatLiveUpstreamSummary(detail, 200) },
+      });
+      /*
+       * A terminal snapshot is settlement evidence, never a reason to reserve
+       * another prepaid block. Trigger the normal settlement gate after this
+       * transaction commits; that gate still requires authoritative
+       * billed_seconds before it can charge or mark the session settled.
+       */
+      if (terminalStatus) {
+        const terminalAt = new Date().toISOString();
+        const terminal = {
+          ...current,
+          upstreamStatus: liveInfo.status || current.upstreamStatus || "",
+          upstreamBilledSeconds: sharedRoomViewer
+            ? 0
+            : (billingEvidence.known
+              ? upstreamSeconds
+              : Math.max(0, Number(current.upstreamBilledSeconds || 0) || 0)),
+          hostUpstreamBilledSeconds: sharedRoomViewer && billingEvidence.known
+            ? upstreamSeconds
+            : Math.max(0, Number(current.hostUpstreamBilledSeconds || 0) || 0),
+          upstreamCredits: Math.max(0, Number(liveInfo.credits_cost ?? current.upstreamCredits ?? 0) || 0),
+          diagnostics,
+          endedAt: sharedRoomViewer ? (current.endedAt || terminalAt) : (current.endedAt || ""),
+          updatedAt: terminalAt,
+        };
+        return {
+          session: terminal,
+          value: {
+            session: terminal,
+            shouldSettle: sharedRoomViewer || billingEvidence.known,
+            closeInsufficient: false,
+          },
+        };
+      }
+      // During an active live, billed_seconds is not final evidence. Prefer the
+      // local wall clock so an anomalous in-progress snapshot cannot
+      // skip prepaid accounting or trigger an early close. Only use upstream
+      // seconds as a fallback when no wall clock is available, and always cap
+      // the running estimate to the product limit.
+      const observedLiveSeconds = sharedRoomViewer
+        ? chatLiveLocalBillableSeconds(current)
+        : Math.min(
+          chatLiveBillableLimitSeconds(current),
+          hasWallClock ? wallLiveSeconds : Math.min(upstreamSeconds, chatLiveBillableLimitSeconds(current)),
+        );
+      const coverage = chatLivePaidCoverageStatus(current, observedLiveSeconds);
+      const { freeSeconds, paidSeconds } = coverage;
+      if (freeSeconds > 0 && observedLiveSeconds < freeSeconds) {
+        const waiting = {
+          ...current,
+          upstreamBilledSeconds: sharedRoomViewer ? 0 : upstreamSeconds,
+          hostUpstreamBilledSeconds: sharedRoomViewer && billingEvidence.known
+            ? upstreamSeconds
+            : Math.max(0, Number(current.hostUpstreamBilledSeconds || 0) || 0),
+          billedSeconds: observedLiveSeconds,
+          billingObservedAt: new Date().toISOString(),
+          diagnostics: appendChatLiveDiagnostic({ ...current, diagnostics }, {
+            phase: "billing",
+            event: "free_allowance_active",
+            data: {
+              observedLiveSeconds,
+              freeSeconds,
+              paidSeconds,
+              balance: Number(auth?.user?.credits || 0) || 0,
+              decision: "waiting_for_free_allowance",
+            },
+          }),
+          updatedAt: new Date().toISOString(),
+        };
+        return { session: waiting, value: { session: waiting, shouldSettle: false, closeInsufficient: false } };
+      }
+      const prepaidBeforeTopUp = coverage.prepaidSeconds;
+      const topUpTarget = Math.min(
+        chatLiveBillableLimitSeconds(current),
+        Math.max(paidSeconds + CHAT_LIVE_BILLING_TARGET_SECONDS, prepaidBeforeTopUp + CHAT_LIVE_BILLING_TARGET_SECONDS),
+      );
+      diagnostics = appendChatLiveDiagnostic({ ...current, diagnostics }, {
+        phase: "billing",
+        event: "balance_check",
+        data: {
+          observedLiveSeconds,
+          upstreamBilledSeconds: upstreamSeconds,
+          paidSeconds,
+          prepaidSeconds: current.prepaidSeconds || 0,
+          prepaidCredits: current.prepaidCredits || 0,
+          balance: Number(auth?.user?.credits || 0) || 0,
+          decision: "checking_renewal",
+        },
+      });
+      if (!sharedRoomViewer && !current.billableStartedAt && billingEvidence.known && upstreamSeconds > 0) {
+        current.billableStartedAt = new Date().toISOString();
+      }
+      if (sharedRoomViewer) {
+        current.upstreamBilledSeconds = 0;
+        if (billingEvidence.known) current.hostUpstreamBilledSeconds = upstreamSeconds;
+      } else if (billingEvidence.known) {
+        current.upstreamBilledSeconds = upstreamSeconds;
+      }
+      current.billedSeconds = observedLiveSeconds;
+      current.billingObservedAt = new Date().toISOString();
+      let prepaidSeconds = prepaidBeforeTopUp;
+      let prepaidCredits = Math.max(0, Number(current.prepaidCredits || 0) || 0);
+      while (auth && prepaidSeconds - paidSeconds <= 15 && prepaidSeconds < topUpTarget) {
+        /*
+         * Reserve only what is still uncovered. A user who enters with 30 of
+         * the first 40 billing seconds prepaid must get those 10 seconds before
+         * the server attempts to reserve another block; asking for a full block
+         * here would disconnect someone whose current paid coverage is intact.
+         */
+        const block = Math.min(
+          CHAT_LIVE_BILLING_BLOCK_SECONDS,
+          topUpTarget - paidSeconds,
+          topUpTarget - prepaidSeconds,
+        );
+        try {
+          const hold = await reserveChatLiveBlock(auth, current, block);
+          diagnostics = appendChatLiveDiagnostic({ ...current, diagnostics }, {
+            phase: "billing",
+            event: "prepaid_block_reserved",
+            data: { seconds: hold.seconds, credits: hold.credits, holdSequence: hold.holdSequence, balanceAfter: Number(auth?.user?.credits || 0) || 0 },
+          });
+          prepaidSeconds += hold.seconds;
+          prepaidCredits += hold.credits;
+          current.holdSequence = hold.holdSequence;
+        } catch (error) {
+          const renewalError = error?.message || '积分不足，已停止续费';
+          diagnostics = appendChatLiveDiagnostic({ ...current, diagnostics }, {
+            phase: "billing",
+            event: "prepaid_block_rejected",
+            data: {
+              requestedSeconds: block,
+              requestedCredits: chatLiveBlockCredits(current, block),
+              balance: Number(auth?.user?.credits || 0) || 0,
+              error: renewalError,
+              freeSeconds,
+              paidSeconds,
+              prepaidSeconds,
+              paidCoverageRemainingSeconds: Math.max(0, prepaidSeconds - paidSeconds),
+            },
+          });
+          const coverageAfterFailure = chatLivePaidCoverageStatus({
+            ...current,
+            prepaidSeconds,
+            prepaidCredits,
+          }, observedLiveSeconds);
+          if (coverageAfterFailure.hasPaidCoverage) {
+            /*
+             * Renewal can fail while an earlier hold still covers the current
+             * second. Keep the user connected and retry on the next tick; only
+             * disconnect after the paid coverage is actually exhausted.
+             */
+            diagnostics = appendChatLiveDiagnostic({ ...current, diagnostics }, {
+              phase: "billing",
+              event: "prepaid_coverage_active",
+              data: {
+                paidCoverageRemainingSeconds: coverageAfterFailure.paidCoverageRemainingSeconds,
+                decision: "retry_renewal_after_coverage",
+              },
+            });
+            const next = {
+              ...current,
+              prepaidSeconds,
+              prepaidCredits,
+              billingBlocked: false,
+              billingRenewalError: renewalError,
+              diagnostics,
+              updatedAt: new Date().toISOString(),
+            };
+            return { session: next, value: { session: next, shouldSettle: false, closeInsufficient: false } };
+          }
+          current.billingBlocked = true;
+          current.chargeError = renewalError;
+          current.endReason = 'insufficient_credits';
+          const blocked = {
+            ...current,
+            prepaidSeconds,
+            prepaidCredits,
+            diagnostics,
+            status: 'ended',
+            settled: false,
+            holdSettled: false,
+            endedAt: current.endedAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          return { session: blocked, value: { session: blocked, shouldSettle: true, closeInsufficient: true } };
+        }
+      }
+      current.prepaidSeconds = prepaidSeconds;
+      current.prepaidCredits = prepaidCredits;
+      const coverageAfterTopUp = chatLivePaidCoverageStatus(current, observedLiveSeconds);
+      current.billingBlocked = !coverageAfterTopUp.hasPaidCoverage && observedLiveSeconds > 0;
+      if (coverageAfterTopUp.hasPaidCoverage) current.billingRenewalError = current.billingRenewalError || "";
+      const next = { ...current, diagnostics, updatedAt: new Date().toISOString() };
+      return { session: next, value: { session: next, shouldSettle: false, closeInsufficient: current.billingBlocked } };
+    });
+    const next = result?.session || session;
+    if (result?.closeInsufficient) await closeChatLiveForInsufficientCredits(next);
+    if (result?.shouldSettle && next?.id) {
+      /* Return all unused prepaid blocks after the session lock commits. The
+         normal settlement path is idempotent and records the refund ledger. */
+      return await settleChatLiveSessionById(next.id).catch(() => next);
     }
-    latest.prepaidSeconds = prepaidSeconds;
-    latest.prepaidCredits = prepaidCredits;
-    latest.billingBlocked = paidSeconds >= prepaidSeconds && upstreamSeconds > 0;
-    if (latest.billingBlocked) await closeChatLiveForInsufficientCredits(latest);
-    return await updateChatLiveSessionInDb({ ...latest, diagnostics, updatedAt: new Date().toISOString() });
+    return next;
   } catch (error) {
     console.warn("[chat-live-billing-monitor-failed]", session.id, error?.message || error);
     return session;
@@ -8951,6 +10182,7 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
     if (!session.endReason) session.endReason = clientReason;
   }
   if (note) session.clientEndNote = note;
+  if (!session.endedAt) session.endedAt = new Date().toISOString();
   await publishChatLiveRoomEvent(session, { role: "system", content: `${String(session.username || auth.user.username || "有人")} 离开了房间`, userId: auth.user.id }).catch(() => {});
   if (isAbnormalChatLiveReason(clientReason)) {
     session.issues = mergeChatLiveIssues(session.issues, [{
@@ -8963,20 +10195,36 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
     try { chatLiveComponent.stopComponentSession(session.liveId); } catch {}
   }
   if (session.status === "ended" && session.settled === true) {
-    const latest = await getChatLiveSessionInDb(session.id);
-    const base = latest || session;
-    const issues = mergeChatLiveIssues(base.issues, session.issues);
-    if (JSON.stringify(normalizeChatLiveIssues(base.issues)) !== JSON.stringify(issues)) {
-      await saveChatLiveSessionIssues(session.id, issues);
-    }
-    const updated = await updateChatLiveSessionInDb({
-      ...(latest || base),
-      clientEndReason: session.clientEndReason || base.clientEndReason || "",
-      clientEndNote: session.clientEndNote || base.clientEndNote || "",
-      endReason: base.endReason || session.endReason || "",
-      issues,
-      updatedAt: new Date().toISOString(),
+    /*
+     * A late end request may race a settlement or another client write. Merge
+     * only request metadata while holding the same lock as settlement, so this
+     * path can never write an old snapshot back over charged/settled fields.
+     */
+    const result = await withChatLiveSessionSettlementLockInDb(session.id, async (lockedSession) => {
+      if (!lockedSession) return { session: null, value: { session: null, settlementCommitted: false } };
+      const issues = mergeChatLiveIssues(lockedSession.issues, session.issues);
+      const next = {
+        ...lockedSession,
+        clientEndReason: session.clientEndReason || lockedSession.clientEndReason || "",
+        clientEndNote: session.clientEndNote || lockedSession.clientEndNote || "",
+        endReason: lockedSession.endReason || session.endReason || "",
+        endedAt: lockedSession.endedAt || session.endedAt || "",
+        issues,
+        updatedAt: new Date().toISOString(),
+      };
+      return {
+        session: next,
+        value: {
+          session: next,
+          settlementCommitted: next.status === "ended" && next.settled === true,
+        },
+      };
     });
+    const updated = result?.session;
+    if (!updated) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
+    if (!result.settlementCommitted) {
+      return sendJson(res, 200, { ok: true, session: publicChatLiveSession(await settleChatLiveSession(updated, { auth })) });
+    }
     if (updated?.billableStartedAt && Number(updated.billedSeconds || 0) > 0) {
       await recordEffectiveInteractionDay(auth.user.id, updated.characterId, "video").catch((error) => {
         console.warn("[companion-video-day-failed]", String(error?.message || error).slice(0, 180));
@@ -9004,24 +10252,29 @@ async function handleReportChatLiveSessionIssue(req, res, sessionId = "") {
   const message = sanitizeChatLiveDiagnosticText(body?.message || body?.note || "", 180);
   if (!code && !message) return sendJson(res, 422, { ok: false, message: "缺少问题信息。" });
   const issue = { code: code || "client", message, at: new Date().toISOString() };
-  let stored = false;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const latest = await getChatLiveSessionInDb(id);
-    const base = latest || session;
-    const issues = mergeChatLiveIssues(base.issues, [issue]);
-    if (JSON.stringify(normalizeChatLiveIssues(base.issues)) === JSON.stringify(issues)) break;
-    await saveChatLiveSessionIssues(id, issues);
-    const diagnosticEntry = chatLiveDiagnosticEvent(base, {
-      phase: "client_watch",
-      event: code || "client_issue",
-      data: { message, code },
-    });
-    await updateChatLiveSessionInDb({ ...base, issues, diagnostics: [...(Array.isArray(base.diagnostics) ? base.diagnostics : []), diagnosticEntry].slice(-30), updatedAt: new Date().toISOString() });
-    stored = true;
-    const check = await getChatLiveSessionInDb(id);
-    if (JSON.stringify(normalizeChatLiveIssues(check?.issues)) === JSON.stringify(mergeChatLiveIssues(check?.issues, [issue]))) break;
-  }
-  return sendJson(res, 200, { ok: true, stored });
+  /*
+   * Issues and diagnostics are appended under the settlement lock. Using a
+   * whole-session snapshot here could overwrite a concurrent settled result.
+   */
+  const result = await withChatLiveSessionSettlementLockInDb(id, async (lockedSession) => {
+    if (!lockedSession) return { session: null, value: { stored: false } };
+    const issues = mergeChatLiveIssues(lockedSession.issues, [issue]);
+    if (JSON.stringify(normalizeChatLiveIssues(lockedSession.issues)) === JSON.stringify(issues)) {
+      return { session: null, value: { stored: false } };
+    }
+    const next = {
+      ...lockedSession,
+      issues,
+      diagnostics: appendChatLiveDiagnostic(lockedSession, {
+        phase: "client_watch",
+        event: code || "client_issue",
+        data: { message, code },
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    return { session: next, value: { stored: true } };
+  });
+  return sendJson(res, 200, { ok: true, stored: result?.stored === true });
 }
 
 async function handleSaveChatLiveStoryState(req, res, sessionId = "") {
@@ -9265,7 +10518,22 @@ async function handleChatLiveGift(req, res, sessionId = "") {
     }
     console.warn("[chat-live-gift-session-check]", JSON.stringify({ sessionId: session.id, liveId: session.liveId, status, settled: false, upstreamActive }));
     if (!upstreamActive) return sendJson(res, 409, { ok: false, code: "CHAT_LIVE_ENDED", message: "会话已经结束。" });
-    session = await updateChatLiveSessionInDb({ ...session, status: "waiting", settled: false, endedAt: "", endReason: "", updatedAt: new Date().toISOString() }).catch(() => session);
+    const resumed = await withChatLiveSessionSettlementLockInDb(session.id, async (lockedSession) => {
+      const current = lockedSession || session;
+      if (current.settled === true || String(current.settled || "").toLowerCase() === "true") {
+        return { session: null, value: current };
+      }
+      const next = {
+        ...current,
+        status: "waiting",
+        settled: false,
+        endedAt: "",
+        endReason: "",
+        updatedAt: new Date().toISOString(),
+      };
+      return { session: next, value: next };
+    }).catch(() => null);
+    session = resumed || session;
   }
   const body = await readJson(req); const live = chatLiveConfigValue(await readAppConfig());
   const gift = live.gifts.find((item) => item.id === String(body.giftId || "").trim() && item.enabled !== false);
@@ -9278,9 +10546,27 @@ async function handleChatLiveGift(req, res, sessionId = "") {
     if (session.mode === "component") {
       await publishChatLiveRoomEvent(session, { role: "gift", content: `${String(session.username || auth.user.username || "有人")} 打赏了 ${gift.name}`, userId: auth.user.id }).catch(() => {});
       const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText, { kind: "gift", room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false) });
+      await recordCreatorUsageEarningInDb({
+        eventKey: taskId,
+        earningType: "video_gift_earning",
+        viewerUserId: auth.user.id,
+        characterId: session.characterId || "",
+        sourceCredits: gift.credits,
+        earningRate: 0.3,
+        meta: { taskId, sessionId: session.id, giftId: gift.id, giftName: gift.name },
+      }).catch((error) => console.warn("[creator-earning] gift failed", taskId, error?.message || error));
       return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), reply: "" });
     }
     await publishChatLiveRoomEvent(session, { role: "gift", content: `${String(session.username || auth.user.username || "有人")} 打赏了 ${gift.name}`, userId: auth.user.id }).catch(() => {});
+    await recordCreatorUsageEarningInDb({
+      eventKey: taskId,
+      earningType: "video_gift_earning",
+      viewerUserId: auth.user.id,
+      characterId: session.characterId || "",
+      sourceCredits: gift.credits,
+      earningRate: 0.3,
+      meta: { taskId, sessionId: session.id, giftId: gift.id, giftName: gift.name },
+    }).catch((error) => console.warn("[creator-earning] gift failed", taskId, error?.message || error));
     return sendJson(res, 200, { ok: true, gift: publicChatLiveGift(gift), text: gift.userText, reaction: gift.reaction, needsRealtimeSignal: true });
   } catch (error) {
     await changeUserCredits(auth.db, auth.user.id, gift.credits, "chat_live_gift_refund", { taskId, sessionId: session.id, giftId: gift.id, reason: error.message || "gift dispatch failed" }).catch(() => {});
@@ -9395,6 +10681,7 @@ async function handleChatLiveLook(req, res, sessionId = "") {
 async function handleGetChatLiveSession(req, res, sessionId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  await refreshChatLiveAuthUser(auth, req);
   const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
   let upstream = null;
@@ -9406,20 +10693,24 @@ async function handleGetChatLiveSession(req, res, sessionId = "") {
     }
   }
   const liveInfo = upstream?.live || upstream || {};
-  const upstreamBilledSeconds = Math.max(0, Number(liveInfo.billed_seconds ?? session.upstreamBilledSeconds ?? session.billedSeconds ?? 0) || 0);
-  const readyMs = Date.parse(session.billableStartedAt || "");
-  const visibleEndMs = Date.parse(session.endedAt || "");
-  const visibleNowMs = Number.isFinite(visibleEndMs) ? visibleEndMs : Date.now();
-  const visibleSeconds = Number.isFinite(readyMs) ? Math.max(0, Math.floor((visibleNowMs - readyMs) / 1000)) : 0;
-  const billedSeconds = session.billingPolicy === "first_frame"
-    ? (upstreamBilledSeconds > 0 ? Math.min(upstreamBilledSeconds, visibleSeconds) : visibleSeconds)
-    : upstreamBilledSeconds;
+  const displayUpstream = chatLiveDisplayUpstreamEvidence(session, upstream);
+  const hostUpstreamBilledSeconds = displayUpstream.seconds;
+  const sharedRoomViewer = session.sharedRoomViewer === true;
+  const upstreamBilledSeconds = sharedRoomViewer ? 0 : hostUpstreamBilledSeconds;
+  const displayBilling = chatLiveDisplayBilling(
+    session,
+    sharedRoomViewer ? 0 : (displayUpstream.known ? upstreamBilledSeconds : 0),
+  );
+  const billedSeconds = displayBilling.billedSeconds;
   return sendJson(res, 200, {
     ok: true,
     session: {
       ...publicChatLiveSession({ ...session, billedSeconds }),
       upstreamStatus: liveInfo.status || "",
       upstreamBilledSeconds,
+      hostUpstreamBilledSeconds: sharedRoomViewer ? hostUpstreamBilledSeconds : Math.max(0, Number(session.hostUpstreamBilledSeconds || 0) || 0),
+      billingSource: sharedRoomViewer ? "shared_viewer_local" : (displayUpstream.source || ""),
+      billingLimitSeconds: displayBilling.billingLimitSeconds,
       upstreamCredits: Math.max(0, Number(liveInfo.credits_cost || session.upstreamCredits || 0) || 0),
       balance: Number(auth.user?.credits || 0) || 0,
       prepaidSeconds: Math.max(0, Number(session.prepaidSeconds || 0) || 0),
@@ -9436,13 +10727,25 @@ async function handleGetChatLiveSession(req, res, sessionId = "") {
 }
 
 function publicChatLiveSession(session = {}) {
+  const billingLimitSeconds = chatLiveBillableLimitSeconds(session);
+  const billedSeconds = Math.min(
+    billingLimitSeconds,
+    Math.max(0, Number(session.billedSeconds || 0) || 0),
+  );
   return {
     id: session.id,
     liveId: session.liveId,
     status: session.status,
-    billedSeconds: Number(session.billedSeconds || 0) || 0,
+    billedSeconds,
     chargedCredits: Number(session.chargedCredits || 0) || 0,
     saleCreditsPerMinute: Number(session.saleCreditsPerMinute || 0) || 0,
+    freeSeconds: Math.max(0, Number(session.freeSeconds || 0) || 0),
+    freeAllowanceSeconds: Math.max(0, Number(session.freeAllowanceSeconds ?? session.freeSeconds ?? 0) || 0),
+    freeAllocatedSeconds: Math.max(0, Number(session.freeAllocatedSeconds || 0) || 0),
+    freeUsedSeconds: Math.max(0, Number(session.freeUsedSeconds || 0) || 0),
+    freeRemainingSeconds: Math.max(0, Number(session.freeRemainingSeconds || 0) || 0),
+    freeAllocationVersion: String(session.freeAllocationVersion || ""),
+    freeAllocationFinalized: session.freeAllocationFinalized === true,
     endedAt: session.endedAt || "",
     endReason: session.endReason || "",
   };
@@ -9470,6 +10773,10 @@ function publicAdminChatLiveSession(session = {}, extras = {}) {
     sourceHost: session.sourceHost || hostnameFromOrigin(session.sourceOrigin || ""),
     billedSeconds,
     upstreamBilledSeconds: Math.max(0, Number(session.upstreamBilledSeconds ?? session.billedSeconds ?? 0) || 0),
+    hostUpstreamBilledSeconds: Math.max(0, Number(session.hostUpstreamBilledSeconds || 0) || 0),
+    billingSource: String(session.billingSource || ""),
+    billingLimitSeconds: chatLiveBillableLimitSeconds(session),
+    chargeableSeconds: Math.max(0, Number(session.chargeableSeconds || 0) || 0),
     prepaidSeconds: Math.max(0, Number(session.prepaidSeconds || 0) || 0),
     prepaidCredits: Math.max(0, Number(session.prepaidCredits || 0) || 0),
     refundedCredits: Math.max(0, Number(session.refundedCredits || 0) || 0),
@@ -9480,6 +10787,12 @@ function publicAdminChatLiveSession(session = {}, extras = {}) {
     chargeGap: Math.max(0, chargeExpected - chargedCredits),
     chargeError: sanitizeChatLiveDiagnosticText(session.chargeError || ""),
     freeSeconds: Math.max(0, Number(session.freeSeconds || 0) || 0),
+    freeAllowanceSeconds: Math.max(0, Number(session.freeAllowanceSeconds ?? session.freeSeconds ?? 0) || 0),
+    freeAllocatedSeconds: Math.max(0, Number(session.freeAllocatedSeconds || 0) || 0),
+    freeUsedSeconds: Math.max(0, Number(session.freeUsedSeconds || 0) || 0),
+    freeRemainingSeconds: Math.max(0, Number(session.freeRemainingSeconds || 0) || 0),
+    freeAllocationVersion: String(session.freeAllocationVersion || ""),
+    freeAllocationFinalized: session.freeAllocationFinalized === true,
     saleCreditsPerMinute: Math.max(0, Number(session.saleCreditsPerMinute || 0) || 0),
     upstreamCredits: Math.max(0, Number(session.upstreamCredits || 0) || 0),
     upstreamStatus: sanitizeChatLiveDiagnosticText(session.upstreamStatus || "", 64),
@@ -9712,21 +11025,26 @@ async function settleStaleChatLiveSessions() {
   if (!dbEnabled() || !(VIDU_API_KEY_OVERSEAS || VIDU_API_KEY_CN || VIDU_API_KEY)) return;
   let sessions = [];
   try {
-    sessions = await listChatLiveSessionsInDb({ limit: 30 });
+    sessions = await listUnsettledChatLiveSessionsInDb({ limit: 50, minAgeSeconds: 60 });
   } catch {
     return;
   }
-  const now = Date.now();
   for (const session of sessions) {
     if (!session?.id || !session.liveId || session.settled === true) continue;
-    const age = now - Date.parse(session.createdAt || "");
-    if (!Number.isFinite(age) || age < 60000) continue;
     try {
       await settleChatLiveSessionById(session.id);
     } catch (error) {
       /* retry on the next sweep */
     }
   }
+}
+
+async function cleanupOrphanedChatLiveFreeAllocations() {
+  if (!dbEnabled()) return [];
+  return cleanupOrphanedChatLiveFreeAllocationsInDb({ minAgeSeconds: 600, limit: 100 }).catch((error) => {
+    console.warn("[chat-live-free-orphan-cleanup]", String(error?.message || error).slice(0, 180));
+    return [];
+  });
 }
 
 function normalizePlatformConfig(platform = {}) {
@@ -10672,7 +11990,7 @@ function embedLiveIntegrationMarkdown() {
     "",
     "### Billing and concurrency",
     "",
-    "Price, free preview, and prepaid blocks follow the live site. The merchant balance is checked before the call and again about every 10 seconds. If the next block cannot be reserved, the call is hung up. One `externalUserId` can have only one active call. Other downstream users of the same merchant are not blocked.",
+    "Free time is a cumulative per-user allowance, not a per-connection preview. Billing starts when the live becomes billable, consumes any remaining free allowance first, and then uses prepaid blocks at the live-site price. Once the allowance is exhausted, the merchant balance is checked before entry and again about every 10 seconds. If the next block cannot be reserved, the call is hung up. One `externalUserId` can have only one active call. Other downstream users of the same merchant are not blocked.",
     "",
     "### Errors",
     "",
@@ -19765,6 +21083,128 @@ function chatBurstContents(messages = []) {
   return (Array.isArray(messages) ? messages : []).map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+function chatGiftMessageId(taskId = "", kind = "gift") {
+  const digest = crypto.createHash("sha256").update(`${taskId}:${kind}`).digest("hex").slice(0, 24);
+  return `msg-${digest}`;
+}
+
+async function handleChatGift(req, res, conversationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const live = chatLiveConfigValue(await readAppConfig());
+  const body = await readJson(req);
+  const gift = (live.gifts || []).find((item) => item && item.enabled !== false && item.id === String(body.giftId || "").trim());
+  if (!gift || Number(gift.credits) <= 0) return sendJson(res, 404, { ok: false, message: "这个礼物暂时不可用。" });
+  const eventId = String(body.eventId || "").replace(/[^a-z0-9_.-]/gi, "").slice(0, 80) || randomId("event");
+  const taskId = `chat-gift:${conversation.id}:${eventId}`;
+  const giftMessageId = chatGiftMessageId(taskId, "gift");
+  const reactionMessageId = chatGiftMessageId(taskId, "reaction");
+  const existing = (await listChatMessagesInDb(conversation.id, auth.user.id, 300)).find((message) => String(message.taskId || "") === taskId);
+  if (existing) {
+    const messages = (await listChatMessagesInDb(conversation.id, auth.user.id, 300)).filter((message) => String(message.taskId || "") === taskId);
+    const originalGiftCredits = Number(existing.giftCredits || 0);
+    if (originalGiftCredits > 0) {
+      try {
+        await recordCreatorUsageEarningInDb({
+          eventKey: taskId,
+          earningType: "text_gift_earning",
+          viewerUserId: auth.user.id,
+          characterId: conversation.characterId || conversation.character?.id || "",
+          sourceCredits: originalGiftCredits,
+          earningRate: 0.3,
+          meta: { taskId, conversationId: conversation.id, giftId: existing.giftId || gift.id, giftName: existing.giftName || gift.name },
+        });
+      } catch (error) {
+        console.warn("[creator-earning] text gift retry failed", taskId, error?.message || error);
+      }
+    }
+    return sendJson(res, 200, { ok: true, duplicate: true, gift: publicChatLiveGift(gift), messages: messages.map(publicChatMessage), credits: creditsAmount(auth.user.credits), conversation: publicChatConversation(conversation) });
+  }
+  try {
+    await chargeUserWithSubtoken(auth, {
+      cost: gift.credits,
+      type: "character_chat_gift",
+      taskId,
+      meta: {
+        taskId,
+        conversationId: conversation.id,
+        characterId: conversation.characterId || conversation.character?.id || "",
+        characterName: conversation.character?.name || conversation.title || "",
+        giftId: gift.id,
+        giftName: gift.name,
+      },
+    });
+  } catch (error) {
+    if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) {
+      return sendJson(res, 402, insufficientCreditsPayload(gift.credits, auth.user.credits));
+    }
+    return sendJson(res, error.statusCode || 502, { ok: false, message: "礼物暂时没有送出，请稍后再试。" });
+  }
+  const now = new Date().toISOString();
+  const giftMessage = {
+    id: giftMessageId,
+    conversationId: conversation.id,
+    userId: auth.user.id,
+    role: "user",
+    kind: "gift",
+    content: `送出${gift.name || "礼物"}`,
+    taskId,
+    giftId: gift.id,
+    giftName: gift.name || "",
+    giftCredits: Number(gift.credits || 0),
+    createdAt: now,
+    updatedAt: now,
+  };
+  const reactionMessage = {
+    id: reactionMessageId,
+    conversationId: conversation.id,
+    userId: auth.user.id,
+    role: "assistant",
+    kind: "text",
+    content: gift.reaction || "她开心地收下了礼物。",
+    taskId,
+    createdAt: new Date(Date.now() + 1).toISOString(),
+    updatedAt: new Date(Date.now() + 1).toISOString(),
+  };
+  const chargedCredits = creditsAmount(auth.user.credits);
+  const nextConversation = { ...conversation, lastMessage: String(reactionMessage.content).slice(0, 220), updatedAt: reactionMessage.updatedAt };
+  try {
+    const inserted = await insertChatMessagesIfAbsentInDb([giftMessage, reactionMessage], nextConversation);
+    /* A retry can encounter both rows already committed. Record the royalty
+       again here as an idempotent repair in case the original request lost
+       its process after committing the messages but before recording income. */
+    try {
+      await recordCreatorUsageEarningInDb({
+        eventKey: taskId,
+        earningType: "text_gift_earning",
+        viewerUserId: auth.user.id,
+        characterId: conversation.characterId || conversation.character?.id || "",
+        sourceCredits: gift.credits,
+        earningRate: 0.3,
+        meta: { taskId, conversationId: conversation.id, giftId: gift.id, giftName: gift.name },
+      });
+    } catch (error) {
+      console.warn("[creator-earning] text gift failed", taskId, error?.message || error);
+    }
+    if (!inserted.inserted) {
+      return sendJson(res, 200, { ok: true, duplicate: true, gift: publicChatLiveGift(gift), messages: [], credits: chargedCredits, conversation: publicChatConversation(nextConversation) });
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      gift: publicChatLiveGift(gift),
+      messages: inserted.messages.map(publicChatMessage),
+      credits: chargedCredits,
+      conversation: publicChatConversation(nextConversation),
+    });
+  } catch (error) {
+    console.warn("[character-chat-gift-failed]", taskId, error?.message || error);
+    await changeUserCredits(auth.db, auth.user.id, gift.credits, "character_chat_gift_refund", { taskId, conversationId: conversation.id, giftId: gift.id, reason: error.message || "gift insert failed" }).catch(() => {});
+    return sendJson(res, 502, { ok: false, message: "礼物暂时没有送出，积分已退回。" });
+  }
+}
+
 function chatBurstMessageText(messages = []) {
   return chatBurstContents(messages).join("\n");
 }
@@ -19799,7 +21239,10 @@ async function handleSendChatMessage(req, res, conversationId) {
   let content = String(body.content || "").trim().slice(0, 12000);
   if (action === "send" && submittedContents.length > 1) content = submittedContents[submittedContents.length - 1];
   if (action === "continue") content = "Continue the scene naturally from where you stopped.";
-  if (auth.user.credits < CHAT_MESSAGE_CREDITS) return sendJson(res, 402, insufficientCreditsPayload(CHAT_MESSAGE_CREDITS, auth.user.credits));
+  const chatSubscription = await getUserSubscriptionInDb(auth.user.id, requestTenantId(req));
+  const chatMember = liveMembershipActive(chatSubscription);
+  const messageCredits = chatMember ? 0 : CHAT_MESSAGE_CREDITS;
+  if (messageCredits > 0 && auth.user.credits < messageCredits) return sendJson(res, 402, insufficientCreditsPayload(messageCredits, auth.user.credits));
   if (action === "regenerate" || action === "edit") {
     if (!targetMessageId) return sendJson(res, 400, { ok: false, message: "targetMessageId is required." });
     await deleteChatMessagesAfterInDb(conversation.id, auth.user.id, targetMessageId);
@@ -19829,7 +21272,9 @@ async function handleSendChatMessage(req, res, conversationId) {
     });
   }
   const billingId = randomId("chat-bill");
-  await chargeUserWithSubtoken(auth, { cost: CHAT_MESSAGE_CREDITS, type: "character_chat", taskId: billingId, meta: { taskId: billingId, requestId: billingId, conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL } });
+  if (messageCredits > 0) {
+    await chargeUserWithSubtoken(auth, { cost: messageCredits, type: "character_chat", taskId: billingId, meta: { taskId: billingId, requestId: billingId, conversationId, characterId: conversation.characterId || "", characterName: conversation.character?.name || conversation.title || "", model: usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL, memberFree: false } });
+  }
   if (!dbEnabled()) await writeDb(auth.db);
   try {
     const history = await listChatMessagesInDb(conversation.id, auth.user.id, 120);
@@ -20003,12 +21448,30 @@ async function handleSendChatMessage(req, res, conversationId) {
     await rememberChatCharacterTurn(auth.user.id, conversation.characterId || conversation.character?.id, "assistant", reply, "text");
     conversation = { ...conversation, lastMessage: reply.slice(0, 220), updatedAt: now, relationship: relationshipBeforeReply };
     await upsertChatConversationInDb(conversation);
+    // Royalty is recorded only after the paid reply and every related write have
+    // succeeded. Any earlier failure enters the refund path below, so a refunded
+    // reply must never leave creator income behind.
+    if (messageCredits > 0) {
+      try {
+        await recordCreatorUsageEarningInDb({
+          eventKey: `character_chat:${billingId}`,
+          earningType: "text_chat_earning",
+          viewerUserId: auth.user.id,
+          characterId: conversation.characterId || conversation.character?.id || "",
+          sourceCredits: messageCredits,
+          earningRate: 0.3,
+          meta: { billingId, conversationId, action },
+        });
+      } catch (error) {
+        console.warn("[creator-earning] text chat failed", billingId, error?.message || error);
+      }
+    }
     refreshChatTrackerInBackground(conversation, [...history, assistantMessage]);
-    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), relationship: relationshipBeforeReply, credits: creditsAmount(auth.user.credits), messageCredits: CHAT_MESSAGE_CREDITS });
+    return sendJson(res, 200, { ok: true, message: publicChatMessage(assistantMessage), conversation: publicChatConversation(conversation), relationship: relationshipBeforeReply, credits: creditsAmount(auth.user.credits), messageCredits });
   } catch (error) {
     console.warn("[character-chat-upstream-failed]", JSON.stringify({ conversationId, requestId: error.requestId || billingId, upstreamResponseId: error.upstreamResponseId || "", action, statusCode: error.statusCode || 0, code: error.code || "", message: String(error.message || error).slice(0, 500), payload: error.payload || null }));
     const db = await readDb();
-    await changeUserCredits(db, auth.user.id, CHAT_MESSAGE_CREDITS, "character_chat_refund", { taskId: billingId, requestId: billingId, upstreamResponseId: error.upstreamResponseId || "", conversationId, billingId, error: error.message || "Chat failed." });
+    if (messageCredits > 0) await changeUserCredits(db, auth.user.id, messageCredits, "character_chat_refund", { taskId: billingId, requestId: billingId, upstreamResponseId: error.upstreamResponseId || "", conversationId, billingId, error: error.message || "Chat failed." });
     if (!dbEnabled()) await writeDb(db);
     const info = normalizeErrorPayload(error);
     return sendJson(res, error.statusCode || 502, { ok: false, code: info.code || "CHAT_FAILED", message: info.message || "Chat failed." });
@@ -27010,6 +28473,8 @@ function startLocalMediaCleanupScheduler() {
 function startChatLiveSettlementScheduler() {
   setTimeout(() => settleStaleChatLiveSessions().catch(() => {}), 45000).unref?.();
   setInterval(() => settleStaleChatLiveSessions().catch(() => {}), 60000).unref?.();
+  setTimeout(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 90000).unref?.();
+  setInterval(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 10 * 60 * 1000).unref?.();
   setInterval(async () => {
     const sessions = await listChatLiveSessionsInDb({ limit: 100 }).catch(() => []);
     await Promise.all(sessions.filter((item) => item && item.settled !== true && item.liveId).map((item) => monitorChatLiveSession(item).catch(() => null)));
@@ -49819,6 +51284,10 @@ async function handleRequest(req, res) {
     if (req.method === "PATCH" && chatConversationMatch) {
       return await handleUpdateChatConversation(req, res, decodeURIComponent(chatConversationMatch[1]));
     }
+    const chatGiftMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/gift\/?$/);
+    if (req.method === "POST" && chatGiftMatch) {
+      return await handleChatGift(req, res, decodeURIComponent(chatGiftMatch[1]));
+    }
     const chatImageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/images\/?$/);
     if (req.method === "POST" && chatImageMatch) {
       return await handleCreateChatImage(req, res, decodeURIComponent(chatImageMatch[1]));
@@ -49852,6 +51321,19 @@ async function handleRequest(req, res) {
     if (req.method === "PUT" && creatorChatLiveCharacterMatch) {
       return await handleCreatorSaveChatLiveCharacter(req, res, decodeURIComponent(creatorChatLiveCharacterMatch[1]));
     }
+    if (req.method === "GET" && url.pathname === "/api/chat-live/community/characters") {
+      return await handleCommunityChatLiveCharacters(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/community/characters") {
+      return await handleCommunitySaveChatLiveCharacter(req, res);
+    }
+    const communityChatLiveCharacterMatch = url.pathname.match(/^\/api\/chat-live\/community\/characters\/([^/]+)$/);
+    if (req.method === "PUT" && communityChatLiveCharacterMatch) {
+      return await handleCommunitySaveChatLiveCharacter(req, res, decodeURIComponent(communityChatLiveCharacterMatch[1]));
+    }
+    if (req.method === "DELETE" && communityChatLiveCharacterMatch) {
+      return await handleCommunityDeleteChatLiveCharacter(req, res, decodeURIComponent(communityChatLiveCharacterMatch[1]));
+    }
     const creatorChatLiveUndressMatch = url.pathname.match(/^\/api\/chat-live\/creator\/characters\/([^/]+)\/undress$/);
     if (req.method === "POST" && creatorChatLiveUndressMatch) {
       return await handleCreatorGenerateChatLiveUndress(req, res, decodeURIComponent(creatorChatLiveUndressMatch[1]));
@@ -49866,8 +51348,15 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/chat-live/characters") {
       return await handlePublicChatLiveCharacters(req, res);
     }
+    const publicChatLiveCharacterMatch = url.pathname.match(/^\/api\/chat-live\/characters\/([^/]+)$/);
+    if (req.method === "GET" && publicChatLiveCharacterMatch) {
+      return await handlePublicChatLiveCharacter(req, res, decodeURIComponent(publicChatLiveCharacterMatch[1]));
+    }
     if (req.method === "GET" && url.pathname === "/api/chat-live/rooms") {
       return await handlePublicChatLiveRooms(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/rooms") {
+      return await handleCreatePublicChatLiveRoom(req, res);
     }
     const chatLiveRoomJoinMatch = url.pathname.match(/^\/api\/chat-live\/rooms\/([^/]+)\/join\/?$/);
     if (req.method === "POST" && chatLiveRoomJoinMatch) {
@@ -51254,4 +52743,16 @@ module.exports = {
   chatReplyWithLivePersonaSlip,
   chatReplyLiveIntimateFallback,
   chatReplyNeedsLiveIntimateRewrite,
+  chatLiveUpstreamIsTerminal,
+  chatLiveUpstreamBillingEvidence,
+  chatLiveDisplayUpstreamEvidence,
+  chatLiveSettlementDecision,
+  chatLivePaidCoverageStatus,
+  chatLiveBillableLimitSeconds,
+  chatLiveLocalBillableSeconds,
+  chatLiveSettlementBilling,
+  chatLiveDisplayBilling,
+  chatLiveSettlementLedgerAdjustment,
+  chatLiveHoldRefundDue,
+  chatLiveLedgerMatchesCharge,
 };

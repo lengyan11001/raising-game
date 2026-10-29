@@ -173,6 +173,8 @@
 .chat-live-log { flex:1; min-height:0; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
 .chat-live-line { padding:9px 11px; border-radius:6px; line-height:1.5; max-width:92%; }
 .chat-live-line.is-user { align-self:flex-end; background:#1d4ed8; }
+.chat-live-line.is-member { background:linear-gradient(135deg,#4b3511,#1d4ed8 70%); box-shadow:inset 0 0 0 1px rgba(255,211,106,.35); }
+.chat-live-line .member-badge { display:inline-flex; align-items:center; margin-right:6px; padding:1px 6px; border:1px solid rgba(255,220,126,.7); border-radius:999px; background:rgba(255,196,56,.18); color:#ffe29a; font-size:10px; font-weight:800; line-height:1.45; vertical-align:1px; }
 .chat-live-line.is-bot { align-self:flex-start; background:rgba(255,255,255,.08); }
 .chat-live-line.is-sys { align-self:center; background:transparent; color:#94a3b8; font-size:12px; }
 .chat-live-actions { padding:12px 14px; border-top:1px solid rgba(255,255,255,.08); display:flex; flex-direction:column; gap:10px; }
@@ -545,7 +547,7 @@
     const hangBtn = el("button", "chat-live-btn is-danger", "挂断");
     hangBtn.type = "button";
     row.append(muteBtn, hangBtn);
-    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 画面显示后计时 · 最长 ${pricing.maxMinutes || 10} 分钟`);
+    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 进房即开始计时 · 免费额度用完需有积分 · 最长 ${pricing.maxMinutes || 10} 分钟`);
     const dock = el("div", "chat-live-dock");
     dock.append(hangBtn);
     input.placeholder = "说点什么…";
@@ -569,12 +571,14 @@
     return state.overlay;
   }
 
-  function appendLine(kind, text, who = "") {
+  function appendLine(kind, text, who = "", isMember = false) {
     if (!state.overlay || !text) return;
     if (kind === "bot") return;
-    const line = el("div", `chat-live-line is-${kind}`, text);
+    const line = el("div", `chat-live-line is-${kind}${isMember ? " is-member" : ""}`);
     if (kind === "user") line.dataset.who = who || "我";
     else if (who) line.dataset.who = who;
+    if (isMember) line.appendChild(el("span", "member-badge", "VIP"));
+    line.appendChild(document.createTextNode(text));
     state.overlay.log.appendChild(line);
     while (state.overlay.log.children.length > 30) state.overlay.log.firstChild.remove();
     state.overlay.log.scrollTop = state.overlay.log.scrollHeight;
@@ -2127,7 +2131,7 @@
         const id = String(message?.id || "");
         if (!id || state.seenRoomMessages.has(id)) return;
         state.seenRoomMessages.add(id);
-        if (message.role === "user") appendLine("user", message.content, message.payload?.name || "有人");
+        if (message.role === "user") appendLine("user", message.content, message.payload?.name || "有人", message.payload?.member === true || message.payload?.isMember === true);
         else appendLine("sys", message.content);
       });
     } catch {}

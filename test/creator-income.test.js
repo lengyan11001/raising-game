@@ -72,8 +72,8 @@ function loadCreatorDb({ character = null, existingEarning = null, balance = 0, 
       if (text.includes("FROM app_chat_live_characters WHERE id = $1")) {
         return { rows: character ? [{ payload: character }] : [] };
       }
-      if (text.includes("FROM app_creator_earning_ledger WHERE type = 'video_view_earning' AND session_id = $1")) {
-        return { rows: existingEarning ? [existingEarning] : [] };
+      if (text.includes("FROM app_creator_earning_ledger WHERE type = $1 AND session_id = $2")) {
+        return { rows: existingEarning && String(params[0]) === String(existingEarning.type) && String(params[1]) === String(existingEarning.session_id) ? [existingEarning] : [] };
       }
       if (text.includes("SELECT COALESCE(SUM(delta_credits), 0)::numeric AS balance")) {
         return { rows: [{ balance: String(state.balance) }] };
@@ -150,7 +150,7 @@ function loadCreatorDb({ character = null, existingEarning = null, balance = 0, 
   };
   sandbox.exports = sandbox.module.exports;
   vm.runInNewContext(
-    `${dbSource}\nensureSchema = async () => {};\nmodule.exports.__creatorIncomeTest = { recordCreatorVideoViewEarningInDb, createCreatorWithdrawalInDb, updateCreatorWithdrawalInDb };`,
+    `${dbSource}\nensureSchema = async () => {};\nmodule.exports.__creatorIncomeTest = { recordCreatorUsageEarningInDb, recordCreatorVideoViewEarningInDb, createCreatorWithdrawalInDb, updateCreatorWithdrawalInDb };`,
     sandbox,
     { filename: "db.js" },
   );
@@ -164,10 +164,76 @@ function loadCreatorDb({ character = null, existingEarning = null, balance = 0, 
   };
 }
 
+test("server-derived ownership and royalty eligibility gate only public community roles", () => {
+  const publicForRequest = server.slice(
+    server.indexOf("function publicChatLiveCharacterForRequest"),
+    server.indexOf("function liveMembershipActive"),
+  );
+  const publicPredicate = server.slice(
+    server.indexOf("function communityChatLiveCharacterIsPublic"),
+    server.indexOf("function publicChatLiveCharacterIsPubliclyListed"),
+  );
+  assert.match(publicForRequest, /value\.ownedByViewer = Boolean\(user\?\.id\)/);
+  assert.match(publicForRequest, /String\(character\?\.createdByUserId \|\| ""\) === String\(user\.id\)/);
+  assert.match(publicForRequest, /value\.creatorRoyaltyEligible = communityChatLiveCharacterIsPublic\(character\)/);
+  assert.match(publicPredicate, /character\?\.source === "community"/);
+  assert.match(publicPredicate, /character\?\.communityShareEnabled === true/);
+  assert.match(publicPredicate, /character\?\.communityVisibility === "public"/);
+  assert.match(publicPredicate, /character\?\.enabled !== false/);
+  assert.match(live, /const canShareEarnings = Boolean\(c\.ownedByViewer && c\.creatorRoyaltyEligible\);/);
+  assert.match(live, /canShareEarnings \? '<button class="refer-earn" data-action="share-role">分享角色<\/button>' : ""/);
+  assert.doesNotMatch(live, /c\.communityVisibility === "public"[^;\n]*share-role/);
+});
+
+test("owner can share a public created role while an internal role has no royalty CTA", () => {
+  const publicRoleCard = live.slice(
+    live.indexOf('data-action="create-share"'),
+    live.indexOf('data-action="create-delete"'),
+  );
+  assert.match(publicRoleCard, /分享角色/);
+  assert.match(live, /if \(role\.communityVisibility !== "public"\) \{\s*state\.createFocusVisibility = true;\s*await openCreateEditor\(id\);\s*referralToast\("设为「公开并分享」并保存后，即可分享角色"\);/);
+  assert.match(live, /if \(saved\.character\?\.communityVisibility === "public"\)[\s\S]*?await openSharePoster\(\);/);
+  const creatorView = server.slice(
+    server.indexOf("function creatorChatLiveCharacterView"),
+    server.indexOf("async function handleCreatorChatLiveCharacters"),
+  );
+  assert.doesNotMatch(creatorView, /share-role|creatorRoyaltyEligible|分享角色/);
+  assert.match(server, /payload\.communityShareEnabled = false;[\s\S]*?payload\.communityVisibility = "private";/);
+});
+
+test("text chat royalty is recorded only after refundable writes complete", () => {
+  const sendHandler = server.slice(
+    server.indexOf("async function handleSendChatMessage"),
+    server.indexOf("function normalizeWan27MediaItem"),
+  );
+  const upsertConversation = sendHandler.indexOf("await upsertChatConversationInDb(conversation);");
+  const earning = sendHandler.indexOf("await recordCreatorUsageEarningInDb({", upsertConversation);
+  const refund = sendHandler.indexOf('"character_chat_refund"', earning);
+  assert.ok(upsertConversation >= 0);
+  assert.ok(earning > upsertConversation);
+  assert.ok(refund > earning);
+  assert.match(sendHandler.slice(upsertConversation, earning), /succeeded\. Any earlier failure enters the refund path/);
+});
+
+test("text gift royalty uses the persisted gift charge and repairs it idempotently", () => {
+  const giftHandler = server.slice(
+    server.indexOf("async function handleChatGift"),
+    server.indexOf("function chatBurstMessageText"),
+  );
+  assert.match(giftHandler, /const originalGiftCredits = Number\(existing\.giftCredits \|\| 0\);/);
+  assert.match(giftHandler, /earningType: "text_gift_earning"/);
+  assert.match(giftHandler, /sourceCredits: originalGiftCredits,/);
+  assert.match(giftHandler, /sourceCredits: gift\.credits,/);
+  assert.match(giftHandler, /earningRate: 0\.3,/);
+  assert.match(giftHandler, /existing[\s\S]*?return sendJson\(res, 200, \{ ok: true, duplicate: true,/);
+  assert.match(dbSource, /CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx[\s\S]*?\(type, session_id\)[\s\S]*?session_id <> ''/);
+  assert.match(dbSource, /FROM app_creator_earning_ledger WHERE type = \$1 AND session_id = \$2 LIMIT 1/);
+});
+
 test("creator income uses PostgreSQL tables and an idempotent settled-credit ledger", () => {
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS app_creator_earning_ledger/);
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS app_creator_withdrawals/);
-  assert.match(dbSource, /CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx[\s\S]*?\(type, session_id\)[\s\S]*?type = 'video_view_earning'/);
+  assert.match(dbSource, /CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx[\s\S]*?\(type, session_id\)[\s\S]*?session_id <> ''/);
   assert.match(dbSource, /SELECT payload FROM app_chat_live_characters WHERE id = \$1`/);
   assert.doesNotMatch(dbSource, /SELECT payload FROM app_chat_live_characters WHERE id = \$1 AND deleted_at IS NULL/);
   assert.match(server, /const earningSourceCredits = Number\(updated\?\.chargedCredits \|\| 0\)/);
@@ -176,7 +242,7 @@ test("creator income uses PostgreSQL tables and an idempotent settled-credit led
 
 test("30% earning is recorded independently without changing app_users credits", async () => {
   const store = loadCreatorDb({
-    character: { id: "character-1", name: "角色一", createdByUserId: "creator-1" },
+    character: { id: "character-1", name: "角色一", createdByUserId: "creator-1", source: "community", communityShareEnabled: true, communityVisibility: "public", enabled: true },
     balance: 0,
   });
   const record = await store.api.recordCreatorVideoViewEarningInDb({
@@ -200,9 +266,60 @@ test("30% earning is recorded independently without changing app_users credits",
   assert.equal(store.calls.some((call) => /UPDATE\s+app_users/i.test(call.sql)), false);
 });
 
+test("internal creator-center characters never earn", async () => {
+  const store = loadCreatorDb({
+    character: { id: "character-internal", createdByUserId: "creator-1", source: "creator", communityShareEnabled: false },
+  });
+  assert.equal(await store.api.recordCreatorVideoViewEarningInDb({
+    sessionId: "session-internal",
+    viewerUserId: "viewer-1",
+    characterId: "character-internal",
+    sourceCredits: 10,
+  }), null);
+  assert.equal(store.ledgerRows.length, 0);
+  assert.equal(store.calls.some((call) => /UPDATE\s+app_users/i.test(call.sql)), false);
+});
+
+test("community sharing flag alone is not enough for an internal role to earn", async () => {
+  const store = loadCreatorDb({
+    character: { id: "character-admin", createdByUserId: "creator-1", source: "admin", communityShareEnabled: true },
+  });
+  assert.equal(await store.api.recordCreatorVideoViewEarningInDb({
+    sessionId: "session-admin",
+    viewerUserId: "viewer-1",
+    characterId: "character-admin",
+    sourceCredits: 10,
+  }), null);
+  assert.equal(store.ledgerRows.length, 0);
+});
+
+test("private or disabled community characters never earn", async () => {
+  const privateRole = loadCreatorDb({
+    character: { id: "character-private", createdByUserId: "creator-1", source: "community", communityShareEnabled: true, communityVisibility: "private", enabled: true },
+  });
+  assert.equal(await privateRole.api.recordCreatorVideoViewEarningInDb({
+    sessionId: "session-private",
+    viewerUserId: "viewer-1",
+    characterId: "character-private",
+    sourceCredits: 10,
+  }), null);
+  assert.equal(privateRole.ledgerRows.length, 0);
+
+  const disabledRole = loadCreatorDb({
+    character: { id: "character-disabled", createdByUserId: "creator-1", source: "community", communityShareEnabled: true, communityVisibility: "public", enabled: false },
+  });
+  assert.equal(await disabledRole.api.recordCreatorVideoViewEarningInDb({
+    sessionId: "session-disabled",
+    viewerUserId: "viewer-1",
+    characterId: "character-disabled",
+    sourceCredits: 10,
+  }), null);
+  assert.equal(disabledRole.ledgerRows.length, 0);
+});
+
 test("self-view earns nothing and a settled session cannot split twice", async () => {
   const selfView = loadCreatorDb({
-    character: { id: "character-1", createdByUserId: "viewer-1" },
+    character: { id: "character-1", createdByUserId: "viewer-1", source: "community", communityShareEnabled: true, communityVisibility: "public", enabled: true },
     balance: 0,
   });
   assert.equal(await selfView.api.recordCreatorVideoViewEarningInDb({
@@ -218,7 +335,7 @@ test("self-view earns nothing and a settled session cannot split twice", async (
     "video_view_earning", "10", "0.3", "3", "3", "{}", "{}", new Date().toISOString(),
   ]);
   const duplicate = loadCreatorDb({
-    character: { id: "character-1", createdByUserId: "creator-1" },
+    character: { id: "character-1", createdByUserId: "creator-1", source: "community", communityShareEnabled: true, communityVisibility: "public", enabled: true },
     existingEarning: existing,
   });
   const record = await duplicate.api.recordCreatorVideoViewEarningInDb({
@@ -294,6 +411,39 @@ test("paid withdrawals require txHash and rejected withdrawals refund available 
   assert.equal(paid.txHash, "0xUSDT-PAID-HASH");
 });
 
+test("internal creator center is admin-only while user creations stay shareable and royalty eligible", () => {
+  const getHandler = server.slice(
+    server.indexOf("async function handleCreatorChatLiveCharacters"),
+    server.indexOf("function communityChatLiveCharacterView"),
+  );
+  const saveHandler = server.slice(
+    server.indexOf("async function handleCreatorSaveChatLiveCharacter"),
+    server.indexOf("async function handleCreatorUploadChatLiveAsset"),
+  );
+  const communityHandler = server.slice(
+    server.indexOf("async function handleCommunitySaveChatLiveCharacter"),
+    server.indexOf("async function handleCreatorSaveChatLiveCharacter"),
+  );
+  assert.match(getHandler, /const auth = await requireAdmin\(req, res\);/);
+  assert.match(saveHandler, /const auth = await requireAdmin\(req, res\);/);
+  assert.match(saveHandler, /source: "creator",/);
+  assert.match(saveHandler, /payload\.communityShareEnabled = false;/);
+  assert.match(saveHandler, /payload\.communityVisibility = "private";/);
+  assert.match(communityHandler, /source: "community",/);
+  assert.match(communityHandler, /payload\.communityShareEnabled = true;/);
+
+  assert.match(live, /u\?\.role === "admin" \? \[\["creator", "pen", "创作者中心", "内部平台角色维护，不参与分成"\]\] : \[\]/);
+  assert.match(live, /if \(state\.user\.role !== "admin"\) \{ referralToast\("创作者中心仅供平台管理员使用"\); return; \}/);
+  assert.match(live, /if \(state\.user\.role !== "admin"\) \{\s*app\.innerHTML = `[\s\S]*?创作者中心仅供平台管理员使用/);
+  assert.match(live, /if \(state\.user\?\.role !== "admin"\) \{ referralToast\("创作者中心仅供平台管理员使用"\); return; \}/);
+  assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[\s\S]*?分享角色/);
+  assert.doesNotMatch(live, /视频通话实扣积分的 30% 计入角色创作者独立收益/);
+  assert.match(live, /「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30%/);
+  assert.match(admin, /聊天、视频通话、礼物分成收益/);
+  assert.match(admin, /聊天 \/ 视频通话 \/ 礼物实扣积分/);
+  assert.doesNotMatch(admin, /查看角色视频通话分成收益/);
+});
+
 test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.match(server, /url\.pathname === "\/api\/live\/creator-income"/);
   assert.match(server, /url\.pathname === "\/api\/live\/creator-withdrawals"/);
@@ -301,13 +451,18 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.match(server, /url\.pathname === "\/api\/admin\/creator-withdrawals"/);
   assert.match(server, /adminCreatorWithdrawalMatch[\s\S]*?handleAdminUpdateCreatorWithdrawal/);
   assert.match(live, /\["creator-income", "gift", "创作者收益"/);
-  assert.match(live, /视频通话实际扣除的积分，30% 作为角色创作者可提现收益/);
+  assert.match(live, /仅「创作」页创建的公开角色[^<]*30%[^<]*内部创作者中心角色不参与分成/);
   assert.match(live, /data-creator-withdraw-form/);
   assert.match(live, /name="address"/);
   assert.match(live, /最低提现 2000 积分（20 USDT）/);
   assert.match(live, /不会累加到普通积分余额/);
-  assert.match(liveHtml, /live\.js\?v=2026102908/);
-  assert.match(liveHtml, /live\.css\?v=2026102908/);
+  assert.match(live, /url\.hash = `role\/\$\{encodeURIComponent\(id\)\}`/);
+  assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[^>]*>\$\{item\.communityVisibility === "public" \? "分享角色" : "设为公开后分享"\}/);
+  const shareSheetBody = live.match(/function openShareSheet\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+  assert.ok(shareSheetBody);
+  assert.doesNotMatch(shareSheetBody, /total|cells|locks/);
+  assert.match(liveHtml, /live\.js\?v=2026102912/);
+  assert.match(liveHtml, /live\.css\?v=2026102912/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
   assert.match(adminHtml, /admin\.js\?v=20261029-creator-income-1/);
   assert.match(admin, /async function renderCreatorData/);

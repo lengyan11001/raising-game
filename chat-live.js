@@ -18,6 +18,7 @@
     lastPresenceAt: 0,
     startedAt: 0,
     billableStartedAt: 0,
+    billableStartSource: "",
     ended: false,
     micOn: false,
     listening: false,
@@ -29,6 +30,7 @@
     lastVideoTime: -1,
     seenPicture: false,
     seenBright: false,
+    videoReadyReported: false,
     placeholderOn: true,
     videoFixes: 0,
     videoFixTotal: 0,
@@ -182,6 +184,8 @@
 .chat-live-log { flex:1; min-height:0; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
 .chat-live-line { padding:9px 11px; border-radius:6px; line-height:1.5; max-width:92%; }
 .chat-live-line.is-user { align-self:flex-end; background:#1d4ed8; }
+.chat-live-line.is-member { background:linear-gradient(135deg,#4b3511,#1d4ed8 70%); box-shadow:inset 0 0 0 1px rgba(255,211,106,.35); }
+.chat-live-line .member-badge { display:inline-flex; align-items:center; margin-right:6px; padding:1px 6px; border:1px solid rgba(255,220,126,.7); border-radius:999px; background:rgba(255,196,56,.18); color:#ffe29a; font-size:10px; font-weight:800; line-height:1.45; vertical-align:1px; }
 .chat-live-line.is-bot { align-self:flex-start; background:rgba(255,255,255,.08); }
 .chat-live-line.is-sys { align-self:center; background:transparent; color:#94a3b8; font-size:12px; }
 .chat-live-actions { padding:12px 14px; border-top:1px solid rgba(255,255,255,.08); display:flex; flex-direction:column; gap:10px; }
@@ -565,7 +569,7 @@
     const hangBtn = el("button", "chat-live-btn is-danger", "挂断");
     hangBtn.type = "button";
     row.append(muteBtn, hangBtn);
-    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 画面显示后计时 · 最长 ${pricing.maxMinutes || 10} 分钟`);
+    const cost = el("div", "chat-live-cost", `${saleCreditsPerMinute()} 积分/分钟 · 进房即开始计时 · 免费额度用完需有积分 · 最长 ${pricing.maxMinutes || 10} 分钟`);
     const dock = el("div", "chat-live-dock");
     dock.append(hangBtn);
     input.placeholder = "说点什么…";
@@ -589,12 +593,14 @@
     return state.overlay;
   }
 
-  function appendLine(kind, text, who = "") {
+  function appendLine(kind, text, who = "", isMember = false) {
     if (!state.overlay || !text) return;
     if (kind === "bot") return;
-    const line = el("div", `chat-live-line is-${kind}`, text);
+    const line = el("div", `chat-live-line is-${kind}${isMember ? " is-member" : ""}`);
     if (kind === "user") line.dataset.who = who || "我";
     else if (who) line.dataset.who = who;
+    if (isMember) line.appendChild(el("span", "member-badge", "VIP"));
+    line.appendChild(document.createTextNode(text));
     state.overlay.log.appendChild(line);
     while (state.overlay.log.children.length > 30) state.overlay.log.firstChild.remove();
     state.overlay.log.scrollTop = state.overlay.log.scrollHeight;
@@ -847,9 +853,17 @@
     state.overlay.badge.textContent = "";
   }
 
+  function applyChatLiveBillableStart(session = {}) {
+    const raw = session?.billableStartedAt || session?.createdAt || "";
+    const startedMs = Date.parse(raw);
+    if (!Number.isFinite(startedMs)) return false;
+    state.billableStartedAt = startedMs;
+    state.billableStartSource = session?.billableStartedAt ? "server_billable_started_at" : "server_created_at";
+    return true;
+  }
+
   function startTimer() {
-    state.startedAt = Date.now();
-    state.billableStartedAt = 0;
+    state.startedAt = state.billableStartedAt || Date.now();
     state.lastPresenceAt = 0;
     state.heartbeat = window.setInterval(() => {
       if (!state.overlay) return;
@@ -897,9 +911,18 @@
   }
 
   function markBillableStart() {
-    if (state.billableStartedAt || state.ended || !state.session?.id) return;
-    state.billableStartedAt = Date.now();
-    reportChatLiveOperation({ action: "video_ready", phase: "client", success: true, message: "首个有效画面已显示" });
+    if (state.videoReadyReported || state.ended || !state.session?.id) return;
+    state.videoReadyReported = true;
+    reportChatLiveOperation({
+      action: "video_ready",
+      phase: "client",
+      success: true,
+      message: "首个有效画面已显示",
+      details: {
+        billableStartedAt: state.session.billableStartedAt || "",
+        billableStartSource: state.billableStartSource,
+      },
+    });
     apiFetch(`/api/chat-live/sessions/${encodeURIComponent(state.session.id)}/ready`, { method: "POST", body: "{}" }).catch(() => {});
   }
 
@@ -2304,7 +2327,7 @@
         const id = String(message?.id || "");
         if (!id || state.seenRoomMessages.has(id)) return;
         state.seenRoomMessages.add(id);
-        if (message.role === "user") appendLine("user", message.content, message.payload?.name || "有人");
+        if (message.role === "user") appendLine("user", message.content, message.payload?.name || "有人", message.payload?.member === true || message.payload?.isMember === true);
         else appendLine("sys", message.content);
       });
     } catch {}
@@ -2343,6 +2366,7 @@
     state.lastVideoTime = -1;
     state.seenPicture = false;
     state.seenBright = false;
+    state.videoReadyReported = false;
     state.placeholderOn = openOptions.handover === true ? state.placeholderOn : true;
     state.videoFixes = 0;
     state.videoFixTotal = 0;
@@ -2358,6 +2382,7 @@
     if (state.liveStoryRetryTimer) window.clearTimeout(state.liveStoryRetryTimer);
     state.liveStoryRetryTimer = 0;
     state.billableStartedAt = 0;
+    state.billableStartSource = "";
     state.lookStack = [];
     state.forceFreshRtc = openOptions.freshRtc === true || state.forceFreshRtc === true;
     state.connId = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2520,6 +2545,7 @@
       return;
     }
     state.session = payload.session;
+    applyChatLiveBillableStart(payload.session);
     rememberLiveContact(character).finally(() => window.dispatchEvent(new CustomEvent("vipeak-live-thread")));
     state.roomId = String(payload.room?.id || state.roomId || openOptions.roomId || "");
     state.inRoom = Boolean(state.roomId || openOptions.sharedRoom === true);

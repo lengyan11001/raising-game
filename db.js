@@ -242,10 +242,11 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
   await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
+  await query(`DROP INDEX IF EXISTS app_creator_earning_session_uidx;`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx
       ON app_creator_earning_ledger (type, session_id)
-      WHERE type = 'video_view_earning' AND session_id <> '';
+      WHERE session_id <> '';
   `);
   await query(`
     CREATE TABLE IF NOT EXISTS app_creator_withdrawals (
@@ -576,6 +577,33 @@ async function ensureSchemaInner() {
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_chat_live_sessions_unsettled_idx
+      ON app_chat_live_sessions (updated_at ASC)
+      WHERE live_id <> '' AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1');
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_free_usage (
+      tenant_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      consumed_seconds INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, user_id)
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_free_allocations (
+      session_id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      configured_seconds INTEGER NOT NULL DEFAULT 0,
+      allocated_seconds INTEGER NOT NULL DEFAULT 0,
+      finalized BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_free_allocations_user_idx ON app_chat_live_free_allocations (tenant_id, user_id, created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_chat_character_memories (
       user_id TEXT NOT NULL,
@@ -2519,6 +2547,61 @@ async function insertChatMessageInDb(message = {}) {
   return payload;
 }
 
+/* Gift retries must not create a second bubble, a partial reaction, or a
+   second royalty event. Both messages and the conversation preview are
+   committed together; the credit ledger remains idempotent by taskId. */
+async function insertChatMessagesIfAbsentInDb(messages = [], conversation = null) {
+  if (!dbEnabled()) return { messages: [], insertedCount: 0, inserted: false };
+  await ensureSchema();
+  const payloads = (Array.isArray(messages) ? messages : [])
+    .filter((message) => message && message.id && message.conversationId && message.userId)
+    .map((message) => ({ ...message }));
+  if (!payloads.length) return { messages: [], insertedCount: 0, inserted: false };
+
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const lockKey = String(payloads[0].taskId || payloads[0].id || "").trim();
+    if (lockKey) await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`chat-gift:${lockKey}`]);
+
+    const stored = [];
+    let insertedCount = 0;
+    for (const payload of payloads) {
+      const result = await client.query(`
+        INSERT INTO app_chat_messages(id, conversation_id, user_id, role, payload, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, $7::timestamptz)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING payload
+      `, [payload.id, payload.conversationId, payload.userId, payload.role, JSON.stringify(payload), payload.createdAt, payload.updatedAt]);
+      if (result.rows[0]?.payload) {
+        insertedCount += 1;
+        stored.push(result.rows[0].payload);
+        continue;
+      }
+      const existing = await client.query(`
+        SELECT payload FROM app_chat_messages WHERE id = $1 AND conversation_id = $2 AND user_id = $3
+      `, [payload.id, payload.conversationId, payload.userId]);
+      stored.push(existing.rows[0]?.payload || payload);
+    }
+
+    if (conversation && insertedCount > 0) {
+      const nextConversation = { ...conversation };
+      await client.query(`
+        INSERT INTO app_chat_conversations(id, user_id, character_id, payload, deleted_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, NULLIF($5, '')::timestamptz, $6::timestamptz, $7::timestamptz)
+        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, deleted_at = EXCLUDED.deleted_at, updated_at = EXCLUDED.updated_at
+      `, [nextConversation.id, nextConversation.userId, nextConversation.characterId, JSON.stringify(nextConversation), nextConversation.deletedAt || "", nextConversation.createdAt, nextConversation.updatedAt]);
+    }
+    await client.query("COMMIT");
+    return { messages: stored, insertedCount, inserted: insertedCount > 0 };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function updateChatMessageInDb(message = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -2738,6 +2821,356 @@ async function updateChatLiveSessionInDb(session = {}) {
   return payload;
 }
 
+/* Serialize a whole read/settle/write transaction for one chat-live session.
+   Ledger rows are idempotent, but session snapshots are not: without this lock
+   a slower retry can overwrite a newer settled state with stale hold fields. */
+async function withChatLiveSessionSettlementLockInDb(sessionId = "", handler = null) {
+  if (!dbEnabled()) return null;
+  const id = String(sessionId || "").trim();
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`chat-live-settlement:${id}`]);
+    const { rows } = await client.query(`SELECT payload FROM app_chat_live_sessions WHERE id = $1 FOR UPDATE`, [id]);
+    const current = rows[0]?.payload || null;
+    const result = await handler(current, client);
+    const next = result?.session || null;
+    if (next?.id) {
+      await client.query(`
+        UPDATE app_chat_live_sessions
+        SET live_id = $2, status = $3, payload = $4::jsonb, updated_at = $5::timestamptz
+        WHERE id = $1
+      `, [
+        next.id,
+        String(next.liveId || ""),
+        String(next.status || "pending"),
+        JSON.stringify(next),
+        next.updatedAt || new Date().toISOString(),
+      ]);
+    }
+    await client.query("COMMIT");
+    return result?.value === undefined ? next : result.value;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function chatLiveFreeAdvisoryKey(tenantId = DEFAULT_TENANT_ID, userId = "") {
+  return `chat-live-free:${normalizeTenantId(tenantId)}:${String(userId || "").trim()}`;
+}
+
+/*
+ * Chat-live free time belongs to the user, not to a single connection. The
+ * allocation row makes each session idempotent; the usage row is the durable
+ * cumulative ledger. Every mutating path takes the same per-user advisory lock
+ * before touching either table, so allocation, settlement, rollback, and orphan
+ * cleanup cannot consume or release the same seconds concurrently.
+ */
+async function allocateChatLiveFreeSecondsInDb({
+  tenantId = DEFAULT_TENANT_ID,
+  userId = "",
+  sessionId = "",
+  configuredSeconds = 0,
+  requestedSeconds = 0,
+} = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanUserId = String(userId || "").trim();
+  const cleanSessionId = String(sessionId || "").trim();
+  const configured = Math.max(0, Math.round(Number(configuredSeconds || 0) || 0));
+  const requested = Math.max(0, Math.round(Number(requestedSeconds || 0) || 0));
+  if (!cleanUserId || !cleanSessionId) throw new Error("Chat-live free allocation requires user and session ids");
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(cleanTenantId, cleanUserId)]);
+    await client.query(`
+      INSERT INTO app_chat_live_free_usage(tenant_id, user_id, consumed_seconds)
+      VALUES ($1, $2, 0)
+      ON CONFLICT (tenant_id, user_id) DO NOTHING
+    `, [cleanTenantId, cleanUserId]);
+    const usage = await client.query(`
+      SELECT consumed_seconds FROM app_chat_live_free_usage
+      WHERE tenant_id = $1 AND user_id = $2
+      FOR UPDATE
+    `, [cleanTenantId, cleanUserId]);
+    const existing = await client.query(`
+      SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+    `, [cleanSessionId]);
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      if (normalizeTenantId(row.tenant_id) !== cleanTenantId || String(row.user_id || "") !== cleanUserId) {
+        const conflict = new Error("Chat-live free allocation belongs to a different user");
+        conflict.code = "CHAT_LIVE_FREE_ALLOCATION_CONFLICT";
+        conflict.statusCode = 409;
+        throw conflict;
+      }
+      const savedConfigured = Math.max(0, Number(row.configured_seconds || 0) || 0);
+      const allocated = Math.max(0, Number(row.allocated_seconds || 0) || 0);
+      const consumed = Math.max(0, Number(usage.rows[0]?.consumed_seconds || 0) || 0);
+      await client.query("COMMIT");
+      return {
+        found: true,
+        existing: true,
+        finalized: row.finalized === true,
+        allocatedSeconds: allocated,
+        remainingSeconds: Math.max(0, savedConfigured - consumed),
+        consumedSeconds: consumed,
+        exhausted: consumed >= savedConfigured,
+        configuredSeconds: savedConfigured,
+      };
+    }
+    const consumed = Math.max(0, Number(usage.rows[0]?.consumed_seconds || 0) || 0);
+    const remaining = Math.max(0, configured - consumed);
+    const allocated = Math.min(requested, remaining);
+    await client.query(`
+      INSERT INTO app_chat_live_free_allocations(
+        session_id, tenant_id, user_id, configured_seconds, allocated_seconds
+      ) VALUES ($1, $2, $3, $4, $5)
+    `, [cleanSessionId, cleanTenantId, cleanUserId, configured, allocated]);
+    if (allocated > 0) {
+      await client.query(`
+        UPDATE app_chat_live_free_usage
+        SET consumed_seconds = consumed_seconds + $3, updated_at = NOW()
+        WHERE tenant_id = $1 AND user_id = $2
+      `, [cleanTenantId, cleanUserId, allocated]);
+    }
+    const consumedAfter = consumed + allocated;
+    await client.query("COMMIT");
+    return {
+      found: true,
+      existing: false,
+      finalized: false,
+      allocatedSeconds: allocated,
+      remainingSeconds: Math.max(0, configured - consumedAfter),
+      consumedSeconds: consumedAfter,
+      exhausted: consumedAfter >= configured,
+      configuredSeconds: configured,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function finalizeChatLiveFreeAllocationInDb(sessionId = "", usedSeconds = 0, client = null) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  const cleanSessionId = String(sessionId || "").trim();
+  if (!cleanSessionId) return { found: false, allocatedSeconds: 0, remainingSeconds: 0, consumedSeconds: 0, configuredSeconds: 0, exhausted: false };
+  await ensureSchema();
+  const ownClient = client ? null : await getPool().connect();
+  const tx = client || ownClient;
+  try {
+    if (ownClient) await tx.query("BEGIN");
+    const discovered = await tx.query(`
+      SELECT tenant_id, user_id FROM app_chat_live_free_allocations WHERE session_id = $1
+    `, [cleanSessionId]);
+    const owner = discovered.rows[0];
+    if (!owner) {
+      if (ownClient) await tx.query("COMMIT");
+      return { found: false, allocatedSeconds: 0, remainingSeconds: 0, consumedSeconds: 0, configuredSeconds: 0, exhausted: false };
+    }
+    const tenantId = normalizeTenantId(owner.tenant_id);
+    const userId = String(owner.user_id || "");
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(tenantId, userId)]);
+    const allocation = await tx.query(`
+      SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+    `, [cleanSessionId]);
+    const row = allocation.rows[0];
+    if (!row) {
+      if (ownClient) await tx.query("COMMIT");
+      return { found: false, allocatedSeconds: 0, remainingSeconds: 0, consumedSeconds: 0, configuredSeconds: 0, exhausted: false };
+    }
+    if (normalizeTenantId(row.tenant_id) !== tenantId || String(row.user_id || "") !== userId) {
+      const conflict = new Error("Chat-live free allocation ownership changed during settlement");
+      conflict.code = "CHAT_LIVE_FREE_ALLOCATION_CONFLICT";
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    const usage = await tx.query(`
+      SELECT consumed_seconds FROM app_chat_live_free_usage
+      WHERE tenant_id = $1 AND user_id = $2
+      FOR UPDATE
+    `, [tenantId, userId]);
+    const configured = Math.max(0, Number(row.configured_seconds || 0) || 0);
+    let allocated = Math.max(0, Number(row.allocated_seconds || 0) || 0);
+    let consumed = Math.max(0, Number(usage.rows[0]?.consumed_seconds || 0) || 0);
+    if (row.finalized !== true) {
+      const used = Math.max(0, Math.round(Number(usedSeconds || 0) || 0));
+      const finalAllocated = Math.min(allocated, used);
+      const release = allocated - finalAllocated;
+      if (release > 0) {
+        await tx.query(`
+          UPDATE app_chat_live_free_usage
+          SET consumed_seconds = GREATEST(0, consumed_seconds - $3), updated_at = NOW()
+          WHERE tenant_id = $1 AND user_id = $2
+        `, [tenantId, userId, release]);
+      }
+      await tx.query(`
+        UPDATE app_chat_live_free_allocations
+        SET allocated_seconds = $2, finalized = TRUE, updated_at = NOW()
+        WHERE session_id = $1
+      `, [cleanSessionId, finalAllocated]);
+      allocated = finalAllocated;
+      consumed = Math.max(0, consumed - release);
+    }
+    const latest = await tx.query(`
+      SELECT consumed_seconds FROM app_chat_live_free_usage
+      WHERE tenant_id = $1 AND user_id = $2
+    `, [tenantId, userId]);
+    consumed = Math.max(0, Number(latest.rows[0]?.consumed_seconds || 0) || 0);
+    const result = {
+      found: true,
+      finalized: true,
+      allocatedSeconds: allocated,
+      remainingSeconds: Math.max(0, configured - consumed),
+      consumedSeconds: consumed,
+      configuredSeconds: configured,
+      exhausted: consumed >= configured,
+    };
+    if (ownClient) await tx.query("COMMIT");
+    return result;
+  } catch (error) {
+    if (ownClient) await tx.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    ownClient?.release();
+  }
+}
+
+async function cancelChatLiveFreeAllocationInDb(sessionId = "") {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  const cleanSessionId = String(sessionId || "").trim();
+  if (!cleanSessionId) return false;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const discovered = await client.query(`
+      SELECT tenant_id, user_id FROM app_chat_live_free_allocations WHERE session_id = $1
+    `, [cleanSessionId]);
+    const owner = discovered.rows[0];
+    if (!owner) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const tenantId = normalizeTenantId(owner.tenant_id);
+    const userId = String(owner.user_id || "");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(tenantId, userId)]);
+    const allocation = await client.query(`
+      SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+    `, [cleanSessionId]);
+    const row = allocation.rows[0];
+    if (!row) {
+      await client.query("COMMIT");
+      return false;
+    }
+    if (normalizeTenantId(row.tenant_id) !== tenantId || String(row.user_id || "") !== userId) {
+      const conflict = new Error("Chat-live free allocation ownership changed during rollback");
+      conflict.code = "CHAT_LIVE_FREE_ALLOCATION_CONFLICT";
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    // Once finalized, the allocation is settlement evidence and must remain immutable.
+    if (row.finalized === true) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const allocated = Math.max(0, Number(row.allocated_seconds || 0) || 0);
+    if (allocated > 0) {
+      await client.query(`
+        UPDATE app_chat_live_free_usage
+        SET consumed_seconds = GREATEST(0, consumed_seconds - $3), updated_at = NOW()
+        WHERE tenant_id = $1 AND user_id = $2
+      `, [tenantId, userId, allocated]);
+    }
+    await client.query(`DELETE FROM app_chat_live_free_allocations WHERE session_id = $1`, [cleanSessionId]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/*
+ * An allocation is reserved before the Vidu request and the session row is
+ * written only after Vidu accepts the live. A process crash in that window can
+ * leave reserved free seconds without a session. This sweep releases only old
+ * allocations with no session row; it is deliberately not run on request paths
+ * because a legitimate Vidu create can take up to 45 seconds.
+ */
+async function cleanupOrphanedChatLiveFreeAllocationsInDb({ minAgeSeconds = 600, limit = 100 } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  await ensureSchema();
+  const safeMinAgeSeconds = Math.max(300, Math.min(86400, Number(minAgeSeconds || 0) || 600));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit || 100) || 100));
+  const { rows: candidates } = await query(`
+    SELECT a.session_id, a.tenant_id, a.user_id
+    FROM app_chat_live_free_allocations a
+    LEFT JOIN app_chat_live_sessions s ON s.id = a.session_id
+    WHERE a.finalized = FALSE
+      AND s.id IS NULL
+      AND a.created_at <= NOW() - ($1 * INTERVAL '1 second')
+    ORDER BY a.created_at ASC
+    LIMIT $2
+  `, [safeMinAgeSeconds, safeLimit]);
+  const released = [];
+  const pool = getPool();
+  for (const candidate of candidates) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const tenantId = normalizeTenantId(candidate.tenant_id);
+      const userId = String(candidate.user_id || "");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(tenantId, userId)]);
+      const { rows } = await client.query(`
+        SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+      `, [candidate.session_id]);
+      const allocation = rows[0];
+      if (!allocation || allocation.finalized === true) {
+        await client.query("COMMIT");
+        continue;
+      }
+      const session = await client.query(`SELECT 1 FROM app_chat_live_sessions WHERE id = $1`, [candidate.session_id]);
+      if (session.rows[0]) {
+        await client.query("COMMIT");
+        continue;
+      }
+      const allocated = Math.max(0, Number(allocation.allocated_seconds || 0) || 0);
+      if (allocated > 0) {
+        await client.query(`
+          UPDATE app_chat_live_free_usage
+          SET consumed_seconds = GREATEST(0, consumed_seconds - $3), updated_at = NOW()
+          WHERE tenant_id = $1 AND user_id = $2
+        `, [tenantId, userId, allocated]);
+      }
+      await client.query(`DELETE FROM app_chat_live_free_allocations WHERE session_id = $1`, [candidate.session_id]);
+      await client.query("COMMIT");
+      released.push(String(candidate.session_id || ""));
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  return released;
+}
+
 async function listChatLiveSessionsInDb({ userId = "", limit = 50, offset = 0, withTotal = false } = {}) {
   if (!dbEnabled()) return withTotal ? { items: [], total: 0 } : [];
   await ensureSchema();
@@ -2759,6 +3192,23 @@ async function listChatLiveSessionsInDb({ userId = "", limit = 50, offset = 0, w
     ? await query(`SELECT COUNT(*)::int AS total FROM app_chat_live_sessions WHERE user_id = $1`, [cleanUserId])
     : await query(`SELECT COUNT(*)::int AS total FROM app_chat_live_sessions`);
   return { items, total: Number(counted.rows[0]?.total || 0) || 0 };
+}
+
+async function listUnsettledChatLiveSessionsInDb({ limit = 50, minAgeSeconds = 60 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
+  const safeMinAgeSeconds = Math.max(0, Math.min(86400, Number(minAgeSeconds || 0) || 0));
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_chat_live_sessions
+    WHERE live_id <> ''
+      AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1')
+      AND created_at <= NOW() - ($1 * INTERVAL '1 second')
+    ORDER BY updated_at ASC, created_at ASC
+    LIMIT $2
+  `, [safeMinAgeSeconds, safeLimit]);
+  return rows.map((row) => row.payload || {});
 }
 
 async function upsertChatLiveRoomInDb(room = {}) {
@@ -3528,14 +3978,23 @@ async function createCreatorEarningEntry(client, { creatorUserId, viewerUserId =
   } : recordPayload;
 }
 
-async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId = "", characterId = "", sourceCredits = 0, earningRate = 0.3 } = {}) {
+async function recordCreatorUsageEarningInDb({
+  eventKey = "",
+  earningType = "",
+  viewerUserId = "",
+  characterId = "",
+  sourceCredits = 0,
+  earningRate = 0.3,
+  meta = {},
+} = {}) {
   if (!dbEnabled()) return null;
-  const cleanSessionId = String(sessionId || "").trim();
+  const cleanEventKey = String(eventKey || "").trim();
+  const cleanEarningType = String(earningType || "").trim();
   const cleanViewerUserId = String(viewerUserId || "").trim();
   const cleanCharacterId = String(characterId || "").trim();
   const source = creditNumber(sourceCredits || 0);
   const rate = Math.max(0, Math.min(1, Number(earningRate || 0.3) || 0.3));
-  if (!cleanSessionId || !cleanViewerUserId || !cleanCharacterId || source <= 0) return null;
+  if (!cleanEventKey || !/^[a-z0-9_]+_earning$/.test(cleanEarningType) || !cleanViewerUserId || !cleanCharacterId || source <= 0) return null;
   await ensureSchema();
   const pool = getPool();
   const client = await pool.connect();
@@ -3544,11 +4003,19 @@ async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId 
     const characterResult = await client.query(`SELECT payload FROM app_chat_live_characters WHERE id = $1`, [cleanCharacterId]);
     const character = characterResult.rows[0]?.payload || null;
     const creatorUserId = String(character?.createdByUserId || "").trim();
-    if (!creatorUserId || creatorUserId === cleanViewerUserId) {
+    /* Only characters explicitly shared from the user-facing Create tab are
+       eligible. Internal creator-center/system characters must never earn. */
+    if (character?.source !== "community"
+      || character?.communityShareEnabled !== true
+      || character?.communityVisibility !== "public"
+      || character?.enabled === false
+      || character?.embedMerchantId
+      || !creatorUserId
+      || creatorUserId === cleanViewerUserId) {
       await client.query("COMMIT");
       return null;
     }
-    const existing = await client.query(`SELECT * FROM app_creator_earning_ledger WHERE type = 'video_view_earning' AND session_id = $1 LIMIT 1`, [cleanSessionId]);
+    const existing = await client.query(`SELECT * FROM app_creator_earning_ledger WHERE type = $1 AND session_id = $2 LIMIT 1`, [cleanEarningType, cleanEventKey]);
     if (existing.rows[0]) {
       await client.query("COMMIT");
       return creatorEarningFromRow(existing.rows[0]);
@@ -3562,12 +4029,21 @@ async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId 
       creatorUserId,
       viewerUserId: cleanViewerUserId,
       characterId: cleanCharacterId,
-      sessionId: cleanSessionId,
-      type: "video_view_earning",
+      sessionId: cleanEventKey,
+      type: cleanEarningType,
       sourceCredits: source,
       earningRate: rate,
       deltaCredits: earning,
-      meta: { sessionId: cleanSessionId, characterId: cleanCharacterId, characterName: character?.name || "", viewerUserId: cleanViewerUserId, sourceCredits: source, earningRate: rate },
+      meta: {
+        ...meta,
+        eventKey: cleanEventKey,
+        earningType: cleanEarningType,
+        characterId: cleanCharacterId,
+        characterName: character?.name || "",
+        viewerUserId: cleanViewerUserId,
+        sourceCredits: source,
+        earningRate: rate,
+      },
     });
     await client.query("COMMIT");
     return record;
@@ -3578,6 +4054,18 @@ async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId 
   } finally {
     client.release();
   }
+}
+
+async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId = "", characterId = "", sourceCredits = 0, earningRate = 0.3 } = {}) {
+  return recordCreatorUsageEarningInDb({
+    eventKey: sessionId,
+    earningType: "video_view_earning",
+    viewerUserId,
+    characterId,
+    sourceCredits,
+    earningRate,
+    meta: { sessionId: String(sessionId || "").trim() },
+  });
 }
 
 async function getCreatorIncomeInDb(userId = "", limit = 50) {
@@ -3599,8 +4087,8 @@ async function getCreatorIncomeInDb(userId = "", limit = 50) {
     query(`
       SELECT
         COALESCE(SUM(delta_credits), 0)::numeric AS available_credits,
-        COALESCE(SUM(CASE WHEN type = 'video_view_earning' THEN delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
-        COUNT(*) FILTER (WHERE type = 'video_view_earning')::int AS earning_count
+        COALESCE(SUM(CASE WHEN type LIKE '%_earning' THEN delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
+        COUNT(*) FILTER (WHERE type LIKE '%_earning')::int AS earning_count
       FROM app_creator_earning_ledger
       WHERE creator_user_id = $1
     `, [cleanUserId]),
@@ -3713,10 +4201,10 @@ async function getAdminCreatorDataInDb({ page = 1, limit = 20, queryText = "" } 
     SELECT
       l.creator_user_id,
       COALESCE(u.username, l.creator_user_id) AS username,
-      COALESCE(SUM(CASE WHEN l.type = 'video_view_earning' THEN l.delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
+      COALESCE(SUM(CASE WHEN l.type LIKE '%_earning' THEN l.delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
       COALESCE(SUM(l.delta_credits), 0)::numeric AS available_credits,
-      COUNT(*) FILTER (WHERE l.type = 'video_view_earning')::int AS earning_count,
-      COUNT(DISTINCT l.character_id) FILTER (WHERE l.type = 'video_view_earning' AND l.character_id <> '')::int AS character_count,
+      COUNT(*) FILTER (WHERE l.type LIKE '%_earning')::int AS earning_count,
+      COUNT(DISTINCT l.character_id) FILTER (WHERE l.type LIKE '%_earning' AND l.character_id <> '')::int AS character_count,
       MAX(l.created_at) AS last_earning_at,
       COUNT(*) OVER()::int AS total_count
     FROM app_creator_earning_ledger l
@@ -4914,6 +5402,7 @@ module.exports = {
   createLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
+  recordCreatorUsageEarningInDb,
   recordCreatorVideoViewEarningInDb,
   getCreatorIncomeInDb,
   createCreatorWithdrawalInDb,
@@ -4940,6 +5429,7 @@ module.exports = {
   upsertGuideStateInDb,
   listChatMessagesInDb,
   insertChatMessageInDb,
+  insertChatMessagesIfAbsentInDb,
   updateChatMessageInDb,
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
@@ -4953,7 +5443,13 @@ module.exports = {
   getChatCharacterMemoryInDb,
   upsertChatCharacterMemoryInDb,
   updateChatLiveSessionInDb,
+  withChatLiveSessionSettlementLockInDb,
+  allocateChatLiveFreeSecondsInDb,
+  finalizeChatLiveFreeAllocationInDb,
+  cancelChatLiveFreeAllocationInDb,
+  cleanupOrphanedChatLiveFreeAllocationsInDb,
   listChatLiveSessionsInDb,
+  listUnsettledChatLiveSessionsInDb,
   upsertChatLiveRoomInDb,
   getChatLiveRoomInDb,
   listChatLiveRoomsInDb,

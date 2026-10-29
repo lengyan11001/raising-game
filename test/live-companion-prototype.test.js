@@ -15,6 +15,10 @@ test("live bottom navigation exposes the prototype create tab", () => {
   assert.match(live, /state\.page === "create"[\s\S]*?createCards\(\)/);
   assert.match(live, /function createCards\(\)/);
   assert.match(live, /data-create-form/);
+  assert.match(live, /api\("\/api\/chat-live\/community\/characters"/);
+  assert.match(live, /data-action="create-edit"/);
+  assert.match(live, /data-action="create-share"/);
+  assert.match(live, /function loadCreateCharacters/);
   assert.match(live, /api\("\/api\/chat-live\/creator\/characters"/);
 });
 
@@ -85,10 +89,25 @@ test("live gift and spending ledger rows keep a stable three-column layout", () 
 test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
+  assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026102908/);
-  assert.match(html, /live\.js\?v=2026102908/);
+  assert.match(html, /live\.css\?v=2026102912/);
+  assert.match(html, /live\.js\?v=2026102912/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
+});
+
+test("role detail labels, private-album header, and create empty state match the supplied design", () => {
+  assert.match(live, /topics: "人物标签"/);
+  assert.doesNotMatch(live, /她擅长的话题/);
+  assert.match(live, /<div class="filter-sheet-head"><h3>TA 的相册<\/h3>/);
+  assert.match(css, /\.album-sheet \.filter-sheet-head h3\{[^}]*white-space:nowrap[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
+  assert.match(live, /这不是聊天记录<br><em>这是关系<\/em>/);
+  assert.match(live, /AI 给了 Ta 说话的能力<br><em>是你让 Ta 有了情感<\/em>/);
+  assert.match(live, /角色是你写的，世界是你定的。<br>现实得不到的，在这里可以统统满足。/);
+  assert.match(live, /伴侣、爱慕对象、虚拟人物 创作你想聊的一切对象。/);
+  assert.match(live, /data-action="create-new">创建角色 →<\/button>/);
+  assert.match(live, /会员权益[\s\S]*?解锁隐私互动[\s\S]*?文字私信不限条[\s\S]*?语音 \/ 视频 8 折[\s\S]*?开设房间[\s\S]*?专属身份标识/);
+  assert.match(live, /人物标签[\s\S]*?最多选 3 个/);
 });
 
 test("live system messages, check-in, gift data, feedback, and billing rules are wired", () => {
@@ -98,12 +117,12 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /api\("\/api\/live\/notifications\/read-all"/);
   assert.match(live, /data-action="checkin"/);
   assert.match(live, /api\("\/api\/live\/checkin"/);
-  assert.match(live, /\["creator-income", "gift", "创作者收益", u \? "角色被使用产生的收益" : "登录后查看收益"\]/);
+  assert.match(live, /\["creator-income", "gift", "创作者收益", u \? "「创作」页公开角色的独立收益" : "登录后查看收益"\]/);
   assert.doesNotMatch(live, /\["creator-income", "gift", "礼物数据"/);
   assert.match(live, /state\.page === "creator-income"\) showCreatorIncome\(\)/);
   assert.match(live, /api\("\/api\/live\/creator-income\?limit=50"\)/);
   assert.match(live, /\["feedback", "chat", "问题反馈", "提交后会收到站内信回复"\]/);
-  assert.match(live, /\["creator", "pen", "创作者中心"/);
+  assert.match(live, /\.\.\.\(u\?\.role === "admin" \? \[\["creator", "pen", "创作者中心", "内部平台角色维护，不参与分成"\]\] : \[\]\)/);
   assert.match(live, /<section class="profile-menu" data-profile-menu>\$\{menu\}<\/section>/);
   assert.match(css, /\.profile-login-card/);
   assert.match(live, /state\.user = session\.user \|\| null;[\s\S]*?localStorage\.removeItem\(TOKEN_KEY\)/);
@@ -118,9 +137,9 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /api\("\/api\/support-messages"/);
   assert.match(live, /聊天付费规则/);
   assert.match(live, /文字私信[\s\S]*?0\.5 积分\/条/);
-  assert.match(live, /语音通话 \/ 语音消息[\s\S]*?2 积分\/秒/);
-  assert.match(live, /视频通话[\s\S]*?5 积分\/秒/);
-  assert.match(live, /陪伴房间[\s\S]*?5 积分\/秒/);
+  assert.match(live, /语音通话 \/ 语音消息[\s\S]*?2 → 1\.6/);
+  assert.match(live, /视频通话[\s\S]*?5 → 4/);
+  assert.match(live, /陪伴房间[\s\S]*?5 → 4/);
   assert.match(live, /礼物打赏[\s\S]*?data-action="rooms">去房间/);
   assert.match(css, /\.rule-rows>div>em,\.rule-rows>div>button\{[^}]*margin-left:auto[^}]*text-align:right[^}]*font-variant-numeric:tabular-nums/);
   assert.doesNotMatch(live, /textMessageCredits\s*\|\|\s*0\.5/);
