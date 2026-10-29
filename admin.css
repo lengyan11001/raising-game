@@ -1244,22 +1244,21 @@ a { color: inherit; text-decoration: none; }
   max-height: 340px;
   overflow: auto;
 }
-.adm-membership-code-list button {
+.adm-membership-code-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 9px 8px 12px;
   border: 1px solid var(--adm-line);
   border-radius: 8px;
   background: rgba(255, 255, 255, .035);
-  color: var(--adm-text);
-  cursor: pointer;
 }
-.adm-membership-code-list button:hover { border-color: rgba(46, 212, 207, .45); }
-.adm-membership-code-list code { min-width: 0; overflow-wrap: anywhere; }
-.adm-membership-code-list svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.adm-membership-code-item:hover { border-color: rgba(46, 212, 207, .45); }
+.adm-membership-code-item code { min-width: 0; overflow-wrap: anywhere; }
+.adm-membership-code-item .adm-btn { flex: 0 0 auto; }
+.adm-membership-code-item svg { width: 16px; height: 16px; }
 .adm-membership-code-table th:last-child,
 .adm-membership-code-table td:last-child { width: 120px; }
 

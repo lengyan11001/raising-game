@@ -133,3 +133,12 @@ test("membership top-up bonuses are capped at 20 percent", () => {
   assert.match(config, /id: "usd-500", amount: 500, credits: 60000/);
   assert.doesNotMatch(server, /id:\s*"usd-500", amount: 500, credits: 65000/);
 });
+
+test("admin membership code reveal has an explicit one-click copy button", () => {
+  const admin = read("admin.js");
+  const css = read("admin.css");
+  assert.match(admin, /adm-membership-code-item[^`]*data-copy-membership-code/);
+  assert.match(admin, /<i data-lucide="copy"><\/i>复制<\/button>/);
+  assert.match(admin, /copyText\(button\.dataset\.copyMembershipCode \|\| "", "激活码已复制。"\)/);
+  assert.match(css, /\.adm-membership-code-item \.adm-btn \{ flex: 0 0 auto; \}/);
+});

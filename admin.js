@@ -3060,7 +3060,7 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
             </div>
           </div>
           <div class="adm-card-body adm-membership-code-list">
-            ${revealed.map((record) => `<button type="button" data-copy-membership-code="${escapeHtml(record.code || "")}"><code>${escapeHtml(record.code || "")}</code><i data-lucide="copy"></i></button>`).join("")}
+            ${revealed.map((record) => `<div class="adm-membership-code-item"><code>${escapeHtml(record.code || "")}</code><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-copy-membership-code="${escapeHtml(record.code || "")}"><i data-lucide="copy"></i>复制</button></div>`).join("")}
           </div>
         </article>
       </div>
