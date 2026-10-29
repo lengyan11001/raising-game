@@ -156,6 +156,14 @@ test("membership top-up package credits and pink bonus badges match requested ra
   assert.match(css, /\.topup-package-badge/);
   assert.match(css, /background: #ff4fa3;/);
 });
+test("non-members do not flash top-up bonus badges; redeeming membership refreshes packages immediately", () => {
+  const explore = read("platform.explore.js");
+  const create = read("platform.create.js");
+  assert.match(explore, /const member = creatorMembershipActive\(\);/);
+  assert.match(explore, /bonusPercent: member \? Number\(item\.bonusPercent/);
+  assert.match(create, /Array\.isArray\(state\.billing\?\.topupPackages\)/);
+  assert.match(create, /state\.wallet = \{ \.\.\.\(state\.wallet \|\| \{\}\), topupPackages: state\.billing\.topupPackages \}/);
+});
 
 test("admin membership code list exposes a persistent one-click copy button", () => {
   const admin = read("admin.js");

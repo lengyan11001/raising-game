@@ -4261,13 +4261,14 @@ function topupPackages() {
   const configured = Array.isArray(state.wallet?.topupPackages) ? state.wallet.topupPackages : [];
   const fallback = tenantFeature("subscriptions", false) ? DEFAULT_TOOL_TOPUP_PACKAGES : DEFAULT_TOPUP_PACKAGES;
   const packages = configured.length ? configured : fallback;
+  const member = creatorMembershipActive();
   return packages
     .map((item) => ({
       id: String(item.id || `usd-${item.amount || ""}`).trim(),
       amount: Number(item.amount || 0),
       credits: creditsAmount(item.credits),
-      bonusPercent: Number(item.bonusPercent || ((item.bonusCredits && item.credits) ? Math.round((item.bonusCredits / item.credits) * 100) : 0)),
-      memberBonus: Boolean(item.memberBonus),
+      bonusPercent: member ? Number(item.bonusPercent || ((item.bonusCredits && item.credits) ? Math.round((item.bonusCredits / item.credits) * 100) : 0)) : 0,
+      memberBonus: Boolean(item.memberBonus && member),
       currency: String(item.currency || "USD").trim().toUpperCase() || "USD",
     }))
     .filter((item) => item.id && item.amount > 0 && item.credits > 0);

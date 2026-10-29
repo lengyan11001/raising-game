@@ -6039,6 +6039,9 @@ async function loadBillingSummary() {
     const payload = await requestJson("/api/billing/summary");
     state.billing = payload.billing || state.billing;
     if (payload.user) setUser(payload.user);
+    if (Array.isArray(state.billing?.topupPackages)) {
+      state.wallet = { ...(state.wallet || {}), topupPackages: state.billing.topupPackages };
+    }
     if (!membershipWasActive && creatorMembershipActive() && typeof refreshCaseLibraryAccess === "function") {
       refreshCaseLibraryAccess();
     }
