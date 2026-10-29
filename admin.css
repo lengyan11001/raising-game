@@ -1235,7 +1235,6 @@ a { color: inherit; text-decoration: none; }
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.adm-membership-code-layout { align-items: start; }
 .adm-membership-code-cell {
   display: grid;
   gap: 5px;

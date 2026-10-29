@@ -27,14 +27,12 @@ function loadStoryFunctions() {
     extractFunction("normalizeChatLiveStory"),
     extractFunction("chatLiveStoryLocation"),
     extractFunction("chatLiveStoryAction"),
-    extractFunction("chatLiveStoryTransition"),
-    extractFunction("chatLiveStoryTransitionPath"),
     extractFunction("publicChatLiveStory"),
     extractFunction("chatLiveStoryStageForText"),
     extractFunction("chatLiveStoryLocationKeywords"),
     extractFunction("chatLiveStoryLocationForText"),
     extractFunction("chatLiveStoryDirectorSelection"),
-    'module.exports = { normalizeChatLiveStory, chatLiveStoryDirectorSelection, publicChatLiveStory, chatLiveStoryTransition, chatLiveStoryTransitionPath, chatLiveStoryLocationForText };',
+    'module.exports = { normalizeChatLiveStory, chatLiveStoryDirectorSelection, publicChatLiveStory, chatLiveStoryLocationForText };',
   ].join("\n");
   const sandbox = { module: { exports: {} }, exports: {}, console, Math };
   const patched = code.replace(/function chatLiveStoryStageForText[\s\S]*?\n}/, `function chatLiveStoryStageForText(text = "", currentStage = "casual") {
@@ -60,10 +58,6 @@ const storyFixture = {
   actions: [
     { id: "kiss", name: "接吻", spot: "料理台前", poseLabel: "侧身靠近", imageUrl: "https://example.test/kiss.jpg", action: "kissing", stages: ["flirting", "foreplay"], locations: ["kitchen", "living_room"] },
     { id: "intimate_sofa", name: "沙发亲密", spot: "客厅沙发", poseLabel: "侧卧", imageUrl: "https://example.test/sofa.jpg", action: "intimate on sofa", stages: ["intimate"], locations: ["living_room"] },
-  ],
-  transitions: [
-    { from: "kitchen", to: "living_room", videoUrl: "https://example.test/kitchen-to-living.mp4" },
-    { from: "living_room", to: "bedroom", videoUrl: "https://example.test/living-to-bedroom.mp4" },
   ],
 };
 
@@ -99,49 +93,6 @@ test("action selection respects both stage and location", () => {
   assert.equal(selection.actionId, "kiss");
 });
 
-test("transition lookup supports explicit and location-entry transition videos", () => {
-  const { normalizeChatLiveStory, chatLiveStoryTransition } = loadStoryFunctions();
-  const story = normalizeChatLiveStory(storyFixture);
-  assert.equal(chatLiveStoryTransition(story, "kitchen", "living_room"), "https://example.test/kitchen-to-living.mp4");
-  assert.equal(chatLiveStoryTransition(story, "living_room", "kitchen"), "");
-});
-
-test("transition path is continuous and a direct jump needs every intermediate video", () => {
-  const { normalizeChatLiveStory, chatLiveStoryTransitionPath, chatLiveStoryDirectorSelection } = loadStoryFunctions();
-  const story = normalizeChatLiveStory(storyFixture);
-  assert.deepEqual(Array.from(chatLiveStoryTransitionPath(story, "kitchen", "bedroom")), [
-    "https://example.test/kitchen-to-living.mp4",
-    "https://example.test/living-to-bedroom.mp4",
-  ]);
-  const selection = chatLiveStoryDirectorSelection(story, {
-    text: "去卧室",
-    currentStage: "casual",
-    currentLocationId: "kitchen",
-    lastSwitchAt: new Date(Date.now() - 60_000).toISOString(),
-  });
-  assert.equal(selection.locationId, "bedroom");
-  assert.equal(selection.transitionUrl, "https://example.test/kitchen-to-living.mp4");
-  assert.deepEqual(Array.from(selection.transitionUrls), [
-    "https://example.test/kitchen-to-living.mp4",
-    "https://example.test/living-to-bedroom.mp4",
-  ]);
-});
-
-test("missing return transition blocks the room change instead of falling back to an image", () => {
-  const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
-  const story = normalizeChatLiveStory(storyFixture);
-  const selection = chatLiveStoryDirectorSelection(story, {
-    text: "回厨房",
-    currentStage: "casual",
-    currentLocationId: "living_room",
-    lastSwitchAt: new Date(Date.now() - 60_000).toISOString(),
-  });
-  assert.equal(selection.locationId, "living_room");
-  assert.equal(selection.locationChanged, false);
-  assert.equal(selection.blockedByMissingTransition, true);
-  assert.deepEqual(Array.from(selection.transitionUrls), []);
-});
-
 test("location keywords switch rooms but negated mentions do not", () => {
   const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
   const story = normalizeChatLiveStory(storyFixture);
@@ -153,7 +104,6 @@ test("location keywords switch rooms but negated mentions do not", () => {
   });
   assert.equal(kitchen.locationId, "living_room");
   assert.equal(kitchen.locationChanged, true);
-  assert.equal(kitchen.transitionUrl, "https://example.test/kitchen-to-living.mp4");
 
   const negated = chatLiveStoryDirectorSelection(story, {
     text: "别去卧室，就在这里",
@@ -163,21 +113,6 @@ test("location keywords switch rooms but negated mentions do not", () => {
   });
   assert.equal(negated.locationId, "living_room");
   assert.equal(negated.locationChanged, false);
-});
-
-test("location cooldown keeps the current room and reports why", () => {
-  const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
-  const story = normalizeChatLiveStory(storyFixture);
-  const selection = chatLiveStoryDirectorSelection(story, {
-    text: "去厨房",
-    currentStage: "casual",
-    currentLocationId: "living_room",
-    lastSwitchAt: new Date().toISOString(),
-  });
-  assert.equal(selection.locationId, "living_room");
-  assert.equal(selection.requestedLocationId, "kitchen");
-  assert.equal(selection.blockedByCooldown, true);
-  assert.equal(selection.transitionUrl, "");
 });
 
 test("public story omits private prompt fields and keeps render data", () => {
@@ -192,36 +127,52 @@ test("public story omits private prompt fields and keeps render data", () => {
   assert.equal("userText" in view.actions[0], false);
 });
 
-test("same location and stage can select different solo poses", () => {
+test("one room can keep ordinary stages sparse and rotate intimate poses", () => {
   const { normalizeChatLiveStory, chatLiveStoryDirectorSelection } = loadStoryFunctions();
   const story = normalizeChatLiveStory({
     ...storyFixture,
     switchCooldownSeconds: 0,
+    locations: [
+      { id: "living_room", name: "客厅沙发", imageUrl: "https://example.test/living.jpg" },
+    ],
     actions: [
-      { id: "sofa_sit", name: "沙发坐姿", spot: "客厅沙发", poseLabel: "坐姿", imageUrl: "https://example.test/sofa-sit.jpg", stages: ["flirting"], locations: ["living_room"] },
-      { id: "sofa_recline", name: "沙发侧卧", spot: "客厅沙发", poseLabel: "侧卧", imageUrl: "https://example.test/sofa-recline.jpg", stages: ["flirting"], locations: ["living_room"] },
+      { id: "daily_sofa", name: "沙发日常", spot: "客厅沙发", poseLabel: "坐姿", imageUrl: "https://example.test/daily.jpg", stages: ["casual"], locations: ["living_room"] },
+      { id: "intimate_recline", name: "沙发侧卧", spot: "客厅沙发", poseLabel: "侧卧", imageUrl: "https://example.test/recline.jpg", stages: ["intimate"], locations: ["living_room"] },
+      { id: "intimate_lean", name: "沙发前倾", spot: "客厅沙发", poseLabel: "前倾", imageUrl: "https://example.test/lean.jpg", stages: ["intimate"], locations: ["living_room"] },
+      { id: "intimate_sit", name: "沙发坐姿", spot: "客厅沙发", poseLabel: "坐姿", imageUrl: "https://example.test/sit.jpg", stages: ["intimate"], locations: ["living_room"] },
     ],
   });
-  const selection = chatLiveStoryDirectorSelection(story, {
-    text: "想和你暧昧一下",
+
+  const daily = chatLiveStoryDirectorSelection(story, {
+    text: "",
     currentStage: "casual",
     currentLocationId: "living_room",
-    recentActionIds: ["sofa_sit"],
   });
-  assert.equal(selection.actionId, "sofa_recline");
-  assert.equal(selection.spot, "客厅沙发");
-  assert.equal(selection.poseLabel, "侧卧");
+  assert.equal(daily.actionId, "daily_sofa");
+
+  const intimate = chatLiveStoryDirectorSelection(story, {
+    text: "我已经插进去了，别停",
+    currentStage: "intimate",
+    currentLocationId: "living_room",
+    recentActionIds: ["intimate_recline", "intimate_lean"],
+    history: [{ role: "user", content: "我插进去了，别停" }],
+  });
+  assert.equal(intimate.locationId, "living_room");
+  assert.equal(intimate.stage, "intimate");
+  assert.equal(intimate.actionId, "intimate_sit");
+  assert.equal(intimate.spot, "客厅沙发");
+  assert.equal(intimate.poseLabel, "坐姿");
 });
 
 test("entering a room applies the location look before any action image", () => {
   assert.match(client, /async function applyLiveStoryDirector\(director = \{\}, \{ retry = true, initial = false \} = \{\}\)/);
-  assert.match(client, /const actionLook = initial \? null : liveStoryActionLook/);
+  assert.match(client, /const actionLook = initial && !director\.look\?\.imageUrl && !director\.lookImageUrl/);
   assert.match(client, /initialLocationId/);
   assert.match(client, /\}, \{ initial: true \}\)/);
   assert.match(client, /state\.liveStoryLocationId = initialLocation\.id/);
 });
 
-test("admin and client wire story editing and director playback", () => {
+test("admin and client wire story editing, character looks, and director playback", () => {
   assert.match(admin, /固定场景 \/ 阶段 \/ 动作/);
   assert.match(admin, /liveStory: \{/);
   assert.match(admin, /data-story-action-stage/);
@@ -230,32 +181,33 @@ test("admin and client wire story editing and director playback", () => {
   assert.match(admin, /chatLiveStoryInitialLocation/);
   assert.match(admin, /同一地点、同一阶段可以添加多张不同位置和姿势的单人图/);
   assert.match(client, /applyLiveStoryDirector/);
-  assert.match(client, /playLiveStoryTransition/);
   assert.match(client, /sent\?\.director/);
-  assert.match(client, /chat-live-story-transition/);
-  assert.match(client, /video\.addEventListener\("error", fail/);
   assert.doesNotMatch(client, /video\.play\(\)\.catch\(done\)/);
   assert.match(client, /scheduleLiveStoryRetry/);
   assert.match(client, /applyLiveStoryDirector\(pending, \{ retry: true \}\)/);
   assert.match(client, /if \(!targetLook \|\| state\.ended\) return;/);
   assert.doesNotMatch(client, /if \(!targetLook \|\| !lookChannelReady\(\)/);
-  assert.match(admin, /storyLocationOptionsFor\(item\.from\)/);
-  assert.match(admin, /storyLocationOptionsFor\(item\.to\)/);
-  assert.match(admin, /item\.id === selectedId \? "selected"/);
+  assert.match(server, /looks: normalizeChatLiveLooks\(item\.looks\)/);
+  assert.match(client, /sessionId: state\.session\?\.id \|\| ""/);
   assert.match(server, /请至少添加一个场景，并上传场景背景图。/);
   assert.match(server, /场景「\$\{missingLocation\.name\}」请上传场景背景图。/);
   assert.match(server, /动作「\$\{missingAction\.name\}」请上传动作关键帧图。/);
   assert.match(admin, /data-story-location-image[\s\S]{0,500}filter\(\(item\) => item\.id && item\.name\)/);
   assert.doesNotMatch(admin, /filter\(\(item\) => item\.id && item\.name && item\.imageUrl\)/);
-  assert.match(client, /director\.transitionUrl/);
-  assert.match(client, /director\.transitionUrls/);
   assert.match(client, /confirmLiveStoryState/);
   assert.match(client, /story-state/);
   assert.match(server, /handleSaveChatLiveStoryState/);
-  assert.match(server, /STORY_TRANSITION_REQUIRED/);
-  assert.match(server, /blockedByMissingTransition/);
   assert.match(admin, /data-story-file/);
   assert.match(server, /if \(!embedLook && !isManagedChatLiveAssetUrl\(look\.imageUrl\)\)/);
   assert.doesNotMatch(server, /managedStoryAsset/);
   assert.doesNotMatch(client, /if \(!targetLook \|\| !lookChannelReady\(\)[\s\S]{0,220}state\.liveStoryLocationId = locationId/);
+});
+
+test("server picks a character look and the client applies it as the first scene frame", () => {
+  assert.match(server, /function chatLiveSceneSelectionForText/);
+  assert.match(server, /function aiSelectChatLiveScene/);
+  assert.match(server, /sceneSource: "ai"/);
+  assert.match(server, /\.\.\.\(look \? \{ look: publicChatLiveLook\(look\) \} : \{\}\)/);
+  assert.match(client, /function liveStorySceneLook/);
+  assert.match(client, /const actionLook = initial && !director\.look\?\.imageUrl && !director\.lookImageUrl/);
 });

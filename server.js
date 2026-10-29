@@ -156,6 +156,16 @@ const {
   getAdminUserCharactersPageFromDb,
   getUserCharactersPageFromDb,
   getAdminSupportMessagesPageFromDb,
+  listUserSupportMessagesInDb,
+  createUserSupportMessageInDb,
+  updateUserSupportMessageInDb,
+  listLiveNotificationsInDb,
+  markLiveNotificationReadInDb,
+  markAllLiveNotificationsReadInDb,
+  getLiveCheckinInDb,
+  createLiveCheckinWithCreditInDb,
+  getLiveCheckinSummaryInDb,
+  listCreatorGiftIncomeInDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,
@@ -3434,7 +3444,7 @@ async function geoSiteSnapshot(req) {
     platform,
     brand: siteBrandFromConfig(config),
     homeVideo,
-    characters,
+    characters: characters.map((item) => ({ ...item, looks: normalizeChatLiveLooks(item.looks) })),
     tags,
     categories,
     tenantOptions,
@@ -6300,10 +6310,6 @@ function normalizeChatLiveStory(raw = {}, existing = null) {
       keywords: String(item?.keywords || "").trim().slice(0, 240),
       imageUrl: normalizeChatLiveStoryUrl(item?.imageUrl || item?.lookImageUrl),
       lookId: String(item?.lookId || `story-location-${id}`).trim().slice(0, 80),
-      entryTransitions: Object.fromEntries(Object.entries(item?.entryTransitions && typeof item.entryTransitions === "object" ? item.entryTransitions : {})
-        .map(([from, url]) => [normalizeChatLiveStoryId(from), normalizeChatLiveStoryUrl(url)])
-        .filter(([from, url]) => from && url)
-        .slice(0, 12)),
     };
   }).filter(Boolean);
   const locationIds = new Set(locations.map((item) => item.id));
@@ -6333,16 +6339,6 @@ function normalizeChatLiveStory(raw = {}, existing = null) {
       userText: String(item?.userText || "").trim().slice(0, 200),
     };
   }).filter(Boolean);
-  const seenTransitions = new Set();
-  const transitions = (Array.isArray(source.transitions) ? source.transitions : []).slice(0, 30).map((item) => {
-    const from = normalizeChatLiveStoryId(item?.from);
-    const to = normalizeChatLiveStoryId(item?.to);
-    const videoUrl = normalizeChatLiveStoryUrl(item?.videoUrl);
-    const key = `${from}:${to}`;
-    if (!from || !to || !videoUrl || from === to || !locationIds.has(from) || !locationIds.has(to) || seenTransitions.has(key)) return null;
-    seenTransitions.add(key);
-    return { from, to, videoUrl };
-  }).filter(Boolean);
   const initialLocationId = locationIds.has(normalizeChatLiveStoryId(source.initialLocationId))
     ? normalizeChatLiveStoryId(source.initialLocationId)
     : (locations[0]?.id || "");
@@ -6354,7 +6350,6 @@ function normalizeChatLiveStory(raw = {}, existing = null) {
     stages: stages.length ? stages : CHAT_LIVE_STORY_STAGES.slice(),
     locations,
     actions,
-    transitions,
   };
 }
 
@@ -6368,50 +6363,145 @@ function chatLiveStoryAction(story = {}, actionId = "") {
   return (Array.isArray(story.actions) ? story.actions : []).find((item) => item.id === id) || null;
 }
 
-function chatLiveStoryTransition(story = {}, fromId = "", toId = "") {
-  const from = normalizeChatLiveStoryId(fromId);
-  const to = normalizeChatLiveStoryId(toId);
-  if (!from || !to || from === to) return "";
-  return (Array.isArray(story.transitions) ? story.transitions : []).find((item) => item.from === from && item.to === to)?.videoUrl
-    || chatLiveStoryLocation(story, to)?.entryTransitions?.[from]
-    || "";
+function chatLiveSceneSelectionForText(story = {}, {
+  text = "",
+  currentStage = "casual",
+  currentLocationId = "",
+  recentActionIds = [],
+  history = [],
+} = {}) {
+  const normalized = normalizeChatLiveStory(story);
+  if (!normalized.enabled || !normalized.locations.length) return null;
+  const fallback = chatLiveStoryDirectorSelection(normalized, {
+    text,
+    currentStage,
+    currentLocationId,
+    recentActionIds,
+    history,
+  });
+  if (!fallback) return null;
+  const keywords = [...new Set([
+    ...String(text || "").split(/[\s,.，。！？!?；;:：]+/u),
+    ...(Array.isArray(history) ? history : []).slice(-2)
+      .filter((item) => item?.role === "user")
+      .map((item) => String(item?.content || ""))
+      .join(" ")
+      .split(/[\s,.，。！？!?；;:：]+/u),
+  ])].map((item) => String(item || "").trim().toLowerCase()).filter((item) => item.length >= 2).slice(-12);
+  const scored = normalized.locations.map((location) => {
+    const terms = chatLiveStoryLocationKeywords(location);
+    const score = keywords.reduce((sum, keyword) => sum + (terms.some((term) => term.includes(keyword) || keyword.includes(term)) ? 1 : 0), 0);
+    return { id: location.id, score };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
+  const actions = normalized.actions.filter((item) => item.locations.includes(fallback.locationId));
+  const action = keywords.length && actions.length ? actions.map((item) => {
+    const haystack = [item.name, item.action, item.spot, item.poseLabel, ...(item.stages || [])]
+      .map((value) => String(value || "").toLowerCase()).join(" ");
+    const stageTerm = CHAT_LIVE_STORY_STAGE_LABELS[fallback.stage] || "";
+    const score = keywords.reduce((sum, keyword) => sum + (haystack.includes(keyword) ? 1 : 0), 0)
+      + (stageTerm && haystack.includes(stageTerm) ? 0.5 : 0);
+    return { id: item.id, score };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score)[0] : null;
+  return {
+    ...fallback,
+    requestedLocationId: scored.length ? scored[0].id : fallback.requestedLocationId,
+    sceneActionHint: action?.id || fallback.actionId,
+    sceneSource: "keywords",
+  };
 }
 
-function chatLiveStoryTransitionPath(story = {}, fromId = "", toId = "") {
-  const from = normalizeChatLiveStoryId(fromId);
-  const to = normalizeChatLiveStoryId(toId);
-  if (!from || !to) return [];
-  if (from === to) return [];
-  const locations = Array.isArray(story.locations) ? story.locations : [];
-  const locationIds = new Set(locations.map((item) => item.id));
-  if (!locationIds.has(from) || !locationIds.has(to)) return [];
-  const edges = new Map();
-  const addEdge = (start, end, videoUrl) => {
-    const a = normalizeChatLiveStoryId(start);
-    const b = normalizeChatLiveStoryId(end);
-    const url = normalizeChatLiveStoryUrl(videoUrl);
-    if (!a || !b || a === b || !url || !locationIds.has(a) || !locationIds.has(b)) return;
-    if (!edges.has(a)) edges.set(a, []);
-    const list = edges.get(a);
-    if (!list.some((item) => item.to === b)) list.push({ to: b, videoUrl: url });
+async function aiSelectChatLiveScene(selection = {}, { text = "", history = [] } = {}) {
+  if (!ALIYUN_QWEN37_API_KEY) return null;
+  const story = normalizeChatLiveStory(selection.story || {});
+  if (!story.enabled || !story.locations.length) return null;
+  const nodes = [
+    ...story.locations.map((item) => ({ type: "location", id: item.id, name: item.name, desc: item.description, keywords: item.keywords })),
+    ...story.actions.map((item) => ({
+      type: "action", id: item.id, name: item.name, desc: item.action, locationIds: item.locations,
+      stageIds: item.stages, spot: item.spot, pose: item.poseLabel,
+    })),
+    ...story.looks.map((item) => ({ type: item.kind, id: item.id, name: item.name })),
+  ];
+  const stageIds = story.stages.map((item) => item.id);
+  const currentStage = stageIds.includes(selection.stage) ? selection.stage : stageIds[0];
+  const currentLocationId = story.locations.some((item) => item.id === selection.locationId)
+    ? selection.locationId
+    : story.initialLocationId;
+  const prompt = [
+    "你是单人直播的画面导演。根据最新用户发言和最近对话，选择接下来最合适的画面节点。",
+    "只输出 JSON：{\"stageId\":\"...\",\"locationId\":\"...\",\"actionId\":\"\",\"lookId\":\"\",\"reason\":\"...\"}。",
+    "规则：locationId 必须是场景 id；actionId 必须属于该场景且与 stageId 兼容；lookId 只在用户明确要换外观、道具或背景时填；不确定就返回当前 stage/location 且 actionId/lookId 为空；不要生成 Markdown。",
+    `阶段：${JSON.stringify(stageIds)}`,
+    `当前阶段：${currentStage}`,
+    `当前场景：${currentLocationId}`,
+    `节点：${JSON.stringify(nodes)}`,
+    `最近对话：${JSON.stringify((Array.isArray(history) ? history : []).slice(-4).map((item) => ({ role: item?.role || "user", content: String(item?.content || "").slice(0, 200) })))}`,
+    `最新用户发言：${String(text || "").slice(0, 1000)}`,
+    `关键词初选：${JSON.stringify({ stageId: currentStage, locationId: selection.locationId, actionId: selection.sceneActionHint || selection.actionId })}`,
+  ].join("\n");
+  const raw = await aliyunQwen37FlashRequest({
+    model: QWEN37_FLASH_MODEL,
+    messages: [{ role: "user", content: prompt }],
+    enable_thinking: false,
+    max_tokens: 240,
+    temperature: 0.2,
+  }, { timeoutMs: 12000 });
+  const textResult = qwen37FlashResponseText(raw).replace(/^```(?:json)?|```$/g, "").trim();
+  const start = textResult.indexOf("{");
+  const end = textResult.lastIndexOf("}");
+  const parsed = start >= 0 && end > start ? JSON.parse(textResult.slice(start, end + 1)) : {};
+  const stageId = stageIds.includes(String(parsed.stageId || "")) ? String(parsed.stageId) : currentStage;
+  const locationId = story.locations.some((item) => item.id === String(parsed.locationId || "")) ? String(parsed.locationId) : currentLocationId;
+  const action = story.actions.find((item) => item.id === String(parsed.actionId || "")
+    && item.locations.includes(locationId) && item.stages.includes(stageId)) || null;
+  const look = story.looks.find((item) => item.id === String(parsed.lookId || "") && item.enabled !== false) || null;
+  return {
+    stageId,
+    locationId,
+    actionId: action?.id || "",
+    lookId: look?.id || "",
+    reason: String(parsed.reason || "").slice(0, 200),
   };
-  for (const item of Array.isArray(story.transitions) ? story.transitions : []) addEdge(item.from, item.to, item.videoUrl);
-  for (const location of locations) {
-    for (const [start, videoUrl] of Object.entries(location.entryTransitions || {})) addEdge(start, location.id, videoUrl);
+}
+
+async function saveChatLiveSceneSelection(sessionId = "", selection = {}) {
+  const id = String(sessionId || "").trim();
+  if (!id) return null;
+  const stage = CHAT_LIVE_STORY_STAGES.includes(String(selection.stage || "")) ? String(selection.stage) : "casual";
+  const locationId = normalizeChatLiveStoryId(selection.locationId);
+  const actionId = normalizeChatLiveStoryId(selection.actionId);
+  const lookId = String(selection.lookId || "").trim().slice(0, 80);
+  const lookKind = ["garment", "object", "background"].includes(String(selection.lookKind || "")) ? String(selection.lookKind) : "";
+  const lookImageUrl = normalizeChatLiveStoryUrl(selection.lookImageUrl);
+  const lookUserText = String(selection.lookUserText || "").trim().slice(0, 200);
+  const recentActionIds = (Array.isArray(selection.recentActionIds) ? selection.recentActionIds : [])
+    .map((item) => normalizeChatLiveStoryId(item)).filter(Boolean).slice(-8);
+  const lastSwitchAt = String(selection.lastSwitchAt || "").trim().slice(0, 40);
+  const { rows } = await dbQuery(`
+    UPDATE app_chat_live_sessions
+    SET payload = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  jsonb_set(
+                    jsonb_set(COALESCE(payload, '{}'::jsonb), '{liveStoryStage}', to_jsonb($2::text), true),
+                  '{liveStoryLocationId}', to_jsonb($3::text), true),
+                '{liveStoryRecentActionIds}', $4::jsonb, true),
+              '{liveStoryLastSwitchAt}', to_jsonb($5::text), true),
+            '{liveStoryLookId}', to_jsonb($6::text), true),
+          '{liveStoryLookKind}', to_jsonb($7::text), true),
+        '{liveStoryLookImageUrl}', to_jsonb($8::text), true),
+      '{updatedAt}', to_jsonb($9::text), true),
+      updated_at = $9::timestamptz
+    WHERE id = $1
+    RETURNING payload
+  `, [id, stage, locationId, JSON.stringify(recentActionIds), lastSwitchAt, lookId, lookKind, lookImageUrl, new Date().toISOString()]);
+  const payload = rows[0]?.payload || null;
+  if (payload && lookId && lookKind && lookImageUrl) {
+    payload.liveStoryLookUserText = lookUserText;
   }
-  const queue = [{ id: from, urls: [] }];
-  const seen = new Set([from]);
-  while (queue.length) {
-    const current = queue.shift();
-    for (const edge of edges.get(current.id) || []) {
-      if (seen.has(edge.to)) continue;
-      const urls = [...current.urls, edge.videoUrl];
-      if (edge.to === to) return urls;
-      seen.add(edge.to);
-      queue.push({ id: edge.to, urls });
-    }
-  }
-  return [];
+  return payload;
 }
 
 function publicChatLiveStory(raw = {}) {
@@ -6440,7 +6530,6 @@ function publicChatLiveStory(raw = {}) {
       poseLabel: item.poseLabel,
       action: item.action,
     })),
-    transitions: story.transitions.map((item) => ({ from: item.from, to: item.to, videoUrl: item.videoUrl })),
   };
 }
 
@@ -6511,29 +6600,59 @@ function chatLiveStoryDirectorSelection(story = {}, { text = "", currentStage = 
     ? normalizeChatLiveStoryId(currentLocationId)
     : normalized.initialLocationId;
   const requestedLocationId = chatLiveStoryLocationForText(normalized, text, currentId) || currentId;
-  const numericLastSwitchAt = Number(lastSwitchAt);
-  const parsedLastSwitchAt = Number.isFinite(numericLastSwitchAt) && numericLastSwitchAt > 0
-    ? numericLastSwitchAt
-    : Date.parse(String(lastSwitchAt || ""));
-  const elapsedMs = Number.isFinite(parsedLastSwitchAt) && parsedLastSwitchAt > 0
-    ? Date.now() - parsedLastSwitchAt
-    : Number.POSITIVE_INFINITY;
-  const cooldownMs = Math.max(0, Number(normalized.switchCooldownSeconds || 0) || 0) * 1000;
-  const requestedLocationChanged = Boolean(currentId && requestedLocationId && requestedLocationId !== currentId);
-  const blockedByCooldown = requestedLocationChanged && elapsedMs < cooldownMs;
-  const transitionUrls = requestedLocationChanged && !blockedByCooldown
-    ? chatLiveStoryTransitionPath(normalized, currentId, requestedLocationId)
-    : [];
-  const blockedByMissingTransition = requestedLocationChanged && !blockedByCooldown && !transitionUrls.length;
-  const locationId = blockedByCooldown || blockedByMissingTransition ? currentId : requestedLocationId;
+  const locationId = requestedLocationId;
   const locationChanged = locationId !== currentId;
   const candidates = normalized.actions.filter((item) => item.locations.includes(locationId)
     && item.stages.includes(stage)
     && item.imageUrl);
+  const looks = (Array.isArray(normalized.looks) ? normalized.looks : [])
+    .filter((item) => item?.imageUrl && item?.enabled !== false);
+  const stageTerms = {
+    casual: ["日常", "闲聊", "坐", "站", "轻"],
+    flirting: ["暧昧", "靠近", "温柔", "害羞", "脸红"],
+    foreplay: ["前戏", "贴近", "呼吸", "耳语", "拥抱"],
+    intimate: ["亲密", "缠绵", "床", "身体", "深入"],
+    aftercare: ["余韵", "休息", "依靠", "平静", "抱着"],
+  };
+  const lookTerms = stageTerms[stage] || [];
+  const lookPool = looks.map((item) => {
+    const haystack = `${item.name || ""} ${item.userText || ""} ${item.kind || ""}`.toLowerCase();
+    const score = lookTerms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
+    return { item, score };
+  }).sort((a, b) => b.score - a.score);
+  const maxLookScore = lookPool[0]?.score || 0;
+  const rankedLooks = maxLookScore > 0 ? lookPool.filter((item) => item.score === maxLookScore) : lookPool;
+  const recentIds = new Set((Array.isArray(recentActionIds) ? recentActionIds : []).slice(-3));
+  const freshLooks = rankedLooks.filter((item) => !recentIds.has(item.item.id));
+  const selectedLook = (freshLooks.length ? freshLooks : rankedLooks)[0]?.item || null;
+  if (selectedLook) {
+    return {
+      stage,
+      stageLabel: CHAT_LIVE_STORY_STAGE_LABELS[stage] || stage,
+      locationId,
+      previousLocationId: currentId,
+      requestedLocationId,
+      locationChanged,
+      actionId: "",
+      actionName: selectedLook.name || "画面素材",
+      action: selectedLook.userText || `使用参考图里的画面素材：${selectedLook.name || "这个素材"}。`,
+      spot: "",
+      poseLabel: "",
+      imageUrl: selectedLook.imageUrl,
+      look: {
+        id: selectedLook.id,
+        kind: selectedLook.kind,
+        name: selectedLook.name,
+        imageUrl: selectedLook.imageUrl,
+        userText: selectedLook.userText,
+      },
+      sceneSource: "look-stage",
+    };
+  }
   const recent = new Set((Array.isArray(recentActionIds) ? recentActionIds : []).slice(-3));
   const fresh = candidates.filter((item) => !recent.has(item.id));
   const pool = fresh.length ? fresh : candidates;
-  const action = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  const selectedAction = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
   return {
     stage,
     stageLabel: CHAT_LIVE_STORY_STAGE_LABELS[stage] || stage,
@@ -6541,17 +6660,14 @@ function chatLiveStoryDirectorSelection(story = {}, { text = "", currentStage = 
     previousLocationId: currentId,
     requestedLocationId,
     locationChanged,
-    blockedByCooldown,
-    blockedByMissingTransition,
-    transitionUrls,
-    transitionUrl: transitionUrls[0] || "",
-    actionId: action?.id || "",
-    actionName: action?.name || "",
-    action: action?.action || "",
-    spot: action?.spot || "",
-    poseLabel: action?.poseLabel || "",
-    imageUrl: action?.imageUrl || "",
-    userText: action?.userText || (action ? `按照参考图改成这个动作：${action.action || action.name}` : ""),
+    actionId: selectedAction?.id || "",
+    actionName: selectedAction?.name || "",
+    action: selectedAction?.action || "",
+    spot: selectedAction?.spot || "",
+    poseLabel: selectedAction?.poseLabel || "",
+    imageUrl: selectedAction?.imageUrl || "",
+    userText: selectedAction?.userText || (selectedAction ? `按照参考图改成这个动作：${selectedAction.action || selectedAction.name}` : ""),
+    sceneSource: "action-frame",
   };
 }
 
@@ -6839,11 +6955,9 @@ function chatLiveCharacterValidationError(character = {}, existing = null) {
     if (missingLocation) return `场景「${missingLocation.name}」请上传场景背景图。`;
     const missingAction = story.actions.find((item) => !item.imageUrl);
     if (missingAction) return `动作「${missingAction.name}」请上传动作关键帧图。`;
-    if (!story.transitions.length) return "切换地点必须先上传至少一条过场视频。";
     const asset = [
       ...story.locations.map((item) => ({ url: item.imageUrl, label: "场景背景图" })),
       ...story.actions.map((item) => ({ url: item.imageUrl, label: "动作关键帧图" })),
-      ...story.transitions.map((item) => ({ url: item.videoUrl, label: "过场视频" })),
     ].find((item) => item.url && !isManagedChatLiveAssetUrl(item.url));
     if (asset) return `${asset.label}请用上传控件上传，不要粘贴外部地址。`;
   }
@@ -7408,6 +7522,7 @@ function livePricingView(live = {}) {
     enabled: live.enabled !== false,
     costCreditsPerMinute: Number(live.costCreditsPerMinute || 0),
     saleCreditsPerMinute: Number(live.saleCreditsPerMinute || 0),
+    sharedRoomSaleCreditsPerMinute: chatLiveSharedRoomSaleCredits(live),
     textMessageCredits: CHAT_MESSAGE_CREDITS,
     freeSeconds: Number(live.freeSeconds || 0),
     maxMinutes: Number(live.maxMinutes || 10),
@@ -7496,7 +7611,7 @@ async function handleAdminChatLiveCharacters(req, res) {
   return sendJson(res, 200, {
     ok: true,
     pricing: livePricingView(live),
-    characters,
+    characters: characters.map((item) => ({ ...item, looks: normalizeChatLiveLooks(item.looks) })),
     looks: live.looks,
     gifts: live.gifts,
     defaults: {
@@ -8888,9 +9003,6 @@ async function handleSaveChatLiveStoryState(req, res, sessionId = "") {
   const currentLocationId = story.locations.some((item) => item.id === normalizeChatLiveStoryId(session.liveStoryLocationId))
     ? normalizeChatLiveStoryId(session.liveStoryLocationId)
     : story.initialLocationId;
-  if (targetLocationId !== currentLocationId && !chatLiveStoryTransitionPath(story, currentLocationId, targetLocationId).length) {
-    return sendJson(res, 422, { ok: false, code: "STORY_TRANSITION_REQUIRED", message: "这个方向还没有配置过场视频，不能切换场景。" });
-  }
   const stage = CHAT_LIVE_STORY_STAGES.includes(String(body.stage || "")) ? String(body.stage) : "casual";
   const actionId = normalizeChatLiveStoryId(body.actionId);
   const action = chatLiveStoryAction(story, actionId);
@@ -8936,7 +9048,9 @@ async function handleChatLiveSay(req, res, sessionId = "") {
     }
     const sayMemory = await loadChatCharacterMemory(auth.user.id, session.characterId);
     const character = await getChatLiveCharacterInDb(session.characterId);
-    const director = chatLiveStoryDirectorSelection(character?.liveStory, {
+    const liveStory = normalizeChatLiveStory(character?.liveStory || {});
+    liveStory.looks = normalizeChatLiveLooks(character?.looks);
+    let director = chatLiveSceneSelectionForText(liveStory, {
       text,
       currentStage: session.liveStoryStage || "casual",
       currentLocationId: session.liveStoryLocationId || "",
@@ -8944,6 +9058,50 @@ async function handleChatLiveSay(req, res, sessionId = "") {
       history: Array.isArray(sayMemory?.turns) ? sayMemory.turns : [],
       lastSwitchAt: session.liveStoryLastSwitchAt || 0,
     });
+    if (director) {
+      try {
+        const ai = await aiSelectChatLiveScene({ ...director, story: liveStory }, {
+          text,
+          history: Array.isArray(sayMemory?.turns) ? sayMemory.turns : [],
+        });
+        if (ai) {
+          const currentId = director.locationId;
+          const changedLocation = ai.locationId && ai.locationId !== currentId;
+          const locationId = ai.locationId;
+          const location = chatLiveStoryLocation(liveStory, locationId);
+          const action = liveStory.actions.find((item) => item.id === ai.actionId
+            && item.locations.includes(locationId) && item.stages.includes(ai.stageId)) || null;
+          const explicitLook = /换|穿|拿|戴|脱|背景|衣服|服装|道具|手里/.test(text);
+          const look = explicitLook
+            ? liveStory.looks.find((item) => item.id === ai.lookId && item.enabled !== false && item.imageUrl) || null
+            : null;
+          director = {
+            ...director,
+            stage: ai.stageId,
+            stageLabel: CHAT_LIVE_STORY_STAGE_LABELS[ai.stageId] || ai.stageId,
+            locationId,
+            requestedLocationId: changedLocation ? ai.locationId : director.requestedLocationId,
+            locationChanged: locationId !== currentId,
+            actionId: action?.id || "",
+            actionName: action?.name || "",
+            action: action?.action || "",
+            spot: action?.spot || "",
+            poseLabel: action?.poseLabel || "",
+            imageUrl: action?.imageUrl || "",
+            userText: action?.userText || "",
+            sceneSource: "ai",
+            sceneReason: ai.reason,
+            ...(look ? { look: publicChatLiveLook(look) } : {}),
+          };
+        }
+      } catch (error) {
+        console.warn("[chat-live-scene-ai]", JSON.stringify({
+          sessionId: session.id,
+          code: error?.code || "",
+          message: String(error?.message || "").slice(0, 200),
+        }));
+      }
+    }
     const storyBlock = director
       ? `\nCURRENT LIVE SCENE: location=${director.locationId}; stage=${director.stageLabel}; suggested physical beat=${director.action || "none"}. The physical beat is direction only, never spoken narration. Keep the character in this location and stage unless the user explicitly changes it; do not invent a jump to another room.`
       : "";
@@ -8957,10 +9115,9 @@ async function handleChatLiveSay(req, res, sessionId = "") {
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "assistant", reply, "component");
     if (director) {
       const recent = [...(Array.isArray(session.liveStoryRecentActionIds) ? session.liveStoryRecentActionIds : []), director.actionId].filter(Boolean).slice(-8);
-      /* A room change is only a proposal until the client has played every
-         required transition video and successfully switched the live frame. */
+      /* The client confirms successful playback through story-state. */
       await saveChatLiveStoryState(session.id, {
-        locationId: director.locationChanged ? director.previousLocationId : director.locationId,
+        locationId: director.locationId,
         stage: director.stage,
         recentActionIds: recent,
         lastSwitchAt: session.liveStoryLastSwitchAt || "",
@@ -9123,8 +9280,18 @@ async function handleChatLiveLook(req, res, sessionId = "") {
     };
   } else {
     const lookId = String(body.lookId || "").trim();
+    const sessionId = String(body.sessionId || "").trim();
     const live = chatLiveConfigValue(await readAppConfig());
     let look = live.looks.find((item) => item.id === lookId && item.enabled !== false);
+    if (!look && sessionId) {
+      const lookSession = await getChatLiveSessionInDb(sessionId);
+      if (lookSession && lookSession.userId === auth.user.id) {
+        const character = await getChatLiveCharacterInDb(lookSession.characterId);
+        const story = normalizeChatLiveStory(character?.liveStory || {});
+        story.looks = normalizeChatLiveLooks(character?.looks);
+        look = story.looks.find((item) => item.id === lookId && item.enabled !== false);
+      }
+    }
     if (!look && lookId.startsWith("story-")) {
       const character = await getChatLiveCharacterInDb(session.characterId);
       const story = normalizeChatLiveStory(character?.liveStory || {});
@@ -38701,16 +38868,17 @@ async function handleAdminUpdateMembershipActivationCode(req, res, codeId) {
 async function handleCreateSupportMessage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "问题反馈需要数据库服务。" });
   const body = await readJson(req);
-  const email = String(body.email || "").trim();
-  const message = String(body.message || "").trim();
-  const subject = String(body.subject || "").trim();
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return sendJson(res, 400, { ok: false, message: "Valid email is required." });
-  }
+  const email = String(body.email || auth.user.email || "").trim();
+  const message = String(body.message || "").trim().slice(0, 5000);
+  const subject = String(body.subject || "").trim().slice(0, 120);
   if (!message) {
-    return sendJson(res, 400, { ok: false, message: "Message is required." });
+    return sendJson(res, 400, { ok: false, message: "请填写问题描述。" });
   }
+  const source = ["live feedback", "site form", "telegram"].includes(String(body.source || "").trim().toLowerCase())
+    ? String(body.source || "").trim().toLowerCase()
+    : "live feedback";
   const now = new Date().toISOString();
   const record = {
     id: randomId("support"),
@@ -38723,15 +38891,98 @@ async function handleCreateSupportMessage(req, res) {
     reply: "",
     repliedAt: "",
     repliedBy: "",
-    source: "site form",
+    source,
     createdAt: now,
     updatedAt: now,
   };
-  auth.db.supportMessages = Array.isArray(auth.db.supportMessages) ? auth.db.supportMessages : [];
-  auth.db.supportMessages.unshift(record);
-  if (dbEnabled()) await replaceAppDbTables(auth.db);
-  else await writeDb(auth.db);
-  return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
+  const saved = await createUserSupportMessageInDb(record);
+  return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(saved || record) });
+}
+
+async function handleListUserSupportMessages(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "问题反馈需要数据库服务。" });
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 30)));
+  const records = await listUserSupportMessagesInDb(auth.user.id, limit);
+  return sendJson(res, 200, {
+    ok: true,
+    messages: (records || []).map((record) => supportMessageView(record, new Map([[auth.user.id, auth.user]]))),
+  });
+}
+
+const LIVE_DAILY_CHECKIN_CREDITS = 20;
+
+async function handleListLiveNotifications(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统消息需要数据库服务。" });
+  const notifications = await listLiveNotificationsInDb(auth.user.id);
+  return sendJson(res, 200, {
+    ok: true,
+    notifications,
+    unreadCount: notifications.filter((item) => !item.readAt).length,
+  });
+}
+
+async function handleReadLiveNotification(req, res, notificationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统消息需要数据库服务。" });
+  const notification = await markLiveNotificationReadInDb(auth.user.id, notificationId);
+  if (!notification) return sendJson(res, 404, { ok: false, message: "消息不存在。" });
+  return sendJson(res, 200, { ok: true, notification });
+}
+
+async function handleReadAllLiveNotifications(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统消息需要数据库服务。" });
+  const count = await markAllLiveNotificationsReadInDb(auth.user.id);
+  return sendJson(res, 200, { ok: true, count });
+}
+
+async function handleGetLiveCheckin(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "签到需要数据库服务。" });
+  const checkinDate = localDayKey(new Date());
+  const summary = await getLiveCheckinSummaryInDb(auth.user.id, checkinDate);
+  return sendJson(res, 200, { ok: true, checkin: { ...(summary || {}), credits: LIVE_DAILY_CHECKIN_CREDITS }, user: userView(auth.user) });
+}
+
+async function handleCreateLiveCheckin(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "签到需要数据库服务。" });
+  const checkinDate = localDayKey(new Date());
+  const result = await createLiveCheckinWithCreditInDb({
+    id: randomId("checkin"),
+    userId: auth.user.id,
+    checkinDate,
+    credits: LIVE_DAILY_CHECKIN_CREDITS,
+    ledgerId: `live-checkin-${auth.user.id}-${checkinDate}`,
+    ledgerType: "live_daily_checkin",
+    ledgerMeta: { userId: auth.user.id, username: auth.user.username || "", checkinDate },
+  });
+  const summary = await getLiveCheckinSummaryInDb(auth.user.id, checkinDate);
+  const user = result?.user || auth.user;
+  return sendJson(res, 200, {
+    ok: true,
+    alreadyChecked: result?.inserted === false,
+    awardedCredits: result?.inserted ? LIVE_DAILY_CHECKIN_CREDITS : 0,
+    checkin: { ...(summary || {}), credits: LIVE_DAILY_CHECKIN_CREDITS },
+    user: userView(user),
+  });
+}
+
+async function handleGetLiveCreatorIncome(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "创作者收益需要数据库服务。" });
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 50)));
+  const income = await listCreatorGiftIncomeInDb(auth.user.id, limit);
+  return sendJson(res, 200, { ok: true, income: income || { totalCredits: 0, giftCount: 0, records: [] } });
 }
 
 function telegramSupportEnabled() {
@@ -38796,7 +39047,7 @@ function telegramSupportHelpText() {
 }
 
 async function persistTelegramSupportMessage(message = {}) {
-  const db = await readDb();
+  if (!dbEnabled()) throw Object.assign(new Error("Support database is unavailable."), { statusCode: 503, code: "DATABASE_REQUIRED" });
   const chat = message.chat || {};
   const from = message.from || {};
   const body = telegramMessageBody(message);
@@ -38826,10 +39077,7 @@ async function persistTelegramSupportMessage(message = {}) {
     createdAt: now,
     updatedAt: now,
   };
-  db.supportMessages = Array.isArray(db.supportMessages) ? db.supportMessages : [];
-  db.supportMessages.unshift(record);
-  await writeDb(db);
-  return record;
+  return (await createUserSupportMessageInDb(record)) || record;
 }
 
 async function notifyTelegramSupportAdmin(record = {}, message = {}) {
@@ -38978,9 +39226,7 @@ async function handleAdminReplySupportMessage(req, res, messageId) {
   record.repliedAt = new Date().toISOString();
   record.repliedBy = auth.user.username || auth.user.id || "admin";
   record.updatedAt = record.repliedAt;
-  auth.db.supportMessages = (auth.db.supportMessages || []).map((item) => (item.id === messageId ? record : item));
-  if (dbEnabled()) await replaceAppDbTables(auth.db);
-  else await writeDb(auth.db);
+  if (dbEnabled()) await updateUserSupportMessageInDb(messageId, record);
   return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
 }
 
@@ -49082,7 +49328,7 @@ async function serveStatic(req, res, url) {
   const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
   const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
   let pathname = decodeURIComponent(url.pathname === "/"
-    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : "/platform.html")
+    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : "/site-landing.html")
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
@@ -49201,7 +49447,7 @@ async function serveStatic(req, res, url) {
 
     const isHtml = contentType === "text/html";
     const isVersionedAsset = Boolean(url.searchParams.get("v"));
-    const frontendNames = ["/admin.html", "/admin.css", "/admin.js", "/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js"];
+    const frontendNames = ["/admin.html", "/admin.css", "/admin.js", "/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js", "/site-landing.html", "/site-landing.css", "/site-landing.js"];
     const isFrontendAsset = frontendNames.includes(pathname)
       || PLATFORM_ASSET_FILES.some((fileName) => pathname === `/${fileName}`)
       || ((liveTenantRequest || chatTenantRequest) && [".html", ".js", ".css"].includes(path.extname(pathname).toLowerCase()));
@@ -49780,6 +50026,28 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/support-messages") {
       return await handleCreateSupportMessage(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/support-messages") {
+      return await handleListUserSupportMessages(req, res, url);
+    }
+    if (req.method === "GET" && url.pathname === "/api/live/notifications") {
+      return await handleListLiveNotifications(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/live/notifications/read-all") {
+      return await handleReadAllLiveNotifications(req, res);
+    }
+    const liveNotificationReadMatch = url.pathname.match(/^\/api\/live\/notifications\/([^/]+)\/read$/);
+    if (req.method === "POST" && liveNotificationReadMatch) {
+      return await handleReadLiveNotification(req, res, decodeURIComponent(liveNotificationReadMatch[1]));
+    }
+    if (req.method === "GET" && url.pathname === "/api/live/checkin") {
+      return await handleGetLiveCheckin(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/live/checkin") {
+      return await handleCreateLiveCheckin(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/live/creator-income") {
+      return await handleGetLiveCreatorIncome(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/access/subtokens") {

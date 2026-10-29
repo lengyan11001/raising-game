@@ -34,14 +34,13 @@ test("admin media preview selects images, videos, and audio without autoplaying 
   const { adminMediaPreviewType, adminMediaPreviewTrigger } = loadPreviewHelpers();
   assert.equal(adminMediaPreviewType("https://cdn.test/a.webp", "avatar"), "image");
   assert.equal(adminMediaPreviewType("https://cdn.test/a.mp4", "image"), "video");
-  assert.equal(adminMediaPreviewType("https://cdn.test/transition", "transition-video"), "video");
   assert.equal(adminMediaPreviewType("https://cdn.test/a.m4a", ""), "audio");
 
   const image = adminMediaPreviewTrigger({ url: "https://cdn.test/a.webp", label: "场景图" });
   assert.match(image, /data-admin-media-preview/);
   assert.match(image, /<img src="https:\/\/cdn\.test\/a\.webp"/);
 
-  const video = adminMediaPreviewTrigger({ url: "https://cdn.test/a.mp4", kind: "video", label: "过场视频" });
+  const video = adminMediaPreviewTrigger({ url: "https://cdn.test/a.mp4", kind: "video", label: "视频素材" });
   assert.match(video, /<video src="https:\/\/cdn\.test\/a\.mp4#t=0\.1" muted playsinline preload="metadata"><\/video>/);
   assert.doesNotMatch(video, /controls|autoplay/);
   assert.match(video, /data-media-kind="video"/);
@@ -79,7 +78,7 @@ test("admin cards, records, templates, avatars, and geo samples render preview t
   assert.match(admin, /function renderGeoSampleCard[\s\S]*?adminMediaPreviewTrigger/);
 });
 
-test("story image and transition video previews refresh after upload and clear on failure", () => {
+test("story image previews refresh after upload and clear on failure", () => {
   const start = admin.indexOf("function bindChatLiveStoryAssetUploads(");
   const end = admin.indexOf("function readChatLivePersonaMarkdown(", start);
   assert.ok(start >= 0 && end > start);

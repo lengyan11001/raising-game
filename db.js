@@ -471,6 +471,7 @@ async function ensureSchemaInner() {
   await query(`
     ALTER TABLE app_chat_live_characters
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS looks JSONB NOT NULL DEFAULT '[]'::jsonb,
       ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
       ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
@@ -675,6 +676,43 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_live_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'system',
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      read_at TIMESTAMPTZ,
+      pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_live_notifications
+      ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'system',
+      ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_live_checkins (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      checkin_date DATE NOT NULL,
+      credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, checkin_date)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_generation_records (
       task_id TEXT PRIMARY KEY,
@@ -2515,18 +2553,18 @@ async function listChatLiveCharactersInDb({ includeDisabled = false } = {}) {
   if (!dbEnabled()) return [];
   await ensureSchema();
   const { rows } = await query(`
-    SELECT payload FROM app_chat_live_characters
+    SELECT payload, looks FROM app_chat_live_characters
     WHERE deleted_at IS NULL ${includeDisabled ? "" : "AND enabled = TRUE"}
     ORDER BY sort_order ASC, created_at ASC
   `);
-  return rows.map((row) => row.payload || {});
+  return rows.map((row) => ({ ...(row.payload || {}), looks: row.looks || [] }));
 }
 
 async function getChatLiveCharacterInDb(id = "") {
   if (!dbEnabled()) return null;
   await ensureSchema();
-  const { rows } = await query(`SELECT payload FROM app_chat_live_characters WHERE id = $1 AND deleted_at IS NULL`, [String(id || "")]);
-  return rows[0]?.payload || null;
+  const { rows } = await query(`SELECT payload, looks FROM app_chat_live_characters WHERE id = $1 AND deleted_at IS NULL`, [String(id || "")]);
+  return rows[0] ? { ...(rows[0].payload || {}), looks: rows[0].looks || [] } : null;
 }
 
 async function upsertChatLiveCharacterInDb(character = {}) {
@@ -2534,10 +2572,11 @@ async function upsertChatLiveCharacterInDb(character = {}) {
   await ensureSchema();
   const payload = { ...character };
   await query(`
-    INSERT INTO app_chat_live_characters(id, payload, enabled, sort_order, deleted_at, created_at, updated_at)
-    VALUES ($1, $2::jsonb, $3, $4, NULLIF($5, '')::timestamptz, $6::timestamptz, $7::timestamptz)
+    INSERT INTO app_chat_live_characters(id, payload, looks, enabled, sort_order, deleted_at, created_at, updated_at)
+    VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, NULLIF($6, '')::timestamptz, $7::timestamptz, $8::timestamptz)
     ON CONFLICT (id) DO UPDATE SET
       payload = EXCLUDED.payload,
+      looks = EXCLUDED.looks,
       enabled = EXCLUDED.enabled,
       sort_order = EXCLUDED.sort_order,
       deleted_at = EXCLUDED.deleted_at,
@@ -2545,6 +2584,7 @@ async function upsertChatLiveCharacterInDb(character = {}) {
   `, [
     payload.id,
     JSON.stringify(payload),
+    JSON.stringify(Array.isArray(payload.looks) ? payload.looks : []),
     payload.enabled !== false,
     Number(payload.sortOrder || 0) || 0,
     payload.deletedAt || "",
@@ -3147,6 +3187,292 @@ async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", scen
     `,
     [cleanUserId, cleanItemId, cleanSceneId, cleanSceneEntryId],
   );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+function liveNotificationFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    kind: String(row.kind || "system"),
+    title: String(row.title || ""),
+    body: String(row.body || ""),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    readAt: row.read_at ? new Date(row.read_at).toISOString() : "",
+    pinned: row.pinned === true,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function listLiveNotificationsInDb(userId = "") {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_live_notifications(id, user_id, kind, title, body, payload, pinned, created_at, updated_at)
+    VALUES ($1, $2, 'system', '欢迎来到 Vipeak Live', '在这里，角色会记得你们聊过的事。每日签到可领取 20 V币，问题反馈会直接进入站内信。', '{"welcome":true}'::jsonb, TRUE, NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING
+  `, [`live-welcome-${cleanUserId}`, cleanUserId]);
+  const { rows } = await query(`
+    SELECT * FROM app_live_notifications
+    WHERE user_id = $1
+    ORDER BY pinned DESC, created_at DESC
+    LIMIT 100
+  `, [cleanUserId]);
+  return rows.map(liveNotificationFromRow);
+}
+
+async function markLiveNotificationReadInDb(userId = "", notificationId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_live_notifications
+    SET read_at = COALESCE(read_at, NOW()), updated_at = NOW()
+    WHERE user_id = $1 AND id = $2
+    RETURNING *
+  `, [String(userId || ""), String(notificationId || "")]);
+  return rows[0] ? liveNotificationFromRow(rows[0]) : null;
+}
+
+async function markAllLiveNotificationsReadInDb(userId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    UPDATE app_live_notifications
+    SET read_at = COALESCE(read_at, NOW()), updated_at = NOW()
+    WHERE user_id = $1 AND read_at IS NULL
+  `, [String(userId || "")]);
+  return Number(rowCount || 0);
+}
+
+async function getLiveCheckinInDb(userId = "", checkinDate = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_live_checkins
+    WHERE user_id = $1 AND checkin_date = $2::date
+    LIMIT 1
+  `, [String(userId || ""), String(checkinDate || "")]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    checkinDate: row.checkin_date ? new Date(row.checkin_date).toISOString().slice(0, 10) : "",
+    credits: creditNumber(row.credits || 0),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  };
+}
+
+async function createLiveCheckinInDb({ id = "", userId = "", checkinDate = "", credits = 0 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_live_checkins(id, user_id, checkin_date, credits)
+    VALUES ($1, $2, $3::date, $4::numeric)
+    ON CONFLICT (user_id, checkin_date) DO NOTHING
+    RETURNING *
+  `, [String(id || ""), String(userId || ""), String(checkinDate || ""), creditNumber(credits || 0)]);
+  return rows[0] ? getLiveCheckinInDb(userId, checkinDate) : null;
+}
+
+async function createLiveCheckinWithCreditInDb({
+  id = "",
+  userId = "",
+  checkinDate = "",
+  credits = 0,
+  ledgerId = "",
+  ledgerType = "live_daily_checkin",
+  ledgerMeta = {},
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanId = String(id || "").trim();
+  const cleanLedgerId = String(ledgerId || "").trim();
+  const amount = creditNumber(credits || 0);
+  if (!cleanUserId || !cleanId || !cleanLedgerId || amount <= 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query(`
+      INSERT INTO app_live_checkins(id, user_id, checkin_date, credits)
+      VALUES ($1, $2, $3::date, $4::numeric)
+      ON CONFLICT (user_id, checkin_date) DO NOTHING
+      RETURNING *
+    `, [cleanId, cleanUserId, String(checkinDate || ""), amount]);
+    if (!inserted.rows.length) {
+      await client.query("COMMIT");
+      return { checkin: await getLiveCheckinInDb(cleanUserId, checkinDate), user: null, inserted: false };
+    }
+    const userRows = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
+    const row = userRows.rows[0];
+    if (!row) {
+      const error = new Error("User not found for check-in.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const current = creditNumber(row.credits || 0);
+    const nextCredits = creditNumber(current + amount);
+    const now = new Date().toISOString();
+    const meta = { ...(ledgerMeta || {}), checkinDate: String(checkinDate || ""), credits: amount };
+    const ledger = {
+      id: cleanLedgerId,
+      userId: cleanUserId,
+      delta: amount,
+      balanceAfter: nextCredits,
+      type: String(ledgerType || "live_daily_checkin"),
+      meta,
+      createdAt: now,
+    };
+    await client.query(`
+      UPDATE app_users
+      SET credits = $2::numeric,
+          payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+          updated_at = $3::timestamptz
+      WHERE id = $1
+    `, [cleanUserId, nextCredits, now]);
+    await client.query(`
+      INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+      VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+      ON CONFLICT (id) DO NOTHING
+    `, [cleanLedgerId, cleanUserId, amount, nextCredits, ledger.type, JSON.stringify(meta), JSON.stringify(ledger), now]);
+    const updated = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
+    await client.query("COMMIT");
+    return {
+      checkin: {
+        id: String(inserted.rows[0].id || ""),
+        userId: cleanUserId,
+        checkinDate: String(checkinDate || ""),
+        credits: amount,
+        createdAt: inserted.rows[0].created_at ? new Date(inserted.rows[0].created_at).toISOString() : now,
+      },
+      user: userFromRow(updated.rows[0]),
+      ledger,
+      inserted: true,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getLiveCheckinSummaryInDb(userId = "", checkinDate = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const today = await getLiveCheckinInDb(userId, checkinDate);
+  const { rows } = await query(`
+    SELECT checkin_date::text AS checkin_date
+    FROM app_live_checkins
+    WHERE user_id = $1
+    ORDER BY checkin_date DESC
+    LIMIT 90
+  `, [String(userId || "")]);
+  const dates = new Set(rows.map((row) => String(row.checkin_date || "")));
+  let streak = 0;
+  const cursor = new Date(`${String(checkinDate || new Date().toISOString().slice(0, 10))}T00:00:00Z`);
+  while (dates.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return { checkedIn: Boolean(today), today, streak, recentDates: [...dates].slice(0, 30) };
+}
+
+async function listCreatorGiftIncomeInDb(userId = "", limit = 50) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const { rows } = await query(`
+    SELECT
+      l.id, l.delta, l.created_at, l.meta,
+      COALESCE(c.payload->>'name', l.meta->>'characterName', '') AS character_name
+    FROM app_credit_ledger l
+    JOIN app_chat_live_characters c ON c.id = COALESCE(l.meta->>'characterId', '')
+    WHERE c.payload->>'createdByUserId' = $1
+      AND c.deleted_at IS NULL
+      AND LOWER(l.type) LIKE '%gift%'
+      AND l.delta < 0
+    ORDER BY l.created_at DESC
+    LIMIT $2
+  `, [cleanUserId, safeLimit]);
+  const totals = await query(`
+    SELECT COALESCE(SUM(ABS(l.delta)), 0)::numeric AS total, COUNT(*)::int AS count
+    FROM app_credit_ledger l
+    JOIN app_chat_live_characters c ON c.id = COALESCE(l.meta->>'characterId', '')
+    WHERE c.payload->>'createdByUserId' = $1
+      AND c.deleted_at IS NULL
+      AND LOWER(l.type) LIKE '%gift%'
+      AND l.delta < 0
+  `, [cleanUserId]);
+  const records = rows.map((row) => ({
+    id: String(row.id || ""),
+    credits: creditNumber(Math.abs(Number(row.delta || 0))),
+    characterName: String(row.character_name || ""),
+    giftName: String(row.meta?.giftName || "礼物"),
+    characterId: String(row.meta?.characterId || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  }));
+  return {
+    totalCredits: creditNumber(totals.rows[0]?.total || 0),
+    giftCount: Number(totals.rows[0]?.count || 0),
+    records,
+  };
+}
+
+async function listUserSupportMessagesInDb(userId = "", limit = 30) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
+  const { rows } = await query(`
+    SELECT * FROM app_support_messages
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT $2
+  `, [String(userId || ""), safeLimit]);
+  return rows.map(recordFromPayloadRow);
+}
+
+async function createUserSupportMessageInDb(record = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(record.id || "").trim();
+  const userId = String(record.userId || "").trim();
+  if (!id || !userId) return null;
+  await ensureSchema();
+  const payload = { ...record, id, userId };
+  const createdAt = record.createdAt || new Date().toISOString();
+  const updatedAt = record.updatedAt || createdAt;
+  const { rows } = await query(`
+    INSERT INTO app_support_messages(id, user_id, payload, created_at, updated_at)
+    VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      user_id = EXCLUDED.user_id,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `, [id, userId, JSON.stringify(payload), createdAt, updatedAt]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function updateUserSupportMessageInDb(messageId = "", patch = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(messageId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const updatedAt = patch.updatedAt || new Date().toISOString();
+  const cleanPatch = { ...(patch || {}), updatedAt };
+  const { rows } = await query(`
+    UPDATE app_support_messages
+    SET payload = payload || $2::jsonb,
+        updated_at = $3::timestamptz
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING *
+  `, [id, JSON.stringify(cleanPatch), updatedAt]);
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
@@ -4174,6 +4500,17 @@ module.exports = {
   getAdminUserCharactersPageFromDb,
   getUserCharactersPageFromDb,
   getAdminSupportMessagesPageFromDb,
+  listUserSupportMessagesInDb,
+  listLiveNotificationsInDb,
+  markLiveNotificationReadInDb,
+  markAllLiveNotificationsReadInDb,
+  getLiveCheckinInDb,
+  createLiveCheckinInDb,
+  createLiveCheckinWithCreditInDb,
+  getLiveCheckinSummaryInDb,
+  listCreatorGiftIncomeInDb,
+  createUserSupportMessageInDb,
+  updateUserSupportMessageInDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,

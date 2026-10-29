@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, textChatBursts: new Map() };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -50,12 +50,12 @@
       attribution: landing,
     };
   }
-  async function api(url, options = {}) { const h = { "content-type": "application/json", ...(options.headers || {}) }; if (token()) h.authorization = `Bearer ${token()}`; const r = await fetch(url, { cache: "no-store", ...options, headers: h }); const p = await r.json().catch(() => ({})); if (!r.ok) throw new Error(p.message || `请求失败（${r.status}）`); return p; }
+  async function api(url, options = {}) { const h = { "content-type": "application/json", ...(options.headers || {}) }; if (token()) h.authorization = `Bearer ${token()}`; const r = await fetch(url, { cache: "no-store", ...options, headers: h }); const p = await r.json().catch(() => ({})); if (!r.ok) { const error = new Error(p.message || `请求失败（${r.status}）`); error.status = r.status; error.code = p.code || ""; throw error; } return p; }
   const photo = (x) => x?.profilePhotos?.[0] || "";
   const rolePhoto = (x) => x?.portraitUrl || x?.avatarUrl || x?.posterUrl || x?.coverUrl || x?.imageUrl || x?.photoUrl || x?.characterImageUrl || "";
   const label = (key) => ({ zh: { home: "首页", messages: "消息", create: "创作", profile: "我的", language: "语言", recommended: "为你推荐", online: "位在线", call: "视频聊天", vip: "订阅 VIP", edit: "编辑资料", save: "保存", cancel: "取消" }, en: { home: "Home", messages: "Messages", create: "Create", profile: "Me", language: "Language", recommended: "Recommended", online: "online", call: "Video call", vip: "VIP", edit: "Edit profile", save: "Save", cancel: "Cancel" }, ja: { home: "ホーム", messages: "メッセージ", create: "作成", profile: "マイページ", language: "言語", recommended: "おすすめ", online: "オンライン", call: "ビデオ通話", vip: "VIP", edit: "プロフィール編集", save: "保存", cancel: "キャンセル" } }[state.language] || {} )[key] || key;
   const nav = (active) => `<nav class="bottom-nav"><button class="${active === "home" ? "active" : ""}" data-nav="home"><span>${uiIcon("home")}</span><small>${label("home")}</small></button><button class="${active === "messages" ? "active" : ""}" data-nav="messages"><span>${uiIcon("chat")}</span><small>${label("messages")}</small></button><button class="${active === "create" ? "active" : ""}" data-nav="create"><span>${uiIcon("magic")}</span><small>${label("create")}</small></button><button class="${active === "profile" ? "active" : ""}" data-nav="profile"><span>${uiIcon("user")}</span><small>${label("profile")}</small></button></nav>`;
-  const top = () => `<header class="live-top"><div class="live-brand"><img class="brand-icon" src="/assets/brand/live-logo.png" alt="Vipeak"><div><div class="brand-title">Vipeak</div><div class="brand-sub">${t("brandSub")}</div></div></div><button class="language-globe" data-action="language-sheet" aria-label="${label("language")}">◎</button></header>`;
+  const top = () => `<header class="live-top"><div class="live-brand"><img class="brand-icon" src="/assets/brand/live-logo.png" alt="Vipeak"><div><div class="brand-title">Vipeak</div><div class="brand-sub">${t("brandSub")}</div></div></div><div class="live-top-actions"><button class="checkin-chip" type="button" data-action="checkin">${uiIcon("crown")}每日领V币</button><button class="live-icon-button" type="button" data-action="settings" aria-label="设置">${uiIcon("gear")}</button><button class="live-icon-button" type="button" data-action="language-sheet" aria-label="${label("language")}">◎</button></div></header>`;
   const media = (url, alt = "") => url ? `<img src="${esc(url)}" alt="${esc(alt)}" loading="lazy">` : `<div class="image-empty"><span>♙</span></div>`;
   function roomCard(room, showCount = true) { const c = room.character || {}; return `<article class="room-card" data-room-id="${esc(room.id || "")}" data-room-pending="${room.pending || !room.id ? "1" : "0"}" data-room-character-id="${esc(room.characterId)}"><div class="room-image">${media(rolePhoto(c), c.name || "角色")}${showCount ? `<span class="room-online">${Number(room.viewerCount || 0)} 人在房</span>` : ""}<span class="room-mode"><i></i>${esc(room.modeLabel || (room.mode === "voice" ? "语音房" : "视频房"))}</span></div><div class="room-copy"><strong>${esc(room.title || `${c.name || "角色"}的陪伴房`)}</strong><small>${esc(room.description || "一起聊聊")}</small></div></article>`; }
   function card(c) {
@@ -306,7 +306,10 @@
       const unread = Number(c.unreadCount || c.unread || 0) || 0;
       return `<button type="button" class="conversation" data-conversation-id="${esc(c.id)}" data-character-id="${esc(c.characterId || c.character?.id || "")}"><span class="avatar">${media(conversationAvatar(c), name)}</span><span class="conversation-main"><span class="conversation-top"><span class="conversation-name">${esc(name)}</span><span class="conversation-time">${esc(chatTime(c.updatedAt))}</span></span><span class="conversation-preview">${esc(conversationPreview(c))}</span></span>${unread ? `<em class="unread-dot">${unread > 99 ? "99+" : unread}</em>` : ""}</button>`;
     }).join("");
-    app.innerHTML = `<main class="live-page messages-page"><header class="page-header messages-head"><h1>${label("messages")}</h1><button type="button" data-action="rooms">${uiIcon("plus")}开房间</button></header><section class="message-entries"><button type="button" data-action="rooms"><span>${uiIcon("users")}</span><b>私密房间</b></button><button type="button" data-action="vip"><span>${uiIcon("crown")}</span><b>订阅权益</b></button><button type="button" data-action="gift"><span>${uiIcon("gift")}</span><b>礼物记录</b></button></section><p class="message-list-label">最近私信 · 1v1</p><section class="conversation-list">${rows || '<div class="empty-state"><h2>还没有私信</h2><p>进入角色直播间后，相关对话会显示在这里。</p></div>'}</section></main>${nav("messages")}`;
+    const latest = state.notifications[0];
+    const unread = Number(state.notificationUnreadCount || 0);
+    const systemRow = `<button type="button" class="conversation system-message-row" data-action="system-messages"><span class="avatar system-message-avatar">${uiIcon("chat")}</span><span class="conversation-main"><span class="conversation-top"><span class="conversation-name">系统消息</span><span class="conversation-time">${latest ? esc(chatTime(latest.createdAt)) : ""}</span></span><span class="conversation-preview">${esc(latest?.title || (state.notificationsLoading ? "正在加载通知…" : "签到、反馈回复和平台通知会显示在这里"))}</span></span>${unread ? `<em class="unread-dot">${unread > 99 ? "99+" : unread}</em>` : ""}</button>`;
+    app.innerHTML = `<main class="live-page messages-page"><header class="page-header messages-head"><h1>${label("messages")}</h1><button type="button" data-action="rooms">${uiIcon("plus")}开房间</button></header><section class="message-entries"><button type="button" data-action="rooms"><span>${uiIcon("users")}</span><b>私密房间</b></button><button type="button" data-action="vip"><span>${uiIcon("crown")}</span><b>订阅权益</b></button><button type="button" data-action="gift"><span>${uiIcon("gift")}</span><b>礼物记录</b></button></section><p class="message-list-label">置顶消息</p><section class="conversation-list pinned-list">${systemRow}</section><p class="message-list-label">最近私信 · 1v1</p><section class="conversation-list">${rows || '<div class="empty-state"><h2>还没有私信</h2><p>进入角色直播间后，相关对话会显示在这里。</p></div>'}</section></main>${nav("messages")}`;
   }
 
   function interests() { return ["胶片摄影", "徒步", "看展", "咖啡", "飞盘", "脱口秀", "剧本杀", "骑行", "深夜电台", "羽毛球"]; }
@@ -326,12 +329,14 @@
     const companion = state.companionLevel || u?.companionLevel || null;
     const menu = [
       ["rooms", "users", "我的陪伴房间", ""],
-      ["creator", "pen", "创作者", ""],
+      ["creator", "pen", "创作者中心", ""],
+      ["creator-income", "gift", "礼物数据", ""],
       ["level", "crown", "陪伴等级", companion?.level || ""],
       ["wallet", "wallet", "钱包与消费记录", ""],
-      ["referral", "share", "推荐获收益", ""],
-      ["edit-profile", "user", "编辑资料与兴趣标签", ""],
-      ["privacy", "gear", "隐私与安全", ""]
+      ["referral", "share", "邀请好友", ""],
+      ["edit-profile", "user", "编辑资料", ""],
+      ["privacy", "gear", "隐私与安全", ""],
+      ["feedback", "chat", "问题反馈", ""]
     ].map(([action, glyph, title, value]) => `<button type="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><b>${title}</b>${value ? `<small class="profile-menu-value">${esc(value)}</small>` : ""}<em>${uiIcon("chev")}</em></button>`).join("");
     app.innerHTML = `<main class="live-page profile-page"><header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "完善资料后显示在这里")}</p><small>${esc(u?.bio || "登录后完善你的资料")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : ""}</header>${u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的V币</span><button data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>${rate ? `视频通话 ${rate} 积分/分钟` : "按当前计费规则扣积分"}</small><div class="wallet-actions"><button data-action="gift">${uiIcon("gift")}礼物记录</button><button data-action="topup">${uiIcon("wallet")}充值</button></div></section><section class="profile-menu">${menu}</section><p class="profile-foot">Vipeak · 2026</p><button class="logout-link" data-action="account">退出登录</button>` : `<div class="empty-state"><h2>登录后查看个人中心</h2><p>登录后可以管理资料、会员和钱包。</p><button class="video-button" data-action="login">登录 / 注册</button></div>`}</main>${nav("profile")}`;
   }
@@ -796,6 +801,14 @@
     const cards = gifts.map((gift) => `<button type="button" class="gift-sheet-card" data-gift-id="${esc(gift.id)}" data-gift-cost="${esc(gift.credits)}"><img src="${esc(gift.imageUrl || "")}" alt=""><b>${esc(gift.name || "礼物")}</b><small>${esc(gift.credits)} 积分</small></button>`).join("");
     app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-gift-sheet data-action="close-sheet"><div class="gift-sheet" data-sheet><div class="sheet-handle"></div><div class="gift-sheet-head"><h3>礼物打赏</h3><span>余额 <b>${credits.toLocaleString("zh-CN")}</b> 积分</span></div><div class="gift-sheet-grid">${cards || '<p class="detail-empty">礼物还没有准备好</p>'}</div><button type="button" class="gift-sheet-more" data-action="recharge">去充值更多积分</button><button type="button" class="gift-sheet-cancel" data-action="close-sheet">取消</button></div></div>`);
   }
+  function showTextGiftEffect(gift) {
+    document.querySelector("[data-live-gift-effect]")?.remove();
+    const image = String(gift?.imageUrl || "");
+    const name = String(gift?.name || "礼物");
+    app.insertAdjacentHTML("beforeend", `<div class="live-gift-effect" data-live-gift-effect aria-live="polite"><div class="live-gift-rays"></div><div class="live-gift-sparks"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="live-gift-art">${image ? `<img src="${esc(image)}" alt="${esc(name)}">` : `<span>🎁</span>`}</div><div class="live-gift-caption"><small>礼物已送达</small><b>${esc(name)}</b></div></div>`);
+    const node = document.querySelector("[data-live-gift-effect]");
+    window.setTimeout(() => node?.remove(), 2400);
+  }
   async function sendTextGift(giftId, cost) {
     const credits = Number(state.user?.credits || 0);
     if (credits < Number(cost || 0)) {
@@ -811,6 +824,8 @@
       const result = await api(`/api/chat/conversations/${encodeURIComponent(state.textChatId)}/gift`, { method: "POST", body: JSON.stringify({ giftId, eventId: `gift-${Date.now().toString(36)}` }) });
       document.querySelector("[data-gift-sheet]")?.remove();
       if (state.user) state.user.credits = result.credits ?? Math.max(0, credits - Number(cost || 0));
+      const gift = (state.config?.gifts || []).find((item) => String(item.id) === String(giftId));
+      showTextGiftEffect(gift || { name: "礼物" });
       const thread = document.querySelector("[data-text-thread]");
       const known = state.conversations.find((item) => String(item.id) === String(state.textChatId));
       const name = known?.character?.name || state.role?.name || "对话";
@@ -997,8 +1012,72 @@
 
   function languageSheet() { app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-action="close-sheet"><div class="language-sheet" data-sheet><h3>选择语言</h3>${[["zh", "简体中文"],["en", "English"],["ja", "日本語"]].map(([id,name]) => `<button data-language="${id}" class="${state.language === id ? "selected" : ""}">${name}<span>${state.language === id ? "✓" : ""}</span></button>`).join("")}</div></div>`); }
   
-  function subpage(title, body) {
-    app.innerHTML = `<main class="live-page vip-page"><header class="detail-header"><button class="icon-button" data-action="back-profile">‹</button><h1>${esc(title)}</h1></header>${body}</main>${nav("profile")}`;
+  function subpage(title, body, back = state.subpageBack || "profile") {
+    const navKey = ["home", "messages", "profile"].includes(back) ? back : "profile";
+    app.innerHTML = `<main class="live-page vip-page"><header class="detail-header"><button class="icon-button" data-action="back-subpage">‹</button><h1>${esc(title)}</h1></header>${body}</main>${nav(navKey)}`;
+  }
+  function showCheckin() {
+    if (!token()) return askLogin();
+    state.page = "checkin";
+    state.subpageBack = "home";
+    const data = state.checkin || {};
+    const checked = data.checkedIn === true;
+    const streak = Number(data.streak || 0);
+    const today = data.today || null;
+    const recent = new Set(data.recentDates || []);
+    const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+      const key = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+      return { key, day: date.getDate(), weekday: weekdays[date.getDay()], active: recent.has(key), today: index === 6 };
+    });
+    const calendar = days.map((item) => `<div class="checkin-day${item.active ? " checked" : ""}${item.today ? " today" : ""}"><small>${item.weekday}</small><b>${item.active ? "✓" : item.day}</b><span>${item.today ? "今天" : ""}</span></div>`).join("");
+    const award = Number(data.credits || 0);
+    const awardText = award > 0 ? `${award} V币` : "今日奖励";
+    subpage("每日领V币", `<section class="checkin-hero"><div class="checkin-coin">V</div><div><span>今日可领</span><strong>${award > 0 ? `${award} <small>V币</small>` : awardText}</strong><p>每日 24:00 重置，连续签到保持记录</p></div></section><section class="checkin-streak"><div><b>${streak}</b><small>连续签到天数</small></div><div><b>${checked ? "已领取" : "待领取"}</b><small>今日状态</small></div></section><p class="section-label">最近 7 天</p><section class="checkin-week">${calendar}</section><section class="benefit-rows checkin-tasks"><div><span class="rule-ico gold">${uiIcon("crown")}</span><div><b>每日签到</b><small>${checked ? `今天已领取${award > 0 ? ` ${award} V币` : ""}${today?.createdAt ? ` · ${moneyTime(today.createdAt)}` : ""}` : "领取后 V币自动到账"}</small></div><em>${award > 0 ? `+${award}` : "奖励"}</em></div><div><span class="rule-ico pink">${uiIcon("heart")}</span><div><b>连续签到</b><small>保持每天回来看看 TA</small></div><em>${streak} 天</em></div></section><button class="checkin-claim" type="button" data-action="checkin-claim" ${checked || state.checkinLoading ? "disabled" : ""}>${checked ? "今日已领取" : state.checkinLoading ? "领取中…" : `领取${award > 0 ? ` ${award} V币` : ""}`}</button>${state.checkinError ? `<p class="form-error">${esc(state.checkinError)}</p>` : ""}<p class="pay-foot">签到 V币会直接进入钱包，可在钱包与消费记录中查看。</p>`, "home");
+  }
+  async function loadCheckin(force = false) {
+    if (!token() || (state.checkin && !force)) return state.checkin;
+    state.checkinLoading = true;
+    state.checkinError = "";
+    if (state.page === "checkin") showCheckin();
+    try {
+      const result = await api("/api/live/checkin");
+      state.checkin = result.checkin || null;
+      if (result.user) state.user = result.user;
+      return state.checkin;
+    } catch (error) {
+      state.checkinError = error.message || "签到信息加载失败";
+      return null;
+    } finally {
+      state.checkinLoading = false;
+      if (state.page === "checkin") showCheckin();
+    }
+  }
+  async function claimCheckin() {
+    if (!token()) return askLogin();
+    if (state.checkinLoading) return;
+    state.checkinLoading = true;
+    state.checkinError = "";
+    showCheckin();
+    try {
+      const result = await api("/api/live/checkin", { method: "POST", body: "{}" });
+      state.checkin = result.checkin || state.checkin;
+      if (result.user) state.user = result.user;
+      referralToast(result.alreadyChecked ? "今天已经签到过了" : (Number(result.awardedCredits || 0) > 0 ? `签到成功，+${Number(result.awardedCredits || 0)} V币` : "签到成功"));
+    } catch (error) {
+      state.checkinError = error.message || "签到失败，请稍后重试";
+    } finally {
+      state.checkinLoading = false;
+      if (state.page === "checkin") showCheckin();
+    }
+  }
+  function showSettings() {
+    state.page = "settings";
+    state.subpageBack = "profile";
+    const version = "1.0.0";
+    subpage("设置", `<section class="settings-list"><button type="button" data-action="language-sheet"><i>${uiIcon("chat")}</i><div><b>语言</b><small>${state.language === "en" ? "English" : state.language === "ja" ? "日本語" : "简体中文"}</small></div><em>${uiIcon("chev")}</em></button><a href="/downloads/vipeak-live.apk" download><i>${uiIcon("home")}</i><div><b>Android 下载</b><small>安装 Vipeak Live APK</small></div><em>${uiIcon("chev")}</em></a><button type="button" data-action="settings-ios"><i>${uiIcon("crown")}</i><div><b>iOS 下载</b><small>安装描述文件或使用网页版</small></div><em>${uiIcon("chev")}</em></button><div class="settings-static"><i>${uiIcon("gear")}</i><div><b>当前版本</b><small>Vipeak Live ${version}</small></div></div></section><p class="pay-foot">Vipeak Live · 用心陪伴每一次对话</p>`, "profile");
   }
   function moneyTime(value) {
     const date = new Date(value || "");
@@ -1089,6 +1168,106 @@
     if(ratio>=5) return `常用档 · 加赠 ${b} 积分`;
     return `小额加赠 · 多送 ${b} 积分`;
   }
+  async function loadNotifications(force = false) {
+    if (!token()) return [];
+    if (!force && state.notifications.length) return state.notifications;
+    state.notificationsLoading = true;
+    state.notificationsError = "";
+    try {
+      const result = await api("/api/live/notifications");
+      state.notifications = Array.isArray(result.notifications) ? result.notifications : [];
+      state.notificationUnreadCount = Number(result.unreadCount || 0);
+      return state.notifications;
+    } catch (error) {
+      state.notificationsError = error.message || "系统消息加载失败";
+      return [];
+    } finally {
+      state.notificationsLoading = false;
+    }
+  }
+  function notificationIcon(kind) {
+    if (/gift|income/.test(kind)) return uiIcon("gift");
+    if (/feedback|support/.test(kind)) return uiIcon("chat");
+    return uiIcon("crown");
+  }
+  function showSystemMessages() {
+    if (!token()) return askLogin();
+    state.page = "system-messages";
+    state.subpageBack = "messages";
+    const loading = state.notificationsLoading && !state.notifications.length;
+    const rows = state.notifications.map((item) => `<article class="notification-card${item.readAt ? "" : " unread"}" data-notification-id="${esc(item.id)}"><div class="notification-icon">${notificationIcon(item.kind)}</div><div><div class="notification-title"><b>${esc(item.title || "系统消息")}</b>${item.pinned ? "<span>置顶</span>" : ""}</div><p>${esc(item.body || "")}</p><small>${esc(moneyTime(item.createdAt))}</small></div>${item.readAt ? "" : "<i></i>"}</article>`).join("");
+    subpage("系统消息", `<section class="notification-list">${loading ? '<div class="empty-state"><p>正在加载系统消息…</p></div>' : rows || `<div class="empty-state"><h2>暂时没有系统消息</h2><p>${esc(state.notificationsError || "签到、反馈回复和平台通知会显示在这里。")}</p></div>`}</section>`, "messages");
+  }
+  async function openSystemMessages() {
+    if (!token()) return askLogin();
+    state.page = "system-messages";
+    state.subpageBack = "messages";
+    showSystemMessages();
+    await loadNotifications(true);
+    if (state.page === "system-messages") showSystemMessages();
+    if (state.notificationUnreadCount) {
+      try {
+        await api("/api/live/notifications/read-all", { method: "POST", body: "{}" });
+        state.notificationUnreadCount = 0;
+        state.notifications = state.notifications.map((item) => ({ ...item, readAt: item.readAt || new Date().toISOString() }));
+        if (state.page === "system-messages") showSystemMessages();
+      } catch {}
+    }
+  }
+  function showCreatorIncome() {
+    if (!token()) return askLogin();
+    state.page = "creator-income";
+    state.subpageBack = "profile";
+    const income = state.creatorIncome || { totalCredits: 0, giftCount: 0, records: [] };
+    const rows = (income.records || []).map((item) => ({ title: `${item.giftName || "礼物"} · ${item.characterName || "角色"}`, meta: moneyTime(item.createdAt), amount: `+${creditText(item.credits)}`, kind: "gift" }));
+    subpage("礼物数据", `<section class="income-hero"><span>角色累计收到礼物</span><strong>${Number(income.totalCredits || 0).toLocaleString("zh-CN")} <small>V币</small></strong><p>共收到 ${Number(income.giftCount || 0).toLocaleString("zh-CN")} 次礼物</p></section><section class="income-note"><span>${uiIcon("crown")}</span><p>这里统计其他用户送给你创建角色的礼物，仅用于查看互动数据，不会自动计入可提现余额。记录按礼物时间排序。</p></section><p class="section-label">礼物记录</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载礼物记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有收到礼物。")}<p class="pay-foot">数据来自当前登录账号创建的公开角色。</p>`);
+  }
+  async function loadCreatorIncome(force = false) {
+    if (!token()) return null;
+    if (state.creatorIncome && !force) return state.creatorIncome;
+    state.creatorIncomeLoading = true;
+    state.creatorIncomeError = "";
+    if (state.page === "creator-income") showCreatorIncome();
+    try {
+      const result = await api("/api/live/creator-income?limit=50");
+      state.creatorIncome = result.income || { totalCredits: 0, giftCount: 0, records: [] };
+      return state.creatorIncome;
+    } catch (error) {
+      state.creatorIncomeError = error.message || "礼物数据加载失败";
+      return null;
+    } finally {
+      state.creatorIncomeLoading = false;
+      if (state.page === "creator-income") showCreatorIncome();
+    }
+  }
+  function feedbackStatusText(status) {
+    return ({ open: "待处理", processing: "处理中", resolved: "已解决", closed: "已关闭" })[status] || status || "待处理";
+  }
+  function showFeedback() {
+    if (!token()) return askLogin();
+    state.page = "feedback";
+    state.subpageBack = "profile";
+    const history = (state.feedbackMessages || []).map((item) => `<article class="feedback-card"><div class="feedback-card-head"><b>${esc(item.subject || "问题反馈")}</b><span class="feedback-status ${esc(item.status || "open")}">${esc(feedbackStatusText(item.status))}</span></div><p>${esc(item.message || "")}</p><small>${esc(moneyTime(item.createdAt))}</small>${item.reply ? `<div class="feedback-reply"><b>站内信回复</b><p>${esc(item.reply)}</p><small>${esc(moneyTime(item.repliedAt || item.updatedAt))}</small></div>` : ""}</article>`).join("");
+    subpage("问题反馈", `<form class="feedback-form" data-feedback-form><label>问题类型<select name="subject"><option>功能异常</option><option>充值与订单</option><option>内容与体验</option><option>账号问题</option><option>其他建议</option></select></label><label>问题描述<textarea name="message" maxlength="5000" minlength="5" required placeholder="请描述发生了什么、在哪个页面、你期望的结果。"></textarea></label><button class="pay-cta feedback-submit" type="submit">提交反馈</button><p class="form-message" data-feedback-message></p></form><section class="feedback-history"><div class="feedback-history-head"><h2>我的反馈</h2><button type="button" data-action="feedback-refresh">刷新</button></div>${state.feedbackLoading && !history ? '<div class="empty-state"><p>正在加载反馈…</p></div>' : history || `<div class="empty-state"><h2>还没有提交过反馈</h2><p>${esc(state.feedbackError || "提交后会进入后台站内信，回复也会显示在这里。")}</p></div>`}</section>`);
+  }
+  async function loadFeedback(force = false) {
+    if (!token()) return [];
+    if (state.feedbackMessages.length && !force) return state.feedbackMessages;
+    state.feedbackLoading = true;
+    state.feedbackError = "";
+    try {
+      const result = await api("/api/support-messages?limit=30");
+      state.feedbackMessages = Array.isArray(result.messages) ? result.messages : [];
+      return state.feedbackMessages;
+    } catch (error) {
+      state.feedbackError = error.message || "反馈记录加载失败";
+      return [];
+    } finally {
+      state.feedbackLoading = false;
+      if (state.page === "feedback") showFeedback();
+    }
+  }
+
   function planHint(plan){
     const unit=String(plan?.intervalUnit||""); const price=moneyText(plan?.amount);
     if(unit==="year"){ const daily=Math.round(Number(plan.amount)/365*100)/100; return `年卡最划算，日均 $${moneyText(daily)}`; }
@@ -1108,19 +1287,25 @@
       const month=plans.find((item)=>String(item.intervalUnit)==="month"); const unit=String(plan.intervalUnit); const base=unit==="month"&&week?Number(week.amount)*4:unit==="year"&&month?Number(month.amount)*12:0; const save=base?Math.max(0, Math.round((base-Number(plan.amount))*10)/10):0;
       return `<button type="button" class="pay-plan${plan.id===picked?.id?" selected":""}" data-plan-id="${esc(plan.id)}" data-plan-amount="${esc(moneyText(plan.amount))}" data-plan-name="${esc(planShort(plan))}" data-plan-tip="${esc(planHint(plan))}"><p>${esc(planShort(plan))}</p><b>$${esc(moneyText(plan.amount))}</b>${save?`<small>省 $${esc(moneyText(save))}</small>`:""}</button>`;
     }).join("")||`<p class="detail-empty">暂时没有可购买的订阅档位。</p>`;
-    const rate=Number(state.config?.pricing?.saleCreditsPerMinute||0)||600;
-    const freeSeconds=Number(state.config?.pricing?.freeSeconds||0)||30;
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>订阅与权益</h1><button type="button" class="head-link" data-action="wallet">消费记录</button></header><section class="pay-hero"><div class="vip-card-title"><span>♔</span><div><strong>Vipeak VIP</strong><small>${active?"订阅已生效":"单次购买 · 解锁隐私互动"}</small></div></div><h2>${active?"会员权益正在生效":"开通即解锁隐私互动，和 TA 聊得更近一点"}</h2>${active?'<div class="vip-pills"><span>隐私互动已解锁</span></div>':""}</section><div class="plan-label-row"><p class="section-label">选择套餐</p><span data-plan-tip>${esc(picked?planHint(picked):"选择一个套餐")}</span></div><div class="pay-plans pay-plans-3">${cards}</div><button type="button" class="pay-cta" data-action="subscribe-selected">${picked?`立即开通 $${moneyText(picked.amount)} ${planShort(picked)}`:"立即开通"}</button><p class="pay-status" data-pay-status></p><p class="section-label">会员权益</p><section class="benefit-rows"><div><div><b>解锁隐私互动</b><small>私密相册与私密画面</small></div><em class="ok">已含</em></div><div><div><b>私密内容</b><small>角色详情里的锁定内容</small></div><em class="ok">已含</em></div><div><div><b>视频通话</b><small>会员不把通话改成免费，余额不够会挂断</small></div><em>${rate} 积分/分钟</em></div><div><div><b>免费试看</b><small>每个连接开始后</small></div><em>${freeSeconds} 秒</em></div><div><div><b>房间一起看</b><small>进入已有房间，不重复创建上游</small></div><em class="ok">可用</em></div></section></main>`;
+    const rate=Number(state.config?.pricing?.saleCreditsPerMinute||0)||0;
+    const freeSeconds=Number(state.config?.pricing?.freeSeconds||0)||0;
+    const rateText=rate>0?`${creditText(rate)} 积分/分钟`:"以实际计费为准";
+    const freeText=freeSeconds>0?`${freeSeconds} 秒`:"以实际计费为准";
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>订阅与权益</h1><button type="button" class="head-link" data-action="wallet">消费记录</button></header><section class="pay-hero"><div class="vip-card-title"><span>♔</span><div><strong>Vipeak VIP</strong><small>${active?"订阅已生效":"单次购买 · 解锁隐私互动"}</small></div></div><h2>${active?"会员权益正在生效":"开通即解锁隐私互动，和 TA 聊得更近一点"}</h2>${active?'<div class="vip-pills"><span>隐私互动已解锁</span></div>':""}</section><div class="plan-label-row"><p class="section-label">选择套餐</p><span data-plan-tip>${esc(picked?planHint(picked):"选择一个套餐")}</span></div><div class="pay-plans pay-plans-3">${cards}</div><button type="button" class="pay-cta" data-action="subscribe-selected">${picked?`立即开通 $${moneyText(picked.amount)} ${planShort(picked)}`:"立即开通"}</button><p class="pay-status" data-pay-status></p><p class="section-label">会员权益</p><section class="benefit-rows"><div><div><b>解锁隐私互动</b><small>私密相册与私密画面</small></div><em class="ok">已含</em></div><div><div><b>私密内容</b><small>角色详情里的锁定内容</small></div><em class="ok">已含</em></div><div><div><b>视频通话</b><small>会员不把通话改成免费，余额不够会挂断</small></div><em>${rateText}</em></div><div><div><b>免费试看</b><small>每个连接开始后</small></div><em>${freeText}</em></div><div><div><b>房间一起看</b><small>进入已有房间，不重复创建上游</small></div><em class="ok">可用</em></div></section></main>`;
   }
   function showRecharge(){
     state.pageReturn=state.pageReturn||(state.page==="role-detail"?"role-detail":(state.page==="vip"?"vip":"profile"));
     state.page="recharge";
     const packages=(state.billing?.topupPackages?.length?state.billing.topupPackages:(state.config?.topupPackages||[])).slice().sort((a,b)=>Number(a.amount)-Number(b.amount));
     const credits=Number(state.user?.credits||0);
-    const rate=Number(state.config?.pricing?.saleCreditsPerMinute||0)||0;
-    const roomRate=Number(state.config?.pricing?.roomCreditsPerMinute||state.config?.pricing?.saleCreditsPerMinute||0)||rate;
-    const freeSeconds=Number(state.config?.pricing?.freeSeconds||0)||0;
-    const textRate=Number(state.config?.pricing?.textMessageCredits||0.5)||0.5;
+    const rate=Math.max(0,Number(state.config?.pricing?.saleCreditsPerMinute??0)||0);
+    const roomRate=Math.max(0,Number(state.config?.pricing?.sharedRoomSaleCreditsPerMinute??state.config?.pricing?.roomCreditsPerMinute??rate)||0);
+    const freeSeconds=Math.max(0,Number(state.config?.pricing?.freeSeconds??0)||0);
+    const textRate=Math.max(0,Number(state.config?.pricing?.textMessageCredits??0)||0);
+    const rateText=rate>0?`${creditText(rate)} V币/分钟`:"暂未开启";
+    const roomRateText=roomRate>0?`${creditText(roomRate)} V币/分钟`:"暂未开启";
+    const textRateText=textRate>0?`${creditText(textRate)} V币/条`:"免费";
+    const freeText=freeSeconds>0?`${freeSeconds} 秒`:"无免费试看";
     const picked=packages[packages.length-1]||packages[0];
     const cards=packages.map((item)=>{
       const amount=Number(item.amount||0); const got=Number(item.credits||0); const bonus=topupBonus(item);
@@ -1128,7 +1313,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的V币</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate||"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds||0} 秒</b><small>免费试看</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值V币</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>视频通话</b><small>余额不足会挂断，并引导充值</small></div><em>${rate||"-"} 积分/分钟</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>免费试看</b><small>每个连接开始后</small></div><em class="blue">${freeSeconds||0} 秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>进房即开始计时，和单人同价</small></div><em class="green">${roomRate||"-"} 积分/分钟</em></div><div><span class="rule-ico violet">${uiIcon("chat")}</span><div><b>文字对话</b><small>每发送一次</small></div><em class="violet">${textRate} 积分/次</em></div><div><span class="rule-ico gold">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信和房间里都可以送</small></div><button type="button" data-action="gift">礼物记录</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">计费规则以页面说明为准</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的V币</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>免费试看</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值V币</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>视频通话</b><small>余额不足会挂断，并引导充值</small></div><em>${rateText}</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>免费试看</b><small>每个连接开始后</small></div><em class="blue">${freeText}</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>进房即开始计时，和单人同价</small></div><em class="green">${roomRateText}</em></div><div><span class="rule-ico violet">${uiIcon("chat")}</span><div><b>文字对话</b><small>每发送一次</small></div><em class="violet">${textRateText}</em></div><div><span class="rule-ico gold">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信和房间里都可以送</small></div><button type="button" data-action="gift">礼物记录</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">计费规则以页面说明为准</p></main>`;
     loadRecentSpend();
   }
 
@@ -1139,7 +1324,7 @@
     return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
   }
   function textMessageCredits() {
-    return Number(state.config?.pricing?.textMessageCredits || 0.5) || 0.5;
+    return Math.max(0, Number(state.config?.pricing?.textMessageCredits || 0) || 0);
   }
   function spendName(item) {
     if (item.characterName) return item.characterName;
@@ -1511,7 +1696,7 @@
   }
 
 
-  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.creatorList && !state.creatorLoading) loadCreator(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
+  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.creatorList && !state.creatorLoading) loadCreator(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "settings") showSettings(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
 
   function groupCharacterThreads(listed, contacts) {
     const groups = new Map();
@@ -1569,7 +1754,32 @@
     const loadToken = token(); if (!quiet) app.innerHTML = '<div class="empty-state">正在加载在线角色…</div>';
     try { state.config = await window.ChatLive.loadConfig(true); state.chars = window.ChatLive.characters(); try { state.rooms = ((await api("/api/chat-live/rooms")).rooms || []).slice().sort((a, b) => Number(b.activeCount || b.viewerCount || 0) - Number(a.activeCount || a.viewerCount || 0)); } catch { state.rooms = []; } render(); }
     catch (e) { app.innerHTML = `<div class="empty-state"><h2>暂时无法加载</h2><p>${esc(e.message)}</p></div>`; }
-    if (loadToken && loadToken === token()) { try { state.user = (await api("/api/auth/me")).user; state.companionLevel = state.user?.companionLevel || null; const listed = (await api("/api/chat/conversations")).conversations || []; let contacts = []; try { contacts = (await api("/api/chat-live/contacts")).contacts || []; } catch {} state.conversations = groupCharacterThreads(listed, contacts); } catch {} try { state.billing = (await api("/api/billing/summary")).billing || null; } catch {} if (loadToken === token()) render(); }
+    if (loadToken && loadToken === token()) {
+      try {
+        state.user = (await api("/api/auth/me")).user;
+        state.companionLevel = state.user?.companionLevel || null;
+        try { state.billing = (await api("/api/billing/summary")).billing || null; } catch {}
+        const [notifications, checkin, income, feedback] = await Promise.allSettled([
+          api("/api/live/notifications"),
+          api("/api/live/checkin"),
+          api("/api/live/creator-income?limit=50"),
+          api("/api/support-messages?limit=30"),
+        ]);
+        if (notifications.status === "fulfilled") { state.notifications = notifications.value.notifications || []; state.notificationUnreadCount = Number(notifications.value.unreadCount || 0); }
+        else state.notificationsError = notifications.reason?.message || "系统消息加载失败";
+        if (checkin.status === "fulfilled") { state.checkin = checkin.value.checkin || null; if (checkin.value.user) state.user = checkin.value.user; }
+        else state.checkinError = checkin.reason?.message || "签到信息加载失败";
+        if (income.status === "fulfilled") state.creatorIncome = income.value.income || null;
+        else state.creatorIncomeError = income.reason?.message || "礼物数据加载失败";
+        if (feedback.status === "fulfilled") state.feedbackMessages = feedback.value.messages || [];
+        else state.feedbackError = feedback.reason?.message || "反馈记录加载失败";
+        const listed = (await api("/api/chat/conversations")).conversations || [];
+        let contacts = [];
+        try { contacts = (await api("/api/chat-live/contacts")).contacts || []; } catch {}
+        state.conversations = groupCharacterThreads(listed, contacts);
+      } catch {}
+      if (loadToken === token()) render();
+    }
   }
   function openCall(id, roomId = "", sharedRoom = false) {
     const c = state.chars.find((x) => String(x.id) === String(id)) || state.role;
@@ -1656,6 +1866,15 @@ document.addEventListener("click", async (e) => {
     const planBtn = e.target.closest(".plan-option"); if (planBtn && !planBtn.dataset.topupId) { document.querySelectorAll(".plan-option").forEach((node) => node.classList.toggle("selected", node === planBtn)); return; }
     const a = e.target.closest("[data-action]")?.dataset.action;
     if (a === "language-sheet") return languageSheet();
+    if (a === "checkin") { showCheckin(); loadCheckin(true); return; }
+    if (a === "checkin-claim") return claimCheckin();
+    if (a === "settings") return showSettings();
+    if (a === "system-messages") return openSystemMessages();
+    if (a === "creator-income") { state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (a === "feedback") { state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
+    if (a === "feedback-refresh") return loadFeedback(true);
+    if (a === "back-subpage") { state.page = state.subpageBack || "profile"; render(); return; }
+    if (a === "settings-ios") { referralToast("iOS 版正在准备中，可先使用网页版"); return; }
     if (a === "filter") return filterSheet();
     if (a === "filter-reset") { state.filters = { age: "", gender: "", style: "" }; e.target.closest(".sheet-backdrop")?.remove(); render(); return; }
     if (a === "filter-apply") { e.target.closest(".sheet-backdrop")?.remove(); render(); return; }
@@ -1790,7 +2009,8 @@ document.addEventListener("click", async (e) => {
       e.preventDefault();
       const content = textForm.content.value.trim();
       if (!content || !state.textChatId) return;
-      if (Number(state.user?.credits || 0) < textMessageCredits()) {
+      const messageCost = textMessageCredits();
+      if (messageCost > 0 && Number(state.user?.credits || 0) < messageCost) {
         state.pageReturn = "text-chat";
         referralToast("积分不够，去充值");
         showRecharge();
@@ -1808,6 +2028,30 @@ document.addEventListener("click", async (e) => {
       const note = textForm.querySelector("[data-text-error]");
       if (note) note.textContent = "";
       queueTextChatMessage(conversationId, content);
+      return;
+    }
+    const feedbackForm = e.target.closest("[data-feedback-form]");
+    if (feedbackForm) {
+      e.preventDefault();
+      const message = feedbackForm.message.value.trim();
+      const subject = feedbackForm.subject.value;
+      const note = feedbackForm.querySelector("[data-feedback-message]");
+      if (message.length < 5) { if (note) note.textContent = "请至少填写 5 个字。"; return; }
+      const submit = feedbackForm.querySelector("button[type=submit]");
+      if (submit) submit.disabled = true;
+      if (note) note.textContent = "正在提交…";
+      try {
+        await api("/api/support-messages", { method: "POST", body: JSON.stringify({ subject, message, source: "live feedback" }) });
+        feedbackForm.reset();
+        state.feedbackError = "";
+        await loadFeedback(true);
+        referralToast("反馈已提交，我们会通过站内信回复你");
+        if (state.page === "feedback") showFeedback();
+      } catch (error) {
+        if (note) note.textContent = error.message || "提交失败，请稍后重试";
+      } finally {
+        if (submit) submit.disabled = false;
+      }
       return;
     }
     const form = e.target.closest("[data-profile-form]");

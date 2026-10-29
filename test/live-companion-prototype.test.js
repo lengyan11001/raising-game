@@ -86,7 +86,47 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=202610262200/);
-  assert.match(html, /live\.js\?v=chat-inline-20261026-1/);
+  assert.match(html, /live\.css\?v=2026102901/);
+  assert.match(html, /live\.js\?v=2026102901/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
+});
+
+test("live system messages, check-in, gift data, feedback, and billing rules are wired", () => {
+  assert.match(live, /data-action="system-messages"/);
+  assert.match(live, /class="conversation system-message-row"/);
+  assert.match(live, /api\("\/api\/live\/notifications"\)/);
+  assert.match(live, /api\("\/api\/live\/notifications\/read-all"/);
+  assert.match(live, /data-action="checkin"/);
+  assert.match(live, /api\("\/api\/live\/checkin"/);
+  assert.match(live, /\["creator-income", "gift", "礼物数据", ""\]/);
+  assert.match(live, /state\.page === "creator-income"\) showCreatorIncome\(\)/);
+  assert.match(live, /api\("\/api\/live\/creator-income\?limit=50"\)/);
+  assert.match(live, /\["feedback", "chat", "问题反馈", ""\]/);
+  assert.match(live, /a === "feedback"\)/);
+  assert.match(live, /api\("\/api\/support-messages"/);
+  assert.match(live, /聊天付费规则/);
+  assert.match(live, /sharedRoomSaleCreditsPerMinute/);
+  assert.doesNotMatch(live, /textMessageCredits\s*\|\|\s*0\.5/);
+  assert.match(css, /\.system-message-row/);
+  assert.match(css, /\.checkin-hero/);
+  assert.match(css, /\.income-hero/);
+  assert.match(css, /\.feedback-form/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
+});
+
+test("the main domain serves an independent one-screen landing page", () => {
+  const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const landingHtml = fs.readFileSync(path.join(root, "site-landing.html"), "utf8");
+  const landingCss = fs.readFileSync(path.join(root, "site-landing.css"), "utf8");
+  const landingJs = fs.readFileSync(path.join(root, "site-landing.js"), "utf8");
+  assert.match(serverSource, /:\s*"\/site-landing\.html"/);
+  assert.match(serverSource, /"\/site-landing\.html", "\/site-landing\.css", "\/site-landing\.js"/);
+  assert.match(serverSource, /"\/platform\.html"/);
+  assert.match(landingHtml, /class="site-header"/);
+  assert.match(landingHtml, /href="\/live\.html"/);
+  assert.match(landingCss, /\.header-cta \{ display: none; \}/);
+  assert.match(landingCss, /\.menu-button \{ display: block; \}/);
+  assert.match(landingCss, /\.hero h1 \{ font-size: clamp\(35px, 9\.8vw, 41px\); \}/);
+  assert.match(landingJs, /data-menu-toggle/);
+  assert.match(landingJs, /data-mobile-menu/);
 });

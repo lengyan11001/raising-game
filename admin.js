@@ -3960,7 +3960,7 @@ function chatLiveVoiceProviders(defaults = {}, current = "") {
 
 function adminMediaPreviewType(url = "", kind = "") {
   const hint = String(kind || "").toLowerCase();
-  if (/video|transition/.test(hint)) return "video";
+  if (/video/.test(hint)) return "video";
   if (/audio|ambient-music/.test(hint)) return "audio";
   const clean = String(url || "").split(/[?#]/, 1)[0].toLowerCase();
   if (/\.(mp4|webm|mov|m4v)$/.test(clean)) return "video";
@@ -4091,7 +4091,7 @@ function readChatLiveAudioFile(file) {
 function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "", label = "" } = {}) {
   const isVideo = kind === "video";
   const accept = isVideo ? "video/mp4,video/webm,video/quicktime" : "image/png,image/jpeg,image/webp";
-  const mediaLabel = label || (isVideo ? "过场视频" : "场景素材");
+  const mediaLabel = label || (isVideo ? "视频素材" : "场景素材");
   const preview = url
     ? adminMediaPreviewTrigger({ url, kind: isVideo ? "video" : "image", label: mediaLabel, className: "adm-story-media-preview" })
     : `<span class="adm-story-media-empty">${isVideo ? "未上传视频" : "未上传图片"}</span>`;
@@ -4123,7 +4123,7 @@ function bindChatLiveStoryAssetUploads(root) {
   root.querySelectorAll("[data-story-open-preview]").forEach((button) => {
     button.onclick = () => {
       const asset = button.closest(".chat-live-story-asset");
-      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image], [data-story-transition-video]");
+      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image]");
       const input = asset?.querySelector("[data-story-file]");
       const isVideo = input?.dataset.storyFile === "video";
       const url = hidden?.value || "";
@@ -4131,7 +4131,7 @@ function bindChatLiveStoryAssetUploads(root) {
       openAdminMediaPreview({
         url,
         kind: isVideo ? "video" : "image",
-        label: asset?.querySelector("[data-story-preview] [data-media-label]")?.getAttribute("data-media-label") || (isVideo ? "过场视频" : "场景素材"),
+        label: asset?.querySelector("[data-story-preview] [data-media-label]")?.getAttribute("data-media-label") || (isVideo ? "视频素材" : "场景素材"),
       });
     };
   });
@@ -4143,7 +4143,7 @@ function bindChatLiveStoryAssetUploads(root) {
       const type = String(file.type || "").toLowerCase();
       if (isVideo) {
         if (!["video/mp4", "video/webm", "video/quicktime"].includes(type) || file.size > 80 * 1024 * 1024) {
-          toast("过场视频只支持 80MB 以内的 MP4、WEBM、MOV。", "error");
+          toast("视频只支持 80MB 以内的 MP4、WEBM、MOV。", "error");
           input.value = "";
           return;
         }
@@ -4153,7 +4153,7 @@ function bindChatLiveStoryAssetUploads(root) {
         return;
       }
       const asset = input.closest(".chat-live-story-asset");
-      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image], [data-story-transition-video]");
+      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image]");
       const preview = asset?.querySelector("[data-story-preview]");
       const button = asset?.querySelector("[data-story-pick]");
       const previewButton = asset?.querySelector("[data-story-open-preview]");
@@ -4161,7 +4161,7 @@ function bindChatLiveStoryAssetUploads(root) {
       if (button) button.disabled = true;
       if (previewButton) previewButton.disabled = true;
       const previewUrl = URL.createObjectURL(file);
-      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: previewUrl, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: previewUrl, kind: isVideo ? "video" : "image", label: isVideo ? "视频素材" : "场景素材" });
       try {
         const result = await api("/api/admin/chat-live/assets", {
           method: "POST",
@@ -4169,7 +4169,7 @@ function bindChatLiveStoryAssetUploads(root) {
         });
         if (!result.url || !hidden) throw new Error("上传成功但没有返回素材。");
         hidden.value = result.url;
-        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" });
+        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url, kind: isVideo ? "video" : "image", label: isVideo ? "视频素材" : "场景素材" });
         if (status) status.textContent = "已上传，点击预览";
         if (button) button.textContent = "更换";
         if (previewButton) {
@@ -4177,10 +4177,10 @@ function bindChatLiveStoryAssetUploads(root) {
           previewButton.textContent = isVideo ? "预览播放" : "查看大图";
         }
         refreshIcons();
-        toast(isVideo ? "过场视频已上传。" : "场景图已上传。", "success");
+        toast(isVideo ? "视频已上传。" : "场景图已上传。", "success");
       } catch (error) {
         if (preview) preview.innerHTML = hidden?.value
-          ? adminMediaPreviewTrigger({ url: hidden.value, kind: isVideo ? "video" : "image", label: isVideo ? "过场视频" : "场景素材" })
+          ? adminMediaPreviewTrigger({ url: hidden.value, kind: isVideo ? "video" : "image", label: isVideo ? "视频素材" : "场景素材" })
           : `<span class="adm-story-media-empty">${isVideo ? "未上传视频" : "未上传图片"}</span>`;
         if (previewButton) {
           previewButton.disabled = !hidden?.value;
@@ -4328,15 +4328,10 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
   const liveStory = value.liveStory && typeof value.liveStory === "object" ? value.liveStory : {};
   const storyLocations = Array.isArray(liveStory.locations) ? liveStory.locations : [];
   const storyActions = Array.isArray(liveStory.actions) ? liveStory.actions : [];
-  const storyTransitions = Array.isArray(liveStory.transitions) ? liveStory.transitions : [];
   const storyStageOptions = [["casual", "日常"], ["flirting", "暧昧"], ["foreplay", "前戏"], ["intimate", "亲密"], ["aftercare", "余韵"]];
   const storyInitialLocationId = storyLocations.some((item) => item.id === liveStory.initialLocationId)
     ? liveStory.initialLocationId
     : (storyLocations[0]?.id || "");
-  const storyLocationOptionsFor = (selectedId = "") => storyLocations
-    .filter((item) => item.id)
-    .map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.name || item.id)}</option>`)
-    .join("");
   const storyLocationRows = storyLocations.map((item, index) => `
     <div class="chat-live-story-row" data-story-location>
       <input data-story-location-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 living_room" />
@@ -4354,13 +4349,6 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
       <input data-story-action-text value="${escapeHtml(item.action || "")}" placeholder="动作说明，例如 kissing on sofa" />
       <div class="chat-live-story-multi">${storyStageOptions.map(([id, label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" ${item.stages?.includes(id) ? "checked" : ""} />${label}</label>`).join("")}</div>
       <div class="chat-live-story-multi">${storyLocations.map((location) => `<label><input type="checkbox" data-story-action-location value="${escapeHtml(location.id)}" ${item.locations?.includes(location.id) ? "checked" : ""} />${escapeHtml(location.name || location.id)}</label>`).join("")}</div>
-      <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
-    </div>`).join("");
-  const storyTransitionRows = storyTransitions.map((item, index) => `
-    <div class="chat-live-story-row" data-story-transition>
-      <select data-story-transition-from>${storyLocationOptionsFor(item.from)}</select>
-      <select data-story-transition-to>${storyLocationOptionsFor(item.to)}</select>
-      ${chatLiveStoryAssetField({ attribute: "data-story-transition-video", kind: "video", url: item.videoUrl || "" })}
       <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
     </div>`).join("");
   return `
@@ -4436,7 +4424,7 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
         </div>
       </section>
       <section class="adm-card" id="chatLiveStoryCard">
-        <div class="adm-card-head"><div><h3>固定场景 / 阶段 / 动作</h3><p class="adm-muted">地点实景用于进入房间和过场后的背景；动作关键帧必须固定在同一地点，并只出现同一位女性。同一地点、同一阶段可以添加多张不同位置和姿势的单人图，例如沙发坐姿、沙发侧卧、餐桌伏身。不得出现男性、第二个人、镜像人物或多余手脚。</p></div></div>
+        <div class="adm-card-head"><div><h3>固定场景 / 阶段 / 动作</h3><p class="adm-muted">地点实景用于进入房间后的背景；动作关键帧必须固定在同一地点，并只出现同一位女性。同一地点、同一阶段可以添加多张不同位置和姿势的单人图，例如沙发坐姿、沙发侧卧、餐桌伏身。不得出现男性、第二个人、镜像人物或多余手脚。</p></div></div>
         <div class="chat-live-story-editor">
           <div class="chat-live-story-head">
             <label class="adm-check"><input id="chatLiveStoryEnabled" type="checkbox" ${liveStory.enabled === true || storyLocations.length ? "checked" : ""} /> 启用固定场景导演</label>
@@ -4450,9 +4438,6 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
           <div id="chatLiveStoryActions">${storyActionRows || `<p class="adm-muted">还没有动作图。请按“房间 → 具体位置 → 阶段 → 姿势”逐张添加，同一阶段允许多张。</p>`}</div>
           <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddAction">添加动作</button>
           <p class="adm-muted">命名示例：sofa_sit_casual / sofa_recline_flirting / table_leaning_flirting / counter_bend_intimate / bed_curl_aftercare。每张图只能有一位女性，固定家具和房间构图。</p>
-          <h4>过场视频</h4>
-          <div id="chatLiveStoryTransitions">${storyTransitionRows || `<p class="adm-muted">切换地点必须先配置并播放过场视频；没有视频时不会切到新场景。</p>`}</div>
-          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddTransition">添加过场</button>
         </div>
       </section>
       <section class="adm-card">
@@ -4896,11 +4881,6 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
           stages: Array.from(row.querySelectorAll("[data-story-action-stage]:checked")).map((input) => input.value),
           locations: Array.from(row.querySelectorAll("[data-story-action-location]:checked")).map((input) => input.value),
         })).filter((item) => item.id && item.name),
-        transitions: Array.from(root.querySelectorAll("[data-story-transition]")).map((row) => ({
-          from: row.querySelector("[data-story-transition-from]")?.value || "",
-          to: row.querySelector("[data-story-transition-to]")?.value || "",
-          videoUrl: row.querySelector("[data-story-transition-video]")?.value || "",
-        })).filter((item) => item.from && item.to && item.videoUrl),
       },
     };
   };
@@ -4971,7 +4951,6 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
   const storyRoot = box().querySelector("#chatLiveStoryCard");
   const storyLocationsRoot = () => box().querySelector("#chatLiveStoryLocations");
   const storyActionsRoot = () => box().querySelector("#chatLiveStoryActions");
-  const storyTransitionsRoot = () => box().querySelector("#chatLiveStoryTransitions");
   const storyLocationOptionsHtml = () => Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => {
     const id = row.querySelector("[data-story-location-id]")?.value || "";
     const name = row.querySelector("[data-story-location-name]")?.value || id;
@@ -5000,11 +4979,6 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
     storyRoot?.querySelectorAll("[data-story-location-id], [data-story-location-name]").forEach((input) => {
       input.oninput = () => {
         const options = storyLocationOptionsHtml();
-        storyRoot.querySelectorAll("[data-story-transition-from], [data-story-transition-to]").forEach((select) => {
-          const previous = select.value;
-          select.innerHTML = options;
-          if (previous) select.value = previous;
-        });
         const initial = storyRoot.querySelector("#chatLiveStoryInitialLocation");
         if (initial) {
           const previous = initial.value;
@@ -5033,15 +5007,6 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
     storyActionsRoot()?.appendChild(wrap.firstElementChild);
     bindStoryInputs();
     bindChatLiveStoryAssetUploads(storyActionsRoot());
-  });
-  storyRoot?.querySelector("#chatLiveStoryAddTransition")?.addEventListener("click", () => {
-    storyTransitionsRoot()?.querySelector(".adm-muted")?.remove();
-    const locations = storyLocationOptionsHtml();
-    const wrap = document.createElement("div");
-    wrap.innerHTML = `<div class="chat-live-story-row" data-story-transition><select data-story-transition-from>${locations}</select><select data-story-transition-to>${locations}</select>${chatLiveStoryAssetField({ attribute: "data-story-transition-video", kind: "video" })}<button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
-    storyTransitionsRoot()?.appendChild(wrap.firstElementChild);
-    bindStoryInputs();
-    bindChatLiveStoryAssetUploads(storyTransitionsRoot());
   });
   bindStoryInputs();
   const privateRoot = box().querySelector("#chatLivePrivateResources");
