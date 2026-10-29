@@ -2831,6 +2831,21 @@ dialog.tool-download-modal {
 .topup-package-card:nth-child(4n+2)::after { background: linear-gradient(90deg, #75e3e2, rgba(117,227,226,.12)); }
 .topup-package-card:nth-child(4n+3)::after { background: linear-gradient(90deg, #ffd166, rgba(255,209,102,.12)); }
 .topup-package-card:nth-child(4n+4)::after { background: linear-gradient(90deg, #9b8cff, rgba(155,140,255,.12)); }
+.topup-package-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #fff;
+  background: #ff4fa3;
+  box-shadow: 0 4px 14px rgba(255,79,163,.45);
+  font-size: .66rem;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: .02em;
+}
 .topup-package-card span {
   color: rgba(247,247,251,.58);
   font-size: .68rem;

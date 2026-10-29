@@ -138,12 +138,12 @@ const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const DEFAULT_TOPUP_PACKAGES = [
-  { id: "usd-20", amount: 20, credits: 2000, currency: "USD" },
-  { id: "usd-30", amount: 30, credits: 3100, currency: "USD" },
-  { id: "usd-50", amount: 50, credits: 5500, currency: "USD" },
-  { id: "usd-100", amount: 100, credits: 12000, currency: "USD" },
-  { id: "usd-200", amount: 200, credits: 24000, currency: "USD" },
-  { id: "usd-500", amount: 500, credits: 60000, currency: "USD" },
+  { id: "usd-20", amount: 20, credits: 2100, bonusPercent: 5, currency: "USD" },
+  { id: "usd-30", amount: 30, credits: 3300, bonusPercent: 10, currency: "USD" },
+  { id: "usd-50", amount: 50, credits: 5750, bonusPercent: 15, currency: "USD" },
+  { id: "usd-100", amount: 100, credits: 12000, bonusPercent: 20, currency: "USD" },
+  { id: "usd-200", amount: 200, credits: 24000, bonusPercent: 20, currency: "USD" },
+  { id: "usd-500", amount: 500, credits: 60000, bonusPercent: 20, currency: "USD" },
 ];
 const DEFAULT_TOOL_TOPUP_PACKAGES = [
   { id: "tool-usd-10", amount: 10, credits: 1000, currency: "USD" },

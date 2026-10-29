@@ -612,12 +612,12 @@ const MIN_TOPUP_AMOUNT = clampNumber(process.env.MIN_TOPUP_AMOUNT, 1, 1, 100000)
 const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, MIN_TOPUP_AMOUNT, 0.01, 100000);
 const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
 const TOPUP_PACKAGES = Object.freeze([
-  Object.freeze({ id: "usd-20", amount: 20, credits: 2000 }),
-  Object.freeze({ id: "usd-30", amount: 30, credits: 3100 }),
-  Object.freeze({ id: "usd-50", amount: 50, credits: 5500 }),
-  Object.freeze({ id: "usd-100", amount: 100, credits: 12000 }),
-  Object.freeze({ id: "usd-200", amount: 200, credits: 24000 }),
-  Object.freeze({ id: "usd-500", amount: 500, credits: 60000 }),
+  Object.freeze({ id: "usd-20", amount: 20, credits: 2100, bonusPercent: 5 }),
+  Object.freeze({ id: "usd-30", amount: 30, credits: 3300, bonusPercent: 10 }),
+  Object.freeze({ id: "usd-50", amount: 50, credits: 5750, bonusPercent: 15 }),
+  Object.freeze({ id: "usd-100", amount: 100, credits: 12000, bonusPercent: 20 }),
+  Object.freeze({ id: "usd-200", amount: 200, credits: 24000, bonusPercent: 20 }),
+  Object.freeze({ id: "usd-500", amount: 500, credits: 60000, bonusPercent: 20 }),
 ]);
 const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.PAYPAL_CNY_CENTS_PER_UNIT ||
@@ -12735,6 +12735,7 @@ function publicTopupPackages(user = null) {
     amount: item.amount,
     credits: creditsAmount(member ? item.credits : item.amount * DEFAULT_CREDITS_PER_USD),
     bonusCredits: creditsAmount(member ? Math.max(0, item.credits - item.amount * DEFAULT_CREDITS_PER_USD) : 0),
+    bonusPercent: member ? Number(item.bonusPercent || 0) : 0,
     memberBonus: member,
     currency: "USD",
   }));

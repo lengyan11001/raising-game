@@ -4266,6 +4266,8 @@ function topupPackages() {
       id: String(item.id || `usd-${item.amount || ""}`).trim(),
       amount: Number(item.amount || 0),
       credits: creditsAmount(item.credits),
+      bonusPercent: Number(item.bonusPercent || ((item.bonusCredits && item.credits) ? Math.round((item.bonusCredits / item.credits) * 100) : 0)),
+      memberBonus: Boolean(item.memberBonus),
       currency: String(item.currency || "USD").trim().toUpperCase() || "USD",
     }))
     .filter((item) => item.id && item.amount > 0 && item.credits > 0);
@@ -4530,8 +4532,11 @@ function renderTopupPackages() {
   }
   els.topupPackageGrid.innerHTML = packages.map((item) => {
     const active = item.id === state.selectedTopupPackageId;
+    const bonus = Number(item.bonusPercent || 0);
+    const badge = bonus > 0 ? `<b class="topup-package-badge">+${escapeHtml(formatCredits(bonus))}%</b>` : "";
     return `
       <button class="topup-package-card ${active ? "is-active" : ""}" type="button" data-topup-package="${escapeHtml(item.id)}">
+        ${badge}
         <span>${escapeHtml(item.currency)}</span>
         <strong>$${escapeHtml(formatCredits(item.amount))}</strong>
         <small>${escapeHtml(formatCredits(item.credits))} ${escapeHtml(t("common.credits"))}</small>

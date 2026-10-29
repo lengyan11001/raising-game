@@ -134,6 +134,29 @@ test("membership top-up bonuses are capped at 20 percent", () => {
   assert.doesNotMatch(server, /id:\s*"usd-500", amount: 500, credits: 65000/);
 });
 
+test("membership top-up package credits and pink bonus badges match requested rates", () => {
+  const server = read("server.js");
+  const config = read("platform.config.js");
+  const explore = read("platform.explore.js");
+  const css = read("platform.css");
+  assert.match(server, /usd-20", amount: 20, credits: 2100, bonusPercent: 5/);
+  assert.match(server, /usd-30", amount: 30, credits: 3300, bonusPercent: 10/);
+  assert.match(server, /usd-50", amount: 50, credits: 5750, bonusPercent: 15/);
+  assert.match(server, /usd-100", amount: 100, credits: 12000, bonusPercent: 20/);
+  assert.match(server, /usd-200", amount: 200, credits: 24000, bonusPercent: 20/);
+  assert.match(server, /usd-500", amount: 500, credits: 60000, bonusPercent: 20/);
+  assert.match(config, /id: "usd-20", amount: 20, credits: 2100, bonusPercent: 5/);
+  assert.match(config, /id: "usd-30", amount: 30, credits: 3300, bonusPercent: 10/);
+  assert.match(config, /id: "usd-50", amount: 50, credits: 5750, bonusPercent: 15/);
+  assert.match(config, /id: "usd-100", amount: 100, credits: 12000, bonusPercent: 20/);
+  assert.match(config, /id: "usd-200", amount: 200, credits: 24000, bonusPercent: 20/);
+  assert.match(config, /id: "usd-500", amount: 500, credits: 60000, bonusPercent: 20/);
+  assert.match(explore, /bonusPercent/);
+  assert.match(explore, /topup-package-badge/);
+  assert.match(css, /\.topup-package-badge/);
+  assert.match(css, /background: #ff4fa3;/);
+});
+
 test("admin membership code list exposes a persistent one-click copy button", () => {
   const admin = read("admin.js");
   const css = read("admin.css");
