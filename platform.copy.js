@@ -3223,6 +3223,7 @@ I18N.zh = {
   "billing.noCharge": "不扣费",
   "topup.title": "充值",
   "topup.buyCoins": "购买积分",
+  "topup.creditsNeverExpire": "积分永不过期。",
   "topup.paypalTab": "PayPal",
   "topup.usdtTab": "USDT",
   "topup.paypalRate": "1 美元 = 100 积分。",

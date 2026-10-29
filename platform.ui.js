@@ -1185,7 +1185,7 @@ function renderTokenDisplays() {
   if (els.mobileDrawerUserName) els.mobileDrawerUserName.textContent = state.user?.username || t("nav.login");
   if (els.mobileDrawerCredits) {
     els.mobileDrawerCredits.hidden = !state.user;
-    els.mobileDrawerCredits.textContent = state.user ? `${Number(state.user?.credits || 0)} credits` : "";
+    els.mobileDrawerCredits.textContent = state.user ? `${Number(state.user?.credits || 0)} ${t("common.credits")}` : "";
   }
   if (els.accountRole) els.accountRole.textContent = state.user?.role || "user";
   if (els.accountToken) els.accountToken.textContent = currentTokenLabel(state.showAccountToken);
@@ -3613,7 +3613,7 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
     : [];
   if (!configuredRows.length) return false;
   const creditsPerUsd = Number(pricing.creditsPerUsd || 100) || 100;
-  const publicCredits = (value) => `${formatCredits(creditsAmount(value))} credits`;
+  const publicCredits = (value) => `${formatCredits(creditsAmount(value))} ${t("common.credits")}`;
   const commonDurations = [5, 10, 15];
   const rowCategory = (row) => {
     if (row.unit === "image") return "Image generation";
@@ -3660,7 +3660,7 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
           <p>Vipeak AI</p>
           <h3>Public price list</h3>
         </div>
-        <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} credits</span>
+        <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} ${escapeHtml(t("common.credits"))}</span>
       </div>
       <div class="pricing-shot-table-wrap">
         <table class="pricing-shot-table">
@@ -3708,7 +3708,7 @@ function renderPricing() {
   const commonDurations = [5, 10, 15];
   const creditsPerUsd = Number(state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
 
-  const publicCredits = (value) => `${formatCredits(creditsAmount(value))} 积分`;
+  const publicCredits = (value) => `${formatCredits(creditsAmount(value))} ${t("common.credits")}`;
   const publicPricingCredits = (pricing = {}) => creditsAmount(pricing.originalCredits ?? pricing.baseCredits ?? pricing.credits ?? 0);
   const durationSummary = (provider, resolution, options = {}) => commonDurations
     .map((duration) => `${duration}s ${publicCredits(publicPricingCredits(advancedPricing(duration, provider, resolution, "16:9", options)))}`)
@@ -3787,7 +3787,7 @@ function renderPricing() {
           <p>Vipeak AI</p>
           <h3>公开价格表</h3>
         </div>
-        <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} 积分</span>
+        <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} ${escapeHtml(t("common.credits"))}</span>
       </div>
       <div class="pricing-shot-table-wrap">
         <table class="pricing-shot-table">

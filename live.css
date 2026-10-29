@@ -380,6 +380,8 @@
 
 .pay-plan small.bonus{color:#ff8fb0}
 .rule-rows>div{justify-content:flex-start}
+.rule-rows>div>div{flex:1;min-width:0}
+.rule-rows>div>em,.rule-rows>div>button{margin-left:auto;flex:none;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .rule-ico{width:36px;height:36px;border-radius:6px;display:grid;place-items:center;flex:none}
 .rule-ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rule-ico.pink{background:rgba(255,45,111,.15);color:#ff8fb0}

@@ -3212,8 +3212,11 @@ async function listLiveNotificationsInDb(userId = "") {
   await ensureSchema();
   await query(`
     INSERT INTO app_live_notifications(id, user_id, kind, title, body, payload, pinned, created_at, updated_at)
-    VALUES ($1, $2, 'system', '欢迎来到 Vipeak Live', '在这里，角色会记得你们聊过的事。每日签到可领取 20 V币，问题反馈会直接进入站内信。', '{"welcome":true}'::jsonb, TRUE, NOW(), NOW())
-    ON CONFLICT (id) DO NOTHING
+    VALUES ($1, $2, 'system', '欢迎来到 Vipeak Live', '在这里，角色会记得你们聊过的事。每日签到可领取 20 积分，问题反馈会直接进入站内信。', '{"welcome":true}'::jsonb, TRUE, NOW(), NOW())
+    ON CONFLICT (id) DO UPDATE
+    SET body = EXCLUDED.body
+    WHERE app_live_notifications.payload->>'welcome' = 'true'
+      AND app_live_notifications.body IS DISTINCT FROM EXCLUDED.body
   `, [`live-welcome-${cleanUserId}`, cleanUserId]);
   const { rows } = await query(`
     SELECT * FROM app_live_notifications

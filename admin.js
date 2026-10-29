@@ -2868,7 +2868,7 @@ function sceneCard(scene) {
           <div class="adm-form-row"><span>名字</span><input data-f="name" type="text" value="${escapeHtml(scene.name)}" /></div>
           <div class="adm-form-row"><span>短名</span><input data-f="shortName" type="text" value="${escapeHtml(scene.shortName || "")}" /></div>
           <div class="adm-form-row"><span>图标 (lucide)</span><input data-f="icon" type="text" value="${escapeHtml(scene.icon || "")}" /></div>
-          <div class="adm-form-row"><span>消耗（爱心币）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
+          <div class="adm-form-row"><span>消耗（积分）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
           <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="enabled" type="checkbox" ${scene.enabled ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端可见</span></label></div>
         </div>
         <div class="adm-form-row"><span>预制 Prompt（用户自定义角色一键生成时使用）</span><textarea data-f="prompt" rows="6">${escapeHtml(scene.prompt || "")}</textarea></div>
@@ -2975,7 +2975,7 @@ function sceneCard(scene) {
           <div class="adm-form-row"><span>名字</span><input data-f="name" type="text" value="${escapeHtml(scene.name)}" /></div>
           <div class="adm-form-row"><span>短名</span><input data-f="shortName" type="text" value="${escapeHtml(scene.shortName || "")}" /></div>
           <div class="adm-form-row"><span>图标 (lucide)</span><input data-f="icon" type="text" value="${escapeHtml(scene.icon || "")}" /></div>
-          <div class="adm-form-row"><span>消耗（爱心币）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
+          <div class="adm-form-row"><span>消耗（积分）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
           <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="enabled" type="checkbox" ${scene.enabled ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端可见</span></label></div>
         </div>
         <div class="adm-form-row"><span>预制 Prompt</span><textarea data-f="prompt" rows="6">${escapeHtml(scene.prompt || "")}</textarea></div>
@@ -3366,9 +3366,9 @@ async function renderRecharges(pageArg = null, limitArg = null) {
         </div>
       </div>
       <div class="adm-stats">
-        ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} credits`, "receipt-text", "rose")}
-        ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} credits · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
-        ${statCard("后台调整", summary.manualCount || 0, `+${summary.manualAddedCredits || 0} / -${summary.manualReducedCredits || 0} credits`, "sliders-horizontal", "amber")}
+        ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} 积分`, "receipt-text", "rose")}
+        ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} 积分 · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
+        ${statCard("后台调整", summary.manualCount || 0, `+${summary.manualAddedCredits || 0} / -${summary.manualReducedCredits || 0} 积分`, "sliders-horizontal", "amber")}
       </div>
       <div class="adm-card adm-mt">
         <div class="adm-card-head">

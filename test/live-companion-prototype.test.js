@@ -86,8 +86,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026102901/);
-  assert.match(html, /live\.js\?v=2026102901/);
+  assert.match(html, /live\.css\?v=2026102902/);
+  assert.match(html, /live\.js\?v=2026102902/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
 });
 
@@ -105,13 +105,24 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /a === "feedback"\)/);
   assert.match(live, /api\("\/api\/support-messages"/);
   assert.match(live, /聊天付费规则/);
-  assert.match(live, /sharedRoomSaleCreditsPerMinute/);
+  assert.match(live, /文字私信[\s\S]*?0\.5 积分\/条/);
+  assert.match(live, /语音通话 \/ 语音消息[\s\S]*?2 积分\/秒/);
+  assert.match(live, /视频通话[\s\S]*?5 积分\/秒/);
+  assert.match(live, /陪伴房间[\s\S]*?5 积分\/秒/);
+  assert.match(live, /礼物打赏[\s\S]*?data-action="rooms">去房间/);
+  assert.match(css, /\.rule-rows>div>em,\.rule-rows>div>button\{[^}]*margin-left:auto[^}]*text-align:right[^}]*font-variant-numeric:tabular-nums/);
   assert.doesNotMatch(live, /textMessageCredits\s*\|\|\s*0\.5/);
+  assert.doesNotMatch(live, /V币|爱心币/);
   assert.match(css, /\.system-message-row/);
   assert.match(css, /\.checkin-hero/);
   assert.match(css, /\.income-hero/);
   assert.match(css, /\.feedback-form/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
+  const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
+  const admin = fs.readFileSync(path.join(root, "admin.js"), "utf8");
+  assert.doesNotMatch(db, /V币|爱心币/);
+  assert.doesNotMatch(admin, /V币|爱心币/);
+  assert.match(db, /ON CONFLICT \(id\) DO UPDATE[\s\S]*?payload->>'welcome' = 'true'/);
 });
 
 test("the main domain serves an independent one-screen landing page", () => {
