@@ -2201,6 +2201,7 @@ async function submitAdvancedGenerate() {
       els.advancedSubmitBtn.disabled = false;
       return;
     }
+    state.advancedResultMediaKind = "image";
     const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
@@ -2292,6 +2293,7 @@ async function submitAdvancedGenerate() {
       els.advancedSubmitBtn.disabled = false;
       return;
     }
+    state.advancedResultMediaKind = "image";
     const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
@@ -2625,6 +2627,7 @@ async function submitAdvancedGenerate() {
       return;
     }
   }
+  state.advancedResultMediaKind = "video";
   const pendingTaskId = `pending-video-${Date.now().toString(36)}`;
   mergeAdvancedResultRecord({
     taskId: pendingTaskId,

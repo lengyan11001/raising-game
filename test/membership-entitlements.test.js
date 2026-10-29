@@ -165,6 +165,13 @@ test("non-members do not flash top-up bonus badges; redeeming membership refresh
   assert.match(create, /state\.wallet = \{ \.\.\.\(state\.wallet \|\| \{\}\), topupPackages: state\.billing\.topupPackages \}/);
 });
 
+
+test("creating a result switches the result media tab to match task kind", () => {
+  const create = read("platform.create.js");
+  assert.match(create, /state\.advancedResultMediaKind = "video";\s*const pendingTaskId = `pending-video/);
+  assert.match(create, /state\.advancedResultMediaKind = "image";\s*const pendingTaskId = `pending-image/);
+  assert.ok((create.match(/state\.advancedResultMediaKind = "image";/g) || []).length >= 2);
+});
 test("admin membership code list exposes a persistent one-click copy button", () => {
   const admin = read("admin.js");
   const css = read("admin.css");
