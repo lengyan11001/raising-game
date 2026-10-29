@@ -75,6 +75,21 @@ test("Undress replacement keeps the overlay but releases RTC before a fresh sess
   assert.match(client, /videoRecoveryPending/);
 });
 
+test("leaving live room stops all Aliyun RTC clock sync timers", () => {
+  assert.match(client, /rtcClocks: new Set\(\)/);
+  assert.match(client, /rtcClockHalted: false/);
+  assert.match(client, /rtcClockEpoch: 0/);
+  assert.match(client, /Clock\.prototype\.startSyncClock = async function startSyncClock\(\)/);
+  assert.match(client, /const epoch = state\.rtcClockEpoch;/);
+  assert.match(client, /if \(state\.rtcClockHalted \|\| this\.__chatLiveHold\) return;/);
+  assert.match(client, /if \(state\.rtcClockHalted \|\| epoch !== state\.rtcClockEpoch \|\| this\.__chatLiveHold\) \{\n        try \{ this\.stopSyncClock\(\); \} catch \{\}/);
+  assert.match(client, /function pauseRtcClock\(\) \{\n    state\.rtcClockHalted = true;\n    state\.rtcClockEpoch \+= 1;/);
+  assert.match(client, /const clocks = new Set\(state\.rtcClocks \|\| \[\]\)/);
+  assert.match(client, /function resumeRtcClock\(\) \{[\s\S]*?state\.rtcClockHalted \|\| state\.ended/);
+  assert.match(client, /const alreadyEnded = state\.ended === true;\n    state\.ended = true;\n    pauseRtcClock\(\);/);
+  assert.match(client, /state\.ended = false;\n    state\.rtcClockHalted = false;/);
+});
+
 test("chat live characters support per-role Markdown persona maintenance", () => {
   assert.match(server, /const personaMd = String\(body\.personaMd/);
   assert.match(server, /personaFormat: personaMd \? "markdown"/);

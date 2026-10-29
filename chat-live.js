@@ -44,6 +44,9 @@
     lookWait: null,
     lookStack: [],
     rtcClock: null,
+    rtcClocks: new Set(),
+    rtcClockHalted: false,
+    rtcClockEpoch: 0,
     rtcClockStart: null,
     visibilityRecoveryTimer: 0,
     visibilityReturnedAt: 0,
@@ -337,19 +340,26 @@
     return false;
   }
 
-  /* 阿里云 SDK 的 Clock 单例一创建就每 30 秒请求 time.akamai.com，destroy 不会停。
-     包一层，挂断时停表，下次进房再开。 */
+  /* 阿里云 SDK 的 Clock 每 30 秒请求 time.akamai.com，且 startSyncClock 是
+     “await 请求后再排下一个 timeout”。挂断时必须覆盖所有实例，并在异步请求
+     返回后再次清理，否则退出直播间后仍会持续请求。 */
   function hookRtcClock() {
     const rtc = window.AliRTS;
     const Clock = rtc && rtc.Clock;
     if (!Clock || Clock.__chatLiveWrapped || typeof Clock.prototype?.startSyncClock !== "function") return;
     const origStart = Clock.prototype.startSyncClock;
-    Clock.prototype.startSyncClock = function startSyncClock() {
-      if (this.__chatLiveHold) return;
-      return origStart.call(this);
+    Clock.prototype.startSyncClock = async function startSyncClock() {
+      const epoch = state.rtcClockEpoch;
+      if (state.rtcClockHalted || this.__chatLiveHold) return;
+      const result = await origStart.call(this);
+      if (state.rtcClockHalted || epoch !== state.rtcClockEpoch || this.__chatLiveHold) {
+        try { this.stopSyncClock(); } catch {}
+      }
+      return result;
     };
     function WrappedClock(...args) {
       const instance = new Clock(...args);
+      state.rtcClocks.add(instance);
       state.rtcClock = instance;
       return instance;
     }
@@ -360,15 +370,19 @@
   }
 
   function pauseRtcClock() {
-    const clock = state.rtcClock;
-    if (!clock) return;
-    clock.__chatLiveHold = true;
-    try { clock.stopSyncClock(); } catch {}
+    state.rtcClockHalted = true;
+    state.rtcClockEpoch += 1;
+    const clocks = new Set(state.rtcClocks || []);
+    if (state.rtcClock) clocks.add(state.rtcClock);
+    for (const clock of clocks) {
+      clock.__chatLiveHold = true;
+      try { clock.stopSyncClock(); } catch {}
+    }
   }
 
   function resumeRtcClock() {
     const clock = state.rtcClock;
-    if (!clock || !clock.__chatLiveHold) return;
+    if (state.rtcClockHalted || state.ended || !clock || !clock.__chatLiveHold) return;
     clock.__chatLiveHold = false;
     try { state.rtcClockStart?.call(clock); } catch {}
   }
@@ -1551,6 +1565,7 @@
     const ws = state.ws;
     const alreadyEnded = state.ended === true;
     state.ended = true;
+    pauseRtcClock();
     state.engine = null;
     state.ws = null;
     try { closeOverlay(); } catch (error) {
@@ -2320,6 +2335,7 @@
     state.inRoom = Boolean(openOptions.roomId || openOptions.sharedRoom === true);
     state.roomId = String(openOptions.roomId || "");
     state.ended = false;
+    state.rtcClockHalted = false;
     state.seqId = 1;
     state.remoteUserId = "";
     state.lastFrameAt = 0;
