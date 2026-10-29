@@ -268,11 +268,15 @@
 .wallet-actions button:first-child{background:rgba(255,255,255,.09);color:rgba(255,255,255,.8)}
 .wallet-actions button:last-child{background:#ff2d6f;color:#fff;font-weight:600}
 .profile-menu{margin:16px 20px 0;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);overflow:hidden}
-.profile-menu button{width:100%;min-height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border:0;border-bottom:1px solid rgba(255,255,255,.07);background:transparent;color:#fff;text-align:left}
+.profile-menu button{position:relative;z-index:1;width:100%;min-height:56px;display:flex;align-items:center;gap:12px;padding:8px 16px;border:0;border-bottom:1px solid rgba(255,255,255,.07);background:transparent;color:#fff;text-align:left;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none}
+.profile-menu button:active{background:rgba(255,255,255,.055)}
 .profile-menu button:last-child{border-bottom:0}
-.profile-menu i{width:20px;color:rgba(255,255,255,.6);display:grid;place-items:center}
-.profile-menu b{flex:1;font-size:12px;font-weight:500}
-.profile-menu em{color:rgba(255,255,255,.3);display:grid}
+.profile-menu i{width:20px;flex:none;color:rgba(255,255,255,.6);display:grid;place-items:center}
+.profile-menu-copy{min-width:0;flex:1;display:block}
+.profile-menu-copy b,.profile-menu-copy small{display:block}
+.profile-menu-copy b{font-size:12px;font-weight:500}
+.profile-menu-copy small{margin-top:4px;overflow:hidden;color:rgba(255,255,255,.34);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap}
+.profile-menu em{flex:none;color:rgba(255,255,255,.3);display:grid}
 .profile-foot{text-align:center;color:rgba(255,255,255,.25);font-size:10px;margin:24px 0 8px}
 .logout-link{display:block;margin:0 auto 12px;border:0;background:none;color:rgba(255,255,255,.4);font-size:12px}
 .messages-head button{display:flex;align-items:center;gap:6px}
@@ -699,6 +703,12 @@
 .income-note>span{display:grid;width:28px;height:28px;flex:none;place-items:center;border-radius:7px;background:rgba(255,196,92,.12);color:#ffc65a}
 .income-note svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .income-note p{margin:1px 0 0;color:rgba(255,255,255,.42);font-size:10px;line-height:1.6}
+.income-settlement{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 20px 0;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:rgba(255,255,255,.035)}
+.income-settlement>div{min-width:0;padding:12px 8px;border-left:1px solid rgba(255,255,255,.07);text-align:center}
+.income-settlement>div:first-child{border-left:0}
+.income-settlement span,.income-settlement b{display:block}
+.income-settlement span{color:rgba(255,255,255,.35);font-size:9px}
+.income-settlement b{margin-top:5px;color:#ffda8c;font-size:11px;font-weight:600}
 .feedback-form{margin:16px 20px 22px;padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(255,255,255,.035)}
 .feedback-form label{display:block;margin-bottom:13px;color:rgba(255,255,255,.55);font-size:11px}
 .feedback-form select,.feedback-form textarea{display:block;width:100%;margin-top:7px;padding:11px 12px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:#0f0f15;color:#fff;font:inherit;font-size:12px}
@@ -750,7 +760,7 @@
 @keyframes gift-spark{0%{opacity:0;transform:translate(0,0) scale(.2)}18%{opacity:1}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(1.1)}}
 @keyframes gift-copy-small{0%,12%{opacity:0;transform:translateY(8px)}26%,76%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-6px)}}
 @keyframes gift-copy-name{0%,18%{opacity:0;transform:scale(.72)}30%{opacity:1;transform:scale(1.08)}40%,76%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-8px) scale(1)}}
-@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-streak,.checkin-week,.checkin-claim,.feedback-form,.income-hero,.income-note{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-week{gap:2px;padding-left:6px;padding-right:6px}.detail-header{padding-left:12px;padding-right:12px}}
+@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-streak,.checkin-week,.checkin-claim,.feedback-form,.income-hero,.income-note,.income-settlement{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-week{gap:2px;padding-left:6px;padding-right:6px}.detail-header{padding-left:12px;padding-right:12px}}
 @media(prefers-reduced-motion:reduce){
   .live-gift-effect,.live-gift-effect::before,.live-gift-art,.live-gift-caption small,.live-gift-caption b{animation:none;opacity:1;transform:translate(-50%,-50%)}
   .live-gift-effect{animation:gift-effect-reduced 1.8s ease both;transform:translateX(-50%)}

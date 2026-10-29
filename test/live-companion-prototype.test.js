@@ -86,8 +86,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026102902/);
-  assert.match(html, /live\.js\?v=2026102902/);
+  assert.match(html, /live\.css\?v=2026102903/);
+  assert.match(html, /live\.js\?v=2026102903/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
 });
 
@@ -98,10 +98,14 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /api\("\/api\/live\/notifications\/read-all"/);
   assert.match(live, /data-action="checkin"/);
   assert.match(live, /api\("\/api\/live\/checkin"/);
-  assert.match(live, /\["creator-income", "gift", "礼物数据", ""\]/);
+  assert.match(live, /\["creator-income", "gift", "创作者收益", "角色被使用产生的收益"\]/);
+  assert.doesNotMatch(live, /\["creator-income", "gift", "礼物数据"/);
   assert.match(live, /state\.page === "creator-income"\) showCreatorIncome\(\)/);
   assert.match(live, /api\("\/api\/live\/creator-income\?limit=50"\)/);
-  assert.match(live, /\["feedback", "chat", "问题反馈", ""\]/);
+  assert.match(live, /\["feedback", "chat", "问题反馈", "提交后会收到站内信回复"\]/);
+  assert.match(live, /data-menu-action/);
+  assert.match(live, /function bindProfileMenuActions\(\)/);
+  assert.match(live, /button\.addEventListener\("pointerup"/);
   assert.match(live, /a === "feedback"\)/);
   assert.match(live, /api\("\/api\/support-messages"/);
   assert.match(live, /聊天付费规则/);

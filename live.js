@@ -327,17 +327,68 @@
     const gifts = Number(u?.giftReceived ?? u?.giftsReceived ?? 0) || 0;
     const companion = state.companionLevel || u?.companionLevel || null;
     const menu = [
-      ["rooms", "users", "我的陪伴房间", ""],
-      ["creator", "pen", "创作者中心", ""],
-      ["creator-income", "gift", "礼物数据", ""],
+      ["creator", "pen", "创作者中心", "管理角色与素材"],
+      ["creator-income", "gift", "创作者收益", "角色被使用产生的收益"],
+      ["wallet", "wallet", "钱包与消费记录", "充值与消费明细"],
+      ["privacy", "gear", "隐私与安全", "数据与账号说明"],
+      ["feedback", "chat", "问题反馈", "提交后会收到站内信回复"],
       ["level", "crown", "陪伴等级", companion?.level || ""],
-      ["wallet", "wallet", "钱包与消费记录", ""],
+      ["edit-profile", "user", "编辑资料", "头像、昵称与兴趣标签"],
       ["referral", "share", "邀请好友", ""],
-      ["edit-profile", "user", "编辑资料", ""],
-      ["privacy", "gear", "隐私与安全", ""],
-      ["feedback", "chat", "问题反馈", ""]
-    ].map(([action, glyph, title, value]) => `<button type="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><b>${title}</b>${value ? `<small class="profile-menu-value">${esc(value)}</small>` : ""}<em>${uiIcon("chev")}</em></button>`).join("");
-    app.innerHTML = `<main class="live-page profile-page"><header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "完善资料后显示在这里")}</p><small>${esc(u?.bio || "登录后完善你的资料")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : ""}</header>${u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button data-action="gift">${uiIcon("gift")}礼物记录</button><button data-action="topup">${uiIcon("wallet")}充值</button></div></section><section class="profile-menu">${menu}</section><p class="profile-foot">Vipeak · 2026</p><button class="logout-link" data-action="account">退出登录</button>` : `<div class="empty-state"><h2>登录后查看个人中心</h2><p>登录后可以管理资料、会员和钱包。</p><button class="video-button" data-action="login">登录 / 注册</button></div>`}</main>${nav("profile")}`;
+      ["rooms", "users", "我的陪伴房间", ""]
+    ].map(([action, glyph, title, value]) => `<button type="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><span class="profile-menu-copy"><b>${title}</b>${value ? `<small>${esc(value)}</small>` : ""}</span><em>${uiIcon("chev")}</em></button>`).join("");
+    app.innerHTML = `<main class="live-page profile-page"><header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "完善资料后显示在这里")}</p><small>${esc(u?.bio || "登录后完善你的资料")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : ""}</header>${u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button type="button" data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button type="button" data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button type="button" data-action="gift">${uiIcon("gift")}礼物记录</button><button type="button" data-action="topup">${uiIcon("wallet")}充值</button></div></section><section class="profile-menu" data-profile-menu>${menu}</section><p class="profile-foot">Vipeak · 2026</p><button type="button" class="logout-link" data-action="account">退出登录</button>` : `<div class="empty-state"><h2>登录后查看个人中心</h2><p>登录后可以管理资料、会员和钱包。</p><button type="button" class="video-button" data-action="login">登录 / 注册</button></div>`}</main>${nav("profile")}`;
+    bindProfileMenuActions();
+  }
+
+  function openProfileMenuAction(action) {
+    if (!action) return;
+    if (action === "creator") { state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
+    if (action === "creator-income") { state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (action === "feedback") { state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
+    if (action === "privacy") return showPrivacy();
+    if (action === "wallet") { state.pageReturn = "profile"; return showRecharge(); }
+    if (action === "level") return showLevel();
+    if (action === "edit-profile") { state.page = "edit-profile"; render(); return; }
+    if (action === "referral") return showReferral();
+    if (action === "rooms") return showRooms("profile");
+  }
+
+  function bindProfileMenuActions() {
+    const menu = app.querySelector("[data-profile-menu]");
+    if (!menu) return;
+    menu.querySelectorAll("[data-menu-action]").forEach((button) => {
+      let startX = 0;
+      let startY = 0;
+      let lastTouchActionAt = 0;
+      const run = (event) => {
+        const now = Date.now();
+        if (event.type === "click" && now - lastTouchActionAt < 700) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openProfileMenuAction(button.dataset.menuAction);
+      };
+      button.addEventListener("pointerdown", (event) => {
+        startX = Number(event.clientX || 0);
+        startY = Number(event.clientY || 0);
+      }, { passive: true });
+      button.addEventListener("pointerup", (event) => {
+        if (event.pointerType === "mouse") return;
+        const moved = Math.hypot(Number(event.clientX || 0) - startX, Number(event.clientY || 0) - startY);
+        if (moved > 14) return;
+        lastTouchActionAt = Date.now();
+        run(event);
+      });
+      button.addEventListener("touchend", (event) => {
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        const moved = Math.hypot(Number(touch.clientX || 0) - startX, Number(touch.clientY || 0) - startY);
+        if (moved > 14) return;
+        lastTouchActionAt = Date.now();
+        run(event);
+      }, { passive: false });
+      button.addEventListener("click", run);
+    });
   }
 
 
@@ -1218,8 +1269,10 @@
     state.page = "creator-income";
     state.subpageBack = "profile";
     const income = state.creatorIncome || { totalCredits: 0, giftCount: 0, records: [] };
-    const rows = (income.records || []).map((item) => ({ title: `${item.giftName || "礼物"} · ${item.characterName || "角色"}`, meta: moneyTime(item.createdAt), amount: `+${creditText(item.credits)}`, kind: "gift" }));
-    subpage("礼物数据", `<section class="income-hero"><span>角色累计收到礼物</span><strong>${Number(income.totalCredits || 0).toLocaleString("zh-CN")} <small>积分</small></strong><p>共收到 ${Number(income.giftCount || 0).toLocaleString("zh-CN")} 次礼物</p></section><section class="income-note"><span>${uiIcon("crown")}</span><p>这里统计其他用户送给你创建角色的礼物，仅用于查看互动数据，不会自动计入可提现余额。记录按礼物时间排序。</p></section><p class="section-label">礼物记录</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载礼物记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有收到礼物。")}<p class="pay-foot">数据来自当前登录账号创建的公开角色。</p>`);
+    const giftCredits = Number(income.totalCredits || 0);
+    const estimatedCredits = Math.round(giftCredits * 0.7 * 100) / 100;
+    const rows = (income.records || []).map((item) => ({ title: `${item.giftName || "礼物"} · ${item.characterName || "角色"}`, meta: moneyTime(item.createdAt), amount: `-${creditText(item.credits)}`, kind: "gift" }));
+    subpage("创作者收益", `<section class="income-hero"><span>预计创作收益 · 按实际礼物消耗估算</span><strong>${creditText(estimatedCredits)} <small>积分</small></strong><p>累计礼物消耗 ${creditText(giftCredits)} 积分 · ${Number(income.giftCount || 0).toLocaleString("zh-CN")} 次</p></section><section class="income-settlement"><div><span>结算比例</span><b>70%</b></div><div><span>结算周期</span><b>T+7</b></div><div><span>结算状态</span><b>以管理后台为准</b></div></section><section class="income-note"><span>${uiIcon("crown")}</span><p>单笔收益按用户实际充值金额 × 70% 计算，订单退款或异常交易会相应扣减。这里展示的是根据真实礼物消耗计算的预计收益，不是可提现余额；最终结算和到账状态以管理后台为准。</p></section><p class="section-label">收益来源记录</p>${state.creatorIncomeLoading && !income.records?.length ? '<div class="empty-state"><p>正在加载收益记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有角色礼物收益。")}<p class="pay-foot">数据来自当前账号创建且未删除的角色，金额单位统一为积分。</p>`);
   }
   async function loadCreatorIncome(force = false) {
     if (!token()) return null;
@@ -1232,7 +1285,7 @@
       state.creatorIncome = result.income || { totalCredits: 0, giftCount: 0, records: [] };
       return state.creatorIncome;
     } catch (error) {
-      state.creatorIncomeError = error.message || "礼物数据加载失败";
+      state.creatorIncomeError = error.message || "创作者收益加载失败";
       return null;
     } finally {
       state.creatorIncomeLoading = false;
@@ -1541,6 +1594,7 @@
   }
   function showPrivacy() {
     state.page = "privacy";
+    state.subpageBack = "profile";
     const u = state.user;
     const account = u ? `<section class="privacy-block"><h3>当前账号</h3><p>登录账号是 <b>${esc(u.username || "")}</b>。昵称只用于页面展示，修改昵称不会改变登录账号。这个账号与主站共用，退出只退出本站登录状态。</p></section>` : `<section class="privacy-block"><h3>当前账号</h3><p>未登录也可以查看这份说明。登录后可以在这里核对登录账号和昵称。</p></section>`;
     subpage("隐私与安全", `${account}
@@ -1763,7 +1817,7 @@
         if (checkin.status === "fulfilled") { state.checkin = checkin.value.checkin || null; if (checkin.value.user) state.user = checkin.value.user; }
         else state.checkinError = checkin.reason?.message || "签到信息加载失败";
         if (income.status === "fulfilled") state.creatorIncome = income.value.income || null;
-        else state.creatorIncomeError = income.reason?.message || "礼物数据加载失败";
+        else state.creatorIncomeError = income.reason?.message || "创作者收益加载失败";
         if (feedback.status === "fulfilled") state.feedbackMessages = feedback.value.messages || [];
         else state.feedbackError = feedback.reason?.message || "反馈记录加载失败";
         const listed = (await api("/api/chat/conversations")).conversations || [];
