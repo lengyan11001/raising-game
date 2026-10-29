@@ -1184,6 +1184,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
+  state.advancedResultMediaKind = isVideo ? "video" : "image";
   mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();

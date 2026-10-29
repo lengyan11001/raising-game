@@ -464,6 +464,7 @@ function advancedResultHistoryFallbackRecords() {
 function advancedResultKind(record = {}) {
   const provider = String(record.provider || record.params?.provider || record.model || "").toLowerCase();
   const kind = String(record.kind || record.source || "").toLowerCase();
+  const createKind = String(record.params?.createKind || "").toLowerCase();
   const taskId = String(record.taskId || "");
   if (
     kind.includes("text")
@@ -476,6 +477,14 @@ function advancedResultKind(record = {}) {
     || record.textResult
     || record.responseText
   ) return "conversation";
+  // Pending image tasks do not have an image URL yet. Classify by task metadata
+  // first so they stay in the image tab from submission through completion.
+  if (
+    kind.includes("image")
+    || createKind === "image"
+    || taskId.startsWith("pending-image-")
+  ) return "image";
+  if (kind.includes("video") || createKind === "video" || taskId.startsWith("pending-video-")) return "video";
   if (generationVideoUrl(record)) return "video";
   if (generationImageResultUrl(record)) return "image";
   return "video";
