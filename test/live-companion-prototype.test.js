@@ -142,7 +142,7 @@ test("the main domain serves an independent one-screen landing page", () => {
   const landingHtml = fs.readFileSync(path.join(root, "site-landing.html"), "utf8");
   const landingCss = fs.readFileSync(path.join(root, "site-landing.css"), "utf8");
   const landingJs = fs.readFileSync(path.join(root, "site-landing.js"), "utf8");
-  assert.match(serverSource, /:\s*"\/site-landing\.html"/);
+  assert.match(serverSource, /defaultPageForHostname\(requestHostname\(req\)\)/);
   assert.match(serverSource, /"\/site-landing\.html", "\/site-landing\.css", "\/site-landing\.js"/);
   assert.match(serverSource, /"\/platform\.html"/);
   assert.match(landingHtml, /class="site-header"/);

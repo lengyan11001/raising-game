@@ -32,6 +32,16 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+test("only 123vipeak.com uses the standalone landing page", () => {
+  assert.equal(tenantRuntime.defaultPageForHostname("123vipeak.com"), "/site-landing.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("www.123vipeak.com"), "/site-landing.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("live.123vipeak.com"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("123vips.com"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("www.123vips.com"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("123vip.fans"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("667zui.video"), "/platform.html");
+});
+
 test("the www host serves the same site profile as the apex", () => {
   const lookup = tenantRuntime.platformSiteProfileForHostname;
   const profile = tenantRuntime.PLATFORM_SITE_PROFILE;

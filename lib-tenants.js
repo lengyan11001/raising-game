@@ -177,6 +177,14 @@ function platformSiteProfileForHostname(hostname = "") {
   return PLATFORM_SITE_HOSTS.has(host) || PLATFORM_SITE_HOSTS.has(bareHost) ? PLATFORM_SITE_PROFILE : null;
 }
 
+function standaloneLandingHostname(hostname = "") {
+  return normalizeHostname(hostname).replace(/^www\./, "") === "123vipeak.com";
+}
+
+function defaultPageForHostname(hostname = "") {
+  return standaloneLandingHostname(hostname) ? "/site-landing.html" : "/platform.html";
+}
+
 function pageOriginFromRequest(req) {
   const tenant = requestTenantDescriptor(req);
   const origin = tenant.toolOnly ? requestOriginFromHeaders(req) : publicOriginFromRequest(req);
@@ -344,6 +352,8 @@ module.exports = {
   parseToolTenantDomainMap,
   toolVideoDefaultCapability,
   platformSiteProfileForHostname,
+  standaloneLandingHostname,
+  defaultPageForHostname,
   hostnameFromOrigin,
   requestHostname,
   hostnameMatchesRoot,

@@ -373,6 +373,7 @@ function loadLocalEnv(filePath) {
 loadLocalEnv(path.join(ROOT, ".env.local"));
 const {
   PLATFORM_SITE_PROFILE,
+  defaultPageForHostname,
   normalizeHostname,
   parseCsvList,
   toolVideoDefaultCapability,
@@ -49328,7 +49329,7 @@ async function serveStatic(req, res, url) {
   const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
   const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
   let pathname = decodeURIComponent(url.pathname === "/"
-    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : "/site-landing.html")
+    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : defaultPageForHostname(requestHostname(req)))
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
