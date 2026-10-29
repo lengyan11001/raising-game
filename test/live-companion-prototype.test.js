@@ -86,8 +86,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026102903/);
-  assert.match(html, /live\.js\?v=2026102903/);
+  assert.match(html, /live\.css\?v=2026102905/);
+  assert.match(html, /live\.js\?v=2026102905/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
 });
 
@@ -105,7 +105,10 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /\["feedback", "chat", "问题反馈", "提交后会收到站内信回复"\]/);
   assert.match(live, /data-menu-action/);
   assert.match(live, /function bindProfileMenuActions\(\)/);
-  assert.match(live, /button\.addEventListener\("pointerup"/);
+  assert.match(live, /href="#profile\/\$\{action\}"/);
+  assert.match(live, /addEventListener\("touchstart"/);
+  assert.match(live, /addEventListener\("touchend"/);
+  assert.match(live, /function profileRouteFromHash\(\)/);
   assert.match(live, /a === "feedback"\)/);
   assert.match(live, /api\("\/api\/support-messages"/);
   assert.match(live, /聊天付费规则/);

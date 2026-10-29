@@ -336,8 +336,8 @@
       ["edit-profile", "user", "编辑资料", "头像、昵称与兴趣标签"],
       ["referral", "share", "邀请好友", ""],
       ["rooms", "users", "我的陪伴房间", ""]
-    ].map(([action, glyph, title, value]) => `<button type="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><span class="profile-menu-copy"><b>${title}</b>${value ? `<small>${esc(value)}</small>` : ""}</span><em>${uiIcon("chev")}</em></button>`).join("");
-    app.innerHTML = `<main class="live-page profile-page"><header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "完善资料后显示在这里")}</p><small>${esc(u?.bio || "登录后完善你的资料")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : ""}</header>${u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button type="button" data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button type="button" data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button type="button" data-action="gift">${uiIcon("gift")}礼物记录</button><button type="button" data-action="topup">${uiIcon("wallet")}充值</button></div></section><section class="profile-menu" data-profile-menu>${menu}</section><p class="profile-foot">Vipeak · 2026</p><button type="button" class="logout-link" data-action="account">退出登录</button>` : `<div class="empty-state"><h2>登录后查看个人中心</h2><p>登录后可以管理资料、会员和钱包。</p><button type="button" class="video-button" data-action="login">登录 / 注册</button></div>`}</main>${nav("profile")}`;
+    ].map(([action, glyph, title, value]) => `<a href="#profile/${action}" role="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><span class="profile-menu-copy"><b>${title}</b>${value ? `<small>${esc(value)}</small>` : ""}</span><em>${uiIcon("chev")}</em></a>`).join("");
+    app.innerHTML = `<main class="live-page profile-page"><header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "完善资料后显示在这里")}</p><small>${esc(u?.bio || "登录后完善你的资料")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : ""}</header>${u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button type="button" data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button type="button" data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button type="button" data-action="gift">${uiIcon("gift")}礼物记录</button><button type="button" data-action="topup">${uiIcon("wallet")}充值</button></div></section><section class="profile-menu" data-profile-menu>${menu}</section><nav class="profile-legal-links" aria-label="隐私与反馈"><a href="#profile/privacy" data-menu-action="privacy">隐私协议</a><span>·</span><a href="#profile/feedback" data-menu-action="feedback">问题反馈</a></nav><p class="profile-foot">Vipeak · 2026</p><button type="button" class="logout-link" data-action="account">退出登录</button>` : `<div class="empty-state"><h2>登录后查看个人中心</h2><p>登录后可以管理资料、会员和钱包。</p><button type="button" class="video-button" data-action="login">登录 / 注册</button></div>`}</main>${nav("profile")}`;
     bindProfileMenuActions();
   }
 
@@ -354,40 +354,57 @@
     if (action === "rooms") return showRooms("profile");
   }
 
+  function profileRouteFromHash() {
+    const match = String(location.hash || "").match(/^#profile\/(creator-income|creator|wallet|privacy|feedback|level|edit-profile|referral|rooms)$/);
+    if (!match) return false;
+    state.subpageBack = "profile";
+    openProfileMenuAction(match[1]);
+    return true;
+  }
+
+  function clearProfileHash() {
+    if (!String(location.hash || "").startsWith("#profile/")) return;
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+
   function bindProfileMenuActions() {
     const menu = app.querySelector("[data-profile-menu]");
     if (!menu) return;
-    menu.querySelectorAll("[data-menu-action]").forEach((button) => {
-      let startX = 0;
-      let startY = 0;
+    app.querySelectorAll(".profile-page [data-menu-action]").forEach((link) => {
+      let startX = null;
+      let startY = null;
       let lastTouchActionAt = 0;
       const run = (event) => {
-        const now = Date.now();
-        if (event.type === "click" && now - lastTouchActionAt < 700) return;
-        event.preventDefault();
+        if (Date.now() - lastTouchActionAt < 700) return;
         event.stopPropagation();
-        openProfileMenuAction(button.dataset.menuAction);
+        try {
+          openProfileMenuAction(link.dataset.menuAction);
+          if (event.cancelable) event.preventDefault();
+        } catch (error) {
+          // Let the native hash link remain a fallback if rendering fails.
+          console.error(error);
+        }
       };
-      button.addEventListener("pointerdown", (event) => {
-        startX = Number(event.clientX || 0);
-        startY = Number(event.clientY || 0);
-      }, { passive: true });
-      button.addEventListener("pointerup", (event) => {
-        if (event.pointerType === "mouse") return;
-        const moved = Math.hypot(Number(event.clientX || 0) - startX, Number(event.clientY || 0) - startY);
-        if (moved > 14) return;
-        lastTouchActionAt = Date.now();
-        run(event);
-      });
-      button.addEventListener("touchend", (event) => {
+      link.addEventListener("touchstart", (event) => {
         const touch = event.changedTouches?.[0];
         if (!touch) return;
-        const moved = Math.hypot(Number(touch.clientX || 0) - startX, Number(touch.clientY || 0) - startY);
-        if (moved > 14) return;
+        startX = Number(touch.clientX || 0);
+        startY = Number(touch.clientY || 0);
+      }, { passive: true });
+      link.addEventListener("touchcancel", () => { startX = null; startY = null; }, { passive: true });
+      link.addEventListener("touchend", (event) => {
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        if (startX !== null && startY !== null) {
+          const moved = Math.hypot(Number(touch.clientX || 0) - startX, Number(touch.clientY || 0) - startY);
+          if (moved > 14) { startX = null; startY = null; return; }
+        }
+        startX = null;
+        startY = null;
         lastTouchActionAt = Date.now();
         run(event);
       }, { passive: false });
-      button.addEventListener("click", run);
+      link.addEventListener("click", run);
     });
   }
 
@@ -1905,7 +1922,7 @@ document.addEventListener("click", async (e) => {
     if (createVisibility) { readCreateDraftFromForm(); createDraft().visibility = createVisibility; createEditor(); return; }
     if (e.target.closest("[data-action=close-sheet]") && !e.target.closest("[data-sheet]")) { e.target.closest(".sheet-backdrop")?.remove(); return; }
     const n = e.target.closest("[data-nav]")?.dataset.nav;
-    if (n) { state.page = n; render(); return; }
+    if (n) { clearProfileHash(); state.page = n; render(); return; }
     const cid = e.target.closest("[data-conversation-id]")?.dataset.conversationId;
     if (cid) { const row = e.target.closest("[data-conversation-id]"); const characterId = row?.dataset.characterId || (String(cid).startsWith("live-contact-") ? cid.slice("live-contact-".length) : ""); const role = state.chars.find((item) => String(item.id) === String(characterId)); if (role) state.role = role; else if (characterId) state.role = { id: characterId, name: row?.querySelector(".conversation-name")?.textContent || "对话" }; if (String(cid).startsWith("live-contact-")) openTextChat(""); else openTextChat(cid); return; }
     const payPlan = e.target.closest(".pay-plan");
@@ -1920,7 +1937,7 @@ document.addEventListener("click", async (e) => {
     if (a === "creator-income") { state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
     if (a === "feedback") { state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
     if (a === "feedback-refresh") return loadFeedback(true);
-    if (a === "back-subpage") { state.page = state.subpageBack || "profile"; render(); return; }
+    if (a === "back-subpage") { clearProfileHash(); state.page = state.subpageBack || "profile"; render(); return; }
     if (a === "settings-ios") { referralToast("iOS 版正在准备中，可先使用网页版"); return; }
     if (a === "filter") return filterSheet();
     if (a === "filter-reset") { state.filters = { age: "", gender: "", style: "" }; e.target.closest(".sheet-backdrop")?.remove(); render(); return; }
@@ -1931,7 +1948,7 @@ document.addEventListener("click", async (e) => {
     if (a === "refresh") return load();
     if (a === "shuffle") { state.homeBatchKey = ""; state.homeShuffle = (state.homeShuffle || 0) + 1; render(); return; }
     if (a === "back-home") { state.category = ""; state.role = null; state.page = "home"; render(); return; }
-    if (a === "back-profile") { state.page = "profile"; render(); return; }
+    if (a === "back-profile") { clearProfileHash(); state.page = "profile"; render(); return; }
     if (a === "edit-profile") { state.page = "edit-profile"; render(); return; }
     if (a === "creator") { state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return; }
     if (a === "creator-new") { openCreatorEditor(""); return; }
@@ -2116,6 +2133,15 @@ document.addEventListener("click", async (e) => {
   captureLanding();
   load().then(() => {
     initCompanionGuide();
+    if (profileRouteFromHash()) return;
+    const match = location.hash.match(/^#role\/(.+)$/);
+    if (!match) return;
+    const id = decodeURIComponent(match[1]);
+    const role = state.chars.find((item) => String(item.id) === id);
+    if (role) openRole(role);
+  });
+  window.addEventListener("hashchange", () => {
+    if (profileRouteFromHash()) return;
     const match = location.hash.match(/^#role\/(.+)$/);
     if (!match) return;
     const id = decodeURIComponent(match[1]);
