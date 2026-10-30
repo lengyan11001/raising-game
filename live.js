@@ -341,6 +341,7 @@
     chev: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
     plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>`,
     mic: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>`,
+    phone: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 3.7 5.3 2.5a2 2 0 0 0-2.7.6L1.5 5a2 2 0 0 0-.1 1.9c2.9 7.2 8.4 12 15.8 15.1a2 2 0 0 0 2.1-.3l1.6-1.5a2 2 0 0 0 .4-2.5l-1.7-2.6a2 2 0 0 0-2.3-.8l-3.4 1.2a18.8 18.8 0 0 1-7-7l1.3-3.5a2 2 0 0 0-.7-2.3Z"/><path d="M15 4a5 5 0 0 1 5 5M15 8a1 1 0 0 1 1 1"/></svg>`,
     video: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8l6-3v14l-6-3z"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>`,
     play: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/></svg>`,
     lock: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`,
@@ -523,8 +524,7 @@
     try { return (await api(`/api/onboarding/${GUIDE_KEY}/${action}`, { method: "POST", body: "{}" })).guide || null; } catch { return null; }
   }
   function companionGuideMarkup() {
-    const guidePhoto = rolePhoto(state.chars[0]) || "/assets/brand/live-logo.png";
-    return `<div class="companion-guide" data-companion-guide role="dialog" aria-modal="true" aria-labelledby="companionGuideTitle"><div class="companion-guide-card"><button type="button" class="companion-guide-close" data-action="guide-close" aria-label="关闭">×</button><div class="companion-guide-image"><img src="${esc(guidePhoto)}" alt=""><span></span></div><div class="companion-guide-copy"><span class="companion-guide-icon">${uiIcon("video")}</span><h2 id="companionGuideTitle">不只是聊天框<br>Ta 能和你视频见面</h2><p>被听见、被记住。实时通话与视频约会，Ta 会出现你的屏幕里</p><div class="companion-guide-features"><span>${uiIcon("mic")}<b>语音通话</b></span><span>${uiIcon("video")}<b>视频约会</b></span><span>${uiIcon("heart")}<b>在线陪伴</b></span></div><button type="button" class="companion-guide-start" data-action="guide-start">立即体验</button></div></div>`;
+    return `<div class="companion-guide" data-companion-guide role="dialog" aria-modal="true" aria-labelledby="companionGuideTitle"><div class="companion-guide-card"><div class="companion-guide-image"><img src="/assets/chat-live/welcome-newcomer.jpg" alt=""><span></span></div><button type="button" class="companion-guide-close" data-action="guide-close" aria-label="关闭">×</button><div class="companion-guide-copy"><img class="companion-guide-logo" src="/assets/brand/live-logo.png" alt="Vipeak"><h2 id="companionGuideTitle">不只是聊天框<br>Ta 能和你视频见面</h2><p>被听见、被记住。实时通话与视频约会<br>Ta 会出现你的屏幕里</p><div class="companion-guide-features"><span><i>${uiIcon("phone")}</i><b>语音通话</b></span><span><i>${uiIcon("play")}</i><b>视频约会</b></span><span><i>${uiIcon("heart")}</i><b>在线陪伴</b></span></div><button type="button" class="companion-guide-start" data-action="guide-start">立即体验</button></div></div>`;
   }
   function showGuideOverlay() {
     if (!state.guideOpen || document.querySelector("[data-companion-guide]")) return;
