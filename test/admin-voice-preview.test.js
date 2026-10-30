@@ -72,6 +72,7 @@ test("voice preview only lists the complete A/B audition candidates", () => {
   assert.match(admin, /data-voice-seek="32\.0"/);
   assert.match(admin, /audio\.currentTime = Math\.min\(audio\.duration, Math\.max\(0, seekTo\)\)/);
   assert.match(admin, /data-voice-preview-id/);
+  assert.match(admin, /audio\.closest\("article\[data-voice-preview-id\]"\)/);
   assert.match(admin, /fetch\(source\)/);
   assert.match(admin, /response\.arrayBuffer\(\)/);
   assert.match(admin, /new Blob\(\[bytes\], \{ type: "audio\/mp4" \}\)/);

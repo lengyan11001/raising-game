@@ -6976,7 +6976,7 @@ function waitForVoicePreviewMetadata(audio) {
 }
 
 async function loadVoicePreviewAudio(audio) {
-  const card = audio.closest("[data-voice-preview-id]");
+  const card = audio.closest("article[data-voice-preview-id]");
   const status = card?.querySelector("[data-voice-preview-status]");
   const controls = card?.querySelectorAll("[data-voice-preview-control]") || [];
   const source = audio.dataset.src || "";
