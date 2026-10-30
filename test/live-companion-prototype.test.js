@@ -132,14 +132,13 @@ test("component voice catalog is strict and realtime voices are not exposed", ()
   assert.match(server, /User-created characters use the component voice path/);
 });
 
-test("home recommendation deck advances one character per swipe", () => {
-  assert.match(live, /function bindHomeDeck\(\)/);
-  assert.match(live, /scrollToIndex\(current\.startIndex \+ direction\)/);
-  assert.match(live, /Math\.max\(min, Math\.min\(max, gesture\.startLeft - dx\)\)/);
-  assert.match(live, /scrollToIndex\(indexFor\(deck\.scrollLeft\) \+ Math\.sign\(event\.deltaX\)\)/);
-  assert.match(live, /bindHomeFilter\(\); bindHomeDeck\(\)/);
-  assert.match(css, /\.person-card\{scroll-snap-stop:always\}/);
-  assert.match(css, /touch-action:pan-y/);
+test("home recommendation deck keeps native horizontal scrolling", () => {
+  assert.doesNotMatch(live, /function bindHomeDeck\(\)/);
+  assert.match(live, /deck\?\.addEventListener\("scroll"/);
+  assert.match(live, /Math\.round\(deck\.scrollLeft \/ \(card\.offsetWidth \+ 12\)\)/);
+  assert.match(live, /home\(\); bindHomeFilter\(\)/);
+  assert.doesNotMatch(css, /\.person-deck\{touch-action:pan-y/);
+  assert.doesNotMatch(css, /\.person-card\{scroll-snap-stop:always\}/);
 });
 
 test("live recommendation cards keep one fixed frame", () => {
@@ -188,8 +187,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103036/);
-  assert.match(html, /live\.js\?v=2026103036/);
+  assert.match(html, /live\.css\?v=2026103037/);
+  assert.match(html, /live\.js\?v=2026103037/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 

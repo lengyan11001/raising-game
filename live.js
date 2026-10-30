@@ -285,93 +285,6 @@
     shuffle.parentNode.replaceWith(actions);
     actions.append(filter, shuffle);
   }
-  function bindHomeDeck() {
-    const deck = app.querySelector("#deck");
-    const cards = deck ? [...deck.querySelectorAll(".person-card")] : [];
-    if (!deck || cards.length < 2) return;
-    const dots = [...app.querySelectorAll(".deck-dots i")];
-    const gap = 12;
-    const maxScroll = () => Math.max(0, deck.scrollWidth - deck.clientWidth);
-    const step = () => (cards[0]?.offsetWidth || 262) + gap;
-    const positionFor = (index) => Math.max(0, Math.min(cards.length - 1, index)) * step();
-    const indexFor = (left = deck.scrollLeft) => Math.max(0, Math.min(cards.length - 1, Math.round(Number(left || 0) / step())));
-    const setActive = (index) => dots.forEach((dot, dotIndex) => dot.classList.toggle("active", dotIndex === index));
-    const scrollToIndex = (index, behavior = "smooth") => {
-      const next = Math.max(0, Math.min(cards.length - 1, index));
-      setActive(next);
-      deck.scrollTo({ left: Math.min(maxScroll(), positionFor(next)), behavior });
-    };
-    let gesture = null;
-    let wheelLocked = false;
-    let suppressClick = false;
-    let suppressTimer = 0;
-
-    deck.addEventListener("touchstart", (event) => {
-      if (event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      gesture = {
-        startX: Number(touch.clientX || 0),
-        startY: Number(touch.clientY || 0),
-        startLeft: deck.scrollLeft,
-        startIndex: indexFor(deck.scrollLeft),
-        axis: "",
-        moved: false,
-      };
-    }, { passive: true });
-
-    deck.addEventListener("touchmove", (event) => {
-      if (!gesture || event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      const dx = Number(touch.clientX || 0) - gesture.startX;
-      const dy = Number(touch.clientY || 0) - gesture.startY;
-      if (!gesture.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 7) gesture.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
-      if (gesture.axis !== "x") return;
-      if (event.cancelable) event.preventDefault();
-      gesture.moved = true;
-      deck.classList.add("is-dragging");
-      const min = positionFor(Math.max(0, gesture.startIndex - 1));
-      const max = positionFor(Math.min(cards.length - 1, gesture.startIndex + 1));
-      deck.scrollLeft = Math.max(min, Math.min(max, gesture.startLeft - dx));
-      setActive(indexFor(deck.scrollLeft));
-    }, { passive: false });
-
-    const finishGesture = (event) => {
-      if (!gesture) return;
-      const current = gesture;
-      gesture = null;
-      deck.classList.remove("is-dragging");
-      if (current.axis !== "x") return;
-      const touch = event.changedTouches?.[0];
-      const swipe = touch ? current.startX - Number(touch.clientX || 0) : 0;
-      const threshold = Math.min(48, step() * 0.18);
-      let direction = swipe > threshold ? 1 : swipe < -threshold ? -1 : 0;
-      if (!direction) direction = Math.max(-1, Math.min(1, indexFor(deck.scrollLeft) - current.startIndex));
-      if (current.moved) {
-        suppressClick = true;
-        window.clearTimeout(suppressTimer);
-        suppressTimer = window.setTimeout(() => { suppressClick = false; }, 350);
-      }
-      scrollToIndex(current.startIndex + direction);
-    };
-    deck.addEventListener("touchend", finishGesture, { passive: true });
-    deck.addEventListener("touchcancel", finishGesture, { passive: true });
-    deck.addEventListener("click", (event) => {
-      if (!suppressClick) return;
-      suppressClick = false;
-      event.preventDefault();
-      event.stopPropagation();
-    }, true);
-    deck.addEventListener("wheel", (event) => {
-      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
-      if (event.cancelable) event.preventDefault();
-      if (wheelLocked) return;
-      wheelLocked = true;
-      window.setTimeout(() => { wheelLocked = false; }, 320);
-      scrollToIndex(indexFor(deck.scrollLeft) + Math.sign(event.deltaX));
-    }, { passive: false });
-    deck.addEventListener("scroll", () => setActive(indexFor(deck.scrollLeft)), { passive: true });
-    setActive(indexFor(deck.scrollLeft));
-  }
   function home() {
     const rangeMatch = (age, range) => { const n = Number(age || 0); if (!range) return true; if (!n) return false; const [min, max] = range.split("-").map(Number); return n >= min && n <= max; };
     let list = state.chars.filter((c) => !state.category || (c.tags || []).includes(state.category));
@@ -380,6 +293,13 @@
     const roomCards = state.rooms.filter((room) => room.character);
     const batch = homeBatch(list);
     app.innerHTML = `${top()}<main class="live-page"><section class="section-head"><div>${state.category ? `<button class="plain-link" data-action="back-home">‹ ${t("back")}</button>` : ""}<h2>${esc(state.category || label("recommended"))}</h2><p>${t("swipe")}</p></div><div class="section-actions"><button class="filter-button" data-action="filter">☷ ${filterText()}</button><button class="shuffle-button" data-action="shuffle">↻ ${t("shuffle")}</button></div></section><section class="person-deck" id="deck">${batch.length ? batch.map(card).join("") : `<div class="empty-state">${t("emptyRoles")}</div>`}</section><div class="deck-dots">${batch.map((_, i) => `<i class="${i === 0 ? "active" : ""}"></i>`).join("")}</div>${roomCards.length ? `<section class="room-section"><div class="room-section-head"><h2>热门陪伴房间</h2><button class="plain-link" data-action="rooms">全部 ›</button></div><div class="room-strip">${roomCards.map((room) => roomCard(room, false)).join("")}</div></section>` : ""}<section class="promo-card"><span class="promo-icon">♔</span><div class="promo-copy"><strong>${label("vip")}</strong><small>${state.billing?.subscription?.status === "active" ? "订阅已生效" : "解锁私密画面与私密资源"}</small></div><button class="promo-button" data-action="vip">查看权益</button></section></main>${nav("home")}`;
+    const deck = app.querySelector("#deck");
+    deck?.addEventListener("scroll", () => {
+      const card = deck.querySelector(".person-card");
+      if (!card) return;
+      const index = Math.round(deck.scrollLeft / (card.offsetWidth + 12));
+      app.querySelectorAll(".deck-dots i").forEach((dot, dotIndex) => dot.classList.toggle("active", dotIndex === index));
+    }, { passive: true });
   }
   function conversationAvatar(c) {
     const id = String(c?.characterId || c?.character?.id || "");
@@ -2172,7 +2092,7 @@
   }
 
 
-  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.createCharacters.length && !state.createLoading) loadCreateCharacters(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); bindHomeDeck(); } showGuideOverlay(); }
+  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.createCharacters.length && !state.createLoading) loadCreateCharacters(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
 
   function groupCharacterThreads(listed, contacts) {
     const groups = new Map();
