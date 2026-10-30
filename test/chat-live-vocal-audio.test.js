@@ -17,6 +17,7 @@ const {
     pcmDurationMs,
     normalizeDelivery,
     speechDelivery,
+    speechSsml,
   },
 } = require("../chat-live-component.js");
 
@@ -71,6 +72,30 @@ test("intimate stage forces an intimate TTS performance over a generic model del
   assert.ok(delivery.rate <= 0.9);
   assert.ok(delivery.pitch <= 0.98);
   assert.ok(delivery.volume <= 52);
+});
+
+test("intimate component speech uses supported root SSML controls and natural pauses", () => {
+  const ssml = speechSsml("再靠近一点，别躲。\n你听得到吗……", { stage: "intimate" });
+  assert.match(ssml, /^<speak rate="0\.86" pitch="0\.95" volume="46">/);
+  assert.match(ssml, /再靠近一点，<break time="260ms"\/>别躲。/);
+  assert.match(ssml, /你听得到吗……<break time="208ms"\/>/);
+  assert.doesNotMatch(ssml, /<prosody/);
+  assert.match(ssml, /<\/speak>$/);
+});
+
+test("SSML escapes user text instead of interpreting it", () => {
+  const ssml = speechSsml('她说 "<你好>" & 笑了一下。', { stage: "flirty" });
+  assert.match(ssml, /&quot;&lt;你好&gt;&quot; &amp;/);
+  assert.doesNotMatch(ssml, /<你好>/);
+});
+
+test("component TTS never sends unsupported instruction or silently falls back", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
+  assert.match(source, /text_type: "PlainText"/);
+  assert.match(source, /enable_ssml: true/);
+  assert.doesNotMatch(source, /instruction\s*:/);
+  assert.doesNotMatch(source, /instruction fallback|speak\(requested, false\)/);
+  assert.match(source, /SSML 模式只允许发送一次 continue-task/);
 });
 
 test("flirty and foreplay stages have distinct seductive delivery instructions", () => {

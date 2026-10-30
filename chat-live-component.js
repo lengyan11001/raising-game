@@ -879,6 +879,7 @@ function openCosyvoicePcmStream(voice, model, onPcm, options = {}) {
   let finishRequested = false;
   let cancelled = false;
   let bytes = 0;
+  let continueTaskCount = 0;
   let settled = false;
   let resolveDone;
   let rejectDone;
@@ -895,6 +896,7 @@ function openCosyvoicePcmStream(voice, model, onPcm, options = {}) {
     if (!started || cancelled || settled) return;
     while (queue.length) {
       const text = queue.shift();
+      continueTaskCount += 1;
       ws.sendText(JSON.stringify({
         header: { action: "continue-task", task_id: taskId, streaming: "duplex" },
         payload: { input: { text } },
@@ -950,7 +952,7 @@ function openCosyvoicePcmStream(voice, model, onPcm, options = {}) {
             rate: Number(options.rate) > 0 ? Number(options.rate) : 0.94,
             volume: Number.isFinite(Number(options.volume)) ? Number(options.volume) : 50,
             pitch: Number(options.pitch) > 0 ? Number(options.pitch) : 1,
-            ...(options.instruction ? { instruction: options.instruction } : {}),
+            ...(options.ssml ? { enable_ssml: true } : {}),
           },
           input: {},
         },
@@ -967,6 +969,10 @@ function openCosyvoicePcmStream(voice, model, onPcm, options = {}) {
     pushText(text) {
       const chunk = String(text || "");
       if (!chunk || cancelled) return;
+      if (options.ssml && (queue.length || continueTaskCount)) {
+        finish(new Error("SSML 模式只允许发送一次 continue-task。"));
+        return;
+      }
       queue.push(chunk);
       pump();
     },
@@ -1013,7 +1019,7 @@ function speechDelivery(speech = {}) {
   if (delivery === "intimate") {
     instruction = "这是亲密场景中的私下耳语，不是闲聊或朗读。贴近对方耳边低声说，气息自然、轻微断续，语速慢一些并留出真实停顿；声音收住但要有暧昧、吸引和克制的欲望。保持角色原本的音色和性格，不要播音腔，不要整句平铺，不要夸张叫床或刻意拖音。";
   } else if (delivery === "foreplay") {
-    instruction = "这是前戏中的暧昧耳语，不是普通聊天。音量压低，像贴近对方说话，语速稍慢，带有试探、呼吸和若即若离的停顿；要有吸引力，但不要机械娇喘，也不要夸张叫床。保持角色原本的音色和说话习惯。";
+    instruction = "这是前戏中的暧昧耳语，不是普通聊天。音量压低，像贴近对方说话，语速稍慢，带有试探、呼吸和若即若离的停顿；要有吸引力，但不要机械娇喘，也不要夸张叫床。保持角色原本的说话习惯。";
   } else if (delivery === "flirty") {
     instruction = "这是私下暧昧撩拨，不是客服式口播。轻声、慢一点，像靠近对方耳边说话；语气带一点笑意、试探和留白，让暧昧张力自然出现。不要播音腔，不要平铺直叙，也不要夸张叫床。保持角色原本的音色和性格。";
   } else if (delivery === "aftercare") {
@@ -1046,35 +1052,55 @@ function speechDelivery(speech = {}) {
   };
 }
 
+/* CosyVoice v3 flash only applies the documented Instruct grammar to voices
+ * that advertise Instruct support. longyingtao_v3 does not. Express the
+ * controlled delivery with supported SSML prosody instead of silently
+ * accepting an instruction and synthesizing flat speech. */
+function speechSsml(text, options = {}) {
+  const delivery = speechDelivery(options);
+  const raw = String(text || "");
+  if (!raw.trim()) return "";
+  const escape = (value) => String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+  const rate = String(delivery.rate);
+  const pitch = String(delivery.pitch);
+  const volume = String(delivery.volume);
+  const pauseMs = delivery.delivery === "intimate" || delivery.delivery === "foreplay"
+    ? 260
+    : delivery.delivery === "flirty" || delivery.delivery === "aftercare"
+      ? 190
+      : 0;
+  let body = escape(raw);
+  if (pauseMs) {
+    body = body
+      .replace(/([，,])/g, `$1<break time="${pauseMs}ms"/>`)
+      .replace(/([。！？!?…]+)/g, `$1<break time="${Math.round(pauseMs * 0.8)}ms"/>`);
+  }
+  return `<speak rate="${rate}" pitch="${pitch}" volume="${volume}">${body}</speak>`;
+}
+
 async function componentSpeechPcm(text, voice, options = {}) {
   const key = process.env.ALIYUN_DASHSCOPE_API_KEY || process.env.ALIYUN_WAN30_API_KEY || "";
   if (!key) throw new Error("TTS 未配置（缺 ALIYUN_DASHSCOPE_API_KEY）。");
   const model = "cosyvoice-v3-flash";
   const requested = String(voice || "").trim() || "longanyang";
   const delivery = speechDelivery(options);
-  const speak = async (voiceName, withInstruction) => {
-    let stream = null;
-    try {
-      return await cosyvoiceWsPcm(text, voiceName, model, {
-        rate: delivery.rate,
-        volume: delivery.volume,
-        pitch: delivery.pitch,
-        instruction: withInstruction ? delivery.instruction : "",
-        onStream(next) { stream = next; options.onStream?.(next); },
-      });
-    } catch (error) {
-      if (stream) options.onStream?.(null);
-      throw error;
-    }
-  };
+  let stream = null;
   try {
-    return await speak(requested, Boolean(delivery.instruction));
+    return await cosyvoiceWsPcm(text, requested, model, {
+      rate: delivery.rate,
+      volume: delivery.volume,
+      pitch: delivery.pitch,
+      ssml: delivery.instruction ? speechSsml(text, options) : "",
+      onStream(next) { stream = next; options.onStream?.(next); },
+    });
   } catch (error) {
-    if (delivery.instruction) {
-      log("tts instruction fallback", requested, delivery.emotion, error.message);
-      try { return await speak(requested, false); } catch (retryError) { error = retryError; }
-    }
-    log("tts voice failed", requested, error.message);
+    if (stream) options.onStream?.(null);
+    log("tts voice failed", requested, delivery.delivery, error.message);
     throw error;
   }
 }
@@ -1360,5 +1386,6 @@ module.exports = {
     pcmDurationMs,
     normalizeDelivery,
     speechDelivery,
+    speechSsml,
   },
 };
