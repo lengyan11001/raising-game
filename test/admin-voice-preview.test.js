@@ -17,6 +17,7 @@ const previewFiles = [
   "joanna-intimate-waitfix-a.wav",
   "joanna-intimate-waitfix-c.wav",
   "joanna-intimate-final-d.wav",
+  "joanna-intimate-final-e.wav",
 ];
 
 test("admin has a top-level voice preview route and navigation entry", () => {
@@ -28,11 +29,13 @@ test("admin has a top-level voice preview route and navigation entry", () => {
 
 test("voice preview renders the reviewed Joanna samples and final candidate with seeking", () => {
   assert.match(admin, /const VOICE_PREVIEW_ITEMS = \[/);
-  for (const fileName of previewFiles) {
+  for (const fileName of previewFiles.filter((name) => !name.includes("final-e"))) {
     assert.match(admin, new RegExp(`/assets/admin/voice-preview/${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=20261030-voice-preview-2`));
   }
-  assert.match(admin, /data-voice-seek=\"\$\{item\.id === "final-d" \? "16\.4" : "27\.5"\}"/);
+  assert.match(admin, /joanna-intimate-final-e\.wav\?v=20261030-voice-preview-3/);
+  assert.match(admin, /item\.id\.startsWith\("final-"\).*16\.4/);
   assert.match(admin, /data-voice-seek="28\.0"/);
+  assert.match(admin, /data-voice-seek="37\.6"/);
   assert.match(admin, /joanna-intimate-final-d\.wav\?v=20261030-voice-preview-2/);
   assert.match(admin, /audio\.currentTime = Math\.max\(0, seekTo\)/);
   assert.match(admin, /data-voice-preview-id/);

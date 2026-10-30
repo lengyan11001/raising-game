@@ -58,11 +58,19 @@ const VOICE_PREVIEW_ITEMS = [
   },
   {
     id: "final-d",
-    title: "修正 D（最终候选）",
-    badge: "本轮推荐",
-    description: "以 C 为底，只修三处：17 秒「我快」不再突然变大；28 秒接缝改为自然换气；29 秒不再读出 hu/呼。",
+    title: "修正 D（旧候选）",
+    badge: "保留对照",
+    description: "已修好 17 秒爆音、28 秒接缝和 29 秒 hu 音，但 38 秒后仍有长段生成造成的音色漂移；保留用于 A/B。",
     duration: "44.2 秒",
     src: "/assets/admin/voice-preview/joanna-intimate-final-d.wav?v=20261030-voice-preview-2",
+  },
+  {
+    id: "final-e",
+    title: "修正 E（本轮推荐）",
+    badge: "音色锁定",
+    description: "保留 D 已修好的前半段；38 秒后的尾段改为固定音色短段生成，并在自然气口接入，重点听 38–41 秒是否还会换声。",
+    duration: "41.0 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-final-e.wav?v=20261030-voice-preview-3",
   },
 ];
 
@@ -6974,14 +6982,14 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。重点核对 28.10–31.62 秒的「等等等，别松手 / 抱紧我」是否重复、断裂或跳帧。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。核对 28.10–31.62 秒的「等等等，别松手 / 抱紧我」，以及 E 版 38 秒后的尾段是否保持同一音色。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>问题段定位</h3>
-            <p class="adm-muted">28.10–30.15 秒：「等等等，别松手」；30.15–31.62 秒：「抱紧我」。点击下方按钮会跳到问题段前约 0.6 秒。</p>
+            <p class="adm-muted">28.10–30.15 秒：「等等等，别松手」；30.15–31.62 秒：「抱紧我」。E 版可直接从 38 秒开始听尾段音色是否漂移。</p>
           </div>
         </div>
       </div>
@@ -6999,8 +7007,9 @@ function renderVoicePreview() {
               <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span>${escapeHtml(item.duration)}</span>
-                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id === "final-d" ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id === "final-d" ? "跳到 17 秒" : "跳到问题句"}</button>
-                ${item.id === "final-d" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>
+                ${item.id.startsWith("final-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
+                ${item.id === "final-e" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="37.6"><i data-lucide="search-check"></i>跳到 38 秒</button>' : ""}
               </div>
             </div>
           </article>

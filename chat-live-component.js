@@ -473,9 +473,9 @@ function splitComponentSpeech(raw) {
       action,
       emotion: normalizeEmotion(parsed.emotion || parsed.mood),
       delivery: normalizeDelivery(parsed.delivery || parsed.style || parsed.tone),
-      rate: clampNumber(parsed.rate, 0.5, 2, 1),
-      volume: clampNumber(parsed.volume, 0, 100, 50),
-      pitch: clampNumber(parsed.pitch, 0.5, 2, 1),
+      rate: 1,
+      volume: 50,
+      pitch: 1,
     };
   }
   return { say: cleanComponentSay(raw), action: "", emotion: "neutral", delivery: "casual", rate: 1, volume: 50, pitch: 1 };
@@ -541,12 +541,12 @@ async function componentReply(session, userText, options = {}) {
   const explicitIntimate = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""));
   const flirtyContext = session.site === "live" && /(?:想你|喜欢你|心动|暧昧|撩|调情|诱惑|想要你|靠近|抱|亲|吻|耳边|轻声|低声|喘|呼吸|睡衣|夜色|陪我|今晚|别躲|看着我|脸红|害羞|心跳)/u.test(String(userText || ""));
   const intimateCue = explicitIntimate
-    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。整段必须是同一次连续表演：让呼吸先被动作打断，再从不完整的话、气音或短反应里继续说，句子的长短、音高和停顿要随动作推进而变化。不要把嗯、啊、哈当成可堆叠的独立音效；每个短音都必须嵌在被撞断的半句话、吸气或身体反应里，紧接着从断点继续说完，不能变成“嗯。啊。哈。”这种逐音列表。整段只用一次连续表演，不平均停顿，不逐字朗读，不把所有字用同样的力度念出来。短反应可以重复，但必须跟着不同的动作和情绪变化；不要评价对方的能力、表现、诚意、节奏或进度，也不要变成通用叫床模板。"
+    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。整段必须是同一次连续表演：让呼吸先被动作打断，再从不完整的话、气音或短反应里继续说，句子的长短、语气和停顿要随动作推进而变化；情绪起伏不能改变角色原本的音色和共鸣。不要把嗯、啊、哈当成可堆叠的独立音效；每个短音都必须嵌在被撞断的半句话、吸气或身体反应里，紧接着从断点继续说完，不能变成“嗯。啊。哈。”这种逐音列表。整段只用一次连续表演，不平均停顿，不逐字朗读，不把所有字用同样的力度念出来。短反应可以重复，但必须跟着不同的动作和情绪变化；不要评价对方的能力、表现、诚意、节奏或进度，也不要变成通用叫床模板。"
     : flirtyContext || ["flirty", "foreplay", "intimate", "aftercare"].includes(stage)
       ? "当前是带暧昧张力的私下互动，不是客服闲聊。整段要像真的在对喜欢的人低声说话：有试探、停顿、呼吸、留白和克制的吸引；短语气词要连着未说完的话出现，不要排成一串单独念。不要解释气氛，不要播音腔。是否露骨由当前场景决定，但不能把暧昧说成普通开心或礼貌回应。"
       : "";
   const stageCue = stage === "intimate"
-    ? "当前表演阶段是亲密阶段。整段保持同一种贴近、低声、带气息的状态：让一句话被呼吸或动作打断，再从断裂处接下去；音高和节奏要有起伏，不能每个字都用同样的力度念。保持角色本人性格，不要变成通用娇喘模板。"
+    ? "当前表演阶段是亲密阶段。整段保持同一种贴近、低声、带气息的状态：让一句话被呼吸或动作打断，再从断裂处接下去；语气、重音和节奏要有起伏，但不能改变角色原本的音色和共鸣。保持角色本人性格，不要变成通用娇喘模板。"
     : stage === "foreplay"
       ? "当前表演阶段是前戏阶段。用贴近、试探、克制的暧昧语气说，慢一点，留出呼吸和停顿，不要提前演成机械叫床。"
       : stage === "flirty"
@@ -554,7 +554,7 @@ async function componentReply(session, userText, options = {}) {
         : stage === "aftercare"
           ? "当前表演阶段是余韵阶段。声音轻、贴近、带一点疲倦和依恋，停顿自然，不要退回播音腔。"
           : "";
-  const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"delivery\":\"casual\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare 之一，按当前阶段和这句话选择。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
+  const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"delivery\":\"casual\"}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare 之一，按当前阶段和这句话选择。音色、音高、响度由系统固定，不要输出或自行设定 rate、volume、pitch；情绪只用措辞、标点、停顿和呼吸表现。";
   const strategyBlock = [
     "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
     "先决定回复功能，再决定措辞。不要反问用户同一个请求，不要把用户对角色做的事改写成用户命令，不要沿用上一条回复的句式、威胁、收尾或动作顺序。",
@@ -697,9 +697,9 @@ function openCosyvoicePcmStream(voice, model, onPcm, options = {}) {
             voice: voiceName,
             format: "pcm",
             sample_rate: PCM_SAMPLE_RATE,
-            rate: Number(options.rate) > 0 ? Number(options.rate) : 0.94,
-            volume: Number.isFinite(Number(options.volume)) ? Number(options.volume) : 50,
-            pitch: Number(options.pitch) > 0 ? Number(options.pitch) : 1,
+            rate: 1,
+            volume: 50,
+            pitch: 1,
             ...(options.ssml ? { enable_ssml: true } : {}),
           },
           input: {},
@@ -777,27 +777,24 @@ function componentRichVoiceConfig(character = {}) {
   };
 }
 
+const CLONED_VOICE_IDENTITY_LOCK = "始终使用复刻音色本人的同一发声位置、音高、响度、共鸣和嗓音质感。情绪只能通过措辞、重音、停顿、呼吸和语气变化表现；不要为了暧昧压低或抬高嗓音，不要气声化、耳语化、变软、变亮、变沙哑，不要拖慢每个字，也不要改变语速或音量。";
+
 function qwenRichInstruction(richVoice = {}, options = {}) {
   const delivery = speechDelivery(options).delivery;
   const intimate = delivery === "intimate" || delivery === "foreplay";
   const performance = intimate
-    ? "像在很近的距离对喜欢的人说悄悄话，用自然真声和正常呼吸。声音轻一点、软一点，带一点害羞和克制的心动，但不要耳语腔、不要刻意喘气、不要故意颤音，也不要为了暧昧拖长字音。整段连贯地说，只在语义需要处自然停顿；保留短促的鼻音起音，不要把它念成单独的长音。"
-    : "请把整段当作一次自然的私下说话，不要逐句朗读，也不要为了表演而拖慢每个字。保留正常呼吸、轻微迟疑和情绪变化，句子之间按语义自然停顿。";
+    ? `在很近的距离对喜欢的人说话，但不要做成耳语。整段连贯、自然换气，只在语义需要处停顿；保留短促的鼻音起音，不要把它念成单独的长音。${CLONED_VOICE_IDENTITY_LOCK}`
+    : `请把整段当作一次自然的私下说话，不要逐句朗读，也不要为了表演而改变发声。保留正常呼吸、轻微迟疑和情绪变化，句子之间按语义自然停顿。${CLONED_VOICE_IDENTITY_LOCK}`;
   return [performance, String(richVoice?.instruction || "").trim()].filter(Boolean).join(" ").slice(0, 900);
 }
 
-/* Cloned voices already carry the speaker's natural timbre and speaking
- * rhythm. Pitch shifting and heavy rate reduction make them sound synthetic,
- * so intimate delivery keeps pitch neutral and only lightly relaxes pacing. */
+/* A cloned voice already carries the speaker's natural timbre. Changing pitch,
+ * loudness or synthesis rate per sentence makes the same speaker sound like a
+ * different person. Keep every synthesis control fixed and let wording,
+ * punctuation, pauses, breath and instruction carry the emotion. */
 function qwenRichProsody(options = {}) {
-  const delivery = speechDelivery(options);
-  if (delivery.delivery === "intimate") {
-    return { rate: 0.96, pitch: 1, volume: 48 };
-  }
-  if (delivery.delivery === "foreplay") {
-    return { rate: 0.97, pitch: 1, volume: 48 };
-  }
-  return { rate: delivery.rate, pitch: delivery.pitch, volume: delivery.volume };
+  speechDelivery(options);
+  return { rate: 1, pitch: 1, volume: 50 };
 }
 
 function openQwenRichPcmStream(richVoice, text, onPcm, options = {}) {
@@ -887,9 +884,9 @@ function openQwenRichPcmStream(richVoice, text, onPcm, options = {}) {
             voice: voiceName,
             format: "pcm",
             sample_rate: PCM_SAMPLE_RATE,
-            rate: Number(options.rate) > 0 ? Number(options.rate) : 0.86,
-            volume: Number.isFinite(Number(options.volume)) ? Number(options.volume) : 46,
-            pitch: Number(options.pitch) > 0 ? Number(options.pitch) : 0.95,
+            rate: 1,
+            volume: 50,
+            pitch: 1,
             enable_ssml: false,
             language_hints: ["zh"],
             instruction,
@@ -942,16 +939,6 @@ function richPerformanceText(text, options = {}) {
   if (!body) return "";
 
   const intimate = delivery.delivery === "intimate" || delivery.delivery === "foreplay";
-  const prefix = intimate
-    ? "[asmr]"
-    : delivery.delivery === "flirty"
-      ? "[whispers]"
-      : delivery.delivery === "aftercare"
-        ? "[whispers][sighing]"
-        : delivery.delivery === "tender"
-          ? "[whispers]"
-          : "";
-
   /* Keep the intimate score deliberately sparse. The cloned voice already
    * performs ordinary punctuation and hesitation naturally; stacking breath or
    * tremor tags makes it pronounce a sequence of effects instead of acting the
@@ -959,7 +946,7 @@ function richPerformanceText(text, options = {}) {
    * instead of becoming a sustained "唔" sound. */
   if (intimate) body = body.replace(/^([嗯唔呜]+)[ \t]*(?:[。.!！~～]+|[……—]+)[ \t]*(?=\S)/u, "$1、");
 
-  return prefix + body;
+  return body;
 }
 
 async function componentRichSpeechPcm(text, richVoice, options = {}) {
@@ -986,45 +973,26 @@ function speechDelivery(speech = {}) {
   const delivery = stageDelivery === "casual"
     ? normalizeDelivery(speech.delivery)
     : stageDelivery;
-  const explicitRate = Number(speech.rate);
-  const explicitVolume = Number(speech.volume);
-  const explicitPitch = Number(speech.pitch);
-  const rate = clampNumber(speech.rate, 0.5, 2, 1);
-  const volume = Math.round(clampNumber(speech.volume, 0, 100, 50));
-  const pitch = clampNumber(speech.pitch, 0.5, 2, 1);
   let instruction = "";
   if (delivery === "intimate") {
-    instruction = "这是亲密场景中的私下耳语，不是闲聊或朗读。贴近对方耳边低声说，气息自然、轻微断续，语速慢一些并留出真实停顿；声音收住但要有暧昧、吸引和克制的欲望。保持角色原本的音色和性格，不要播音腔，不要整句平铺，不要夸张叫床或刻意拖音。";
+    instruction = `这是亲密场景中的私下说话，不是闲聊或朗读。用自然真声贴近说，气息和停顿可以轻微断续，但语速、音量和音色保持稳定；用措辞、重音和呼吸表现暧昧与克制。${CLONED_VOICE_IDENTITY_LOCK}不要播音腔，不要整句平铺，不要夸张叫床或刻意拖音。`;
   } else if (delivery === "foreplay") {
-    instruction = "这是前戏中的暧昧耳语，不是普通聊天。音量压低，像贴近对方说话，语速稍慢，带有试探、呼吸和若即若离的停顿；要有吸引力，但不要机械娇喘，也不要夸张叫床。保持角色原本的说话习惯。";
+    instruction = `这是前戏中的暧昧说话，不是普通聊天。像贴近对方自然开口，通过试探、呼吸和若即若离的停顿表现吸引力；不要机械娇喘或夸张叫床。${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (delivery === "flirty") {
-    instruction = "这是私下暧昧撩拨，不是客服式口播。轻声、慢一点，像靠近对方耳边说话；语气带一点笑意、试探和留白，让暧昧张力自然出现。不要播音腔，不要平铺直叙，也不要夸张叫床。保持角色原本的音色和性格。";
+    instruction = `这是私下暧昧撩拨，不是客服式口播。语气带一点笑意、试探和留白，让暧昧张力通过重音和停顿自然出现，不要播音腔或平铺直叙。${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (delivery === "aftercare") {
-    instruction = "这是亲密之后的余韵，不是朗读。声音轻而贴近，语速稍慢，带一点疲倦、依恋和自然呼吸；停顿柔和，保持角色原本的音色和性格，不要播音腔。";
+    instruction = `这是亲密之后的余韵，不是朗读。带一点疲倦、依恋和自然呼吸，停顿柔和；不要播音腔。${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (delivery === "tender") {
-    instruction = "用温柔、贴近的私下语气说这句话，声音自然，句子之间有轻微停顿；不要播音腔，保持角色原本的音色和性格。";
+    instruction = `用温柔、自然的私下语气说这句话，句子之间有轻微停顿；不要播音腔。${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (emotion !== "neutral") {
     instruction = `你正在和对方私下聊天，说话的情感是${emotion}。保持角色原本的音色，像真人自然开口，不要播音腔。`;
   }
-  const styledRate = delivery === "intimate" || delivery === "foreplay"
-    ? Math.max(0.72, Math.min(rate, explicitRate > 0 ? 0.9 : 0.86))
-    : delivery === "flirty" || delivery === "aftercare"
-      ? Math.max(0.78, Math.min(rate, explicitRate > 0 ? 0.94 : 0.9))
-      : rate;
-  const styledVolume = delivery === "intimate" || delivery === "foreplay" || delivery === "flirty"
-    ? Math.min(volume, explicitVolume >= 0 ? 52 : 46)
-    : volume;
-  const styledPitch = delivery === "intimate" || delivery === "foreplay"
-    ? Math.min(pitch, explicitPitch > 0 ? 0.98 : 0.95)
-    : delivery === "flirty"
-      ? Math.min(pitch, explicitPitch > 0 ? 1.01 : 0.98)
-      : pitch;
   return {
     emotion,
     delivery,
-    rate: styledRate,
-    volume: styledVolume,
-    pitch: styledPitch,
+    rate: 1,
+    volume: 50,
+    pitch: 1,
     instruction,
   };
 }

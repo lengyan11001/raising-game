@@ -41,27 +41,34 @@ test("component speech parses controlled delivery and keeps ambiguous flirt sign
   const speech = splitComponentSpeech('{"say":"再靠近一点。","action":"","emotion":"暧昧","delivery":"暧昧","rate":1,"volume":50,"pitch":1}');
   assert.equal(speech.emotion, "neutral");
   assert.equal(speech.delivery, "flirty");
+  assert.deepEqual({ rate: speech.rate, volume: speech.volume, pitch: speech.pitch }, { rate: 1, volume: 50, pitch: 1 });
+  const leaked = splitComponentSpeech('{"say":"别躲。","rate":0.5,"volume":100,"pitch":2}');
+  assert.deepEqual({ rate: leaked.rate, volume: leaked.volume, pitch: leaked.pitch }, { rate: 1, volume: 50, pitch: 1 });
   assert.equal(normalizeDelivery("flirting"), "flirty");
   assert.equal(normalizeDelivery("亲密"), "intimate");
   assert.equal(normalizeDelivery("前戏"), "foreplay");
   assert.equal(normalizeDelivery("aftercare"), "aftercare");
 });
 
-test("intimate stage still exposes a controlled delivery profile", () => {
+test("delivery keeps every cloned voice control fixed and ignores model prosody fields", () => {
   const delivery = speechDelivery({ emotion: "happy", delivery: "casual", stage: "intimate", rate: 1, volume: 50, pitch: 1 });
   assert.equal(delivery.delivery, "intimate");
   assert.equal(delivery.emotion, "happy");
   assert.match(delivery.instruction, /亲密场景/);
   assert.match(delivery.instruction, /气息/);
   assert.match(delivery.instruction, /停顿/);
-  assert.ok(delivery.rate <= 0.9);
-  assert.ok(delivery.pitch <= 0.98);
-  assert.ok(delivery.volume <= 52);
+  assert.match(delivery.instruction, /语速、音量和音色保持稳定/);
+  assert.match(delivery.instruction, /同一发声位置/);
+  assert.doesNotMatch(delivery.instruction, /语速慢|音量压低|声音轻一点|声音软一点/);
+  assert.deepEqual({ rate: delivery.rate, pitch: delivery.pitch, volume: delivery.volume }, { rate: 1, pitch: 1, volume: 50 });
+
+  const extreme = speechDelivery({ stage: "intimate", rate: 0.5, volume: 100, pitch: 2 });
+  assert.deepEqual({ rate: extreme.rate, pitch: extreme.pitch, volume: extreme.volume }, { rate: 1, pitch: 1, volume: 50 });
 });
 
 test("intimate SSML pins 嗯 and 唔 with tone-bearing pinyin", () => {
   const ssml = speechSsml("再靠近一点，嗯……别躲。\n你听得到吗……唔。", { stage: "intimate" });
-  assert.match(ssml, /^<speak rate="0\.86" pitch="0\.95" volume="46">/);
+  assert.match(ssml, /^<speak rate="1" pitch="1" volume="50">/);
   assert.match(ssml, /<phoneme alphabet="py" ph="en2">嗯<\/phoneme>/);
   assert.match(ssml, /<phoneme alphabet="py" ph="wu2">唔<\/phoneme>/);
   assert.doesNotMatch(ssml, /ph="(?:en|wu)"/);
@@ -111,7 +118,7 @@ test("flirty and foreplay stages have distinct seductive delivery instructions",
   assert.equal(flirty.delivery, "flirty");
   assert.equal(foreplay.delivery, "foreplay");
   assert.match(flirty.instruction, /暧昧撩拨/);
-  assert.match(flirty.instruction, /耳边/);
+  assert.match(flirty.instruction, /暧昧|试探/);
   assert.match(foreplay.instruction, /前戏/);
   assert.match(foreplay.instruction, /呼吸/);
   assert.doesNotMatch(flirty.instruction, /你正在进行闲聊互动|普通闲聊/);
@@ -131,10 +138,13 @@ test("component reply prompt requests one continuous intimate performance", () =
   const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
   assert.match(source, /\\"delivery\\":\\"casual\\"/);
   assert.match(source, /delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare/);
+  assert.doesNotMatch(source, /\\"rate\\":1,\\"volume\\":50,\\"pitch\\":1/);
+  assert.match(source, /音色、音高、响度由系统固定/);
   assert.match(source, /stage: options\.stage \|\| session\.liveStoryStage/);
   assert.match(source, /整段必须是同一次连续表演/);
   assert.match(source, /不要把嗯、啊、哈当成可堆叠的独立音效/);
-  assert.match(source, /音高和节奏要有起伏/);
+  assert.match(source, /语气、重音和节奏要有起伏/);
+  assert.match(source, /不能改变角色原本的音色和共鸣/);
 });
 
 test("rich voice binding is explicit and cannot reuse a CosyVoice id", () => {
@@ -157,28 +167,36 @@ test("rich voice binding is explicit and cannot reuse a CosyVoice id", () => {
 
 test("rich intimate performance keeps one continuous natural sentence instead of stacked effects", () => {
   const script = richPerformanceText(COMPONENT_INTIMATE_PREVIEW_TEXT, { stage: "intimate" });
-  assert.equal(script, "[asmr]嗯，别……先别动，我还没缓过来，慢一点。");
-  assert.equal((script.match(/\[/g) || []).length, 1);
+  assert.equal(script, "嗯，别……先别动，我还没缓过来，慢一点。");
+  assert.equal((script.match(/\[/g) || []).length, 0);
   assert.doesNotMatch(script, /\[(?:trembling|gasp|sighing|reluctantly|very slowly)\]/);
   assert.doesNotMatch(script, /我、我还没缓过来/);
 });
 
 test("intimate Rich prosody preserves cloned timbre instead of pitch-shifting the voice", () => {
-  assert.deepEqual(qwenRichProsody({ stage: "intimate" }), { rate: 0.96, pitch: 1, volume: 48 });
-  assert.deepEqual(qwenRichProsody({ stage: "foreplay" }), { rate: 0.97, pitch: 1, volume: 48 });
+  assert.deepEqual(qwenRichProsody({ stage: "intimate" }), { rate: 1, pitch: 1, volume: 50 });
+  assert.deepEqual(qwenRichProsody({ stage: "foreplay" }), { rate: 1, pitch: 1, volume: 50 });
   assert.deepEqual(qwenRichProsody({ stage: "casual" }), { rate: 1, pitch: 1, volume: 50 });
+  assert.deepEqual(qwenRichProsody({ stage: "intimate", rate: 0.5, pitch: 2, volume: 100 }), { rate: 1, pitch: 1, volume: 50 });
+});
+
+test("rich instruction locks speaker identity instead of applying emotional prosody", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
+  assert.match(source, /const CLONED_VOICE_IDENTITY_LOCK =/);
+  assert.match(source, /不要为了暧昧压低或抬高嗓音/);
+  assert.match(source, /不要改变语速或音量/);
+  assert.match(source, /rate: 1,\n\s+volume: 50,\n\s+pitch: 1,/);
 });
 
 test("rich intimate instruction asks for connected natural speech, not literal sound effects", () => {
   const instruction = qwenRichInstruction({ instruction: "角色本身偏害羞。" }, { stage: "intimate" });
   assert.match(instruction, /角色本身偏害羞/);
-  assert.match(instruction, /自然真声/);
-  assert.match(instruction, /正常呼吸/);
+  assert.match(instruction, /不要做成耳语/);
+  assert.match(instruction, /自然换气/);
   assert.match(instruction, /整段连贯/);
-  assert.match(instruction, /不要刻意喘气/);
-  assert.match(instruction, /不要故意颤音/);
-  assert.match(instruction, /不要为了暧昧拖长字音/);
+  assert.match(instruction, /同一发声位置/);
   assert.match(instruction, /短促的鼻音起音/);
+  assert.match(instruction, /不要改变语速或音量/);
   assert.doesNotMatch(instruction, /再从“我”继续/);
 });
 
