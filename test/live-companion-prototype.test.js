@@ -180,7 +180,7 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=2026103034/);
   assert.match(html, /live\.js\?v=2026103034/);
-  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
+  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 
 test("create-character auto profile understands the uploaded image through the server", () => {

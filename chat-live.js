@@ -214,10 +214,11 @@
 .chat-live-line.is-bot { align-self:flex-start; background:rgba(255,255,255,.08); }
 .chat-live-line.is-sys { align-self:center; background:transparent; color:#94a3b8; font-size:12px; }
 .chat-live-actions { padding:12px 14px; border-top:1px solid rgba(255,255,255,.08); display:flex; flex-direction:column; gap:10px; }
-.chat-live-input { display:flex; gap:8px; }
-.chat-live-input input { flex:1; height:40px; padding:0 12px; border-radius:6px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); color:#fff; }
-.chat-live-btn { height:40px; padding:0 14px; border:0; border-radius:6px; font-weight:600; cursor:pointer; }
-.chat-live-btn.is-primary { background:#fff; color:#0b0d12; }
+.chat-live-input { display:flex; align-items:center; gap:8px; padding:6px; border:1px solid rgba(255,255,255,.14); border-radius:12px; background:rgba(20,22,30,.88); box-shadow:0 8px 28px rgba(0,0,0,.28); }
+.chat-live-input input { flex:1; min-width:0; height:40px; padding:0 12px; border:0; border-radius:8px; background:#252833; color:#fff; font-size:14px; outline:0; }
+.chat-live-input input::placeholder { color:rgba(255,255,255,.5); }
+.chat-live-btn { height:40px; padding:0 14px; border:0; border-radius:8px; font-weight:600; cursor:pointer; }
+.chat-live-btn.is-primary { background:#ff2d6f; color:#fff; box-shadow:0 4px 14px rgba(255,45,111,.32); }
 .chat-live-btn.is-danger { background:#dc2626; color:#fff; }
 .chat-live-btn.is-ghost { background:rgba(255,255,255,.08); color:#fff; }
 .chat-live-btn[disabled] { opacity:.5; cursor:not-allowed; }
@@ -231,11 +232,13 @@
 .chat-live-voice { min-width:52px; height:42px; padding:0 10px; border:0; border-radius:6px; background:rgba(255,255,255,.14); color:#fff; font-size:13px; font-weight:700; flex:0 0 auto; }
 .chat-live-voice.is-on { background:#ef4444; }
 .chat-live-voice { touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-.chat-live-input .chat-live-gift-btn, .chat-live-input .chat-live-voice { width:44px; height:44px; min-width:44px; min-height:44px; padding:0; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; }
-.chat-live-input .chat-live-gift-btn span:last-child, .chat-live-dock .chat-live-gift-btn span:last-child { display:none; }
-.chat-live-input .chat-live-voice, .chat-live-dock .chat-live-voice { font-size:0; }
-.chat-live-input .chat-live-voice::before, .chat-live-dock .chat-live-voice::before { content:"🎤"; font-size:18px; }
-.chat-live-dock .chat-live-gift-btn, .chat-live-dock .chat-live-voice { width:44px; height:44px; min-height:44px; border-radius:50%; }
+.chat-live-input .chat-live-voice { width:42px; height:42px; min-width:42px; min-height:42px; padding:0; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.13); color:#fff; }
+.chat-live-input .chat-live-voice svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.chat-live-input .chat-live-voice.is-on { background:#ff2d6f; }
+.chat-live-floating-gift { position:absolute; z-index:7; right:14px; bottom:calc(150px + env(safe-area-inset-bottom)); width:104px; height:52px; padding:0 12px; border:0; border-radius:12px; background:linear-gradient(135deg,#ff2d6f,#ff4d87); color:#fff; box-shadow:0 8px 24px rgba(255,45,111,.4); display:flex; align-items:center; justify-content:center; gap:7px; font-size:13px; font-weight:700; cursor:pointer; }
+.chat-live-floating-gift svg { width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.chat-live-floating-gift .gift-badge { position:absolute; top:-7px; right:-6px; width:22px; height:22px; border-radius:50%; display:grid; place-items:center; border:2px solid #ff4d87; background:#f6c95d; color:#2b2110; font-size:10px; line-height:1; }
+.chat-live-floating-gift[disabled] { opacity:.5; cursor:not-allowed; }
 .chat-live-close { width:36px; height:36px; border:0; border-radius:999px; background:rgba(0,0,0,.45); color:#fff; font-size:22px; line-height:1; }
 .chat-live-listen { display:none; position:absolute; left:50%; bottom:108px; transform:translateX(-50%); padding:10px 16px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; font-size:13px; }
 .chat-live-listen.is-on { display:block; }
@@ -329,13 +332,10 @@
   .chat-live-close { display:flex !important; top:calc(14px + env(safe-area-inset-top)); left:14px; }
   .chat-live-badge { left:58px; }
   .chat-live-dock { display:none !important; }
-  .chat-live-input { display:flex; align-items:center; gap:8px; margin:0 12px calc(8px + env(safe-area-inset-bottom)); padding:6px; }
-  .chat-live-input .chat-live-gift-btn, .chat-live-input .chat-live-voice { width:40px; height:40px; min-height:40px; padding:0; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.16); }
-  .chat-live-input .chat-live-gift-btn span:last-child { display:none; }
-  .chat-live-input .chat-live-gift-btn span:first-child { font-size:18px; }
-  .chat-live-input .chat-live-voice { font-size:0; }
-  .chat-live-input .chat-live-voice::before { content:"🎤"; font-size:18px; }
-  .chat-live-input input { flex:1; min-width:0; }
+  .chat-live-input { display:flex; align-items:center; gap:8px; margin:0 16px calc(10px + env(safe-area-inset-bottom)); padding:6px; border-radius:14px; }
+  .chat-live-input .chat-live-voice { width:42px; height:42px; min-width:42px; min-height:42px; padding:0; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.13); }
+  .chat-live-input input { flex:1; min-width:0; height:42px; }
+  .chat-live-floating-gift { right:16px; bottom:calc(78px + env(safe-area-inset-bottom)); width:104px; height:46px; border-radius:10px; white-space:nowrap; }
   .chat-live-toast { bottom:calc(78px + env(safe-area-inset-bottom)); }
   .chat-live-log { pointer-events:none; flex:0 1 auto; max-height:22vh; background:transparent; padding:0 92px 6px 16px; gap:4px; -webkit-mask-image:linear-gradient(to bottom, transparent, #000 18%); mask-image:linear-gradient(to bottom, transparent, #000 18%); }
   .chat-live-line { background:transparent !important; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); border-radius:0; padding:2px 0; max-width:86%; font-size:15px; align-self:flex-start; }
@@ -344,14 +344,14 @@
   .chat-live-actions { pointer-events:none; border:0; background:transparent; padding:0 0 calc(12px + env(safe-area-inset-bottom)); }
   .chat-live-caption { bottom:168px; }
   .chat-live-input { margin:0 16px 4px; }
-  .chat-live-input input { height:36px; border:0; border-radius:0; background:transparent; }
-  .chat-live-input .chat-live-btn { width:auto; min-width:52px; height:32px; padding:0 12px; border-radius:6px; background:#ff2d6f; color:#fff; }
+  .chat-live-input input { height:38px; border:0; border-radius:8px; background:#252833; }
+  .chat-live-input .chat-live-btn { width:auto; min-width:54px; height:38px; padding:0 13px; border-radius:8px; background:#ff2d6f; color:#fff; }
   .chat-live-dock .chat-live-voice { display:flex; }
   .chat-live-listen { bottom:calc(150px + env(safe-area-inset-bottom)); pointer-events:none; }
   .chat-live-log { display:none !important; }
   .chat-live-look-toggle { top:calc(58px + env(safe-area-inset-top)); left:14px; right:auto; }
   .chat-live-looks { top:calc(100px + env(safe-area-inset-top)); bottom:auto; left:14px; right:auto; transform:none; flex-direction:column; max-height:min(240px, calc(100% - 280px)); overflow:auto; background:rgba(8,10,16,.72); border:1px solid rgba(255,255,255,.16); box-shadow:0 12px 32px rgba(0,0,0,.28); padding:8px; }
-  .chat-live-input .chat-live-gift-btn, .chat-live-input .chat-live-voice { width:44px; height:44px; min-width:44px; min-height:44px; border-radius:50%; }
+  .chat-live-input .chat-live-voice { width:42px; height:42px; min-width:42px; min-height:42px; border-radius:50%; }
   .chat-live-toast { right:16px; bottom:calc(148px + env(safe-area-inset-bottom)); text-align:center; }\n  .chat-live-overlay.is-room [data-look-kind=\"undress\"] { display:none !important; }
   .chat-live-picker { align-items:flex-end; padding:0; }
   .chat-live-picker-card { width:100%; max-height:68%; border-radius:8px 8px 0 0; padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
@@ -556,16 +556,17 @@
     const giftBtn = el("button", "chat-live-gift-btn");
     giftBtn.type = "button";
     giftBtn.dataset.giftAction = "true";
-    giftBtn.innerHTML = "<span>🎁</span><span>打赏</span>";
+    giftBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg><span>送礼物</span><span class="gift-badge">礼</span>';
+    giftBtn.className = "chat-live-floating-gift";
+    giftBtn.setAttribute("aria-label", "送礼物");
     giftBtn.disabled = true;
-    lookRail.appendChild(giftBtn);
     const perMin = saleCreditsPerMinute();
     const perSec = perMin / 60;
     const perSecText = perMin ? (Number.isInteger(perSec) ? String(perSec) : perSec.toFixed(1).replace(/\.0$/, "")) : "按配置";
     const rate = el("span", "chat-live-rate", `1080P · ${perSecText} 积分/秒`);
     const caption = el("div", "chat-live-caption", `与${character.name || "TA"}视频通话中`);
     const toast = el("div", "chat-live-toast");
-    stage.append(video, placeholder, rate, badge, timer, caption, lookToggle, lookRail, toast);
+    stage.append(video, placeholder, rate, badge, timer, caption, lookToggle, lookRail, giftBtn, toast);
 
     const side = el("div", "chat-live-side");
     const head = el("div", "chat-live-head");
@@ -579,15 +580,18 @@
     const log = el("div", "chat-live-log");
     const actions = el("div", "chat-live-actions");
     const inputRow = el("div", "chat-live-input");
-    const voiceBtn = el("button", "chat-live-voice", "语音");
+    const voiceBtn = el("button", "chat-live-voice");
     voiceBtn.type = "button";
+    voiceBtn.setAttribute("aria-label", "按住说话");
+    voiceBtn.setAttribute("title", "按住说话");
     voiceBtn.setAttribute("aria-pressed", "false");
+    voiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/></svg>';
     const input = document.createElement("input");
     input.placeholder = "说点什么…";
     input.enterKeyHint = "send";
     const sendBtn = el("button", "chat-live-btn is-primary", "发送");
     sendBtn.type = "button";
-    inputRow.append(giftBtn, input, sendBtn, voiceBtn);
+    inputRow.append(voiceBtn, input, sendBtn);
     const listen = el("div", "chat-live-listen", "正在听…");
     const row = el("div", "chat-live-row");
     const muteBtn = el("button", "chat-live-btn is-ghost", "静音");
@@ -676,7 +680,8 @@
     const button = state.overlay?.voiceBtn;
     if (!button) return;
     button.classList.toggle("is-on", !!on || state.micOn);
-    button.textContent = on ? "聆听" : (state.micOn ? "开麦" : "语音");
+    button.setAttribute("aria-label", on ? "正在听，松开结束" : (state.micOn ? "正在说话" : "按住说话"));
+    button.setAttribute("title", on ? "正在听" : "按住说话");
     button.setAttribute("aria-pressed", (on || state.micOn) ? "true" : "false");
     state.overlay.listen?.classList.toggle("is-on", !!on);
   }
