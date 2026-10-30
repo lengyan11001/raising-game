@@ -879,6 +879,126 @@ async function ensureSchemaInner() {
       ON app_web_vitals (hostname, page_path, device, metric, created_at DESC);
   `);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_ips (
+      ip_hash TEXT PRIMARY KEY,
+      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      visit_count BIGINT NOT NULL DEFAULT 0
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_paths (
+      page_path TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_countries (
+      country TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_recent (
+      id BIGSERIAL PRIMARY KEY,
+      page_path TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT '',
+      ip_masked TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_visitor_recent_created_idx ON app_geo_visitor_recent (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_bots (
+      bot TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_path TEXT NOT NULL DEFAULT '',
+      last_user_agent TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_paths (
+      page_path TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_path_bots (
+      page_path TEXT NOT NULL,
+      bot TEXT NOT NULL,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (page_path, bot)
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_recent (
+      id BIGSERIAL PRIMARY KEY,
+      bot TEXT NOT NULL DEFAULT '',
+      page_path TEXT NOT NULL DEFAULT '',
+      ip TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_crawler_recent_created_idx ON app_geo_crawler_recent (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_daily (
+      character_id TEXT NOT NULL,
+      visit_date DATE NOT NULL,
+      pv BIGINT NOT NULL DEFAULT 0,
+      home BIGINT NOT NULL DEFAULT 0,
+      direct BIGINT NOT NULL DEFAULT 0,
+      external BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (character_id, visit_date)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_date_idx ON app_geo_character_daily (visit_date DESC, pv DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_daily_ips (
+      character_id TEXT NOT NULL,
+      visit_date DATE NOT NULL,
+      ip_hash TEXT NOT NULL,
+      PRIMARY KEY (character_id, visit_date, ip_hash)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_ips_date_idx ON app_geo_character_daily_ips (visit_date DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_meta (
+      character_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      poster_url TEXT NOT NULL DEFAULT '',
+      page_path TEXT NOT NULL DEFAULT '',
+      uv_legacy INTEGER NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_geo_character_meta ADD COLUMN IF NOT EXISTS uv_legacy INTEGER NOT NULL DEFAULT 0;`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_recent (
+      id BIGSERIAL PRIMARY KEY,
+      character_id TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT '',
+      page_path TEXT NOT NULL DEFAULT '',
+      ip_masked TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_recent_created_idx ON app_geo_character_recent (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_migration_state (
+      migration_key TEXT PRIMARY KEY,
+      migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_api_subtokens (
       id TEXT PRIMARY KEY,
       token TEXT NOT NULL UNIQUE,
@@ -5213,6 +5333,499 @@ async function getWebVitalsSummaryFromDb({ days = 28 } = {}) {
   };
 }
 
+function geoStatDate(value = "") {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
+async function migrateGeoStatsKvToTables() {
+  if (!dbEnabled()) return { migrated: false, skipped: true };
+  await ensureSchema();
+  const migrationKey = "geo_stats_kv_v1";
+  const keys = ["geo_visitor_stats", "geo_crawler_stats", "geo_character_visit_stats"];
+  const { rows } = await query(`SELECT key, value FROM app_kv WHERE key = ANY($1::text[])`, [keys]);
+  if (!rows.length) {
+    await query(`INSERT INTO app_geo_migration_state(migration_key) VALUES ($1) ON CONFLICT DO NOTHING`, [migrationKey]);
+    return { migrated: false, skipped: true };
+  }
+  const records = Object.fromEntries(rows.map((row) => [String(row.key || ""), row.value || {}]));
+  const visitor = records.geo_visitor_stats && typeof records.geo_visitor_stats === "object" ? records.geo_visitor_stats : {};
+  const crawler = records.geo_crawler_stats && typeof records.geo_crawler_stats === "object" ? records.geo_crawler_stats : {};
+  const character = records.geo_character_visit_stats && typeof records.geo_character_visit_stats === "object" ? records.geo_character_visit_stats : {};
+  const pool = getPool();
+  const client = await pool.connect();
+  const batchSize = 500;
+  const insertBatch = async (sql, entries) => {
+    for (let offset = 0; offset < entries.length; offset += batchSize) {
+      await client.query(sql, [JSON.stringify(entries.slice(offset, offset + batchSize))]);
+    }
+  };
+
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [migrationKey]);
+    const existing = await client.query(`SELECT 1 FROM app_geo_migration_state WHERE migration_key = $1`, [migrationKey]);
+    if (existing.rows.length) {
+      await client.query("COMMIT");
+      return { migrated: false, skipped: true };
+    }
+
+    await client.query("DELETE FROM app_geo_visitor_recent");
+    await client.query("DELETE FROM app_geo_crawler_recent");
+    await client.query("DELETE FROM app_geo_character_recent");
+
+    const visitorPaths = Object.entries(visitor.byPath || {}).map(([pagePath, entry]) => ({
+      page_path: String(pagePath || "/"),
+      visit_count: Math.max(0, Number(entry?.count || 0)),
+      last_seen: geoStatDate(entry?.lastSeen),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_paths(page_path, visit_count, last_seen)
+      SELECT page_path, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = GREATEST(app_geo_visitor_paths.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_visitor_paths.last_seen, EXCLUDED.last_seen)
+    `, visitorPaths);
+
+    const visitorCountries = Object.entries(visitor.byCountry || {}).map(([country, entry]) => ({
+      country: String(country || "UNKNOWN"),
+      visit_count: Math.max(0, Number(entry?.count || 0)),
+      last_seen: geoStatDate(entry?.lastSeen),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_countries(country, visit_count, last_seen)
+      SELECT country, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(country TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (country) DO UPDATE SET visit_count = GREATEST(app_geo_visitor_countries.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_visitor_countries.last_seen, EXCLUDED.last_seen)
+    `, visitorCountries);
+
+    const visitorIps = Object.entries(visitor.ipHashes || {})
+      .filter(([ipHash]) => Boolean(ipHash))
+      .map(([ipHash, entry]) => ({
+        ip_hash: String(ipHash),
+        first_seen: geoStatDate(entry?.firstSeen),
+        last_seen: geoStatDate(entry?.lastSeen),
+        visit_count: Math.max(0, Number(entry?.count || 0)),
+      }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_ips(ip_hash, first_seen, last_seen, visit_count)
+      SELECT ip_hash, first_seen, last_seen, visit_count
+      FROM jsonb_to_recordset($1::jsonb) AS x(ip_hash TEXT, first_seen TIMESTAMPTZ, last_seen TIMESTAMPTZ, visit_count BIGINT)
+      ON CONFLICT (ip_hash) DO UPDATE SET first_seen = LEAST(app_geo_visitor_ips.first_seen, EXCLUDED.first_seen), last_seen = GREATEST(app_geo_visitor_ips.last_seen, EXCLUDED.last_seen), visit_count = GREATEST(app_geo_visitor_ips.visit_count, EXCLUDED.visit_count)
+    `, visitorIps);
+
+    const visitorRecent = (Array.isArray(visitor.recent) ? visitor.recent : []).map((entry) => ({
+      page_path: String(entry?.path || "/"),
+      country: String(entry?.country || "UNKNOWN"),
+      ip_masked: String(entry?.ip || ""),
+      user_agent: String(entry?.userAgent || ""),
+      created_at: geoStatDate(entry?.at),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_recent(page_path, country, ip_masked, user_agent, created_at)
+      SELECT page_path, country, ip_masked, user_agent, created_at
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, country TEXT, ip_masked TEXT, user_agent TEXT, created_at TIMESTAMPTZ)
+    `, visitorRecent);
+
+    const crawlerBots = Object.entries(crawler.byBot || {}).map(([bot, entry]) => ({
+      bot: String(bot || ""),
+      visit_count: Math.max(0, Number(entry?.count || 0)),
+      last_seen: geoStatDate(entry?.lastSeen),
+      last_path: String(entry?.lastPath || ""),
+      last_user_agent: String(entry?.lastUserAgent || ""),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_bots(bot, visit_count, last_seen, last_path, last_user_agent)
+      SELECT bot, visit_count, last_seen, last_path, last_user_agent
+      FROM jsonb_to_recordset($1::jsonb) AS x(bot TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ, last_path TEXT, last_user_agent TEXT)
+      ON CONFLICT (bot) DO UPDATE SET visit_count = GREATEST(app_geo_crawler_bots.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_crawler_bots.last_seen, EXCLUDED.last_seen), last_path = EXCLUDED.last_path, last_user_agent = EXCLUDED.last_user_agent
+    `, crawlerBots);
+
+    const crawlerPaths = [];
+    const crawlerPathBots = [];
+    for (const [pagePath, entry] of Object.entries(crawler.byPath || {})) {
+      const lastSeen = geoStatDate(entry?.lastSeen);
+      crawlerPaths.push({
+        page_path: String(pagePath || "/"),
+        visit_count: Math.max(0, Number(entry?.count || 0)),
+        last_seen: lastSeen,
+      });
+      for (const [bot, count] of Object.entries(entry?.bots || {})) {
+        crawlerPathBots.push({
+          page_path: String(pagePath || "/"),
+          bot: String(bot || ""),
+          visit_count: Math.max(0, Number(count || 0)),
+          last_seen: lastSeen,
+        });
+      }
+    }
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_paths(page_path, visit_count, last_seen)
+      SELECT page_path, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = GREATEST(app_geo_crawler_paths.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_crawler_paths.last_seen, EXCLUDED.last_seen)
+    `, crawlerPaths);
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_path_bots(page_path, bot, visit_count, last_seen)
+      SELECT page_path, bot, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, bot TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (page_path, bot) DO UPDATE SET visit_count = GREATEST(app_geo_crawler_path_bots.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_crawler_path_bots.last_seen, EXCLUDED.last_seen)
+    `, crawlerPathBots);
+
+    const crawlerRecent = (Array.isArray(crawler.recent) ? crawler.recent : []).map((entry) => ({
+      bot: String(entry?.bot || ""),
+      page_path: String(entry?.path || "/"),
+      ip: String(entry?.ip || ""),
+      user_agent: String(entry?.userAgent || ""),
+      created_at: geoStatDate(entry?.at),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_recent(bot, page_path, ip, user_agent, created_at)
+      SELECT bot, page_path, ip, user_agent, created_at
+      FROM jsonb_to_recordset($1::jsonb) AS x(bot TEXT, page_path TEXT, ip TEXT, user_agent TEXT, created_at TIMESTAMPTZ)
+    `, crawlerRecent);
+
+    const characterMeta = [];
+    const characterDaily = [];
+    for (const [characterId, entry] of Object.entries(character.byCharacter || {})) {
+      const id = String(characterId || entry?.id || "");
+      if (!id) continue;
+      const lastSeen = geoStatDate(entry?.lastSeen || character.updatedAt);
+      characterMeta.push({
+        character_id: id,
+        name: String(entry?.name || id),
+        poster_url: String(entry?.posterUrl || ""),
+        page_path: String(entry?.path || ""),
+        uv_legacy: Math.max(0, Number(entry?.uv || 0)),
+        last_seen: lastSeen,
+      });
+      const days = entry?.days && typeof entry.days === "object" ? entry.days : {};
+      for (const [day, row] of Object.entries(days)) {
+        characterDaily.push({
+          character_id: id,
+          visit_date: String(day || "").slice(0, 10),
+          pv: Math.max(0, Number(row?.pv ?? row?.total ?? 0)),
+          home: Math.max(0, Number(row?.home || 0)),
+          direct: Math.max(0, Number(row?.direct || 0)),
+          external: Math.max(0, Number(row?.external || 0)),
+          last_seen: lastSeen,
+        });
+      }
+    }
+    await insertBatch(`
+      INSERT INTO app_geo_character_meta(character_id, name, poster_url, page_path, uv_legacy, last_seen)
+      SELECT character_id, name, poster_url, page_path, uv_legacy, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(character_id TEXT, name TEXT, poster_url TEXT, page_path TEXT, uv_legacy INTEGER, last_seen TIMESTAMPTZ)
+      ON CONFLICT (character_id) DO UPDATE SET name = EXCLUDED.name, poster_url = EXCLUDED.poster_url, page_path = EXCLUDED.page_path, uv_legacy = GREATEST(app_geo_character_meta.uv_legacy, EXCLUDED.uv_legacy), last_seen = GREATEST(app_geo_character_meta.last_seen, EXCLUDED.last_seen)
+    `, characterMeta);
+    await insertBatch(`
+      INSERT INTO app_geo_character_daily(character_id, visit_date, pv, home, direct, external, last_seen)
+      SELECT character_id, visit_date, pv, home, direct, external, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(character_id TEXT, visit_date DATE, pv BIGINT, home BIGINT, direct BIGINT, external BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (character_id, visit_date) DO UPDATE SET pv = GREATEST(app_geo_character_daily.pv, EXCLUDED.pv), home = GREATEST(app_geo_character_daily.home, EXCLUDED.home), direct = GREATEST(app_geo_character_daily.direct, EXCLUDED.direct), external = GREATEST(app_geo_character_daily.external, EXCLUDED.external), last_seen = GREATEST(app_geo_character_daily.last_seen, EXCLUDED.last_seen)
+    `, characterDaily);
+
+    const characterRecent = (Array.isArray(character.recent) ? character.recent : []).map((entry) => ({
+      character_id: String(entry?.characterId || ""),
+      name: String(entry?.name || ""),
+      source: String(entry?.source || ""),
+      page_path: String(entry?.path || ""),
+      ip_masked: String(entry?.ip || ""),
+      created_at: geoStatDate(entry?.at),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_character_recent(character_id, name, source, page_path, ip_masked, created_at)
+      SELECT character_id, name, source, page_path, ip_masked, created_at
+      FROM jsonb_to_recordset($1::jsonb) AS x(character_id TEXT, name TEXT, source TEXT, page_path TEXT, ip_masked TEXT, created_at TIMESTAMPTZ)
+    `, characterRecent);
+
+    await client.query(`DELETE FROM app_kv WHERE key = ANY($1::text[])`, [keys]);
+    await client.query(`INSERT INTO app_geo_migration_state(migration_key) VALUES ($1) ON CONFLICT DO NOTHING`, [migrationKey]);
+    await client.query("COMMIT");
+    return { migrated: true, migratedKeys: rows.map((row) => String(row.key || "")).filter(Boolean) };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function geoVisitorStatsFromTables({ pathRows = [], countryRows = [], recentRows = [], uniqueIpCount = 0 } = {}) {
+  const byPath = {};
+  pathRows.forEach((row) => {
+    byPath[String(row.page_path || "/")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+    };
+  });
+  const byCountry = {};
+  countryRows.forEach((row) => {
+    byCountry[String(row.country || "UNKNOWN")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+    };
+  });
+  const recent = recentRows.map((row) => ({
+    path: String(row.page_path || "/"),
+    at: row.created_at ? new Date(row.created_at).toISOString() : "",
+    country: String(row.country || "UNKNOWN"),
+    ip: String(row.ip_masked || ""),
+    userAgent: String(row.user_agent || ""),
+  }));
+  const total = pathRows.reduce((sum, row) => sum + Number(row.visit_count || 0), 0);
+  const lastSeen = [...pathRows.map((row) => row.last_seen), ...recentRows.map((row) => row.created_at)]
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  return {
+    total,
+    uniqueIpCount: Number(uniqueIpCount || 0),
+    byPath,
+    byCountry,
+    recent,
+    lastSeen: lastSeen ? new Date(lastSeen).toISOString() : "",
+  };
+}
+
+async function readGeoVisitorStatsFromDb({ recentLimit = 80 } = {}) {
+  if (!dbEnabled()) return geoVisitorStatsFromTables();
+  await ensureSchema();
+  const limit = Math.max(1, Math.min(200, Number(recentLimit) || 80));
+  const [pathResult, countryResult, recentResult, ipCountResult] = await Promise.all([
+    query(`SELECT page_path, visit_count, last_seen FROM app_geo_visitor_paths ORDER BY visit_count DESC, last_seen DESC LIMIT 500`),
+    query(`SELECT country, visit_count, last_seen FROM app_geo_visitor_countries ORDER BY visit_count DESC, last_seen DESC LIMIT 200`),
+    query(`SELECT page_path, country, ip_masked, user_agent, created_at FROM app_geo_visitor_recent ORDER BY created_at DESC LIMIT $1`, [limit]),
+    query(`SELECT COUNT(*)::int AS count FROM app_geo_visitor_ips`),
+  ]);
+  return geoVisitorStatsFromTables({
+    pathRows: pathResult.rows,
+    countryRows: countryResult.rows,
+    recentRows: recentResult.rows,
+    uniqueIpCount: Number(ipCountResult.rows[0]?.count || 0),
+  });
+}
+
+async function recordGeoVisitorVisitInDb({ pagePath = "/", country = "UNKNOWN", ipHash = "", ipMasked = "", userAgent = "", createdAt = new Date().toISOString() } = {}) {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const cleanPath = String(pagePath || "/");
+  const cleanCountry = String(country || "UNKNOWN");
+  const cleanHash = String(ipHash || "");
+  const at = createdAt || new Date().toISOString();
+  await Promise.all([
+    query(`
+      INSERT INTO app_geo_visitor_paths(page_path, visit_count, last_seen)
+      VALUES ($1, 1, $2::timestamptz)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = app_geo_visitor_paths.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanPath, at]),
+    query(`
+      INSERT INTO app_geo_visitor_countries(country, visit_count, last_seen)
+      VALUES ($1, 1, $2::timestamptz)
+      ON CONFLICT (country) DO UPDATE SET visit_count = app_geo_visitor_countries.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanCountry, at]),
+    query(`INSERT INTO app_geo_visitor_recent(page_path, country, ip_masked, user_agent, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)`, [cleanPath, cleanCountry, String(ipMasked || ""), String(userAgent || ""), at]),
+    cleanHash ? query(`
+      INSERT INTO app_geo_visitor_ips(ip_hash, first_seen, last_seen, visit_count)
+      VALUES ($1, $2::timestamptz, $2::timestamptz, 1)
+      ON CONFLICT (ip_hash) DO UPDATE SET last_seen = EXCLUDED.last_seen, visit_count = app_geo_visitor_ips.visit_count + 1
+    `, [cleanHash, at]) : Promise.resolve(),
+    query(`DELETE FROM app_geo_visitor_recent WHERE created_at < NOW() - INTERVAL '90 days'`),
+  ]);
+  return true;
+}
+
+function geoCrawlerStatsFromTables({ botRows = [], pathRows = [], pathBotRows = [], recentRows = [] } = {}) {
+  const byBot = {};
+  botRows.forEach((row) => {
+    byBot[String(row.bot || "")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+      lastPath: String(row.last_path || ""),
+      lastUserAgent: String(row.last_user_agent || ""),
+    };
+  });
+  const byPath = {};
+  pathRows.forEach((row) => {
+    byPath[String(row.page_path || "/")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+      bots: {},
+    };
+  });
+  pathBotRows.forEach((row) => {
+    const key = String(row.page_path || "/");
+    if (!byPath[key]) byPath[key] = { count: 0, lastSeen: "", bots: {} };
+    byPath[key].bots[String(row.bot || "")] = Number(row.visit_count || 0);
+  });
+  const recent = recentRows.map((row) => ({
+    bot: String(row.bot || ""),
+    path: String(row.page_path || "/"),
+    at: row.created_at ? new Date(row.created_at).toISOString() : "",
+    ip: String(row.ip || ""),
+    userAgent: String(row.user_agent || ""),
+  }));
+  return {
+    total: botRows.reduce((sum, row) => sum + Number(row.visit_count || 0), 0),
+    byBot,
+    byPath,
+    recent,
+  };
+}
+
+async function readGeoCrawlerStatsFromDb({ recentLimit = 80 } = {}) {
+  if (!dbEnabled()) return geoCrawlerStatsFromTables();
+  await ensureSchema();
+  const limit = Math.max(1, Math.min(200, Number(recentLimit) || 80));
+  const [botResult, pathResult, pathBotResult, recentResult] = await Promise.all([
+    query(`SELECT bot, visit_count, last_seen, last_path, last_user_agent FROM app_geo_crawler_bots ORDER BY visit_count DESC, last_seen DESC LIMIT 200`),
+    query(`SELECT page_path, visit_count, last_seen FROM app_geo_crawler_paths ORDER BY visit_count DESC, last_seen DESC LIMIT 500`),
+    query(`SELECT page_path, bot, visit_count FROM app_geo_crawler_path_bots ORDER BY page_path ASC, visit_count DESC LIMIT 3000`),
+    query(`SELECT bot, page_path, ip, user_agent, created_at FROM app_geo_crawler_recent ORDER BY created_at DESC LIMIT $1`, [limit]),
+  ]);
+  return geoCrawlerStatsFromTables({
+    botRows: botResult.rows,
+    pathRows: pathResult.rows,
+    pathBotRows: pathBotResult.rows,
+    recentRows: recentResult.rows,
+  });
+}
+
+async function recordGeoCrawlerVisitInDb({ bot = "", pagePath = "/", ip = "", userAgent = "", createdAt = new Date().toISOString() } = {}) {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const cleanBot = String(bot || "");
+  if (!cleanBot) return false;
+  const cleanPath = String(pagePath || "/");
+  const at = createdAt || new Date().toISOString();
+  await Promise.all([
+    query(`
+      INSERT INTO app_geo_crawler_bots(bot, visit_count, last_seen, last_path, last_user_agent)
+      VALUES ($1, 1, $2::timestamptz, $3, $4)
+      ON CONFLICT (bot) DO UPDATE SET visit_count = app_geo_crawler_bots.visit_count + 1, last_seen = EXCLUDED.last_seen, last_path = EXCLUDED.last_path, last_user_agent = EXCLUDED.last_user_agent
+    `, [cleanBot, at, cleanPath, String(userAgent || "").slice(0, 180)]),
+    query(`
+      INSERT INTO app_geo_crawler_paths(page_path, visit_count, last_seen)
+      VALUES ($1, 1, $2::timestamptz)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = app_geo_crawler_paths.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanPath, at]),
+    query(`
+      INSERT INTO app_geo_crawler_path_bots(page_path, bot, visit_count, last_seen)
+      VALUES ($1, $2, 1, $3::timestamptz)
+      ON CONFLICT (page_path, bot) DO UPDATE SET visit_count = app_geo_crawler_path_bots.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanPath, cleanBot, at]),
+    query(`INSERT INTO app_geo_crawler_recent(bot, page_path, ip, user_agent, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)`, [cleanBot, cleanPath, String(ip || ""), String(userAgent || "").slice(0, 180), at]),
+    query(`DELETE FROM app_geo_crawler_recent WHERE created_at < NOW() - INTERVAL '90 days'`),
+  ]);
+  return true;
+}
+
+function geoCharacterStatsFromTables({ rows = [], recentRows = [] } = {}) {
+  const byCharacter = {};
+  rows.forEach((row) => {
+    const id = String(row.character_id || "");
+    if (!id) return;
+    byCharacter[id] = {
+      id,
+      name: String(row.name || id),
+      posterUrl: String(row.poster_url || ""),
+      path: String(row.page_path || ""),
+      pv: Number(row.pv || 0),
+      total: Number(row.pv || 0),
+      uv: Number(row.uv || 0),
+      home: Number(row.home || 0),
+      direct: Number(row.direct || 0),
+      external: Number(row.external || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+      days: {},
+    };
+  });
+  const recent = recentRows.map((row) => ({
+    characterId: String(row.character_id || ""),
+    name: String(row.name || ""),
+    source: String(row.source || ""),
+    path: String(row.page_path || ""),
+    at: row.created_at ? new Date(row.created_at).toISOString() : "",
+    ip: String(row.ip_masked || ""),
+  }));
+  const total = rows.reduce((sum, row) => sum + Number(row.pv || 0), 0);
+  return { version: 1, updatedAt: recent[0]?.at || "", total, byCharacter, recent };
+}
+
+async function readGeoCharacterVisitStatsFromDb({ days = 90, recentLimit = 80 } = {}) {
+  if (!dbEnabled()) return geoCharacterStatsFromTables();
+  await ensureSchema();
+  const periodDays = Math.max(1, Math.min(365, Number(days) || 90));
+  const limit = Math.max(1, Math.min(200, Number(recentLimit) || 80));
+  const [summaryResult, recentResult] = await Promise.all([
+    query(`
+      SELECT
+        m.character_id,
+        m.name,
+        m.poster_url,
+        m.page_path,
+        COALESCE(SUM(d.pv), 0)::bigint AS pv,
+        COALESCE(SUM(d.home), 0)::bigint AS home,
+        COALESCE(SUM(d.direct), 0)::bigint AS direct,
+        COALESCE(SUM(d.external), 0)::bigint AS external,
+        MAX(d.last_seen) AS last_seen,
+        GREATEST(COUNT(DISTINCT i.ip_hash)::int, m.uv_legacy) AS uv
+      FROM app_geo_character_meta m
+      LEFT JOIN app_geo_character_daily d
+        ON d.character_id = m.character_id
+       AND d.visit_date >= CURRENT_DATE - ($1::int * INTERVAL '1 day')
+      LEFT JOIN app_geo_character_daily_ips i
+        ON i.character_id = d.character_id
+       AND i.visit_date = d.visit_date
+      GROUP BY m.character_id, m.name, m.poster_url, m.page_path, m.uv_legacy
+      HAVING COALESCE(SUM(d.pv), 0) > 0
+      ORDER BY pv DESC, last_seen DESC
+      LIMIT 2000
+    `, [periodDays]),
+    query(`SELECT character_id, name, source, page_path, ip_masked, created_at FROM app_geo_character_recent ORDER BY created_at DESC LIMIT $1`, [limit]),
+  ]);
+  return geoCharacterStatsFromTables({ rows: summaryResult.rows, recentRows: recentResult.rows });
+}
+
+async function recordGeoCharacterVisitInDb({ characterId = "", name = "", posterUrl = "", pagePath = "", source = "direct", ipHash = "", ipMasked = "", createdAt = new Date().toISOString(), retentionDays = 90 } = {}) {
+  if (!dbEnabled()) return false;
+  const cleanId = String(characterId || "");
+  if (!cleanId) return false;
+  await ensureSchema();
+  const at = createdAt || new Date().toISOString();
+  const day = String(at).slice(0, 10);
+  const normalizedSource = ["home", "direct", "external"].includes(source) ? source : "direct";
+  const cleanHash = String(ipHash || "");
+  const periodDays = Math.max(1, Math.min(365, Number(retentionDays) || 90));
+  await Promise.all([
+    query(`
+      INSERT INTO app_geo_character_meta(character_id, name, poster_url, page_path, last_seen)
+      VALUES ($1, $2, $3, $4, $5::timestamptz)
+      ON CONFLICT (character_id) DO UPDATE SET name = EXCLUDED.name, poster_url = EXCLUDED.poster_url, page_path = EXCLUDED.page_path, last_seen = EXCLUDED.last_seen
+    `, [cleanId, String(name || cleanId), String(posterUrl || ""), String(pagePath || ""), at]),
+    query(`
+      INSERT INTO app_geo_character_daily(character_id, visit_date, pv, home, direct, external, last_seen)
+      VALUES ($1, $2::date, 1, $3, $4, $5, $6::timestamptz)
+      ON CONFLICT (character_id, visit_date) DO UPDATE SET
+        pv = app_geo_character_daily.pv + 1,
+        home = app_geo_character_daily.home + EXCLUDED.home,
+        direct = app_geo_character_daily.direct + EXCLUDED.direct,
+        external = app_geo_character_daily.external + EXCLUDED.external,
+        last_seen = EXCLUDED.last_seen
+    `, [cleanId, day, normalizedSource === "home" ? 1 : 0, normalizedSource === "direct" ? 1 : 0, normalizedSource === "external" ? 1 : 0, at]),
+    cleanHash ? query(`
+      INSERT INTO app_geo_character_daily_ips(character_id, visit_date, ip_hash)
+      VALUES ($1, $2::date, $3)
+      ON CONFLICT DO NOTHING
+    `, [cleanId, day, cleanHash]) : Promise.resolve(),
+    query(`INSERT INTO app_geo_character_recent(character_id, name, source, page_path, ip_masked, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`, [cleanId, String(name || cleanId), normalizedSource, String(pagePath || ""), String(ipMasked || ""), at]),
+    query(`DELETE FROM app_geo_character_daily WHERE visit_date < CURRENT_DATE - ($1::int * INTERVAL '1 day')`, [periodDays]),
+    query(`DELETE FROM app_geo_character_daily_ips WHERE visit_date < CURRENT_DATE - ($1::int * INTERVAL '1 day')`, [periodDays]),
+    query(`DELETE FROM app_geo_character_recent WHERE created_at < NOW() - ($1::int * INTERVAL '1 day')`, [periodDays]),
+  ]);
+  return true;
+}
+
 async function listApiSubtokensFromDb(parentUserId = "") {
   if (!dbEnabled()) {
     const records = await getKv("api_subtokens", []);
@@ -5754,6 +6367,13 @@ module.exports = {
   updateApiSubtokenInDb,
   revokeApiSubtokenInDb,
   recordApiSubtokenUsageInDb,
+  migrateGeoStatsKvToTables,
+  readGeoVisitorStatsFromDb,
+  recordGeoVisitorVisitInDb,
+  readGeoCrawlerStatsFromDb,
+  recordGeoCrawlerVisitInDb,
+  readGeoCharacterVisitStatsFromDb,
+  recordGeoCharacterVisitInDb,
   getKv,
   setKv,
   getKvUpdatedAt,

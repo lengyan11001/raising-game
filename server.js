@@ -115,6 +115,13 @@ const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
+  readGeoVisitorStatsFromDb,
+  recordGeoVisitorVisitInDb,
+  readGeoCrawlerStatsFromDb,
+  recordGeoCrawlerVisitInDb,
+  readGeoCharacterVisitStatsFromDb,
+  recordGeoCharacterVisitInDb,
+  migrateGeoStatsKvToTables,
   migrateGenerationRecordsKvToTable,
   readAppDbFromTables,
   replaceAppDbTables,
@@ -409,6 +416,7 @@ const {
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
 const MAINLAND_ALLOW_HOSTS = new Set(parseCsvList(process.env.MAINLAND_ALLOW_HOSTS || "live.123vipeak.com"));
+const GEO_VISIT_STATS_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GEO_VISIT_STATS_ENABLED || "0").trim());
 const PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED || "0").trim());
@@ -3575,15 +3583,10 @@ async function appendGeoIndexNowHistory(snapshot, result = {}) {
   return entry;
 }
 
-const GEO_CRAWLER_STATS_KEY = "geo_crawler_stats";
-const GEO_VISITOR_STATS_KEY = "geo_visitor_stats";
-const GEO_CHARACTER_VISIT_STATS_KEY = "geo_character_visit_stats";
 const GEO_INDEXNOW_HISTORY_KEY = "geo_indexnow_history";
 const GEO_AI_PROBES_KEY = "geo_ai_probes";
 const GEO_CHARACTER_VISIT_DAYS = 90;
 const GEO_CHARACTER_RECENT_LIMIT = 80;
-const GEO_CHARACTER_UV_BITS = 1024;
-const GEO_CHARACTER_UV_BYTES = GEO_CHARACTER_UV_BITS / 8;
 const GEO_CRAWLERS = [
   { id: "OAI-SearchBot", pattern: /OAI-SearchBot/i },
   { id: "ChatGPT-User", pattern: /ChatGPT-User/i },
@@ -3657,127 +3660,15 @@ function ipHashForStats(ip = "") {
 }
 
 async function readGeoCrawlerStats() {
-  const stats = await getKv(GEO_CRAWLER_STATS_KEY, {});
-  return {
-    total: Number(stats.total || 0),
-    byBot: stats.byBot && typeof stats.byBot === "object" ? stats.byBot : {},
-    byPath: stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {},
-    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
-  };
+  return readGeoCrawlerStatsFromDb({ recentLimit: 80 });
 }
 
 async function readGeoVisitorStats() {
-  const stats = await getKv(GEO_VISITOR_STATS_KEY, {});
-  const ipHashes = stats.ipHashes && typeof stats.ipHashes === "object" ? stats.ipHashes : {};
-  return {
-    total: Number(stats.total || 0),
-    uniqueIpCount: Number(stats.uniqueIpCount || Object.keys(ipHashes).length || 0),
-    ipHashes,
-    byPath: stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {},
-    byCountry: stats.byCountry && typeof stats.byCountry === "object" ? stats.byCountry : {},
-    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
-    lastSeen: stats.lastSeen || "",
-  };
-}
-
-function isoDateKey(value = new Date()) {
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
-  return d.toISOString().slice(0, 10);
-}
-
-function cutoffDateKey(days = GEO_CHARACTER_VISIT_DAYS) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - Math.max(1, Number(days || GEO_CHARACTER_VISIT_DAYS)));
-  return isoDateKey(d);
-}
-
-function geoUvBuffer(encoded = "") {
-  try {
-    const buf = Buffer.from(String(encoded || ""), "base64");
-    if (buf.length === GEO_CHARACTER_UV_BYTES) return Buffer.from(buf);
-  } catch {}
-  return Buffer.alloc(GEO_CHARACTER_UV_BYTES);
-}
-
-function geoUvBitmapSet(encoded = "", hash = "") {
-  const buf = geoUvBuffer(encoded);
-  const raw = String(hash || "");
-  if (!raw) return { encoded: buf.toString("base64"), changed: false, uv: geoUvEstimate(buf) };
-  const idx = Number.parseInt(raw.slice(0, 8), 16) % GEO_CHARACTER_UV_BITS;
-  const byteIndex = Math.floor(idx / 8);
-  const mask = 1 << (idx % 8);
-  const changed = (buf[byteIndex] & mask) === 0;
-  buf[byteIndex] |= mask;
-  return { encoded: buf.toString("base64"), changed, uv: geoUvEstimate(buf) };
-}
-
-function geoUvBitmapOr(encodedList = []) {
-  const buf = Buffer.alloc(GEO_CHARACTER_UV_BYTES);
-  encodedList.forEach((encoded) => {
-    const next = geoUvBuffer(encoded);
-    for (let i = 0; i < GEO_CHARACTER_UV_BYTES; i += 1) buf[i] |= next[i];
-  });
-  return buf.toString("base64");
-}
-
-function geoUvEstimate(bufferOrEncoded = "") {
-  const buf = Buffer.isBuffer(bufferOrEncoded) ? bufferOrEncoded : geoUvBuffer(bufferOrEncoded);
-  let zero = 0;
-  for (const byte of buf) {
-    for (let bit = 0; bit < 8; bit += 1) {
-      if ((byte & (1 << bit)) === 0) zero += 1;
-    }
-  }
-  if (zero >= GEO_CHARACTER_UV_BITS) return 0;
-  if (zero <= 0) return GEO_CHARACTER_UV_BITS;
-  return Math.max(1, Math.round(GEO_CHARACTER_UV_BITS * Math.log(GEO_CHARACTER_UV_BITS / zero)));
+  return readGeoVisitorStatsFromDb({ recentLimit: 80 });
 }
 
 async function readGeoCharacterVisitStats() {
-  const stats = await getKv(GEO_CHARACTER_VISIT_STATS_KEY, {});
-  return {
-    version: 1,
-    updatedAt: stats.updatedAt || "",
-    total: Number(stats.total || 0),
-    byCharacter: stats.byCharacter && typeof stats.byCharacter === "object" ? stats.byCharacter : {},
-    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, GEO_CHARACTER_RECENT_LIMIT) : [],
-  };
-}
-
-function trimGeoCharacterVisitStats(stats = {}) {
-  const cutoff = cutoffDateKey();
-  const entries = Object.entries(stats.byCharacter || {})
-    .map(([id, entry]) => {
-      const days = {};
-      Object.entries(entry.days || {}).forEach(([day, row]) => {
-        if (String(day) >= cutoff) days[day] = row;
-      });
-      const totals = Object.values(days).reduce((sum, row) => ({
-        pv: sum.pv + Number(row.pv ?? row.total ?? 0),
-        home: sum.home + Number(row.home || 0),
-        direct: sum.direct + Number(row.direct || 0),
-        external: sum.external + Number(row.external || 0),
-      }), { pv: 0, home: 0, direct: 0, external: 0 });
-      const uvBitmap = geoUvBitmapOr(Object.values(days).map((row) => row.uvBitmap || ""));
-      const uv = geoUvEstimate(uvBitmap);
-      return [id, {
-        ...entry,
-        ...totals,
-        total: totals.pv,
-        uv,
-        uvBitmap,
-        days,
-      }];
-    })
-    .filter(([, entry]) => Number(entry.pv ?? entry.total ?? 0) > 0)
-    .sort((a, b) => String(b[1].lastSeen || "").localeCompare(String(a[1].lastSeen || "")))
-    .slice(0, 2000);
-  const byCharacter = Object.fromEntries(entries);
-  const recent = (Array.isArray(stats.recent) ? stats.recent : []).slice(0, GEO_CHARACTER_RECENT_LIMIT);
-  const pv = Object.values(byCharacter).reduce((sum, entry) => sum + Number(entry.pv ?? entry.total ?? 0), 0);
-  const uv = Object.values(byCharacter).reduce((sum, entry) => sum + Number(entry.uv || 0), 0);
-  return { version: 1, updatedAt: stats.updatedAt || "", total: pv, pv, uv, byCharacter, recent };
+  return readGeoCharacterVisitStatsFromDb({ days: GEO_CHARACTER_VISIT_DAYS, recentLimit: GEO_CHARACTER_RECENT_LIMIT });
 }
 
 function sameOriginReferer(req, ref = "") {
@@ -3807,56 +3698,25 @@ function characterVisitSourceFromRequest(req, url) {
 }
 
 async function recordGeoCharacterVisit({ req, url, character, source = "" } = {}) {
+  if (!GEO_VISIT_STATS_ENABLED) return;
   try {
     if (!character?.id) return;
     if (req && req.method !== "GET" && req.method !== "HEAD" && req.method !== "POST") return;
     if (req && isLikelyAutomatedGeoRequest(req)) return;
     const now = new Date().toISOString();
-    const day = isoDateKey(now);
     const normalizedSource = ["home", "direct", "external"].includes(source) ? source : "direct";
-    const stats = await readGeoCharacterVisitStats();
-    const byCharacter = stats.byCharacter && typeof stats.byCharacter === "object" ? stats.byCharacter : {};
-    const existing = byCharacter[character.id] || {};
-    const days = existing.days && typeof existing.days === "object" ? existing.days : {};
-    const row = days[day] || { pv: 0, total: 0, uv: 0, uvBitmap: "", home: 0, direct: 0, external: 0 };
-    row.pv = Number(row.pv ?? row.total ?? 0) + 1;
-    row.total = row.pv;
-    row[normalizedSource] = Number(row[normalizedSource] || 0) + 1;
-    const uvResult = geoUvBitmapSet(row.uvBitmap || "", req ? ipHashForStats(requestIpForStats(req)) : "");
-    row.uvBitmap = uvResult.encoded;
-    row.uv = uvResult.uv;
-    days[day] = row;
-    byCharacter[character.id] = {
-      ...existing,
-      id: character.id,
+    const ip = req ? requestIpForStats(req) : "";
+    await recordGeoCharacterVisitInDb({
+      characterId: character.id,
       name: character.name || character.title || character.id,
       posterUrl: characterPosterForGeo(character),
-      path: characterPublicPath(character),
-      pv: Number(existing.pv ?? existing.total ?? 0) + 1,
-      total: Number(existing.pv ?? existing.total ?? 0) + 1,
-      home: Number(existing.home || 0) + (normalizedSource === "home" ? 1 : 0),
-      direct: Number(existing.direct || 0) + (normalizedSource === "direct" ? 1 : 0),
-      external: Number(existing.external || 0) + (normalizedSource === "external" ? 1 : 0),
-      lastSeen: now,
-      days,
-    };
-    const next = trimGeoCharacterVisitStats({
-      ...stats,
-      updatedAt: now,
-      byCharacter,
-      recent: [
-        {
-          characterId: character.id,
-          name: character.name || character.title || character.id,
-          source: normalizedSource,
-          path: url?.pathname || characterPublicPath(character),
-          at: now,
-          ip: req ? maskIpForStats(requestIpForStats(req)) : "",
-        },
-        ...(stats.recent || []),
-      ],
+      pagePath: url?.pathname || characterPublicPath(character),
+      source: normalizedSource,
+      ipHash: ip ? ipHashForStats(ip) : "",
+      ipMasked: ip ? maskIpForStats(ip) : "",
+      createdAt: now,
+      retentionDays: GEO_CHARACTER_VISIT_DAYS,
     });
-    await setKv(GEO_CHARACTER_VISIT_STATS_KEY, next);
   } catch (error) {
     console.warn("Failed to record character visit stats:", error.message || error);
   }
@@ -4260,35 +4120,13 @@ async function recordGeoCrawlerVisit(req, url) {
     if (!isGeoPublicPath(url.pathname)) return;
     const crawler = classifyGeoCrawler(req);
     if (!crawler) return;
-    const now = new Date().toISOString();
-    const pathKey = url.pathname || "/";
-    const stats = await readGeoCrawlerStats();
-    stats.total += 1;
-    const bot = stats.byBot[crawler.id] || { count: 0 };
-    stats.byBot[crawler.id] = {
-      ...bot,
-      count: Number(bot.count || 0) + 1,
-      lastSeen: now,
-      lastPath: pathKey,
-      lastUserAgent: compactPlainText(crawler.userAgent, 180),
-    };
-    const pathStats = stats.byPath[pathKey] || { count: 0, bots: {} };
-    pathStats.count = Number(pathStats.count || 0) + 1;
-    pathStats.lastSeen = now;
-    pathStats.bots = pathStats.bots && typeof pathStats.bots === "object" ? pathStats.bots : {};
-    pathStats.bots[crawler.id] = Number(pathStats.bots[crawler.id] || 0) + 1;
-    stats.byPath[pathKey] = pathStats;
-    stats.recent = [
-      {
-        bot: crawler.id,
-        path: pathKey,
-        at: now,
-        ip: requestIpForStats(req),
-        userAgent: compactPlainText(crawler.userAgent, 180),
-      },
-      ...stats.recent,
-    ].slice(0, 80);
-    await setKv(GEO_CRAWLER_STATS_KEY, stats);
+    await recordGeoCrawlerVisitInDb({
+      bot: crawler.id,
+      pagePath: url.pathname || "/",
+      ip: requestIpForStats(req),
+      userAgent: compactPlainText(crawler.userAgent, 180),
+      createdAt: new Date().toISOString(),
+    });
   } catch (error) {
     console.warn("Failed to record GEO crawler visit:", error.message || error);
   }
@@ -4299,57 +4137,22 @@ async function recordGeoVisitorStats(req, url) {
     if (req.method !== "GET" && req.method !== "HEAD") return;
     if (!isGeoVisitorPath(url.pathname)) return;
     if (isLikelyAutomatedGeoRequest(req)) return;
-    const now = new Date().toISOString();
-    const pathKey = url.pathname || "/";
-    const country = requestCountryCode(req) || "UNKNOWN";
     const ip = requestIpForStats(req);
-    const ipHash = ipHashForStats(ip);
-    const stats = await readGeoVisitorStats();
-    stats.total += 1;
-    stats.lastSeen = now;
-
-    stats.ipHashes = stats.ipHashes && typeof stats.ipHashes === "object" ? stats.ipHashes : {};
-    if (ipHash) {
-      const ipEntry = stats.ipHashes[ipHash] || { firstSeen: now, count: 0 };
-      stats.ipHashes[ipHash] = {
-        ...ipEntry,
-        count: Number(ipEntry.count || 0) + 1,
-        lastSeen: now,
-      };
-    }
-    stats.uniqueIpCount = Object.keys(stats.ipHashes).length;
-
-    const pathStats = stats.byPath[pathKey] || { count: 0 };
-    stats.byPath[pathKey] = {
-      ...pathStats,
-      count: Number(pathStats.count || 0) + 1,
-      lastSeen: now,
-    };
-
-    const countryStats = stats.byCountry[country] || { count: 0 };
-    stats.byCountry[country] = {
-      ...countryStats,
-      count: Number(countryStats.count || 0) + 1,
-      lastSeen: now,
-    };
-
-    stats.recent = [
-      {
-        path: pathKey,
-        at: now,
-        country,
-        ip: maskIpForStats(ip),
-        userAgent: compactPlainText(req.headers["user-agent"] || "", 180),
-      },
-      ...stats.recent,
-    ].slice(0, 80);
-    await setKv(GEO_VISITOR_STATS_KEY, stats);
+    await recordGeoVisitorVisitInDb({
+      pagePath: url.pathname || "/",
+      country: requestCountryCode(req) || "UNKNOWN",
+      ipHash: ipHashForStats(ip),
+      ipMasked: maskIpForStats(ip),
+      userAgent: compactPlainText(req.headers["user-agent"] || "", 180),
+      createdAt: new Date().toISOString(),
+    });
   } catch (error) {
     console.warn("Failed to record GEO visitor stats:", error.message || error);
   }
 }
 
 async function recordGeoVisitStats(req, url) {
+  if (!GEO_VISIT_STATS_ENABLED) return;
   await recordGeoCrawlerVisit(req, url);
   await recordGeoVisitorStats(req, url);
 }
@@ -5282,6 +5085,7 @@ async function handleWebVitals(req, res) {
 
 async function handleTrackCharacterView(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { ok: false, message: "Method not allowed." });
+  if (!GEO_VISIT_STATS_ENABLED) return sendJson(res, 200, { ok: true, disabled: true });
   const body = await readJson(req).catch(() => ({}));
   const characterId = String(body.characterId || body.id || "").trim();
   if (!characterId) return sendJson(res, 400, { ok: false, message: "Missing characterId." });
@@ -49671,7 +49475,7 @@ async function handleAdminDashboard(req, res) {
   const config = await readAppConfig();
   const records = await readGenerationRecords();
   const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
-  const characterVisits = adminCharacterVisitDashboardStats(items, trimGeoCharacterVisitStats(await readGeoCharacterVisitStats()));
+  const characterVisits = adminCharacterVisitDashboardStats(items, await readGeoCharacterVisitStats());
   const sceneBindCount = items.reduce((sum, item) => sum + Object.keys(item.sceneVideos || {}).length, 0);
   const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
   const userSceneCount = userCharacters.reduce((sum, c) => sum + Object.keys(c.sceneVideos || {}).length, 0);
@@ -53248,6 +53052,10 @@ async function bootstrap() {
   const generationRecordMigration = await migrateGenerationRecordsKvToTable();
   if (generationRecordMigration?.migrated) {
     console.log(`Generation records migrated to table: ${generationRecordMigration.migrated}`);
+  }
+  const geoStatsMigration = await migrateGeoStatsKvToTables();
+  if (geoStatsMigration?.migrated) {
+    console.log(`GEO stats migrated to tables: ${geoStatsMigration.migratedKeys.join(", ")}`);
   }
   const apiTokensMigrated = await ensureAllUsersApiTokens();
   if (apiTokensMigrated) {
