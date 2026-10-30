@@ -109,7 +109,7 @@ test("component voice catalog is strict and realtime voices are not exposed", ()
     filterChatLiveComponentVoiceCatalog,
     CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST,
   } = require(path.join(root, "server.js"));
-  const catalog = JSON.parse(fs.readFileSync(path.join(root, "assets", "chat-live", "voices-component.json"), "utf8"));
+  const catalog = JSON.parse(fs.readFileSync(path.join(root, "test", "fixtures", "voices-component.json"), "utf8"));
   const voices = filterChatLiveComponentVoiceCatalog(catalog);
   const ids = new Set(voices.map((voice) => voice.voiceType));
 

@@ -461,7 +461,6 @@ const EMAIL_FROM = String(process.env.EMAIL_FROM || "Vipeak <no-reply@123vips.co
 const emailChallenges = new Map();
 const publicConfigCache = new Map();
 const publicPlayfluxTemplatesCache = new Map();
-let publicPresetsCache = { value: null, expiresAt: 0 };
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
@@ -51638,13 +51637,9 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
       try {
-        let presets = publicPresetsCache.expiresAt > Date.now() ? publicPresetsCache.value : null;
-        if (!presets) {
-          presets = await getOurDreamPresetLibrary();
-          publicPresetsCache = { value: presets, expiresAt: Date.now() + 300_000 };
-        }
+        const presets = await getOurDreamPresetLibrary({ force: url.searchParams.get("refresh") === "1" });
         return sendJson(res, 200, { ok: true, presets }, {
-          cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
+          cacheControl: "no-store",
         });
       } catch (error) {
         console.error("[ourdream-presets-unavailable]", error.message || error);
@@ -53055,144 +53050,26 @@ function startTelegramPaymentNotificationScheduler() {
   setInterval(() => scanTelegramPaymentNotifications(), TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS).unref?.();
 }
 
-const BUNDLED_CATALOG_MIGRATION_KEY = "bundled_catalogs_v1";
-const BUNDLED_CATALOG_FILES = Object.freeze({
-  presets: path.join(ROOT, "assets", "ourdream", "presets", "presets.json"),
-  actions: path.join(ROOT, "assets", "ourdream", "presets", "video-actions.json"),
-  realtimeVoices: path.join(ROOT, "assets", "chat-live", "voices.json"),
-  componentVoices: path.join(ROOT, "assets", "chat-live", "voices-component.json"),
-  cases: path.join(ROOT, "assets", "showcase", "spicy", "cases.json"),
-});
-const LEGACY_ALIYUN_ROUTE_FILE = process.env.ALIYUN_ROUTE_CONFIG || "/etc/raising-game-demo-aliyun-route.json";
+const REQUIRED_CATALOGS = Object.freeze([
+  { label: "OurDream presets", catalog: "ourdream_presets" },
+  { label: "OurDream video actions", catalog: "ourdream_actions" },
+  { label: "Realtime voices", catalog: "chat_live_voices", scope: "realtime" },
+  { label: "Component voices", catalog: "chat_live_voices", scope: "component" },
+  { label: "Showcase cases", catalog: "showcase_cases" },
+]);
 
-async function readOptionalJsonSeed(filePath) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw new Error(`Cannot read bundled catalog seed ${filePath}: ${error.message || error}`);
-  }
-}
-
-function catalogSeedId(prefix, value, index) {
-  const raw = String(value ?? "").trim() || `item-${index}`;
-  return `${prefix}:${raw.replace(/[^a-zA-Z0-9_.:@-]+/g, "-").slice(0, 180)}`;
-}
-
-function presetCatalogRows(seed) {
-  const rows = [];
-  for (const set of Array.isArray(seed?.sets) ? seed.sets : []) {
-    const slot = String(set?.slot || "").trim();
-    if (!slot) continue;
-    for (const item of Array.isArray(set.items) ? set.items : []) {
-      const itemId = String(item?.id || "").trim();
-      if (!itemId) continue;
-      rows.push({
-        id: `preset:${slot}:${itemId}`,
-        payload: { slot, item },
-        sortOrder: rows.length,
-      });
+async function verifyRequiredCatalogsInDb() {
+  const counts = {};
+  for (const item of REQUIRED_CATALOGS) {
+    const count = await countCatalogEntriesInDb(item.catalog, item.scope ? { scope: item.scope } : {});
+    counts[item.scope ? `${item.catalog}:${item.scope}` : item.catalog] = count;
+    if (count <= 0) {
+      const error = new Error(`${item.label} is empty in PostgreSQL. Runtime catalogs must be seeded through PostgreSQL; JSON/file fallback is disabled.`);
+      error.code = "POSTGRES_CATALOG_EMPTY";
+      throw error;
     }
   }
-  return rows;
-}
-
-function actionCatalogRows(seed) {
-  return (Array.isArray(seed?.items) ? seed.items : []).map((item, index) => ({
-    id: catalogSeedId("action", item?.id, index),
-    payload: item,
-    category: String(item?.category || ""),
-    sortOrder: index,
-  })).filter((entry) => entry.payload && String(entry.payload.id || "").trim());
-}
-
-function voiceCatalogRows(seed, scope) {
-  return (Array.isArray(seed) ? seed : []).map((voice, index) => ({
-    id: catalogSeedId(scope, `${index}-${voice?.voiceType || voice?.voice_type || "voice"}`, index),
-    scope,
-    provider: String(voice?.provider || ""),
-    payload: voice,
-    sortOrder: index,
-  })).filter((entry) => entry.payload && String(entry.payload.voiceType || entry.payload.voice_type || "").trim());
-}
-
-function showcaseCatalogRows(seed) {
-  return (Array.isArray(seed) ? seed : []).map((item, index) => ({
-    id: catalogSeedId("case", item?.id, index),
-    category: String(item?.category || ""),
-    payload: item,
-    sortOrder: index,
-  })).filter((entry) => entry.payload && itemHasCatalogContent(entry.payload));
-}
-
-function itemHasCatalogContent(item) {
-  return Boolean(item && typeof item === "object" && Object.keys(item).length);
-}
-
-async function migrateBundledCatalogsToDb() {
-  const migrationState = await getCatalogMigrationStateInDb(BUNDLED_CATALOG_MIGRATION_KEY);
-  const existingCounts = {
-    presets: await countCatalogEntriesInDb("ourdream_presets"),
-    actions: await countCatalogEntriesInDb("ourdream_actions"),
-    realtimeVoices: await countCatalogEntriesInDb("chat_live_voices", { scope: "realtime" }),
-    componentVoices: await countCatalogEntriesInDb("chat_live_voices", { scope: "component" }),
-    cases: await countCatalogEntriesInDb("showcase_cases"),
-  };
-  const routeSetting = await getRuntimeSettingFromDb("mulerouter_route", null);
-  const allCatalogsPresent = Object.values(existingCounts).every((count) => count > 0);
-  if (migrationState && allCatalogsPresent) {
-    if (routeSetting === null) {
-      const legacyRoute = await readOptionalJsonSeed(LEGACY_ALIYUN_ROUTE_FILE);
-      await setRuntimeSettingInDb("mulerouter_route", {
-        enabled: legacyRoute?.enabled === true,
-        updatedAt: String(legacyRoute?.updatedAt || ""),
-      });
-    }
-    return { skipped: true, existingCounts };
-  }
-
-  const [presetsSeed, actionsSeed, realtimeVoicesSeed, componentVoicesSeed, casesSeed] = await Promise.all([
-    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.presets),
-    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.actions),
-    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.realtimeVoices),
-    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.componentVoices),
-    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.cases),
-  ]);
-  const presetRows = presetCatalogRows(presetsSeed);
-  const actionRows = actionCatalogRows(actionsSeed);
-  const realtimeVoiceRows = voiceCatalogRows(realtimeVoicesSeed, "realtime");
-  const componentVoiceRows = voiceCatalogRows(componentVoicesSeed, "component");
-  const caseRows = showcaseCatalogRows(casesSeed);
-  const importCounts = {
-    presets: presetRows.length,
-    actions: actionRows.length,
-    realtimeVoices: realtimeVoiceRows.length,
-    componentVoices: componentVoiceRows.length,
-    cases: caseRows.length,
-  };
-  for (const [key, count] of Object.entries(importCounts)) {
-    if (count > 0) continue;
-    if (existingCounts[key] > 0) continue;
-    throw new Error(`Bundled catalog ${key} is empty and PostgreSQL has no catalog rows.`);
-  }
-  if (presetRows.length) await replaceCatalogEntriesInDb("ourdream_presets", presetRows);
-  if (actionRows.length) await replaceCatalogEntriesInDb("ourdream_actions", actionRows);
-  if (realtimeVoiceRows.length) await replaceCatalogEntriesInDb("chat_live_voices", realtimeVoiceRows, { replace: false });
-  if (componentVoiceRows.length) {
-    await query("DELETE FROM app_catalog_entries WHERE catalog = $1 AND scope = $2", ["chat_live_voices", "component"]);
-    await replaceCatalogEntriesInDb("chat_live_voices", componentVoiceRows, { replace: false });
-  }
-  if (caseRows.length) await replaceCatalogEntriesInDb("showcase_cases", caseRows);
-  if (routeSetting === null) {
-    const legacyRoute = await readOptionalJsonSeed(LEGACY_ALIYUN_ROUTE_FILE);
-    await setRuntimeSettingInDb("mulerouter_route", {
-      enabled: legacyRoute?.enabled === true,
-      updatedAt: String(legacyRoute?.updatedAt || ""),
-    });
-  }
-  const importedCount = Object.values(importCounts).reduce((sum, count) => sum + count, 0);
-  await markCatalogMigrationInDb(BUNDLED_CATALOG_MIGRATION_KEY, importedCount);
-  return { skipped: false, importedCount, importCounts };
+  return counts;
 }
 
 async function bootstrap() {
@@ -53207,8 +53084,8 @@ async function bootstrap() {
   if (geoStatsMigration?.migrated) {
     console.log(`GEO stats migrated to tables: ${geoStatsMigration.migratedKeys.join(", ")}`);
   }
-  const catalogMigration = await migrateBundledCatalogsToDb();
-  console.log(`[catalog-migration] ${JSON.stringify(catalogMigration)}`);
+  const catalogCounts = await verifyRequiredCatalogsInDb();
+  console.log(`[catalog-check] ${JSON.stringify(catalogCounts)}`);
   const apiTokensMigrated = await ensureAllUsersApiTokens();
   if (apiTokensMigrated) {
     console.log("User API tokens migrated: yes");

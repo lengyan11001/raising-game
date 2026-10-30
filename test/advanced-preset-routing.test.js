@@ -66,7 +66,7 @@ test("production preset API reads PostgreSQL catalog rows and never falls back t
   assert.match(source, /listCatalogEntriesFromDb\("ourdream_presets"\)/);
   assert.match(source, /OURDREAM_CATALOG_EMPTY/);
   assert.doesNotMatch(source, /presets\.json|readFile/);
-  assert.match(server, /presets = await getOurDreamPresetLibrary\(\)/);
+  assert.match(server, /presets = await getOurDreamPresetLibrary\(\{ force: url\.searchParams\.get\("refresh"\) === "1" \}\)/);
   assert.match(mirrorScript, /replaceCatalogEntriesInDb\("ourdream_presets"/);
   assert.doesNotMatch(mirrorScript, /writeFile\(OUTPUT|presets\.json|video-actions\.json/);
 });
