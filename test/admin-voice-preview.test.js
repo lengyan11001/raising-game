@@ -24,6 +24,8 @@ const previewFiles = [
   "joanna-intimate-wait-nohu-420.wav",
   "joanna-intimate-wait-nohu-520.wav",
   "joanna-intimate-wait-nohu-620.wav",
+  "joanna-user-rule-e.wav",
+  "joanna-user-rule-f.wav",
 ];
 
 test("admin has a top-level voice preview route and navigation entry", () => {
@@ -44,6 +46,13 @@ test("voice preview renders the reviewed Joanna samples and final candidate with
   assert.match(admin, /joanna-moan-breath-c\.wav\?v=20261030-voice-preview-5/);
   assert.match(admin, /joanna-intimate-final-e\.wav\?v=20261030-voice-preview-3/);
   assert.match(admin, /joanna-intimate-final-h\.wav\?v=20261030-voice-preview-4/);
+  assert.match(admin, /joanna-user-rule-e\.wav\?v=20261030-voice-preview-7/);
+  assert.match(admin, /joanna-user-rule-f\.wav\?v=20261030-voice-preview-7/);
+  assert.match(admin, /本轮 E · 自然对白 \+ 长气音/);
+  assert.match(admin, /本轮 F · 自然对白 \+ 长气音/);
+  assert.match(admin, /item\.id\.startsWith\("user-rule-"\)/);
+  assert.match(admin, /data-voice-seek="5\.0"/);
+  assert.match(admin, /data-voice-seek="8\.0"/);
   assert.match(admin, /修正 H（已否决）/);
   assert.match(admin, /已否决 \/ 仅对照/);
   assert.match(admin, /item\.id\.startsWith\("final-"\).*16\.4/);
@@ -64,7 +73,7 @@ test("voice preview WAV files exist and are valid RIFF/WAVE", () => {
   for (const fileName of previewFiles) {
     const file = path.join(previewRoot, fileName);
     const stat = fs.statSync(file);
-    const minimumBytes = fileName.includes("moan-breath-c") ? 500_000 : 1_000_000;
+    const minimumBytes = fileName.includes("user-rule-") ? 400_000 : fileName.includes("moan-breath-c") ? 500_000 : 1_000_000;
     assert.ok(stat.size > minimumBytes, `${fileName} is a valid preview sample`);
     const header = fs.readFileSync(file).subarray(0, 12);
     assert.equal(header.subarray(0, 4).toString("ascii"), "RIFF");

@@ -33,6 +33,22 @@ function pricingMultiplierText(value) {
 
 const VOICE_PREVIEW_ITEMS = [
   {
+    id: "user-rule-e",
+    title: "本轮 E · 自然对白 + 长气音",
+    badge: "本轮 A/B",
+    description: "对白不额外加速，只比气音略紧凑；前后气音约 1.1 秒，以 23 秒处的状态为感觉参考，保持乔安瑜音色，没有清楚的哈/呼/hu。",
+    duration: "9.6 秒",
+    src: "/assets/admin/voice-preview/joanna-user-rule-e.wav?v=20261030-voice-preview-7",
+  },
+  {
+    id: "user-rule-f",
+    title: "本轮 F · 自然对白 + 长气音",
+    badge: "本轮 A/B",
+    description: "气音部分与 E 相同，只换自然对白的气口；重点判断对白是否只是略快于气音，而不是被加速。",
+    duration: "9.5 秒",
+    src: "/assets/admin/voice-preview/joanna-user-rule-f.wav?v=20261030-voice-preview-7",
+  },
+  {
     id: "moan-breath-c",
     title: "原始气音 C（当时认可）",
     badge: "原始 0.95x",
@@ -7022,19 +7038,21 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。先听顶部“无呼接桥”三版，重点确认 29 秒不再出现「呼」；原始 C 保留作基准。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。先听顶部本轮 E / F，重点判断长气音是否有感觉、对白是否只比气音略紧凑；原始 C 与历史长场景保留作对照。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
-            <h3>问题段定位</h3>
-            <p class="adm-muted">29.50–30.39 秒是源 C 中多出的「呼」所在；新候选只移除这一段并重建呼吸停顿，30.39 秒之后全部沿用 C 原声。</p>
+            <h3>本轮重点</h3>
+            <p class="adm-muted">E / F 只差对白气口，气音构造相同。两段都从开头气音进入，中间是自然对白，约 8 秒进入收尾气音；不要用旧长场景的 29 秒问题段判断本轮短候选。</p>
           </div>
         </div>
       </div>
       <div class="adm-grid adm-grid-3 adm-voice-preview-grid">
-        ${VOICE_PREVIEW_ITEMS.map((item) => `
+        ${VOICE_PREVIEW_ITEMS.map((item) => {
+          const isUserRule = item.id.startsWith("user-rule-");
+          return `
           <article class="adm-card adm-voice-preview-card" data-voice-preview-id="${escapeHtml(item.id)}">
             <div class="adm-card-head">
               <div>
@@ -7047,7 +7065,9 @@ function renderVoicePreview() {
               <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span>${escapeHtml(item.duration)}</span>
-                ${item.id === "moan-breath-c"
+                ${isUserRule
+                  ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>开场气音</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="5.0"><i data-lucide="message-circle"></i>5 秒对白</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="8.0"><i data-lucide="waves"></i>8 秒收尾</button>'
+                  : item.id === "moan-breath-c"
                   ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button>'
                   : `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("wait-nohu-") ? "26.5" : item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("wait-nohu-") ? "跳到接缝前" : item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>`}
                 ${item.id.startsWith("final-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
@@ -7057,7 +7077,7 @@ function renderVoicePreview() {
               </div>
             </div>
           </article>
-        `).join("")}
+        `; }).join("")}
       </div>
     </section>
   `;
