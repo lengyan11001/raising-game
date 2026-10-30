@@ -178,8 +178,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103031/);
-  assert.match(html, /live\.js\?v=2026103031/);
+  assert.match(html, /live\.css\?v=2026103032/);
+  assert.match(html, /live\.js\?v=2026103032/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
 });
 
@@ -237,6 +237,14 @@ test("role detail labels, private-album header, and create empty state match the
   assert.doesNotMatch(live, /她擅长的话题/);
   assert.match(live, /<div class="filter-sheet-head"><h3>TA 的相册<\/h3>/);
   assert.match(css, /\.album-sheet \.filter-sheet-head h3\{[^}]*white-space:nowrap[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
+  assert.match(css, /\.role-cover\{height:clamp\(500px,145vw,620px\)/);
+  assert.match(css, /\.role-cover>\.fit-media[^}]*height:100%/);
+  assert.match(css, /\.fit-media-photo\{[^}]*object-fit:contain/);
+  assert.match(css, /\.album-cell>\.fit-media/);
+  assert.match(css, /\.album-sheet-grid button\{[^}]*aspect-ratio:9\/16/);
+  assert.match(live, /const fitMedia = \(url, alt = ""\)/);
+  assert.match(live, /album-cell[^>]*>\$\{fitMedia\(url/);
+  assert.match(live, /class="album-item"[^>]*>\$\{fitMedia\(url/);
   assert.match(live, /这不是聊天记录<br><em>这是关系<\/em>/);
   assert.match(live, /AI 给了 Ta 说话的能力<br><em>是你让 Ta 有了情感<\/em>/);
   assert.match(live, /角色是你写的，世界是你定的。<br>现实得不到的，在这里可以统统满足。/);
