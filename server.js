@@ -1232,6 +1232,11 @@ const mimeTypes = new Map([
   [".webm", "video/webm"],
   [".mov", "video/quicktime"],
   [".m4v", "video/x-m4v"],
+  [".wav", "audio/wav"],
+  [".mp3", "audio/mpeg"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".ogg", "audio/ogg"],
   [".apk", "application/vnd.android.package-archive"],
   [".mobileconfig", "application/x-apple-aspen-config"],
 ]);
@@ -6738,6 +6743,13 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
   const greeting = String(body.greeting ?? existing?.greeting ?? "").trim().slice(0, 200);
   const voiceType = String(body.voiceType ?? body.voice_type ?? existing?.voiceType ?? "").trim().slice(0, 80);
   const componentVoiceType = String(body.componentVoiceType ?? body.component_voice_type ?? existing?.componentVoiceType ?? "").trim().slice(0, 80);
+  const richVoiceProviderRaw = String(body.richVoiceProvider ?? body.rich_voice_provider ?? existing?.richVoiceProvider ?? "").trim().slice(0, 80);
+  const richVoiceProvider = richVoiceProviderRaw === "dashscope_qwen_audio_tts" ? richVoiceProviderRaw : "";
+  const richVoiceModelRaw = String(body.richVoiceModel ?? body.rich_voice_model ?? existing?.richVoiceModel ?? "").trim().slice(0, 80);
+  const richVoiceModel = ["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"].includes(richVoiceModelRaw) ? richVoiceModelRaw : "";
+  const richVoiceType = String(body.richVoiceType ?? body.rich_voice_type ?? existing?.richVoiceType ?? "").trim().slice(0, 140);
+  const richVoiceLabel = String(body.richVoiceLabel ?? body.rich_voice_label ?? existing?.richVoiceLabel ?? "").trim().slice(0, 60);
+  const richVoiceInstruction = String(body.richVoiceInstruction ?? body.rich_voice_instruction ?? existing?.richVoiceInstruction ?? "").trim().slice(0, 500);
   /* 关联的平台角色名：chat 站的文字聊角色详情页据此显示"在线聊天"按钮 */
   const linkName = String(body.linkName ?? body.link_name ?? existing?.linkName ?? "").trim().slice(0, 60);
   const rawMode = String(body.mode ?? existing?.mode ?? "").trim().toLowerCase();
@@ -6781,6 +6793,11 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
     greeting,
     voiceType,
     componentVoiceType,
+    richVoiceProvider,
+    richVoiceModel,
+    richVoiceType,
+    richVoiceLabel,
+    richVoiceInstruction,
     linkName,
     mode,
     voiceProvider,
@@ -7031,6 +7048,13 @@ function chatLiveCharacterValidationError(character = {}, existing = null) {
   if (!character.persona) return "请填写角色人设。";
   if (!character.voiceType) return "请选择实时版音色。";
   if (!character.componentVoiceType) return "请选择组件版音色。";
+  const richConfigured = Boolean(character.richVoiceProvider || character.richVoiceModel || character.richVoiceType);
+  if (richConfigured) {
+    if (character.richVoiceProvider !== "dashscope_qwen_audio_tts") return "Rich 音色供应商无效。";
+    if (!["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"].includes(character.richVoiceModel)) return "Rich 音色模型无效。";
+    if (!character.richVoiceType) return "请填写 Rich 复刻音色 ID。";
+    if (!character.richVoiceType.startsWith(`${character.richVoiceModel}-`)) return "Rich 复刻音色与模型不匹配。";
+  }
   const regionError = chatLiveVoiceRegionError(character.voiceProvider);
   if (regionError) return regionError;
   const story = normalizeChatLiveStory(character.liveStory || {});
@@ -8137,6 +8161,11 @@ function creatorChatLiveCharacterView(character = {}) {
     personaSourceFile: character.personaSourceFile || "",
     voiceType: character.voiceType || "",
     componentVoiceType: character.componentVoiceType || "",
+    richVoiceProvider: character.richVoiceProvider || "",
+    richVoiceModel: character.richVoiceModel || "",
+    richVoiceType: character.richVoiceType || "",
+    richVoiceLabel: character.richVoiceLabel || "",
+    richVoiceInstruction: character.richVoiceInstruction || "",
     voiceProvider: character.voiceProvider || "",
     album: Array.isArray(character.album) ? character.album : [],
     undressStatus: character.undressStatus || "",
@@ -8524,6 +8553,54 @@ async function handleCreatorChatLiveVoicePreview(req, res) {
     } catch (error) {
       console.warn("[chat-live-voice-preview] failed", JSON.stringify({ scope, provider: voice.provider, voiceType, region: catalog.region, message: String(error?.message || error).slice(0, 180) }));
       return sendJson(res, 503, { ok: false, code: "VOICE_PREVIEW_UNAVAILABLE", message: "这个声音暂时无法试听，请换一个或稍后再试。" });
+    }
+  }
+  res.writeHead(200, {
+    "content-type": audio.mime || "audio/wav",
+    "content-length": audio.buffer.length,
+    "cache-control": "private, max-age=1800",
+    "x-content-type-options": "nosniff",
+  });
+  res.end(audio.buffer);
+}
+
+async function handleAdminChatLiveVoicePreview(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const characterId = String(body.characterId || body.id || "").trim();
+  const character = characterId ? await getChatLiveCharacterInDb(characterId) : null;
+  if (!character) return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在。" });
+  const savedRich = {
+    richVoiceProvider: character.richVoiceProvider,
+    richVoiceModel: character.richVoiceModel,
+    richVoiceType: character.richVoiceType,
+    richVoiceLabel: character.richVoiceLabel,
+    richVoiceInstruction: character.richVoiceInstruction,
+  };
+  let richVoice;
+  try {
+    richVoice = chatLiveComponent.__test.componentRichVoiceConfig(savedRich);
+  } catch (error) {
+    return sendJson(res, 422, { ok: false, code: "RICH_VOICE_INVALID", message: error.message });
+  }
+  if (!richVoice) return sendJson(res, 422, { ok: false, code: "RICH_VOICE_NOT_CONFIGURED", message: "这个角色还没有配置富标签音色。" });
+  const cacheKey = `admin-rich:${character.id}:${richVoice.model}:${richVoice.voiceType}`;
+  let audio = cachedChatLiveVoicePreview(cacheKey);
+  if (!audio) {
+    try {
+      audio = {
+        buffer: await chatLiveComponent.__test.componentVoicePreviewWav(
+          chatLiveComponent.__test.COMPONENT_INTIMATE_PREVIEW_TEXT,
+          "",
+          { richVoice, stage: "intimate" },
+        ),
+        mime: "audio/wav",
+      };
+      cacheChatLiveVoicePreview(cacheKey, audio);
+    } catch (error) {
+      console.warn("[chat-live-rich-preview] failed", JSON.stringify({ characterId, model: richVoice.model, voiceType: richVoice.voiceType, message: String(error?.message || error).slice(0, 180) }));
+      return sendJson(res, 503, { ok: false, code: "RICH_VOICE_PREVIEW_UNAVAILABLE", message: "富标签音色试听失败，请检查模型和复刻音色 ID。" });
     }
   }
   res.writeHead(200, {
@@ -51461,6 +51538,7 @@ async function serveStatic(req, res, url) {
     !pathname.startsWith("/assets/brand/") &&
     !pathname.startsWith("/assets/showcase/") &&
     !pathname.startsWith("/assets/generated/") &&
+    !pathname.startsWith("/assets/admin/voice-preview/") &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain;
   if (shouldRedirectAssetToR2) {
@@ -51483,7 +51561,7 @@ async function serveStatic(req, res, url) {
 
     if (contentType.startsWith("video/") && sendInternalAsset(res, filePath, contentType, stat)) return;
     if (filePath.startsWith(path.normalize(GENERATED_POSTER_DIR)) && sendInternalAsset(res, filePath, contentType, stat)) return;
-    if (range && contentType.startsWith("video/")) {
+    if (range && (contentType.startsWith("video/") || contentType.startsWith("audio/"))) {
       const match = range.match(/bytes=(\d*)-(\d*)/);
       const start = match?.[1] ? Number(match[1]) : 0;
       const end = match?.[2] ? Number(match[2]) : stat.size - 1;
@@ -51527,7 +51605,7 @@ async function serveStatic(req, res, url) {
     res.writeHead(200, {
       "content-type": contentType,
       "content-length": stat.size,
-      "accept-ranges": contentType.startsWith("video/") ? "bytes" : "none",
+      "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
       "cache-control": isFrontendAsset || isHtml
         ? "no-store, no-cache, must-revalidate, max-age=0"
         : contentType.startsWith("video/") || isLongCacheAsset
@@ -52441,6 +52519,9 @@ async function handleRequest(req, res) {
     const adminChatLiveGiftMatch = url.pathname.match(/^\/api\/admin\/chat-live\/gifts\/([^/]+)$/);
     if (adminChatLiveGiftMatch && req.method === "PUT") return await handleAdminSaveChatLiveGift(req, res, decodeURIComponent(adminChatLiveGiftMatch[1]));
     if (adminChatLiveGiftMatch && req.method === "DELETE") return await handleAdminDeleteChatLiveGift(req, res, decodeURIComponent(adminChatLiveGiftMatch[1]));
+    if (req.method === "POST" && url.pathname === "/api/admin/chat-live/voice-preview") {
+      return await handleAdminChatLiveVoicePreview(req, res);
+    }
     if (req.method === "POST" && url.pathname === "/api/admin/chat-live/characters") {
       return await handleAdminSaveChatLiveCharacter(req, res);
     }

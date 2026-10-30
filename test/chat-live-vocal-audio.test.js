@@ -16,6 +16,11 @@ const {
     normalizeDelivery,
     speechDelivery,
     speechSsml,
+    COMPONENT_INTIMATE_PREVIEW_TEXT,
+    componentRichVoiceConfig,
+    qwenRichInstruction,
+    qwenRichProsody,
+    richPerformanceText,
   },
 } = require("../chat-live-component.js");
 
@@ -88,13 +93,16 @@ test("SSML escapes user text instead of interpreting it", () => {
   assert.doesNotMatch(ssml, /<你好>/);
 });
 
-test("component TTS never sends unsupported instruction or silently falls back", () => {
+test("CosyVoice TTS never sends unsupported instruction or silently falls back", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
-  assert.match(source, /text_type: "PlainText"/);
-  assert.match(source, /enable_ssml: true/);
-  assert.doesNotMatch(source, /instruction\s*:/);
+  const cosyStart = source.indexOf("function openCosyvoicePcmStream");
+  const cosyEnd = source.indexOf("const QWEN_RICH_VOICE_PROVIDER", cosyStart);
+  const cosy = source.slice(cosyStart, cosyEnd);
+  assert.match(cosy, /text_type: "PlainText"/);
+  assert.match(cosy, /enable_ssml: true/);
+  assert.doesNotMatch(cosy, /instruction\s*:/);
   assert.doesNotMatch(source, /instruction fallback|speak\(requested, false\)/);
-  assert.match(source, /SSML 模式只允许发送一次 continue-task/);
+  assert.match(cosy, /SSML 模式只允许发送一次 continue-task/);
 });
 
 test("flirty and foreplay stages have distinct seductive delivery instructions", () => {
@@ -127,6 +135,67 @@ test("component reply prompt requests one continuous intimate performance", () =
   assert.match(source, /整段必须是同一次连续表演/);
   assert.match(source, /不要把嗯、啊、哈当成可堆叠的独立音效/);
   assert.match(source, /音高和节奏要有起伏/);
+});
+
+test("rich voice binding is explicit and cannot reuse a CosyVoice id", () => {
+  assert.equal(componentRichVoiceConfig({ name: "普通角色", componentVoiceType: "longanyang" }), null);
+  const rich = componentRichVoiceConfig({
+    name: "乔安瑜",
+    richVoiceProvider: "dashscope_qwen_audio_tts",
+    richVoiceModel: "qwen-audio-3.1-tts-flash",
+    richVoiceType: "qwen-audio-3.1-tts-flash-jprobe-test",
+    richVoiceInstruction: "贴近耳边低声说。",
+  });
+  assert.equal(rich.model, "qwen-audio-3.1-tts-flash");
+  assert.equal(rich.instruction, "贴近耳边低声说。");
+  assert.throws(() => componentRichVoiceConfig({
+    richVoiceProvider: "dashscope_qwen_audio_tts",
+    richVoiceModel: "qwen-audio-3.1-tts-flash",
+    richVoiceType: "longyingtao_v3",
+  }), /模型不匹配/);
+});
+
+test("rich intimate performance keeps one continuous natural sentence instead of stacked effects", () => {
+  const script = richPerformanceText(COMPONENT_INTIMATE_PREVIEW_TEXT, { stage: "intimate" });
+  assert.equal(script, "[asmr]嗯，别……先别动，我还没缓过来，慢一点。");
+  assert.equal((script.match(/\[/g) || []).length, 1);
+  assert.doesNotMatch(script, /\[(?:trembling|gasp|sighing|reluctantly|very slowly)\]/);
+  assert.doesNotMatch(script, /我、我还没缓过来/);
+});
+
+test("intimate Rich prosody preserves cloned timbre instead of pitch-shifting the voice", () => {
+  assert.deepEqual(qwenRichProsody({ stage: "intimate" }), { rate: 0.96, pitch: 1, volume: 48 });
+  assert.deepEqual(qwenRichProsody({ stage: "foreplay" }), { rate: 0.97, pitch: 1, volume: 48 });
+  assert.deepEqual(qwenRichProsody({ stage: "casual" }), { rate: 1, pitch: 1, volume: 50 });
+});
+
+test("rich intimate instruction asks for connected natural speech, not literal sound effects", () => {
+  const instruction = qwenRichInstruction({ instruction: "角色本身偏害羞。" }, { stage: "intimate" });
+  assert.match(instruction, /角色本身偏害羞/);
+  assert.match(instruction, /自然真声/);
+  assert.match(instruction, /正常呼吸/);
+  assert.match(instruction, /整段连贯/);
+  assert.match(instruction, /不要刻意喘气/);
+  assert.match(instruction, /不要故意颤音/);
+  assert.match(instruction, /不要为了暧昧拖长字音/);
+  assert.match(instruction, /短促的鼻音起音/);
+  assert.doesNotMatch(instruction, /再从“我”继续/);
+});
+
+test("rich performance route never silently falls back to CosyVoice", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
+  assert.doesNotMatch(source, /tts retry/);
+  assert.doesNotMatch(source, /pcm = await componentSpeechPcm\(reply, componentVoice, ttsOptions\)/);
+  assert.match(source, /log\("tts failed"/);
+  assert.match(source, /throw error/);
+  assert.match(source, /enable_ssml: false/);
+  assert.match(source, /continue-task[\s\S]{0,300}input: \{ text: script \}/);
+});
+
+test("rich request keeps the resolved delivery stage instead of reverting to generic instruction", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
+  assert.match(source, /const prosody = qwenRichProsody\(options\);/);
+  assert.match(source, /return await qwenRichWsPcm\(script, richVoice, \{[\s\S]{0,160}delivery: speechDelivery\(options\)\.delivery/);
 });
 
 test("every reply stays as one continuous performance unit", () => {
@@ -205,4 +274,15 @@ test("voice preview uses the requested component voice and does not substitute a
   await assert.rejects(componentVoicePreviewWav("试听", "longanyang"), /TTS 未配置/);
   if (previous === undefined) delete process.env.ALIYUN_DASHSCOPE_API_KEY;
   else process.env.ALIYUN_DASHSCOPE_API_KEY = previous;
+});
+
+
+test("rich voice preview uses the saved Rich route rather than the catalog route", () => {
+  const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+  const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
+  assert.match(server, /handleAdminChatLiveVoicePreview/);
+  assert.match(server, /COMPONENT_INTIMATE_PREVIEW_TEXT[\s\S]{0,160}\{ richVoice, stage: "intimate" \}/);
+  assert.match(server, /\/api\/admin\/chat-live\/voice-preview/);
+  assert.match(admin, /richVoiceProvider: root\.querySelector\("#chatLiveRichVoiceEnabled"\)\?\.checked === true \? "dashscope_qwen_audio_tts" : ""/);
+  assert.match(admin, /chatLiveRichVoicePreview/);
 });

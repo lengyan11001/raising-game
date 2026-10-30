@@ -541,7 +541,7 @@ async function componentReply(session, userText, options = {}) {
   const explicitIntimate = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""));
   const flirtyContext = session.site === "live" && /(?:想你|喜欢你|心动|暧昧|撩|调情|诱惑|想要你|靠近|抱|亲|吻|耳边|轻声|低声|喘|呼吸|睡衣|夜色|陪我|今晚|别躲|看着我|脸红|害羞|心跳)/u.test(String(userText || ""));
   const intimateCue = explicitIntimate
-    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。整段必须是同一次连续表演：让呼吸先被动作打断，再从不完整的话、气音或短反应里继续说，句子的长短、音高和停顿要随动作推进而变化。不要把嗯、啊、哈当成可堆叠的独立音效；每个短音都要嵌在被撞断的半句话、吸气或身体反应里。开场不要先堆固定的“唔……哈”“嗯……哈”，不要平均停顿，不要一字一字地念。短反应可以重复，但必须跟着不同的动作和情绪变化；不要评价对方的能力、表现、诚意、节奏或进度，也不要变成通用叫床模板。"
+    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。整段必须是同一次连续表演：让呼吸先被动作打断，再从不完整的话、气音或短反应里继续说，句子的长短、音高和停顿要随动作推进而变化。不要把嗯、啊、哈当成可堆叠的独立音效；每个短音都必须嵌在被撞断的半句话、吸气或身体反应里，紧接着从断点继续说完，不能变成“嗯。啊。哈。”这种逐音列表。整段只用一次连续表演，不平均停顿，不逐字朗读，不把所有字用同样的力度念出来。短反应可以重复，但必须跟着不同的动作和情绪变化；不要评价对方的能力、表现、诚意、节奏或进度，也不要变成通用叫床模板。"
     : flirtyContext || ["flirty", "foreplay", "intimate", "aftercare"].includes(stage)
       ? "当前是带暧昧张力的私下互动，不是客服闲聊。整段要像真的在对喜欢的人低声说话：有试探、停顿、呼吸、留白和克制的吸引；短语气词要连着未说完的话出现，不要排成一串单独念。不要解释气氛，不要播音腔。是否露骨由当前场景决定，但不能把暧昧说成普通开心或礼貌回应。"
       : "";
@@ -602,7 +602,7 @@ async function componentReply(session, userText, options = {}) {
   return speech;
 }
 
-/* ---------------- 组件 TTS：新加坡 CosyVoice v3 流式 PCM ---------------- */
+/* ---------------- 组件 TTS：CosyVoice / Qwen-Audio Rich Tags ---------------- */
 function dashscopeWorkspaceId() {
   const explicit = String(process.env.CHAT_LIVE_TTS_WORKSPACE || "").trim();
   if (explicit) return explicit;
@@ -749,6 +749,235 @@ function cosyvoiceWsPcm(text, voice, model, options = {}) {
       else resolve(Buffer.concat(chunks));
     }).catch(reject);
   });
+}
+
+const QWEN_RICH_VOICE_PROVIDER = "dashscope_qwen_audio_tts";
+const QWEN_RICH_VOICE_MODELS = new Set(["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"]);
+const COMPONENT_INTIMATE_PREVIEW_TEXT = "嗯，别……先别动，我还没缓过来，慢一点。";
+
+/* Rich voice configuration is explicit and character-scoped. A cloned Qwen
+ * voice is bound to one target model, so the voice id and model must travel
+ * together. Never reuse a CosyVoice id or silently manufacture a fallback. */
+function componentRichVoiceConfig(character = {}) {
+  const provider = String(character?.richVoiceProvider || "").trim();
+  const model = String(character?.richVoiceModel || "").trim();
+  const voiceType = String(character?.richVoiceType || "").trim();
+  const configured = Boolean(provider || model || voiceType || character?.richVoiceInstruction);
+  if (!configured) return null;
+  if (provider !== QWEN_RICH_VOICE_PROVIDER) throw new Error("Rich 音色供应商配置无效。");
+  if (!QWEN_RICH_VOICE_MODELS.has(model)) throw new Error("Rich 音色模型配置无效。");
+  if (!voiceType) throw new Error("Rich 音色缺少复刻音色 ID。");
+  if (!voiceType.startsWith(`${model}-`)) throw new Error("Rich 复刻音色与目标模型不匹配。");
+  return {
+    provider,
+    model,
+    voiceType,
+    label: String(character?.richVoiceLabel || character?.name || "角色音色").trim().slice(0, 60),
+    instruction: String(character?.richVoiceInstruction || "").trim().slice(0, 500),
+  };
+}
+
+function qwenRichInstruction(richVoice = {}, options = {}) {
+  const delivery = speechDelivery(options).delivery;
+  const intimate = delivery === "intimate" || delivery === "foreplay";
+  const performance = intimate
+    ? "像在很近的距离对喜欢的人说悄悄话，用自然真声和正常呼吸。声音轻一点、软一点，带一点害羞和克制的心动，但不要耳语腔、不要刻意喘气、不要故意颤音，也不要为了暧昧拖长字音。整段连贯地说，只在语义需要处自然停顿；保留短促的鼻音起音，不要把它念成单独的长音。"
+    : "请把整段当作一次自然的私下说话，不要逐句朗读，也不要为了表演而拖慢每个字。保留正常呼吸、轻微迟疑和情绪变化，句子之间按语义自然停顿。";
+  return [performance, String(richVoice?.instruction || "").trim()].filter(Boolean).join(" ").slice(0, 900);
+}
+
+/* Cloned voices already carry the speaker's natural timbre and speaking
+ * rhythm. Pitch shifting and heavy rate reduction make them sound synthetic,
+ * so intimate delivery keeps pitch neutral and only lightly relaxes pacing. */
+function qwenRichProsody(options = {}) {
+  const delivery = speechDelivery(options);
+  if (delivery.delivery === "intimate") {
+    return { rate: 0.96, pitch: 1, volume: 48 };
+  }
+  if (delivery.delivery === "foreplay") {
+    return { rate: 0.97, pitch: 1, volume: 48 };
+  }
+  return { rate: delivery.rate, pitch: delivery.pitch, volume: delivery.volume };
+}
+
+function openQwenRichPcmStream(richVoice, text, onPcm, options = {}) {
+  const key = process.env.ALIYUN_DASHSCOPE_API_KEY || "";
+  if (!key) throw new Error("Rich TTS 未配置（缺 ALIYUN_DASHSCOPE_API_KEY）。");
+  const workspace = dashscopeWorkspaceId();
+  const region = String(process.env.CHAT_LIVE_TTS_REGION || "ap-southeast-1").trim() || "ap-southeast-1";
+  const url = `wss://${workspace}.${region}.maas.aliyuncs.com/api-ws/v1/inference`;
+  const taskId = crypto.randomUUID();
+  const voiceName = String(richVoice?.voiceType || "").trim();
+  const model = String(richVoice?.model || "").trim();
+  const script = String(text || "").trim();
+  if (!voiceName || !model || !script) throw new Error("Rich TTS 参数不完整。");
+  let started = false;
+  let continueSent = false;
+  let finishSent = false;
+  let cancelled = false;
+  let bytes = 0;
+  let settled = false;
+  let resolveDone;
+  let rejectDone;
+  const done = new Promise((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
+  const finish = (error) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    try { ws.close(); } catch {}
+    if (error && !cancelled) rejectDone(error);
+    else resolveDone(bytes);
+  };
+  const sendOnce = () => {
+    if (!started || cancelled || settled || continueSent) return;
+    continueSent = true;
+    const sent = ws.sendText(JSON.stringify({
+      header: { action: "continue-task", task_id: taskId, streaming: "duplex" },
+      payload: { input: { text: script } },
+    }));
+    if (!sent) {
+      finish(new Error("Rich TTS 发送失败。"));
+      return;
+    }
+    if (!finishSent) {
+      finishSent = true;
+      ws.sendText(JSON.stringify({
+        header: { action: "finish-task", task_id: taskId, streaming: "duplex" },
+        payload: { input: {} },
+      }));
+    }
+  };
+  const ws = new MiniWebSocket(url, {
+    ping: false,
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "X-DashScope-WorkSpace": workspace,
+    },
+    onText: (raw) => {
+      let message;
+      try { message = JSON.parse(raw); } catch { return; }
+      const header = message.header || {};
+      const event = header.event;
+      if (event === "task-started") {
+        started = true;
+        sendOnce();
+      } else if (event === "task-finished") {
+        if (!bytes && !cancelled) finish(new Error("Rich TTS 没有返回音频。"));
+        else finish(null);
+      } else if (event === "task-failed") {
+        finish(new Error(header.error_message || header.error_code || "Rich TTS 失败。"));
+      }
+    },
+    onBinary: (chunk) => {
+      if (!chunk?.length || cancelled) return;
+      bytes += chunk.length;
+      try { onPcm(Buffer.from(chunk)); } catch (error) { log("rich pcm forward failed", error.message); }
+    },
+    onOpen: () => {
+      const instruction = qwenRichInstruction(richVoice, options);
+      const sent = ws.sendText(JSON.stringify({
+        header: { action: "run-task", task_id: taskId, streaming: "duplex" },
+        payload: {
+          task_group: "audio",
+          task: "tts",
+          function: "SpeechSynthesizer",
+          model,
+          parameters: {
+            text_type: "PlainText",
+            voice: voiceName,
+            format: "pcm",
+            sample_rate: PCM_SAMPLE_RATE,
+            rate: Number(options.rate) > 0 ? Number(options.rate) : 0.86,
+            volume: Number.isFinite(Number(options.volume)) ? Number(options.volume) : 46,
+            pitch: Number(options.pitch) > 0 ? Number(options.pitch) : 0.95,
+            enable_ssml: false,
+            language_hints: ["zh"],
+            instruction,
+          },
+          input: {},
+        },
+      }));
+      if (!sent) finish(new Error("Rich TTS 连接失败。"));
+    },
+    onClose: (error) => {
+      if (!settled) finish(cancelled ? null : (error || new Error("Rich TTS 连接中断。")));
+    },
+  });
+  const timer = setTimeout(() => finish(new Error("Rich TTS 超时。")), 30000);
+  ws.connect();
+  return {
+    cancel() {
+      cancelled = true;
+      finish(null);
+    },
+    done,
+    get bytes() { return bytes; },
+    get continueTaskCount() { return continueSent ? 1 : 0; },
+  };
+}
+
+function qwenRichWsPcm(text, richVoice, options = {}) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const stream = openQwenRichPcmStream(richVoice, text, (chunk) => chunks.push(chunk), options);
+    options.onStream?.(stream);
+    stream.done.then((bytes) => {
+      if (!bytes) reject(new Error("Rich TTS 没有返回音频。"));
+      else resolve(Buffer.concat(chunks));
+    }).catch(reject);
+  });
+}
+
+/* Rich Tags are performance directions, not spoken text. Strip any tags the
+ * language model may have leaked, then turn the reply into one continuous
+ * performance score. Tags are inserted only between spoken phrases, never
+ * between a character and its punctuation, so "别、" never becomes "别[tag]、". */
+function richPerformanceText(text, options = {}) {
+  const delivery = speechDelivery(options);
+  let body = String(text || "")
+    .replace(/\[(?:whispers?|trembling|gasp|sighing|reluctantly|very slowly|asmr)\]/giu, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  if (!body) return "";
+
+  const intimate = delivery.delivery === "intimate" || delivery.delivery === "foreplay";
+  const prefix = intimate
+    ? "[asmr]"
+    : delivery.delivery === "flirty"
+      ? "[whispers]"
+      : delivery.delivery === "aftercare"
+        ? "[whispers][sighing]"
+        : delivery.delivery === "tender"
+          ? "[whispers]"
+          : "";
+
+  /* Keep the intimate score deliberately sparse. The cloned voice already
+   * performs ordinary punctuation and hesitation naturally; stacking breath or
+   * tremor tags makes it pronounce a sequence of effects instead of acting the
+   * sentence. Only repair a standalone opening nasal so it joins the next word
+   * instead of becoming a sustained "唔" sound. */
+  if (intimate) body = body.replace(/^([嗯唔呜]+)[ \t]*(?:[。.!！~～]+|[……—]+)[ \t]*(?=\S)/u, "$1、");
+
+  return prefix + body;
+}
+
+async function componentRichSpeechPcm(text, richVoice, options = {}) {
+  const script = richPerformanceText(text, options);
+  if (!script) throw new Error("Rich TTS 文本为空。");
+  let stream = null;
+  try {
+    const prosody = qwenRichProsody(options);
+    return await qwenRichWsPcm(script, richVoice, {
+      ...prosody,
+      delivery: speechDelivery(options).delivery,
+      onStream(next) { stream = next; options.onStream?.(next); },
+    });
+  } catch (error) {
+    if (stream) options.onStream?.(null);
+    log("rich tts failed", richVoice?.voiceType || "", speechDelivery(options).delivery, error.message);
+    throw error;
+  }
 }
 
 function speechDelivery(speech = {}) {
@@ -899,7 +1128,9 @@ function pcm16MonoWav(pcm, sampleRate = PCM_SAMPLE_RATE) {
 }
 
 async function componentVoicePreviewWav(text, voice, options = {}) {
-  const pcm = await componentSpeechPcm(text, voice, options);
+  const pcm = options.richVoice
+    ? await componentRichSpeechPcm(text, options.richVoice, options)
+    : await componentSpeechPcm(text, voice, options);
   return pcm16MonoWav(pcm, PCM_SAMPLE_RATE);
 }
 
@@ -910,9 +1141,9 @@ async function componentReplyPcm(reply, voice, options = {}) {
   if (options.shouldContinue && !options.shouldContinue()) {
     return { pcm: Buffer.alloc(0), parts, segmented: false, cancelled: true };
   }
-  const speechPcm = options.speechPcm || componentSpeechPcm;
+  const speechPcm = options.speechPcm || (options.richVoice ? componentRichSpeechPcm : componentSpeechPcm);
   return {
-    pcm: await speechPcm(text, voice, options),
+    pcm: await speechPcm(text, options.richVoice ? options.richVoice : voice, options),
     parts,
     segmented: false,
   };
@@ -991,7 +1222,9 @@ async function runComponentSay(session, userText, options = {}) {
     const action = speech.action;
     if (session.speakTurn !== turn) return reply;
     const componentVoice = session.character?.componentVoiceType || (session.character?.voiceProvider === "dashscope_cosyvoice" ? session.character?.voiceType : "") || "longanyang";
+    const richVoice = componentRichVoiceConfig(session.character);
     const ttsOptions = {
+      richVoice,
       emotion: speech.emotion,
       delivery: speech.delivery,
       stage: options.stage || session.liveStoryStage || "",
@@ -1016,8 +1249,8 @@ async function runComponentSay(session, userText, options = {}) {
       pcm = (await componentReplyPcm(reply, componentVoice, ttsOptions)).pcm;
     } catch (error) {
       if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
-      log("tts retry", session.liveId, error.message);
-      pcm = await componentSpeechPcm(reply, componentVoice, ttsOptions);
+      log("tts failed", session.liveId, richVoice ? "qwen-rich" : "cosyvoice", error.message);
+      throw error;
     }
     if (session.tts) session.tts = null;
     if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
@@ -1124,5 +1357,12 @@ module.exports = {
     normalizeDelivery,
     speechDelivery,
     speechSsml,
+    COMPONENT_INTIMATE_PREVIEW_TEXT,
+    componentRichVoiceConfig,
+    qwenRichInstruction,
+    qwenRichProsody,
+    richPerformanceText,
+    componentRichSpeechPcm,
+    qwenRichWsPcm,
   },
 };

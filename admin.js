@@ -31,6 +31,33 @@ function pricingMultiplierText(value) {
   return Number.isFinite(next) ? String(Math.round(next * 10000) / 10000) : "1";
 }
 
+const VOICE_PREVIEW_ITEMS = [
+  {
+    id: "baseline-a",
+    title: "基准 A",
+    badge: "修复前对照",
+    description: "保留 16–17 秒的抖动和原始句边界，仅用于对照，不是推荐版本。",
+    duration: "41.6 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-baseline-a.wav?v=20261030-voice-preview-1",
+  },
+  {
+    id: "waitfix-a",
+    title: "修正 A",
+    badge: "推荐主听",
+    description: "缩短「等」与「等等」之间的停顿，句间连接更顺；保留前后原声与稳定喘息。",
+    duration: "42.9 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-a.wav?v=20261030-voice-preview-1",
+  },
+  {
+    id: "waitfix-c",
+    title: "修正 C",
+    badge: "更长换气",
+    description: "「等」与「等等」之间保留更明显的换气，适合和修正 A 对比听感。",
+    duration: "43.1 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-c.wav?v=20261030-voice-preview-1",
+  },
+];
+
 const ROUTES = [
   { id: "creator-data", title: "创作者数据", render: renderCreatorData },
   { id: "withdrawals", title: "提现审核", render: renderWithdrawals },
@@ -44,6 +71,7 @@ const ROUTES = [
   { id: "membership-codes", title: "会员激活码", render: renderMembershipCodes },
   { id: "pricing", title: "价格配置", render: renderPricing },
   { id: "chat-live", title: "在线聊天配置", render: renderChatLive },
+  { id: "voice-preview", title: "试听", render: renderVoicePreview },
   { id: "undress-config", title: "Undress 配置", render: renderUndressConfig },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
@@ -4506,6 +4534,17 @@ function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
             <input type="hidden" id="chatLiveComponentVoiceType" value="${escapeHtml(value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? (value.voiceType || "") : ""))}" />
           </div>
         </div>
+        <div class="chat-live-rich-voice">
+          <div class="adm-card-head"><div><h3>Rich 表演音色</h3><p class="adm-muted">可选。绑定 Qwen-Audio 复刻音色后，组件版会使用呼吸、颤声、抽气等标签做单次连续表演；失败时直接报错，不会退回平读。</p></div></div>
+          <div class="chat-live-field-grid">
+            <div class="adm-form-row"><span>启用</span><label class="adm-check"><input id="chatLiveRichVoiceEnabled" type="checkbox" ${value.richVoiceProvider ? "checked" : ""} /> 使用 Rich 音色</label></div>
+            <div class="adm-form-row"><span>模型</span><select id="chatLiveRichVoiceModel"><option value="">未选择</option><option value="qwen-audio-3.1-tts-flash" ${value.richVoiceModel === "qwen-audio-3.1-tts-flash" ? "selected" : ""}>qwen-audio-3.1-tts-flash</option><option value="qwen-audio-3.1-tts-plus" ${value.richVoiceModel === "qwen-audio-3.1-tts-plus" ? "selected" : ""}>qwen-audio-3.1-tts-plus</option></select></div>
+            <div class="adm-form-row chat-live-span-2"><span>复刻音色 ID</span><input id="chatLiveRichVoiceType" value="${escapeHtml(value.richVoiceType || "")}" placeholder="必须带模型前缀，例如 qwen-audio-3.1-tts-flash-xxxx" /><small class="adm-muted">与模型绑定，不能用 CosyVoice 的 voice_type。</small></div>
+            <div class="adm-form-row"><span>显示名称</span><input id="chatLiveRichVoiceLabel" value="${escapeHtml(value.richVoiceLabel || "")}" placeholder="例如：乔安瑜" /></div>
+            <div class="adm-form-row chat-live-span-2"><span>表演说明</span><textarea id="chatLiveRichVoiceInstruction" rows="3" placeholder="例如：贴近耳边低声说，害羞、温柔、克制，呼吸自然，不要播音腔。">${escapeHtml(value.richVoiceInstruction || "")}</textarea></div>
+            <div class="adm-form-row chat-live-span-2"><button class="adm-btn adm-btn-ghost" type="button" id="chatLiveRichVoicePreview">试听当前 Rich 音色</button><small class="adm-muted" id="chatLiveRichVoiceStatus">先在后台保存角色，再用同一套音色路由试听。</small></div>
+          </div>
+        </div>
       </section>
       <section class="adm-card">
         <div class="adm-card-head"><div><h3>人物相册</h3><p class="adm-muted">缩略图展示。锁定后，未订阅用户只能看到锁。</p></div>
@@ -4910,6 +4949,44 @@ function bindChatLiveUndress(box, getCharacter, isAlive = () => true) {
     }
   });
   box().querySelector("#chatLiveAvatarUrl")?.addEventListener("change", () => paint(getCharacter()));
+  box().querySelector("#chatLiveRichVoicePreview")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = box().querySelector("#chatLiveRichVoiceStatus");
+    const characterId = current?.id || box().dataset.savedId || "";
+    if (!characterId) {
+      if (status) status.textContent = "请先保存角色，再试听已保存的 Rich 音色。";
+      return;
+    }
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "生成中…";
+    if (status) status.textContent = "正在用已保存的 Rich 音色生成亲密阶段试听…";
+    try {
+      const response = await fetch("/api/admin/chat-live/voice-preview", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json", ...(token() ? { authorization: `Bearer ${token()}` } : {}) },
+        body: JSON.stringify({ characterId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || "试听失败，请检查 Rich 音色配置。");
+      }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error("试听音频为空。");
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.onerror = () => URL.revokeObjectURL(url);
+      if (status) status.textContent = "试听：亲密阶段同一套 Rich 路由。";
+      await audio.play();
+    } catch (error) {
+      if (status) status.textContent = error.message || "试听失败。";
+    } finally {
+      button.disabled = false;
+      button.textContent = "试听当前 Rich 音色";
+    }
+  });
 }
 
 async function openChatLiveCharacterPage(character, defaults = {}, voices = []) {
@@ -4939,6 +5016,11 @@ async function openChatLiveCharacterPage(character, defaults = {}, voices = []) 
       voiceType: val("chatLiveVoiceType"),
       voiceProvider: val("chatLiveVoiceProvider"),
       componentVoiceType: val("chatLiveComponentVoiceType"),
+      richVoiceProvider: root.querySelector("#chatLiveRichVoiceEnabled")?.checked === true ? "dashscope_qwen_audio_tts" : "",
+      richVoiceModel: val("chatLiveRichVoiceModel"),
+      richVoiceType: val("chatLiveRichVoiceType"),
+      richVoiceLabel: val("chatLiveRichVoiceLabel"),
+      richVoiceInstruction: val("chatLiveRichVoiceInstruction"),
       mode: val("chatLiveMode"),
       language: val("chatLiveLanguage"),
       tags: val("chatLiveTags"),
@@ -6878,6 +6960,58 @@ async function renderPlatform(options = {}) {
 }
 
 /* ============ UNDRESS CONFIG ============ */
+function renderVoicePreview() {
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-voice-preview-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>亲密语音试听</h2>
+          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。重点核对 28.10–31.62 秒的「等等等，别松手 / 抱紧我」是否重复、断裂或跳帧。</p>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>问题段定位</h3>
+            <p class="adm-muted">28.10–30.15 秒：「等等等，别松手」；30.15–31.62 秒：「抱紧我」。点击下方按钮会跳到问题段前约 0.6 秒。</p>
+          </div>
+        </div>
+      </div>
+      <div class="adm-grid adm-grid-3 adm-voice-preview-grid">
+        ${VOICE_PREVIEW_ITEMS.map((item) => `
+          <article class="adm-card adm-voice-preview-card" data-voice-preview-id="${escapeHtml(item.id)}">
+            <div class="adm-card-head">
+              <div>
+                <h3>${escapeHtml(item.title)}</h3>
+                <p class="adm-muted">${escapeHtml(item.description)}</p>
+              </div>
+              <span class="adm-pill">${escapeHtml(item.badge)}</span>
+            </div>
+            <div class="adm-card-body">
+              <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
+              <div class="adm-voice-preview-meta">
+                <span>${escapeHtml(item.duration)}</span>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="27.5"><i data-lucide="locate-fixed"></i>跳到问题句</button>
+              </div>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+  els.adminContent.querySelectorAll("[data-voice-seek]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-voice-preview-id]");
+      const audio = card?.querySelector("audio");
+      const seekTo = Number(button.dataset.voiceSeek || 0);
+      if (!audio || !Number.isFinite(seekTo)) return;
+      audio.currentTime = Math.max(0, seekTo);
+      audio.play().catch(() => {});
+    });
+  });
+  refreshIcons();
+}
+
 async function renderUndressConfig() {
   const payload = await api("/api/admin/undress-prompts");
   if (!isActiveRoute("undress-config")) return;

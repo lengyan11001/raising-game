@@ -1942,6 +1942,15 @@ body.has-adm-media-preview { overflow: hidden; }
 .adm-story-media-preview { cursor: pointer; }
 .adm-story-media-preview .adm-media-preview-badge { font-size: .62rem; }
 .adm-media-preview-audio { width: 100%; min-width: 220px; height: 40px; }
+.adm-voice-preview-grid { align-items: start; }
+.adm-voice-preview-card .adm-card-head { align-items: flex-start; }
+.adm-voice-preview-card .adm-card-head > div { min-width: 0; }
+.adm-voice-preview-card .adm-card-head p { margin: 6px 0 0; line-height: 1.55; }
+.adm-voice-preview-card audio { display: block; width: 100%; height: 46px; }
+.adm-voice-preview-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px; color: var(--adm-muted); font-size: 0.78rem;
+}
 .adm-card-media-preview { border-radius: inherit; }
 .adm-avatar-preview {
   width: 38px;
