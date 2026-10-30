@@ -99,34 +99,31 @@
 .share-ico{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:700}
 .share-ico.wechat{color:#4ecb71}.share-ico.moment{color:#ffb020}.share-ico.link{color:#4aa8ff}.share-ico.report{color:rgba(255,255,255,.55)}
 .share-cancel{width:100%;height:40px;margin-top:12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
-.poster-backdrop{display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(20,12,18,.68)}
-.poster-card{width:min(360px,92vw);max-height:calc(100dvh - 32px);border-radius:14px;overflow:hidden;background:#fff;color:#171313;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.34)}
-.poster-scroll{overflow:auto;background:#fff;scrollbar-width:none}
-.poster-scroll::-webkit-scrollbar{display:none}
-.poster-visual{background:#fff}
-.poster-photo{height:400px;background:#f0e8e3;overflow:hidden;border-radius:14px 14px 0 0}
-.poster-photo img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block;transform:scale(1.13);transform-origin:center top}
+.poster-backdrop{display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(20,12,18,.78)}
+.poster-card{position:relative;width:min(360px,calc(100vw - 24px));height:min(720px,calc(100dvh - 24px));border-radius:14px;overflow:hidden;background:#fff;color:#171313;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+.poster-visual{height:100%;background:#fff;overflow:hidden;display:flex;flex-direction:column}
+.poster-photo{flex:0 0 42%;height:42%;background:#f0e8e3;overflow:hidden;border-radius:14px 14px 0 0}
+.poster-photo img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block;transform:scale(1.08);transform-origin:center top}
 .poster-photo-empty{height:100%;display:grid;place-items:center;color:#b5aaa5;font-size:28px;font-weight:800;letter-spacing:.02em}
-.poster-details{padding:24px 22px 20px}
-.poster-details h3{margin:0;font-family:Georgia,"Songti SC","Times New Roman",serif;font-size:34px;line-height:1.1;font-weight:400;letter-spacing:-.02em}
-.poster-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
-.poster-tags span{display:inline-flex;align-items:center;justify-content:center;min-width:62px;min-height:34px;padding:0 12px;border:1px solid #292625;border-radius:4px;color:#242120;font-size:15px;line-height:1.2;white-space:nowrap}
-.poster-intro{margin:22px 0 0;color:#191616;font-size:15px;line-height:1.55;letter-spacing:.01em;word-break:break-all}
+.poster-details{padding:clamp(12px,3.2vh,20px) 20px 14px;min-height:0;display:flex;flex:1;flex-direction:column}
+.poster-details h3{margin:0;font-family:Georgia,"Songti SC","Times New Roman",serif;font-size:clamp(26px,4.5vh,32px);line-height:1.04;font-weight:400;letter-spacing:-.02em}
+.poster-tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:clamp(10px,2.6vh,18px)}
+.poster-tags span{display:inline-flex;align-items:center;justify-content:center;min-width:58px;min-height:30px;padding:0 11px;border:1px solid #292625;border-radius:4px;color:#242120;font-size:13px;line-height:1.2;white-space:nowrap}
+.poster-intro{margin:clamp(10px,2.6vh,18px) 0 0;color:#191616;font-size:clamp(12px,1.75vh,14px);line-height:1.48;letter-spacing:.01em;word-break:break-all;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .poster-intro b{font-weight:700}
-.poster-bottom{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:14px;align-items:end;margin-top:25px}
+.poster-bottom{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:12px;align-items:end;margin-top:auto;padding-top:clamp(9px,2vh,16px)}
 .poster-bottom-copy{min-width:0}
-.poster-bottom-copy>strong{display:block;color:#080808;font-family:"PingFang SC",Arial,sans-serif;font-size:30px;line-height:1;font-weight:750;letter-spacing:-.04em}
-.poster-bottom-copy>i{display:block;width:28px;height:3px;margin-top:8px;background:#ef3f77}
-.poster-unlock{display:block;width:100%;height:38px;margin-top:17px;border:0;border-radius:20px;background:#ee477b;color:#fff;font-size:14px;font-weight:500;white-space:nowrap}
-.poster-bottom-copy>p{margin:11px 0 0;color:#171414;font-size:12px;line-height:1.3;white-space:nowrap;letter-spacing:-.03em}
-.poster-qr{width:82px;height:82px;background:#fff;display:flex;align-items:center;justify-content:center}
+.poster-bottom-copy>strong{display:block;color:#080808;font-family:"PingFang SC",Arial,sans-serif;font-size:clamp(24px,4.4vh,30px);line-height:1;font-weight:750;letter-spacing:-.04em}
+.poster-bottom-copy>i{display:block;width:26px;height:3px;margin-top:6px;background:#ef3f77}
+.poster-unlock{display:block;width:100%;height:clamp(32px,5vh,38px);margin-top:10px;border:0;border-radius:20px;background:#ee477b;color:#fff;font-size:13px;font-weight:500;white-space:nowrap}
+.poster-bottom-copy>p{margin:8px 0 0;color:#171414;font-size:11px;line-height:1.28;white-space:nowrap;letter-spacing:-.03em}
+.poster-qr{width:72px;height:72px;background:#fff;display:flex;align-items:center;justify-content:center}
 .poster-qr img{width:100%;height:100%;display:block;object-fit:contain}
-.poster-actions{padding:8px 16px 14px;background:#fff;border-top:1px solid #f1ecea}
-.poster-actions [data-sheet-note]{min-height:16px;margin:0 0 4px;text-align:center;color:#ee477b;font-size:11px}
-.poster-action-row{display:flex;gap:10px}
-.poster-actions button{flex:1;height:40px;border-radius:8px;border:1px solid #eadfdb;background:#fff;color:#444;font-size:13px}
-.poster-actions .poster-share{border:0;background:#ee477b;color:#fff;font-weight:700}
-.poster-actions>button{width:100%;margin-top:10px;height:36px}
+.poster-toolbar{position:absolute;top:10px;right:10px;z-index:3;display:flex;gap:6px;padding:4px;border-radius:999px;background:rgba(17,13,15,.32);backdrop-filter:blur(8px)}
+.poster-tool{width:32px;height:32px;padding:0;display:grid;place-items:center;border:1px solid rgba(255,255,255,.42);border-radius:50%;background:rgba(20,16,18,.32);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.poster-tool svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.poster-tool:active{transform:scale(.94)}
+@media(max-height:700px){.poster-details{padding:10px 16px 10px}.poster-tags span{min-width:52px;min-height:26px;padding:0 9px;font-size:12px}.poster-bottom{grid-template-columns:minmax(0,1fr) 62px}.poster-qr{width:62px;height:62px}.poster-bottom-copy>strong{font-size:23px}.poster-unlock{height:31px;margin-top:7px}.poster-bottom-copy>p{font-size:10px}}
 .referral-page{background:#121218;color:#fff}
 .referral-head{height:56px;padding:0 16px;display:grid;grid-template-columns:32px 1fr auto;align-items:center;border-bottom:1px solid rgba(255,255,255,.06)}
 .referral-head button{border:0;background:transparent;color:rgba(255,255,255,.8);font-size:20px}

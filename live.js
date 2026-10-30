@@ -334,6 +334,8 @@
     shield: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>`,
     wallet: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h15a3 3 0 0 1 3 3v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7l2-3h12"/><circle cx="16.5" cy="14" r="1"/></svg>`,
     share: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>`,
+    download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>`,
+    close: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>`,
     user: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>`,
     home: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 4l8 7.5"/><path d="M7 10.5V20h10v-9.5"/></svg>`,
     chat: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9H8l-3 3v-3H5z"/></svg>`,
@@ -852,7 +854,7 @@
     const tags = posterTags(role);
     state.posterQr = qr;
     ensurePosterFont();
-    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet><div class="poster-scroll"><div class="poster-visual"><div class="poster-photo" data-poster-photo>${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="poster-photo-empty">Vipeak</div>'}</div><div class="poster-details"><h3>${esc(role.name || "Vipeak")}</h3><div class="poster-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><p class="poster-intro"><b>人物介绍：</b>${esc(posterIntro(role))}</p><div class="poster-bottom"><div class="poster-bottom-copy"><strong>Vipeak</strong><i></i><button class="poster-unlock" type="button">解锁专属私密互动 &gt;</button><p>和Ta来一场AI实时互动的视频聊天</p></div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div></div></div><div class="poster-actions"><p data-sheet-note></p><div class="poster-action-row"><button data-action="save-poster">保存图片</button><button class="poster-share" data-action="poster-share">分享</button></div><button data-action="close-poster">关闭</button></div></div></div>`);
+    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet role="dialog" aria-modal="true" aria-label="角色分享海报"><div class="poster-visual"><div class="poster-photo" data-poster-photo>${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="poster-photo-empty">Vipeak</div>'}</div><div class="poster-details"><h3>${esc(role.name || "Vipeak")}</h3><div class="poster-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><p class="poster-intro"><b>人物介绍：</b>${esc(posterIntro(role))}</p><div class="poster-bottom"><div class="poster-bottom-copy"><strong>Vipeak</strong><i></i><button class="poster-unlock" type="button">解锁专属私密互动 &gt;</button><p>和Ta来一场AI实时互动的视频聊天</p></div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div></div><div class="poster-toolbar"><button type="button" class="poster-tool" data-action="save-poster" aria-label="保存图片" title="保存图片">${uiIcon("download")}</button><button type="button" class="poster-tool" data-action="poster-share" aria-label="分享" title="分享">${uiIcon("share")}</button><button type="button" class="poster-tool" data-action="close-poster" aria-label="关闭" title="关闭">${uiIcon("close")}</button></div></div></div>`);
   }
   async function loadPosterPhoto(src) {
     if (!src) return null;
@@ -907,7 +909,6 @@
     return lines;
   }
   async function saveSharePoster() {
-    const note = document.querySelector("[data-poster] [data-sheet-note]");
     const role = state.role || {};
     const canvas = document.createElement("canvas");
     canvas.width = 720; canvas.height = 1440;
@@ -958,11 +959,11 @@
     const a = document.createElement("a");
     let href = "";
     try { href = canvas.toDataURL("image/png"); }
-    catch { if (note) note.textContent = "照片跨域，保存失败。请刷新后再试。"; return; }
+    catch { referralToast("照片跨域，保存失败。请刷新后再试。"); return; }
     a.href = href;
     a.download = `${role.name || "vipeak"}-poster.png`;
     a.click();
-    if (note) note.textContent = img && img.width ? "图片已保存。" : "照片没有加载成功，请刷新后再保存。";
+    referralToast(img && img.width ? "图片已保存" : "照片没有加载成功，请刷新后再保存");
   }
 
   function loadPosterQr(src) {
