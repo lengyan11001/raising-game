@@ -26,7 +26,7 @@ function showcaseCasesViewFromServer() {
 test("case library exposes the upstream model for every showcase model", () => {
   const frontend = read("platform.cases.js");
   const html = read("platform.html");
-  const cases = JSON.parse(read("assets/showcase/spicy/cases.json"));
+  const cases = JSON.parse(read("test/fixtures/cases.json"));
   const helpers = caseLibraryUpstreamHelpersFromFrontend();
   const modelKeys = [...new Set(cases.map((item) => item.model_key))].sort();
 
@@ -45,7 +45,7 @@ test("case library exposes the upstream model for every showcase model", () => {
 test("case API returns every case while withholding locked case content", () => {
   const server = read("server.js");
   const frontend = read("platform.cases.js");
-  const cases = JSON.parse(read("assets/showcase/spicy/cases.json"));
+  const cases = JSON.parse(read("test/fixtures/cases.json"));
   const { showcaseCasesView: view, showcaseCaseTitle } = showcaseCasesViewFromServer();
   const locked = view(cases, false);
   const unlocked = view(cases, true);
@@ -94,7 +94,7 @@ test("case API returns every case while withholding locked case content", () => 
   assert.match(server, /items:\s*view\.items/);
   assert.match(server, /const user = auth\.user \|\| \{\};/);
   assert.match(server, /publicCreatorMembership\(user\)/);
-  assert.match(server, /"\/assets\/showcase\/spicy\/cases\.json"/);
+  assert.doesNotMatch(server, /"\/assets\/showcase\/spicy\/cases\.json"/);
   assert.doesNotMatch(frontend, /fetch\("\/assets\/showcase\/spicy\/cases\.json"/);
   assert.match(frontend, /requestJson\("\/api\/cases"\)/);
   assert.match(frontend, /data-case-unlock/);
@@ -104,7 +104,7 @@ test("case API returns every case while withholding locked case content", () => 
   assert.match(frontend, /caseLibraryTitle\(item\)/);
   assert.match(frontend, /billingPlanId:\s*"plan-main-creator"/);
   const payloadStart = server.indexOf("function creatorMembershipPayload(");
-  const membershipEnd = server.indexOf("\n}\n\nconst SHOWCASE_CASES_FILE", payloadStart);
+  const membershipEnd = server.indexOf("\n}\n\nconst SHOWCASE_CASES_PREVIEW_LIMIT", payloadStart);
   const membershipSource = server.slice(payloadStart, membershipEnd + 2);
   const userHasCreatorMembership = new Function(`${membershipSource}\nreturn userHasCreatorMembership;`)();
   assert.equal(userHasCreatorMembership(null), false);

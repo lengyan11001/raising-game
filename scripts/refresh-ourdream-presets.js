@@ -1,16 +1,14 @@
 "use strict";
 
-// Fetch the OurDream catalog once and mirror every image/video into this site's R2 bucket.
-// The generated JSON is the only catalog consumed by production.
+// Fetch the OurDream catalog, mirror media into R2 when requested, and write catalog rows to PostgreSQL.
 const crypto = require("node:crypto");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { fetchOurDreamPresetLibrary } = require("../ourdream-presets");
+const { fetchOurDreamPresetLibrary, presetCatalogRowsFromLibrary, presetLibraryFromCatalogRows } = require("../ourdream-presets");
+const { listCatalogEntriesFromDb, replaceCatalogEntriesInDb } = require("../db");
 
 const ROOT = path.resolve(__dirname, "..");
-const OUTPUT = path.join(ROOT, "assets", "ourdream", "presets", "presets.json");
-const ACTION_OUTPUT = path.join(ROOT, "assets", "ourdream", "presets", "video-actions.json");
 const mirror = process.argv.includes("--mirror");
 const actionsOnly = process.argv.includes("--actions-only");
 const concurrencyArg = process.argv.find((arg) => arg.startsWith("--concurrency="));
@@ -189,9 +187,10 @@ async function main() {
   }
   const library = await fetchOurDreamPresetLibrary({ characterLimit: 100 });
   const jobs = collectMedia(library).filter((job) => !actionsOnly || job.kind === "actions" || job.kind === "action-media");
-  // Reuse the already imported local catalog for stable preset images. Only newly
-  // discovered URLs (especially action videos) need a network download.
-  const existing = JSON.parse(await fs.readFile(OUTPUT, "utf8").catch(() => "{\"sets\":[]}"));
+  // Reuse already imported media URLs from PostgreSQL. Only newly discovered
+  // URLs (especially action videos) need a network download.
+  const existingRows = await listCatalogEntriesFromDb("ourdream_presets");
+  const existing = { sets: presetLibraryFromCatalogRows(existingRows || []) };
   const existingBySource = new Map();
   for (const set of existing.sets || []) for (const item of set.items || []) {
     for (const key of [item.remoteImageUrl, item.sourceUrl]) if (key && /^https?:\/\//i.test(key) && item.imageUrl?.startsWith("/assets/")) existingBySource.set(key, item.imageUrl);
@@ -214,7 +213,7 @@ async function main() {
     job.item.sourceUrl = job.item.sourceUrl || job.url;
     job.item[job.field] = bySource.get(job.url) || job.localUrl || "";
   }
-  const clean = JSON.parse(JSON.stringify(library));
+  const clean = structuredClone(library);
   function scrub(value) {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
@@ -234,10 +233,24 @@ async function main() {
   scrub(clean);
   clean.source = "OurDream catalog mirrored to this site's R2 bucket";
   clean.generatedAt = new Date().toISOString();
-  await fs.writeFile(OUTPUT, `${JSON.stringify(clean, null, 2)}\n`);
-  const actionSet = clean.sets.find((set) => set.slot === "action");
-  if (actionSet) await fs.writeFile(ACTION_OUTPUT, `${JSON.stringify({ version: 2, source: clean.source, generatedAt: clean.generatedAt, items: actionSet.items }, null, 2)}\n`);
-  console.log(`Wrote ${clean.sets.reduce((sum, set) => sum + (set.items || []).length, 0)} presets and mirrored ${bySource.size} media files.`);
+  const actionSet = clean.sets.find((set) => set.slot === "action") || { items: [] };
+  const actionRows = actionSet.items.map((item, index) => ({
+    id: `action:${String(item?.id || "").trim()}`,
+    payload: item,
+    category: String(item?.category || ""),
+    sortOrder: index,
+  })).filter((entry) => entry.payload?.id && entry.id !== "action:");
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; catalog rows must be stored in PostgreSQL.");
+  if (!actionsOnly) {
+    const rows = presetCatalogRowsFromLibrary(clean);
+    const written = await replaceCatalogEntriesInDb("ourdream_presets", rows);
+    console.log(`Wrote ${written} preset catalog rows to PostgreSQL.`);
+  }
+  if (actionRows.length) {
+    const written = await replaceCatalogEntriesInDb("ourdream_actions", actionRows);
+    console.log(`Wrote ${written} video action rows to PostgreSQL.`);
+  }
+  console.log(`Mirrored ${bySource.size} media files.`);
 }
 
 if (require.main === module) main().catch((error) => { console.error(error.stack || error.message || error); process.exitCode = 1; });

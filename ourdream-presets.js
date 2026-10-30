@@ -1,7 +1,6 @@
 "use strict";
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
+const { listCatalogEntriesFromDb } = require("./db");
 
 const OURDREAM_TRPC_BASE = "https://trpc.svc.ourdream.ai/api/trpc";
 const OURDREAM_ORIGIN = "https://ourdream.ai";
@@ -12,9 +11,6 @@ const PRESET_COMBOS = Object.freeze([
   Object.freeze({ gender: "Female", style: "Anime" }),
   Object.freeze({ gender: "Male", style: "Anime" }),
 ]);
-const VIDEO_ACTIONS_PATH = path.join(__dirname, "assets", "ourdream", "presets", "video-actions.json");
-const FALLBACK_PRESETS_PATH = path.join(__dirname, "assets", "ourdream", "presets", "presets.json");
-
 let cachedLibrary = null;
 let cachedAt = 0;
 
@@ -119,14 +115,6 @@ function dedupeItems(items = []) {
   return [...byId.values()];
 }
 
-async function readJsonFile(filePath, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
-  } catch {
-    return fallback;
-  }
-}
-
 async function fetchCharacters(fetchImpl = fetch, limit = 100) {
   const payload = await fetchTrpc("generate.getFilteredCharacters", {
     gender: null,
@@ -143,7 +131,7 @@ async function fetchCharacters(fetchImpl = fetch, limit = 100) {
 async function fetchOurDreamPresetLibrary({ fetchImpl = fetch, characterLimit = 100 } = {}) {
   const [characters, videoActions, ...presetPayloads] = await Promise.all([
     fetchCharacters(fetchImpl, characterLimit),
-    readJsonFile(VIDEO_ACTIONS_PATH, { items: [] }),
+    listCatalogEntriesFromDb("ourdream_actions").then((items) => ({ items: items || [] })),
     ...PRESET_COMBOS.map((combo) => fetchTrpc("presets.getAll", combo, fetchImpl)),
   ]);
   const collected = { pose: [], outfit: [], background: [] };
@@ -173,44 +161,59 @@ async function fetchOurDreamPresetLibrary({ fetchImpl = fetch, characterLimit = 
   };
 }
 
-async function fallbackPresetLibrary() {
-  const [fallback, videoActions] = await Promise.all([
-    readJsonFile(FALLBACK_PRESETS_PATH, { sets: [], categories: {} }),
-    readJsonFile(VIDEO_ACTIONS_PATH, { items: [] }),
-  ]);
-  const sets = Array.isArray(fallback.sets) ? fallback.sets : [];
-  const oldAction = sets.find((set) => set.slot === "action") || { items: [] };
-  return {
-    ...fallback,
-    version: Math.max(4, Number(fallback.version || 0)),
-    schemaVersion: 2,
-    sets: [
-      ...sets.filter((set) => !["action", "pose"].includes(set.slot)),
-      { slot: "pose", items: oldAction.items || [] },
-      { slot: "action", items: Array.isArray(videoActions.items) ? videoActions.items : [] },
-    ],
-  };
+function presetLibraryFromCatalogRows(rows = []) {
+  const sets = new Map();
+  for (const row of rows) {
+    const set = row?.set && typeof row.set === "object" ? row.set : {};
+    const slot = String(set.slot || row.slot || "").trim();
+    if (!slot) continue;
+    if (!sets.has(slot)) sets.set(slot, []);
+    sets.get(slot).push(row.item || row);
+  }
+  return [...sets.entries()].map(([slot, items]) => ({ slot, items }));
+}
+
+function presetCatalogRowsFromLibrary(library = {}) {
+  const rows = [];
+  for (const set of Array.isArray(library?.sets) ? library.sets : []) {
+    const slot = String(set?.slot || "").trim();
+    if (!slot) continue;
+    for (const item of Array.isArray(set.items) ? set.items : []) {
+      const itemId = String(item?.id || "").trim();
+      if (!itemId) continue;
+      rows.push({
+        id: `preset:${slot}:${itemId}`,
+        payload: { slot, item },
+        category: String(item?.category || ""),
+        sortOrder: rows.length,
+      });
+    }
+  }
+  return rows;
 }
 
 async function getOurDreamPresetLibrary(options = {}) {
-  // Production serves the last successful mirrored snapshot. This keeps page loads
-  // independent from OurDream availability and guarantees media stays on our CDN.
-  const staticSnapshot = await readJsonFile(FALLBACK_PRESETS_PATH, null);
-  if (staticSnapshot && Array.isArray(staticSnapshot.sets)) {
-    return staticSnapshot;
+  // Production reads the catalog from PostgreSQL only. Refreshes write new
+  // catalog rows through an explicit admin/refresh flow, never from JSON files.
+  if (!options.force && cachedLibrary && Date.now() - cachedAt < CACHE_TTL_MS) return cachedLibrary;
+  const rows = await listCatalogEntriesFromDb("ourdream_presets");
+  const sets = presetLibraryFromCatalogRows(rows || []);
+  if (!sets.length) {
+    const error = new Error("OurDream preset catalog is empty in PostgreSQL.");
+    error.code = "OURDREAM_CATALOG_EMPTY";
+    throw error;
   }
-  const now = Date.now();
-  if (!options.force && cachedLibrary && now - cachedAt < CACHE_TTL_MS) return cachedLibrary;
-  try {
-    cachedLibrary = await fetchOurDreamPresetLibrary(options);
-    cachedAt = now;
-    return cachedLibrary;
-  } catch (error) {
-    if (cachedLibrary) return cachedLibrary;
-    const fallback = await fallbackPresetLibrary();
-    fallback.warning = error.message || String(error);
-    return fallback;
-  }
+  cachedLibrary = {
+    version: 4,
+    schemaVersion: 2,
+    source: "PostgreSQL catalog",
+    generatedAt: new Date().toISOString(),
+    sourceCombos: PRESET_COMBOS,
+    sets,
+    categories: {},
+  };
+  cachedAt = Date.now();
+  return cachedLibrary;
 }
 
 module.exports = {
@@ -218,6 +221,8 @@ module.exports = {
   dedupeItems,
   fetchOurDreamPresetLibrary,
   getOurDreamPresetLibrary,
+  presetLibraryFromCatalogRows,
+  presetCatalogRowsFromLibrary,
   normalizeCharacter,
   normalizePresetItem,
   tRpcUrl,

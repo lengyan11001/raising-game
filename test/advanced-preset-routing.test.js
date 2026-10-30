@@ -11,9 +11,9 @@ const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
-const videoActions = JSON.parse(fs.readFileSync(path.join(root, "assets", "ourdream", "presets", "video-actions.json"), "utf8"));
+const videoActions = JSON.parse(fs.readFileSync(path.join(root, "test", "fixtures", "video-actions.json"), "utf8"));
 const mirrorScript = fs.readFileSync(path.join(root, "scripts", "refresh-ourdream-presets.js"), "utf8");
-const { dedupeItems, getOurDreamPresetLibrary, normalizeCharacter, normalizePresetItem, tRpcUrl } = require("../ourdream-presets");
+const { dedupeItems, presetLibraryFromCatalogRows, normalizeCharacter, normalizePresetItem, tRpcUrl } = require("../ourdream-presets");
 
 test("Advanced creation modes use the requested OurDream slot structure and Seedance replacement route", () => {
   assert.match(config, /id: "image-create"[^\n]+activeSlots: \["character", "pose", "outfit", "scene"\]/);
@@ -54,9 +54,19 @@ test("OurDream media refresh mirrors action resources into our R2 namespace", ()
   assert.match(server, /url\.pathname === "\/api\/ourdream\/presets"/);
 });
 
-test("production preset API reads the static snapshot without live OurDream fetches", async () => {
-  const library = await getOurDreamPresetLibrary({ fetchImpl: async () => { throw new Error("live fetch must not run"); }, force: true });
-  assert.ok(library.sets.length >= 4);
-  assert.match(server, /const presets = await getOurDreamPresetLibrary\(\)/);
-  assert.match(mirrorScript, /clean\.source = "OurDream catalog mirrored to this site's R2 bucket"/);
+test("production preset API reads PostgreSQL catalog rows and never falls back to JSON", () => {
+  const source = fs.readFileSync(path.join(root, "ourdream-presets.js"), "utf8");
+  const rows = presetLibraryFromCatalogRows([
+    { set: { slot: "character" }, item: { id: "c1" } },
+    { set: { slot: "pose" }, item: { id: "p1" } },
+    { set: { slot: "action" }, item: { id: "a1" } },
+    { set: { slot: "scene" }, item: { id: "s1" } },
+  ]);
+  assert.equal(rows.length, 4);
+  assert.match(source, /listCatalogEntriesFromDb\("ourdream_presets"\)/);
+  assert.match(source, /OURDREAM_CATALOG_EMPTY/);
+  assert.doesNotMatch(source, /presets\.json|readFile/);
+  assert.match(server, /presets = await getOurDreamPresetLibrary\(\)/);
+  assert.match(mirrorScript, /replaceCatalogEntriesInDb\("ourdream_presets"/);
+  assert.doesNotMatch(mirrorScript, /writeFile\(OUTPUT|presets\.json|video-actions\.json/);
 });

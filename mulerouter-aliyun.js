@@ -1,9 +1,9 @@
 "use strict";
 
-const fs = require("node:fs");
+const { getRuntimeSettingFromDb, setRuntimeSettingInDb } = require("./db");
 
 const BASE_URL = String(process.env.MULEROUTER_API_BASE || "https://api.mulerouter.ai").replace(/\/$/, "");
-const ROUTE_FILE = process.env.ALIYUN_ROUTE_CONFIG || "/etc/raising-game-demo-aliyun-route.json";
+const ROUTE_SETTING_KEY = "mulerouter_route";
 const FORCED_USERNAMES = new Set(
   String(process.env.MULEROUTER_FORCE_USERNAMES || "")
     .split(",")
@@ -32,24 +32,20 @@ const UNMAPPED = Object.freeze([
 const W30_RATIOS = Object.freeze(["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"]);
 const SEED_MAX = 2147483647;
 
-function readRouteConfig() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(ROUTE_FILE, "utf8"));
-    return {
-      enabled: parsed.enabled === true,
-      updatedAt: String(parsed.updatedAt || ""),
-    };
-  } catch {
-    return { enabled: false, updatedAt: "" };
-  }
+async function readRouteConfig() {
+  const parsed = await getRuntimeSettingFromDb(ROUTE_SETTING_KEY, { enabled: false, updatedAt: "" });
+  return {
+    enabled: parsed?.enabled === true,
+    updatedAt: String(parsed?.updatedAt || ""),
+  };
 }
 
-function writeRouteConfig(enabled) {
+async function writeRouteConfig(enabled) {
   const next = {
     enabled: enabled === true,
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(ROUTE_FILE, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  await setRuntimeSettingInDb(ROUTE_SETTING_KEY, next);
   return next;
 }
 
@@ -66,16 +62,16 @@ function userForced(user = null) {
   return Boolean(name) && FORCED_USERNAMES.has(name);
 }
 
-function routeActive(user = null) {
-  return userForced(user) || readRouteConfig().enabled === true;
+async function routeActive(user = null) {
+  return userForced(user) || (await readRouteConfig()).enabled === true;
 }
 
 function mulerouterOnlyCapability(capability = "") {
   return ["wan30-video-pro", "wan30-video-prime-pro"].includes(String(capability || "").trim());
 }
 
-function publicStatus() {
-  const config = readRouteConfig();
+async function publicStatus() {
+  const config = await readRouteConfig();
   return {
     enabled: config.enabled,
     updatedAt: config.updatedAt,
@@ -124,8 +120,8 @@ function textOrEmpty(value) {
   return String(value || "").trim();
 }
 
-function decideVideo({ user = null, capability = "", media = [], parameters = {}, prompt = "" } = {}) {
-  if (!routeActive(user)) return cannot("aliyun-default");
+async function decideVideo({ user = null, capability = "", media = [], parameters = {}, prompt = "" } = {}) {
+  if (!(await routeActive(user))) return cannot("aliyun-default");
   const params = parameters && typeof parameters === "object" ? parameters : {};
   const mulerouterOnly = capability === "wan30-video-pro" || capability === "wan30-video-prime-pro";
   if (!mulerouterOnly && (params.prompt_extend_text || params.audio_setting === "origin")) return cannot("aliyun-only-parameter");
@@ -248,8 +244,8 @@ function decideVideo({ user = null, capability = "", media = [], parameters = {}
   return cannot("no-mulerouter-equivalent", mulerouterOnly);
 }
 
-function decideImageEdit({ user = null, imageUrls = [], prompt = "", parameters = {} } = {}) {
-  if (!routeActive(user)) return cannot("aliyun-default");
+async function decideImageEdit({ user = null, imageUrls = [], prompt = "", parameters = {} } = {}) {
+  if (!(await routeActive(user))) return cannot("aliyun-default");
   const params = parameters && typeof parameters === "object" ? parameters : {};
   const urls = (Array.isArray(imageUrls) ? imageUrls : []).map((item) => String(item || "").trim()).filter(Boolean);
   if (!urls.length) return cannot("missing-image");
@@ -277,8 +273,8 @@ function decideImageEdit({ user = null, imageUrls = [], prompt = "", parameters 
 }
 
 
-function decideTextToImage({ user = null, prompt = "", parameters = {} } = {}) {
-  if (!routeActive(user)) return cannot("aliyun-default");
+async function decideTextToImage({ user = null, prompt = "", parameters = {} } = {}) {
+  if (!(await routeActive(user))) return cannot("aliyun-default");
   const params = parameters && typeof parameters === "object" ? parameters : {};
   const promptText = textOrEmpty(prompt);
   if (!promptText) return cannot("missing-prompt");

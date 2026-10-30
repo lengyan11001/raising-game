@@ -1,0 +1,290 @@
+[
+  {
+    "name": "龙安洋",
+    "voiceType": "longanyang",
+    "provider": "dashscope_cosyvoice",
+    "desc": "阳光大男孩，20-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安欢",
+    "voiceType": "longanhuan",
+    "provider": "dashscope_cosyvoice",
+    "desc": "欢脱元气女，20-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙呼呼",
+    "voiceType": "longhuhu_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "天真烂漫女童，6-10岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙杰力豆",
+    "voiceType": "longjielidou_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "阳光顽皮男童，约10岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙闪闪",
+    "voiceType": "longshanshan_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "戏剧化童声，6-15岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙牛牛",
+    "voiceType": "longniuniu_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "阳光男童，6-15岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安粤",
+    "voiceType": "longanyue_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "活力粤语男，25-35岁",
+    "languages": "中文（粤语）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙陕哥",
+    "voiceType": "longshange_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "陕北男声，25-35岁",
+    "languages": "中文（陕西话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安闽",
+    "voiceType": "longanmin_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "闽南少女，18-25岁",
+    "languages": "中文（闽南话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "Andy",
+    "voiceType": "loongandy_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "美式英语男，30-35岁",
+    "languages": "英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "Indah",
+    "voiceType": "loongindah_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "印尼女声，22-27岁",
+    "languages": "印尼语",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙应笑",
+    "voiceType": "longyingxiao_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "甜美女销售，20-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙应询",
+    "voiceType": "longyingxun_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "年轻男客服，20-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙应桃",
+    "voiceType": "longyingtao_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "温柔沉稳女，25-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安昀",
+    "voiceType": "longanyun_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "居家暖男，30-35岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安雯",
+    "voiceType": "longanwen_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "优雅知性女，25-35岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安莉",
+    "voiceType": "longanli_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "清脆沉稳女，25-35岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安朗",
+    "voiceType": "longanlang_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "清爽男声，20-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙应沐",
+    "voiceType": "longyingmu_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "优雅知性女，25-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙华",
+    "voiceType": "longhua_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "元气甜美女，20-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙婉",
+    "voiceType": "longwan_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "细腻轻声女，20-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安智",
+    "voiceType": "longanzhi_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "成熟稳重男，25-35岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安雅",
+    "voiceType": "longanya_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "优雅女声，25-35岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安亲",
+    "voiceType": "longanqin_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "亲和活泼女，20-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙婉君",
+    "voiceType": "longwanjun_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "细腻轻声女，20-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙逸尘",
+    "voiceType": "longyichen_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "洒脱元气男，20-30岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙老伯",
+    "voiceType": "longlaobo_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "沧桑老伯，60岁以上",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙老姨",
+    "voiceType": "longlaoyi_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "沉稳阿姨，60岁以上",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙机器",
+    "voiceType": "longjiqi_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "呆萌机器人",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙猴哥",
+    "voiceType": "longhouge_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "经典猴哥，20-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙黛玉",
+    "voiceType": "longdaiyu_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "细腻才女，15-25岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  },
+  {
+    "name": "龙安宣",
+    "voiceType": "longanxuan_v3",
+    "provider": "dashscope_cosyvoice",
+    "desc": "直播女声，30-40岁",
+    "languages": "中文（普通话）、英文",
+    "model": "cosyvoice-v3-flash",
+    "region": "ap-southeast-1"
+  }
+]

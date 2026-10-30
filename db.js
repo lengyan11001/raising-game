@@ -79,6 +79,48 @@ async function ensureSchemaInner() {
     );
   `);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_catalog_entries (
+      id TEXT NOT NULL,
+      catalog TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (catalog, id)
+    );
+  `);
+  await query(`
+    ALTER TABLE app_catalog_entries
+      ADD COLUMN IF NOT EXISTS catalog TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_catalog_entries_catalog_scope_order_idx ON app_catalog_entries (catalog, scope, sort_order ASC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_runtime_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_catalog_migration_state (
+      migration_key TEXT PRIMARY KEY,
+      imported_count INTEGER NOT NULL DEFAULT 0,
+      migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_users (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -1244,9 +1286,120 @@ async function tableCounts() {
   return Object.fromEntries(rows.map((row) => [row.name, row.count]));
 }
 
-async function readAppDbFromTables(defaultDb = {}) {
+async function replaceCatalogEntriesInDb(catalog, entries = [], { replace = true } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCatalog = String(catalog || "").trim();
+  if (!cleanCatalog) throw new Error("catalog is required");
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    if (replace) await client.query(`DELETE FROM app_catalog_entries WHERE catalog = $1`, [cleanCatalog]);
+    let imported = 0;
+    for (const [index, entry] of (Array.isArray(entries) ? entries : []).entries()) {
+      const payload = entry?.payload && typeof entry.payload === "object" ? entry.payload : entry;
+      const id = String(entry?.id || payload?.id || "").trim();
+      if (!id) continue;
+      await client.query(`
+        INSERT INTO app_catalog_entries(id, catalog, scope, provider, category, payload, sort_order, deleted_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NULL, NOW())
+        ON CONFLICT (catalog, id) DO UPDATE SET
+          catalog = EXCLUDED.catalog,
+          scope = EXCLUDED.scope,
+          provider = EXCLUDED.provider,
+          category = EXCLUDED.category,
+          payload = EXCLUDED.payload,
+          sort_order = EXCLUDED.sort_order,
+          deleted_at = NULL,
+          updated_at = NOW()
+      `, [
+        id,
+        cleanCatalog,
+        String(entry?.scope || ""),
+        String(entry?.provider || payload?.provider || ""),
+        String(entry?.category || payload?.category || payload?.section || ""),
+        JSON.stringify(payload),
+        Number.isFinite(Number(entry?.sortOrder)) ? Number(entry.sortOrder) : index,
+      ]);
+      imported += 1;
+    }
+    await client.query("COMMIT");
+    return imported;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function countCatalogEntriesInDb(catalog, { scope = "" } = {}) {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const cleanCatalog = String(catalog || "").trim();
+  if (!cleanCatalog) return 0;
+  const cleanScope = String(scope || "").trim();
+  const { rows } = await query(`
+    SELECT COUNT(*)::int AS count FROM app_catalog_entries
+    WHERE catalog = $1 AND deleted_at IS NULL AND ($2 = '' OR scope = $2)
+  `, [cleanCatalog, cleanScope]);
+  return Number(rows[0]?.count || 0);
+}
+
+async function listCatalogEntriesFromDb(catalog, { scope = "" } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
+  const cleanCatalog = String(catalog || "").trim();
+  if (!cleanCatalog) return [];
+  const cleanScope = String(scope || "").trim();
+  const { rows } = await query(`
+    SELECT payload FROM app_catalog_entries
+    WHERE catalog = $1 AND deleted_at IS NULL AND ($2 = '' OR scope = $2)
+    ORDER BY sort_order ASC, created_at ASC, id ASC
+  `, [cleanCatalog, cleanScope]);
+  return rows.map((row) => row.payload);
+}
+
+async function getCatalogMigrationStateInDb(key = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_catalog_migration_state WHERE migration_key = $1`, [String(key || "")]);
+  return rows[0] || null;
+}
+
+async function markCatalogMigrationInDb(key = "", importedCount = 0) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (migration_key) DO UPDATE SET imported_count = EXCLUDED.imported_count, migrated_at = NOW()
+  `, [String(key || ""), Math.max(0, Math.trunc(Number(importedCount || 0) || 0))]);
+  return getCatalogMigrationStateInDb(key);
+}
+
+async function getRuntimeSettingFromDb(key = "", fallback = null) {
+  if (!dbEnabled()) return clone(fallback);
+  await ensureSchema();
+  const { rows } = await query(`SELECT value FROM app_runtime_settings WHERE key = $1`, [String(key || "")]);
+  return rows.length ? rows[0].value : clone(fallback);
+}
+
+async function setRuntimeSettingInDb(key = "", value = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for runtime settings");
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_runtime_settings(key, value, updated_at)
+    VALUES ($1, $2::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `, [String(key || ""), JSON.stringify(value)]);
+  return value;
+}
+
+async function readAppDbFromTables(defaultDb = {}, options = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const includeUserAssets = options.includeUserAssets !== false;
   const [
     users,
     sessions,
@@ -1264,7 +1417,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
     query(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`),
     query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
-    query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`),
+    includeUserAssets ? query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`) : Promise.resolve({ rows: [] }),
     query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
     query(`SELECT * FROM app_admin_home_items ORDER BY created_at DESC`),
@@ -6233,6 +6386,13 @@ module.exports = {
   query,
   readAppDbFromTables,
   replaceAppDbTables,
+  replaceCatalogEntriesInDb,
+  countCatalogEntriesInDb,
+  listCatalogEntriesFromDb,
+  getCatalogMigrationStateInDb,
+  markCatalogMigrationInDb,
+  getRuntimeSettingFromDb,
+  setRuntimeSettingInDb,
   applyCreditDeltaInDb,
   deleteUserSessionsInDb,
   replaceUserSessionInDb,

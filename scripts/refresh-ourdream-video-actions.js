@@ -1,10 +1,6 @@
 "use strict";
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
-
-const ROOT = path.resolve(__dirname, "..");
-const OUTPUT = path.join(ROOT, "assets", "ourdream", "presets", "video-actions.json");
+const { replaceCatalogEntriesInDb } = require("../db");
 const PAGE_URL = "https://ourdream.ai/generate";
 
 function decodeString(value = "") {
@@ -143,14 +139,15 @@ async function findActionBundle(fetchImpl = fetch) {
 async function main() {
   const bundle = await findActionBundle();
   const items = parseVideoActions(bundle.body);
-  const payload = {
-    version: 1,
-    source: bundle.url,
-    generatedAt: new Date().toISOString(),
-    items,
-  };
-  await fs.writeFile(OUTPUT, `${JSON.stringify(payload, null, 2)}\n`);
-  console.log(`Wrote ${items.length} video actions to ${path.relative(ROOT, OUTPUT)}`);
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; video actions must be stored in PostgreSQL.");
+  const rows = items.map((item, index) => ({
+    id: `action:${String(item.id || "").trim()}`,
+    payload: item,
+    category: String(item.category || ""),
+    sortOrder: index,
+  }));
+  const written = await replaceCatalogEntriesInDb("ourdream_actions", rows);
+  console.log(`Wrote ${written} video actions to PostgreSQL.`);
 }
 
 if (require.main === module) {

@@ -125,6 +125,13 @@ const {
   migrateGenerationRecordsKvToTable,
   readAppDbFromTables,
   replaceAppDbTables,
+  replaceCatalogEntriesInDb,
+  countCatalogEntriesInDb,
+  listCatalogEntriesFromDb,
+  getCatalogMigrationStateInDb,
+  markCatalogMigrationInDb,
+  getRuntimeSettingFromDb,
+  setRuntimeSettingInDb,
   applyCreditDeltaInDb,
   deleteUserSessionsInDb,
   replaceUserSessionInDb,
@@ -1788,8 +1795,10 @@ function isLocalPublicAssetUrl(value = "") {
   return Boolean(baseUrl && String(value || "").startsWith(`${baseUrl}/assets/`));
 }
 
-async function readDb() {
-  const db = (await readAppDbFromTables(DEFAULT_DB)) || DEFAULT_DB;
+async function readDb(options = {}) {
+  const db = (await readAppDbFromTables(DEFAULT_DB, {
+    includeUserAssets: options.includeUserAssets !== false,
+  })) || DEFAULT_DB;
   const users = Array.isArray(db.users)
     ? db.users.map((user) => ({ ...user, tenantId: recordTenantId(user) }))
     : [];
@@ -2528,7 +2537,6 @@ function userHasCreatorMembership(user = {}) {
   return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
 }
 
-const SHOWCASE_CASES_FILE = path.join(ROOT, "assets/showcase/spicy/cases.json");
 const SHOWCASE_CASES_PREVIEW_LIMIT = 2;
 let showcaseCasesCache = null;
 
@@ -2639,8 +2647,7 @@ function showcaseCaseTitle(item = {}, language = "zh") {
 
 async function readShowcaseCases() {
   if (Array.isArray(showcaseCasesCache)) return showcaseCasesCache;
-  const raw = await fs.readFile(SHOWCASE_CASES_FILE, "utf8");
-  const parsed = JSON.parse(raw);
+  const parsed = await listCatalogEntriesFromDb("showcase_cases");
   showcaseCasesCache = Array.isArray(parsed) ? parsed : [];
   return showcaseCasesCache;
 }
@@ -5805,8 +5812,6 @@ function isHiddenPlatformCategory(category = {}) {
  * Chat live — Vidu S2-Avatar realtime video chat for the chat tool     *
  * ------------------------------------------------------------------ */
 
-const CHAT_LIVE_VOICES_FILE = path.join(ROOT, "assets", "chat-live", "voices.json");
-
 function normalizeChatLiveConfig(raw = {}) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const integer = (value, fallback, minimum, maximum) => {
@@ -8301,9 +8306,8 @@ async function readChatLiveVoiceCatalog(scope = "realtime") {
   /* User-created characters use the component voice path. Realtime catalog
      entries are intentionally not exposed because no exact preview exists. */
   if (catalogScope !== "component") return { region, scope: catalogScope, voices: [] };
-  const raw = await fs.readFile(path.join(ROOT, "assets", "chat-live", "voices-component.json"), "utf8");
-  const parsed = JSON.parse(raw);
-  const voices = filterChatLiveComponentVoiceCatalog(parsed);
+  const parsed = await listCatalogEntriesFromDb("chat_live_voices", { scope: "component" });
+  const voices = filterChatLiveComponentVoiceCatalog(parsed || []);
   return { region, scope: catalogScope, voices };
 }
 
@@ -11955,8 +11959,7 @@ async function listEmbedLiveVoices() {
   const live = chatLiveConfigValue(await readAppConfig());
   const region = live.region === "cn" ? "cn" : "overseas";
   const blocked = region === "overseas" ? "doubao_cn" : "doubao_overseas";
-  const raw = await fs.readFile(CHAT_LIVE_VOICES_FILE, "utf8");
-  const parsed = JSON.parse(raw);
+  const parsed = await listCatalogEntriesFromDb("chat_live_voices", { scope: "realtime" });
   const voices = (Array.isArray(parsed) ? parsed : []).filter((voice) => {
     const provider = String(voice?.provider || "");
     if (!provider || provider === "offline" || provider === blocked) return false;
@@ -21926,7 +21929,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
       routeUser = (routeDb.users || []).find((entry) => entry.id === userId && !isSoftDeleted(entry)) || null;
     } catch {}
   }
-  const mulerouterDecision = mulerouterAliyun.decideVideo({
+  const mulerouterDecision = await mulerouterAliyun.decideVideo({
     user: routeUser,
     capability: resolvedCapability,
     media: normalizedMedia,
@@ -22132,7 +22135,7 @@ async function submitWan27ImageModify({
       routeUser = (routeDb.users || []).find((entry) => entry.id === userId && !isSoftDeleted(entry)) || null;
     } catch {}
   }
-  const imageDecision = mulerouterAliyun.decideImageEdit({
+  const imageDecision = await mulerouterAliyun.decideImageEdit({
     user: routeUser,
     imageUrls: orderedImages,
     prompt,
@@ -22201,7 +22204,7 @@ async function submitWan27ImageTextGenerate({
       routeUser = (routeDb.users || []).find((entry) => entry.id === userId && !isSoftDeleted(entry)) || null;
     } catch {}
   }
-  const imageDecision = mulerouterAliyun.decideTextToImage({
+  const imageDecision = await mulerouterAliyun.decideTextToImage({
     user: routeUser,
     prompt,
     parameters: {
@@ -51256,7 +51259,6 @@ const PRIVATE_STATIC_ROOT_FILES = new Set([
   "/site-seo.js",
   "/telegram-bot.js",
   "/video-tools.js",
-  "/assets/showcase/spicy/cases.json",
 ]);
 
 function privateStaticPath(pathname = "") {
@@ -51635,15 +51637,23 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
-      let presets = publicPresetsCache.expiresAt > Date.now() ? publicPresetsCache.value : null;
-      if (!presets) {
-        // const presets = await getOurDreamPresetLibrary(); (cached below)
-        presets = await getOurDreamPresetLibrary();
-        publicPresetsCache = { value: presets, expiresAt: Date.now() + 300_000 };
+      try {
+        let presets = publicPresetsCache.expiresAt > Date.now() ? publicPresetsCache.value : null;
+        if (!presets) {
+          presets = await getOurDreamPresetLibrary();
+          publicPresetsCache = { value: presets, expiresAt: Date.now() + 300_000 };
+        }
+        return sendJson(res, 200, { ok: true, presets }, {
+          cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
+        });
+      } catch (error) {
+        console.error("[ourdream-presets-unavailable]", error.message || error);
+        return sendJson(res, 503, {
+          ok: false,
+          code: "OURDREAM_CATALOG_UNAVAILABLE",
+          message: "角色预设目录暂时不可用。",
+        });
       }
-      return sendJson(res, 200, { ok: true, presets }, {
-        cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
-      });
     }
 
     if (req.method === "GET" && url.pathname === "/api/chat/conversations") {
@@ -52283,15 +52293,15 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/admin/aliyun-route") {
       const admin = await requireAdmin(req, res);
       if (!admin) return;
-      return sendJson(res, 200, { ok: true, route: mulerouterAliyun.publicStatus() });
+      return sendJson(res, 200, { ok: true, route: await mulerouterAliyun.publicStatus() });
     }
     if (req.method === "PUT" && url.pathname === "/api/admin/aliyun-route") {
       const admin = await requireAdmin(req, res);
       if (!admin) return;
       const body = await readJson(req);
       const enabled = body?.enabled === true || body?.route?.enabled === true;
-      const saved = mulerouterAliyun.writeRouteConfig(enabled);
-      return sendJson(res, 200, { ok: true, route: { ...mulerouterAliyun.publicStatus(), ...saved, enabled: saved.enabled } });
+      const saved = await mulerouterAliyun.writeRouteConfig(enabled);
+      return sendJson(res, 200, { ok: true, route: { ...(await mulerouterAliyun.publicStatus()), ...saved, enabled: saved.enabled } });
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/undress-prompts") {
@@ -53045,6 +53055,146 @@ function startTelegramPaymentNotificationScheduler() {
   setInterval(() => scanTelegramPaymentNotifications(), TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS).unref?.();
 }
 
+const BUNDLED_CATALOG_MIGRATION_KEY = "bundled_catalogs_v1";
+const BUNDLED_CATALOG_FILES = Object.freeze({
+  presets: path.join(ROOT, "assets", "ourdream", "presets", "presets.json"),
+  actions: path.join(ROOT, "assets", "ourdream", "presets", "video-actions.json"),
+  realtimeVoices: path.join(ROOT, "assets", "chat-live", "voices.json"),
+  componentVoices: path.join(ROOT, "assets", "chat-live", "voices-component.json"),
+  cases: path.join(ROOT, "assets", "showcase", "spicy", "cases.json"),
+});
+const LEGACY_ALIYUN_ROUTE_FILE = process.env.ALIYUN_ROUTE_CONFIG || "/etc/raising-game-demo-aliyun-route.json";
+
+async function readOptionalJsonSeed(filePath) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new Error(`Cannot read bundled catalog seed ${filePath}: ${error.message || error}`);
+  }
+}
+
+function catalogSeedId(prefix, value, index) {
+  const raw = String(value ?? "").trim() || `item-${index}`;
+  return `${prefix}:${raw.replace(/[^a-zA-Z0-9_.:@-]+/g, "-").slice(0, 180)}`;
+}
+
+function presetCatalogRows(seed) {
+  const rows = [];
+  for (const set of Array.isArray(seed?.sets) ? seed.sets : []) {
+    const slot = String(set?.slot || "").trim();
+    if (!slot) continue;
+    for (const item of Array.isArray(set.items) ? set.items : []) {
+      const itemId = String(item?.id || "").trim();
+      if (!itemId) continue;
+      rows.push({
+        id: `preset:${slot}:${itemId}`,
+        payload: { slot, item },
+        sortOrder: rows.length,
+      });
+    }
+  }
+  return rows;
+}
+
+function actionCatalogRows(seed) {
+  return (Array.isArray(seed?.items) ? seed.items : []).map((item, index) => ({
+    id: catalogSeedId("action", item?.id, index),
+    payload: item,
+    category: String(item?.category || ""),
+    sortOrder: index,
+  })).filter((entry) => entry.payload && String(entry.payload.id || "").trim());
+}
+
+function voiceCatalogRows(seed, scope) {
+  return (Array.isArray(seed) ? seed : []).map((voice, index) => ({
+    id: catalogSeedId(scope, `${index}-${voice?.voiceType || voice?.voice_type || "voice"}`, index),
+    scope,
+    provider: String(voice?.provider || ""),
+    payload: voice,
+    sortOrder: index,
+  })).filter((entry) => entry.payload && String(entry.payload.voiceType || entry.payload.voice_type || "").trim());
+}
+
+function showcaseCatalogRows(seed) {
+  return (Array.isArray(seed) ? seed : []).map((item, index) => ({
+    id: catalogSeedId("case", item?.id, index),
+    category: String(item?.category || ""),
+    payload: item,
+    sortOrder: index,
+  })).filter((entry) => entry.payload && itemHasCatalogContent(entry.payload));
+}
+
+function itemHasCatalogContent(item) {
+  return Boolean(item && typeof item === "object" && Object.keys(item).length);
+}
+
+async function migrateBundledCatalogsToDb() {
+  const migrationState = await getCatalogMigrationStateInDb(BUNDLED_CATALOG_MIGRATION_KEY);
+  const existingCounts = {
+    presets: await countCatalogEntriesInDb("ourdream_presets"),
+    actions: await countCatalogEntriesInDb("ourdream_actions"),
+    realtimeVoices: await countCatalogEntriesInDb("chat_live_voices", { scope: "realtime" }),
+    componentVoices: await countCatalogEntriesInDb("chat_live_voices", { scope: "component" }),
+    cases: await countCatalogEntriesInDb("showcase_cases"),
+  };
+  const routeSetting = await getRuntimeSettingFromDb("mulerouter_route", null);
+  const allCatalogsPresent = Object.values(existingCounts).every((count) => count > 0);
+  if (migrationState && allCatalogsPresent) {
+    if (routeSetting === null) {
+      const legacyRoute = await readOptionalJsonSeed(LEGACY_ALIYUN_ROUTE_FILE);
+      await setRuntimeSettingInDb("mulerouter_route", {
+        enabled: legacyRoute?.enabled === true,
+        updatedAt: String(legacyRoute?.updatedAt || ""),
+      });
+    }
+    return { skipped: true, existingCounts };
+  }
+
+  const [presetsSeed, actionsSeed, realtimeVoicesSeed, componentVoicesSeed, casesSeed] = await Promise.all([
+    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.presets),
+    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.actions),
+    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.realtimeVoices),
+    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.componentVoices),
+    readOptionalJsonSeed(BUNDLED_CATALOG_FILES.cases),
+  ]);
+  const presetRows = presetCatalogRows(presetsSeed);
+  const actionRows = actionCatalogRows(actionsSeed);
+  const realtimeVoiceRows = voiceCatalogRows(realtimeVoicesSeed, "realtime");
+  const componentVoiceRows = voiceCatalogRows(componentVoicesSeed, "component");
+  const caseRows = showcaseCatalogRows(casesSeed);
+  const importCounts = {
+    presets: presetRows.length,
+    actions: actionRows.length,
+    realtimeVoices: realtimeVoiceRows.length,
+    componentVoices: componentVoiceRows.length,
+    cases: caseRows.length,
+  };
+  for (const [key, count] of Object.entries(importCounts)) {
+    if (count > 0) continue;
+    if (existingCounts[key] > 0) continue;
+    throw new Error(`Bundled catalog ${key} is empty and PostgreSQL has no catalog rows.`);
+  }
+  if (presetRows.length) await replaceCatalogEntriesInDb("ourdream_presets", presetRows);
+  if (actionRows.length) await replaceCatalogEntriesInDb("ourdream_actions", actionRows);
+  if (realtimeVoiceRows.length) await replaceCatalogEntriesInDb("chat_live_voices", realtimeVoiceRows, { replace: false });
+  if (componentVoiceRows.length) {
+    await query("DELETE FROM app_catalog_entries WHERE catalog = $1 AND scope = $2", ["chat_live_voices", "component"]);
+    await replaceCatalogEntriesInDb("chat_live_voices", componentVoiceRows, { replace: false });
+  }
+  if (caseRows.length) await replaceCatalogEntriesInDb("showcase_cases", caseRows);
+  if (routeSetting === null) {
+    const legacyRoute = await readOptionalJsonSeed(LEGACY_ALIYUN_ROUTE_FILE);
+    await setRuntimeSettingInDb("mulerouter_route", {
+      enabled: legacyRoute?.enabled === true,
+      updatedAt: String(legacyRoute?.updatedAt || ""),
+    });
+  }
+  const importedCount = Object.values(importCounts).reduce((sum, count) => sum + count, 0);
+  await markCatalogMigrationInDb(BUNDLED_CATALOG_MIGRATION_KEY, importedCount);
+  return { skipped: false, importedCount, importCounts };
+}
+
 async function bootstrap() {
   if (!dbEnabled()) {
     throw new Error("DATABASE_URL is required. Runtime data must be stored in PostgreSQL, not JSON files.");
@@ -53057,6 +53207,8 @@ async function bootstrap() {
   if (geoStatsMigration?.migrated) {
     console.log(`GEO stats migrated to tables: ${geoStatsMigration.migratedKeys.join(", ")}`);
   }
+  const catalogMigration = await migrateBundledCatalogsToDb();
+  console.log(`[catalog-migration] ${JSON.stringify(catalogMigration)}`);
   const apiTokensMigrated = await ensureAllUsersApiTokens();
   if (apiTokensMigrated) {
     console.log("User API tokens migrated: yes");
