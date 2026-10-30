@@ -115,7 +115,7 @@
   const rolePhoto = (x) => x?.portraitUrl || x?.avatarUrl || x?.posterUrl || x?.coverUrl || x?.imageUrl || x?.photoUrl || x?.characterImageUrl || "";
   const label = (key) => ({ zh: { home: "首页", messages: "消息", create: "创作", profile: "我的", language: "语言", recommended: "为你推荐", online: "位在线", call: "视频聊天", vip: "订阅 VIP", edit: "编辑资料", save: "保存", cancel: "取消" }, en: { home: "Home", messages: "Messages", create: "Create", profile: "Me", language: "Language", recommended: "Recommended", online: "online", call: "Video call", vip: "VIP", edit: "Edit profile", save: "Save", cancel: "Cancel" }, ja: { home: "ホーム", messages: "メッセージ", create: "作成", profile: "マイページ", language: "言語", recommended: "おすすめ", online: "オンライン", call: "ビデオ通話", vip: "VIP", edit: "プロフィール編集", save: "保存", cancel: "キャンセル" } }[state.language] || {} )[key] || key;
   const nav = (active) => `<nav class="bottom-nav"><button class="${active === "home" ? "active" : ""}" data-nav="home"><span>${uiIcon("home")}</span><small>${label("home")}</small></button><button class="${active === "messages" ? "active" : ""}" data-nav="messages"><span>${uiIcon("chat")}</span><small>${label("messages")}</small></button><button class="${active === "create" ? "active" : ""}" data-nav="create"><span>${uiIcon("magic")}</span><small>${label("create")}</small></button><button class="${active === "profile" ? "active" : ""}" data-nav="profile"><span>${uiIcon("user")}</span><small>${label("profile")}</small></button></nav>`;
-  const top = () => `<header class="live-top"><div class="live-brand"><img class="brand-icon" src="/assets/brand/live-logo.png" alt="Vipeak"><div><div class="brand-title">Vipeak</div><div class="brand-sub">${t("brandSub")}</div></div></div><div class="live-top-actions"><button class="checkin-chip" type="button" data-action="checkin">${uiIcon("crown")}每日领积分</button><button class="live-icon-button" type="button" data-action="settings" aria-label="设置">${uiIcon("gear")}</button></div></header>`;
+  const top = () => `<header class="live-top"><div class="live-brand"><img class="brand-icon" src="/assets/brand/live-logo.png" alt="Vipeak"><div><div class="brand-title">Vipeak</div><div class="brand-sub">${t("brandSub")}</div></div></div><div class="live-top-actions"><button class="checkin-chip" type="button" data-action="checkin">${uiIcon("crown")}每日领积分</button><div class="settings-wrap" data-settings-wrap><button class="live-icon-button" type="button" data-action="settings" aria-label="设置" aria-haspopup="menu" aria-expanded="false">${uiIcon("gear")}</button><div class="settings-dropdown" data-settings-menu role="menu" hidden><button type="button" role="menuitem" data-action="language-sheet"><i>${uiIcon("chat")}</i><span><b>语言</b><small>${state.language === "en" ? "English" : state.language === "ja" ? "日本語" : "简体中文"}</small></span>${uiIcon("chev")}</button><a href="/downloads/vipeak-live.apk" download role="menuitem"><i>${uiIcon("home")}</i><span><b>Android 下载</b><small>安装 Vipeak Live APK</small></span>${uiIcon("chev")}</a><button type="button" role="menuitem" data-action="settings-ios"><i>${uiIcon("crown")}</i><span><b>iOS 下载</b><small>安装描述文件或使用网页版</small></span>${uiIcon("chev")}</button><div class="settings-version" role="menuitem" aria-disabled="true"><i>${uiIcon("gear")}</i><span><b>当前版本</b><small>Vipeak Live 1.0.0</small></span></div></div></div></div></header>`;
   const media = (url, alt = "") => url ? `<img src="${esc(url)}" alt="${esc(alt)}" loading="lazy">` : `<div class="image-empty"><span>♙</span></div>`;
   function roomCard(room, showCount = true) { const c = room.character || {}; return `<article class="room-card" data-room-id="${esc(room.id || "")}" data-room-pending="${room.pending || !room.id ? "1" : "0"}" data-room-character-id="${esc(room.characterId)}"><div class="room-image">${media(rolePhoto(c), c.name || "角色")}${showCount ? `<span class="room-online">${Number(room.viewerCount || 0)} 人在房</span>` : ""}<span class="room-mode"><i></i>${esc(room.modeLabel || (room.mode === "voice" ? "语音房" : "视频房"))}</span></div><div class="room-copy"><strong>${esc(room.title || `${c.name || "角色"}的陪伴房`)}</strong><small>${esc(room.description || "一起聊聊")}</small></div></article>`; }
   function card(c) {
@@ -1293,11 +1293,9 @@
       if (state.page === "checkin") showCheckin();
     }
   }
-  function showSettings() {
-    state.page = "settings";
-    state.subpageBack = "profile";
-    const version = "1.0.0";
-    subpage("设置", `<section class="settings-list"><button type="button" data-action="language-sheet"><i>${uiIcon("chat")}</i><div><b>语言</b><small>${state.language === "en" ? "English" : state.language === "ja" ? "日本語" : "简体中文"}</small></div><em>${uiIcon("chev")}</em></button><a href="/downloads/vipeak-live.apk" download><i>${uiIcon("home")}</i><div><b>Android 下载</b><small>安装 Vipeak Live APK</small></div><em>${uiIcon("chev")}</em></a><button type="button" data-action="settings-ios"><i>${uiIcon("crown")}</i><div><b>iOS 下载</b><small>安装描述文件或使用网页版</small></div><em>${uiIcon("chev")}</em></button><div class="settings-static"><i>${uiIcon("gear")}</i><div><b>当前版本</b><small>Vipeak Live ${version}</small></div></div></section><p class="pay-foot">Vipeak Live · 用心陪伴每一次对话</p>`, "profile");
+  function closeSettingsMenu() {
+    document.querySelectorAll("[data-settings-menu]").forEach((menu) => { menu.hidden = true; });
+    document.querySelectorAll('[data-action="settings"]').forEach((button) => { button.setAttribute("aria-expanded", "false"); });
   }
   function moneyTime(value) {
     const date = new Date(value || "");
@@ -1980,7 +1978,7 @@
   }
 
 
-  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.createCharacters.length && !state.createLoading) loadCreateCharacters(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "settings") showSettings(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
+  function render() { syncLoginCopy(); setupGoogleLogin(); if (state.page === "messages") messages(); else if (state.page === "create") { createCards(); if (state.user && !state.createCharacters.length && !state.createLoading) loadCreateCharacters(); } else if (state.page === "create-edit") createEditor(); else if (state.page === "profile") profile(); else if (state.page === "edit-profile") editProfile(); else if (state.page === "relationship") relationshipPage(); else if (state.page === "level") levelPage(); else if (state.page === "vip") vip(); else if (state.page === "recharge") showRecharge(); else if (state.page === "wallet") showWallet(state.walletKind || "spend"); else if (state.page === "topup") showTopup(); else if (state.page === "rooms") showRooms(); else if (state.page === "privacy") showPrivacy(); else if (state.page === "creator") creatorListPage(); else if (state.page === "creator-edit") creatorEditor(); else if (state.page === "creator-income") showCreatorIncome(); else if (state.page === "feedback") showFeedback(); else if (state.page === "system-messages") showSystemMessages(); else if (state.page === "checkin") showCheckin(); else if (state.page === "referral") showReferral(); else if (state.page === "text-chat") showTextChat(); else if (state.page === "role-detail" && state.role) roleDetail(state.role); else { home(); bindHomeFilter(); } showGuideOverlay(); }
 
   function groupCharacterThreads(listed, contacts) {
     const groups = new Map();
@@ -2136,6 +2134,19 @@
     }
   });
 document.addEventListener("click", async (e) => {
+    const settingsToggle = e.target.closest('[data-action="settings"]');
+    if (settingsToggle) {
+      const menu = settingsToggle.closest("[data-settings-wrap]")?.querySelector("[data-settings-menu]");
+      if (menu) {
+        const opening = menu.hidden;
+        closeSettingsMenu();
+        menu.hidden = !opening;
+        settingsToggle.setAttribute("aria-expanded", opening ? "true" : "false");
+      }
+      return;
+    }
+    if (!e.target.closest("[data-settings-wrap]")) closeSettingsMenu();
+    if (e.target.closest("[data-settings-menu]")) closeSettingsMenu();
     const call = e.target.closest("[data-call-id]")?.dataset.callId;
     if (call) { e.stopPropagation(); return openCall(call); }
     const room = e.target.closest("[data-room-id]");
@@ -2178,7 +2189,6 @@ document.addEventListener("click", async (e) => {
     if (a === "language-sheet") return languageSheet();
     if (a === "checkin") { showCheckin(); loadCheckin(true); return; }
     if (a === "checkin-claim") return claimCheckin();
-    if (a === "settings") return showSettings();
     if (a === "system-messages") return openSystemMessages();
     if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
     if (a === "creator-income-refresh") { loadCreatorIncome(true); return; }
@@ -2370,6 +2380,7 @@ document.addEventListener("click", async (e) => {
     if (a === "shuffle-interests") { render(); }
   });
   document.addEventListener("change", async (e) => { const input = e.target.closest("[data-profile-photo]"); if (!input?.files?.[0]) return; const file = input.files[0]; input.value = ""; if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 8 * 1024 * 1024) return alert("请上传 8MB 以内的 PNG、JPG 或 WEBP 图片。"); const reader = new FileReader(); reader.onload = async () => { try { const result = await api("/api/account/profile/media", { method: "POST", body: JSON.stringify({ dataUrl: reader.result }) }); state.user = result.user; editProfile(); } catch (error) { alert(error.message); } }; reader.readAsDataURL(file); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSettingsMenu(); });
   document.addEventListener("click", async (e) => { const gender = e.target.closest("[data-gender]"); if (gender) { const form = document.querySelector("#profileEditForm"); form?.querySelector('[name="gender"]')?.setAttribute("value", gender.dataset.gender); form?.querySelectorAll("[data-gender]").forEach((x) => x.classList.toggle("selected", x === gender)); } const interest = e.target.closest("[data-interest]"); if (interest) { interest.classList.toggle("selected"); const form = document.querySelector("#profileEditForm"); if (form) form.interests.value = [...form.querySelectorAll("[data-interest].selected")].map((x) => x.dataset.interest).join("|"); } const remove = e.target.closest("[data-remove-photo]"); if (remove) { state.user.profilePhotos = (state.user.profilePhotos || []).filter((x) => x !== remove.dataset.removePhoto); editProfile(); } });
   document.querySelector("[data-login-form]").addEventListener("submit", async (e) => { e.preventDefault(); const f = e.currentTarget; try { const r = await api("/api/auth/login-or-register", { method: "POST", body: JSON.stringify(registrationPayload({ username: f.username.value.trim(), password: f.password.value })) }); await finishLogin(r.token, r.user); } catch (err) { f.querySelector("[data-login-message]").textContent = err.message; } });
   loginDialog?.addEventListener("cancel", (e) => { if (loginDialog.dataset.locked === "1") e.preventDefault(); });

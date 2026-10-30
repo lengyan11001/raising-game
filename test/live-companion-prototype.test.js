@@ -152,8 +152,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103007/);
-  assert.match(html, /live\.js\?v=2026103007/);
+  assert.match(html, /live\.css\?v=2026103008/);
+  assert.match(html, /live\.js\?v=2026103008/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
 });
 
@@ -222,9 +222,12 @@ test("role detail labels, private-album header, and create empty state match the
 
 test("live system messages, check-in, gift data, feedback, and billing rules are wired", () => {
   assert.match(live, /data-action="system-messages"/);
-  assert.match(live, /const top = \(\) => `<header class="live-top">[\s\S]*?data-action="checkin"[\s\S]*?data-action="settings"[\s\S]*?<\/header>`/);
-  assert.doesNotMatch(live, /const top = \(\) => `<header class="live-top">[\s\S]*?data-action="language-sheet"[\s\S]*?<\/header>`/);
-  assert.match(live, /class="settings-list"[\s\S]*?data-action="language-sheet"/);
+  assert.match(live, /const top = \(\) => `<header class="live-top">[\s\S]*?data-action="checkin"[\s\S]*?data-action="settings"[\s\S]*?data-settings-menu[\s\S]*?data-action="language-sheet"[\s\S]*?<\/header>`/);
+  assert.match(live, /function closeSettingsMenu\(\)[\s\S]*?aria-expanded", "false"/);
+  assert.doesNotMatch(live, /function showSettings\(/);
+  assert.doesNotMatch(live, /state\.page === "settings"/);
+  assert.match(css, /\.settings-dropdown\{position:absolute/);
+  assert.match(css, /\.settings-dropdown\[hidden\]\{display:none\}/);
   assert.match(live, /今日可领/);
   assert.match(live, /本月签到/);
   assert.match(live, /7 天签到/);

@@ -675,6 +675,20 @@
 .checkin-chip svg{width:13px;height:13px;stroke:#ffc65a;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .live-icon-button{display:grid;width:32px;padding:0;place-items:center;border-radius:50%}
 .live-icon-button svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.live-top{position:relative;z-index:60}
+.settings-wrap{position:relative;flex:none}
+.settings-dropdown{position:absolute;top:calc(100% + 9px);right:0;width:min(238px,calc(100vw - 28px));padding:6px;border:1px solid rgba(255,255,255,.11);border-radius:12px;background:rgba(29,27,34,.98);box-shadow:0 18px 45px rgba(0,0,0,.5);backdrop-filter:blur(18px)}
+.settings-dropdown[hidden]{display:none}
+.settings-dropdown>button,.settings-dropdown>a,.settings-version{width:100%;min-height:46px;display:flex;align-items:center;gap:9px;padding:7px 9px;border:0;border-radius:8px;background:transparent;color:#fff;text-align:left;text-decoration:none}
+.settings-dropdown>button:active,.settings-dropdown>a:active{background:rgba(255,255,255,.07)}
+.settings-dropdown i{display:grid;width:28px;height:28px;flex:none;place-items:center;border-radius:7px;background:rgba(255,45,111,.1);color:#ff8fb0}
+.settings-dropdown i svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.settings-dropdown span{flex:1;min-width:0}
+.settings-dropdown b,.settings-dropdown small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-dropdown b{font-size:11px;font-weight:600}
+.settings-dropdown small{margin-top:3px;color:rgba(255,255,255,.34);font-size:9px}
+.settings-dropdown>button>svg,.settings-dropdown>a>svg{width:13px;height:13px;flex:none;stroke:rgba(255,255,255,.28);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.settings-version{color:rgba(255,255,255,.62);cursor:default}
 .checkin-chip:active,.live-icon-button:active{transform:scale(.96);background:rgba(255,255,255,.1)}
 .detail-header{grid-template-columns:42px minmax(0,1fr) 42px;padding:0 16px;background:rgba(18,17,22,.94);backdrop-filter:blur(16px)}
 .detail-header::after{content:"";display:block}
@@ -741,18 +755,6 @@
 .checkin-claim:disabled{cursor:default;background:rgba(255,255,255,.06);color:rgba(255,255,255,.35);box-shadow:none}
 .checkin-footnote{display:flex;align-items:center;justify-content:center;gap:5px;margin:12px 20px 22px;color:rgba(255,255,255,.24);font-size:9px;text-align:center}
 .checkin-footnote svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.settings-list{margin-top:16px}
-.settings-list>button,.settings-list>a,.settings-static{width:100%;min-height:58px;display:flex;align-items:center;gap:12px;padding:10px 16px;border:0;border-bottom:1px solid rgba(255,255,255,.07);background:transparent;color:#fff;text-align:left;text-decoration:none}
-.settings-list>button:last-child,.settings-list>a:last-child,.settings-static:last-child{border-bottom:0}
-.settings-list i{display:grid;width:30px;height:30px;flex:none;place-items:center;border-radius:8px;background:rgba(255,45,111,.1);color:#ff8fb0}
-.settings-list i svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.settings-list div{flex:1;min-width:0}
-.settings-list b,.settings-list small{display:block}
-.settings-list b{font-size:12px;font-weight:600}
-.settings-list small{margin-top:4px;color:rgba(255,255,255,.36);font-size:10px}
-.settings-list em{display:grid;color:rgba(255,255,255,.25)}
-.settings-list em svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.settings-static{color:rgba(255,255,255,.75)}
 .income-hero{margin:16px 20px 0;padding:24px 20px;border:1px solid rgba(255,196,92,.2);border-radius:12px;background:radial-gradient(circle at 85% 20%,rgba(255,196,92,.17),transparent 38%),linear-gradient(135deg,#2a1c27,#17171e);text-align:center}
 .income-hero>span{color:rgba(255,255,255,.45);font-size:10px}
 .income-hero strong{display:block;margin-top:8px;color:#ffda8c;font-size:35px;letter-spacing:-.02em}
