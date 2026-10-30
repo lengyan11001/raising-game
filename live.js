@@ -842,12 +842,11 @@
     const text = String(role.intro || role.greeting || "和 TA 来一场 AI 实时互动的视频聊天").replace(/\s+/g, " ").trim();
     return text.length > 92 ? `${text.slice(0, 91)}…` : text;
   }
-  async function openSharePoster() {
+  function openSharePoster() {
     if (!token()) {
       if (loginDialog) loginDialog.dataset.pendingShare = "1";
       return askLogin();
     }
-    await ensureReferral();
     const role = state.role || {};
     document.querySelector("[data-poster]")?.remove();
     const photo = rolePhoto(role);
@@ -856,6 +855,7 @@
     state.posterQr = qr;
     ensurePosterFont();
     app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet role="dialog" aria-modal="true" aria-label="角色分享海报"><div class="poster-visual"><div class="poster-photo" data-poster-photo>${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="poster-photo-empty">Vipeak</div>'}</div><div class="poster-details"><h3>${esc(role.name || "Vipeak")}</h3><div class="poster-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><p class="poster-intro"><b>人物介绍：</b>${esc(posterIntro(role))}</p><div class="poster-bottom"><div class="poster-bottom-copy"><strong>Vipeak</strong><i></i><button class="poster-unlock" type="button">解锁专属私密互动 &gt;</button><p>和Ta来一场AI实时互动的视频聊天</p></div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div></div><div class="poster-toolbar"><button type="button" class="poster-tool" data-action="save-poster" aria-label="保存图片" title="保存图片">${uiIcon("download")}</button><button type="button" class="poster-tool" data-action="poster-share" aria-label="分享" title="分享">${uiIcon("share")}</button><button type="button" class="poster-tool" data-action="close-poster" aria-label="关闭" title="关闭">${uiIcon("close")}</button></div></div></div>`);
+    ensureReferral().catch(() => {});
   }
   async function loadPosterPhoto(src) {
     if (!src) return null;

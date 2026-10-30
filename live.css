@@ -107,11 +107,11 @@
 .poster-photo-empty{height:100%;display:grid;place-items:center;color:#b5aaa5;font-size:28px;font-weight:800;letter-spacing:.02em}
 .poster-details{padding:clamp(12px,3.2vh,20px) 20px 14px;min-height:0;display:flex;flex:1;flex-direction:column}
 .poster-details h3{margin:0;font-family:Georgia,"Songti SC","Times New Roman",serif;font-size:clamp(26px,4.5vh,32px);line-height:1.04;font-weight:400;letter-spacing:-.02em}
-.poster-tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:clamp(10px,2.6vh,18px)}
-.poster-tags span{display:inline-flex;align-items:center;justify-content:center;min-width:58px;min-height:30px;padding:0 11px;border:1px solid #292625;border-radius:4px;color:#242120;font-size:13px;line-height:1.2;white-space:nowrap}
-.poster-intro{margin:clamp(10px,2.6vh,18px) 0 0;color:#191616;font-size:clamp(12px,1.75vh,14px);line-height:1.48;letter-spacing:.01em;word-break:break-all;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.poster-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:clamp(7px,1.6vh,11px)}
+.poster-tags span{display:inline-flex;align-items:center;justify-content:center;min-width:58px;min-height:28px;padding:0 10px;border:1px solid #292625;border-radius:4px;color:#242120;font-size:13px;line-height:1.1;white-space:nowrap}
+.poster-intro{margin:clamp(7px,1.7vh,11px) 0 0;color:#191616;font-size:clamp(12px,1.75vh,14px);line-height:1.18;letter-spacing:.01em;word-break:break-all;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .poster-intro b{font-weight:700}
-.poster-bottom{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:12px;align-items:end;margin-top:auto;padding-top:clamp(9px,2vh,16px)}
+.poster-bottom{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:12px;align-items:end;margin-top:auto;padding-top:clamp(8px,1.7vh,12px)}
 .poster-bottom-copy{min-width:0}
 .poster-bottom-copy>strong{display:block;color:#080808;font-family:"PingFang SC",Arial,sans-serif;font-size:clamp(24px,4.4vh,30px);line-height:1;font-weight:750;letter-spacing:-.04em}
 .poster-bottom-copy>i{display:block;width:26px;height:3px;margin-top:6px;background:#ef3f77}
