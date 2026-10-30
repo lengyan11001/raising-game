@@ -47,14 +47,14 @@ test("voice preview only lists the current E/F audition candidates", () => {
   assert.match(admin, /const VOICE_PREVIEW_ITEMS = \[/);
   assert.match(admin, /id: "user-rule-e"/);
   assert.match(admin, /id: "user-rule-f"/);
-  assert.match(admin, /joanna-user-rule-e\.wav\?v=20261030-voice-preview-10/);
-  assert.match(admin, /joanna-user-rule-f\.wav\?v=20261030-voice-preview-10/);
-  assert.match(admin, /duration: "9\.4 秒"/);
-  assert.match(admin, /duration: "9\.8 秒"/);
-  assert.match(admin, /当前只保留本轮 E \/ F 两条候选，历史音频已从后台试听页移除/);
+  assert.match(admin, /joanna-user-rule-e\.wav\?v=20261030-voice-preview-11/);
+  assert.match(admin, /joanna-user-rule-f\.wav\?v=20261030-voice-preview-11/);
+  assert.match(admin, /duration: "41\.5 秒"/);
+  assert.match(admin, /duration: "46\.8 秒"/);
+  assert.match(admin, /当前只保留本轮两条连续场景候选，均为完整提示词直接生成；历史音频已从后台试听页移除/);
   assert.match(admin, /data-voice-seek="0"/);
-  assert.match(admin, /data-voice-seek="1\.1"/);
-  assert.match(admin, /data-voice-seek="5\.6"/);
+  assert.match(admin, /data-voice-seek="23\.0"/);
+  assert.match(admin, /data-voice-seek="32\.0"/);
   assert.match(admin, /audio\.currentTime = Math\.max\(0, seekTo\)/);
   assert.match(admin, /data-voice-preview-id/);
 

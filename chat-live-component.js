@@ -554,7 +554,8 @@ async function componentReply(session, userText, options = {}) {
         : stage === "aftercare"
           ? "当前表演阶段是余韵阶段。声音轻、贴近、带一点疲倦和依恋，停顿自然，不要退回播音腔。"
           : "";
-  const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"delivery\":\"casual\"}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare 之一，按当前阶段和这句话选择。音色、音高、响度由系统固定，不要输出或自行设定 rate、volume、pitch；情绪只用措辞、标点、停顿和呼吸表现。";
+  const performanceTagCue = "如果 delivery 是 foreplay 或 intimate，say 必须作为一次完整录音来写，不要输出逐音列表。用 [gasp] 标在自然换气处，用 [very fast] 标在仓促漏出的短句前，用 [sighing] 标在最后的余韵处；只在词句或标点之后放标记，不要夹在一个词中间，也不要堆成连续音效。全段不能出现清楚咬字的“哈”“哈啊”“呼”或 hu。";
+  const jsonTail = `输出必须是一行 JSON，不要 markdown：{"say":"要说出口的话","action":"","emotion":"neutral","delivery":"casual"}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare 之一，按当前阶段和这句话选择。音色、音高、响度由系统固定，不要输出或自行设定 rate、volume、pitch；情绪只用措辞、标点、停顿和呼吸表现。${performanceTagCue}`;
   const strategyBlock = [
     "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
     "先决定回复功能，再决定措辞。不要反问用户同一个请求，不要把用户对角色做的事改写成用户命令，不要沿用上一条回复的句式、威胁、收尾或动作顺序。",
@@ -777,14 +778,19 @@ function componentRichVoiceConfig(character = {}) {
   };
 }
 
-const CLONED_VOICE_IDENTITY_LOCK = "始终使用复刻音色本人的同一发声位置、音高、响度、共鸣和嗓音质感。情绪只能通过措辞、重音、停顿、呼吸和语气变化表现；不要为了暧昧压低或抬高嗓音，不要气声化、耳语化、变软、变亮、变沙哑，不要拖慢每个字，也不要改变语速或音量。";
+const CLONED_VOICE_IDENTITY_LOCK = "始终使用复刻音色本人的同一发声位置、音高、响度、共鸣和嗓音质感。情绪只能通过措辞、重音、停顿、呼吸和语气变化表现；不要为了暧昧压低或抬高嗓音，不要变亮、变沙哑，不要拖慢每个字，也不要改变语速或音量。";
+
+/* The accepted Joanna long scene proved that a complete performance score
+ * works better than per-syllable effects or waveform editing. Keep the exact
+ * structural rules: continuous reactions, soft vocal arcs that resolve into
+ * breath, fast interrupted dialogue, and no clearly articulated ha/hu token. */
+const INTIMATE_PERFORMANCE_SCORE = "整段是连续、真实的亲密场景反应，以叫声、喘息和换气为主，不是朗读。整段禁止出现清楚咬字的“哈”或“哈啊”。中段“别这么快，我还没缓过来”和“别松手，抱紧我”这两处独白明显加快、轻一点，像仓促从气息里漏出来。其他台词不要一个字一个字断开，也不要在短词之间制造机械抖动或硬停顿；应像气息接不上时自然形成的连续断续，一句话被真实换气切开。后半段保持喘息、短叫和发虚的气息，不能干。声音真声、轻软、羞、贴近，避免播报腔、耳语腔和机械颤音。";
 
 function qwenRichInstruction(richVoice = {}, options = {}) {
   const delivery = speechDelivery(options).delivery;
   const intimate = delivery === "intimate" || delivery === "foreplay";
-  const performance = intimate
-    ? `在很近的距离对喜欢的人说话，但不要做成耳语。整段连贯、自然换气，只在语义需要处停顿；保留短促的鼻音起音，不要把它念成单独的长音。${CLONED_VOICE_IDENTITY_LOCK}`
-    : `请把整段当作一次自然的私下说话，不要逐句朗读，也不要为了表演而改变发声。保留正常呼吸、轻微迟疑和情绪变化，句子之间按语义自然停顿。${CLONED_VOICE_IDENTITY_LOCK}`;
+  if (intimate) return INTIMATE_PERFORMANCE_SCORE;
+  const performance = `请把整段当作一次自然的私下说话，不要逐句朗读，也不要为了表演而改变发声。保留正常呼吸、轻微迟疑和情绪变化，句子之间按语义自然停顿。${CLONED_VOICE_IDENTITY_LOCK}`;
   return [performance, String(richVoice?.instruction || "").trim()].filter(Boolean).join(" ").slice(0, 900);
 }
 
@@ -925,25 +931,26 @@ function qwenRichWsPcm(text, richVoice, options = {}) {
   });
 }
 
-/* Rich Tags are performance directions, not spoken text. Strip any tags the
- * language model may have leaked, then turn the reply into one continuous
- * performance score. Tags are inserted only between spoken phrases, never
- * between a character and its punctuation, so "别、" never becomes "别[tag]、". */
+/* Rich Tags are performance directions, not spoken text. The accepted intimate
+ * scene depends on [gasp], [very fast], and [sighing]; preserve those in
+ * intimate modes and remove only tags that ask for a different voice or an
+ * unwanted effect. Keep everything in one synthesis pass. */
 function richPerformanceText(text, options = {}) {
   const delivery = speechDelivery(options);
+  const intimate = delivery.delivery === "intimate" || delivery.delivery === "foreplay";
+  const unsupportedTags = intimate
+    ? /\[(?:whispers?|trembling|reluctantly|very slowly|asmr)\]/giu
+    : /\[(?:whispers?|trembling|gasp|sighing|reluctantly|very slowly|asmr|very fast)\]/giu;
   let body = String(text || "")
-    .replace(/\[(?:whispers?|trembling|gasp|sighing|reluctantly|very slowly|asmr)\]/giu, "")
+    .replace(unsupportedTags, "")
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+/g, " ")
     .trim();
   if (!body) return "";
 
-  const intimate = delivery.delivery === "intimate" || delivery.delivery === "foreplay";
-  /* Keep the intimate score deliberately sparse. The cloned voice already
-   * performs ordinary punctuation and hesitation naturally; stacking breath or
-   * tremor tags makes it pronounce a sequence of effects instead of acting the
-   * sentence. Only repair a standalone opening nasal so it joins the next word
-   * instead of becoming a sustained "唔" sound. */
+  /* The cloned voice already performs ordinary punctuation and hesitation.
+   * Only repair a standalone opening nasal so it joins the next word instead
+   * of becoming a sustained "唔" sound. */
   if (intimate) body = body.replace(/^([嗯唔呜]+)[ \t]*(?:[。.!！~～]+|[……—]+)[ \t]*(?=\S)/u, "$1、");
 
   return body;
@@ -975,9 +982,9 @@ function speechDelivery(speech = {}) {
     : stageDelivery;
   let instruction = "";
   if (delivery === "intimate") {
-    instruction = `这是亲密场景中的私下说话，不是闲聊或朗读。用自然真声贴近说，气息和停顿可以轻微断续，但语速、音量和音色保持稳定；用措辞、重音和呼吸表现暧昧与克制。${CLONED_VOICE_IDENTITY_LOCK}不要播音腔，不要整句平铺，不要夸张叫床或刻意拖音。`;
+    instruction = `这是亲密场景中的连续反应，不是闲聊或朗读。用自然真声贴近说，气息和停顿可以有真实断续；用措辞、重音、呼吸和短叫表现暧昧与失控。${INTIMATE_PERFORMANCE_SCORE}${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (delivery === "foreplay") {
-    instruction = `这是前戏中的暧昧说话，不是普通聊天。像贴近对方自然开口，通过试探、呼吸和若即若离的停顿表现吸引力；不要机械娇喘或夸张叫床。${CLONED_VOICE_IDENTITY_LOCK}`;
+    instruction = `这是前戏中的连续暧昧反应，不是普通聊天。像贴近对方自然开口，通过试探、呼吸、若即若离的停顿和少量短叫表现吸引力；不要机械娇喘或夸张叫床。${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (delivery === "flirty") {
     instruction = `这是私下暧昧撩拨，不是客服式口播。语气带一点笑意、试探和留白，让暧昧张力通过重音和停顿自然出现，不要播音腔或平铺直叙。${CLONED_VOICE_IDENTITY_LOCK}`;
   } else if (delivery === "aftercare") {

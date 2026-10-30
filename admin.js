@@ -34,19 +34,19 @@ function pricingMultiplierText(value) {
 const VOICE_PREVIEW_ITEMS = [
   {
     id: "user-rule-e",
-    title: "本轮 E · 对白 + 23 秒气音节奏",
-    badge: "当前候选 E",
-    description: "对白正常略快；前后气音直接取自长场景 23 秒附近，不拉伸。重点听气音是否有连续的起伏，而不是短促念字。",
-    duration: "9.4 秒",
-    src: "/assets/admin/voice-preview/joanna-user-rule-e.wav?v=20261030-voice-preview-10",
+    title: "连续场景 A · 23 秒参考提示词整段生成",
+    badge: "候选 A",
+    description: "用当时 23 秒“啊……别看我”所在长场景的同一套提示词整段重生，没有剪接。重点听叫声、换气和快速独白是否连续自然。",
+    duration: "41.5 秒",
+    src: "/assets/admin/voice-preview/joanna-user-rule-e.wav?v=20261030-voice-preview-11",
   },
   {
     id: "user-rule-f",
-    title: "本轮 F · 对白 + 23 秒气音节奏",
-    badge: "当前候选 F",
-    description: "换一组对白气口，气音同样取自 23 秒附近的原声；重点比较对白是否自然、气音是否比上一版更连贯。",
-    duration: "9.8 秒",
-    src: "/assets/admin/voice-preview/joanna-user-rule-f.wav?v=20261030-voice-preview-10",
+    title: "连续场景 B · 23 秒参考提示词整段生成",
+    badge: "候选 B",
+    description: "同样整段生成，只调整短句断点；重点比较后半段气息是否稳定、场景是否连贯。",
+    duration: "46.8 秒",
+    src: "/assets/admin/voice-preview/joanna-user-rule-f.wav?v=20261030-voice-preview-11",
   },
 ];
 
@@ -6958,14 +6958,14 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。当前只保留本轮 E / F 两条候选，历史音频已从后台试听页移除。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。当前只保留本轮两条连续场景候选，均为完整提示词直接生成；历史音频已从后台试听页移除。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>本轮重点</h3>
-            <p class="adm-muted">E / F 都以长场景 23 秒处的真实气音节奏为母版，气音不拉伸；中间是正常偏快的对白，后面用同场景原声气音收尾。建议先完整听一遍，再分别听开头和后半气音。</p>
+            <p class="adm-muted">这两条都沿用长场景中 23 秒“啊……别看我”那版提示词结构整段生成，没有做逐段剪辑；建议先完整听一遍，再单独听约 23 秒附近的叫声和换气。</p>
           </div>
         </div>
       </div>
@@ -6984,7 +6984,7 @@ function renderVoicePreview() {
               <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span>${escapeHtml(item.duration)}</span>
-                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="1.1"><i data-lucide="message-circle"></i>跳到对白</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="5.6"><i data-lucide="waves"></i>后半气音</button>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="23.0"><i data-lucide="message-circle"></i>跳到 23 秒</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="32.0"><i data-lucide="waves"></i>后半段</button>
               </div>
             </div>
           </article>

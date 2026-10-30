@@ -57,7 +57,8 @@ test("delivery keeps every cloned voice control fixed and ignores model prosody 
   assert.match(delivery.instruction, /亲密场景/);
   assert.match(delivery.instruction, /气息/);
   assert.match(delivery.instruction, /停顿/);
-  assert.match(delivery.instruction, /语速、音量和音色保持稳定/);
+  assert.match(delivery.instruction, /中段“别这么快，我还没缓过来”/);
+  assert.match(delivery.instruction, /一句话被真实换气切开/);
   assert.match(delivery.instruction, /同一发声位置/);
   assert.doesNotMatch(delivery.instruction, /语速慢|音量压低|声音轻一点|声音软一点/);
   assert.deepEqual({ rate: delivery.rate, pitch: delivery.pitch, volume: delivery.volume }, { rate: 1, pitch: 1, volume: 50 });
@@ -134,17 +135,21 @@ test("casual delivery remains plain and emotional fallback no longer calls itsel
   assert.doesNotMatch(happy.instruction, /闲聊互动/);
 });
 
-test("component reply prompt requests one continuous intimate performance", () => {
+test("component reply prompt requests one continuous tagged intimate performance", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
-  assert.match(source, /\\"delivery\\":\\"casual\\"/);
   assert.match(source, /delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare/);
   assert.doesNotMatch(source, /\\"rate\\":1,\\"volume\\":50,\\"pitch\\":1/);
   assert.match(source, /音色、音高、响度由系统固定/);
   assert.match(source, /stage: options\.stage \|\| session\.liveStoryStage/);
   assert.match(source, /整段必须是同一次连续表演/);
-  assert.match(source, /不要把嗯、啊、哈当成可堆叠的独立音效/);
-  assert.match(source, /语气、重音和节奏要有起伏/);
+  assert.match(source, /用 \[gasp\] 标在自然换气处/);
+  assert.match(source, /用 \[very fast\] 标在仓促漏出的短句前/);
+  assert.match(source, /用 \[sighing\] 标在最后的余韵处/);
+  assert.match(source, /不能出现清楚咬字的“哈”/);
   assert.match(source, /不能改变角色原本的音色和共鸣/);
+  assert.match(source, /preserve those in[\s\S]{0,120}intimate modes/);
+  assert.match(source, /const unsupportedTags = intimate/);
+  assert.match(source, /very fast/);
 });
 
 test("rich voice binding is explicit and cannot reuse a CosyVoice id", () => {
@@ -165,12 +170,30 @@ test("rich voice binding is explicit and cannot reuse a CosyVoice id", () => {
   }), /模型不匹配/);
 });
 
-test("rich intimate performance keeps one continuous natural sentence instead of stacked effects", () => {
-  const script = richPerformanceText(COMPONENT_INTIMATE_PREVIEW_TEXT, { stage: "intimate" });
-  assert.equal(script, "嗯，别……先别动，我还没缓过来，慢一点。");
-  assert.equal((script.match(/\[/g) || []).length, 0);
-  assert.doesNotMatch(script, /\[(?:trembling|gasp|sighing|reluctantly|very slowly)\]/);
+test("rich intimate performance preserves the accepted continuous-scene tags", () => {
+  const script = richPerformanceText("啊……[gasp]\n嗯……[very fast]别松手，抱紧我……[sighing]", { stage: "intimate" });
+  assert.equal(script, "啊……[gasp]\n嗯……[very fast]别松手，抱紧我……[sighing]");
+  assert.match(script, /\[gasp\]/);
+  assert.match(script, /\[very fast\]/);
+  assert.match(script, /\[sighing\]/);
   assert.doesNotMatch(script, /我、我还没缓过来/);
+});
+
+test("rich non-intimate modes still strip performance-only tags", () => {
+  const script = richPerformanceText("你好。[gasp] 今天怎么样？[very fast]", { stage: "casual" });
+  assert.equal(script, "你好。 今天怎么样？");
+});
+
+test("rich intimate mode removes wanted voice-change and tremor tags only", () => {
+  const script = richPerformanceText("别动。[whisper][trembling][gasp] 嗯……[sighing]", { stage: "foreplay" });
+  assert.equal(script, "别动。[gasp] 嗯……[sighing]");
+});
+
+test("intimate preview remains one continuous performance without per-syllable splitting", () => {
+  assert.equal(COMPONENT_INTIMATE_PREVIEW_TEXT, "嗯，别……先别动，我还没缓过来，慢一点。");
+  assert.deepEqual(splitComponentAudioParts(COMPONENT_INTIMATE_PREVIEW_TEXT), [
+    { kind: "performance", text: COMPONENT_INTIMATE_PREVIEW_TEXT },
+  ]);
 });
 
 test("intimate Rich prosody preserves cloned timbre instead of pitch-shifting the voice", () => {
@@ -188,15 +211,11 @@ test("rich instruction locks speaker identity instead of applying emotional pros
   assert.match(source, /rate: 1,\n\s+volume: 50,\n\s+pitch: 1,/);
 });
 
-test("rich intimate instruction asks for connected natural speech, not literal sound effects", () => {
+test("rich intimate instruction is the exact accepted continuous-scene score", () => {
   const instruction = qwenRichInstruction({ instruction: "角色本身偏害羞。" }, { stage: "intimate" });
-  assert.match(instruction, /角色本身偏害羞/);
-  assert.match(instruction, /不要做成耳语/);
-  assert.match(instruction, /自然换气/);
-  assert.match(instruction, /整段连贯/);
-  assert.match(instruction, /同一发声位置/);
-  assert.match(instruction, /短促的鼻音起音/);
-  assert.match(instruction, /不要改变语速或音量/);
+  assert.equal(instruction, "整段是连续、真实的亲密场景反应，以叫声、喘息和换气为主，不是朗读。整段禁止出现清楚咬字的“哈”或“哈啊”。中段“别这么快，我还没缓过来”和“别松手，抱紧我”这两处独白明显加快、轻一点，像仓促从气息里漏出来。其他台词不要一个字一个字断开，也不要在短词之间制造机械抖动或硬停顿；应像气息接不上时自然形成的连续断续，一句话被真实换气切开。后半段保持喘息、短叫和发虚的气息，不能干。声音真声、轻软、羞、贴近，避免播报腔、耳语腔和机械颤音。");
+  assert.doesNotMatch(instruction, /角色本身偏害羞|同一发声位置|不要改变语速或音量/);
+  assert.doesNotMatch(instruction, /不要夸张叫床|短促的鼻音起音/);
   assert.doesNotMatch(instruction, /再从“我”继续/);
 });
 
