@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -316,6 +316,10 @@
     crown: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l4.5 3L12 4l4.5 7L21 8l-2 11H5L3 8z"/></svg>`,
     gift: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7c0 0-1-5-4.2-5S4 4.2 4 5.5 6.2 7 8.2 7H12z"/><path d="M12 7c0 0 1-5 4.2-5S20 4.2 20 5.5 17.8 7 15.8 7H12z"/></svg>`,
     pen: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+    graph: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></svg>`,
+    document: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>`,
+    clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+    shield: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>`,
     wallet: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h15a3 3 0 0 1 3 3v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7l2-3h12"/><circle cx="16.5" cy="14" r="1"/></svg>`,
     share: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>`,
     user: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>`,
@@ -1456,25 +1460,50 @@
   function creatorWithdrawalStatusText(status) {
     return ({ processing: "审核中", paid: "已打款", rejected: "已拒绝" })[status] || status || "审核中";
   }
+  function creatorIncomeLedger(rows, loading, error) {
+    const body = loading && !rows.length
+      ? `<div class="creator-income-empty"><p>正在加载收支记录…</p></div>`
+      : rows.length
+        ? `<div class="creator-income-rows">${rows.map((row) => `<article class="creator-income-row"><div class="creator-income-row-main"><p>${esc(row.title)}</p><small>${esc(row.meta)}</small></div><div class="creator-income-row-side"><b class="${esc(row.tone || "")}">${esc(row.amount)}</b><small class="${esc(row.statusTone || "")}">${esc(row.status)}</small></div></article>`).join("")}</div>`
+        : `<div class="creator-income-empty"><p>${esc(error || "还没有创作者收支记录。")}</p></div>`;
+    return `<section class="creator-income-ledger"><div class="creator-income-card-head"><p>收支清单</p><span>${rows.length ? `${rows.length} 笔` : "收益与提现统一记录"}</span></div>${body}</section>`;
+  }
+  function creatorWithdrawPanel(income, available) {
+    const canWithdraw = available >= 2000;
+    return `<section class="creator-income-withdraw-panel" data-creator-withdraw-panel><div class="creator-income-withdraw-head"><div><p>申请提现</p><small>最低提现 2000 积分（20 USDT）</small></div><button type="button" data-action="creator-income-withdraw">收起</button></div><form data-creator-withdraw-form><label>提现积分<input name="amountCredits" type="number" min="2000" step="0.000001" value="${esc(canWithdraw ? creditText(available) : "2000")}" placeholder="填写提现积分" required></label><label>USDT 网络<select name="network"><option value="USDT-TRC20">USDT · TRC20</option><option value="USDT-ERC20">USDT · ERC20</option><option value="USDT-BEP20">USDT · BEP20</option></select></label><label>USDT 收款地址<input name="address" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="20" maxlength="128" placeholder="填写你的 USDT 钱包地址" required></label><p class="creator-income-withdraw-tip">当前可提现 ${creditText(available)} 积分 · 提交后从可提现余额冻结，等待后台审核</p><button class="pay-cta" type="submit" ${canWithdraw ? "" : "disabled"}>${canWithdraw ? "提交提现申请" : "满 2000 积分可提现"}</button><p class="form-message" data-creator-withdraw-message></p></form></section>`;
+  }
   function showCreatorIncome() {
     if (!token()) return askLogin();
     state.page = "creator-income";
     state.subpageBack = "profile";
     const income = state.creatorIncome || { availableCredits: 0, totalEarnedCredits: 0, withdrawnCredits: 0, lockedCredits: 0, earningCount: 0, earningRate: .3, records: [], withdrawals: [] };
-    const incomeRows = (income.records || []).map((item) => {
-      const earning = /_earning$/.test(String(item.type || ""));
-      const title = earning ? `${item.characterName || "角色"} · ${creatorIncomeTypeText(item.type)}` : creatorIncomeTypeText(item.type);
-      const detail = earning ? `实扣 ${creditText(item.sourceCredits)} 积分 × ${Math.round(Number(item.earningRate || .3) * 100)}%` : "提现退回";
-      return { title, meta: `${detail} · ${moneyTime(item.createdAt)}`, amount: `${Number(item.credits || 0) >= 0 ? "+" : ""}${creditText(item.credits)}`, kind: earning ? "crown" : "wallet", createdAt: item.createdAt };
-    });
+    const incomeRows = (income.records || []).filter((item) => /_earning$/.test(String(item.type || ""))).map((item) => ({
+      title: `本角色消费 ${creditText(item.sourceCredits)} 积分`,
+      meta: [item.characterName || "创作角色", creatorIncomeTypeText(item.type), moneyTime(item.createdAt)].filter(Boolean).join(" · "),
+      amount: `+${creditText(item.credits)}`,
+      tone: "is-income",
+      status: "已结算",
+      statusTone: "is-done",
+      createdAt: item.createdAt,
+    }));
     const withdrawalRows = (income.withdrawals || []).map((item) => {
       const status = creatorWithdrawalStatusText(item.status);
-      const detail = [status, item.network || "USDT", item.txHash || item.rejectionReason || ""].filter(Boolean).join(" · ");
-      return { title: `提现 · ${creditText(item.amountCredits)} 积分`, meta: `${detail} · ${moneyTime(item.createdAt)}`, amount: `-${creditText(item.amountCredits)}`, kind: "wallet", createdAt: item.createdAt };
+      return {
+        title: `提现 ${creditText(item.amountCredits)} 积分`,
+        meta: [item.network || "USDT", moneyTime(item.createdAt)].filter(Boolean).join(" · "),
+        amount: item.status === "rejected" ? "0" : `-${creditText(item.amountCredits)}`,
+        tone: item.status === "rejected" ? "is-muted" : "is-withdrawal",
+        status,
+        statusTone: item.status === "paid" ? "is-done" : item.status === "rejected" ? "is-rejected" : "is-pending",
+        createdAt: item.createdAt,
+      };
     });
     const rows = [...incomeRows, ...withdrawalRows].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     const available = Number(income.availableCredits || 0);
-    subpage("创作者收益", `<section class="income-hero"><span>可提现积分</span><strong>${creditText(available)} <small>积分</small></strong><p>累计收益 ${creditText(income.totalEarnedCredits)} 积分 · 已提现 ${creditText(income.withdrawnCredits)} 积分 · ${Number(income.earningCount || 0).toLocaleString("zh-CN")} 次分成</p></section><section class="income-settlement"><div><span>分成比例</span><b>${Math.round(Number(income.earningRate || .3) * 100)}%</b></div><div><span>审核中</span><b>${creditText(income.lockedCredits)} 积分</b></div><div><span>提现网络</span><b>USDT</b></div></section><section class="income-note"><span>${uiIcon("crown")}</span><p>仅「创作」页创建的公开角色，在其他用户实际扣费聊天、视频通话或送礼物时，按实扣积分的 30% 计入创作者可提现收益；内部创作者中心角色不参与分成。该收益独立计算，不累计到普通积分余额；提现通过 USDT 打款，需填写收款地址并等待后台审核。</p></section><section class="creator-withdraw-card"><div class="creator-withdraw-head"><div><b>申请提现</b><small>最低提现 2000 积分（20 USDT），提交后从可提现余额冻结</small></div><button type="button" data-action="creator-income-refresh">刷新</button></div><form data-creator-withdraw-form><label>提现积分<input name="amountCredits" type="number" min="2000" step="0.000001" value="${esc(available >= 2000 ? creditText(available) : "2000")}" placeholder="填写提现积分" required></label><label>USDT 网络<select name="network"><option value="USDT-TRC20">USDT · TRC20</option><option value="USDT-ERC20">USDT · ERC20</option><option value="USDT-BEP20">USDT · BEP20</option></select></label><label>USDT 收款地址<input name="address" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="20" maxlength="128" placeholder="填写你的 USDT 钱包地址" required></label><button class="pay-cta" type="submit" ${available >= 2000 ? "" : "disabled"}>提交提现申请</button><p class="form-message" data-creator-withdraw-message></p></form></section><div class="income-ledger-head"><p class="section-label">收支清单</p><span>收益与提现统一按时间排列</span></div>${state.creatorIncomeLoading && !rows.length ? '<div class="empty-state"><p>正在加载收支记录…</p></div>' : ledgerRows(rows, state.creatorIncomeError || "还没有创作者收支记录。")}<p class="pay-foot">收益数据来自 PostgreSQL 创作者独立账本，不会累加到普通积分余额。</p>`);
+    const totalEarned = Number(income.totalEarnedCredits || 0);
+    const locked = Number(income.lockedCredits || 0);
+    const withdrawPanel = state.creatorIncomeWithdrawOpen ? creatorWithdrawPanel(income, available) : "";
+    subpage("创作者收益", `<section class="creator-income-hero"><div class="creator-income-balance-head"><span class="creator-income-icon">${uiIcon("graph")}</span><div class="creator-income-balance"><p>累计创作收益</p><strong>${creditText(totalEarned)} <small>积分</small></strong></div><button class="creator-income-withdraw-button" type="button" data-action="creator-income-withdraw">提现</button></div><p class="creator-income-subtitle">你创作的角色卡被其他用户使用时产生收益</p><div class="creator-income-stats"><div><span>可提现积分</span><b>${creditText(available)}</b></div><div><span>提现审核中</span><b>${creditText(locked)}</b></div></div></section>${withdrawPanel}${creatorIncomeLedger(rows, state.creatorIncomeLoading, state.creatorIncomeError)}<section class="creator-income-rules"><div class="creator-income-rules-head">${uiIcon("document")}<p>结算规则</p></div><div class="creator-income-formula"><p>收益计算公式</p><b>单笔收益 = 用户在该角色上的实扣积分 × ${Math.round(Number(income.earningRate || .3) * 100)}%</b><small>仅「创作」页创建的公开角色参与分成；内部创作者中心角色不参与分成。收益独立计算，不累计到普通积分余额。</small></div><div class="creator-income-rule"><div>${uiIcon("clock")}<b>提现审核</b></div><p>最低提现 2000 积分（20 USDT）。提交后填写 USDT 收款地址，后台审核通过后打款；审核中的积分会从可提现余额冻结。</p></div><div class="creator-income-rule"><div>${uiIcon("shield")}<b>退款与异常记录</b></div><ul><li>订单退款或撤单时，尚未结算的收益取消；已结算的对应收益扣回。</li><li>疑似异常订单会暂缓结算并复核，复核完成后按结果入账或扣回。</li><li>结算金额以实际到账记录为准。</li></ul></div></section><section class="creator-income-create-card"><span>${uiIcon("magic")}</span><div><b>我的创作角色卡</b><small>查看角色卡的使用与收益明细</small></div><button type="button" data-action="creator-income-create">去创作</button></section><p class="creator-income-foot">结算数据以页面说明为准</p>`);
   }
   async function loadCreatorIncome(force = false) {
     if (!token()) return null;
@@ -2190,8 +2219,10 @@ document.addEventListener("click", async (e) => {
     if (a === "checkin") { showCheckin(); loadCheckin(true); return; }
     if (a === "checkin-claim") return claimCheckin();
     if (a === "system-messages") return openSystemMessages();
-    if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; state.creatorIncomeWithdrawOpen = false; showCreatorIncome(); loadCreatorIncome(true); return; }
     if (a === "creator-income-refresh") { loadCreatorIncome(true); return; }
+    if (a === "creator-income-withdraw") { state.creatorIncomeWithdrawOpen = !state.creatorIncomeWithdrawOpen; showCreatorIncome(); return; }
+    if (a === "creator-income-create") { state.page = "create"; state.creatorIncomeWithdrawOpen = false; render(); return; }
     if (a === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
     if (a === "feedback-refresh") return loadFeedback(true);
     if (a === "back-subpage") { clearProfileHash(); state.page = state.subpageBack || "profile"; render(); return; }
@@ -2436,6 +2467,7 @@ document.addEventListener("click", async (e) => {
       try {
         const result = await api("/api/live/creator-withdrawals", { method: "POST", body: JSON.stringify({ amountCredits, network, address }) });
         state.creatorIncome = result.income || state.creatorIncome;
+        state.creatorIncomeWithdrawOpen = false;
         referralToast("提现申请已提交，等待后台审核");
         if (state.page === "creator-income") showCreatorIncome();
       } catch (error) {

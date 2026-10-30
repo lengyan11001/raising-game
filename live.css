@@ -755,39 +755,83 @@
 .checkin-claim:disabled{cursor:default;background:rgba(255,255,255,.06);color:rgba(255,255,255,.35);box-shadow:none}
 .checkin-footnote{display:flex;align-items:center;justify-content:center;gap:5px;margin:12px 20px 22px;color:rgba(255,255,255,.24);font-size:9px;text-align:center}
 .checkin-footnote svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.income-hero{margin:16px 20px 0;padding:24px 20px;border:1px solid rgba(255,196,92,.2);border-radius:12px;background:radial-gradient(circle at 85% 20%,rgba(255,196,92,.17),transparent 38%),linear-gradient(135deg,#2a1c27,#17171e);text-align:center}
-.income-hero>span{color:rgba(255,255,255,.45);font-size:10px}
-.income-hero strong{display:block;margin-top:8px;color:#ffda8c;font-size:35px;letter-spacing:-.02em}
-.income-hero strong small{font-size:11px;letter-spacing:0}
-.income-hero p{margin:8px 0 0;color:rgba(255,255,255,.36);font-size:10px}
-.income-note{display:flex;align-items:flex-start;gap:10px;margin:12px 20px 20px;padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:9px;background:rgba(255,255,255,.03)}
-.income-note>span{display:grid;width:28px;height:28px;flex:none;place-items:center;border-radius:7px;background:rgba(255,196,92,.12);color:#ffc65a}
-.income-note svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.income-note p{margin:1px 0 0;color:rgba(255,255,255,.42);font-size:10px;line-height:1.6}
-.income-settlement{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 20px 0;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:rgba(255,255,255,.035)}
-.income-settlement>div{min-width:0;padding:12px 8px;border-left:1px solid rgba(255,255,255,.07);text-align:center}
-.income-settlement>div:first-child{border-left:0}
-.income-settlement span,.income-settlement b{display:block}
-.income-settlement span{color:rgba(255,255,255,.35);font-size:9px}
-.income-settlement b{margin-top:5px;color:#ffda8c;font-size:11px;font-weight:600}
-.income-ledger-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:18px 20px 0}.income-ledger-head .section-label{margin:0}.income-ledger-head>span{color:rgba(255,255,255,.3);font-size:9px;text-align:right}.income-ledger-head+.ledger-card{margin-top:10px}
-.creator-withdraw-card{margin:14px 20px 0;padding:15px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(255,255,255,.035)}
-.creator-withdraw-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}
-.creator-withdraw-head b,.creator-withdraw-head small{display:block}
-.creator-withdraw-head b{font-size:13px}
-.creator-withdraw-head small{margin-top:4px;color:rgba(255,255,255,.38);font-size:9px;line-height:1.5}
-.creator-withdraw-head button{padding:0;border:0;background:transparent;color:#ff9eba;font-size:10px}
-.creator-withdraw-card form{display:grid;gap:11px}
-.creator-withdraw-card label{display:grid;gap:6px;color:rgba(255,255,255,.58);font-size:10px}
-.creator-withdraw-card input,.creator-withdraw-card select{width:100%;height:42px;box-sizing:border-box;border:1px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(0,0,0,.18);color:#fff;padding:0 11px;font:inherit;font-size:12px;outline:none}
-.creator-withdraw-card input:focus,.creator-withdraw-card select:focus{border-color:rgba(255,196,92,.55)}
-.creator-withdraw-card select option{background:#211a20;color:#fff}
-.creator-withdraw-card .pay-cta{margin:2px 0 0;width:100%}
-.creator-withdraw-card .pay-cta:disabled{background:rgba(255,255,255,.06);color:rgba(255,255,255,.3);box-shadow:none}
-.creator-withdraw-card .form-message{min-height:14px;margin:0;color:#ff9eba;font-size:10px;text-align:center}
-.creator-withdrawal-status{align-self:start;padding:3px 7px;border-radius:99px;background:rgba(255,196,92,.12);color:#ffd580;font-size:9px}
-.creator-withdrawal-status.paid{background:rgba(70,209,143,.12);color:#7de2b1}
-.creator-withdrawal-status.rejected{background:rgba(255,88,116,.12);color:#ff9bad}
+.creator-income-hero{margin:16px 20px 0;padding:16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:linear-gradient(90deg,#3a1224,#26162a 55%,#1a1a24)}
+.creator-income-balance-head{display:flex;align-items:center;gap:12px}
+.creator-income-icon{display:grid;width:36px;height:36px;flex:none;place-items:center;border-radius:6px;background:rgba(255,45,111,.15);color:#ff8fb0}
+.creator-income-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.creator-income-balance{flex:1;min-width:0}
+.creator-income-balance p{margin:0;color:rgba(255,255,255,.55);font-size:11px}
+.creator-income-balance strong{display:block;margin-top:4px;color:#fff;font-size:22px;font-weight:700;line-height:1.15;white-space:nowrap;font-variant-numeric:tabular-nums}
+.creator-income-balance small{font-size:10px;font-weight:400;color:rgba(255,255,255,.55)}
+.creator-income-withdraw-button{display:flex;min-width:64px;height:32px;flex:none;align-items:center;justify-content:center;padding:0 10px;border:0;border-radius:6px;background:#ff2d6f;color:#fff;font-size:11px;font-weight:500;white-space:nowrap}
+.creator-income-withdraw-button:active{filter:brightness(.95)}
+.creator-income-subtitle{margin:8px 0 0;color:rgba(255,255,255,.4);font-size:10px;line-height:1.45}
+.creator-income-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
+.creator-income-stats>div{padding:8px 12px;border:1px solid rgba(255,255,255,.08);border-radius:6px;background:rgba(255,255,255,.05)}
+.creator-income-stats span,.creator-income-stats b{display:block}
+.creator-income-stats span{color:rgba(255,255,255,.45);font-size:10px}
+.creator-income-stats b{margin-top:2px;color:#7ce38b;font-size:13px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.creator-income-stats>div:nth-child(2) b{color:#ff8fb0}
+.creator-income-ledger{margin:16px 20px 0;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05);overflow:hidden}
+.creator-income-card-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.07)}
+.creator-income-card-head p{margin:0;color:rgba(255,255,255,.55);font-size:11px}
+.creator-income-card-head span{color:rgba(255,255,255,.35);font-size:10px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.creator-income-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 16px}
+.creator-income-row+.creator-income-row{border-top:1px solid rgba(255,255,255,.07)}
+.creator-income-row-main{flex:1;min-width:0}
+.creator-income-row-main p{margin:0;color:rgba(255,255,255,.65);font-size:11px;line-height:1.45;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.creator-income-row-main small{display:block;margin-top:4px;color:rgba(255,255,255,.35);font-size:10px;line-height:1.4}
+.creator-income-row-side{flex:none;text-align:right}
+.creator-income-row-side b,.creator-income-row-side small{display:block;white-space:nowrap;font-variant-numeric:tabular-nums}
+.creator-income-row-side b{color:#ff8fb0;font-size:11px;line-height:1.45;font-weight:600}
+.creator-income-row-side b.is-withdrawal{color:rgba(255,255,255,.7)}
+.creator-income-row-side b.is-muted{color:rgba(255,255,255,.35)}
+.creator-income-row-side small{margin-top:4px;color:#7ce38b;font-size:10px}
+.creator-income-row-side small.is-pending{color:#ff8fb0}
+.creator-income-row-side small.is-rejected{color:#ff9bad}
+.creator-income-empty{padding:24px 16px;text-align:center}
+.creator-income-empty p{margin:0;color:rgba(255,255,255,.35);font-size:10px;line-height:1.6}
+.creator-income-withdraw-panel{margin:12px 20px 0;padding:16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05)}
+.creator-income-withdraw-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}
+.creator-income-withdraw-head p,.creator-income-withdraw-head small{display:block;margin:0}
+.creator-income-withdraw-head p{font-size:12px;font-weight:600}
+.creator-income-withdraw-head small{margin-top:4px;color:rgba(255,255,255,.38);font-size:10px;line-height:1.5}
+.creator-income-withdraw-head button{padding:0;border:0;background:transparent;color:#ff8fb0;font-size:10px;white-space:nowrap}
+.creator-income-withdraw-panel form{display:grid;gap:11px}
+.creator-income-withdraw-panel label{display:grid;gap:6px;color:rgba(255,255,255,.58);font-size:10px}
+.creator-income-withdraw-panel input,.creator-income-withdraw-panel select{width:100%;height:42px;box-sizing:border-box;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(0,0,0,.18);color:#fff;padding:0 11px;font:inherit;font-size:12px;outline:none}
+.creator-income-withdraw-panel input:focus,.creator-income-withdraw-panel select:focus{border-color:rgba(255,45,111,.55)}
+.creator-income-withdraw-panel select option{background:#211a20;color:#fff}
+.creator-income-withdraw-tip{margin:0;color:rgba(255,255,255,.35);font-size:10px;line-height:1.5}
+.creator-income-withdraw-panel .pay-cta{margin:2px 0 0;width:100%}
+.creator-income-withdraw-panel .pay-cta:disabled{background:rgba(255,255,255,.06);color:rgba(255,255,255,.3);box-shadow:none}
+.creator-income-withdraw-panel .form-message{min-height:14px;margin:0;color:#ff9eba;font-size:10px;text-align:center}
+.creator-income-rules{margin:12px 20px 0;padding:12px 16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.03)}
+.creator-income-rules-head{display:flex;align-items:center;gap:8px}
+.creator-income-rules-head svg{width:13px;height:13px;flex:none;fill:none;stroke:rgba(255,255,255,.4);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.creator-income-rules-head p{margin:0;color:rgba(255,255,255,.55);font-size:10px;font-weight:600}
+.creator-income-formula{margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,.04)}
+.creator-income-formula p,.creator-income-formula b,.creator-income-formula small{display:block}
+.creator-income-formula p{margin:0;color:rgba(255,255,255,.45);font-size:10px}
+.creator-income-formula b{margin-top:4px;color:#fff;font-size:10px;font-weight:400;line-height:1.6;font-variant-numeric:tabular-nums}
+.creator-income-formula small{margin-top:4px;color:rgba(255,255,255,.35);font-size:10px;line-height:1.6}
+.creator-income-rule{margin-top:12px}
+.creator-income-rule>div{display:flex;align-items:center;gap:8px}
+.creator-income-rule svg{width:12px;height:12px;flex:none;fill:none;stroke:#ff8fb0;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.creator-income-rule b{color:rgba(255,255,255,.7);font-size:10px;font-weight:600}
+.creator-income-rule>p,.creator-income-rule li{margin:4px 0 0;color:rgba(255,255,255,.35);font-size:10px;line-height:1.6}
+.creator-income-rule ul{margin:4px 0 0;padding:0;list-style:none}
+.creator-income-rule li{display:flex;gap:6px}
+.creator-income-rule li::before{content:"·";color:rgba(255,255,255,.2);flex:none}
+.creator-income-create-card{display:flex;align-items:center;gap:12px;margin:12px 20px 0;padding:14px 16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05)}
+.creator-income-create-card>span{display:grid;width:36px;height:36px;flex:none;place-items:center;border-radius:6px;background:rgba(92,200,255,.15);color:#5cc8ff}
+.creator-income-create-card>span svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.creator-income-create-card>div{flex:1;min-width:0}
+.creator-income-create-card b,.creator-income-create-card small{display:block}
+.creator-income-create-card b{font-size:12px;font-weight:400}
+.creator-income-create-card small{margin-top:3px;color:rgba(255,255,255,.4);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.creator-income-create-card button{padding:0;border:0;background:transparent;color:#ff5c8a;font-size:11px;white-space:nowrap}
+.creator-income-foot{margin:24px 20px 0;text-align:center;color:rgba(255,255,255,.25);font-size:10px}
 .feedback-form{margin:16px 20px 22px;padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(255,255,255,.035)}
 .feedback-form label{display:block;margin-bottom:13px;color:rgba(255,255,255,.55);font-size:11px}
 .feedback-form select,.feedback-form textarea{display:block;width:100%;margin-top:7px;padding:11px 12px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:#0f0f15;color:#fff;font:inherit;font-size:12px}
@@ -839,7 +883,7 @@
 @keyframes gift-spark{0%{opacity:0;transform:translate(0,0) scale(.2)}18%{opacity:1}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(1.1)}}
 @keyframes gift-copy-small{0%,12%{opacity:0;transform:translateY(8px)}26%,76%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-6px)}}
 @keyframes gift-copy-name{0%,18%{opacity:0;transform:scale(.72)}30%{opacity:1;transform:scale(1.08)}40%,76%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-8px) scale(1)}}
-@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-overview,.checkin-panel,.checkin-claim,.checkin-error,.checkin-footnote,.feedback-form,.income-hero,.income-note,.income-settlement,.creator-withdraw-card{margin-left:14px;margin-right:14px}.income-ledger-head{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-panel{padding-left:10px;padding-right:10px}.checkin-week{gap:1px}.checkin-hero{padding-left:14px;padding-right:14px}.checkin-hero-copy strong{font-size:18px}.checkin-hero-copy strong em{font-size:24px}.checkin-status{display:none}.checkin-day>i{left:calc(50% + 12px);width:calc(100% - 24px)}.detail-header{padding-left:12px;padding-right:12px}}
+@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-overview,.checkin-panel,.checkin-claim,.checkin-error,.checkin-footnote,.feedback-form{margin-left:14px;margin-right:14px}.creator-income-hero,.creator-income-ledger,.creator-income-withdraw-panel,.creator-income-rules,.creator-income-create-card,.creator-income-foot{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-panel{padding-left:10px;padding-right:10px}.checkin-week{gap:1px}.checkin-hero{padding-left:14px;padding-right:14px}.checkin-hero-copy strong{font-size:18px}.checkin-hero-copy strong em{font-size:24px}.checkin-status{display:none}.checkin-day>i{left:calc(50% + 12px);width:calc(100% - 24px)}.detail-header{padding-left:12px;padding-right:12px}}
 @media(prefers-reduced-motion:reduce){
   .live-gift-effect,.live-gift-effect::before,.live-gift-art,.live-gift-caption small,.live-gift-caption b{animation:none;opacity:1;transform:translate(-50%,-50%)}
   .live-gift-effect{animation:gift-effect-reduced 1.8s ease both;transform:translateX(-50%)}

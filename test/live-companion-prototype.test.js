@@ -152,8 +152,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103008/);
-  assert.match(html, /live\.js\?v=2026103008/);
+  assert.match(html, /live\.css\?v=2026103009/);
+  assert.match(html, /live\.js\?v=2026103009/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
 });
 
@@ -273,7 +273,7 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.doesNotMatch(live, /V币|爱心币/);
   assert.match(css, /\.system-message-row/);
   assert.match(css, /\.checkin-hero/);
-  assert.match(css, /\.income-hero/);
+  assert.match(css, /\.creator-income-hero/);
   assert.match(css, /\.feedback-form/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
   const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
