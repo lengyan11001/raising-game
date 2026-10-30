@@ -637,7 +637,7 @@
     state.createLoading = true;
     render();
     try {
-      const [chars, realtime, component] = await Promise.all([api("/api/chat-live/community/characters"), api("/api/chat-live/creator/voices?scope=realtime"), api("/api/chat-live/creator/voices?scope=component")]);
+      const [chars, component] = await Promise.all([api("/api/chat-live/community/characters"), api("/api/chat-live/creator/voices?scope=component")]);
       state.createCharacters = chars.characters || [];
       const existing = id ? state.createCharacters.find((item) => String(item.id) === String(id)) : null;
       if (existing) {
@@ -649,12 +649,10 @@
           avatarUrl: existing.avatarUrl || existing.portraitUrl || "",
         };
       }
-      state.creatorVoices = { realtime: realtime.voices || [], component: component.voices || [] };
-      const visibleRealtimeVoices = state.creatorVoices.realtime.slice(0, 8);
+      state.creatorVoices = { realtime: [], component: component.voices || [] };
       const visibleComponentVoices = visibleComponentVoiceOptions(state.creatorVoices.component).slice(0, 8);
-      const firstVoice = visibleRealtimeVoices[0];
       const firstComponentVoice = visibleComponentVoices[0];
-      state.createDraft.voiceType = state.createDraft.voiceType || String(firstVoice?.id || firstVoice?.voice || firstVoice?.voiceType || "");
+      state.createDraft.voiceType = "";
       state.createDraft.componentVoiceType = state.createDraft.componentVoiceType || String(firstComponentVoice?.id || firstComponentVoice?.voice || firstComponentVoice?.voiceType || "");
     } catch (error) { state.createError = error.message || "加载失败"; }
     state.createLoading = false;
@@ -668,7 +666,6 @@
   function createEditor() {
     stopVoicePreview();
     const d = createDraft();
-    const voices = (state.creatorVoices?.realtime || []).slice(0, 8);
     const componentVoices = visibleComponentVoiceOptions(state.creatorVoices?.component || []).slice(0, 8);
     const tags = ["温柔", "直率", "慢热", "爱开玩笑", "理性", "黏人"];
     const lockedGender = Boolean(state.createEditingId);
@@ -678,12 +675,12 @@
         const id = String(voice.id || voice.voice || voice.voiceType || "");
         const name = voice.title || [voice.style, voice.gender].filter(Boolean).join(" · ") || voice.label || `${fallback} ${index + 1}`;
         const desc = voice.desc || voice.description || "自然真实的声音";
-        const scope = key === "voice" ? "realtime" : "component";
+        const scope = "component";
         const selected = d[key === "voice" ? "voiceType" : "componentVoiceType"] === id;
         return `<div class="create-voice-card ${selected ? "selected" : ""}" data-create-${key}-card="${esc(id)}"><button type="button" class="create-voice-select" data-create-${key}="${esc(id)}" aria-pressed="${selected ? "true" : "false"}"><b>${esc(name)}</b><span>${esc(desc)}</span></button><button type="button" class="create-voice-preview" data-voice-preview data-voice-scope="${scope}" data-voice-type="${esc(id)}" data-voice-card="${esc(id)}" aria-label="试听${esc(name)}">▶ 试听</button></div>`;
       }).join("")
       : `<span class="create-muted">${fallback}正在准备中</span>`;
-    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>按风格选择，可试听</small></div><p class="create-voice-hint">点选你喜欢的说话感觉，再试听确认。</p><div class="create-voice-group"><b>实时通话声音</b><small>视频通话时使用</small><div class="create-options voice">${voiceButtons(voices, "voice", "实时声音")}</div></div><div class="create-voice-group"><b>房间 / 组件声音</b><small>进房间聊天时使用</small><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "组件声音")}</div></div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
+    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>按风格选择，可试听</small></div><p class="create-voice-hint">点选你喜欢的说话感觉，再试听确认。</p><div class="create-voice-group"><b>角色声音</b><small>进入聊天时使用</small><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "角色声音")}</div></div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
   }
   function readCreateDraftFromForm() {
     const form = document.querySelector("[data-create-form]");
@@ -706,11 +703,11 @@
     if (!d.intro) { state.createError = "请填写一句话介绍"; createEditor(); return; }
     if (!d.greeting) { state.createError = "请填写开场白"; createEditor(); return; }
     if (!d.personaMd) { state.createError = "请填写人物设定"; createEditor(); return; }
-    if (!d.voiceType || !d.componentVoiceType) { state.createError = "音色还在加载，请稍后重试"; createEditor(); return; }
+    if (!d.componentVoiceType) { state.createError = "音色还在加载，请稍后重试"; createEditor(); return; }
     state.createBusy = true;
     createEditor();
     const persona = d.personaMd;
-    const body = { ...(state.createEditingId ? { id: state.createEditingId } : {}), name: d.name, age: Number(d.age || 23), gender: d.gender, occupation: d.occupation || "", language: "zh", tags: d.tags, sortOrder: Number(d.sortOrder || 0), intro: d.intro, greeting: d.greeting, linkName: "", mode: d.mode || "", personaEnhance: false, sharedRoomEnabled: d.visibility === "public", visibility: d.visibility, personaMd: persona, persona, replyStyle: persona, voiceType: d.voiceType, componentVoiceType: d.componentVoiceType, voiceProvider: "", album: Array.isArray(d.album) ? d.album : [], avatarUrl: d.avatarUrl, portraitUrl: d.avatarUrl };
+    const body = { ...(state.createEditingId ? { id: state.createEditingId } : {}), name: d.name, age: Number(d.age || 23), gender: d.gender, occupation: d.occupation || "", language: "zh", tags: d.tags, sortOrder: Number(d.sortOrder || 0), intro: d.intro, greeting: d.greeting, linkName: "", mode: "component", personaEnhance: false, sharedRoomEnabled: d.visibility === "public", visibility: d.visibility, personaMd: persona, persona, replyStyle: persona, voiceType: "", componentVoiceType: d.componentVoiceType, voiceProvider: "", album: Array.isArray(d.album) ? d.album : [], avatarUrl: d.avatarUrl, portraitUrl: d.avatarUrl };
     try {
       const saved = state.createEditingId
         ? await api(`/api/chat-live/community/characters/${encodeURIComponent(state.createEditingId)}`, { method: "PUT", body: JSON.stringify(body) })
@@ -1880,10 +1877,10 @@
     const rows = Array.isArray(list) ? list : [];
     const current = String(selected || "");
     const has = rows.some((item) => String(item.id || item.voice || item.voiceType || "") === current);
-    const head = current && !has ? `<option value="${esc(current)}" selected>${esc(current)}</option>` : `<option value="">请选择</option>`;
+    const head = current && !has ? `<option value="" selected>原音色已下架，请重新选择</option>` : `<option value="">请选择</option>`;
     return head + rows.map((item) => {
       const id = String(item.id || item.voice || item.voiceType || "");
-      const label = item.name || item.label || id;
+      const label = item.title || item.name || item.label || id;
       return `<option value="${esc(id)}" ${id === current ? "selected" : ""}>${esc(label)}</option>`;
     }).join("");
   }
@@ -1894,15 +1891,15 @@
     state.creatorError = "";
     render();
     try {
-      const [chars, realtime, component] = await Promise.all([
+      const [chars, component] = await Promise.all([
         api("/api/chat-live/creator/characters"),
-        api("/api/chat-live/creator/voices?scope=realtime"),
         api("/api/chat-live/creator/voices?scope=component"),
       ]);
       state.creatorList = chars.characters || [];
-      state.creatorVoices = { realtime: realtime.voices || [], component: component.voices || [] };
+      state.creatorVoices = { realtime: [], component: component.voices || [] };
+      const firstComponentVoice = visibleComponentVoiceOptions(state.creatorVoices.component)[0];
       state.creatorDraft = id ? (state.creatorList.find((item) => item.id === id) || null) : {
-        name: "", age: 23, occupation: "", language: "zh", tags: [], sortOrder: 0, intro: "", linkName: "", greeting: "", mode: "", personaEnhance: false, sharedRoomEnabled: false, enabled: false, personaMd: "", replyStyle: "", voiceType: "", componentVoiceType: "", voiceProvider: "", album: [], avatarUrl: "", portraitUrl: "",
+        name: "", age: 23, occupation: "", language: "zh", tags: [], sortOrder: 0, intro: "", linkName: "", greeting: "", mode: "component", personaEnhance: false, sharedRoomEnabled: false, enabled: false, personaMd: "", replyStyle: "", voiceType: "", componentVoiceType: String(firstComponentVoice?.id || firstComponentVoice?.voice || firstComponentVoice?.voiceType || ""), voiceProvider: "dashscope_cosyvoice", album: [], avatarUrl: "", portraitUrl: "",
       };
       if (id && !state.creatorDraft) state.creatorError = "角色不存在或不是你创建的。";
     } catch (error) {
@@ -1917,14 +1914,14 @@
       return;
     }
     const album = Array.isArray(value.album) ? value.album : [];
-    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header"><button data-action="creator">返回</button><h1>${value.id ? "编辑角色" : "新建角色"}</h1><button data-action="creator-save">保存</button></header><form id="creatorForm" class="creator-form"><section class="edit-section"><h3>形象</h3><label class="creator-upload">形象图<input type="file" accept="image/*" data-creator-upload="avatar" /></label>${value.avatarUrl ? `<img class="creator-preview" src="${esc(value.avatarUrl)}" alt="" />` : `<p>请上传形象图</p>`}<button type="button" data-action="creator-undress" ${value.id && value.avatarUrl ? "" : "disabled"}>生成私密图</button><p class="creator-note">${esc(value.undressStatus === "generating" ? "私密图生成中，保存后可刷新查看。" : value.undressImageUrl ? "私密图已生成。" : value.undressError || "先保存角色，再生成私密图。")}</p><label class="creator-upload">列表头像<input type="file" accept="image/*" data-creator-upload="portrait" /></label>${value.portraitUrl ? `<img class="creator-preview" src="${esc(value.portraitUrl)}" alt="" />` : ""}</section><section class="edit-section creator-grid"><label>角色名称<input name="name" value="${esc(value.name || "")}" maxlength="60" required /></label><label>年龄<input name="age" type="number" min="18" max="80" value="${esc(value.age || "")}" /></label><label>职业<input name="occupation" value="${esc(value.occupation || "")}" maxlength="40" /></label><label>语言<input name="language" value="${esc(value.language || "zh")}" /></label><label>标签<input name="tags" value="${esc((value.tags || []).join(","))}" placeholder="温柔,御姐" /></label><label>排序<input name="sortOrder" type="number" value="${esc(value.sortOrder ?? 0)}" /></label><label class="span2">介绍<input name="intro" value="${esc(value.intro || "")}" maxlength="600" /></label><label class="span2">关联平台角色名<input name="linkName" value="${esc(value.linkName || "")}" /></label><label>开场白<input name="greeting" value="${esc(value.greeting || "")}" /></label><label>对话模式<select name="mode"><option value="">跟随全局默认</option><option value="realtime" ${value.mode === "realtime" ? "selected" : ""}>实时版</option><option value="component" ${value.mode === "component" ? "selected" : ""}>组件版</option></select></label><label class="check"><input name="personaEnhance" type="checkbox" ${value.personaEnhance ? "checked" : ""} />人设增强</label><label class="check"><input name="sharedRoomEnabled" type="checkbox" ${value.sharedRoomEnabled ? "checked" : ""} />支持多人房间</label></section><section class="edit-section"><h3>音色</h3><label>实时版<select name="voiceType" data-provider="${esc(value.voiceProvider || "")}">${creatorVoiceOptions(state.creatorVoices?.realtime, value.voiceType)}</select></label><label>组件版<select name="componentVoiceType">${creatorVoiceOptions(state.creatorVoices?.component, value.componentVoiceType)}</select></label><label>口吻<textarea name="replyStyle" rows="4" maxlength="4000">${esc(value.replyStyle || "")}</textarea></label><label>人设 Markdown<textarea name="personaMd" rows="10">${esc(value.personaMd || "")}</textarea></label><label class="creator-upload">导入 MD<input type="file" accept=".md,text/markdown,text/plain" data-creator-md="1" /></label></section><section class="edit-section"><h3>相册</h3><div id="creatorAlbum">${album.map((item, index) => `<div class="creator-album-row" data-album-index="${index}"><img src="${esc(item.thumbnailUrl || item.url || "")}" alt="" /><input data-album-name value="${esc(item.name || "")}" /><select data-album-type><option value="image" ${item.type !== "video" ? "selected" : ""}>图片</option><option value="video" ${item.type === "video" ? "selected" : ""}>视频</option></select><label><input data-album-locked type="checkbox" ${item.locked ? "checked" : ""} />锁定</label><button type="button" data-action="creator-album-remove">删除</button><input type="hidden" data-album-url value="${esc(item.url || "")}" /></div>`).join("")}</div><label class="creator-upload">添加图片<input type="file" accept="image/*" data-creator-upload="private-image" /></label><label class="creator-upload">添加视频<input type="file" accept="video/mp4,video/webm" data-creator-upload="private-video" /></label><p class="creator-note" data-creator-status></p></section></form></main>`;
+    const componentVoice = value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? value.voiceType : "");
+    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header"><button data-action="creator">返回</button><h1>${value.id ? "编辑角色" : "新建角色"}</h1><button data-action="creator-save">保存</button></header><form id="creatorForm" class="creator-form"><section class="edit-section"><h3>形象</h3><label class="creator-upload">形象图<input type="file" accept="image/*" data-creator-upload="avatar" /></label>${value.avatarUrl ? `<img class="creator-preview" src="${esc(value.avatarUrl)}" alt="" />` : `<p>请上传形象图</p>`}<button type="button" data-action="creator-undress" ${value.id && value.avatarUrl ? "" : "disabled"}>生成私密图</button><p class="creator-note">${esc(value.undressStatus === "generating" ? "私密图生成中，保存后可刷新查看。" : value.undressImageUrl ? "私密图已生成。" : value.undressError || "先保存角色，再生成私密图。")}</p><label class="creator-upload">列表头像<input type="file" accept="image/*" data-creator-upload="portrait" /></label>${value.portraitUrl ? `<img class="creator-preview" src="${esc(value.portraitUrl)}" alt="" />` : ""}</section><section class="edit-section creator-grid"><label>角色名称<input name="name" value="${esc(value.name || "")}" maxlength="60" required /></label><label>年龄<input name="age" type="number" min="18" max="80" value="${esc(value.age || "")}" /></label><label>职业<input name="occupation" value="${esc(value.occupation || "")}" maxlength="40" /></label><label>语言<input name="language" value="${esc(value.language || "zh")}" /></label><label>标签<input name="tags" value="${esc((value.tags || []).join(","))}" placeholder="温柔,御姐" /></label><label>排序<input name="sortOrder" type="number" value="${esc(value.sortOrder ?? 0)}" /></label><label class="span2">介绍<input name="intro" value="${esc(value.intro || "")}" maxlength="600" /></label><label class="span2">关联平台角色名<input name="linkName" value="${esc(value.linkName || "")}" /></label><label>开场白<input name="greeting" value="${esc(value.greeting || "")}" /></label><input type="hidden" name="mode" value="component" /><div class="creator-note">对话模式：组件版（外接 LLM / ASR / TTS）</div><label class="check"><input name="personaEnhance" type="checkbox" ${value.personaEnhance ? "checked" : ""} />人设增强</label><label class="check"><input name="sharedRoomEnabled" type="checkbox" ${value.sharedRoomEnabled ? "checked" : ""} />支持多人房间</label></section><section class="edit-section"><h3>音色</h3><label>组件音色<select name="componentVoiceType">${creatorVoiceOptions(state.creatorVoices?.component, componentVoice)}</select></label><p class="creator-note">用户创建角色只使用组件音色，播放试听时会严格使用当前选中的声音。</p><label>口吻<textarea name="replyStyle" rows="4" maxlength="4000">${esc(value.replyStyle || "")}</textarea></label><label>人设 Markdown<textarea name="personaMd" rows="10">${esc(value.personaMd || "")}</textarea></label><label class="creator-upload">导入 MD<input type="file" accept=".md,text/markdown,text/plain" data-creator-md="1" /></label></section><section class="edit-section"><h3>相册</h3><div id="creatorAlbum">${album.map((item, index) => `<div class="creator-album-row" data-album-index="${index}"><img src="${esc(item.thumbnailUrl || item.url || "")}" alt="" /><input data-album-name value="${esc(item.name || "")}" /><select data-album-type><option value="image" ${item.type !== "video" ? "selected" : ""}>图片</option><option value="video" ${item.type === "video" ? "selected" : ""}>视频</option></select><label><input data-album-locked type="checkbox" ${item.locked ? "checked" : ""} />锁定</label><button type="button" data-action="creator-album-remove">删除</button><input type="hidden" data-album-url value="${esc(item.url || "")}" /></div>`).join("")}</div><label class="creator-upload">添加图片<input type="file" accept="image/*" data-creator-upload="private-image" /></label><label class="creator-upload">添加视频<input type="file" accept="video/mp4,video/webm" data-creator-upload="private-video" /></label><p class="creator-note" data-creator-status></p></section></form></main>`;
   }
   function readCreatorForm() {
     const form = document.getElementById("creatorForm");
     if (!form) return null;
     const val = (name) => form.querySelector(`[name="${name}"]`)?.value ?? "";
-    const voice = form.querySelector("[name=voiceType]");
-    const selectedVoice = (state.creatorVoices?.realtime || []).find((item) => String(item.id || item.voice || item.voiceType || "") === voice?.value);
+    const componentVoiceType = val("componentVoiceType");
     return {
       ...(state.creatorDraft || {}),
       name: val("name"),
@@ -1936,13 +1933,13 @@
       intro: val("intro"),
       linkName: val("linkName"),
       greeting: val("greeting"),
-      mode: val("mode"),
+      mode: "component",
       personaEnhance: form.querySelector("[name=personaEnhance]")?.checked === true,
       sharedRoomEnabled: form.querySelector("[name=sharedRoomEnabled]")?.checked === true,
       enabled: state.creatorDraft?.id ? state.creatorDraft.enabled !== false : false,
-      voiceType: val("voiceType"),
-      voiceProvider: selectedVoice?.provider || state.creatorDraft?.voiceProvider || "",
-      componentVoiceType: val("componentVoiceType"),
+      voiceType: componentVoiceType,
+      voiceProvider: "dashscope_cosyvoice",
+      componentVoiceType,
       replyStyle: val("replyStyle"),
       personaMd: val("personaMd"),
       persona: val("personaMd"),

@@ -61,7 +61,7 @@ test("live text chat keeps composing while a reply is pending", () => {
   assert.doesNotMatch(live, /const sendBtn = textForm\.querySelector\("button\[type=submit\]"\); sendBtn\.disabled = true/);
 });
 
-test("creator voice choices use understandable styles and real previews", () => {
+test("creator voice choices use understandable component styles and exact previews", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   assert.match(live, /voice\.title \|\| \[voice\.style, voice\.gender\]/);
   assert.doesNotMatch(live, /data-create-\$\{key\}[^>]*>▷ \$\{esc\(name\)\}/);
@@ -75,18 +75,51 @@ test("creator voice choices use understandable styles and real previews", () => 
   assert.match(live, /function visibleComponentVoiceOptions\(voices = \[\]\)/);
   assert.match(live, /!\/童\|粤语\|闽南\|陕北\|英语\|印尼\|日语\|韩语\|泰语\|越南\|方言\/u\.test\(desc\)/);
   assert.match(live, /const visibleComponentVoices = visibleComponentVoiceOptions\(state\.creatorVoices\.component\)/);
+  assert.doesNotMatch(live, /api\("\/api\/chat-live\/creator\/voices\?scope=realtime"\)/);
+  assert.doesNotMatch(live, /<label>实时版<select/);
+  assert.match(live, /voiceType: componentVoiceType,\s*voiceProvider: "dashscope_cosyvoice",\s*componentVoiceType/s);
   assert.match(live, /\/api\/chat-live\/creator\/voices\/preview/);
   assert.match(server, /url\.pathname === "\/api\/chat-live\/creator\/voices\/preview"/);
   assert.match(server, /async function handleCreatorChatLiveVoicePreview[\s\S]*?requireUser\(req, res\)/);
+  assert.match(server, /code: "VOICE_SCOPE_UNSUPPORTED"/);
   assert.match(server, /VOICE_NOT_AVAILABLE/);
   assert.match(server, /VOICE_PREVIEW_UNAVAILABLE/);
-  assert.match(server, /上游返回的内容不是可播放的音频/);
+  assert.doesNotMatch(server, /realtimeChatLiveVoicePreviewWav/);
+  assert.doesNotMatch(server, /voice_setting_voice_id: voiceType/);
   assert.match(server, /longyingxun_v3: \{ style: "清新"/);
   assert.match(server, /longanli_v3: \{ style: "清脆"/);
-  assert.match(server, /voice_setting_voice_id: voiceType/);
   assert.match(server, /componentVoicePreviewWav\("你好呀，今天想和我聊点什么？", voiceType\)/);
+  assert.match(server, /voiceType: requestedComponentVoice,[\s\S]*?voiceProvider: "dashscope_cosyvoice",[\s\S]*?componentVoiceType: requestedComponentVoice/s);
   assert.match(css, /\.create-options\.voice \.create-voice-card/);
   assert.match(css, /\.create-voice-preview\.playing/);
+});
+
+test("component voice catalog is strict and realtime voices are not exposed", () => {
+  const {
+    filterChatLiveComponentVoiceCatalog,
+    CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST,
+  } = require(path.join(root, "server.js"));
+  const catalog = JSON.parse(fs.readFileSync(path.join(root, "assets", "chat-live", "voices-component.json"), "utf8"));
+  const voices = filterChatLiveComponentVoiceCatalog(catalog);
+  const ids = new Set(voices.map((voice) => voice.voiceType));
+
+  assert.ok(voices.length > 0);
+  for (const voice of voices) {
+    assert.equal(voice.provider, "dashscope_cosyvoice");
+    assert.equal(CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST.has(voice.voiceType), true);
+    assert.match(voice.title, / · /);
+    assert.equal(voice.preview, true);
+  }
+  for (const excluded of ["longhuhu_v3", "longyue_v3", "longanyue_v3", "longshange_v3", "loongandy_v3", "longlaobo_v3", "longjiqi_v3"]) {
+    assert.equal(ids.has(excluded), false, excluded);
+  }
+  assert.equal(ids.has("longanyang"), true);
+  assert.equal(ids.has("longanhuan"), true);
+  assert.equal(ids.has("longyingxiao_v3"), true);
+
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(server, /if \(catalogScope !== "component"\) return \{ region, scope: catalogScope, voices: \[\] \};/);
+  assert.match(server, /User-created characters use the component voice path/);
 });
 
 test("live recommendation cards keep one fixed frame", () => {
@@ -119,8 +152,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103006/);
-  assert.match(html, /live\.js\?v=2026103006/);
+  assert.match(html, /live\.css\?v=2026103007/);
+  assert.match(html, /live\.js\?v=2026103007/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
 });
 

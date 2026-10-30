@@ -8211,8 +8211,20 @@ async function handleCommunitySaveChatLiveCharacter(req, res, characterId = "") 
   }
   const requestedVisibility = String(body.visibility ?? body.communityVisibility ?? existing?.communityVisibility ?? "private").trim().toLowerCase();
   const communityVisibility = requestedVisibility === "public" ? "public" : "private";
+  const requestedComponentVoice = String(body.componentVoiceType ?? body.component_voice_type ?? existing?.componentVoiceType ?? "").trim();
+  if (!requestedComponentVoice) return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_COMPONENT_VOICE_REQUIRED", message: "请选择一个角色声音。" });
+  if (!CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST.has(requestedComponentVoice)) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_COMPONENT_VOICE_INVALID", message: "这个角色声音不可用，请重新选择。" });
+  }
+  /* Community-created characters always use the component voice path. The
+     legacy realtime voice fields are mirrored for runtime compatibility, but
+     the client cannot select or override them. */
   const payload = normalizeChatLiveCharacterPayload({
     ...body,
+    mode: "component",
+    voiceType: requestedComponentVoice,
+    voiceProvider: "dashscope_cosyvoice",
+    componentVoiceType: requestedComponentVoice,
     communityVisibility,
     communityShareEnabled: true,
   }, existing);
@@ -8317,7 +8329,18 @@ async function handleCreatorSaveChatLiveCharacter(req, res, characterId = "") {
       .filter((item) => String(item?.createdByUserId || "") === String(auth.user?.id || "") && item?.communityShareEnabled !== true);
     if (owned.length >= 30) return sendJson(res, 422, { ok: false, message: "最多创建 30 个内部角色。" });
   }
-  const payload = normalizeChatLiveCharacterPayload(body, existing);
+  const requestedComponentVoice = String(body.componentVoiceType ?? body.component_voice_type ?? existing?.componentVoiceType ?? "").trim();
+  if (!requestedComponentVoice) return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_COMPONENT_VOICE_REQUIRED", message: "请选择一个角色声音。" });
+  if (!CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST.has(requestedComponentVoice)) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_COMPONENT_VOICE_INVALID", message: "这个角色声音不可用，请重新选择。" });
+  }
+  const payload = normalizeChatLiveCharacterPayload({
+    ...body,
+    mode: "component",
+    voiceType: requestedComponentVoice,
+    voiceProvider: "dashscope_cosyvoice",
+    componentVoiceType: requestedComponentVoice,
+  }, existing);
   payload.enabled = existing ? existing.enabled !== false : false;
   /* Internal creator-center characters are never community royalty sources. */
   payload.communityShareEnabled = false;
@@ -8414,28 +8437,37 @@ function chatLiveVoiceDisplayMeta(voice = {}, scope = "realtime") {
   };
 }
 
+const CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST = new Set([
+  "longanyang", "longanhuan", "longyingxiao_v3", "longyingxun_v3",
+  "longyingtao_v3", "longanyun_v3", "longanwen_v3", "longanli_v3",
+  "longanlang_v3", "longyingmu_v3", "longhua_v3", "longwan_v3",
+  "longanzhi_v3", "longanya_v3", "longanqin_v3", "longwanjun_v3",
+  "longyichen_v3", "longdaiyu_v3", "longanxuan_v3",
+]);
+
+function filterChatLiveComponentVoiceCatalog(list = []) {
+  return (Array.isArray(list) ? list : []).filter((voice) => {
+    const voiceType = String(voice?.voiceType || voice?.voice_type || "");
+    return voiceType
+      && String(voice?.provider || "") === "dashscope_cosyvoice"
+      && CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST.has(voiceType);
+  }).map((voice) => ({
+    ...voice,
+    ...chatLiveVoiceDisplayMeta(voice, "component"),
+    preview: true,
+  }));
+}
+
 async function readChatLiveVoiceCatalog(scope = "realtime") {
   const live = chatLiveConfigValue(await readAppConfig());
   const catalogScope = scope === "component" ? "component" : "realtime";
-  const file = catalogScope === "component"
-    ? path.join(ROOT, "assets", "chat-live", "voices-component.json")
-    : CHAT_LIVE_VOICES_FILE;
-  const raw = await fs.readFile(file, "utf8");
-  const parsed = JSON.parse(raw);
-  const list = Array.isArray(parsed) ? parsed : [];
   const region = live.region === "cn" ? "cn" : "overseas";
-  const blocked = region === "overseas" ? "doubao_cn" : "doubao_overseas";
-  const voices = list.filter((voice) => {
-    const provider = String(voice?.provider || "");
-    if (!voice?.voiceType || provider === "offline" || provider === blocked) return false;
-    return catalogScope === "component"
-      ? provider === "dashscope_cosyvoice"
-      : provider === "qwen_omni" || provider === "doubao_cn" || provider === "doubao_overseas";
-  }).map((voice) => ({
-    ...voice,
-    ...chatLiveVoiceDisplayMeta(voice, catalogScope),
-    preview: true,
-  }));
+  /* User-created characters use the component voice path. Realtime catalog
+     entries are intentionally not exposed because no exact preview exists. */
+  if (catalogScope !== "component") return { region, scope: catalogScope, voices: [] };
+  const raw = await fs.readFile(path.join(ROOT, "assets", "chat-live", "voices-component.json"), "utf8");
+  const parsed = JSON.parse(raw);
+  const voices = filterChatLiveComponentVoiceCatalog(parsed);
   return { region, scope: catalogScope, voices };
 }
 
@@ -8461,42 +8493,14 @@ function cacheChatLiveVoicePreview(key = "", audio = null) {
   }
 }
 
-async function realtimeChatLiveVoicePreviewWav(voiceType = "") {
-  const upstream = await viduLiveRequest("/ent/v2/audio-tts", {
-    method: "POST",
-    timeoutMs: 45000,
-    body: {
-      text: "你好呀，今天想和我聊点什么？",
-      voice_setting_voice_id: voiceType,
-      voice_setting_speed: 1,
-      voice_setting_volume: 0,
-      voice_setting_pitch: 0,
-    },
-  });
-  const fileUrl = String(upstream?.file_url || upstream?.data?.file_url || "").trim();
-  if (!fileUrl) throw new Error("上游没有返回试听音频。请稍后再试。");
-  const response = await fetch(fileUrl, { signal: AbortSignal.timeout(30000) });
-  if (!response.ok) throw new Error("试听音频下载失败，请稍后再试。");
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (!buffer.length) throw new Error("试听音频为空，请稍后再试。");
-  const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim();
-  const riff = buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WAVE";
-  const id3 = buffer.length >= 3 && buffer.toString("ascii", 0, 3) === "ID3";
-  const mpeg = buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0;
-  const ftyp = buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp";
-  const ogg = buffer.length >= 4 && buffer.toString("ascii", 0, 4) === "OggS";
-  if (!riff && !id3 && !mpeg && !ftyp && !ogg) throw new Error("上游返回的内容不是可播放的音频。");
-  const mime = /^audio\//i.test(contentType)
-    ? contentType
-    : riff ? "audio/wav" : ogg ? "audio/ogg" : ftyp ? "audio/mp4" : "audio/mpeg";
-  return { buffer, mime };
-}
-
 async function handleCreatorChatLiveVoicePreview(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
-  const scope = String(body.scope || "realtime") === "component" ? "component" : "realtime";
+  const scope = String(body.scope || "component");
+  if (scope !== "component") {
+    return sendJson(res, 422, { ok: false, code: "VOICE_SCOPE_UNSUPPORTED", message: "用户创建角色只使用组件音色，实时音色不可试听。" });
+  }
   const voiceType = String(body.voiceType || body.voice_type || "").trim();
   if (!voiceType) return sendJson(res, 422, { ok: false, code: "VOICE_REQUIRED", message: "请选择一个声音后再试听。" });
   let catalog;
@@ -8507,16 +8511,14 @@ async function handleCreatorChatLiveVoicePreview(req, res) {
   }
   const voice = catalog.voices.find((item) => String(item.voiceType || "") === voiceType);
   if (!voice) return sendJson(res, 422, { ok: false, code: "VOICE_NOT_AVAILABLE", message: "这个声音当前不可用，请重新选择。" });
-  const cacheKey = `${catalog.region}:${scope}:${voiceType}`;
+  const cacheKey = `${catalog.region}:${scope}:${voice.provider}:${voiceType}`;
   let audio = cachedChatLiveVoicePreview(cacheKey);
   if (!audio) {
     try {
-      audio = scope === "component"
-        ? { buffer: await chatLiveComponent.__test.componentVoicePreviewWav("你好呀，今天想和我聊点什么？", voiceType), mime: "audio/wav" }
-        : await realtimeChatLiveVoicePreviewWav(voiceType);
+      audio = { buffer: await chatLiveComponent.__test.componentVoicePreviewWav("你好呀，今天想和我聊点什么？", voiceType), mime: "audio/wav" };
       cacheChatLiveVoicePreview(cacheKey, audio);
     } catch (error) {
-      console.warn("[chat-live-voice-preview] failed", JSON.stringify({ scope, voiceType, region: catalog.region, message: String(error?.message || error).slice(0, 180) }));
+      console.warn("[chat-live-voice-preview] failed", JSON.stringify({ scope, provider: voice.provider, voiceType, region: catalog.region, message: String(error?.message || error).slice(0, 180) }));
       return sendJson(res, 503, { ok: false, code: "VOICE_PREVIEW_UNAVAILABLE", message: "这个声音暂时无法试听，请换一个或稍后再试。" });
     }
   }
@@ -53132,4 +53134,6 @@ module.exports = {
   chatLiveLedgerMatchesCharge,
   chatLiveCharacterAutoProfilePrompt,
   parseChatLiveCharacterAutoProfile,
+  filterChatLiveComponentVoiceCatalog,
+  CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST,
 };
