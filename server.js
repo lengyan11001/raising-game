@@ -10745,6 +10745,7 @@ async function handleChatLiveSay(req, res, sessionId = "") {
       memoryBlock: chatCharacterMemoryBlock(sayMemory, auth.user),
       userBlock: chatLiveUserContext(auth.user),
       storyBlock,
+      stage: director?.stage || session.liveStoryStage || "",
     });
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "user", text, "component");
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "assistant", reply, "component");
@@ -10831,6 +10832,7 @@ async function handleChatLiveVoice(req, res, sessionId = "") {
       room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false),
       memoryBlock: chatCharacterMemoryBlock(sayMemory, auth.user),
       userBlock: chatLiveUserContext(auth.user),
+      stage: session.liveStoryStage || "",
     });
     await rememberChatCharacterTurn(auth.user.id, session.characterId, "user", text, "component");
     return sendJson(res, 200, { ok: true, text });
@@ -10887,7 +10889,7 @@ async function handleChatLiveGift(req, res, sessionId = "") {
   try {
     if (session.mode === "component") {
       await publishChatLiveRoomEvent(session, { role: "gift", content: `${String(session.username || auth.user.username || "有人")} 打赏了 ${gift.name}`, userId: auth.user.id }).catch(() => {});
-      const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText, { kind: "gift", room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false) });
+      const reply = await chatLiveComponent.componentSay(session.liveId, gift.userText, { kind: "gift", room: Boolean(session.roomId || session.sharedRoomViewer === true || session.exclusive === false), stage: session.liveStoryStage || "" });
       await recordCreatorUsageEarningInDb({
         eventKey: taskId,
         earningType: "video_gift_earning",

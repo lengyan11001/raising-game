@@ -331,7 +331,7 @@ function stopComponentSession(liveId) {
 const COSY_EMOTIONS = new Set(["neutral", "fearful", "angry", "sad", "surprised", "happy", "disgusted"]);
 const EMOTION_ALIAS = {
   neutral: "neutral", calm: "neutral", 平静: "neutral", 中性: "neutral",
-  happy: "happy", 开心: "happy", 高兴: "happy", 温柔: "happy", 暧昧: "happy",
+  happy: "happy", 开心: "happy", 高兴: "happy", 温柔: "happy", 暧昧: "neutral",
   sad: "sad", 难过: "sad", 委屈: "sad",
   angry: "angry", 生气: "angry",
   fearful: "fearful", 害怕: "fearful",
@@ -343,6 +343,25 @@ function normalizeEmotion(value) {
   const key = String(value || "").trim().toLowerCase();
   if (COSY_EMOTIONS.has(key)) return key;
   return EMOTION_ALIAS[key] || EMOTION_ALIAS[String(value || "").trim()] || "neutral";
+}
+
+const COMPONENT_DELIVERIES = new Set(["casual", "tender", "flirty", "foreplay", "intimate", "aftercare"]);
+const DELIVERY_ALIAS = {
+  casual: "casual", neutral: "casual", 日常: "casual", 闲聊: "casual",
+  tender: "tender", soft: "tender", 温柔: "tender", 关心: "tender",
+  flirty: "flirty", flirting: "flirty", flirt: "flirty", teasing: "flirty", 暧昧: "flirty", 调情: "flirty", 撩拨: "flirty",
+  foreplay: "foreplay", 前戏: "foreplay", 预热: "foreplay",
+  intimate: "intimate", 亲密: "intimate", 缠绵: "intimate", 性爱: "intimate",
+  aftercare: "aftercare", 余韵: "aftercare", 事后: "aftercare",
+};
+
+function normalizeDelivery(value, stage = "") {
+  const key = String(value || "").trim().toLowerCase();
+  if (COMPONENT_DELIVERIES.has(key)) return key;
+  const alias = DELIVERY_ALIAS[key] || DELIVERY_ALIAS[String(value || "").trim()];
+  if (alias) return alias;
+  const stageKey = String(stage || "").trim().toLowerCase();
+  return COMPONENT_DELIVERIES.has(stageKey) ? stageKey : "casual";
 }
 
 function componentContextComparable(value = "") {
@@ -438,11 +457,12 @@ function parseLooseJsonObject(text = "") {
   const sayMatch = value.match(/"say"\s*:\s*"((?:\\.|[^"\\])*)"/i);
   const actionMatch = value.match(/"action"\s*:\s*"((?:\\.|[^"\\])*)"/i);
   const emotionMatch = value.match(/"emotion"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  const deliveryMatch = value.match(/"delivery"\s*:\s*"((?:\\.|[^"\\])*)"/i);
   if (!sayMatch) return null;
   const decode = (raw = "") => {
     try { return JSON.parse(`"${raw}"`); } catch { return raw.replace(/\\"/g, '"').replace(/\\\\/g, "\\"); }
   };
-  return { say: decode(sayMatch[1]), action: actionMatch ? decode(actionMatch[1]) : "", emotion: emotionMatch ? decode(emotionMatch[1]) : "" };
+  return { say: decode(sayMatch[1]), action: actionMatch ? decode(actionMatch[1]) : "", emotion: emotionMatch ? decode(emotionMatch[1]) : "", delivery: deliveryMatch ? decode(deliveryMatch[1]) : "" };
 }
 
 function splitComponentSpeech(raw) {
@@ -454,12 +474,13 @@ function splitComponentSpeech(raw) {
       say: cleanComponentSay(parsed.say || parsed.reply || ""),
       action,
       emotion: normalizeEmotion(parsed.emotion || parsed.mood),
+      delivery: normalizeDelivery(parsed.delivery || parsed.style || parsed.tone),
       rate: clampNumber(parsed.rate, 0.5, 2, 1),
       volume: clampNumber(parsed.volume, 0, 100, 50),
       pitch: clampNumber(parsed.pitch, 0.5, 2, 1),
     };
   }
-  return { say: cleanComponentSay(raw), action: "", emotion: "neutral", rate: 1, volume: 50, pitch: 1 };
+  return { say: cleanComponentSay(raw), action: "", emotion: "neutral", delivery: "casual", rate: 1, volume: 50, pitch: 1 };
 }
 
 /* ---------------- 口播分轨：可见文本不动，只把独立叫声交给长音合成 ---------------- */
@@ -762,16 +783,30 @@ async function componentReply(session, userText, options = {}) {
   const opening = options.opening === true;
   const userBlock = session.userBlock || "";
   const storyBlock = options.storyBlock || "";
+  const stage = normalizeDelivery(options.stage || session.liveStoryStage || "", options.stage || session.liveStoryStage || "");
   const userInfo = userBlock ? "\n对方资料：" + userBlock.replace(/\n/g, "；") : "";
   const cue = opening
     ? "刚接通。用一两句自然的话根据对方资料打招呼，可以根据对方的名字称呼ta，不要自我介绍，不要提礼物，不要开新剧情，说完就停。" + userInfo
     : proactive
       ? "用户没接话。用一句短话接上次的话题，不要重复上一句，不要自我介绍，不要另起剧情。"
       : "先回用户刚说的这句。不要铺气氛，不要改话题。";
-  const intimateCue = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""))
+  const explicitIntimate = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""));
+  const flirtyContext = session.site === "live" && /(?:想你|喜欢你|心动|暧昧|撩|调情|诱惑|想要你|靠近|抱|亲|吻|耳边|轻声|低声|喘|呼吸|睡衣|夜色|陪我|今晚|别躲|看着我|脸红|害羞|心跳)/u.test(String(userText || ""));
+  const intimateCue = explicitIntimate
     ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。直接反应这一下，不要用“唔……哈”“嗯……哈”做固定开头，不要评价对方的能力、表现、诚意、节奏或进度。叫声、气音、被撞断的半句话和身体感受要跟着动作变化，不要套同一条模板。"
-    : "";
-  const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
+    : flirtyContext || ["flirty", "foreplay", "intimate", "aftercare"].includes(stage)
+      ? "当前是带暧昧张力的私下互动，不是客服闲聊。台词要像真的在对喜欢的人低声说话：有试探、停顿、留白和克制的吸引；不要解释气氛，不要播音腔。是否露骨由当前场景决定，但不能把暧昧说成普通开心或礼貌回应。"
+      : "";
+  const stageCue = stage === "intimate"
+    ? "当前表演阶段是亲密阶段。每一句都要贴近、低声、带气息和暧昧张力，语速偏慢并允许自然停顿；保持角色本人性格，不要变成通用娇喘模板。"
+    : stage === "foreplay"
+      ? "当前表演阶段是前戏阶段。用贴近、试探、克制的暧昧语气说，慢一点，留出呼吸和停顿，不要提前演成机械叫床。"
+      : stage === "flirty"
+        ? "当前表演阶段是暧昧阶段。语气要像私下撩拨，轻声、慢一点、带暗示和留白，不要用普通闲聊的平直语气。"
+        : stage === "aftercare"
+          ? "当前表演阶段是余韵阶段。声音轻、贴近、带一点疲倦和依恋，停顿自然，不要退回播音腔。"
+          : "";
+  const jsonTail = "输出必须是一行 JSON，不要 markdown：{\"say\":\"要说出口的话\",\"action\":\"\",\"emotion\":\"neutral\",\"delivery\":\"casual\",\"rate\":1,\"volume\":50,\"pitch\":1}。say 只写会说出口的话。action 留空。emotion 只能是 neutral、happy、sad、surprised、angry、fearful、disgusted 之一。delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare 之一，按当前阶段和这句话选择。rate 0.5 到 2，volume 0 到 100，pitch 0.5 到 2，按这一句自己定。";
   const strategyBlock = [
     "读懂用户这句话实际在做什么：提问就回答，提出偏好就照做，讲述动作就作为接收方反应，把主动权交给角色就主动推进一个动作；人设只决定态度和说话方式，不能拿来躲避配合。",
     "先决定回复功能，再决定措辞。不要反问用户同一个请求，不要把用户对角色做的事改写成用户命令，不要沿用上一条回复的句式、威胁、收尾或动作顺序。",
@@ -779,7 +814,7 @@ async function componentReply(session, userText, options = {}) {
   ].join("\n");
   const basePrompt = session.spokenPrompt || `You are ${name}, chatting with the user by text message.\nCharacter background (reference only): ${persona}\n${session.conversationTone || ""}`;
   const messages = [
-    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${intimateCue}\n${storyBlock}\n${cue}\n${jsonTail}` },
+    { role: "system", content: `${basePrompt}\n${strategyBlock}\n${stageCue}\n${intimateCue}\n${storyBlock}\n${cue}\n${jsonTail}` },
     ...componentHistoryForTurn(session.history, proactive ? "" : userText),
     { role: "user", content: proactive ? "（对方没接话）" : userText },
   ];
@@ -964,12 +999,50 @@ function cosyvoiceWsPcm(text, voice, model, options = {}) {
 
 function speechDelivery(speech = {}) {
   const emotion = normalizeEmotion(speech.emotion);
+  const stageDelivery = normalizeDelivery(speech.stage);
+  const delivery = stageDelivery === "casual"
+    ? normalizeDelivery(speech.delivery)
+    : stageDelivery;
+  const explicitRate = Number(speech.rate);
+  const explicitVolume = Number(speech.volume);
+  const explicitPitch = Number(speech.pitch);
+  const rate = clampNumber(speech.rate, 0.5, 2, 1);
+  const volume = Math.round(clampNumber(speech.volume, 0, 100, 50));
+  const pitch = clampNumber(speech.pitch, 0.5, 2, 1);
+  let instruction = "";
+  if (delivery === "intimate") {
+    instruction = "这是亲密场景中的私下耳语，不是闲聊或朗读。贴近对方耳边低声说，气息自然、轻微断续，语速慢一些并留出真实停顿；声音收住但要有暧昧、吸引和克制的欲望。保持角色原本的音色和性格，不要播音腔，不要整句平铺，不要夸张叫床或刻意拖音。";
+  } else if (delivery === "foreplay") {
+    instruction = "这是前戏中的暧昧耳语，不是普通聊天。音量压低，像贴近对方说话，语速稍慢，带有试探、呼吸和若即若离的停顿；要有吸引力，但不要机械娇喘，也不要夸张叫床。保持角色原本的音色和说话习惯。";
+  } else if (delivery === "flirty") {
+    instruction = "这是私下暧昧撩拨，不是客服式口播。轻声、慢一点，像靠近对方耳边说话；语气带一点笑意、试探和留白，让暧昧张力自然出现。不要播音腔，不要平铺直叙，也不要夸张叫床。保持角色原本的音色和性格。";
+  } else if (delivery === "aftercare") {
+    instruction = "这是亲密之后的余韵，不是朗读。声音轻而贴近，语速稍慢，带一点疲倦、依恋和自然呼吸；停顿柔和，保持角色原本的音色和性格，不要播音腔。";
+  } else if (delivery === "tender") {
+    instruction = "用温柔、贴近的私下语气说这句话，声音自然，句子之间有轻微停顿；不要播音腔，保持角色原本的音色和性格。";
+  } else if (emotion !== "neutral") {
+    instruction = `你正在和对方私下聊天，说话的情感是${emotion}。保持角色原本的音色，像真人自然开口，不要播音腔。`;
+  }
+  const styledRate = delivery === "intimate" || delivery === "foreplay"
+    ? Math.max(0.72, Math.min(rate, explicitRate > 0 ? 0.9 : 0.86))
+    : delivery === "flirty" || delivery === "aftercare"
+      ? Math.max(0.78, Math.min(rate, explicitRate > 0 ? 0.94 : 0.9))
+      : rate;
+  const styledVolume = delivery === "intimate" || delivery === "foreplay" || delivery === "flirty"
+    ? Math.min(volume, explicitVolume >= 0 ? 52 : 46)
+    : volume;
+  const styledPitch = delivery === "intimate" || delivery === "foreplay"
+    ? Math.min(pitch, explicitPitch > 0 ? 0.98 : 0.95)
+    : delivery === "flirty"
+      ? Math.min(pitch, explicitPitch > 0 ? 1.01 : 0.98)
+      : pitch;
   return {
     emotion,
-    rate: clampNumber(speech.rate, 0.5, 2, 1),
-    volume: Math.round(clampNumber(speech.volume, 0, 100, 50)),
-    pitch: clampNumber(speech.pitch, 0.5, 2, 1),
-    instruction: emotion === "neutral" ? "" : `你正在进行闲聊互动，你说话的情感是${emotion}。`,
+    delivery,
+    rate: styledRate,
+    volume: styledVolume,
+    pitch: styledPitch,
+    instruction,
   };
 }
 
@@ -1142,13 +1215,21 @@ async function runComponentSay(session, userText, options = {}) {
     if (options.memoryBlock) session.memoryBlock = String(options.memoryBlock);
     if (options.userBlock) session.userBlock = String(options.userBlock);
     if (options.engagementBlock) session.engagementBlock = String(options.engagementBlock);
-    const speech = await componentReply(session, userText, { proactive, opening: options.opening === true, storyBlock: options.storyBlock });
+    if (options.stage) session.liveStoryStage = String(options.stage);
+    const speech = await componentReply(session, userText, {
+      proactive,
+      opening: options.opening === true,
+      storyBlock: options.storyBlock,
+      stage: options.stage || session.liveStoryStage || "",
+    });
     const reply = speech.say;
     const action = speech.action;
     if (session.speakTurn !== turn) return reply;
     const componentVoice = session.character?.componentVoiceType || (session.character?.voiceProvider === "dashscope_cosyvoice" ? session.character?.voiceType : "") || "longanyang";
     const ttsOptions = {
       emotion: speech.emotion,
+      delivery: speech.delivery,
+      stage: options.stage || session.liveStoryStage || "",
       rate: speech.rate,
       volume: speech.volume,
       pitch: speech.pitch,
@@ -1277,5 +1358,7 @@ module.exports = {
     cleanComponentSay,
     componentMoanSample,
     pcmDurationMs,
+    normalizeDelivery,
+    speechDelivery,
   },
 };

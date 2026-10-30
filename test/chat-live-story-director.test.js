@@ -211,3 +211,8 @@ test("server picks a character look and the client applies it as the first scene
   assert.match(client, /function liveStorySceneLook/);
   assert.match(client, /const actionLook = initial && !director\.look\?\.imageUrl && !director\.lookImageUrl/);
 });
+
+test("component live speech passes the current story stage into TTS", () => {
+  assert.match(server, /chatLiveComponent\.componentSay\(session\.liveId, text, \{[\s\S]*?stage: director\?\.stage \|\| session\.liveStoryStage \|\| ""/);
+  assert.match(server, /chatLiveComponent\.componentSay\(session\.liveId, gift\.userText,[\s\S]*?stage: session\.liveStoryStage \|\| ""/);
+});

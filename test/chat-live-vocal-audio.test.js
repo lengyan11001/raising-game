@@ -15,6 +15,8 @@ const {
     splitComponentSpeech,
     cleanComponentSay,
     pcmDurationMs,
+    normalizeDelivery,
+    speechDelivery,
   },
 } = require("../chat-live-component.js");
 
@@ -43,6 +45,61 @@ test("component speech strips leaked channel markers and JSON fields", () => {
   const cleaned = splitComponentSpeech(channelLeak);
   assert.equal(cleaned.say, "你过来一点。");
   assert.equal(cleanComponentSay("只是台词。"), "只是台词。");
+});
+
+test("component speech parses controlled delivery and keeps ambiguous flirt signals out of happy", () => {
+  const speech = splitComponentSpeech('{"say":"再靠近一点。","action":"","emotion":"暧昧","delivery":"暧昧","rate":1,"volume":50,"pitch":1}');
+  assert.equal(speech.emotion, "neutral");
+  assert.equal(speech.delivery, "flirty");
+  assert.equal(normalizeDelivery("flirting"), "flirty");
+  assert.equal(normalizeDelivery("亲密"), "intimate");
+  assert.equal(normalizeDelivery("前戏"), "foreplay");
+  assert.equal(normalizeDelivery("aftercare"), "aftercare");
+});
+
+test("intimate stage forces an intimate TTS performance over a generic model delivery", () => {
+  const delivery = speechDelivery({ emotion: "happy", delivery: "casual", stage: "intimate", rate: 1, volume: 50, pitch: 1 });
+  assert.equal(delivery.delivery, "intimate");
+  assert.equal(delivery.emotion, "happy");
+  assert.match(delivery.instruction, /亲密场景/);
+  assert.match(delivery.instruction, /耳边/);
+  assert.match(delivery.instruction, /低声/);
+  assert.match(delivery.instruction, /气息/);
+  assert.match(delivery.instruction, /停顿/);
+  assert.match(delivery.instruction, /暧昧/);
+  assert.doesNotMatch(delivery.instruction, /你正在进行闲聊互动|客服式闲聊/);
+  assert.ok(delivery.rate <= 0.9);
+  assert.ok(delivery.pitch <= 0.98);
+  assert.ok(delivery.volume <= 52);
+});
+
+test("flirty and foreplay stages have distinct seductive delivery instructions", () => {
+  const flirty = speechDelivery({ stage: "flirty" });
+  const foreplay = speechDelivery({ stage: "foreplay" });
+  assert.equal(flirty.delivery, "flirty");
+  assert.equal(foreplay.delivery, "foreplay");
+  assert.match(flirty.instruction, /暧昧撩拨/);
+  assert.match(flirty.instruction, /耳边/);
+  assert.match(foreplay.instruction, /前戏/);
+  assert.match(foreplay.instruction, /呼吸/);
+  assert.doesNotMatch(flirty.instruction, /你正在进行闲聊互动|普通闲聊/);
+  assert.doesNotMatch(foreplay.instruction, /闲聊互动/);
+});
+
+test("casual delivery remains plain and emotional fallback no longer calls itself casual chat", () => {
+  const casual = speechDelivery({ delivery: "casual", emotion: "neutral" });
+  assert.equal(casual.delivery, "casual");
+  assert.equal(casual.instruction, "");
+  const happy = speechDelivery({ delivery: "casual", emotion: "happy" });
+  assert.match(happy.instruction, /私下聊天/);
+  assert.doesNotMatch(happy.instruction, /闲聊互动/);
+});
+
+test("component reply prompt asks the model for a controlled delivery style", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
+  assert.match(source, /\\"delivery\\":\\"casual\\"/);
+  assert.match(source, /delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare/);
+  assert.match(source, /stage: options\.stage \|\| session\.liveStoryStage/);
 });
 
 test("standalone moan tokens are split without changing visible words", () => {
@@ -78,10 +135,13 @@ test("standalone vocal replies generate short natural PCM without CosyVoice", as
 test("mixed replies send only spoken text to CosyVoice", async () => {
   const spoken = [];
   const result = await componentReplyPcm("啊……！\n哈啊……别只顾着快，再深一点……唔。", "longanhuan", {
-    speechPcm: async (text) => {
+    speechPcm: async (text, voice, options) => {
       spoken.push(text);
+      assert.equal(voice, "longanhuan");
+      assert.equal(options.stage, "intimate");
       return Buffer.alloc(2400);
     },
+    stage: "intimate",
   });
   assert.equal(result.segmented, true);
   assert.deepEqual(spoken, ["别只顾着快，再深一点……"]);
