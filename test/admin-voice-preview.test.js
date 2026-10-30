@@ -21,6 +21,9 @@ const previewFiles = [
   "joanna-intimate-final-d.wav",
   "joanna-intimate-final-e.wav",
   "joanna-intimate-final-h.wav",
+  "joanna-intimate-wait-nohu-420.wav",
+  "joanna-intimate-wait-nohu-520.wav",
+  "joanna-intimate-wait-nohu-620.wav",
 ];
 
 test("admin has a top-level voice preview route and navigation entry", () => {
@@ -32,8 +35,11 @@ test("admin has a top-level voice preview route and navigation entry", () => {
 
 test("voice preview renders the reviewed Joanna samples and final candidate with seeking", () => {
   assert.match(admin, /const VOICE_PREVIEW_ITEMS = \[/);
-  for (const fileName of previewFiles.filter((name) => !name.includes("final-e") && !name.includes("final-h") && !name.includes("moan-breath-c"))) {
+  for (const fileName of previewFiles.filter((name) => name.includes("baseline") || name.includes("waitfix") || name.includes("final-d"))) {
     assert.match(admin, new RegExp(`/assets/admin/voice-preview/${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=20261030-voice-preview-2`));
+  }
+  for (const fileName of previewFiles.filter((name) => name.includes("wait-nohu"))) {
+    assert.match(admin, new RegExp(`/assets/admin/voice-preview/${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=20261030-voice-preview-6`));
   }
   assert.match(admin, /joanna-moan-breath-c\.wav\?v=20261030-voice-preview-5/);
   assert.match(admin, /joanna-intimate-final-e\.wav\?v=20261030-voice-preview-3/);
@@ -46,6 +52,8 @@ test("voice preview renders the reviewed Joanna samples and final candidate with
   assert.match(admin, /data-voice-seek="0"/);
   assert.match(admin, /data-voice-seek="0\.35"/);
   assert.match(admin, /data-voice-seek="31\.5"/);
+  assert.match(admin, /data-voice-seek="28\.5"/);
+  assert.match(admin, /无呼接桥 520ms/);
   assert.match(admin, /joanna-intimate-final-d\.wav\?v=20261030-voice-preview-2/);
   assert.match(admin, /audio\.currentTime = Math\.max\(0, seekTo\)/);
   assert.match(admin, /data-voice-preview-id/);

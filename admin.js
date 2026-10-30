@@ -41,6 +41,30 @@ const VOICE_PREVIEW_ITEMS = [
     src: "/assets/admin/voice-preview/joanna-moan-breath-c.wav?v=20261030-voice-preview-5",
   },
   {
+    id: "wait-nohu-420",
+    title: "无呼接桥 420ms",
+    badge: "候选 · 短停顿",
+    description: "只移除 29 秒处多出的「呼」，保留第一个「等」和后面的「等等」原声；420ms 停顿偏紧。",
+    duration: "42.2 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-wait-nohu-420.wav?v=20261030-voice-preview-6",
+  },
+  {
+    id: "wait-nohu-520",
+    title: "无呼接桥 520ms",
+    badge: "推荐试听",
+    description: "只移除 29 秒处多出的「呼」，520ms 停顿更自然；前后两处「等」均保留 C 的原音与气口。",
+    duration: "42.3 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-wait-nohu-520.wav?v=20261030-voice-preview-6",
+  },
+  {
+    id: "wait-nohu-620",
+    title: "无呼接桥 620ms",
+    badge: "候选 · 长停顿",
+    description: "只移除 29 秒处多出的「呼」，620ms 停顿更慢；用于确认是否更贴近当时的呼吸节奏。",
+    duration: "42.4 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-wait-nohu-620.wav?v=20261030-voice-preview-6",
+  },
+  {
     id: "baseline-a",
     title: "基准 A",
     badge: "修复前对照",
@@ -6998,14 +7022,14 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。先听“原始气音 C”确认当时认可的 0.95x 基准；H 不作为推荐，D/E 仅作对照。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。先听顶部“无呼接桥”三版，重点确认 29 秒不再出现「呼」；原始 C 保留作基准。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>问题段定位</h3>
-            <p class="adm-muted">28.10–30.15 秒：「等等等，别松手」；30.15–31.62 秒：「抱紧我」。H 的尾段从 31.5 秒开始完整保留，不再硬裁气音。</p>
+            <p class="adm-muted">29.50–30.39 秒是源 C 中多出的「呼」所在；新候选只移除这一段并重建呼吸停顿，30.39 秒之后全部沿用 C 原声。</p>
           </div>
         </div>
       </div>
@@ -7025,8 +7049,9 @@ function renderVoicePreview() {
                 <span>${escapeHtml(item.duration)}</span>
                 ${item.id === "moan-breath-c"
                   ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button>'
-                  : `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>`}
+                  : `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("wait-nohu-") ? "26.5" : item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("wait-nohu-") ? "跳到接缝前" : item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>`}
                 ${item.id.startsWith("final-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
+                ${item.id.startsWith("wait-nohu-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.5"><i data-lucide="scissors"></i>只听过等—等等</button>' : ""}
                 ${item.id === "final-e" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="37.6"><i data-lucide="search-check"></i>跳到 38 秒</button>' : ""}
                 ${item.id === "final-h" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0.35"><i data-lucide="play"></i>开场</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="31.5"><i data-lucide="waves"></i>尾段</button>' : ""}
               </div>
