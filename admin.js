@@ -38,7 +38,7 @@ const VOICE_PREVIEW_ITEMS = [
     badge: "修复前对照",
     description: "保留 16–17 秒的抖动和原始句边界，仅用于对照，不是推荐版本。",
     duration: "41.6 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-baseline-a.wav?v=20261030-voice-preview-1",
+    src: "/assets/admin/voice-preview/joanna-intimate-baseline-a.wav?v=20261030-voice-preview-2",
   },
   {
     id: "waitfix-a",
@@ -46,15 +46,23 @@ const VOICE_PREVIEW_ITEMS = [
     badge: "推荐主听",
     description: "缩短「等」与「等等」之间的停顿，句间连接更顺；保留前后原声与稳定喘息。",
     duration: "42.9 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-a.wav?v=20261030-voice-preview-1",
+    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-a.wav?v=20261030-voice-preview-2",
   },
   {
     id: "waitfix-c",
     title: "修正 C",
-    badge: "更长换气",
-    description: "「等」与「等等」之间保留更明显的换气，适合和修正 A 对比听感。",
+    badge: "上一段优选",
+    description: "保留 C 的整体气口与氛围，作为本轮最终版的底稿；旧问题仍在，仅用于对比。",
     duration: "43.1 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-c.wav?v=20261030-voice-preview-1",
+    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-c.wav?v=20261030-voice-preview-2",
+  },
+  {
+    id: "final-d",
+    title: "修正 D（最终候选）",
+    badge: "本轮推荐",
+    description: "以 C 为底，只修三处：17 秒「我快」不再突然变大；28 秒接缝改为自然换气；29 秒不再读出 hu/呼。",
+    duration: "44.2 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-final-d.wav?v=20261030-voice-preview-2",
   },
 ];
 
@@ -6991,7 +6999,8 @@ function renderVoicePreview() {
               <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span>${escapeHtml(item.duration)}</span>
-                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="27.5"><i data-lucide="locate-fixed"></i>跳到问题句</button>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id === "final-d" ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id === "final-d" ? "跳到 17 秒" : "跳到问题句"}</button>
+                ${item.id === "final-d" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
               </div>
             </div>
           </article>
