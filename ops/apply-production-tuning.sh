@@ -239,7 +239,7 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name 123vips.com www.123vips.com;
+    server_name 123vips.com www.123vips.com admin.123vips.com;
 
     ssl_certificate     /etc/letsencrypt/live/123vips.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/123vips.com/privkey.pem;
@@ -259,6 +259,17 @@ server {
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
         proxy_buffering on;
+    }
+
+    location ^~ /assets/admin/voice-preview/ {
+        alias /opt/raising-game-demo/assets/admin/voice-preview/;
+        access_log off;
+        types { audio/wav wav; }
+        default_type audio/wav;
+        add_header Accept-Ranges bytes always;
+        add_header Cache-Control "public, max-age=3600" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
     }
 
     location ^~ /assets/admin/ {

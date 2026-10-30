@@ -53,6 +53,12 @@ test("voice preview assets are served as seekable audio", () => {
   assert.match(server, /"accept-ranges": contentType\.startsWith\("video\/"\) \|\| contentType\.startsWith\("audio\/"\) \? "bytes" : "none"/);
 });
 
+test("production nginx serves admin preview WAVs as audio on the admin host", () => {
+  const tuning = fs.readFileSync(path.join(root, "ops", "apply-production-tuning.sh"), "utf8");
+  assert.match(tuning, /server_name 123vips\.com www\.123vips\.com admin\.123vips\.com;/);
+  assert.match(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]*?types \{ audio\/wav wav; \}[\s\S]*?default_type audio\/wav;[\s\S]*?add_header Accept-Ranges bytes always;/);
+});
+
 test("voice preview assets stay local and bypass the R2 redirect", () => {
   assert.match(
     server,
