@@ -62,6 +62,25 @@ test("first-frame readiness never creates or replaces the billing start", () => 
   assert.match(client, /进房即开始计时/);
 });
 
+test("first frame waits for visible pixels and recovers stalled RTC before ending", () => {
+  assert.match(client, /function sampleFrame\(video\)/);
+  assert.match(client, /function frameLooksVisible\(sample\)/);
+  assert.doesNotMatch(client, /sampleBrightness/);
+  assert.doesNotMatch(client, /currentTime > state\.lastVideoTime \+ 0\.01[\s\S]{0,120}noteHealthyPicture/);
+  assert.match(client, /if \(state\.healthyFrameSamples >= 2\) noteHealthyPicture\(now\)/);
+  assert.match(client, /const FIRST_FRAME_HINT_MS = 3000/);
+  assert.match(client, /const FIRST_FRAME_RECOVER_MS = 8000/);
+  assert.match(client, /const FIRST_FRAME_FATAL_MS = 16000/);
+  assert.match(client, /正在接通人物画面/);
+  assert.match(client, /正在生成画面，请稍候/);
+  assert.match(client, /正在重新连接画面/);
+  assert.match(client, /async function recoverFirstFrameOnce\(\)/);
+  assert.match(client, /state\.forceFreshRtc = true;\n      await releaseRtc\(\);/);
+  assert.match(client, /await joinRtc\(state\.session\)/);
+  assert.match(client, /reason: "first_frame"/);
+  assert.match(client, /finishSession\("video_stalled", "首帧等待超时"\)/);
+});
+
 test("all chat-live entry responses expose the server billing start", () => {
   const joinBlock = server.match(/async function handleJoinChatLiveRoom\([\s\S]*?\n}\n\nasync function handleListChatLiveRoomMessages/)[0];
   const createBlock = server.match(/async function handleCreateChatLiveSession\([\s\S]*?\n}\n\nfunction sanitizeChatLiveDiagnosticText/)[0];

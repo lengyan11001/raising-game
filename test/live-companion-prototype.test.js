@@ -162,9 +162,9 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103012/);
-  assert.match(html, /live\.js\?v=2026103012/);
-  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-2/);
+  assert.match(html, /live\.css\?v=2026103013/);
+  assert.match(html, /live\.js\?v=2026103013/);
+  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
 });
 
 test("create-character auto profile understands the uploaded image through the server", () => {

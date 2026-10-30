@@ -30,6 +30,15 @@
     lastVideoTime: -1,
     seenPicture: false,
     seenBright: false,
+    healthyFrameSamples: 0,
+    sampleUnavailableSamples: 0,
+    lastFrameSample: null,
+    videoWatchStartedAt: 0,
+    firstFrameUiStage: "",
+    firstFrameRecoveryAttempted: false,
+    firstFrameRecoveryInFlight: false,
+    firstFrameRecoveryAt: 0,
+    firstFrameFinalTimeoutReported: false,
     videoReadyReported: false,
     placeholderOn: true,
     videoFixes: 0,
@@ -68,6 +77,9 @@
 
   const RTC_SDK_URL = "https://g.alicdn.com/apsara-media-box/imp-web-rtc/7.1.9/aliyun-rtc-sdk.js";
   const TOKEN_KEYS = ["raisingGameToken", "vipsChatToken"];
+  const FIRST_FRAME_HINT_MS = 3000;
+  const FIRST_FRAME_RECOVER_MS = 8000;
+  const FIRST_FRAME_FATAL_MS = 16000;
 
   function authToken() {
     try {
@@ -1071,21 +1083,43 @@
     overlay.placeholder.style.display = "none";
   }
 
-  function sampleBrightness(video) {
+  function sampleFrame(video) {
     if (!video || video.readyState < 2 || !video.videoWidth) return null;
     try {
-      const canvas = sampleBrightness.canvas || (sampleBrightness.canvas = document.createElement("canvas"));
-      canvas.width = 8;
-      canvas.height = 8;
+      const canvas = sampleFrame.canvas || (sampleFrame.canvas = document.createElement("canvas"));
+      canvas.width = 16;
+      canvas.height = 16;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.drawImage(video, 0, 0, 8, 8);
-      const data = ctx.getImageData(0, 0, 8, 8).data;
-      let sum = 0;
-      for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2];
-      return sum;
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, 16, 16);
+      const data = ctx.getImageData(0, 0, 16, 16).data;
+      let lumaSum = 0;
+      let minLuma = 255;
+      let maxLuma = 0;
+      let opaquePixels = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 8) continue;
+        const luma = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+        lumaSum += luma;
+        minLuma = Math.min(minLuma, luma);
+        maxLuma = Math.max(maxLuma, luma);
+        opaquePixels += 1;
+      }
+      if (!opaquePixels) return { luma: 0, range: 0, opaquePixels: 0 };
+      return {
+        luma: lumaSum / opaquePixels,
+        range: maxLuma - minLuma,
+        opaquePixels,
+      };
     } catch {
       return null;
     }
+  }
+
+  /* 视频时间在走不代表已经画出可见内容；纯黑/全透明帧必须继续挡着。 */
+  function frameLooksVisible(sample) {
+    if (!sample || sample.opaquePixels <= 0) return false;
+    return sample.luma >= 5 || sample.range >= 12;
   }
 
   function bindRemoteVideo(userId, force = false) {
@@ -1098,7 +1132,7 @@
     video.setAttribute("playsinline", "true");
     video.setAttribute("webkit-playsinline", "true");
     /* 已经绑上时只 play。setRemoteViewConfig 会 load() 重绑，正常画面会被刷黑。 */
-    if (!force && state.boundUserId === uid && video.srcObject) {
+    if (!force && state.boundUserId === uid) {
       video.play().catch(() => {});
       return;
     }
@@ -1167,6 +1201,10 @@
       lastPictureAgeMs: state.lastPictureAt ? Math.max(0, Date.now() - state.lastPictureAt) : -1,
       remoteBoundOnce: state.remoteBoundOnce === true,
       rtcRecoveries: state.rtcRecoveries,
+      videoWatchAgeMs: state.videoWatchStartedAt ? Math.max(0, Date.now() - state.videoWatchStartedAt) : -1,
+      lastFrameSample: state.lastFrameSample,
+      healthyFrameSamples: state.healthyFrameSamples,
+      firstFrameRecoveryAttempted: state.firstFrameRecoveryAttempted === true,
       ...extra,
     };
   }
@@ -1175,6 +1213,7 @@
     if (reason === "black") return { code: "video_black", message: "画面变黑" };
     if (reason === "offline") return { code: "video_offline", message: "画面断开" };
     if (reason === "unsubscribe") return { code: "video_unsubscribe", message: "视频订阅中断" };
+    if (reason === "first_frame") return { code: "video_first_frame", message: "首帧迟迟没有显示" };
     return { code: "video_stall", message: "画面卡住，时间还在走" };
   }
 
@@ -1238,6 +1277,7 @@
 
   function noteHealthyPicture(now) {
     state.lastPictureAt = now;
+    state.healthyFrameSamples = Math.max(2, state.healthyFrameSamples || 0);
     if (state.visibilityRecoveryTimer) {
       window.clearTimeout(state.visibilityRecoveryTimer);
       state.visibilityRecoveryTimer = 0;
@@ -1247,7 +1287,9 @@
     }
     state.lastFrameAt = now;
     state.videoFixes = 0;
+    state.seenBright = true;
     state.seenPicture = true;
+    state.firstFrameUiStage = "visible";
     if (state.lookSwitching && state.handoverReadyAt && now >= state.handoverReadyAt) {
       state.lookSwitching = false;
       finishLookSwitchingUi();
@@ -1264,6 +1306,60 @@
     }
     markBillableStart();
     hidePlaceholder();
+  }
+
+  function setFirstFrameWaitStage(stage) {
+    if (!state.overlay || state.seenPicture || state.ended) return;
+    if (state.firstFrameUiStage === stage) return;
+    state.firstFrameUiStage = stage;
+    state.overlay.placeholder.classList.remove("is-failed");
+    state.overlay.placeholder.classList.add("is-calling");
+    state.overlay.placeholder.style.display = "flex";
+    state.placeholderOn = true;
+    state.overlay.callDetail.textContent = state.character?.name || "";
+    if (stage === "generating") {
+      state.overlay.callLabel.textContent = "正在生成画面，请稍候…";
+      return;
+    }
+    if (stage === "recovering") {
+      state.overlay.callLabel.textContent = "正在重新连接画面…";
+      return;
+    }
+    state.overlay.callLabel.textContent = "正在接通人物画面…";
+  }
+
+  async function recoverFirstFrameOnce() {
+    if (state.ended || state.seenPicture || state.firstFrameRecoveryAttempted || state.firstFrameRecoveryInFlight) return;
+    state.firstFrameRecoveryAttempted = true;
+    state.firstFrameRecoveryInFlight = true;
+    state.firstFrameRecoveryAt = Date.now();
+    state.firstFrameFinalTimeoutReported = false;
+    state.boundUserId = "";
+    state.remoteBoundOnce = false;
+    state.lastFrameAt = 0;
+    state.lastPictureAt = 0;
+    state.lastVideoTime = -1;
+    state.healthyFrameSamples = 0;
+    state.sampleUnavailableSamples = 0;
+    state.lastFrameSample = null;
+    state.seenBright = false;
+    setFirstFrameWaitStage("recovering");
+    reportSessionIssue("video_first_frame", "首帧超时，正在重连视频");
+    reportVideoDiagnostic("video_recovery_start", null, "first_frame_timeout", videoDiagnosticDetails({ reason: "first_frame" }));
+    try {
+      state.forceFreshRtc = true;
+      await releaseRtc();
+      if (state.ended || state.seenPicture) return;
+      await joinRtc(state.session);
+      reportVideoDiagnostic("video_recovery_request", null, "first_frame_rtc_rejoined", videoDiagnosticDetails({ reason: "first_frame" }));
+    } catch (error) {
+      if (!state.ended) {
+        reportVideoDiagnostic("video_recovery_request", false, "recovery_failed", videoDiagnosticDetails({ reason: "first_frame", error: String(error?.message || error || "").slice(0, 120) }));
+        await finishSession("video_stalled", "首帧重连失败");
+      }
+    } finally {
+      state.firstFrameRecoveryInFlight = false;
+    }
   }
 
   function stopVideoWatch() {
@@ -1296,41 +1392,70 @@
     arm();
     state.frameWatch = window.setInterval(() => {
       if (state.ended || !state.overlay) return;
-      if (document.visibilityState === "hidden") {
-        const nowHidden = Date.now();
-        state.lastFrameAt = nowHidden;
-        state.lastPictureAt = nowHidden;
-        return;
-      }
+      if (document.visibilityState === "hidden") return;
       const video = state.overlay.video;
       const now = Date.now();
-      let frameMoved = false;
       if (video && video.readyState >= 2 && video.currentTime > state.lastVideoTime + 0.01) {
         state.lastVideoTime = video.currentTime;
         state.lastFrameAt = now;
-        frameMoved = true;
       }
-      const bright = video ? sampleBrightness(video) : null;
-      const pictureOk = bright != null && bright >= 400;
-      if (pictureOk) {
-        state.seenBright = true;
-        noteHealthyPicture(now);
-      } else if (bright == null && frameMoved && video && video.videoWidth > 0) {
-        noteHealthyPicture(now);
-      } else if (!state.seenBright && frameMoved && video && video.videoWidth > 0) {
-        /* 采样失败或首帧偏暗时先把画面放出来，不能一直挡在头像后面 */
-        noteHealthyPicture(now);
+      const sample = video ? sampleFrame(video) : null;
+      state.lastFrameSample = sample ? {
+        luma: Number(sample.luma.toFixed(1)),
+        range: Number(sample.range.toFixed(1)),
+        opaquePixels: sample.opaquePixels,
+      } : null;
+      if (sample) {
+        state.sampleUnavailableSamples = 0;
+        if (frameLooksVisible(sample)) {
+          state.healthyFrameSamples = (state.healthyFrameSamples || 0) + 1;
+          state.seenBright = true;
+          /* 时间推进和单帧亮度都可能误判；连续两次采样有可见内容才撤占位层。 */
+          if (state.healthyFrameSamples >= 2) noteHealthyPicture(now);
+        } else {
+          state.healthyFrameSamples = 0;
+        }
+      } else if (!state.seenBright) {
+        state.sampleUnavailableSamples = (state.sampleUnavailableSamples || 0) + 1;
+        if (state.sampleUnavailableSamples >= 2) state.healthyFrameSamples = 0;
       }
-      const sinceStart = state.startedAt ? now - state.startedAt : 0;
-      const noFrameFor = state.lastFrameAt ? now - state.lastFrameAt : sinceStart;
-      const noPictureFor = state.lastPictureAt ? now - state.lastPictureAt : sinceStart;
-      const frameLimit = state.lastFrameAt ? 12000 : 25000;
-      const pictureBlack = state.seenBright && bright != null && bright < 400 && noPictureFor >= 12000;
-      const framesDead = noFrameFor >= frameLimit;
+
+      if (!state.seenPicture) {
+        if (!state.videoWatchStartedAt) return;
+        const waitFor = now - state.videoWatchStartedAt;
+        if (waitFor >= FIRST_FRAME_HINT_MS) setFirstFrameWaitStage("generating");
+        if (waitFor >= FIRST_FRAME_RECOVER_MS && !state.firstFrameRecoveryAttempted) {
+          reportVideoDiagnostic("first_frame_timeout", false, "first_frame_timeout", videoDiagnosticDetails({
+            reason: "first_frame",
+            waitForMs: waitFor,
+            recovery: "full_rtc_rejoin",
+          }));
+          recoverFirstFrameOnce().catch(() => {});
+          return;
+        }
+        if (waitFor >= FIRST_FRAME_FATAL_MS && state.firstFrameRecoveryAttempted) {
+          if (!state.firstFrameFinalTimeoutReported) {
+            state.firstFrameFinalTimeoutReported = true;
+            reportVideoDiagnostic("first_frame_timeout", false, "first_frame_final_timeout", videoDiagnosticDetails({
+              reason: "first_frame",
+              waitForMs: waitFor,
+              recovery: "exhausted",
+            }));
+            appendLine("sys", "一直没有收到人物画面，已结束通话，避免继续计费。");
+            finishSession("video_stalled", "首帧等待超时");
+          }
+        }
+        return;
+      }
+
+      const noFrameFor = state.lastFrameAt ? now - state.lastFrameAt : 0;
+      const noPictureFor = state.lastPictureAt ? now - state.lastPictureAt : 0;
+      const pictureBlack = sample != null && !frameLooksVisible(sample) && noPictureFor >= 12000;
+      const framesDead = noFrameFor >= 12000;
       if (!framesDead && !pictureBlack) return;
       reportVideoDiagnostic("first_frame_timeout", false, pictureBlack ? "video_black" : "video_stalled", videoDiagnosticDetails({
         reason: pictureBlack ? "black" : "stall",
-        frameLimitMs: frameLimit,
+        frameLimitMs: 12000,
         noFrameForMs: noFrameFor,
         noPictureForMs: noPictureFor,
       }));
@@ -1340,7 +1465,7 @@
       }
       appendLine("sys", "画面中断，已结束通话，避免继续计费。");
       finishSession(pictureBlack ? "video_black" : "video_stalled", pictureBlack ? "画面黑屏超过 12 秒" : "画面卡住后未能恢复");
-    }, 1000);
+    }, 250);
   }
 
   async function joinRtc(session, attempt = 0) {
@@ -1424,6 +1549,7 @@
       }
       throw error;
     }
+    if (!state.seenPicture && !state.videoWatchStartedAt) state.videoWatchStartedAt = Date.now();
     try {
       await engine.publishLocalAudioStream(true);
       state.micOn = true;
@@ -1435,6 +1561,10 @@
       setStageStatus("无麦克风权限", "error");
     }
     setStageStatus("连线中", "");
+    if (!state.seenPicture) {
+      state.firstFrameUiStage = "";
+      setFirstFrameWaitStage("connecting");
+    }
   }
 
   async function endSessionRequest(sessionId, reason = "", note = "") {
@@ -2430,6 +2560,15 @@
     state.lastVideoTime = -1;
     state.seenPicture = false;
     state.seenBright = false;
+    state.healthyFrameSamples = 0;
+    state.sampleUnavailableSamples = 0;
+    state.lastFrameSample = null;
+    state.videoWatchStartedAt = 0;
+    state.firstFrameUiStage = "";
+    state.firstFrameRecoveryAttempted = false;
+    state.firstFrameRecoveryInFlight = false;
+    state.firstFrameRecoveryAt = 0;
+    state.firstFrameFinalTimeoutReported = false;
     state.videoReadyReported = false;
     state.placeholderOn = openOptions.handover === true ? state.placeholderOn : true;
     state.videoFixes = 0;
