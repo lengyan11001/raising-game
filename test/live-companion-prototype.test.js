@@ -162,14 +162,15 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(live, /assets\/chat-live\/welcome-newcomer-v2\.jpg/);
   assert.match(live, /class="companion-guide-logo"/);
   assert.match(css, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
-  assert.match(css, /\.companion-guide-features\{[^}]*margin-top:clamp\(56px,7\.9vh,71px\)/);
+  assert.match(css, /\.companion-guide-copy\{[^}]*justify-content:center/);
+  assert.match(css, /\.companion-guide-features\{[^}]*margin-top:clamp\(34px,4\.6vh,41px\)/);
   assert.match(css, /\.companion-guide-features span\{[^}]*min-height:clamp\(104px,12\.1vh,109px\)/);
-  assert.match(css, /\.companion-guide-start\{[^}]*bottom:calc\(20px \+ var\(--safe\)\)[^}]*height:clamp\(64px,8\.4vh,76px\)/);
+  assert.match(css, /\.companion-guide-start\{[^}]*position:relative[^}]*margin-top:clamp\(30px,4\.2vh,38px\)/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103020/);
-  assert.match(html, /live\.js\?v=2026103020/);
+  assert.match(html, /live\.css\?v=2026103021/);
+  assert.match(html, /live\.js\?v=2026103021/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
 });
 
