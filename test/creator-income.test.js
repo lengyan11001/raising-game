@@ -471,8 +471,12 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   const shareSheetBody = live.match(/function openShareSheet\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
   assert.ok(shareSheetBody);
   assert.doesNotMatch(shareSheetBody, /total|cells|locks/);
-  assert.match(liveHtml, /live\.js\?v=2026103035/);
-  assert.match(liveHtml, /live\.css\?v=2026103035/);
+  assert.match(live, /<div class="poster-toolbar">[\s\S]*?data-action="save-poster"[\s\S]*?data-action="copy-poster-link"[\s\S]*?data-action="close-poster"/);
+  assert.doesNotMatch(live, /data-action="poster-share"/);
+  assert.match(live, /async function copyShareLinkSilently\(\) \{[\s\S]*?navigator\.clipboard\.writeText\(link\)[\s\S]*?document\.execCommand\("copy"\)/);
+  assert.match(live, /if \(a === "copy-poster-link"\) \{ await copyShareLinkSilently\(\); return; \}/);
+  assert.match(liveHtml, /live\.js\?v=2026103036/);
+  assert.match(liveHtml, /live\.css\?v=2026103036/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
   assert.match(adminHtml, /admin\.js\?v=20261030-voice-preview-10/);
   assert.match(admin, /async function renderCreatorData/);

@@ -421,6 +421,7 @@
     shield: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>`,
     wallet: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h15a3 3 0 0 1 3 3v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7l2-3h12"/><circle cx="16.5" cy="14" r="1"/></svg>`,
     share: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>`,
+    copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>`,
     download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>`,
     close: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>`,
     user: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>`,
@@ -894,6 +895,25 @@
     try { await navigator.clipboard.writeText(link); if (note) note.textContent = "链接已复制。浏览器里不能直接打开微信，把链接发给好友即可。"; }
     catch { if (note) note.textContent = link; }
   }
+  async function copyShareLinkSilently() {
+    const link = shareLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      return true;
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = link;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch {}
+      textarea.remove();
+      return copied;
+    }
+  }
   function openShareSheet() {
     document.querySelector("[data-role-sheet]")?.remove();
     const role = state.role || {};
@@ -940,7 +960,7 @@
     const tags = posterTags(role);
     state.posterQr = qr;
     ensurePosterFont();
-    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet role="dialog" aria-modal="true" aria-label="角色分享海报"><div class="poster-visual"><div class="poster-photo" data-poster-photo>${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="poster-photo-empty">Vipeak</div>'}</div><div class="poster-details"><h3>${esc(role.name || "Vipeak")}</h3><div class="poster-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><p class="poster-intro"><b>人物介绍：</b>${esc(posterIntro(role))}</p><div class="poster-bottom"><div class="poster-bottom-copy"><strong>Vipeak</strong><i></i><button class="poster-unlock" type="button">解锁专属私密互动 &gt;</button><p>和Ta来一场AI实时互动的视频聊天</p></div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div></div><div class="poster-toolbar"><button type="button" class="poster-tool" data-action="save-poster" aria-label="保存图片" title="保存图片">${uiIcon("download")}</button><button type="button" class="poster-tool" data-action="poster-share" aria-label="分享" title="分享">${uiIcon("share")}</button><button type="button" class="poster-tool" data-action="close-poster" aria-label="关闭" title="关闭">${uiIcon("close")}</button></div></div></div>`);
+    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet role="dialog" aria-modal="true" aria-label="角色分享海报"><div class="poster-visual"><div class="poster-photo" data-poster-photo>${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="poster-photo-empty">Vipeak</div>'}</div><div class="poster-details"><h3>${esc(role.name || "Vipeak")}</h3><div class="poster-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><p class="poster-intro"><b>人物介绍：</b>${esc(posterIntro(role))}</p><div class="poster-bottom"><div class="poster-bottom-copy"><strong>Vipeak</strong><i></i><button class="poster-unlock" type="button">解锁专属私密互动 &gt;</button><p>和Ta来一场AI实时互动的视频聊天</p></div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div></div><div class="poster-toolbar"><button type="button" class="poster-tool" data-action="save-poster" aria-label="保存图片" title="保存图片">${uiIcon("download")}</button><button type="button" class="poster-tool" data-action="copy-poster-link" aria-label="复制链接" title="复制链接">${uiIcon("copy")}</button><button type="button" class="poster-tool" data-action="close-poster" aria-label="关闭" title="关闭">${uiIcon("close")}</button></div></div></div>`);
     ensureReferral().catch(() => {});
   }
   async function loadPosterPhoto(src) {
@@ -2488,7 +2508,7 @@ document.addEventListener("click", async (e) => {
     if (a === "share-role") { openSharePoster(); return; }
     if (a === "share-poster") { openSharePoster(); return; }
     if (a === "save-poster") { saveSharePoster(); return; }
-    if (a === "poster-share") { document.querySelector("[data-poster]")?.remove(); openShareSheet(); return; }
+    if (a === "copy-poster-link") { await copyShareLinkSilently(); return; }
     if (a === "close-poster") { document.querySelector("[data-poster]")?.remove(); return; }
     if (a === "unlock-private") { openUnlockPrivate(); return; }
     if (a === "close-unlock") { document.querySelector("[data-unlock-modal]")?.remove(); return; }
