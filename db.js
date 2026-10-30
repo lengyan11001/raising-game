@@ -814,6 +814,19 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_live_daily_task_claims (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      task_date DATE NOT NULL,
+      task_key TEXT NOT NULL DEFAULT '',
+      credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, task_date, task_key)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_live_daily_task_claims_user_created_idx ON app_live_daily_task_claims (user_id, created_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_generation_records (
       task_id TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
@@ -3940,6 +3953,178 @@ async function createLiveCheckinWithCreditInDb({
   }
 }
 
+async function getLiveDailyTaskClaimsInDb(userId = "", taskDate = "") {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_live_daily_task_claims
+    WHERE user_id = $1 AND task_date = $2::date
+    ORDER BY created_at ASC
+  `, [String(userId || ""), String(taskDate || "")]);
+  return rows.map((row) => ({
+    ...(row.payload && typeof row.payload === "object" ? row.payload : {}),
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    taskDate: row.task_date ? new Date(row.task_date).toISOString().slice(0, 10) : "",
+    taskKey: String(row.task_key || ""),
+    credits: creditNumber(row.credits || 0),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  }));
+}
+
+async function getLiveDailyTaskCompletionInDb({ userId = "", startAt = "", endAt = "" } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId || !startAt || !endAt) return {};
+  await ensureSchema();
+  const params = [cleanUserId, startAt, endAt];
+  const [text, video, live, create] = await Promise.all([
+    query(`
+      SELECT EXISTS(
+        SELECT 1 FROM app_chat_messages
+        WHERE user_id = $1 AND role = 'user'
+          AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+      ) AS completed
+    `, params),
+    query(`
+      SELECT EXISTS(
+        SELECT 1 FROM app_chat_live_sessions
+        WHERE user_id = $1
+          AND updated_at >= $2::timestamptz AND updated_at < $3::timestamptz
+          AND COALESCE(payload->>'settled', 'false') IN ('true', '1')
+          AND COALESCE(payload->>'sharedRoomViewer', 'false') NOT IN ('true', '1')
+          AND GREATEST(
+            COALESCE(NULLIF(payload->>'billedSeconds', '')::numeric, 0),
+            COALESCE(NULLIF(payload->>'upstreamBilledSeconds', '')::numeric, 0)
+          ) >= 60
+      ) AS completed
+    `, params),
+    query(`
+      SELECT (
+        EXISTS(
+          SELECT 1 FROM app_chat_live_sessions
+          WHERE user_id = $1
+            AND updated_at >= $2::timestamptz AND updated_at < $3::timestamptz
+            AND COALESCE(payload->>'sharedRoomViewer', 'false') IN ('true', '1')
+            AND GREATEST(
+              COALESCE(NULLIF(payload->>'billedSeconds', '')::numeric, 0),
+              COALESCE(NULLIF(payload->>'upstreamBilledSeconds', '')::numeric, 0)
+            ) >= 60
+        )
+        OR EXISTS(
+          SELECT 1 FROM app_chat_live_room_members
+          WHERE user_id = $1
+            AND joined_at >= $2::timestamptz AND joined_at < $3::timestamptz
+            AND last_seen_at >= $2::timestamptz AND last_seen_at < $3::timestamptz
+            AND last_seen_at - joined_at >= INTERVAL '60 seconds'
+        )
+      ) AS completed
+    `, params),
+    query(`
+      SELECT EXISTS(
+        SELECT 1 FROM app_chat_live_characters
+        WHERE COALESCE(payload->>'createdByUserId', '') = $1
+          AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+          AND deleted_at IS NULL
+      ) AS completed
+    `, params),
+  ]);
+  return {
+    text: text.rows[0]?.completed === true,
+    video: video.rows[0]?.completed === true,
+    live: live.rows[0]?.completed === true,
+    create: create.rows[0]?.completed === true,
+  };
+}
+async function createLiveDailyTaskClaimWithCreditInDb({
+  id = "",
+  userId = "",
+  taskDate = "",
+  taskKey = "",
+  credits = 0,
+  ledgerId = "",
+  ledgerType = "live_daily_task",
+  ledgerMeta = {},
+  payload = {},
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanId = String(id || "").trim();
+  const cleanTaskKey = String(taskKey || "").trim();
+  const cleanTaskDate = String(taskDate || "").trim();
+  const cleanLedgerId = String(ledgerId || "").trim();
+  const amount = creditNumber(credits || 0);
+  if (!cleanUserId || !cleanId || !cleanTaskKey || !cleanTaskDate || !cleanLedgerId || amount <= 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query(`
+      INSERT INTO app_live_daily_task_claims(id, user_id, task_date, task_key, credits, payload)
+      VALUES ($1, $2, $3::date, $4, $5::numeric, $6::jsonb)
+      ON CONFLICT (user_id, task_date, task_key) DO NOTHING
+      RETURNING *
+    `, [cleanId, cleanUserId, cleanTaskDate, cleanTaskKey, amount, JSON.stringify({ ...(payload || {}), taskKey: cleanTaskKey, taskDate: cleanTaskDate, credits: amount })]);
+    if (!inserted.rows.length) {
+      await client.query("COMMIT");
+      return { claim: null, user: null, inserted: false };
+    }
+    const userRows = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
+    const row = userRows.rows[0];
+    if (!row) {
+      const error = new Error("User not found for daily task claim.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const current = creditNumber(row.credits || 0);
+    const nextCredits = creditNumber(current + amount);
+    const now = new Date().toISOString();
+    const meta = { ...(ledgerMeta || {}), taskId: `live-daily-task:${cleanUserId}:${cleanTaskDate}:${cleanTaskKey}`, taskKey: cleanTaskKey, taskDate: cleanTaskDate, credits: amount };
+    const ledger = {
+      id: cleanLedgerId,
+      userId: cleanUserId,
+      delta: amount,
+      balanceAfter: nextCredits,
+      type: String(ledgerType || "live_daily_task"),
+      meta,
+      createdAt: now,
+    };
+    await client.query(`
+      UPDATE app_users
+      SET credits = $2::numeric,
+          payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+          updated_at = $3::timestamptz
+      WHERE id = $1
+    `, [cleanUserId, nextCredits, now]);
+    await client.query(`
+      INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+      VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+      ON CONFLICT (id) DO NOTHING
+    `, [cleanLedgerId, cleanUserId, amount, nextCredits, ledger.type, JSON.stringify(meta), JSON.stringify(ledger), now]);
+    const updated = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
+    await client.query("COMMIT");
+    return {
+      claim: {
+        id: String(inserted.rows[0].id || ""),
+        userId: cleanUserId,
+        taskDate: cleanTaskDate,
+        taskKey: cleanTaskKey,
+        credits: amount,
+        createdAt: inserted.rows[0].created_at ? new Date(inserted.rows[0].created_at).toISOString() : now,
+      },
+      user: userFromRow(updated.rows[0]),
+      ledger,
+      inserted: true,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function getLiveCheckinSummaryInDb(userId = "", checkinDate = "") {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -5456,6 +5641,9 @@ module.exports = {
   createLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
+  getLiveDailyTaskClaimsInDb,
+  getLiveDailyTaskCompletionInDb,
+  createLiveDailyTaskClaimWithCreditInDb,
   recordCreatorUsageEarningInDb,
   recordCreatorVideoViewEarningInDb,
   getCreatorIncomeInDb,

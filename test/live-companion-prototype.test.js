@@ -162,8 +162,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103013/);
-  assert.match(html, /live\.js\?v=2026103013/);
+  assert.match(html, /live\.css\?v=2026103014/);
+  assert.match(html, /live\.js\?v=2026103014/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
 });
 
@@ -238,13 +238,18 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.doesNotMatch(live, /state\.page === "settings"/);
   assert.match(css, /\.settings-dropdown\{position:absolute/);
   assert.match(css, /\.settings-dropdown\[hidden\]\{display:none\}/);
-  assert.match(live, /今日可领/);
-  assert.match(live, /本月签到/);
-  assert.match(live, /7 天签到/);
-  assert.match(live, /立即领取/);
-  assert.match(live, /data-checkin-day="\$\{item\.key\}"/);
-  assert.match(css, /\.checkin-overview\{display:grid/);
-  assert.match(css, /\.checkin-panel\{margin:12px 20px 0/);
+  assert.match(live, /每日领积分/);
+  assert.match(live, /今日已领/);
+  assert.match(live, /共 \$\{tasks\.length\} 项任务/);
+  assert.match(live, /data-action="checkin-task"/);
+  assert.match(live, /data-action="checkin-task-go"/);
+  assert.match(live, /data-checkin-task-key="\$\{esc\(task\.key\)\}"/);
+  assert.match(live, /\/api\/live\/checkin\/tasks\/\$\{encodeURIComponent\(taskKey\)\}/);
+  assert.doesNotMatch(live, /7 天签到/);
+  assert.doesNotMatch(live, /data-checkin-day/);
+  assert.match(css, /\.checkin-summary\{/);
+  assert.match(css, /\.checkin-task-list\{/);
+  assert.match(css, /\.checkin-task-row\{/);
   assert.match(css, /\.checkin-footnote\{display:flex/);
   assert.match(css, /\.rooms-head-actions\{[^}]*margin-left:auto/);
   assert.doesNotMatch(css, /\.rooms-filter\{margin-left:auto/);
@@ -289,7 +294,8 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.doesNotMatch(live, /textMessageCredits\s*\|\|\s*0\.5/);
   assert.doesNotMatch(live, /V币|爱心币/);
   assert.match(css, /\.system-message-row/);
-  assert.match(css, /\.checkin-hero/);
+  assert.match(css, /\.checkin-summary\{/);
+  assert.match(css, /\.checkin-task-list\{/);
   assert.match(css, /\.creator-income-hero/);
   assert.match(css, /\.feedback-form/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);

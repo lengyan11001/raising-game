@@ -166,6 +166,9 @@ const {
   getLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
+  getLiveDailyTaskClaimsInDb,
+  getLiveDailyTaskCompletionInDb,
+  createLiveDailyTaskClaimWithCreditInDb,
   recordCreatorUsageEarningInDb,
   recordCreatorVideoViewEarningInDb,
   getCreatorIncomeInDb,
@@ -40761,6 +40764,63 @@ async function handleListUserSupportMessages(req, res, url) {
 }
 
 const LIVE_DAILY_CHECKIN_CREDITS = 20;
+const LIVE_DAILY_TASKS = Object.freeze([
+  { key: "checkin", title: "每日签到", reward: 20, hint: "连签可得 20 积分", description: "每天来看看，连签不断", action: "立即领取", completed: true },
+  { key: "text", title: "文字聊天", reward: 10, hint: "完成领 10 积分", description: "和 Ta 发几条消息", action: "去聊天", href: "text-chat" },
+  { key: "video", title: "视频通话", reward: 50, hint: "完成领 50 积分", description: "和 Ta 视频 1 分钟", action: "去聊天", href: "video-call" },
+  { key: "live", title: "观看直播", reward: 15, hint: "完成领 15 积分", description: "在直播间看 1 分钟", action: "去观看", href: "rooms" },
+  { key: "create", title: "创建角色", reward: 20, hint: "完成领 20 积分", description: "创建一个人物角色", action: "去创建", href: "create" },
+  { key: "invite", title: "邀请好友", reward: 0, hint: "双方都有礼物", description: "邀请朋友一起来", action: "去邀请", href: "referral" },
+]);
+const LIVE_DAILY_TASK_LEDGER_TYPES = Object.freeze({
+  checkin: "live_daily_checkin",
+  text: "live_daily_task_text",
+  video: "live_daily_task_video",
+  live: "live_daily_task_live",
+  create: "live_daily_task_create",
+});
+
+function liveDailyTaskDayRange(taskDate = "") {
+  const [year, month, day] = String(taskDate || "").split("-").map(Number);
+  if (!year || !month || !day) throw new Error("每日任务日期无效。");
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const end = new Date(year, month - 1, day + 1, 0, 0, 0, 0);
+  return { startAt: start.toISOString(), endAt: end.toISOString() };
+}
+
+function liveDailyTaskConfig(taskKey = "") {
+  return LIVE_DAILY_TASKS.find((item) => item.key === String(taskKey || "")) || null;
+}
+
+async function liveDailyTaskView(userId, taskDate) {
+  const [claims, completion, checkinSummary] = await Promise.all([
+    getLiveDailyTaskClaimsInDb(userId, taskDate),
+    getLiveDailyTaskCompletionInDb({ userId, ...liveDailyTaskDayRange(taskDate) }),
+    getLiveCheckinSummaryInDb(userId, taskDate),
+  ]);
+  const claimByKey = new Map((claims || []).map((item) => [String(item.taskKey || ""), item]));
+  const legacyCheckin = checkinSummary?.checkedIn === true && !claimByKey.has("checkin") ? checkinSummary.today : null;
+  const tasks = LIVE_DAILY_TASKS.map((task) => {
+    const claim = claimByKey.get(task.key) || (task.key === "checkin" ? legacyCheckin : null);
+    const claimed = Boolean(claim);
+    return {
+      ...task,
+      completed: task.key === "checkin" || task.key === "invite" ? task.completed === true : completion?.[task.key] === true,
+      claimed,
+      claimable: !claimed && task.reward > 0 && (task.key === "checkin" || completion?.[task.key] === true),
+      claimedAt: claim?.createdAt || "",
+    };
+  });
+  const earnedCredits = tasks.reduce((sum, task) => sum + (task.claimed ? Number(task.reward || 0) : 0), 0);
+  return {
+    taskDate,
+    credits: LIVE_DAILY_CHECKIN_CREDITS,
+    todayEarned: earnedCredits,
+    totalTasks: tasks.length,
+    claimedTasks: tasks.filter((task) => task.claimed).length,
+    tasks,
+  };
+}
 
 async function handleListLiveNotifications(req, res) {
   const auth = await requireUser(req, res);
@@ -40794,37 +40854,48 @@ async function handleReadAllLiveNotifications(req, res) {
 async function handleGetLiveCheckin(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "签到需要数据库服务。" });
-  const checkinDate = localDayKey(new Date());
-  const summary = await getLiveCheckinSummaryInDb(auth.user.id, checkinDate);
-  return sendJson(res, 200, { ok: true, checkin: { ...(summary || {}), credits: LIVE_DAILY_CHECKIN_CREDITS }, user: userView(auth.user) });
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "每日积分任务需要数据库服务。" });
+  const taskDate = localDayKey(new Date());
+  const checkin = await liveDailyTaskView(auth.user.id, taskDate);
+  return sendJson(res, 200, { ok: true, checkin, user: userView(auth.user) });
 }
 
 async function handleCreateLiveCheckin(req, res) {
+  return handleClaimLiveDailyTask(req, res, "checkin");
+}
+
+async function handleClaimLiveDailyTask(req, res, taskKey = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "签到需要数据库服务。" });
-  const checkinDate = localDayKey(new Date());
-  const result = await createLiveCheckinWithCreditInDb({
-    id: randomId("checkin"),
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "每日积分任务需要数据库服务。" });
+  const task = liveDailyTaskConfig(taskKey);
+  if (!task) return sendJson(res, 404, { ok: false, code: "LIVE_DAILY_TASK_NOT_FOUND", message: "每日任务不存在。" });
+  if (task.reward <= 0) return sendJson(res, 400, { ok: false, code: "LIVE_DAILY_TASK_NOT_CLAIMABLE", message: "该任务没有可领取的积分。" });
+  const taskDate = localDayKey(new Date());
+  const completion = task.key === "checkin" ? true : (await getLiveDailyTaskCompletionInDb({ userId: auth.user.id, ...liveDailyTaskDayRange(taskDate) }))?.[task.key] === true;
+  if (!completion) return sendJson(res, 409, { ok: false, code: "LIVE_DAILY_TASK_INCOMPLETE", message: `完成「${task.title}」后才能领取积分。` });
+  const result = await createLiveDailyTaskClaimWithCreditInDb({
+    id: randomId("daily-task"),
     userId: auth.user.id,
-    checkinDate,
-    credits: LIVE_DAILY_CHECKIN_CREDITS,
-    ledgerId: `live-checkin-${auth.user.id}-${checkinDate}`,
-    ledgerType: "live_daily_checkin",
-    ledgerMeta: { userId: auth.user.id, username: auth.user.username || "", checkinDate },
+    taskDate,
+    taskKey: task.key,
+    credits: task.reward,
+    ledgerId: `live-daily-task-ledger-${auth.user.id}-${taskDate}-${task.key}`,
+    ledgerType: LIVE_DAILY_TASK_LEDGER_TYPES[task.key],
+    ledgerMeta: { userId: auth.user.id, username: auth.user.username || "", taskDate, taskKey: task.key, taskTitle: task.title },
+    payload: { taskTitle: task.title, reward: task.reward },
   });
-  const summary = await getLiveCheckinSummaryInDb(auth.user.id, checkinDate);
+  const checkin = await liveDailyTaskView(auth.user.id, taskDate);
   const user = result?.user || auth.user;
   return sendJson(res, 200, {
     ok: true,
-    alreadyChecked: result?.inserted === false,
-    awardedCredits: result?.inserted ? LIVE_DAILY_CHECKIN_CREDITS : 0,
-    checkin: { ...(summary || {}), credits: LIVE_DAILY_CHECKIN_CREDITS },
+    alreadyClaimed: result?.inserted === false,
+    awardedCredits: result?.inserted ? task.reward : 0,
+    taskKey: task.key,
+    checkin,
     user: userView(user),
   });
 }
-
 async function handleGetLiveCreatorIncome(req, res, url) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -52015,6 +52086,10 @@ async function handleRequest(req, res) {
     }
     if (req.method === "POST" && url.pathname === "/api/live/checkin") {
       return await handleCreateLiveCheckin(req, res);
+    }
+    const liveDailyTaskClaimMatch = url.pathname.match(/^\/api\/live\/checkin\/tasks\/([^/]+)$/);
+    if (req.method === "POST" && liveDailyTaskClaimMatch) {
+      return await handleClaimLiveDailyTask(req, res, decodeURIComponent(liveDailyTaskClaimMatch[1]));
     }
     if (req.method === "GET" && url.pathname === "/api/live/creator-income") {
       return await handleGetLiveCreatorIncome(req, res, url);

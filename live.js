@@ -1247,29 +1247,44 @@
     const navKey = ["home", "messages", "profile"].includes(back) ? back : "profile";
     app.innerHTML = `<main class="live-page vip-page"><header class="detail-header"><button class="icon-button" data-action="back-subpage">‹</button><h1>${esc(title)}</h1></header>${body}</main>${nav(navKey)}`;
   }
+  function checkinTaskFallback() {
+    return [
+      { key: "checkin", title: "每日签到", reward: 20, hint: "连签可得 20 积分", description: "每天来看看，连签不断", action: "立即领取", completed: true, claimable: true },
+      { key: "text", title: "文字聊天", reward: 10, hint: "完成领 10 积分", description: "和 Ta 发几条消息", action: "去聊天" },
+      { key: "video", title: "视频通话", reward: 50, hint: "完成领 50 积分", description: "和 Ta 视频 1 分钟", action: "去聊天" },
+      { key: "live", title: "观看直播", reward: 15, hint: "完成领 15 积分", description: "在直播间看 1 分钟", action: "去观看" },
+      { key: "create", title: "创建角色", reward: 20, hint: "完成领 20 积分", description: "创建一个人物角色", action: "去创建" },
+      { key: "invite", title: "邀请好友", reward: 0, hint: "双方都有礼物", description: "邀请朋友一起来", action: "去邀请" },
+    ];
+  }
+  function checkinTaskIcon(key) {
+    if (key === "text") return uiIcon("chat");
+    if (key === "video") return uiIcon("video");
+    if (key === "live") return uiIcon("users");
+    if (key === "create") return uiIcon("magic");
+    if (key === "invite") return uiIcon("share");
+    return uiIcon("crown");
+  }
   function showCheckin() {
     if (!token()) return askLogin();
     state.page = "checkin";
     state.subpageBack = "home";
     const data = state.checkin || {};
-    const checked = data.checkedIn === true;
-    const streak = Number(data.streak || 0);
-    const today = data.today || null;
-    const recent = new Set(data.recentDates || []);
-    const award = Math.max(0, Number(data.credits || 0));
-    const awardText = award > 0 ? `${award} 积分` : "签到奖励";
-    const timeZone = "Asia/Shanghai";
-    const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    const monthCount = [...recent].filter((key) => key.startsWith(todayKey.slice(0, 7))).length;
-    const days = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(Date.now() - (6 - index) * 86400000);
-      const key = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-      const weekday = ["日","一","二","三","四","五","六"][new Date(`${key}T12:00:00+08:00`).getDay()];
-      return { key, day: Number(key.slice(-2)), weekday, active: recent.has(key), today: key === todayKey, reward: award };
-    });
-    const calendar = days.map((item, index) => `<div class="checkin-day${item.active ? " checked" : ""}${item.today ? " today" : ""}" data-checkin-day="${item.key}"><small>${item.today ? "今天" : `周${item.weekday}`}</small><b>${item.active ? "✓" : item.day}</b><span>${item.active ? `+${item.reward}` : item.today ? "可领取" : "待签到"}</span>${index < days.length - 1 ? '<i aria-hidden="true"></i>' : ""}</div>`).join("");
-    const claimLabel = checked ? "今日已领取" : state.checkinLoading ? "领取中…" : `立即领取${award > 0 ? ` ${award} 积分` : ""}`;
-    subpage("每日领积分", `<section class="checkin-hero"><div class="checkin-hero-glow"></div><div class="checkin-coin">${uiIcon("crown")}</div><div class="checkin-hero-copy"><span class="checkin-kicker">DAILY REWARD</span><strong>${checked ? "今日奖励已到账" : `今日可领 <em>${award > 0 ? award : ""}</em>${award > 0 ? " 积分" : awardText}`}</strong><p>${checked ? `已连续签到 ${streak} 天，明天记得再来` : "每天回来看看 TA，积分自动进入钱包"}</p></div><span class="checkin-status${checked ? " done" : ""}">${checked ? "已领取" : "待领取"}</span></section><section class="checkin-overview" aria-label="签到概览"><div><b>${streak}</b><small>连续签到</small></div><div><b>${monthCount}</b><small>本月签到</small></div><div><b>${checked ? "已完成" : "待完成"}</b><small>今日任务</small></div></section><section class="checkin-panel"><div class="checkin-panel-head"><div><h2>7 天签到</h2><p>每天签到可领${award > 0 ? ` ${award} 积分` : "积分奖励"}</p></div><span>${checked ? "今天已完成" : "今天待领取"}</span></div><section class="checkin-week" aria-label="最近 7 天签到记录">${calendar}</section></section><section class="checkin-panel checkin-task-panel"><div class="checkin-panel-head"><div><h2>今日任务</h2><p>完成签到即可领取奖励</p></div></div><section class="benefit-rows checkin-tasks"><div><span class="rule-ico gold">${uiIcon("crown")}</span><div><b>每日签到</b><small>${checked ? `今天已领取${award > 0 ? ` ${award} 积分` : ""}${today?.createdAt ? ` · ${moneyTime(today.createdAt)}` : ""}` : "领取后积分自动到账"}</small></div><em>${checked ? "已完成" : award > 0 ? `+${award}` : "奖励"}</em></div><div><span class="rule-ico pink">${uiIcon("heart")}</span><div><b>保持连续签到</b><small>${streak > 0 ? `已连续签到 ${streak} 天，继续保持` : "从今天开始积累连续签到天数"}</small></div><em>${streak} 天</em></div></section></section>${state.checkinError ? `<p class="checkin-error" role="alert">${esc(state.checkinError)}</p>` : ""}<button class="checkin-claim" type="button" data-action="checkin-claim" ${checked || state.checkinLoading ? "disabled" : ""}>${claimLabel}</button><p class="checkin-footnote">${uiIcon("lock")}每日 00:00 重置 · 签到积分直接进入钱包</p>`, "home");
+    const tasks = Array.isArray(data.tasks) && data.tasks.length ? data.tasks : checkinTaskFallback();
+    const todayEarned = Math.max(0, Number(data.todayEarned ?? tasks.filter((task) => task.claimed).reduce((sum, task) => sum + Number(task.reward || 0), 0)));
+    const claimedCount = tasks.filter((task) => task.claimed).length;
+    const taskRows = tasks.map((task) => {
+      const claimed = task.claimed === true;
+      const claimable = !claimed && task.claimable === true && Number(task.reward || 0) > 0;
+      const button = claimed
+        ? `<button class="checkin-task-button claimed" type="button" disabled>已完成</button>`
+        : claimable
+          ? `<button class="checkin-task-button" type="button" data-action="checkin-task" data-checkin-task-key="${esc(task.key)}" ${state.checkinLoading ? "disabled" : ""}>${state.checkinLoading ? "领取中…" : `领取 ${Number(task.reward || 0)} 积分`}</button>`
+          : `<button class="checkin-task-button outline" type="button" data-action="checkin-task-go" data-checkin-task-key="${esc(task.key)}">${esc(task.action || "去完成")}</button>`;
+      return `<div class="checkin-task-row${claimed ? " is-claimed" : ""}"><span class="checkin-task-icon">${checkinTaskIcon(task.key)}</span><div class="checkin-task-copy"><p><b>${esc(task.title || "")}</b><em>${esc(task.hint || "")}</em></p><small>${esc(task.description || "")}</small></div>${button}</div>`;
+    }).join("");
+    const dots = tasks.map((task, index) => `<i class="${task.claimed ? "done" : (index < claimedCount ? "done" : "")}" aria-hidden="true"></i>`).join("");
+    subpage("每日领积分", `<main class="checkin-page-body"><section class="checkin-summary"><div class="checkin-summary-top"><div><span>今日已领</span><strong>${todayEarned}<small> 积分</small></strong></div><p>共 ${tasks.length} 项任务</p></div><div class="checkin-dots" aria-label="已完成 ${claimedCount} 项任务">${dots}</div></section><section class="checkin-task-list" aria-label="每日任务">${taskRows}<div class="checkin-rules"><div class="checkin-rules-head">${uiIcon("document")}<span>任务规则</span></div><p>1. 每天 24:00 重置，次日可重新领取。</p><p>2. 完成后即到账，同一任务当天只计一次。</p></div></section>${state.checkinError ? `<p class="checkin-error" role="alert">${esc(state.checkinError)}</p>` : ""}<p class="checkin-footnote">${uiIcon("lock")}任务奖励每日 24:00 重置，以实际到账为准</p></main>`, "home");
   }
   async function loadCheckin(force = false) {
     if (!token() || (state.checkin && !force)) return state.checkin;
@@ -1282,31 +1297,52 @@
       if (result.user) state.user = result.user;
       return state.checkin;
     } catch (error) {
-      state.checkinError = error.message || "签到信息加载失败";
+      state.checkinError = error.message || "每日积分任务加载失败";
       return null;
     } finally {
       state.checkinLoading = false;
       if (state.page === "checkin") showCheckin();
     }
   }
-  async function claimCheckin() {
+  function openCheckinTask(taskKey) {
+    const key = String(taskKey || "");
+    if (key === "text") {
+      if (state.role?.id) { openTextChat(""); return; }
+      state.page = "messages";
+      render();
+      return;
+    }
+    if (key === "video") {
+      if (state.role?.id) { openCall(state.role.id); return; }
+      state.roomTab = "single";
+      showRooms("messages");
+      return;
+    }
+    if (key === "live") { state.roomTab = "multi"; showRooms("home"); return; }
+    if (key === "create") { state.page = "create"; render(); return; }
+    if (key === "invite") { showReferral(); return; }
+    if (key === "checkin") claimCheckinTask("checkin");
+  }
+  async function claimCheckinTask(taskKey = "checkin") {
     if (!token()) return askLogin();
     if (state.checkinLoading) return;
     state.checkinLoading = true;
     state.checkinError = "";
     showCheckin();
     try {
-      const result = await api("/api/live/checkin", { method: "POST", body: "{}" });
+      const result = await api(`/api/live/checkin/tasks/${encodeURIComponent(taskKey)}`, { method: "POST", body: "{}" });
       state.checkin = result.checkin || state.checkin;
       if (result.user) state.user = result.user;
-      referralToast(result.alreadyChecked ? "今天已经签到过了" : (Number(result.awardedCredits || 0) > 0 ? `签到成功，+${Number(result.awardedCredits || 0)} 积分` : "签到成功"));
+      const awarded = Number(result.awardedCredits || 0);
+      referralToast(result.alreadyClaimed ? "今天这项奖励已经领取过了" : (awarded > 0 ? `领取成功，+${awarded} 积分` : "奖励已领取"));
     } catch (error) {
-      state.checkinError = error.message || "签到失败，请稍后重试";
+      state.checkinError = error.message || "领取失败，请稍后重试";
     } finally {
       state.checkinLoading = false;
       if (state.page === "checkin") showCheckin();
     }
   }
+
   function closeSettingsMenu() {
     document.querySelectorAll("[data-settings-menu]").forEach((menu) => { menu.hidden = true; });
     document.querySelectorAll('[data-action="settings"]').forEach((button) => { button.setAttribute("aria-expanded", "false"); });
@@ -2233,7 +2269,8 @@ document.addEventListener("click", async (e) => {
     const a = e.target.closest("[data-action]")?.dataset.action;
     if (a === "language-sheet") return languageSheet();
     if (a === "checkin") { showCheckin(); loadCheckin(true); return; }
-    if (a === "checkin-claim") return claimCheckin();
+    if (a === "checkin-task") return claimCheckinTask(e.target.closest("[data-checkin-task-key]")?.dataset.checkinTaskKey || "");
+    if (a === "checkin-task-go") { openCheckinTask(e.target.closest("[data-checkin-task-key]")?.dataset.checkinTaskKey || ""); return; }
     if (a === "system-messages") return openSystemMessages();
     if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; state.creatorIncomeWithdrawOpen = false; showCreatorIncome(); loadCreatorIncome(true); return; }
     if (a === "creator-income-refresh") { loadCreatorIncome(true); return; }
