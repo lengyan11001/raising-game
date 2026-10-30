@@ -169,15 +169,17 @@ test("live prototype styles and cache keys ship together", () => {
   );
   assert.match(live, /class="companion-guide-logo"/);
   assert.match(css, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.companion-guide-card\{[^}]*max-width:320px[^}]*height:500px/);
+  assert.match(css, /\.companion-guide\{[^}]*align-items:center[^}]*background:rgba\(4,4,8,\.72\)/);
   assert.match(css, /\.companion-guide-copy\{[^}]*justify-content:center/);
-  assert.match(css, /\.companion-guide-features\{[^}]*margin-top:clamp\(34px,4\.6vh,41px\)/);
-  assert.match(css, /\.companion-guide-features span\{[^}]*min-height:clamp\(104px,12\.1vh,109px\)/);
-  assert.match(css, /\.companion-guide-start\{[^}]*position:relative[^}]*margin-top:clamp\(30px,4\.2vh,38px\)/);
+  assert.match(css, /\.companion-guide-features\{[^}]*margin-top:14px/);
+  assert.match(css, /\.companion-guide-features span\{[^}]*min-height:76px/);
+  assert.match(css, /\.companion-guide-start\{[^}]*height:45px[^}]*margin-top:14px/);
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103024/);
-  assert.match(html, /live\.js\?v=2026103024/);
+  assert.match(html, /live\.css\?v=2026103025/);
+  assert.match(html, /live\.js\?v=2026103025/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
 });
 
