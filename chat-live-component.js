@@ -808,15 +808,11 @@ const COMPONENT_PHONEME_PINYIN = {
   嗯: "en2",
   唔: "wu2",
   呜: "wu2",
-  啊: "a1",
-  哈: "ha1",
-  呃: "e4",
-  嘶: "si1",
-  噢: "o1",
-  哦: "o1",
-  呀: "ya1",
 };
-const COMPONENT_VOCAL_RUN = /(?<![\p{L}\p{N}])([啊嗯唔哈呃嘶呜噢哦呀]+)(?![\p{L}\p{N}])/gu;
+// Pin only the nasal syllables whose pronunciation is frequently collapsed by
+// the TTS voice. Leave 啊/哈/哈啊 inside the normal sentence so coarticulation
+// and pitch movement are preserved instead of reading them as isolated notes.
+const COMPONENT_VOCAL_RUN = /(?<![\p{L}\p{N}])([嗯唔呜]+)(?![\p{L}\p{N}])/gu;
 
 function componentSsmlPause(sequence, delivery, cursor) {
   const intimate = delivery === "intimate" || delivery === "foreplay";
@@ -841,15 +837,11 @@ function speechSsml(text, options = {}) {
     .replace(/'/g, "&apos;");
   const pins = [];
   const pinned = raw.replace(COMPONENT_VOCAL_RUN, (run) => {
-    const pieces = [];
-    for (const char of run) {
-      const pinyin = COMPONENT_PHONEME_PINYIN[char];
-      if (!pinyin) continue;
-      const marker = `\u0001${pins.length}\u0002`;
-      pins.push(`<phoneme alphabet="py" ph="${pinyin}">${escape(char)}</phoneme>`);
-      pieces.push(marker);
-    }
-    return pieces.join("") || run;
+    const pinyin = [...run].map((char) => COMPONENT_PHONEME_PINYIN[char]).filter(Boolean).join(" ");
+    if (!pinyin) return run;
+    const marker = `\u0001${pins.length}\u0002`;
+    pins.push(`<phoneme alphabet="py" ph="${pinyin}">${escape(run)}</phoneme>`);
+    return marker;
   });
   let cursor = 0;
   const paced = pinned.replace(/\n|[，,、；;：:]|[。！？!?…—]+/gu, (sequence) => {

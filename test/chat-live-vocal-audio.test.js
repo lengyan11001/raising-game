@@ -73,10 +73,11 @@ test("SSML uses varied pauses rather than one fixed gap", () => {
   assert.ok(pauses.some((ms) => ms <= 200));
 });
 
-test("normal words containing vocal characters are not rewritten as moans", () => {
-  const ssml = speechSsml("好啊，我知道。嗯，再说。", { stage: "intimate" });
+test("only standalone nasal syllables are pinned, not ordinary vocal words", () => {
+  const ssml = speechSsml("好啊，我知道。嗯，再说。哈啊……", { stage: "intimate" });
   assert.doesNotMatch(ssml, /<phoneme[^>]*>好<\/phoneme>/);
   assert.doesNotMatch(ssml, /<phoneme[^>]*>啊<\/phoneme>/);
+  assert.doesNotMatch(ssml, /<phoneme[^>]*>哈啊<\/phoneme>/);
   assert.match(ssml, /好啊，/);
   assert.match(ssml, /<phoneme alphabet="py" ph="en2">嗯<\/phoneme>/);
 });
