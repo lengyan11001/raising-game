@@ -85,6 +85,18 @@
     return "";
   }
 
+  function isSessionReplacedError(error) {
+    return error?.code === "SESSION_REPLACED" || error?.payload?.code === "SESSION_REPLACED";
+  }
+
+  function handleSessionReplaced(errorOrPayload = {}) {
+    const payload = errorOrPayload?.payload || errorOrPayload || {};
+    for (const key of TOKEN_KEYS) {
+      try { localStorage.removeItem(key); } catch {}
+    }
+    window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
+  }
+
   async function apiFetch(url, options = {}) {
     const headers = { "content-type": "application/json", ...(options.headers || {}) };
     const token = authToken();
@@ -94,6 +106,7 @@
     let payload = {};
     try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
     if (!response.ok) {
+      if (payload?.code === "SESSION_REPLACED") handleSessionReplaced(payload);
       let message = payload?.message || payload?.error?.message || "";
       if (!message) {
         const videoUp = Boolean(state.billableStartedAt) || state.placeholderOn === false;
@@ -2389,7 +2402,11 @@
   }
 
   async function open(characterId, openOptions = {}) {
-    try { await loadConfig(true); } catch {}
+    try {
+      await loadConfig(true);
+    } catch (error) {
+      if (isSessionReplacedError(error)) return;
+    }
     const requested = typeof characterId === "object" ? characterId : null;
     const preserveOverlay = openOptions.preserveOverlay === true && Boolean(state.overlay);
     const character = characterById(requested?.id || characterId) || requested;
@@ -2546,6 +2563,11 @@
         }) });
       }
     } catch (error) {
+      if (isSessionReplacedError(error)) {
+        handleSessionReplaced(error);
+        closeOverlay();
+        return;
+      }
       const message = error.message || "创建会话失败。";
       const membership = error.code === "CHAT_LIVE_MEMBERSHIP_REQUIRED";
       const upstreamBalance = error.code === "CHAT_LIVE_UPSTREAM_BALANCE_UNAVAILABLE";

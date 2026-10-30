@@ -9,6 +9,21 @@ const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 const client = fs.readFileSync(path.join(__dirname, "..", "chat-live.js"), "utf8");
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 
+test("replaced account sessions reopen login instead of reporting a video connection failure", () => {
+  assert.match(client, /function isSessionReplacedError\(error\)/);
+  assert.match(client, /error\?\.code === "SESSION_REPLACED" \|\| error\?\.payload\?\.code === "SESSION_REPLACED"/);
+  assert.match(client, /function handleSessionReplaced\(errorOrPayload = \{\}\)/);
+  assert.match(client, /window\.dispatchEvent\(new CustomEvent\("raising-session-replaced", \{ detail: payload \}\)\)/);
+  assert.match(client, /if \(payload\?\.code === "SESSION_REPLACED"\) handleSessionReplaced\(payload\);/);
+  const catchStart = client.indexOf('} catch (error) {\n      if (isSessionReplacedError(error)) {');
+  const catchEnd = client.indexOf('const message = error.message || "创建会话失败。";', catchStart);
+  assert.ok(catchStart >= 0 && catchEnd > catchStart);
+  const createCatch = client.slice(catchStart, catchEnd);
+  assert.match(createCatch, /handleSessionReplaced\(error\);/);
+  assert.match(createCatch, /closeOverlay\(\);/);
+  assert.doesNotMatch(createCatch, /视频服务暂时没有接通/);
+});
+
 test("upstream Vidu balance exhaustion is not treated as the user's wallet balance", () => {
   assert.match(server, /function chatLiveUpstreamBalanceUnavailable/);
   assert.match(server, /code: upstreamBalanceUnavailable \? "CHAT_LIVE_UPSTREAM_BALANCE_UNAVAILABLE"/);

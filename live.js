@@ -50,7 +50,19 @@
       attribution: landing,
     };
   }
-  async function api(url, options = {}) { const h = { "content-type": "application/json", ...(options.headers || {}) }; if (token()) h.authorization = `Bearer ${token()}`; const r = await fetch(url, { cache: "no-store", ...options, headers: h }); const p = await r.json().catch(() => ({})); if (!r.ok) { const error = new Error(p.message || `请求失败（${r.status}）`); error.status = r.status; error.code = p.code || ""; throw error; } return p; }
+  function handleSessionReplaced(payload = {}) {
+    const message = String(payload?.message || "这个账号已在另一台设备登录，请重新登录。");
+    try { localStorage.removeItem(TOKEN_KEY); } catch {}
+    state.user = null;
+    state.billing = null;
+    state.companionLevel = null;
+    state.conversations = [];
+    try { window.ChatLive?.close?.(); } catch {}
+    render();
+    askLogin();
+    loginMessage(message);
+  }
+  async function api(url, options = {}) { const h = { "content-type": "application/json", ...(options.headers || {}) }; if (token()) h.authorization = `Bearer ${token()}`; const r = await fetch(url, { cache: "no-store", ...options, headers: h }); const p = await r.json().catch(() => ({})); if (!r.ok) { if (p.code === "SESSION_REPLACED") handleSessionReplaced(p); const error = new Error(p.message || `请求失败（${r.status}）`); error.status = r.status; error.code = p.code || ""; error.payload = p; throw error; } return p; }
   function stopVoicePreview() {
     state.voicePreviewRequestId = (state.voicePreviewRequestId || 0) + 1;
     const current = state.voicePreview;
@@ -2112,7 +2124,13 @@
     if (!c) return referralToast("角色信息还没加载完成，请稍后重试");
     if (!token()) return askLogin({ characterId: c.id, roomId });
     if (!window.ChatLive?.open) return referralToast("视频服务还在加载，请刷新后重试");
-    Promise.resolve(window.ChatLive.open(c.id, roomId ? { roomId } : (sharedRoom ? { sharedRoom: true } : {}))).catch((error) => referralToast(error?.message || "视频聊天没有接通，请稍后重试"));
+    Promise.resolve(window.ChatLive.open(c.id, roomId ? { roomId } : (sharedRoom ? { sharedRoom: true } : {}))).catch((error) => {
+      if (error?.code === "SESSION_REPLACED" || error?.payload?.code === "SESSION_REPLACED") {
+        handleSessionReplaced(error.payload || { code: "SESSION_REPLACED", message: error.message });
+        return;
+      }
+      referralToast(error?.message || "视频聊天没有接通，请稍后重试");
+    });
   }
   async function saveProfile(form) { try { const result = await api("/api/account/profile", { method: "PATCH", body: JSON.stringify({ nickname: form.nickname.value.trim(), gender: form.gender.value, birthday: form.birthday.value, occupation: form.occupation.value, city: form.city.value, bio: form.bio.value, interests: form.interests.value ? form.interests.value.split("|").filter(Boolean) : [], profilePhotos: state.user.profilePhotos || [] }) }); state.user = result.user; state.page = "profile"; render(); } catch (error) { form.querySelector("[data-profile-message]").textContent = error.message; } }
     app.addEventListener("change", async (e) => {
@@ -2512,6 +2530,7 @@ document.addEventListener("click", async (e) => {
       if (note) note.textContent = "已提交，等待到账确认。";
     } catch (error) { if (note) note.textContent = error.message; }
   });
+  window.addEventListener("raising-session-replaced", (event) => handleSessionReplaced(event.detail || {}));
   captureLanding();
   load().then(() => {
     initCompanionGuide();

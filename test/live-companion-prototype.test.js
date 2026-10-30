@@ -22,6 +22,16 @@ test("live bottom navigation exposes the prototype create tab", () => {
   assert.match(live, /api\("\/api\/chat-live\/creator\/characters"/);
 });
 
+test("live handles replaced sessions with the server message and login dialog", () => {
+  assert.match(live, /function handleSessionReplaced\(payload = \{\}\)/);
+  assert.match(live, /const message = String\(payload\?\.message \|\| "这个账号已在另一台设备登录，请重新登录。"\);/);
+  assert.match(live, /if \(p\.code === "SESSION_REPLACED"\) handleSessionReplaced\(p\);/);
+  assert.match(live, /window\.addEventListener\("raising-session-replaced", \(event\) => handleSessionReplaced\(event\.detail \|\| \{\}\)\);/);
+  const openCallBlock = live.match(/function openCall\([\s\S]*?\n  \}/)[0];
+  assert.match(openCallBlock, /error\?\.code === "SESSION_REPLACED"/);
+  assert.match(openCallBlock, /handleSessionReplaced\(error\.payload \|\| \{ code: "SESSION_REPLACED"/);
+});
+
 test("live relationship and companion level pages use the persisted API", () => {
   assert.match(live, /data-action="relationship"/);
   assert.match(live, /api\(`\/api\/companion\/relationship\/\$\{encodeURIComponent\(id\)\}`\)/);
@@ -152,9 +162,9 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103011/);
-  assert.match(html, /live\.js\?v=2026103011/);
-  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
+  assert.match(html, /live\.css\?v=2026103012/);
+  assert.match(html, /live\.js\?v=2026103012/);
+  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-2/);
 });
 
 test("create-character auto profile understands the uploaded image through the server", () => {
