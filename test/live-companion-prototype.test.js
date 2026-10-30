@@ -141,6 +141,16 @@ test("home recommendation deck keeps native horizontal scrolling", () => {
   assert.doesNotMatch(css, /\.person-card\{scroll-snap-stop:always\}/);
 });
 
+test("create editor control selections preserve the current scroll position", () => {
+  assert.match(live, /function createEditor\(options = \{\}\)/);
+  assert.match(live, /const scrollTop = preserveScroll \? Number\(app\.querySelector\("\.create-edit-page"\)\?\.scrollTop \|\| 0\) : 0/);
+  assert.match(live, /if \(preserveScroll\) app\.querySelector\("\.create-edit-page"\)\?\.scrollTo\(0, scrollTop\)/);
+  assert.match(live, /function rerenderCreateEditor\(\) \{\s*createEditor\(\{ preserveScroll: true \}\)/);
+  assert.match(live, /d\.tags = d\.tags\.includes\(createTag\)[\s\S]*?rerenderCreateEditor\(\)/);
+  assert.match(live, /createDraft\(\)\.componentVoiceType = createComponentVoice;[\s\S]*?rerenderCreateEditor\(\)/);
+  assert.match(live, /createDraft\(\)\.visibility = createVisibility;[\s\S]*?rerenderCreateEditor\(\)/);
+});
+
 test("live recommendation cards keep one fixed frame", () => {
   assert.match(css, /\.person-card\{height:392px;display:flex;flex-direction:column\}/);
   assert.match(css, /\.person-image\{display:block;width:100%;height:330px;flex:0 0 330px\}/);
@@ -187,8 +197,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103037/);
-  assert.match(html, /live\.js\?v=2026103037/);
+  assert.match(html, /live\.css\?v=2026103038/);
+  assert.match(html, /live\.js\?v=2026103038/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 

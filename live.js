@@ -687,7 +687,9 @@
       }
     }
   }
-  function createEditor() {
+  function createEditor(options = {}) {
+    const preserveScroll = Boolean(options.preserveScroll);
+    const scrollTop = preserveScroll ? Number(app.querySelector(".create-edit-page")?.scrollTop || 0) : 0;
     stopVoicePreview();
     const d = createDraft();
     const componentVoices = visibleComponentVoiceOptions(state.creatorVoices?.component || []).slice(0, 8);
@@ -705,6 +707,10 @@
       }).join("")
       : `<span class="create-muted">${fallback}正在准备中</span>`;
     app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>按风格选择，可试听</small></div><p class="create-voice-hint">点选你喜欢的说话感觉，再试听确认。</p><div class="create-voice-group"><b>角色声音</b><small>进入聊天时使用</small><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "角色声音")}</div></div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
+    if (preserveScroll) app.querySelector(".create-edit-page")?.scrollTo(0, scrollTop);
+  }
+  function rerenderCreateEditor() {
+    createEditor({ preserveScroll: true });
   }
   function readCreateDraftFromForm() {
     const form = document.querySelector("[data-create-form]");
@@ -2286,19 +2292,19 @@ document.addEventListener("click", async (e) => {
     const lang = e.target.closest("[data-language]")?.dataset.language;
     if (lang) { state.language = lang; localStorage.setItem("vipeakLanguage", lang); render(); return; }
     const createGender = e.target.closest("[data-create-gender]")?.dataset.createGender;
-    if (createGender && !state.createEditingId) { readCreateDraftFromForm(); createDraft().gender = createGender; createEditor(); return; }
+    if (createGender && !state.createEditingId) { readCreateDraftFromForm(); createDraft().gender = createGender; rerenderCreateEditor(); return; }
     const createTag = e.target.closest("[data-create-tag]")?.dataset.createTag;
-    if (createTag) { readCreateDraftFromForm(); const d = createDraft(); d.tags = d.tags.includes(createTag) ? d.tags.filter((x) => x !== createTag) : (d.tags.length >= 3 ? d.tags : [...d.tags, createTag]); createEditor(); return; }
+    if (createTag) { readCreateDraftFromForm(); const d = createDraft(); d.tags = d.tags.includes(createTag) ? d.tags.filter((x) => x !== createTag) : (d.tags.length >= 3 ? d.tags : [...d.tags, createTag]); rerenderCreateEditor(); return; }
     const voicePreview = e.target.closest("[data-voice-preview]");
     if (voicePreview) { playVoicePreview(voicePreview); return; }
     const createVoice = e.target.closest("[data-create-voice]")?.dataset.createVoice;
-    if (createVoice) { readCreateDraftFromForm(); createDraft().voiceType = createVoice; createEditor(); return; }
+    if (createVoice) { readCreateDraftFromForm(); createDraft().voiceType = createVoice; rerenderCreateEditor(); return; }
     const createComponentVoice = e.target.closest("[data-create-component-voice]")?.dataset.createComponentVoice;
-    if (createComponentVoice) { readCreateDraftFromForm(); createDraft().componentVoiceType = createComponentVoice; createEditor(); return; }
+    if (createComponentVoice) { readCreateDraftFromForm(); createDraft().componentVoiceType = createComponentVoice; rerenderCreateEditor(); return; }
     const createRelation = e.target.closest("[data-create-relation]")?.dataset.createRelation;
-    if (createRelation) { readCreateDraftFromForm(); createDraft().relation = createRelation; createEditor(); return; }
+    if (createRelation) { readCreateDraftFromForm(); createDraft().relation = createRelation; rerenderCreateEditor(); return; }
     const createVisibility = e.target.closest("[data-create-visibility]")?.dataset.createVisibility;
-    if (createVisibility) { readCreateDraftFromForm(); createDraft().visibility = createVisibility; createEditor(); return; }
+    if (createVisibility) { readCreateDraftFromForm(); createDraft().visibility = createVisibility; rerenderCreateEditor(); return; }
     if (e.target.closest("[data-action=close-sheet]") && !e.target.closest("[data-sheet]")) { e.target.closest(".sheet-backdrop")?.remove(); return; }
     const n = e.target.closest("[data-nav]")?.dataset.nav;
     if (n) { clearProfileHash(); state.page = n; render(); return; }
