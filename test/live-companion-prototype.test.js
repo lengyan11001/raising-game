@@ -160,6 +160,10 @@ test("live gift and spending ledger rows keep a stable three-column layout", () 
 test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(live, /assets\/chat-live\/welcome-newcomer-v3\.jpg/);
+  assert.match(
+    fs.readFileSync(path.join(root, "server.js"), "utf8"),
+    /pathname !== "\/assets\/chat-live\/welcome-newcomer-v3\.jpg" &&[\s\S]*?!DISABLE_R2_STORAGE/,
+  );
   assert.match(live, /class="companion-guide-logo"/);
   assert.match(css, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(css, /\.companion-guide-copy\{[^}]*justify-content:center/);
@@ -169,8 +173,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103022/);
-  assert.match(html, /live\.js\?v=2026103022/);
+  assert.match(html, /live\.css\?v=2026103023/);
+  assert.match(html, /live\.js\?v=2026103023/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-3/);
 });
 
