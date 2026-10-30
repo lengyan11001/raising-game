@@ -66,11 +66,19 @@ const VOICE_PREVIEW_ITEMS = [
   },
   {
     id: "final-e",
-    title: "修正 E（本轮推荐）",
-    badge: "音色锁定",
-    description: "保留 D 已修好的前半段；38 秒后的尾段改为固定音色短段生成，并在自然气口接入，重点听 38–41 秒是否还会换声。",
+    title: "修正 E（旧尾段截短）",
+    badge: "对照",
+    description: "固定音色短尾段，但结尾只保留到 8.465 秒，后半气音被提前收住；保留用于对照。",
     duration: "41.0 秒",
     src: "/assets/admin/voice-preview/joanna-intimate-final-e.wav?v=20261030-voice-preview-3",
+  },
+  {
+    id: "final-h",
+    title: "修正 H（本轮推荐）",
+    badge: "保留原始气口",
+    description: "以 C 为主体，开头、28 秒问题段和完整尾段原样保留；仅替换 17 秒爆音句，并把该句响度校准回原水平。",
+    duration: "43.4 秒",
+    src: "/assets/admin/voice-preview/joanna-intimate-final-h.wav?v=20261030-voice-preview-4",
   },
 ];
 
@@ -6982,14 +6990,14 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。核对 28.10–31.62 秒的「等等等，别松手 / 抱紧我」，以及 E 版 38 秒后的尾段是否保持同一音色。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。H 保留 C 的开头气音、28 秒问题段和完整尾段，仅修 17 秒爆音；E 作为尾段截短对照。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>问题段定位</h3>
-            <p class="adm-muted">28.10–30.15 秒：「等等等，别松手」；30.15–31.62 秒：「抱紧我」。E 版可直接从 38 秒开始听尾段音色是否漂移。</p>
+            <p class="adm-muted">28.10–30.15 秒：「等等等，别松手」；30.15–31.62 秒：「抱紧我」。H 的尾段从 31.5 秒开始完整保留，不再硬裁气音。</p>
           </div>
         </div>
       </div>
@@ -7010,6 +7018,7 @@ function renderVoicePreview() {
                 <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>
                 ${item.id.startsWith("final-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
                 ${item.id === "final-e" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="37.6"><i data-lucide="search-check"></i>跳到 38 秒</button>' : ""}
+                ${item.id === "final-h" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0.35"><i data-lucide="play"></i>开场</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="31.5"><i data-lucide="waves"></i>尾段</button>' : ""}
               </div>
             </div>
           </article>
