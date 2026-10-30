@@ -187,7 +187,7 @@
 .fixed-call-bar>button:first-child,.fixed-call-bar>button[data-action="text-chat"]{width:44px;height:44px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.08);color:#fff;font-size:18px}
 .fixed-call-bar .primary-button{height:44px;border-radius:6px}
 .album-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.album-cell{aspect-ratio:3/4}
+.album-cell{aspect-ratio:9/16}
 
 .messages-head{display:flex;align-items:center;justify-content:space-between}
 .messages-head button{height:36px;padding:0 12px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.07);color:rgba(255,255,255,.75);font-size:11px}
