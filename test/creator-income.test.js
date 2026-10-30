@@ -180,8 +180,8 @@ test("server-derived ownership and royalty eligibility gate only public communit
   assert.match(publicPredicate, /character\?\.communityShareEnabled === true/);
   assert.match(publicPredicate, /character\?\.communityVisibility === "public"/);
   assert.match(publicPredicate, /character\?\.enabled !== false/);
-  assert.match(live, /const canShareEarnings = Boolean\(c\.ownedByViewer && c\.creatorRoyaltyEligible\);/);
-  assert.match(live, /canShareEarnings \? '<button class="refer-earn" data-action="share-role">分享角色<\/button>' : ""/);
+  assert.match(live, /<button class="role-share-button" data-action="share-role" aria-label="分享角色">\$\{uiIcon\("share"\)\}<\/button>/);
+  assert.doesNotMatch(live, /canShareEarnings \?/);
   assert.doesNotMatch(live, /c\.communityVisibility === "public"[^;\n]*share-role/);
 });
 
@@ -471,10 +471,10 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   const shareSheetBody = live.match(/function openShareSheet\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
   assert.ok(shareSheetBody);
   assert.doesNotMatch(shareSheetBody, /total|cells|locks/);
-  assert.match(liveHtml, /live\.js\?v=2026103011/);
-  assert.match(liveHtml, /live\.css\?v=2026103011/);
+  assert.match(liveHtml, /live\.js\?v=2026103029/);
+  assert.match(liveHtml, /live\.css\?v=2026103029/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
-  assert.match(adminHtml, /admin\.js\?v=20261030-auto-profile-1/);
+  assert.match(adminHtml, /admin\.js\?v=20261030-voice-preview-5/);
   assert.match(admin, /async function renderCreatorData/);
   assert.match(admin, /data-creator-withdraw-action="paid"/);
   assert.match(admin, /data-creator-withdraw-action="rejected"/);

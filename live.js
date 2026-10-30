@@ -774,7 +774,6 @@
   function roleDetail(c) {
     const member = isLiveMember();
     const rate = Number(state.config?.pricing?.saleCreditsPerMinute || 0) || 0;
-    const canShareEarnings = Boolean(c.ownedByViewer && c.creatorRoyaltyEligible);
     const parts = albumParts(c);
     const resources = parts.priv;
     const publicPhotos = parts.urls;
@@ -784,7 +783,7 @@
     const topic = (c.tags || []).map((x) => `<span class="topic-pill">${esc(x)}</span>`).join("") || '<span class="detail-empty">暂无人物标签</span>';
     const albumCells = preview.map((url) => `<button class="album-cell" data-action="open-album" data-photo="${esc(url)}">${media(url, c.name || "相册")}</button>`).join("");
     const lockedCell = lockedCount ? `<button class="album-cell is-locked" data-action="${member ? "open-album" : "unlock-private"}"><span class="lock-shade"><b>私密</b><small>${lockedCount} 张</small></span></button>` : "";
-    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${media(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span>${canShareEarnings ? '<button class="refer-earn" data-action="share-role">分享角色</button>' : ""}</div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>共 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
+    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${media(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span><button class="role-share-button" data-action="share-role" aria-label="分享角色">${uiIcon("share")}</button></div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>共 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
   }
 
 
@@ -832,6 +831,14 @@
     }
     return canvas.toDataURL("image/png");
   }
+  function posterTags(role) {
+    const tags = (Array.isArray(role.tags) ? role.tags : []).map((tag) => String(tag || "").trim()).filter(Boolean);
+    return tags.length ? tags.slice(0, 4) : ["专属陪伴", "AI 互动"];
+  }
+  function posterIntro(role) {
+    const text = String(role.intro || role.greeting || "和 TA 来一场 AI 实时互动的视频聊天").replace(/\s+/g, " ").trim();
+    return text.length > 92 ? `${text.slice(0, 91)}…` : text;
+  }
   async function openSharePoster() {
     if (!token()) {
       if (loginDialog) loginDialog.dataset.pendingShare = "1";
@@ -842,9 +849,10 @@
     document.querySelector("[data-poster]")?.remove();
     const photo = rolePhoto(role);
     const qr = qrDataUrl(shareLink());
+    const tags = posterTags(role);
     state.posterQr = qr;
     ensurePosterFont();
-    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet><div class="poster-scroll"><div class="poster-photo">${photo ? `<img src="${esc(photo)}" alt="">` : ""}</div><div class="poster-copy"><div class="poster-name-row"><div class="poster-name"><strong>${esc(role.name || "Vipor")}</strong><em></em><small>AI 互动伙伴</small><p>和我来一场实时的视频聊天吧</p></div><button class="poster-unlock" type="button">解锁专属私密互动 ›</button></div><div class="poster-feats"><div><b><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 7.5v9l8-4.5-8-4.5z"/></svg></b><strong>实时视频</strong><span>面对面交流</span></div><div><b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="6.2" stroke-dasharray="2.2 2.4"/></svg></b><strong>专属陪伴</strong><span>只属于你</span></div><div><b><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 19s-6.2-3.7-8.2-7.2C2.4 9.4 3.2 6.8 5.6 6.1 7.2 5.6 8.7 6.2 12 8.6c3.3-2.4 4.8-3 6.4-2.5 2.4.7 3.2 3.3 1.8 5.7C18.2 15.3 12 19 12 19z"/></svg></b><strong>更真实的互动</strong><span>拉近彼此距离</span></div></div></div><div class="poster-foot"><div class="poster-brand"><strong>Vipor</strong><small>遇见你的专属伴侣</small></div><div class="poster-scan">长按扫描二维码<br>遇见你的专属伴侣</div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div><div class="poster-actions"><p data-sheet-note></p><div class="poster-action-row"><button data-action="save-poster">保存图片</button><button class="poster-share" data-action="poster-share">分享</button></div><button data-action="close-poster">关闭</button></div></div></div>`);
+    app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop poster-backdrop" data-poster data-action="close-poster"><div class="poster-card" data-poster-card data-sheet><div class="poster-scroll"><div class="poster-visual"><div class="poster-photo" data-poster-photo>${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="poster-photo-empty">Vipeak</div>'}</div><div class="poster-details"><h3>${esc(role.name || "Vipeak")}</h3><div class="poster-tags">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div><p class="poster-intro"><b>人物介绍：</b>${esc(posterIntro(role))}</p><div class="poster-bottom"><div class="poster-bottom-copy"><strong>Vipeak</strong><i></i><button class="poster-unlock" type="button">解锁专属私密互动 &gt;</button><p>和Ta来一场AI实时互动的视频聊天</p></div><div class="poster-qr">${qr ? `<img src="${qr}" alt="二维码">` : ""}</div></div></div></div></div><div class="poster-actions"><p data-sheet-note></p><div class="poster-action-row"><button data-action="save-poster">保存图片</button><button class="poster-share" data-action="poster-share">分享</button></div><button data-action="close-poster">关闭</button></div></div></div>`);
   }
   async function loadPosterPhoto(src) {
     if (!src) return null;
@@ -883,42 +891,70 @@
     }
     try { await document.fonts.load('64px PosterScript'); } catch {}
   }
+  function wrapPosterText(ctx, text, maxWidth) {
+    const lines = [];
+    let line = "";
+    for (const char of String(text || "")) {
+      const next = line + char;
+      if (line && ctx.measureText(next).width > maxWidth) {
+        lines.push(line);
+        line = char;
+      } else {
+        line = next;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
   async function saveSharePoster() {
     const note = document.querySelector("[data-poster] [data-sheet-note]");
     const role = state.role || {};
     const canvas = document.createElement("canvas");
-    canvas.width = 720; canvas.height = 1120;
+    canvas.width = 720; canvas.height = 1440;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 720, 1120);
-    ctx.save(); roundRect(ctx, 24, 24, 672, 1072, 36); ctx.clip();
-    ctx.fillStyle = "#fff"; ctx.fillRect(24, 24, 672, 1072);
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 720, 1440);
     const img = await loadPosterPhoto(rolePhoto(role));
-    if (img && img.width) drawPosterCover(ctx, img, 24, 24, 672, 700);
-    else { ctx.fillStyle = "#f3e7ea"; ctx.fillRect(24, 24, 672, 700); }
-    ctx.fillStyle = "#111"; ctx.font = "850 52px sans-serif"; ctx.textAlign = "left";
-    ctx.fillText(String(role.name || "Vipor").slice(0, 8), 48, 772);
-    ctx.save(); ctx.translate(56, 786); ctx.rotate(-0.2); ctx.fillStyle = "#ff4d88"; roundRect(ctx, 0, 0, 58, 8, 4); ctx.fill(); ctx.restore();
-    ctx.fillStyle = "#8a8a8a"; ctx.font = "18px sans-serif"; ctx.fillText("AI 互动伙伴", 48, 812);
-    ctx.fillStyle = "#222"; ctx.font = "750 20px sans-serif"; ctx.fillText("和我来一场实时的视频聊天吧", 48, 842);
-    ctx.fillStyle = "#ff5b93"; roundRect(ctx, 430, 746, 230, 44, 22); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "700 16px sans-serif"; ctx.textAlign = "center"; ctx.fillText("解锁专属私密互动  ›", 545, 774);
-    const feats = [["实时视频", "面对面交流", "▶"], ["专属陪伴", "只属于你", "◌"], ["更真实的互动", "拉近彼此距离", "♥"]];
-    feats.forEach((item, i) => {
-      const x = 40 + i * 220;
-      ctx.fillStyle = "#ffe4ee"; ctx.beginPath(); ctx.arc(x + 96, 900, 24, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#ff4d88"; ctx.font = "700 18px sans-serif"; ctx.textAlign = "center"; ctx.fillText(item[2], x + 96, 906);
-      ctx.fillStyle = "#111"; ctx.font = "700 16px sans-serif"; ctx.fillText(item[0], x + 96, 948);
-      ctx.fillStyle = "#9a9a9a"; ctx.font = "13px sans-serif"; ctx.fillText(item[1], x + 96, 968);
-      if (i) { ctx.strokeStyle = "#f0e4e8"; ctx.beginPath(); ctx.moveTo(x, 874); ctx.lineTo(x, 974); ctx.stroke(); }
+    if (img && img.width) drawPosterCover(ctx, img, 0, 0, 720, 760);
+    else {
+      ctx.fillStyle = "#f1e8e4"; ctx.fillRect(0, 0, 720, 760);
+      ctx.fillStyle = "#b8a9a3"; ctx.font = '700 40px "PingFang SC",sans-serif'; ctx.textAlign = "center";
+      ctx.fillText("Vipeak", 360, 386);
+    }
+    ctx.textAlign = "left"; ctx.fillStyle = "#111";
+    ctx.font = '400 58px Georgia,"Songti SC","Times New Roman",serif';
+    ctx.fillText(String(role.name || "Vipeak").slice(0, 18), 42, 846);
+    const tags = posterTags(role);
+    let tagX = 42;
+    ctx.font = '20px "PingFang SC",sans-serif';
+    tags.forEach((tag) => {
+      const tagWidth = Math.min(150, Math.max(84, ctx.measureText(tag).width + 34));
+      ctx.strokeStyle = "#2b2928"; ctx.lineWidth = 1.5;
+      roundRect(ctx, tagX, 880, tagWidth, 48, 5); ctx.stroke();
+      ctx.fillStyle = "#272423"; ctx.textAlign = "center"; ctx.fillText(tag, tagX + tagWidth / 2, 911);
+      tagX += tagWidth + 12;
     });
-    ctx.strokeStyle = "#f1e6ea"; ctx.beginPath(); ctx.moveTo(48, 992); ctx.lineTo(672, 992); ctx.stroke();
-    ctx.textAlign = "left"; ctx.fillStyle = "#111"; ctx.font = "800 32px sans-serif"; ctx.fillText("Vipor", 48, 1036);
-    ctx.fillStyle = "#8d8d8d"; ctx.font = "15px sans-serif"; ctx.fillText("遇见你的专属伴侣", 48, 1062);
-    ctx.textAlign = "right"; ctx.fillText("长按扫描二维码", 560, 1032); ctx.fillText("遇见你的专属伴侣", 560, 1054);
-    ctx.fillStyle = "#fff"; ctx.strokeStyle = "#eee"; roundRect(ctx, 580, 1004, 84, 84, 8); ctx.fill(); ctx.stroke();
+    ctx.textAlign = "left"; ctx.fillStyle = "#171414";
+    ctx.font = '700 23px "PingFang SC",sans-serif';
+    ctx.fillText("人物介绍：", 42, 984);
+    const intro = posterIntro(role);
+    const prefixWidth = ctx.measureText("人物介绍：").width;
+    ctx.font = '22px "PingFang SC",sans-serif';
+    const introLines = wrapPosterText(ctx, intro, 630 - prefixWidth);
+    ctx.fillText(introLines[0] || "", 42 + prefixWidth, 984);
+    introLines.slice(1, 4).forEach((line, index) => ctx.fillText(line, 42, 1022 + index * 34));
+    const introBottom = 1022 + Math.max(0, introLines.slice(1, 4).length - 1) * 34;
+    const bottomTop = Math.max(1092, introBottom + 50);
+    ctx.fillStyle = "#0a0a0a"; ctx.font = '700 61px "PingFang SC",Arial,sans-serif';
+    ctx.fillText("Vipeak", 42, bottomTop + 55);
+    ctx.fillStyle = "#ee3f76"; ctx.fillRect(42, bottomTop + 78, 54, 6);
+    ctx.fillStyle = "#ed477c";
+    roundRect(ctx, 42, bottomTop + 112, 404, 70, 35); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = '24px "PingFang SC",sans-serif'; ctx.textAlign = "center";
+    ctx.fillText("解锁专属私密互动 >", 244, bottomTop + 156);
+    ctx.fillStyle = "#151212"; ctx.font = '22px "PingFang SC",sans-serif'; ctx.textAlign = "left";
+    ctx.fillText("和Ta来一场AI实时互动的视频聊天", 42, bottomTop + 222);
     const qrImage = await loadPosterQr(state.posterQr || qrDataUrl(shareLink()));
-    if (qrImage) ctx.drawImage(qrImage, 586, 1010, 72, 72);
-    ctx.restore();
+    if (qrImage) ctx.drawImage(qrImage, 512, bottomTop + 15, 166, 166);
     const a = document.createElement("a");
     let href = "";
     try { href = canvas.toDataURL("image/png"); }
