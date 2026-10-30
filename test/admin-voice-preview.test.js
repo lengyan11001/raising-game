@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
@@ -13,6 +14,7 @@ const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 
 const previewRoot = path.join(root, "assets", "admin", "voice-preview");
 const previewFiles = [
+  "joanna-moan-breath-c.wav",
   "joanna-intimate-baseline-a.wav",
   "joanna-intimate-waitfix-a.wav",
   "joanna-intimate-waitfix-c.wav",
@@ -30,14 +32,18 @@ test("admin has a top-level voice preview route and navigation entry", () => {
 
 test("voice preview renders the reviewed Joanna samples and final candidate with seeking", () => {
   assert.match(admin, /const VOICE_PREVIEW_ITEMS = \[/);
-  for (const fileName of previewFiles.filter((name) => !name.includes("final-e") && !name.includes("final-h"))) {
+  for (const fileName of previewFiles.filter((name) => !name.includes("final-e") && !name.includes("final-h") && !name.includes("moan-breath-c"))) {
     assert.match(admin, new RegExp(`/assets/admin/voice-preview/${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=20261030-voice-preview-2`));
   }
+  assert.match(admin, /joanna-moan-breath-c\.wav\?v=20261030-voice-preview-5/);
   assert.match(admin, /joanna-intimate-final-e\.wav\?v=20261030-voice-preview-3/);
   assert.match(admin, /joanna-intimate-final-h\.wav\?v=20261030-voice-preview-4/);
+  assert.match(admin, /修正 H（已否决）/);
+  assert.match(admin, /已否决 \/ 仅对照/);
   assert.match(admin, /item\.id\.startsWith\("final-"\).*16\.4/);
   assert.match(admin, /data-voice-seek="28\.0"/);
   assert.match(admin, /data-voice-seek="37\.6"/);
+  assert.match(admin, /data-voice-seek="0"/);
   assert.match(admin, /data-voice-seek="0\.35"/);
   assert.match(admin, /data-voice-seek="31\.5"/);
   assert.match(admin, /joanna-intimate-final-d\.wav\?v=20261030-voice-preview-2/);
@@ -50,10 +56,15 @@ test("voice preview WAV files exist and are valid RIFF/WAVE", () => {
   for (const fileName of previewFiles) {
     const file = path.join(previewRoot, fileName);
     const stat = fs.statSync(file);
-    assert.ok(stat.size > 1_000_000, `${fileName} is a full scene sample`);
+    const minimumBytes = fileName.includes("moan-breath-c") ? 500_000 : 1_000_000;
+    assert.ok(stat.size > minimumBytes, `${fileName} is a valid preview sample`);
     const header = fs.readFileSync(file).subarray(0, 12);
     assert.equal(header.subarray(0, 4).toString("ascii"), "RIFF");
     assert.equal(header.subarray(8, 12).toString("ascii"), "WAVE");
+    if (fileName === "moan-breath-c.wav") {
+      const digest = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+      assert.equal(digest, "a6ea5970aa1e0ebf3e1ffa4dda52d58bec87daec95e1ee78004fffd10888d26e", "approved Joanna breath reference must remain byte-identical");
+    }
   }
 });
 

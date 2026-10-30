@@ -33,6 +33,14 @@ function pricingMultiplierText(value) {
 
 const VOICE_PREVIEW_ITEMS = [
   {
+    id: "moan-breath-c",
+    title: "原始气音 C（当时认可）",
+    badge: "原始 0.95x",
+    description: "独立叫声/换气素材，rate=0.95 原速，保留全部 11.3 秒；不拼接、不裁尾、不重新对白化。先听这条确认基准。",
+    duration: "11.3 秒",
+    src: "/assets/admin/voice-preview/joanna-moan-breath-c.wav?v=20261030-voice-preview-5",
+  },
+  {
     id: "baseline-a",
     title: "基准 A",
     badge: "修复前对照",
@@ -74,9 +82,9 @@ const VOICE_PREVIEW_ITEMS = [
   },
   {
     id: "final-h",
-    title: "修正 H（本轮推荐）",
-    badge: "保留原始气口",
-    description: "以 C 为主体，开头、28 秒问题段和完整尾段原样保留；仅替换 17 秒爆音句，并把该句响度校准回原水平。",
+    title: "修正 H（已否决）",
+    badge: "已否决 / 仅对照",
+    description: "这版引入了与原声不一致的变化，不作为候选；仅保留用于对照。请以顶部“原始气音 C”为准。",
     duration: "43.4 秒",
     src: "/assets/admin/voice-preview/joanna-intimate-final-h.wav?v=20261030-voice-preview-4",
   },
@@ -6990,7 +6998,7 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。H 保留 C 的开头气音、28 秒问题段和完整尾段，仅修 17 秒爆音；E 作为尾段截短对照。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 长场景样音。先听“原始气音 C”确认当时认可的 0.95x 基准；H 不作为推荐，D/E 仅作对照。</p>
         </div>
       </div>
       <div class="adm-card">
@@ -7015,7 +7023,9 @@ function renderVoicePreview() {
               <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span>${escapeHtml(item.duration)}</span>
-                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>
+                ${item.id === "moan-breath-c"
+                  ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button>'
+                  : `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>`}
                 ${item.id.startsWith("final-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
                 ${item.id === "final-e" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="37.6"><i data-lucide="search-check"></i>跳到 38 秒</button>' : ""}
                 ${item.id === "final-h" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0.35"><i data-lucide="play"></i>开场</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="31.5"><i data-lucide="waves"></i>尾段</button>' : ""}
