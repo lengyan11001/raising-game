@@ -51539,7 +51539,6 @@ async function serveStatic(req, res, url) {
     !pathname.startsWith("/assets/showcase/") &&
     !pathname.startsWith("/assets/generated/") &&
     !pathname.startsWith("/assets/admin/voice-preview/") &&
-    pathname !== "/assets/chat-live/welcome-newcomer-v3.jpg" &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain;
   if (shouldRedirectAssetToR2) {
