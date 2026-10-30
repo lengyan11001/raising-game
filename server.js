@@ -215,6 +215,7 @@ const {
   cleanupOrphanedChatLiveFreeAllocationsInDb,
   listChatLiveSessionsInDb,
   listUnsettledChatLiveSessionsInDb,
+  listTerminalChatLiveSessionsMissingHistoryInDb,
   upsertChatLiveRoomInDb,
   getChatLiveRoomInDb,
   listChatLiveRoomsInDb,
@@ -9854,12 +9855,32 @@ function chatLiveCallDurationText(seconds = 0) {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+function chatLiveSessionHistoryTerminal(session = {}) {
+  if (session.settled === true) return true;
+  const status = normalizeChatLiveUpstreamStatus(session.status);
+  const upstreamStatus = normalizeChatLiveUpstreamStatus(session.upstreamStatus);
+  return CHAT_LIVE_UPSTREAM_TERMINAL_STATUSES.has(status)
+    || CHAT_LIVE_UPSTREAM_TERMINAL_STATUSES.has(upstreamStatus)
+    || Boolean(String(session.endedAt || "").trim());
+}
+
+function chatLiveHistoryDurationSeconds(session = {}) {
+  const limit = chatLiveBillableLimitSeconds(session);
+  const billed = Math.max(0, Number(session.billedSeconds || session.upstreamBilledSeconds || 0) || 0);
+  if (billed > 0) return Math.min(limit, Math.floor(billed));
+  const startMs = Date.parse(session.billableStartedAt || session.createdAt || "");
+  const endMs = Date.parse(session.endedAt || session.upstreamEndedAt || session.updatedAt || "");
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.min(limit, Math.max(0, Math.floor((endMs - startMs) / 1000)));
+}
+
 async function persistChatLiveCallHistory(session = {}) {
   const userId = String(session.userId || "").trim();
   const characterId = String(session.characterId || "").trim();
   const sessionId = String(session.id || "").trim();
-  if (!dbEnabled() || !userId || !characterId || !sessionId || session.settled !== true) return null;
-  const billedSeconds = Math.max(0, Number(session.billedSeconds || 0) || 0);
+  if (!dbEnabled() || !userId || !characterId || !sessionId || !chatLiveSessionHistoryTerminal(session)) return null;
+  const billedSeconds = chatLiveHistoryDurationSeconds(session);
+  const endedAt = String(session.endedAt || session.upstreamEndedAt || session.updatedAt || new Date().toISOString());
   let conversation = await findChatConversationByCharacterInDb(userId, characterId).catch(() => null);
   const now = new Date().toISOString();
   if (!conversation) {
@@ -9876,8 +9897,8 @@ async function persistChatLiveCallHistory(session = {}) {
       instructions: "",
       backgroundEnabled: true,
       lastMessage: "",
-      createdAt: now,
-      updatedAt: now,
+      createdAt: endedAt,
+      updatedAt: endedAt,
     };
     // Messages have a PostgreSQL foreign key to the conversation, so the
     // conversation must exist before insertChatMessagesIfAbsentInDb runs.
@@ -9894,9 +9915,9 @@ async function persistChatLiveCallHistory(session = {}) {
     sessionId,
     durationSeconds: billedSeconds,
     startedAt: String(session.billableStartedAt || session.createdAt || ""),
-    endedAt: String(session.endedAt || now),
+    endedAt,
     status: "ended",
-    createdAt: String(session.endedAt || now),
+    createdAt: endedAt,
     updatedAt: now,
   };
   const nextConversation = {
@@ -9904,7 +9925,18 @@ async function persistChatLiveCallHistory(session = {}) {
     lastMessage: message.content,
     updatedAt: message.createdAt,
   };
-  const saved = await insertChatMessagesIfAbsentInDb([message], nextConversation);
+  /*
+   * Backfilling an old call must never replace a newer chat preview. The
+   * message is still inserted, while the conversation row is only touched when
+   * this call is at least as recent as the conversation's current message.
+   */
+  const conversationUpdatedMs = Date.parse(conversation.updatedAt || conversation.createdAt || "");
+  const callUpdatedMs = Date.parse(message.createdAt || "");
+  const shouldUpdateConversation = !Number.isFinite(conversationUpdatedMs)
+    || !Number.isFinite(callUpdatedMs)
+    || callUpdatedMs >= conversationUpdatedMs;
+  const saved = await insertChatMessagesIfAbsentInDb([message], shouldUpdateConversation ? nextConversation : null);
+  if (saved?.inserted) console.log("[chat-live-history] stored", sessionId, message.content);
   return saved?.messages?.[0] || message;
 }
 
@@ -10142,7 +10174,7 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
       console.warn("[creator-earning] record failed", updated.id, error?.message || error);
     }
   }
-  if (lockedResult.settlementCommitted === true) {
+  if (chatLiveSessionHistoryTerminal(updated)) {
     try {
       await persistChatLiveCallHistory(updated);
     } catch (error) {
@@ -10568,8 +10600,15 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
     const updated = result?.session;
     if (!updated) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
     if (!result.settlementCommitted) {
-      return sendJson(res, 200, { ok: true, session: publicChatLiveSession(await settleChatLiveSession(updated, { auth })) });
+      const settled = await settleChatLiveSession(updated, { auth });
+      await persistChatLiveCallHistory(settled || updated).catch((error) => {
+        console.warn("[chat-live-history] late-end persist failed", updated.id, error?.message || error);
+      });
+      return sendJson(res, 200, { ok: true, session: publicChatLiveSession(settled) });
     }
+    await persistChatLiveCallHistory(updated).catch((error) => {
+      console.warn("[chat-live-history] settled-end persist failed", updated.id, error?.message || error);
+    });
     if (updated?.billableStartedAt && Number(updated.billedSeconds || 0) > 0) {
       await recordEffectiveInteractionDay(auth.user.id, updated.characterId, "video").catch((error) => {
         console.warn("[companion-video-day-failed]", String(error?.message || error).slice(0, 180));
@@ -11369,7 +11408,23 @@ async function handleChatLiveUpgrade(req, socket, head) {
 }
 
 async function settleStaleChatLiveSessions() {
-  if (!dbEnabled() || !(VIDU_API_KEY_OVERSEAS || VIDU_API_KEY_CN || VIDU_API_KEY)) return;
+  if (!dbEnabled()) return;
+  /*
+   * Backfill terminal calls even when settlement cannot complete. Real calls
+   * can end through reconnect/insufficient-credit paths without a final billed
+   * snapshot, and they still belong in the user's chat history exactly once.
+   */
+  try {
+    const historyCandidates = await listTerminalChatLiveSessionsMissingHistoryInDb({ limit: 25, minAgeSeconds: 30 });
+    for (const session of historyCandidates) {
+      await persistChatLiveCallHistory(session).catch((error) => {
+        console.warn("[chat-live-history] backfill failed", session.id, error?.message || error);
+      });
+    }
+  } catch (error) {
+    console.warn("[chat-live-history] backfill scan failed", String(error?.message || error).slice(0, 180));
+  }
+  if (!(VIDU_API_KEY_OVERSEAS || VIDU_API_KEY_CN || VIDU_API_KEY)) return;
   let sessions = [];
   try {
     sessions = await listUnsettledChatLiveSessionsInDb({ limit: 50, minAgeSeconds: 60 });
@@ -12669,7 +12724,8 @@ function publicReferralSummary(req, db = {}, user = {}) {
     .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
     .slice(0, 20)
     .map((record) => referralWithdrawalView(record, user));
-  const availableRewards = membershipActive ? Math.max(0, paidUserIds.size - rewardCount) : 0;
+  const availableRewards = Math.max(0, paidUserIds.size - rewardCount);
+  const rewardEligible = true;
   const origin = pageOriginFromRequest(req);
   return {
     code,
@@ -12681,7 +12737,7 @@ function publicReferralSummary(req, db = {}, user = {}) {
     rewardCount,
     remainingRewards: availableRewards,
     maxRewards: Math.max(paidUserIds.size, rewardCount),
-    rewardEligible: membershipActive,
+    rewardEligible,
     membershipActive,
     membershipTarget: CREATOR_MEMBERSHIP_REFERRAL_TARGET,
     remainingToMembership: Math.max(0, CREATOR_MEMBERSHIP_REFERRAL_TARGET - invitedUserIds.size),
@@ -14001,8 +14057,6 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
   if (!referredUser || !referrerId || referrerId === referredUser.id) return null;
   const referrer = (db.users || []).find((entry) => entry.id === referrerId);
   if (!referrer) return null;
-  await ensureCreatorMembershipFromReferrals(db, referrer);
-  if (!userHasCreatorMembership(referrer)) return null;
   if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) return null;
   const now = new Date().toISOString();
   const rewardMeta = {
@@ -14039,7 +14093,7 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
 }
 
 async function grantPendingReferralRewardsForMember(db = {}, referrer = {}) {
-  if (!referrer?.id || !userHasCreatorMembership(referrer)) return 0;
+  if (!referrer?.id) return 0;
   const referredUsers = referredUsersForUser(db, referrer);
   let granted = 0;
   for (const referredUser of referredUsers) {
@@ -40576,12 +40630,9 @@ async function scanTelegramGenerationNotifications() {
 async function handleReferralSummary(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const wasMember = userHasCreatorMembership(auth.user);
   await ensureCreatorMembershipFromReferrals(auth.db, auth.user);
-  if (!wasMember && userHasCreatorMembership(auth.user)) {
-    await grantPendingReferralRewardsForMember(auth.db, auth.user);
-    if (!dbEnabled()) await writeDb(auth.db);
-  }
+  await grantPendingReferralRewardsForMember(auth.db, auth.user);
+  if (!dbEnabled()) await writeDb(auth.db);
   return sendJson(res, 200, {
     ok: true,
     referral: publicReferralSummary(req, auth.db, auth.user),

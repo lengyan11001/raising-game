@@ -3238,6 +3238,33 @@ async function listUnsettledChatLiveSessionsInDb({ limit = 50, minAgeSeconds = 6
   return rows.map((row) => row.payload || {});
 }
 
+async function listTerminalChatLiveSessionsMissingHistoryInDb({ limit = 25, minAgeSeconds = 30 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit || 25) || 25));
+  const safeMinAgeSeconds = Math.max(0, Math.min(86400, Number(minAgeSeconds || 0) || 0));
+  const { rows } = await query(`
+    SELECT s.payload
+    FROM app_chat_live_sessions s
+    WHERE s.created_at <= NOW() - ($1 * INTERVAL '1 second')
+      AND (
+        LOWER(COALESCE(s.payload->>'status', '')) IN ('ended', 'closed', 'failed')
+        OR LOWER(COALESCE(s.payload->>'upstreamStatus', '')) IN ('ended', 'closed', 'failed')
+        OR COALESCE(s.payload->>'endedAt', '') <> ''
+        OR COALESCE(s.payload->>'ended_at', '') <> ''
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM app_chat_messages m
+        WHERE m.id = 'video-call-' || s.id
+          AND m.user_id = s.user_id
+      )
+    ORDER BY s.updated_at ASC, s.created_at ASC
+    LIMIT $2
+  `, [safeMinAgeSeconds, safeLimit]);
+  return rows.map((row) => row.payload || {});
+}
+
 async function upsertChatLiveRoomInDb(room = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -5693,6 +5720,7 @@ module.exports = {
   cleanupOrphanedChatLiveFreeAllocationsInDb,
   listChatLiveSessionsInDb,
   listUnsettledChatLiveSessionsInDb,
+  listTerminalChatLiveSessionsMissingHistoryInDb,
   upsertChatLiveRoomInDb,
   getChatLiveRoomInDb,
   listChatLiveRoomsInDb,

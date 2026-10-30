@@ -548,22 +548,49 @@ test("admin diagnostics distinguish raw upstream seconds from billable seconds",
   assert.doesNotMatch(adminSource, /video_ready: "首帧计时"/);
 });
 
-test("settled video calls become idempotent private-chat history entries", () => {
+test("terminal video calls become idempotent private-chat history entries", () => {
   const historyBlock = serverSource.match(/async function persistChatLiveCallHistory\([\s\S]*?\n}\n\nasync function settleChatLiveSession/)[0];
-  assert.match(historyBlock, /session\.settled !== true/);
+  assert.match(historyBlock, /chatLiveSessionHistoryTerminal\(session\)/);
+  assert.match(serverSource, /function chatLiveSessionHistoryTerminal/);
+  assert.match(serverSource, /CHAT_LIVE_UPSTREAM_TERMINAL_STATUSES\.has\(status\)/);
+  assert.match(serverSource, /CHAT_LIVE_UPSTREAM_TERMINAL_STATUSES\.has\(upstreamStatus\)/);
+  assert.match(serverSource, /Boolean\(String\(session\.endedAt \|\| ""\)\.trim\(\)\)/);
+  assert.match(historyBlock, /chatLiveHistoryDurationSeconds\(session\)/);
   assert.match(historyBlock, /findChatConversationByCharacterInDb\(userId, characterId\)/);
   assert.match(historyBlock, /id: `chat-live-history-\$\{userId\}-\$\{characterId\}`/);
   assert.match(historyBlock, /id: `video-call-\$\{sessionId\}`/);
   assert.match(historyBlock, /kind: "video_call"/);
   assert.match(historyBlock, /视频通话 · \$\{duration\} · 已结束/);
-  assert.match(historyBlock, /upsertChatConversationInDb\(conversation\)/);
-  assert.match(historyBlock, /insertChatMessagesIfAbsentInDb\(\[message\], nextConversation\)/);
+  assert.match(historyBlock, /shouldUpdateConversation/);
+  assert.match(historyBlock, /insertChatMessagesIfAbsentInDb\(\[message\], shouldUpdateConversation \? nextConversation : null\)/);
   assert.doesNotMatch(historyBlock, /billedSeconds > 0/);
-  assert.match(serverSource, /if \(lockedResult\.settlementCommitted === true\) \{\s*try \{\s*await persistChatLiveCallHistory\(updated\)/);
+  assert.match(serverSource, /if \(chatLiveSessionHistoryTerminal\(updated\)\) \{\s*try \{\s*await persistChatLiveCallHistory\(updated\)/);
   const retryBlock = serverSource.match(/if \(initial\.status === "ended" && initial\.settled === true\) \{[\s\S]*?return initial;\n  \}/)[0];
   assert.match(retryBlock, /persistChatLiveCallHistory\(initial\)/);
   assert.match(dbSource, /async function findChatConversationByCharacterInDb/);
   assert.match(dbSource, /WHERE user_id = \$1 AND character_id = \$2 AND deleted_at IS NULL/);
+});
+
+test("terminal call history backfill is idempotent and does not overwrite newer chat previews", () => {
+  assert.match(serverSource, /listTerminalChatLiveSessionsMissingHistoryInDb\(\{ limit: 25, minAgeSeconds: 30 \}\)/);
+  assert.match(serverSource, /\[chat-live-history\] backfill failed/);
+  assert.match(serverSource, /persistChatLiveCallHistory\(settled \|\| updated\)/);
+  assert.match(dbSource, /async function listTerminalChatLiveSessionsMissingHistoryInDb/);
+  assert.match(dbSource, /LOWER\(COALESCE\(s\.payload->>'status', ''\)\) IN \('ended', 'closed', 'failed'\)/);
+  assert.match(dbSource, /LOWER\(COALESCE\(s\.payload->>'upstreamStatus', ''\)\) IN \('ended', 'closed', 'failed'\)/);
+  assert.match(dbSource, /COALESCE\(s\.payload->>'endedAt', ''\) <> ''/);
+  assert.match(dbSource, /m\.id = 'video-call-' \|\| s\.id/);
+  assert.match(dbSource, /NOT EXISTS \(/);
+});
+
+test("message thread contact enrichment keeps real video-call previews", () => {
+  const liveSource = fs.readFileSync(path.join(root, "live.js"), "utf8");
+  const contactsBlock = liveSource.match(/for \(const item of contacts \|\| \[\]\) \{[\s\S]*?\n    \}/)?.[0] || "";
+  assert.match(contactsBlock, /video: true/);
+  assert.doesNotMatch(contactsBlock, /preview: "视频连线"/);
+  assert.doesNotMatch(contactsBlock, /lastMessage: \{ content: "视频连线" \}/);
+  assert.match(liveSource, /if \(!item\.preview && item\.hasVideo\) item\.preview = "视频连线";/);
+  assert.doesNotMatch(liveSource, /视频连线 · \$\{textPreview\}/);
 });
 
 test("ending a video call requires confirmation and keeps the live thread in sync", () => {

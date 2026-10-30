@@ -1196,48 +1196,23 @@
     }
   }
 
-  function referralDetailRows(referral) {
-    const rows = (referral.withdrawals || []).map((item) => {
-      const coins = vcoin(item.amountUsd);
-      const when = moneyTime(item.createdAt || item.requestedAt);
-      const status = item.status === "pending" ? "\u5904\u7406\u4e2d" : (item.status || "");
-      return `<div class="earn-row"><span class="earn-ico wallet">\u5e01</span><div><b>\u63d0\u73b0\u7533\u8bf7</b><small>${esc(status)} \u00b7 ${esc(when)}</small></div><em class="down">-${coins} \u5e01</em></div>`;
-    });
-    return rows.join("") || `<div class="earn-empty">\u8fd8\u6ca1\u6709\u6536\u76ca\u660e\u7ec6</div>`;
-  }
   async function showReferral() {
     if (!token()) return askLogin();
     state.page = "referral";
-    app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u63a8\u8350\u83b7\u6536\u76ca</h1><button type="button" data-action="vip">\u8ba2\u9605\u6743\u76ca</button></header><div class="empty-state">\u6b63\u5728\u8bfb\u53d6\u63a8\u5e7f\u6570\u636e\u2026</div></main>`;
+    app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><div class="empty-state">\u6b63\u5728\u8bfb\u53d6\u9080\u8bf7\u6570\u636e\u2026</div></main>`;
     try {
       const referral = (await api("/api/referral")).referral || {};
       state.referral = referral;
       const link = referral.inviteUrl || shareLink();
-      const total = vcoin(referral.totalCommissionUsd);
-      const available = vcoin(referral.availableWithdrawableUsd);
-      const count = (referral.withdrawals || []).length;
-      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u63a8\u8350\u83b7\u6536\u76ca</h1><button type="button" data-action="vip">\u8ba2\u9605\u6743\u76ca</button></header><section class="earn-card"><div class="earn-card-top"><span>\u7d2f\u8ba1\u83b7\u5f97\u6536\u76ca</span><small>1USD=100V\u5e01</small></div><div class="earn-card-main"><strong>${total} <em>V\u5e01</em></strong><button type="button" data-action="withdraw-referral">\u63d0\u73b0</button></div><div class="earn-stats"><div><b>${Number(referral.invitedCount || 0)}</b><small>\u5df2\u9080\u8bf7\u4eba\u6570</small></div><div><b>${available}</b><small>\u53ef\u63d0\u73b0\u6536\u76ca</small></div></div></section><button class="earn-link" data-copy-referral="${esc(link)}">\u83b7\u53d6\u4e13\u5c5e\u5206\u4eab\u94fe\u63a5</button><p class="earn-note">\u5206\u4eab\u597d\u53cb\uff0cTA \u901a\u8fc7\u4f60\u7684\u5206\u4eab\u4e0b\u5355\u5373\u8ba1\u5165\u4f60\u7684\u63a8\u8350\u6536\u76ca\u3002</p><section class="earn-block"><div class="earn-block-head"><h2>\u6536\u76ca\u660e\u7ec6</h2><span>\u5171 ${count} \u7b14 \u00b7 \u5408\u8ba1 ${total} V\u5e01</span></div><div class="earn-list">${referralDetailRows(referral)}</div></section><section class="earn-block"><h2>\u6536\u76ca\u89c4\u5219</h2><div class="earn-rules"><div class="earn-rule-row"><span class="earn-ico doc">\u6587</span><div><p><i>1.</i>\u7528\u6237\u901a\u8fc7\u63a8\u8350\u8005\u5206\u4eab\u4e0b\u5355\u7684 VIP \u8ba2\u9605\u3001\u8d2d\u4e70 V\u5e01 \u6240\u4ea7\u751f\u7684\u652f\u4ed8\u4ea4\u6613\uff0c\u6309\u4ea4\u6613\u91d1\u989d\u7684 5% \u7ed3\u7b97\u7ed9\u63a8\u8350\u8005\u3002</p><p><i>2.</i>\u63d0\u73b0\u7ed3\u7b97\u9700\u8981\u6263\u96646%\u670d\u52a1\u8d39\u3002</p></div></div><div class="earn-rule-tip">\u82e5\u88ab\u9080\u8bf7\u8005\u6d89\u53ca\u8ba2\u5355\u9000\u6b3e\uff0c\u5219\u9700\u6263\u9664\u63a8\u8350\u8005\u76f8\u5e94\u7ed3\u7b97\u6536\u76ca\u3002\u4e00\u7ecf\u53d1\u73b0\u5f02\u5e38\u9080\u8bf7\u5206\u4eab\u884c\u4e3a\uff0cVipor\u6709\u6743\u51bb\u7ed3\u76f8\u5e94\u7ed3\u7b97\u6536\u76ca\u3002</div></div></section><p class="earn-footer">Vipor \u00b72026</p></main>`;
+      const reward = Number(referral.rewardCredits || 100);
+      const invited = Number(referral.invitedCount || 0);
+      const paid = Number(referral.paidInviteCount || 0);
+      const rewardCount = Number(referral.rewardCount || 0);
+      const earned = rewardCount * reward;
+      const rewardTip = `\u597d\u53cb\u901a\u8fc7\u4f60\u7684\u9080\u8bf7\u94fe\u63a5\u6ce8\u518c\u5e76\u5b8c\u6210\u5145\u503c\u540e\uff0c\u6bcf\u4f4d\u4ed8\u8d39\u7528\u6237\u53ef\u4e3a\u4f60\u5e26\u6765 ${reward} \u79ef\u5206\uff0c\u540c\u4e00\u7528\u6237\u4ec5\u5956\u52b1\u4e00\u6b21\u3002`;
+      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><section class="earn-card"><div class="earn-card-top"><span>\u9080\u8bf7\u5956\u52b1</span><small>\u6bcf\u4f4d\u6709\u6548\u4ed8\u8d39\u7528\u6237 ${reward} \u79ef\u5206</small></div><div class="earn-card-main"><strong>${earned} <em>\u79ef\u5206</em></strong><button type="button" data-copy-referral="${esc(link)}">\u590d\u5236\u94fe\u63a5</button></div><div class="earn-stats"><div><b>${invited}</b><small>\u5df2\u9080\u8bf7\u4eba\u6570</small></div><div><b>${paid}</b><small>\u5df2\u4ed8\u8d39\u4eba\u6570</small></div><div><b>${rewardCount}</b><small>\u5df2\u83b7\u5956\u6b21\u6570</small></div></div></section><button class="earn-link" data-copy-referral="${esc(link)}">\u590d\u5236\u9080\u8bf7\u94fe\u63a5</button><p class="earn-note">${esc(rewardTip)}</p><section class="earn-block"><h2>\u9080\u8bf7\u89c4\u5219</h2><div class="earn-rules"><div class="earn-rule-row"><span class="earn-ico doc">\u6587</span><div><p><i>1.</i>\u597d\u53cb\u901a\u8fc7\u4f60\u7684\u9080\u8bf7\u94fe\u63a5\u6ce8\u518c\u5e76\u5b8c\u6210\u4ed8\u8d39\u540e\uff0c\u4f60\u53ef\u83b7\u5f97 ${reward} \u79ef\u5206\u3002</p><p><i>2.</i>\u540c\u4e00\u4e2a\u88ab\u9080\u8bf7\u7528\u6237\u53ea\u8ba1\u4e00\u6b21\u5956\u52b1\uff0c\u91cd\u590d\u652f\u4ed8\u4e0d\u91cd\u590d\u53d1\u653e\u3002</p><p><i>3.</i>\u5956\u52b1\u79ef\u5206\u53d1\u653e\u81f3\u666e\u901a\u79ef\u5206\u4f59\u989d\uff0c\u4e0e\u521b\u4f5c\u8005\u53ef\u63d0\u73b0\u6536\u76ca\u5206\u5f00\u8ba1\u7b97\u3002</p></div></div><div class="earn-rule-tip">\u79ef\u5206\u5956\u52b1\u4f1a\u8fdb\u5165\u4f60\u7684\u666e\u901a\u79ef\u5206\u4f59\u989d\uff0c\u4e0e\u521b\u4f5c\u8005\u6536\u76ca\u5206\u5f00\u7ed3\u7b97\u3002</div></section><p class="earn-footer">Vipeak \u00b72026</p></main>`;
     } catch (error) {
-      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u63a8\u8350\u83b7\u6536\u76ca</h1><button type="button" data-action="vip">\u8ba2\u9605\u6743\u76ca</button></header><div class="empty-state"><p>${esc(error.message)}</p></div></main>`;
-    }
-  }
-  async function withdrawReferral() {
-    const referral = state.referral || {};
-    const available = Number(referral.availableWithdrawableUsd || 0);
-    if (available < 1) { referralToast("\u53ef\u63d0\u73b0\u4e0d\u8db3 1 \u7f8e\u5143"); return; }
-    let address = String(referral.walletAddress || "").trim();
-    if (address.length < 20) {
-      address = String(window.prompt("\u8bf7\u8f93\u5165\u63d0\u73b0\u94b1\u5305\u5730\u5740", "") || "").trim();
-      if (address.length < 20) { referralToast("\u8bf7\u5148\u586b\u5199\u94b1\u5305\u5730\u5740"); return; }
-    }
-    const amount = Math.floor(available * 100) / 100;
-    try {
-      const result = await api("/api/referral/withdrawals", { method: "POST", body: JSON.stringify({ amountUsd: amount, walletAddress: address }) });
-      state.referral = result.referral || state.referral;
-      referralToast("\u63d0\u73b0\u7533\u8bf7\u5df2\u63d0\u4ea4");
-      showReferral();
-    } catch (error) {
-      referralToast(error.message || "\u63d0\u73b0\u6ca1\u6709\u63d0\u4ea4");
+      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><div class="empty-state"><p>${esc(error.message)}</p></div></main>`;
     }
   }
 
@@ -2094,14 +2069,16 @@
     for (const item of contacts || []) {
       const key = String(item.characterId || "");
       if (!key) continue;
-      touch(key, { updatedAt: item.updatedAt, character: { id: key, name: item.name, portraitUrl: item.portraitUrl, avatarUrl: item.portraitUrl }, name: item.name, portraitUrl: item.portraitUrl, preview: "视频连线", lastMessage: { content: "视频连线" }, video: true });
+      /*
+       * Contact enrichment must never replace a real conversation preview.
+       * In particular, video-call history now arrives as a normal chat message
+       * and should stay visible in the thread list.
+       */
+      touch(key, { updatedAt: item.updatedAt, character: { id: key, name: item.name, portraitUrl: item.portraitUrl, avatarUrl: item.portraitUrl }, name: item.name, portraitUrl: item.portraitUrl, video: true });
     }
     return [...groups.values()].map((item) => {
       if (!item.id) item.id = `live-contact-${item.characterId}`;
-      if (item.hasText && item.hasVideo) {
-        const textPreview = item.textPreview && item.textPreview !== "视频连线" ? item.textPreview : "";
-        item.preview = textPreview ? `视频连线 · ${textPreview}` : "视频连线";
-      }
+      if (!item.preview && item.hasVideo) item.preview = "视频连线";
       return item;
     }).sort((a, b) => b.updatedAtMs - a.updatedAtMs);
   }
@@ -2389,7 +2366,6 @@ document.addEventListener("click", async (e) => {
     if (a === "save-poster") { saveSharePoster(); return; }
     if (a === "poster-share") { document.querySelector("[data-poster]")?.remove(); openShareSheet(); return; }
     if (a === "close-poster") { document.querySelector("[data-poster]")?.remove(); return; }
-    if (a === "withdraw-referral") { withdrawReferral(); return; }
     if (a === "unlock-private") { openUnlockPrivate(); return; }
     if (a === "close-unlock") { document.querySelector("[data-unlock-modal]")?.remove(); return; }
     if (a === "text-chat") { openTextChat(""); return; }
