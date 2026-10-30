@@ -3817,11 +3817,11 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
       if (!result.confirmed) return;
       const reply = byId("supportReplyText")?.value.trim() || "";
       if (!reply) return toast("回复内容不能为空", "error");
-      await api(`/api/admin/support-messages/${encodeURIComponent(record.id)}/reply`, {
+      const replyResult = await api(`/api/admin/support-messages/${encodeURIComponent(record.id)}/reply`, {
         method: "POST",
         body: { reply },
       });
-      toast("已回复", "success");
+      toast(replyResult?.notificationSent ? "已回复，并已通过系统消息通知用户" : "已回复", "success");
       renderSupportMessages().catch((err) => renderRouteError(routeId, err));
     });
   });
@@ -5614,7 +5614,7 @@ async function renderChatLive() {
           <div class="adm-form-row"><span>每个用户免费总时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /><small class="adm-muted">按用户累计，不再每次连接重新赠送。进房即开始消耗；免费额度剩余不足 10 秒时，会按差额预扣付费时长，余额不足则不能进入。</small></div>
           <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
           <div class="adm-form-row"><span>模型版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
-          <div class="adm-form-row"><span>语言模型</span><select id="chatLiveLanguageModel"><option value="byteplus" ${(pricing.languageModel||"byteplus")!=="papaya"?"selected":""}>当前模型（BytePlus）</option><option value="papaya" ${(pricing.languageModel||"")==="papaya"?"selected":""}>Papaya 1.0</option></select><small class="adm-muted">只影响组件版视频对话。实时版仍走 Vidu 内置模型。改完后新开的通话生效。</small></div>
+          <div class="adm-form-row"><span>语言模型</span><select id="chatLiveLanguageModel"><option value="byteplus" ${(pricing.languageModel||"byteplus")!=="papaya"?"selected":""}>当前模型（BytePlus）</option><option value="papaya" ${(pricing.languageModel||"")==="papaya"?"selected":""}>Papaya 1.0</option></select><small class="adm-muted">用于组件版视频对话，以及创作页用户创建角色的 AI 自动生成。实时版仍走 Vidu 内置模型。改完后新开的通话和生成请求生效。</small></div>
           <div class="adm-form-row"><span>默认对话模式</span><select id="chatLiveDefaultMode"><option value="realtime" ${(pricing.defaultMode||"realtime")!=="component"?"selected":""}>实时版（Vidu 内置 LLM）</option><option value="component" ${(pricing.defaultMode||"")==="component"?"selected":""}>组件版（外接我们自己的 LLM）</option></select></div>
           <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
           <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>

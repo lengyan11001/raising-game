@@ -412,7 +412,7 @@
 .rooms-top h1{margin:0;font-size:17px;font-weight:700;line-height:1}
 .rooms-top .icon-button{width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.07);display:grid;place-items:center;padding:0;flex:none}
 .rooms-top .icon-button svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.rooms-filter{margin-left:auto;height:32px;padding:0 12px;border:0;border-radius:6px;background:#ff2d6f;color:#fff;font-size:12px;font-weight:600}
+.rooms-filter{height:32px;padding:0 12px;border:0;border-radius:6px;background:#ff2d6f;color:#fff;font-size:12px;font-weight:600}
 .room-segment{display:flex;justify-content:center;gap:64px;padding:4px 16px 0;border-bottom:0}
 .room-segment button{position:relative;height:auto;padding:0 0 10px;border:0;border-radius:0;background:transparent;color:rgba(255,255,255,.45);font-size:14px;font-weight:500}
 .room-segment button.selected{color:#fff;font-size:16px;font-weight:700}
@@ -575,6 +575,8 @@
 .create-empty button{height:40px;margin-top:42px;padding:0 21px;border:0;border-radius:999px;background:#ff3f78;color:#fff;font-size:12px;font-weight:600;box-shadow:0 10px 24px rgba(255,45,111,.28)}
 .create-persona-head{margin-top:18px}
 .create-auto-persona{height:26px;padding:0 9px;border:1px solid rgba(255,45,111,.5);border-radius:5px;background:rgba(255,45,111,.1);color:#ff8fb0;font-size:10px}
+.create-auto-persona:disabled{cursor:wait;opacity:.55}
+.create-auto-persona:not(:disabled):active{transform:scale(.98);background:rgba(255,45,111,.2)}
 .create-second-voice-head{margin-top:18px}
 .create-edit-page{min-height:100%;padding-bottom:24px;background:#121218}
 .create-edit-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.07)}
@@ -681,30 +683,51 @@
 .notification-title span{padding:2px 5px;border-radius:4px;background:#ff2d6f;color:#fff;font-size:8px;font-weight:600}
 .notification-card p{margin:6px 0 0;color:rgba(255,255,255,.58);font-size:11px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
 .notification-card small{display:block;margin-top:8px;color:rgba(255,255,255,.28);font-size:9px}
-.checkin-hero{display:flex;align-items:center;gap:15px;margin:16px 20px 0;padding:20px;border:1px solid rgba(255,196,92,.2);border-radius:12px;background:radial-gradient(circle at 18% 28%,rgba(255,196,92,.18),transparent 40%),linear-gradient(135deg,#2b1b27,#19171f)}
-.checkin-coin{display:grid;width:58px;height:58px;flex:none;place-items:center;border:1px solid rgba(255,225,158,.55);border-radius:50%;background:linear-gradient(145deg,#ffe29a,#e8a836 60%,#a56818);color:#4d2606;font-size:28px;font-weight:900;box-shadow:0 8px 24px rgba(232,168,54,.28),inset 0 2px 2px rgba(255,255,255,.7)}
-.checkin-hero>div:last-child{min-width:0}
-.checkin-hero span,.checkin-hero strong,.checkin-hero p{display:block}
-.checkin-hero span{color:rgba(255,255,255,.48);font-size:10px}
-.checkin-hero strong{margin-top:4px;font-size:27px;line-height:1.1;color:#ffd885}
-.checkin-hero strong small{font-size:11px;color:rgba(255,216,133,.7)}
-.checkin-hero p{margin:7px 0 0;color:rgba(255,255,255,.38);font-size:10px;line-height:1.45}
-.checkin-streak{display:grid;grid-template-columns:1fr 1fr;margin:12px 20px 0;padding:14px 0;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.035)}
-.checkin-streak>div{display:flex;flex-direction:column;align-items:center;gap:4px}
-.checkin-streak>div+div{border-left:1px solid rgba(255,255,255,.08)}
-.checkin-streak b{font-size:20px}
-.checkin-streak small{color:rgba(255,255,255,.38);font-size:9px}
-.checkin-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin:0 20px;padding:13px 10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.035)}
-.checkin-day{display:flex;min-width:0;flex-direction:column;align-items:center;gap:5px;padding:7px 0;border-radius:8px}
-.checkin-day small{color:rgba(255,255,255,.32);font-size:8px}
-.checkin-day b{display:grid;width:25px;height:25px;place-items:center;border:1px solid rgba(255,255,255,.1);border-radius:50%;font-size:10px;font-weight:600}
-.checkin-day span{min-height:11px;color:#ff8fb0;font-size:8px}
-.checkin-day.checked b{border-color:rgba(255,196,92,.4);background:rgba(255,196,92,.16);color:#ffd885}
-.checkin-day.today{background:rgba(255,45,111,.08)}
-.checkin-day.today span{color:#ff8fb0}
-.checkin-claim{display:block;width:calc(100% - 40px);height:48px;margin:18px 20px 0;border:0;border-radius:7px;background:linear-gradient(90deg,#ff2d6f,#ff754d);color:#fff;font-size:14px;font-weight:700;box-shadow:0 10px 26px rgba(255,45,111,.28)}
+.checkin-hero{position:relative;display:flex;align-items:center;gap:14px;margin:16px 20px 0;padding:20px 18px;border:1px solid rgba(255,206,126,.24);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 12% 15%,rgba(255,192,94,.22),transparent 34%),radial-gradient(circle at 100% 100%,rgba(255,45,111,.13),transparent 46%),linear-gradient(135deg,#2d1c27,#18171e 72%)}
+.checkin-hero-glow{position:absolute;top:-42px;right:-22px;width:126px;height:126px;border-radius:50%;background:rgba(255,45,111,.13);filter:blur(12px);pointer-events:none}
+.checkin-coin{position:relative;display:grid;width:60px;height:60px;flex:none;place-items:center;border:1px solid rgba(255,235,177,.7);border-radius:50%;background:linear-gradient(145deg,#ffe8a7,#f3b941 55%,#b47419);color:#6a3708;box-shadow:0 10px 28px rgba(232,168,54,.26),inset 0 2px 2px rgba(255,255,255,.8),inset 0 -3px 6px rgba(114,59,4,.2)}
+.checkin-coin::after{content:"";position:absolute;inset:6px;border:1px solid rgba(119,63,6,.25);border-radius:50%}
+.checkin-coin svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.checkin-hero-copy{position:relative;min-width:0;flex:1}
+.checkin-hero-copy span,.checkin-hero-copy strong,.checkin-hero-copy p{display:block}
+.checkin-hero-copy .checkin-kicker{color:rgba(255,222,157,.58);font-size:8px;font-weight:700;letter-spacing:.13em}
+.checkin-hero-copy strong{margin-top:5px;color:#ffe3a8;font-size:20px;line-height:1.2;font-weight:700;white-space:nowrap}
+.checkin-hero-copy strong em{font-style:normal;font-size:27px;font-weight:800;color:#ffd47f}
+.checkin-hero-copy p{margin:7px 0 0;color:rgba(255,255,255,.42);font-size:10px;line-height:1.45}
+.checkin-status{position:relative;align-self:flex-start;flex:none;padding:4px 7px;border:1px solid rgba(255,205,119,.28);border-radius:999px;background:rgba(255,196,92,.09);color:#ffd47f;font-size:9px;white-space:nowrap}
+.checkin-status.done{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:rgba(255,255,255,.46)}
+.checkin-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 20px 0;padding:14px 0;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.035)}
+.checkin-overview>div{display:flex;min-width:0;flex-direction:column;align-items:center;gap:4px}
+.checkin-overview>div+div{border-left:1px solid rgba(255,255,255,.075)}
+.checkin-overview b{max-width:100%;overflow:hidden;color:#fff;font-size:17px;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}
+.checkin-overview small{color:rgba(255,255,255,.35);font-size:9px}
+.checkin-panel{margin:12px 20px 0;padding:15px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.035)}
+.checkin-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}
+.checkin-panel-head h2{margin:0;font-size:14px;line-height:1.35}
+.checkin-panel-head p{margin:4px 0 0;color:rgba(255,255,255,.35);font-size:9px}
+.checkin-panel-head>span{flex:none;padding-top:2px;color:#ff99b5;font-size:9px}
+.checkin-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:0;padding:0;border:0;background:transparent}
+.checkin-day{position:relative;display:flex;min-width:0;flex-direction:column;align-items:center;gap:5px;padding:8px 1px;border-radius:8px}
+.checkin-day>i{position:absolute;top:23px;left:calc(50% + 14px);width:calc(100% - 28px);height:1px;background:rgba(255,255,255,.08)}
+.checkin-day small{color:rgba(255,255,255,.3);font-size:8px;white-space:nowrap}
+.checkin-day b{position:relative;z-index:1;display:grid;width:27px;height:27px;place-items:center;border:1px solid rgba(255,255,255,.11);border-radius:50%;background:#1a1920;color:rgba(255,255,255,.62);font-size:10px;font-weight:600}
+.checkin-day span{min-height:11px;color:rgba(255,255,255,.27);font-size:7px;white-space:nowrap}
+.checkin-day.checked b{border-color:rgba(255,196,92,.48);background:rgba(255,196,92,.16);color:#ffd885}
+.checkin-day.checked span{color:#ffbd68}
+.checkin-day.today b{border-color:rgba(255,92,138,.7);background:rgba(255,45,111,.18);color:#fff;box-shadow:0 0 0 3px rgba(255,45,111,.08)}
+.checkin-day.today small,.checkin-day.today span{color:#ff8fb0}
+.checkin-task-panel{padding-bottom:4px}
+.checkin-tasks{margin:0;border:0;border-radius:0;background:transparent;overflow:visible}
+.checkin-tasks>div{padding:12px 0}
+.checkin-tasks>div:first-child{border-top:1px solid rgba(255,255,255,.07)}
+.checkin-tasks>div:last-child{border-bottom:0}
+.checkin-tasks em{flex:none;margin-left:auto;text-align:right;font-variant-numeric:tabular-nums}
+.checkin-error{margin:10px 20px 0;color:#ff8aa3;font-size:10px;line-height:1.5;text-align:center}
+.checkin-claim{display:block;width:calc(100% - 40px);height:49px;margin:16px 20px 0;border:0;border-radius:10px;background:linear-gradient(90deg,#ff2d6f,#ff754d);color:#fff;font-size:14px;font-weight:700;letter-spacing:.02em;box-shadow:0 10px 26px rgba(255,45,111,.28)}
+.checkin-claim:active:not(:disabled){transform:scale(.985)}
 .checkin-claim:disabled{cursor:default;background:rgba(255,255,255,.06);color:rgba(255,255,255,.35);box-shadow:none}
-.checkin-tasks{margin-top:4px}
+.checkin-footnote{display:flex;align-items:center;justify-content:center;gap:5px;margin:12px 20px 22px;color:rgba(255,255,255,.24);font-size:9px;text-align:center}
+.checkin-footnote svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .settings-list{margin-top:16px}
 .settings-list>button,.settings-list>a,.settings-static{width:100%;min-height:58px;display:flex;align-items:center;gap:12px;padding:10px 16px;border:0;border-bottom:1px solid rgba(255,255,255,.07);background:transparent;color:#fff;text-align:left;text-decoration:none}
 .settings-list>button:last-child,.settings-list>a:last-child,.settings-static:last-child{border-bottom:0}
@@ -732,6 +755,7 @@
 .income-settlement span,.income-settlement b{display:block}
 .income-settlement span{color:rgba(255,255,255,.35);font-size:9px}
 .income-settlement b{margin-top:5px;color:#ffda8c;font-size:11px;font-weight:600}
+.income-ledger-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:18px 20px 0}.income-ledger-head .section-label{margin:0}.income-ledger-head>span{color:rgba(255,255,255,.3);font-size:9px;text-align:right}.income-ledger-head+.ledger-card{margin-top:10px}
 .creator-withdraw-card{margin:14px 20px 0;padding:15px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(255,255,255,.035)}
 .creator-withdraw-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}
 .creator-withdraw-head b,.creator-withdraw-head small{display:block}
@@ -746,13 +770,6 @@
 .creator-withdraw-card .pay-cta{margin:2px 0 0;width:100%}
 .creator-withdraw-card .pay-cta:disabled{background:rgba(255,255,255,.06);color:rgba(255,255,255,.3);box-shadow:none}
 .creator-withdraw-card .form-message{min-height:14px;margin:0;color:#ff9eba;font-size:10px;text-align:center}
-.creator-withdrawal-list{display:grid;gap:8px;margin:0 20px}
-.creator-withdrawal-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:9px;background:rgba(255,255,255,.025)}
-.creator-withdrawal-row>div{min-width:0}
-.creator-withdrawal-row b,.creator-withdrawal-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.creator-withdrawal-row b{color:#fff;font-size:11px}
-.creator-withdrawal-row div small,.creator-withdrawal-row>small{color:rgba(255,255,255,.35);font-size:9px}
-.creator-withdrawal-row>div small{margin-top:4px}
 .creator-withdrawal-status{align-self:start;padding:3px 7px;border-radius:99px;background:rgba(255,196,92,.12);color:#ffd580;font-size:9px}
 .creator-withdrawal-status.paid{background:rgba(70,209,143,.12);color:#7de2b1}
 .creator-withdrawal-status.rejected{background:rgba(255,88,116,.12);color:#ff9bad}
@@ -807,7 +824,7 @@
 @keyframes gift-spark{0%{opacity:0;transform:translate(0,0) scale(.2)}18%{opacity:1}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(1.1)}}
 @keyframes gift-copy-small{0%,12%{opacity:0;transform:translateY(8px)}26%,76%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-6px)}}
 @keyframes gift-copy-name{0%,18%{opacity:0;transform:scale(.72)}30%{opacity:1;transform:scale(1.08)}40%,76%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-8px) scale(1)}}
-@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-streak,.checkin-week,.checkin-claim,.feedback-form,.income-hero,.income-note,.income-settlement,.creator-withdraw-card,.creator-withdrawal-list{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-week{gap:2px;padding-left:6px;padding-right:6px}.detail-header{padding-left:12px;padding-right:12px}}
+@media(max-width:360px){.live-top{padding-left:14px;padding-right:14px}.live-top-actions{gap:4px}.checkin-chip{padding:0 7px;font-size:9px}.checkin-chip svg{display:none}.notification-list,.feedback-history{padding-left:14px;padding-right:14px}.checkin-hero,.checkin-overview,.checkin-panel,.checkin-claim,.checkin-error,.checkin-footnote,.feedback-form,.income-hero,.income-note,.income-settlement,.creator-withdraw-card{margin-left:14px;margin-right:14px}.income-ledger-head{margin-left:14px;margin-right:14px}.checkin-claim,.feedback-form{width:auto}.checkin-claim{width:calc(100% - 28px)}.checkin-panel{padding-left:10px;padding-right:10px}.checkin-week{gap:1px}.checkin-hero{padding-left:14px;padding-right:14px}.checkin-hero-copy strong{font-size:18px}.checkin-hero-copy strong em{font-size:24px}.checkin-status{display:none}.checkin-day>i{left:calc(50% + 12px);width:calc(100% - 24px)}.detail-header{padding-left:12px;padding-right:12px}}
 @media(prefers-reduced-motion:reduce){
   .live-gift-effect,.live-gift-effect::before,.live-gift-art,.live-gift-caption small,.live-gift-caption b{animation:none;opacity:1;transform:translate(-50%,-50%)}
   .live-gift-effect{animation:gift-effect-reduced 1.8s ease both;transform:translateX(-50%)}
@@ -849,4 +866,4 @@
 .vip-days{margin-top:10px;color:#ffd987;font-size:11px;font-weight:600}
 .benefit-rows .benefit-value{display:flex;min-width:88px;flex-direction:column;align-items:flex-end;gap:2px;margin-left:auto;text-align:right;font-variant-numeric:tabular-nums}
 .benefit-rows .benefit-value b{font-size:12px;font-weight:700}.benefit-rows .benefit-value small{margin:0;color:rgba(255,255,255,.32);font-size:9px}
-.chat-peer>span:last-child{min-width:0}.chat-peer b{display:flex;align-items:center;gap:5px}.chat-vip-badge{display:inline-grid;width:20px;height:20px;flex:none;place-items:center}.chat-vip-badge svg{display:block;width:20px;height:20px}.rooms-head-actions{display:flex;align-items:center;gap:8px}.rooms-create{padding:8px 12px;border:0;border-radius:999px;background:#ff2d6f;color:#fff;font-size:12px;font-weight:700}.room-create-sheet{max-height:72dvh}.room-create-list{display:grid;gap:9px;margin-top:14px}.room-create-choice{display:flex;align-items:center;gap:11px;width:100%;padding:10px;border:1px solid rgba(255,255,255,.09);border-radius:9px;background:rgba(255,255,255,.04);color:#fff;text-align:left}.room-create-choice>span{width:44px;height:44px;flex:none;overflow:hidden;border-radius:9px;background:rgba(255,45,111,.15)}.room-create-choice img{width:100%;height:100%;object-fit:cover}.room-create-choice div{min-width:0;flex:1}.room-create-choice b,.room-create-choice small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.room-create-choice b{font-size:12px}.room-create-choice small{margin-top:4px;color:rgba(255,255,255,.38);font-size:9px}.room-create-choice em{color:#ff8fb0;font-style:normal;font-size:10px}
+.chat-peer>span:last-child{min-width:0}.chat-peer b{display:flex;align-items:center;gap:5px}.chat-vip-badge{display:inline-grid;width:20px;height:20px;flex:none;place-items:center}.chat-vip-badge svg{display:block;width:20px;height:20px}.rooms-head-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none}.rooms-create{padding:8px 12px;border:0;border-radius:999px;background:#ff2d6f;color:#fff;font-size:12px;font-weight:700}.room-create-sheet{max-height:72dvh}.room-create-list{display:grid;gap:9px;margin-top:14px}.room-create-choice{display:flex;align-items:center;gap:11px;width:100%;padding:10px;border:1px solid rgba(255,255,255,.09);border-radius:9px;background:rgba(255,255,255,.04);color:#fff;text-align:left}.room-create-choice>span{width:44px;height:44px;flex:none;overflow:hidden;border-radius:9px;background:rgba(255,45,111,.15)}.room-create-choice img{width:100%;height:100%;object-fit:cover}.room-create-choice div{min-width:0;flex:1}.room-create-choice b,.room-create-choice small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.room-create-choice b{font-size:12px}.room-create-choice small{margin-top:4px;color:rgba(255,255,255,.38);font-size:9px}.room-create-choice em{color:#ff8fb0;font-style:normal;font-size:10px}

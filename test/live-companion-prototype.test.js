@@ -91,9 +91,58 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026102912/);
-  assert.match(html, /live\.js\?v=2026102912/);
-  assert.match(html, /chat-live\.js\?v=chat-inline-20261026-1/);
+  assert.match(html, /live\.css\?v=2026103005/);
+  assert.match(html, /live\.js\?v=2026103005/);
+  assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
+});
+
+test("create-character auto profile understands the uploaded image through the server", () => {
+  assert.match(live, /data-action="create-auto-persona"[^>]*>.*?自动生成/);
+  assert.match(live, /if \(a === "create-auto-persona"\)[\s\S]*?if \(!d\.avatarUrl\)[\s\S]*?api\("\/api\/chat-live\/community\/characters\/auto-profile"/);
+  assert.match(live, /body: JSON\.stringify\(\{ imageUrl, name: d\.name, gender: d\.gender, tags: d\.tags \}\)/);
+  assert.match(live, /current\.personaMd = String\(profile\.personaMd/);
+  assert.match(live, /current\.intro = String\(profile\.intro/);
+  assert.match(live, /current\.greeting = String\(profile\.greeting/);
+  assert.match(live, /正在理解图片/);
+  assert.match(live, /createAutoProfileRequestId/);
+  assert.match(live, /if \(state\.createAutoProfileRequestId !== requestId \|\| state\.page !== "create-edit"\) return;/);
+  assert.match(live, /if \(current\.avatarUrl !== imageUrl\) return;/);
+  assert.match(live, /if \(!profile\.personaMd \|\| !profile\.intro \|\| !profile\.greeting\) throw new Error/);
+  assert.match(live, /cancelCreateAutoProfile\(\);[\s\S]*?uploadCreatorAsset\(file, "avatar"\)/);
+  assert.doesNotMatch(live, /d\.personaMd = `\$\{d\.name \|\| "Ta"\}/);
+  assert.match(css, /\.create-auto-persona:disabled/);
+
+  const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(serverSource, /async function handleCommunityAutoProfileChatLiveCharacter\(req, res\)[\s\S]*?await requireUser\(req, res\)/);
+  assert.match(serverSource, /const chatLive = chatLiveConfigValue\(await readAppConfig\(\)\)/);
+  assert.match(serverSource, /const usePapayaChat = chatLive\.languageModel === "papaya"/);
+  assert.match(serverSource, /const chatModel = usePapayaChat \? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL/);
+  assert.match(serverSource, /if \(!isManagedChatLiveAssetUrl\(imageUrl\)\)/);
+  assert.match(serverSource, /type: "image_url", image_url: \{ url: imageUrl \}/);
+  assert.match(serverSource, /payload = await \(usePapayaChat[\s\S]*?papayaLanguageRequest\(requestBody[\s\S]*?: byteplusLanguageRequest\(requestBody/);
+  assert.match(serverSource, /POST" && url\.pathname === "\/api\/chat-live\/community\/characters\/auto-profile"/);
+  assert.match(serverSource, /parseChatLiveCharacterAutoProfile\(qwen37FlashResponseText\(payload\)\)/);
+  assert.doesNotMatch(serverSource, /ALIYUN_QWEN_VISION/);
+});
+
+test("auto profile prompt is adult-safe and response parsing enforces field limits", () => {
+  const { chatLiveCharacterAutoProfilePrompt, parseChatLiveCharacterAutoProfile } = require(path.join(root, "server.js"));
+  const prompt = chatLiveCharacterAutoProfilePrompt({ name: "小满", gender: "female", tags: ["温柔", "慢热"] });
+  assert.match(prompt, /明确年满 23 岁/);
+  assert.match(prompt, /不要识别或猜测真实人物的身份/);
+  assert.match(prompt, /personaMd/);
+  assert.match(prompt, /intro/);
+  assert.match(prompt, /greeting/);
+  const parsed = parseChatLiveCharacterAutoProfile("```json\n" + JSON.stringify({
+    personaMd: "设".repeat(300),
+    intro: "简".repeat(80),
+    greeting: "开\n场".repeat(40),
+  }) + "\n```");
+  assert.equal(Array.from(parsed.personaMd).length, 240);
+  assert.equal(Array.from(parsed.intro).length, 60);
+  assert.equal(Array.from(parsed.greeting).length, 60);
+  assert.doesNotMatch(parsed.greeting, /\n/);
+  assert.throws(() => parseChatLiveCharacterAutoProfile('{"personaMd":"只有一项"}'), /不完整/);
 });
 
 test("role detail labels, private-album header, and create empty state match the supplied design", () => {
@@ -112,6 +161,19 @@ test("role detail labels, private-album header, and create empty state match the
 
 test("live system messages, check-in, gift data, feedback, and billing rules are wired", () => {
   assert.match(live, /data-action="system-messages"/);
+  assert.match(live, /const top = \(\) => `<header class="live-top">[\s\S]*?data-action="checkin"[\s\S]*?data-action="settings"[\s\S]*?<\/header>`/);
+  assert.doesNotMatch(live, /const top = \(\) => `<header class="live-top">[\s\S]*?data-action="language-sheet"[\s\S]*?<\/header>`/);
+  assert.match(live, /class="settings-list"[\s\S]*?data-action="language-sheet"/);
+  assert.match(live, /今日可领/);
+  assert.match(live, /本月签到/);
+  assert.match(live, /7 天签到/);
+  assert.match(live, /立即领取/);
+  assert.match(live, /data-checkin-day="\$\{item\.key\}"/);
+  assert.match(css, /\.checkin-overview\{display:grid/);
+  assert.match(css, /\.checkin-panel\{margin:12px 20px 0/);
+  assert.match(css, /\.checkin-footnote\{display:flex/);
+  assert.match(css, /\.rooms-head-actions\{[^}]*margin-left:auto/);
+  assert.doesNotMatch(css, /\.rooms-filter\{margin-left:auto/);
   assert.match(live, /class="conversation system-message-row"/);
   assert.match(live, /api\("\/api\/live\/notifications"\)/);
   assert.match(live, /api\("\/api\/live\/notifications\/read-all"/);
@@ -122,7 +184,7 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /state\.page === "creator-income"\) showCreatorIncome\(\)/);
   assert.match(live, /api\("\/api\/live\/creator-income\?limit=50"\)/);
   assert.match(live, /\["feedback", "chat", "问题反馈", "提交后会收到站内信回复"\]/);
-  assert.match(live, /\.\.\.\(u\?\.role === "admin" \? \[\["creator", "pen", "创作者中心", "内部平台角色维护，不参与分成"\]\] : \[\]\)/);
+  assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
   assert.match(live, /<section class="profile-menu" data-profile-menu>\$\{menu\}<\/section>/);
   assert.match(css, /\.profile-login-card/);
   assert.match(live, /state\.user = session\.user \|\| null;[\s\S]*?localStorage\.removeItem\(TOKEN_KEY\)/);
@@ -137,9 +199,10 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /api\("\/api\/support-messages"/);
   assert.match(live, /聊天付费规则/);
   assert.match(live, /文字私信[\s\S]*?0\.5 积分\/条/);
-  assert.match(live, /语音通话 \/ 语音消息[\s\S]*?2 → 1\.6/);
-  assert.match(live, /视频通话[\s\S]*?5 → 4/);
-  assert.match(live, /陪伴房间[\s\S]*?5 → 4/);
+  assert.match(live, /语音通话 \/ 语音消息[\s\S]*?<small>会员 8 折<\/small><\/div><em class="blue benefit-value">2 积分\/秒<\/em>/);
+  assert.match(live, /视频通话[\s\S]*?<small>会员 8 折 · 实际扣费分成 30%<\/small><\/div><em class="gold benefit-value">5 积分\/秒<\/em>/);
+  assert.match(live, /陪伴房间[\s\S]*?<small>会员可开房 · 进房即开始计时<\/small><\/div><em class="green benefit-value">5 积分\/秒<\/em>/);
+  assert.doesNotMatch(live, /2 → 1\.6|5 → 4/);
   assert.match(live, /礼物打赏[\s\S]*?data-action="rooms">去房间/);
   assert.match(css, /\.rule-rows>div>em,\.rule-rows>div>button\{[^}]*margin-left:auto[^}]*text-align:right[^}]*font-variant-numeric:tabular-nums/);
   assert.doesNotMatch(live, /textMessageCredits\s*\|\|\s*0\.5/);

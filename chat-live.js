@@ -273,9 +273,10 @@
 .chat-live-sheet-cancel { background:rgba(255,255,255,.08); color:rgba(255,255,255,.75); }
 .chat-live-low-credit{position:absolute;left:16px;right:16px;bottom:92px;z-index:28;height:40px;border:0;border-radius:6px;background:#ff2d6f;color:#fff;font-weight:700}.chat-live-confirm { position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:28px; background:rgba(0,0,0,.6); }
 .chat-live-confirm-box { width:min(320px,100%); padding:22px 18px; border-radius:8px; background:#1b1b24; text-align:center; }
-.chat-live-confirm-box p { margin:0; font-weight:700; }
-.chat-live-confirm-actions { display:flex; justify-content:center; gap:10px; margin-top:16px; }
-.chat-live-confirm-actions button { min-width:84px; height:36px; border:0; border-radius:6px; background:rgba(255,255,255,.08); color:#fff; }
+.chat-live-confirm-box strong { display:block; font-size:18px; }
+.chat-live-confirm-box p { margin:10px 0 0; color:rgba(255,255,255,.66); font-size:13px; line-height:1.55; }
+.chat-live-confirm-actions { display:flex; justify-content:center; gap:10px; margin-top:18px; }
+.chat-live-confirm-actions button { min-width:96px; height:38px; border:0; border-radius:6px; background:rgba(255,255,255,.08); color:#fff; font-weight:700; }
 .chat-live-confirm-actions .is-danger { background:#ff2d6f; }
 .chat-live-gift-btn { width:58px; min-height:58px; padding:6px 4px; border:0; border-radius:6px; background:rgba(255,255,255,.08); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:10px; font-weight:700; cursor:pointer; }
 .chat-live-gift-btn span:first-child { font-size:22px; line-height:1; }
@@ -479,7 +480,7 @@
     failExit.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      forceLeaveCall("user_end");
+      requestEndCall();
     };
     placeholder.append(avatarWrap, callLabel, callDetail, failExit);
     const badge = el("span", "chat-live-badge", "");
@@ -1582,6 +1583,52 @@
     });
   }
 
+  function requestEndCall() {
+    if (state.ended) {
+      closeOverlay();
+      return;
+    }
+    showEndCallConfirm();
+  }
+
+  function showEndCallConfirm() {
+    if (!state.overlay || state.ended) return;
+    const existing = document.querySelector(".chat-live-confirm[data-end-call]");
+    if (existing) return;
+    const ask = el("div", "chat-live-confirm");
+    ask.dataset.endCall = "true";
+    ask.setAttribute("role", "dialog");
+    ask.setAttribute("aria-modal", "true");
+    ask.setAttribute("aria-labelledby", "chatLiveEndCallTitle");
+    const box = el("div", "chat-live-confirm-box");
+    const title = el("strong", "chat-live-confirm-title", "结束视频通话？");
+    title.id = "chatLiveEndCallTitle";
+    box.append(title);
+    box.append(el("p", "chat-live-confirm-copy", "结束后会停止计费，本次通话记录将保留在私信里。"));
+    const buttons = el("div", "chat-live-confirm-actions");
+    const cancel = el("button", "", "继续通话");
+    cancel.type = "button";
+    const ok = el("button", "is-danger", "结束通话");
+    ok.type = "button";
+    const closeConfirm = () => {
+      ask.remove();
+      try { state.overlay?.input?.focus?.({ preventScroll: true }); } catch {}
+    };
+    cancel.onclick = closeConfirm;
+    ok.onclick = () => {
+      ask.remove();
+      forceLeaveCall("user_end");
+    };
+    ask.addEventListener("click", (event) => {
+      if (event.target === ask) event.stopPropagation();
+    });
+    buttons.append(cancel, ok);
+    box.appendChild(buttons);
+    ask.appendChild(box);
+    (state.overlay.root || document.body).appendChild(ask);
+    try { ok.focus({ preventScroll: true }); } catch {}
+  }
+
   function forceLeaveCall(reason = "user_end") {
     const sessionId = state.session?.id;
     const engine = state.engine;
@@ -2400,27 +2447,8 @@
       });
     });
     syncLookRail();
-    overlay.hangBtn.onclick = () => {
-      if (state.ended) { closeOverlay(); return; }
-      document.querySelector(".chat-live-confirm")?.remove();
-      const ask = el("div", "chat-live-confirm");
-      const box = el("div", "chat-live-confirm-box");
-      box.append(el("p", "", "确定要挂断视频通话吗？"));
-      const buttons = el("div", "chat-live-confirm-actions");
-      const cancel = el("button", "", "取消"); cancel.type = "button";
-      const ok = el("button", "is-danger", "确定挂断"); ok.type = "button";
-      cancel.onclick = () => ask.remove();
-      ok.onclick = () => { ask.remove(); forceLeaveCall("user_end"); };
-      buttons.append(cancel, ok); box.appendChild(buttons); ask.appendChild(box);
-      overlay.root.appendChild(ask);
-    };
-    overlay.closeBtn.onclick = () => {
-      if (state.overlay?.placeholder?.classList.contains("is-failed") || state.ended) {
-        forceLeaveCall("user_end");
-        return;
-      }
-      if (typeof overlay.hangBtn.onclick === "function") overlay.hangBtn.onclick();
-    };
+    overlay.hangBtn.onclick = requestEndCall;
+    overlay.closeBtn.onclick = requestEndCall;
     overlay.voiceBtn.onclick = (event) => event.preventDefault();
     bindVoiceHold(overlay.voiceBtn);
     overlay.giftBtn.onclick = () => openGiftPicker();

@@ -411,7 +411,7 @@ test("paid withdrawals require txHash and rejected withdrawals refund available 
   assert.equal(paid.txHash, "0xUSDT-PAID-HASH");
 });
 
-test("internal creator center is admin-only while user creations stay shareable and royalty eligible", () => {
+test("internal creator center is available to logged-in users while staying private and non-royalty", () => {
   const getHandler = server.slice(
     server.indexOf("async function handleCreatorChatLiveCharacters"),
     server.indexOf("function communityChatLiveCharacterView"),
@@ -424,18 +424,23 @@ test("internal creator center is admin-only while user creations stay shareable 
     server.indexOf("async function handleCommunitySaveChatLiveCharacter"),
     server.indexOf("async function handleCreatorSaveChatLiveCharacter"),
   );
-  assert.match(getHandler, /const auth = await requireAdmin\(req, res\);/);
-  assert.match(saveHandler, /const auth = await requireAdmin\(req, res\);/);
+  assert.match(getHandler, /const auth = await requireUser\(req, res\);/);
+  assert.match(saveHandler, /const auth = await requireUser\(req, res\);/);
+  assert.doesNotMatch(getHandler, /requireAdmin\(req, res\)/);
+  assert.doesNotMatch(saveHandler, /requireAdmin\(req, res\)/);
+  assert.match(getHandler, /String\(item\?\.createdByUserId \|\| ""\) === userId/);
+  assert.match(saveHandler, /creatorOwnsChatLiveCharacter\(existing, auth\.user\)/);
+  assert.match(saveHandler, /只能修改自己创建的角色。/);
   assert.match(saveHandler, /source: "creator",/);
   assert.match(saveHandler, /payload\.communityShareEnabled = false;/);
   assert.match(saveHandler, /payload\.communityVisibility = "private";/);
   assert.match(communityHandler, /source: "community",/);
   assert.match(communityHandler, /payload\.communityShareEnabled = true;/);
 
-  assert.match(live, /u\?\.role === "admin" \? \[\["creator", "pen", "创作者中心", "内部平台角色维护，不参与分成"\]\] : \[\]/);
-  assert.match(live, /if \(state\.user\.role !== "admin"\) \{ referralToast\("创作者中心仅供平台管理员使用"\); return; \}/);
-  assert.match(live, /if \(state\.user\.role !== "admin"\) \{\s*app\.innerHTML = `[\s\S]*?创作者中心仅供平台管理员使用/);
-  assert.match(live, /if \(state\.user\?\.role !== "admin"\) \{ referralToast\("创作者中心仅供平台管理员使用"\); return; \}/);
+  assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
+  assert.match(live, /if \(action === "creator"\) \{\s*if \(!token\(\) \|\| !state\.user\) return askLogin\(\);\s*state\.page = "creator";/);
+  assert.doesNotMatch(live, /创作者中心仅供平台管理员使用/);
+  assert.doesNotMatch(live, /state\.user\?\.role !== "admin"/);
   assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[\s\S]*?分享角色/);
   assert.doesNotMatch(live, /视频通话实扣积分的 30% 计入角色创作者独立收益/);
   assert.match(live, /「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30%/);
@@ -456,15 +461,18 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.match(live, /name="address"/);
   assert.match(live, /最低提现 2000 积分（20 USDT）/);
   assert.match(live, /不会累加到普通积分余额/);
+  assert.match(live, /<p class="section-label">收支清单<\/p>/);
+  assert.match(live, /rows = \[\.\.\.incomeRows, \.\.\.withdrawalRows\]\.sort/);
+  assert.doesNotMatch(live, />收益流水<|>提现记录</);
   assert.match(live, /url\.hash = `role\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[^>]*>\$\{item\.communityVisibility === "public" \? "分享角色" : "设为公开后分享"\}/);
   const shareSheetBody = live.match(/function openShareSheet\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
   assert.ok(shareSheetBody);
   assert.doesNotMatch(shareSheetBody, /total|cells|locks/);
-  assert.match(liveHtml, /live\.js\?v=2026102912/);
-  assert.match(liveHtml, /live\.css\?v=2026102912/);
+  assert.match(liveHtml, /live\.js\?v=2026103005/);
+  assert.match(liveHtml, /live\.css\?v=2026103005/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
-  assert.match(adminHtml, /admin\.js\?v=20261029-creator-income-1/);
+  assert.match(adminHtml, /admin\.js\?v=20261030-auto-profile-1/);
   assert.match(admin, /async function renderCreatorData/);
   assert.match(admin, /data-creator-withdraw-action="paid"/);
   assert.match(admin, /data-creator-withdraw-action="rejected"/);

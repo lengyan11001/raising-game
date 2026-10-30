@@ -160,6 +160,7 @@ const {
   createUserSupportMessageInDb,
   updateUserSupportMessageInDb,
   listLiveNotificationsInDb,
+  createLiveNotificationInDb,
   markLiveNotificationReadInDb,
   markAllLiveNotificationsReadInDb,
   getLiveCheckinInDb,
@@ -182,6 +183,7 @@ const {
   getUserAssetFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
+  findChatConversationByCharacterInDb,
   getChatConversationInDb,
   upsertChatConversationInDb,
   getCharacterRelationshipInDb,
@@ -6813,6 +6815,61 @@ function isPublicChatLiveGiftAssetUrl(url = "") {
   return /^\/assets\/chat-live\/gifts\/[a-z0-9_.-]+\.svg$/i.test(String(url || "").trim());
 }
 
+function chatLiveCharacterAutoProfilePrompt({ name = "", gender = "", tags = [] } = {}) {
+  const genderLabel = gender === "female" ? "女性" : gender === "male" ? "男性" : "未指定";
+  const tagText = (Array.isArray(tags) ? tags : []).map((tag) => String(tag || "").trim()).filter(Boolean).slice(0, 3).join("、") || "未指定";
+  return [
+    "你是成人向虚拟陪伴角色的角色编辑。请仔细理解用户上传的人物形象图，并据此创作一个虚构角色。",
+    "只参考画面中能直接观察到的外观、穿搭、气质、光线、场景和情绪，不要识别或猜测真实人物的身份、姓名、种族、宗教、健康、性取向等敏感信息。",
+    "角色必须是明确年满 23 岁的成年人。不要描写未成年人，不要复述图片中的文字，不要声称图片里的人真实存在。",
+    `用户提供的信息：名字=${String(name || "").trim() || "未填写"}；性别=${genderLabel}；性格标签=${tagText}。`,
+    "输出必须是严格 JSON，不要 Markdown，不要代码块，不要额外解释。格式：",
+    '{"personaMd":"角色设定","intro":"角色简介","greeting":"开场白"}',
+    "personaMd：120-220 个简体中文字符，写清楚 Ta 是谁、性格、说话方式、与用户的关系感，以及如何保持角色一致性；口语自然，不说教，不写旁白，不替用户做决定。",
+    "intro：25-55 个简体中文字符，像角色卡的一句话简介，有画面感，不透露 AI、模型、提示词或图片分析过程。",
+    "greeting：20-55 个简体中文字符，是第一人称开口说的第一句话，符合图片气质，具体、自然，可以带一点互动感，但不要提积分、付费或系统。",
+  ].join("\n");
+}
+
+function normalizeChatLiveAutoProfileText(value = "", maxLength = 240, { singleLine = false } = {}) {
+  let text = String(value || "").replace(/\r\n?/g, "\n").trim();
+  if (singleLine) text = text.replace(/\s+/g, " ").trim();
+  return Array.from(text).slice(0, Math.max(0, Number(maxLength) || 0)).join("").trim();
+}
+
+function parseChatLiveCharacterAutoProfile(text = "") {
+  const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    const error = new Error("AI 没有返回可用的角色内容，请重试。");
+    error.statusCode = 424;
+    error.code = "CHAT_LIVE_AUTO_PROFILE_INVALID_RESPONSE";
+    throw error;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    const error = new Error("AI 返回的角色内容无法解析，请重试。");
+    error.statusCode = 424;
+    error.code = "CHAT_LIVE_AUTO_PROFILE_INVALID_JSON";
+    throw error;
+  }
+  const profile = {
+    personaMd: normalizeChatLiveAutoProfileText(parsed?.personaMd ?? parsed?.persona ?? parsed?.characterSetting, 240),
+    intro: normalizeChatLiveAutoProfileText(parsed?.intro ?? parsed?.description ?? parsed?.summary, 60, { singleLine: true }),
+    greeting: normalizeChatLiveAutoProfileText(parsed?.greeting ?? parsed?.openingLine ?? parsed?.opening, 60, { singleLine: true }),
+  };
+  if (!profile.personaMd || !profile.intro || !profile.greeting) {
+    const error = new Error("AI 生成的角色内容不完整，请重试。");
+    error.statusCode = 424;
+    error.code = "CHAT_LIVE_AUTO_PROFILE_INCOMPLETE";
+    throw error;
+  }
+  return profile;
+}
+
 const CHAT_LIVE_LOOK_LIMIT = 240;
 const CHAT_LIVE_LOOK_KINDS = ["garment", "object", "background"];
 const CHAT_LIVE_LOOK_TEXT = {
@@ -8089,7 +8146,7 @@ function creatorChatLiveCharacterView(character = {}) {
 }
 
 async function handleCreatorChatLiveCharacters(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireUser(req, res);
   if (!auth) return;
   const userId = String(auth.user?.id || "");
   const characters = (await listChatLiveCharactersInDb({ includeDisabled: true }))
@@ -8189,8 +8246,61 @@ async function handleCommunitySaveChatLiveCharacter(req, res, characterId = "") 
   return sendJson(res, 200, { ok: true, character: communityChatLiveCharacterView(saved) });
 }
 
+async function handleCommunityAutoProfileChatLiveCharacter(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 2 * 1024 * 1024).catch(() => ({}));
+  const imageUrl = String(body.imageUrl || body.avatarUrl || "").trim();
+  if (!imageUrl) return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_AUTO_PROFILE_IMAGE_REQUIRED", message: "请先上传角色形象图，再自动生成。" });
+  if (!isManagedChatLiveAssetUrl(imageUrl)) {
+    return sendJson(res, 422, { ok: false, code: "CHAT_LIVE_AUTO_PROFILE_IMAGE_INVALID", message: "角色形象图无效，请重新上传后再试。" });
+  }
+  const chatLive = chatLiveConfigValue(await readAppConfig());
+  const usePapayaChat = chatLive.languageModel === "papaya";
+  if (usePapayaChat && !String(process.env.MULEROUTER_API_KEY || "").trim()) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_MULEROUTER_API_KEY", message: "AI 角色生成还没有配置，请联系管理员。" });
+  }
+  if (!usePapayaChat && !ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "AI 角色生成还没有配置，请联系管理员。" });
+  }
+  const name = String(body.name || "").trim().slice(0, 12);
+  const gender = ["female", "male"].includes(String(body.gender || "").trim().toLowerCase()) ? String(body.gender).trim().toLowerCase() : "";
+  const tags = normalizeChatLiveTags(body.tags).slice(0, 3);
+  const prompt = chatLiveCharacterAutoProfilePrompt({ name, gender, tags });
+  const chatModel = usePapayaChat ? PAPAYA_MODEL : BYTEPLUS_LANGUAGE_MODEL;
+  const requestBody = {
+    model: chatModel,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: imageUrl } },
+        { type: "text", text: prompt },
+      ],
+    }],
+    temperature: 0.7,
+    max_tokens: 800,
+  };
+  let payload = {};
+  try {
+    payload = await (usePapayaChat
+      ? papayaLanguageRequest(requestBody, { timeoutMs: 60000 })
+      : byteplusLanguageRequest(requestBody, { timeoutMs: 60000 }));
+  } catch (error) {
+    console.warn("[chat-live-auto-profile]", JSON.stringify({ userId: auth.user?.id || "", model: chatModel, statusCode: error?.statusCode || 0, code: error?.code || "CHAT_MODEL_REQUEST_FAILED", message: String(error?.message || error).slice(0, 180) }));
+    const statusCode = Number(error?.statusCode || 0);
+    if (statusCode === 429) return sendJson(res, 424, { ok: false, code: "CHAT_LIVE_AUTO_PROFILE_UPSTREAM_REJECTED", message: "图片理解请求太频繁，请稍后再试。" });
+    return sendJson(res, statusCode >= 400 && statusCode < 500 ? statusCode : 502, { ok: false, code: "CHAT_LIVE_AUTO_PROFILE_UPSTREAM_FAILED", message: "聊天模型暂时无法生成角色内容，请稍后重试。" });
+  }
+  try {
+    const profile = parseChatLiveCharacterAutoProfile(qwen37FlashResponseText(payload));
+    return sendJson(res, 200, { ok: true, profile });
+  } catch (error) {
+    return sendJson(res, Number(error.statusCode || 424), { ok: false, code: error.code || "CHAT_LIVE_AUTO_PROFILE_INVALID_RESPONSE", message: error.message || "AI 生成结果不可用，请重试。" });
+  }
+}
+
 async function handleCreatorSaveChatLiveCharacter(req, res, characterId = "") {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
   const id = String(characterId || "").trim();
@@ -9573,6 +9683,67 @@ function chatLiveLedgerMatchesCharge(ledgerTotals = null, chargeCredits = 0) {
   return Math.abs(actual - expected) < 0.0001;
 }
 
+function chatLiveCallDurationText(seconds = 0) {
+  const total = Math.max(0, Math.floor(Number(seconds || 0) || 0));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+async function persistChatLiveCallHistory(session = {}) {
+  const userId = String(session.userId || "").trim();
+  const characterId = String(session.characterId || "").trim();
+  const sessionId = String(session.id || "").trim();
+  if (!dbEnabled() || !userId || !characterId || !sessionId || session.settled !== true) return null;
+  const billedSeconds = Math.max(0, Number(session.billedSeconds || 0) || 0);
+  let conversation = await findChatConversationByCharacterInDb(userId, characterId).catch(() => null);
+  const now = new Date().toISOString();
+  if (!conversation) {
+    const character = await getChatLiveCharacterInDb(characterId).catch(() => null);
+    const name = String(session.characterName || character?.name || "TA").trim();
+    conversation = {
+      id: `chat-live-history-${userId}-${characterId}`,
+      userId,
+      characterId,
+      character: chatCharacterView(character || { id: characterId, name }),
+      title: name,
+      style: "balanced",
+      memory: "",
+      instructions: "",
+      backgroundEnabled: true,
+      lastMessage: "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    // Messages have a PostgreSQL foreign key to the conversation, so the
+    // conversation must exist before insertChatMessagesIfAbsentInDb runs.
+    await upsertChatConversationInDb(conversation);
+  }
+  const duration = chatLiveCallDurationText(billedSeconds);
+  const message = {
+    id: `video-call-${sessionId}`,
+    conversationId: String(conversation.id || ""),
+    userId,
+    role: "assistant",
+    kind: "video_call",
+    content: `视频通话 · ${duration} · 已结束`,
+    sessionId,
+    durationSeconds: billedSeconds,
+    startedAt: String(session.billableStartedAt || session.createdAt || ""),
+    endedAt: String(session.endedAt || now),
+    status: "ended",
+    createdAt: String(session.endedAt || now),
+    updatedAt: now,
+  };
+  const nextConversation = {
+    ...conversation,
+    lastMessage: message.content,
+    updatedAt: message.createdAt,
+  };
+  const saved = await insertChatMessagesIfAbsentInDb([message], nextConversation);
+  return saved?.messages?.[0] || message;
+}
+
 async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   if (!session?.id) return null;
   const initialLatest = await getChatLiveSessionInDb(session.id).catch(() => null);
@@ -9596,6 +9767,9 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
         console.warn("[creator-earning] retry failed", initial.id, error?.message || error);
       }
     }
+    await persistChatLiveCallHistory(initial).catch((error) => {
+      console.warn("[chat-live-history] retry failed", initial.id, error?.message || error);
+    });
     return initial;
   }
   let detail = null;
@@ -9802,6 +9976,13 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
       });
     } catch (error) {
       console.warn("[creator-earning] record failed", updated.id, error?.message || error);
+    }
+  }
+  if (lockedResult.settlementCommitted === true) {
+    try {
+      await persistChatLiveCallHistory(updated);
+    } catch (error) {
+      console.warn("[chat-live-history] persist failed", updated.id, error?.message || error);
     }
   }
   return updated;
@@ -40793,8 +40974,37 @@ async function handleAdminReplySupportMessage(req, res, messageId) {
   record.repliedAt = new Date().toISOString();
   record.repliedBy = auth.user.username || auth.user.id || "admin";
   record.updatedAt = record.repliedAt;
-  if (dbEnabled()) await updateUserSupportMessageInDb(messageId, record);
-  return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
+  if (dbEnabled()) {
+    const stored = await updateUserSupportMessageInDb(messageId, record);
+    if (stored) Object.assign(record, stored);
+    const notification = String(record.userId || "").trim()
+      ? await createLiveNotificationInDb({
+        id: `support-reply-${messageId}`,
+        userId: String(record.userId || "").trim(),
+        kind: "support",
+        title: "问题反馈已回复",
+        body: reply,
+        payload: {
+          supportMessageId: String(messageId || ""),
+          subject: String(record.subject || ""),
+          repliedAt: String(record.repliedAt || ""),
+        },
+        pinned: false,
+        createdAt: record.repliedAt,
+        updatedAt: record.repliedAt,
+      }).catch((error) => {
+        console.warn("[support-reply-notification-failed]", messageId, error?.message || error);
+        return null;
+      })
+      : null;
+    return sendJson(res, 200, {
+      ok: true,
+      messageRecord: supportMessageView(record),
+      notificationSent: Boolean(notification),
+      notification: notification || null,
+    });
+  }
+  return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record), notificationSent: false });
 }
 
 async function handleListApiSubtokens(req, res) {
@@ -51327,6 +51537,9 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/chat-live/community/characters") {
       return await handleCommunitySaveChatLiveCharacter(req, res);
     }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/community/characters/auto-profile") {
+      return await handleCommunityAutoProfileChatLiveCharacter(req, res);
+    }
     const communityChatLiveCharacterMatch = url.pathname.match(/^\/api\/chat-live\/community\/characters\/([^/]+)$/);
     if (req.method === "PUT" && communityChatLiveCharacterMatch) {
       return await handleCommunitySaveChatLiveCharacter(req, res, decodeURIComponent(communityChatLiveCharacterMatch[1]));
@@ -52755,4 +52968,6 @@ module.exports = {
   chatLiveSettlementLedgerAdjustment,
   chatLiveHoldRefundDue,
   chatLiveLedgerMatchesCharge,
+  chatLiveCharacterAutoProfilePrompt,
+  parseChatLiveCharacterAutoProfile,
 };

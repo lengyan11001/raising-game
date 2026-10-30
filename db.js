@@ -2502,6 +2502,20 @@ async function listChatConversationsInDb(userId = "", limit = 80) {
   return rows.map((row) => row.payload || {});
 }
 
+async function findChatConversationByCharacterInDb(userId = "", characterId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_conversations
+    WHERE user_id = $1 AND character_id = $2 AND deleted_at IS NULL
+    ORDER BY updated_at DESC LIMIT 1
+  `, [cleanUserId, cleanCharacterId]);
+  return rows[0]?.payload || null;
+}
+
 async function getChatConversationInDb(id = "", userId = "") {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -3725,6 +3739,45 @@ function liveNotificationFromRow(row = {}) {
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
   };
+}
+
+async function createLiveNotificationInDb(notification = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(notification.id || "").trim();
+  const userId = String(notification.userId || "").trim();
+  if (!id || !userId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = {
+    ...notification,
+    id,
+    userId,
+    kind: String(notification.kind || "system"),
+    title: String(notification.title || ""),
+    body: String(notification.body || ""),
+    payload: notification.payload && typeof notification.payload === "object" ? notification.payload : {},
+    pinned: notification.pinned === true,
+    createdAt: notification.createdAt || now,
+    updatedAt: notification.updatedAt || now,
+  };
+  const { rows } = await query(`
+    INSERT INTO app_live_notifications(id, user_id, kind, title, body, payload, read_at, pinned, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULL, $7, $8::timestamptz, $9::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      user_id = EXCLUDED.user_id,
+      kind = EXCLUDED.kind,
+      title = EXCLUDED.title,
+      body = EXCLUDED.body,
+      payload = EXCLUDED.payload,
+      read_at = CASE
+        WHEN app_live_notifications.body IS DISTINCT FROM EXCLUDED.body THEN NULL
+        ELSE app_live_notifications.read_at
+      END,
+      pinned = EXCLUDED.pinned,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `, [id, userId, payload.kind, payload.title, payload.body, JSON.stringify(payload.payload), payload.pinned, payload.createdAt, payload.updatedAt]);
+  return rows[0] ? liveNotificationFromRow(rows[0]) : null;
 }
 
 async function listLiveNotificationsInDb(userId = "") {
@@ -5396,6 +5449,7 @@ module.exports = {
   getAdminSupportMessagesPageFromDb,
   listUserSupportMessagesInDb,
   listLiveNotificationsInDb,
+  createLiveNotificationInDb,
   markLiveNotificationReadInDb,
   markAllLiveNotificationsReadInDb,
   getLiveCheckinInDb,
@@ -5421,6 +5475,7 @@ module.exports = {
   getUserAssetFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
+  findChatConversationByCharacterInDb,
   getChatConversationInDb,
   upsertChatConversationInDb,
   getCharacterRelationshipInDb,

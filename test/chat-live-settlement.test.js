@@ -547,3 +547,52 @@ test("admin diagnostics distinguish raw upstream seconds from billable seconds",
   assert.doesNotMatch(adminSource, /未显示画面/);
   assert.doesNotMatch(adminSource, /video_ready: "首帧计时"/);
 });
+
+test("settled video calls become idempotent private-chat history entries", () => {
+  const historyBlock = serverSource.match(/async function persistChatLiveCallHistory\([\s\S]*?\n}\n\nasync function settleChatLiveSession/)[0];
+  assert.match(historyBlock, /session\.settled !== true/);
+  assert.match(historyBlock, /findChatConversationByCharacterInDb\(userId, characterId\)/);
+  assert.match(historyBlock, /id: `chat-live-history-\$\{userId\}-\$\{characterId\}`/);
+  assert.match(historyBlock, /id: `video-call-\$\{sessionId\}`/);
+  assert.match(historyBlock, /kind: "video_call"/);
+  assert.match(historyBlock, /视频通话 · \$\{duration\} · 已结束/);
+  assert.match(historyBlock, /upsertChatConversationInDb\(conversation\)/);
+  assert.match(historyBlock, /insertChatMessagesIfAbsentInDb\(\[message\], nextConversation\)/);
+  assert.doesNotMatch(historyBlock, /billedSeconds > 0/);
+  assert.match(serverSource, /if \(lockedResult\.settlementCommitted === true\) \{\s*try \{\s*await persistChatLiveCallHistory\(updated\)/);
+  const retryBlock = serverSource.match(/if \(initial\.status === "ended" && initial\.settled === true\) \{[\s\S]*?return initial;\n  \}/)[0];
+  assert.match(retryBlock, /persistChatLiveCallHistory\(initial\)/);
+  assert.match(dbSource, /async function findChatConversationByCharacterInDb/);
+  assert.match(dbSource, /WHERE user_id = \$1 AND character_id = \$2 AND deleted_at IS NULL/);
+});
+
+test("ending a video call requires confirmation and keeps the live thread in sync", () => {
+  const chatLiveSource = fs.readFileSync(path.join(root, "chat-live.js"), "utf8");
+  const liveSource = fs.readFileSync(path.join(root, "live.js"), "utf8");
+  assert.match(chatLiveSource, /function requestEndCall\(\)/);
+  assert.match(chatLiveSource, /function showEndCallConfirm\(\)/);
+  assert.match(chatLiveSource, /overlay\.hangBtn\.onclick = requestEndCall/);
+  assert.match(chatLiveSource, /overlay\.closeBtn\.onclick = requestEndCall/);
+  assert.match(chatLiveSource, /结束后会停止计费，本次通话记录将保留在私信里。/);
+  assert.match(chatLiveSource, /ask\.dataset\.endCall = "true"/);
+  assert.doesNotMatch(chatLiveSource, /overlay\.closeBtn\.onclick = \(\) => \{\s*forceLeaveCall/);
+  assert.match(liveSource, /kind === "video_call"/);
+  assert.match(liveSource, /视频通话 ·/);
+  assert.match(liveSource, /await refreshTextChatMessages\(state\.textChatId\)/);
+});
+
+test("support replies reach users through database-backed system notifications", () => {
+  const adminSource = fs.readFileSync(path.join(root, "admin.js"), "utf8");
+  const notificationBlock = dbSource.match(/async function createLiveNotificationInDb\([\s\S]*?\n}\n\nasync function listLiveNotificationsInDb/)[0];
+  assert.match(notificationBlock, /INSERT INTO app_live_notifications/);
+  assert.match(notificationBlock, /ON CONFLICT \(id\) DO UPDATE/);
+  assert.match(notificationBlock, /WHEN app_live_notifications\.body IS DISTINCT FROM EXCLUDED\.body THEN NULL/);
+  assert.doesNotMatch(notificationBlock, /readDb\(|writeDb\(|\.json/);
+  const replyBlock = serverSource.match(/async function handleAdminReplySupportMessage\([\s\S]*?\n}\n\nasync function handleListApiSubtokens/)[0];
+  assert.match(replyBlock, /id: `support-reply-\$\{messageId\}`/);
+  assert.match(replyBlock, /kind: "support"/);
+  assert.match(replyBlock, /title: "问题反馈已回复"/);
+  assert.match(replyBlock, /createLiveNotificationInDb/);
+  assert.match(replyBlock, /notificationSent: Boolean\(notification\)/);
+  assert.match(adminSource, /已通过系统消息通知用户/);
+});
