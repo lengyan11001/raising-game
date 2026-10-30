@@ -396,15 +396,14 @@
     const gifts = Number(u?.giftReceived ?? u?.giftsReceived ?? 0) || 0;
     const companion = state.companionLevel || u?.companionLevel || null;
     const menu = [
-      ["creator", "pen", "创作者中心", u ? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"],
       ["creator-income", "gift", "创作者收益", u ? "「创作」页公开角色的独立收益" : "登录后查看收益"],
+      ["creator", "pen", "创作者中心", u ? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"],
       ["wallet", "wallet", "钱包与消费记录", u ? "充值与消费明细" : "登录后查看积分明细"],
-      ["privacy", "gear", "隐私与安全", "数据与账号说明"],
-      ["feedback", "chat", "问题反馈", "提交后会收到站内信回复"],
       ["level", "crown", "陪伴等级", u ? (companion?.level || "") : "登录后查看"],
-      ["edit-profile", "user", "编辑资料", u ? "头像、昵称与兴趣标签" : "登录后完善资料"],
+      ["rooms", "users", "我的陪伴房间", u ? "" : "登录后查看房间"],
       ["referral", "share", "邀请好友", u ? "" : "登录后邀请好友"],
-      ["rooms", "users", "我的陪伴房间", u ? "" : "登录后查看房间"]
+      ["edit-profile", "user", "编辑资料与兴趣标签", u ? "头像、昵称与兴趣标签" : "登录后完善资料"],
+      ["privacy", "gear", "隐私与安全", "数据与账号说明"]
     ].map(([action, glyph, title, value]) => `<a href="#profile/${action}" role="button" data-action="${action}" data-menu-action="${action}"><i>${uiIcon(glyph)}</i><span class="profile-menu-copy"><b>${title}</b>${value ? `<small>${esc(value)}</small>` : ""}</span><em>${uiIcon("chev")}</em></a>`).join("");
     const header = `<header class="profile-header"><div class="profile-glow"></div><div class="profile-identity"><div class="profile-avatar">${u ? profileAvatar(u) : `<div class="profile-avatar-empty">${profileAvatar({})}</div>`}</div><div class="profile-copy"><h1>${esc(u?.nickname || u?.username || "未登录")}</h1><p>${esc(meta || "登录后查看你的资料")}</p><small>${esc(u?.bio || "登录后管理角色、收益与账户信息")}</small></div>${u ? `<button type="button" class="profile-edit-icon" data-action="edit-profile" aria-label="编辑资料">${uiIcon("pen")}</button>` : ""}</div>${u ? `<div class="profile-stats"><div><b>${following.toLocaleString("zh-CN")}</b><span>关注</span></div><div><b>${followers.toLocaleString("zh-CN")}</b><span>粉丝</span></div><div><b>${gifts.toLocaleString("zh-CN")}</b><span>收到礼物</span></div></div>` : `<button type="button" class="profile-login-card" data-action="login"><span>${uiIcon("user")}</span><div><b>登录 / 注册</b><small>登录后使用创作者中心、收益与反馈</small></div><em>${uiIcon("chev")}</em></button>`}</header>`;
     const account = u ? `<section class="profile-vip-card"><div class="profile-vip-icon">${vipCrownBadge()}</div><div><strong>${active ? "Vipeak VIP · 订阅中" : "Vipeak VIP"}</strong><small>${active ? "订阅中 · 权益已解锁" : "解锁隐私互动与私密资源"}</small></div><button type="button" data-action="vip">${active ? "管理" : "开通"}</button></section><section class="wallet-card"><div class="wallet-head"><span>我的积分</span><button type="button" data-action="wallet">钱包与计费</button></div><div class="wallet-balance">${credits.toLocaleString("zh-CN")}</div><small>文字 0.5 积分/条 · 语音 2 积分/秒 · 视频 5 积分/秒</small><div class="wallet-actions"><button type="button" data-action="gift">${uiIcon("gift")}礼物记录</button><button type="button" data-action="topup">${uiIcon("wallet")}充值</button></div></section>` : "";
