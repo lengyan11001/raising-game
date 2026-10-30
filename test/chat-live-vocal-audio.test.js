@@ -8,32 +8,16 @@ const test = require("node:test");
 const {
   __test: {
     splitComponentAudioParts,
-    buildComponentVocalPcm,
     componentReplyPcm,
     componentVoicePreviewWav,
     pcm16MonoWav,
     splitComponentSpeech,
     cleanComponentSay,
-    pcmDurationMs,
     normalizeDelivery,
     speechDelivery,
     speechSsml,
   },
 } = require("../chat-live-component.js");
-
-const MOAN_DIR = path.join(__dirname, "..", "assets", "chat-live", "moans");
-const VOICES = [
-  "longanhuan",
-  "longhua_v3",
-  "longwan_v3",
-  "longyingmu_v3",
-  "longyingtao_v3",
-  "longanli_v3",
-  "longanyang",
-  "longanya_v3",
-  "longanqin_v3",
-  "longyingxiao_v3",
-];
 
 test("component speech strips leaked channel markers and JSON fields", () => {
   const leaked = '{"say":"好啊，那我们就去洗手间吧。不过……你是不是还没从刚才的余韵里缓过神来？</div> {"action":"","emotion":"happy","rate":1.2,"volume":65,"pitch":1}';
@@ -58,29 +42,43 @@ test("component speech parses controlled delivery and keeps ambiguous flirt sign
   assert.equal(normalizeDelivery("aftercare"), "aftercare");
 });
 
-test("intimate stage forces an intimate TTS performance over a generic model delivery", () => {
+test("intimate stage still exposes a controlled delivery profile", () => {
   const delivery = speechDelivery({ emotion: "happy", delivery: "casual", stage: "intimate", rate: 1, volume: 50, pitch: 1 });
   assert.equal(delivery.delivery, "intimate");
   assert.equal(delivery.emotion, "happy");
   assert.match(delivery.instruction, /亲密场景/);
-  assert.match(delivery.instruction, /耳边/);
-  assert.match(delivery.instruction, /低声/);
   assert.match(delivery.instruction, /气息/);
   assert.match(delivery.instruction, /停顿/);
-  assert.match(delivery.instruction, /暧昧/);
-  assert.doesNotMatch(delivery.instruction, /你正在进行闲聊互动|客服式闲聊/);
   assert.ok(delivery.rate <= 0.9);
   assert.ok(delivery.pitch <= 0.98);
   assert.ok(delivery.volume <= 52);
 });
 
-test("intimate component speech uses supported root SSML controls and natural pauses", () => {
-  const ssml = speechSsml("再靠近一点，别躲。\n你听得到吗……", { stage: "intimate" });
+test("intimate SSML pins 嗯 and 唔 with tone-bearing pinyin", () => {
+  const ssml = speechSsml("再靠近一点，嗯……别躲。\n你听得到吗……唔。", { stage: "intimate" });
   assert.match(ssml, /^<speak rate="0\.86" pitch="0\.95" volume="46">/);
-  assert.match(ssml, /再靠近一点，<break time="260ms"\/>别躲。/);
-  assert.match(ssml, /你听得到吗……<break time="208ms"\/>/);
+  assert.match(ssml, /<phoneme alphabet="py" ph="en2">嗯<\/phoneme>/);
+  assert.match(ssml, /<phoneme alphabet="py" ph="wu2">唔<\/phoneme>/);
+  assert.doesNotMatch(ssml, /ph="(?:en|wu)"/);
   assert.doesNotMatch(ssml, /<prosody/);
   assert.match(ssml, /<\/speak>$/);
+});
+
+test("SSML uses varied pauses rather than one fixed gap", () => {
+  const ssml = speechSsml("别躲，嗯……听我说。\n你听得到吗？唔。", { stage: "intimate" });
+  const pauses = [...ssml.matchAll(/<break time="(\d+)ms"\/>/g)].map((match) => Number(match[1]));
+  assert.ok(pauses.length >= 4, ssml);
+  assert.ok(new Set(pauses).size >= 3, `expected varied pauses, received ${pauses.join(", ")}`);
+  assert.ok(pauses.some((ms) => ms >= 300));
+  assert.ok(pauses.some((ms) => ms <= 200));
+});
+
+test("normal words containing vocal characters are not rewritten as moans", () => {
+  const ssml = speechSsml("好啊，我知道。嗯，再说。", { stage: "intimate" });
+  assert.doesNotMatch(ssml, /<phoneme[^>]*>好<\/phoneme>/);
+  assert.doesNotMatch(ssml, /<phoneme[^>]*>啊<\/phoneme>/);
+  assert.match(ssml, /好啊，/);
+  assert.match(ssml, /<phoneme alphabet="py" ph="en2">嗯<\/phoneme>/);
 });
 
 test("SSML escapes user text instead of interpreting it", () => {
@@ -120,44 +118,43 @@ test("casual delivery remains plain and emotional fallback no longer calls itsel
   assert.doesNotMatch(happy.instruction, /闲聊互动/);
 });
 
-test("component reply prompt asks the model for a controlled delivery style", () => {
+test("component reply prompt requests one continuous intimate performance", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "chat-live-component.js"), "utf8");
   assert.match(source, /\\"delivery\\":\\"casual\\"/);
   assert.match(source, /delivery 只能是 casual、tender、flirty、foreplay、intimate、aftercare/);
   assert.match(source, /stage: options\.stage \|\| session\.liveStoryStage/);
+  assert.match(source, /整段必须是同一次连续表演/);
+  assert.match(source, /不要把嗯、啊、哈当成可堆叠的独立音效/);
+  assert.match(source, /音高和节奏要有起伏/);
 });
 
-test("standalone moan tokens are split without changing visible words", () => {
+test("every reply stays as one continuous performance unit", () => {
   const reply = "啊……！\n哈啊……别只顾着快，把你的鸡巴更深一点地灌进来……唔。";
   const parts = splitComponentAudioParts(reply);
-  assert.deepEqual(parts.map((part) => part.kind), ["vocal", "vocal", "speech", "vocal"]);
-  assert.equal(parts.map((part) => part.text).join("").replace(/\s+/g, ""), reply.replace(/\s+/g, ""));
-  assert.equal(parts[0].text, "啊……！");
-  assert.equal(parts[3].text, "唔。");
+  assert.deepEqual(parts, [{ kind: "performance", text: reply }]);
 });
 
-test("normal words containing a vocal character stay in speech", () => {
+test("normal words are not split into canned vocal syllables", () => {
   const parts = splitComponentAudioParts("好啊，我知道。");
-  assert.deepEqual(parts, [{ kind: "speech", text: "好啊，我知道。" }]);
+  assert.deepEqual(parts, [{ kind: "performance", text: "好啊，我知道。" }]);
 });
 
-test("standalone vocal replies generate short natural PCM without CosyVoice", async () => {
-  let ttsCalls = 0;
+test("intimate text is synthesized once so breath and pitch remain continuous", async () => {
+  const spoken = [];
   const result = await componentReplyPcm("啊……嗯——唔。", "longanhuan", {
-    speechPcm: async () => {
-      ttsCalls += 1;
-      return Buffer.alloc(1920);
+    speechPcm: async (text, voice, options) => {
+      spoken.push({ text, voice, stage: options.stage });
+      return Buffer.alloc(2400);
     },
+    stage: "intimate",
   });
-  assert.equal(ttsCalls, 0);
-  assert.equal(result.segmented, true);
-  const parts = splitComponentAudioParts("啊……嗯——唔。");
-  assert.deepEqual(parts.map((part) => part.kind), ["vocal", "vocal", "vocal"]);
-  assert.ok(pcmDurationMs(result.pcm.length) >= 700);
-  assert.ok(pcmDurationMs(result.pcm.length) <= 3100, `moan audio too long: ${pcmDurationMs(result.pcm.length)}ms`);
+  assert.equal(result.segmented, false);
+  assert.deepEqual(result.parts, [{ kind: "performance", text: "啊……嗯——唔。" }]);
+  assert.deepEqual(spoken, [{ text: "啊……嗯——唔。", voice: "longanhuan", stage: "intimate" }]);
+  assert.equal(result.pcm.length, 2400);
 });
 
-test("mixed replies send only spoken text to CosyVoice", async () => {
+test("mixed intimate replies are not split into separate TTS calls", async () => {
   const spoken = [];
   const result = await componentReplyPcm("啊……！\n哈啊……别只顾着快，再深一点……唔。", "longanhuan", {
     speechPcm: async (text, voice, options) => {
@@ -168,63 +165,23 @@ test("mixed replies send only spoken text to CosyVoice", async () => {
     },
     stage: "intimate",
   });
-  assert.equal(result.segmented, true);
-  assert.deepEqual(spoken, ["别只顾着快，再深一点……"]);
-  assert.ok(result.pcm.length > 2400);
+  assert.equal(result.segmented, false);
+  assert.deepEqual(spoken, ["啊……！\n哈啊……别只顾着快，再深一点……唔。"]);
+  assert.equal(result.pcm.length, 2400);
 });
 
-test("turn cancellation stops before a later speech segment is synthesized", async () => {
-  let active = true;
-  const spoken = [];
+test("turn cancellation prevents synthesis before a new request is started", async () => {
+  let speechCalls = 0;
   const result = await componentReplyPcm("啊……别停……啊……", "longanhuan", {
-    shouldContinue: () => active,
-    speechPcm: async (text) => {
-      spoken.push(text);
-      active = false;
+    shouldContinue: () => false,
+    speechPcm: async () => {
+      speechCalls += 1;
       return Buffer.alloc(2400);
     },
   });
   assert.equal(result.cancelled, true);
   assert.equal(result.pcm.length, 0);
-  assert.deepEqual(spoken, ["别停……"]);
-});
-
-test("synthetic moan PCM is short, smooth, and non-silent", () => {
-  const pcm = buildComponentVocalPcm({ text: "啊……", shape: "open", intensity: 2 }, "longanhuan");
-  const ms = pcmDurationMs(pcm.length);
-  assert.ok(ms >= 250 && ms <= 1000, `unexpected moan duration ${ms}ms`);
-  let energy = 0;
-  for (let index = 0; index < pcm.length; index += 2) energy += Math.abs(pcm.readInt16LE(index));
-  assert.ok(energy > 0);
-});
-
-test("every active component voice has a complete short-vocal sample set", () => {
-  for (const voice of VOICES) {
-    for (const shape of ["open", "nasal", "breath", "gasp"]) {
-      for (const level of [1, 2, 3]) {
-        const file = path.join(MOAN_DIR, `${voice}-${shape}-${level}.wav`);
-        assert.ok(fs.existsSync(file), `missing ${file}`);
-        const wav = fs.readFileSync(file);
-        assert.equal(wav.toString("ascii", 0, 4), "RIFF");
-        assert.equal(wav.readUInt32LE(24), 24000);
-        assert.equal(wav.readUInt16LE(22), 1);
-        const ms = Math.round((wav.length - 44) / 2 / 24000 * 1000);
-        assert.ok(ms >= 250 && ms <= 1000, `${file} duration ${ms}ms`);
-      }
-    }
-  }
-});
-
-test("the legacy fallback voice has real samples instead of a generic waveform", () => {
-  const file = path.join(MOAN_DIR, "longanyang-open-2.wav");
-  assert.ok(fs.existsSync(file));
-  assert.ok(fs.readFileSync(file).length > 24000 / 4 * 2);
-});
-
-test("moan builder keeps natural clips instead of reversing or padding tails", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "scripts", "build_chat_live_moans.js"), "utf8");
-  assert.doesNotMatch(source, /tailStart|vibrato/);
-  assert.match(source, /short instead of padding/);
+  assert.equal(speechCalls, 0);
 });
 
 test("voice preview wraps the selected CosyVoice PCM as a playable mono WAV", () => {

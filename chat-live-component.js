@@ -8,8 +8,6 @@
  */
 const tls = require("node:tls");
 const crypto = require("node:crypto");
-const fs = require("node:fs");
-const path = require("node:path");
 
 const PCM_SAMPLE_RATE = 24000;
 const FRAME_BYTES = 960; /* 20ms @24kHz s16le mono */
@@ -483,267 +481,17 @@ function splitComponentSpeech(raw) {
   return { say: cleanComponentSay(raw), action: "", emotion: "neutral", delivery: "casual", rate: 1, volume: 50, pitch: 1 };
 }
 
-/* ---------------- 口播分轨：可见文本不动，只把独立叫声交给长音合成 ---------------- */
-const COMPONENT_VOCAL_TOKENS = ["哈啊", "啊哈", "嗯啊", "唔嗯", "啊", "嗯", "唔", "哈", "呃", "嘶", "呜", "噢", "哦", "呀"];
-const COMPONENT_VOCAL_BOUNDARY = /[\s，。！？、；：,.!?;:…—~～"'“”‘’（）()【】\[\]《》<>-]/u;
-const COMPONENT_VOCAL_PAUSE = /[\s，。！？、；：,.!?;:…—~～"'“”‘’（）()【】\[\]《》<>-]/u;
-const COMPONENT_MOAN_CACHE = new Map();
-
-function componentVocalAt(text, index) {
-  for (const token of COMPONENT_VOCAL_TOKENS) {
-    if (text.startsWith(token, index)) return token;
-  }
-  return "";
-}
-
-function componentVocalBoundaryAt(text, index) {
-  return index < 0 || index >= text.length || COMPONENT_VOCAL_BOUNDARY.test(text[index]);
-}
-
-function componentVocalShape(value = "") {
-  const text = String(value || "");
-  if (/[嘶呃噢哦]/u.test(text)) return "gasp";
-  if (/哈/u.test(text)) return "breath";
-  if (/[唔嗯呜]/u.test(text)) return "nasal";
-  return "open";
-}
-
-function componentVocalIntensity(value = "") {
-  const text = String(value || "");
-  const repeated = (text.match(/[啊嗯唔哈呃嘶呜噢哦呀]/gu) || []).length;
-  const breaks = (text.match(/[…—]/gu) || []).length;
-  return Math.max(1, Math.min(3, 1 + (repeated > 1 ? 1 : 0) + (breaks > 1 ? 1 : 0)));
-}
-
+/* 口播始终作为一次连续合成，避免把独立短音拼接成机械念白。 */
 function splitComponentAudioParts(raw) {
-  const text = String(raw || "");
-  const parts = [];
-  let index = 0;
-  let speechStart = 0;
-  const pushSpeech = (end) => {
-    const value = text.slice(speechStart, end);
-    if (!value.trim()) return;
-    const previous = parts.at(-1);
-    if (previous?.kind === "speech") previous.text += value;
-    else parts.push({ kind: "speech", text: value });
-  };
-  while (index < text.length) {
-    if (!componentVocalBoundaryAt(text, index - 1)) {
-      index += 1;
-      continue;
-    }
-    const first = componentVocalAt(text, index);
-    if (!first) {
-      index += 1;
-      continue;
-    }
-    let runEnd = index;
-    while (true) {
-      const token = componentVocalAt(text, runEnd);
-      if (!token) break;
-      runEnd += token.length;
-      let spacedEnd = runEnd;
-      while (spacedEnd < text.length && /[ \t]/u.test(text[spacedEnd])) spacedEnd += 1;
-      if (componentVocalAt(text, spacedEnd)) runEnd = spacedEnd;
-      else break;
-    }
-    if (!componentVocalBoundaryAt(text, runEnd)) {
-      index += first.length;
-      continue;
-    }
-    let end = runEnd;
-    while (end < text.length && COMPONENT_VOCAL_PAUSE.test(text[end])) end += 1;
-    const vocalText = text.slice(index, end).trim();
-    if (!vocalText) break;
-    pushSpeech(index);
-    parts.push({ kind: "vocal", text: vocalText, shape: componentVocalShape(vocalText), intensity: componentVocalIntensity(vocalText) });
-    index = end;
-    speechStart = end;
-  }
-  pushSpeech(text.length);
-  return parts;
-}
-
-function componentHash(value = "") {
-  let hash = 2166136261;
-  for (const char of String(value)) {
-    hash ^= char.codePointAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function componentPausePcm(ms = 80) {
-  return Buffer.alloc(Math.max(0, Math.round((Number(ms) || 0) * PCM_SAMPLE_RATE / 1000)) * 2);
-}
-
-function decodeComponentWav(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 44 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") return null;
-  let offset = 12;
-  let format = null;
-  let data = null;
-  while (offset + 8 <= buffer.length) {
-    const id = buffer.toString("ascii", offset, offset + 4);
-    const size = buffer.readUInt32LE(offset + 4);
-    const start = offset + 8;
-    const end = Math.min(buffer.length, start + size);
-    if (id === "fmt " && size >= 16) {
-      format = {
-        audioFormat: buffer.readUInt16LE(start),
-        channels: buffer.readUInt16LE(start + 2),
-        sampleRate: buffer.readUInt32LE(start + 4),
-        bitsPerSample: buffer.readUInt16LE(start + 14),
-      };
-    } else if (id === "data") {
-      data = buffer.slice(start, end);
-    }
-    offset = start + size + (size % 2);
-  }
-  if (!format || !data || format.audioFormat !== 1 || format.bitsPerSample !== 16 || format.channels < 1) return null;
-  const frames = Math.floor(data.length / (format.channels * 2));
-  const mono = new Float32Array(frames);
-  for (let frame = 0; frame < frames; frame += 1) {
-    let sample = 0;
-    for (let channel = 0; channel < format.channels; channel += 1) {
-      sample += data.readInt16LE((frame * format.channels + channel) * 2) / 32768;
-    }
-    mono[frame] = sample / format.channels;
-  }
-  return { ...format, samples: mono };
-}
-
-function resampleComponentPcm(samples, sourceRate, targetRate = PCM_SAMPLE_RATE) {
-  if (!samples?.length || !sourceRate) return Buffer.alloc(0);
-  const outputLength = Math.max(1, Math.round(samples.length * targetRate / sourceRate));
-  const pcm = Buffer.alloc(outputLength * 2);
-  for (let index = 0; index < outputLength; index += 1) {
-    const source = index * sourceRate / targetRate;
-    const left = Math.min(samples.length - 1, Math.floor(source));
-    const right = Math.min(samples.length - 1, left + 1);
-    const mix = source - left;
-    const sample = samples[left] * (1 - mix) + samples[right] * mix;
-    pcm.writeInt16LE(Math.max(-1, Math.min(1, sample)) * 32767, index * 2);
-  }
-  return pcm;
-}
-
-function componentMoanDirs() {
-  const configured = String(process.env.CHAT_LIVE_MOAN_DIR || "").trim();
-  return configured ? [configured] : [path.join(__dirname, "assets", "chat-live", "moans")];
-}
-
-function componentMoanSample(voice, shape, intensity = 1) {
-  const dirs = componentMoanDirs();
-  const safeVoice = String(voice || "default").replace(/[^\w.-]+/g, "_").slice(0, 100);
-  const safeShape = String(shape || "open").replace(/[^\w.-]+/g, "_").slice(0, 40);
-  const level = Math.max(1, Math.min(3, Math.round(Number(intensity) || 1)));
-  const names = [
-    `${safeVoice}-${safeShape}-${level}.wav`,
-    `${safeVoice}-${safeShape}.wav`,
-    `${safeShape}-${level}.wav`,
-    `${safeShape}.wav`,
-    `${safeVoice}.wav`,
-  ];
-  for (const dir of dirs) {
-    for (const name of names) {
-      const file = path.join(dir, name);
-      const cacheKey = `${file}:${safeShape}:${level}`;
-      if (COMPONENT_MOAN_CACHE.has(cacheKey)) return COMPONENT_MOAN_CACHE.get(cacheKey);
-      try {
-        const decoded = decodeComponentWav(fs.readFileSync(file));
-        if (!decoded) continue;
-        const pcm = resampleComponentPcm(decoded.samples, decoded.sampleRate);
-        if (pcm.length >= PCM_SAMPLE_RATE * 0.25) {
-          COMPONENT_MOAN_CACHE.set(cacheKey, pcm);
-          return pcm;
-        }
-      } catch {}
-    }
-  }
-  return null;
-}
-
-function componentNormalizePcm(pcm, targetPeak = 13500) {
-  if (!pcm?.length) return pcm;
-  let peak = 0;
-  for (let index = 0; index < pcm.length; index += 2) {
-    peak = Math.max(peak, Math.abs(pcm.readInt16LE(index)));
-  }
-  if (!peak) return pcm;
-  const gain = Math.max(0.25, Math.min(2.2, targetPeak / peak));
-  if (Math.abs(gain - 1) < 0.02) return pcm;
-  const out = Buffer.from(pcm);
-  for (let index = 0; index < out.length; index += 2) {
-    out.writeInt16LE(Math.max(-32767, Math.min(32767, Math.round(out.readInt16LE(index) * gain))), index);
-  }
-  return out;
-}
-
-function componentVocalVariant(voice, shape, intensity, text) {
-  const base = componentMoanSample(voice, shape, intensity);
-  if (!base) return null;
-  // Keep the recorded performance intact. Re-sampling, rotating, or looping an
-  // already emotional vocal creates the mechanical "乌拉乌拉" effect.
-  const seed = componentHash(`${voice}:${shape}:${intensity}:${text}`);
-  return componentNormalizePcm(base, 11800 + (seed % 3) * 500);
-}
-
-function buildComponentVocalPcm(part, voice = "longanyang") {
-  const text = String(part?.text || part || "");
-  const shape = part?.shape || componentVocalShape(text);
-  const intensity = Math.max(1, Math.min(3, Number(part?.intensity) || componentVocalIntensity(text)));
-  const sampled = componentVocalVariant(voice, shape, intensity, text);
-  if (sampled) return sampled;
-  const seed = componentHash(`${voice}:${text}:${shape}:${intensity}`);
-  let randomState = seed || 1;
-  const rand = () => {
-    let value = randomState = (randomState + 0x9e3779b9) >>> 0;
-    value ^= value << 13;
-    value ^= value >>> 17;
-    value ^= value << 5;
-    return (value >>> 0) / 4294967296;
-  };
-  const baseDuration = shape === "gasp" ? 0.46 : shape === "nasal" ? 0.56 : 0.64;
-  const duration = Math.min(1.15, baseDuration + intensity * 0.1 + (seed % 11) / 100);
-  const length = Math.round(duration * PCM_SAMPLE_RATE);
-  const pcm = Buffer.alloc(length * 2);
-  const femaleBias = /(?:huan|qi|xia|yue|nan|meng|tian|wei|jing|lin|xin|yao)/i.test(String(voice || "")) ? 1 : 0.82;
-  const basePitch = (shape === "gasp" ? 205 : shape === "nasal" ? 188 : 205) * femaleBias + (seed % 31) - 15;
-  const formants = shape === "nasal" || /唔|嗯|呜/u.test(text)
-    ? [350, 1050, 2250]
-    : shape === "gasp"
-      ? [620, 1400, 2500]
-      : [760, 1280, 2650];
-  const harmonicLevel = shape === "gasp" ? 0.42 : shape === "nasal" ? 0.7 : 0.78;
-  let phase = 0;
-  let noiseState = 0;
-  for (let index = 0; index < length; index += 1) {
-    const t = index / PCM_SAMPLE_RATE;
-    const u = index / Math.max(1, length - 1);
-    const attack = Math.min(1, u / 0.075);
-    const release = Math.min(1, (1 - u) / 0.3);
-    const envelope = Math.sin(Math.PI / 2 * Math.max(0, Math.min(1, attack))) * Math.sin(Math.PI / 2 * Math.max(0, Math.min(1, release)));
-    const arch = Math.sin(Math.PI * u) ** 0.34;
-    const tremolo = 1 + (0.045 + intensity * 0.018) * Math.sin(2 * Math.PI * (3.8 + intensity * 0.55) * t + (seed % 1000) / 50000);
-    const f0 = basePitch * (0.9 + arch * 0.2 - u * 0.1) * tremolo
-      + Math.sin(2 * Math.PI * (4.7 + intensity * 0.35) * t) * (2.5 + intensity);
-    phase += 2 * Math.PI * f0 / PCM_SAMPLE_RATE;
-    let tonal = 0;
-    for (let harmonic = 1; harmonic <= 11; harmonic += 1) {
-      const frequency = f0 * harmonic;
-      const first = 1 / (1 + ((frequency - formants[0]) / 240) ** 2);
-      const second = 1 / (1 + ((frequency - formants[1]) / 420) ** 2);
-      const third = 1 / (1 + ((frequency - formants[2]) / 720) ** 2);
-      const weight = (0.1 + first * 0.64 + second * 0.36 + third * 0.13) / Math.pow(harmonic, 0.62);
-      tonal += Math.sin(phase * harmonic) * weight;
-    }
-    const rawNoise = rand() * 2 - 1;
-    noiseState = noiseState * 0.82 + rawNoise * 0.18;
-    const breath = (rawNoise * 0.55 + noiseState * 0.45) * (shape === "gasp" ? 0.16 : 0.055 + intensity * 0.012) * arch;
-    const sample = Math.tanh((tonal * harmonicLevel + breath) * envelope * (0.6 + intensity * 0.1));
-    pcm.writeInt16LE(Math.round(Math.max(-1, Math.min(1, sample)) * 32767), index * 2);
-  }
-  return pcm;
+  // Keep intimate reactions in the same synthesis pass as the spoken words.
+  // Concatenated canned samples destroy coarticulation, breath, and the pitch
+  // movement that make a performance sound continuous.
+  const text = String(raw || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .trim();
+  return text ? [{ kind: "performance", text }] : [];
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -793,12 +541,12 @@ async function componentReply(session, userText, options = {}) {
   const explicitIntimate = session.site === "live" && /(?:龟头|鸡巴|阴茎|阴道|肛门|里面|进去|插入|顶到|抽插|操|干你|舔|含住|夹紧|射|高潮|湿了|淫水|汁水|撑开|挤进|弄我|摸我|亲我|吻我|脱掉|蹭|磨|疼|轻点|慢点|快点|叫床|叫出来)/u.test(String(userText || ""));
   const flirtyContext = session.site === "live" && /(?:想你|喜欢你|心动|暧昧|撩|调情|诱惑|想要你|靠近|抱|亲|吻|耳边|轻声|低声|喘|呼吸|睡衣|夜色|陪我|今晚|别躲|看着我|脸红|害羞|心跳)/u.test(String(userText || ""));
   const intimateCue = explicitIntimate
-    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。直接反应这一下，不要用“唔……哈”“嗯……哈”做固定开头，不要评价对方的能力、表现、诚意、节奏或进度。叫声、气音、被撞断的半句话和身体感受要跟着动作变化，不要套同一条模板。"
+    ? "当前是被插入、被顶弄的场景。说话的人是承受这一下的那一方，不是旁观、验收或指挥的人。整段必须是同一次连续表演：让呼吸先被动作打断，再从不完整的话、气音或短反应里继续说，句子的长短、音高和停顿要随动作推进而变化。不要把嗯、啊、哈当成可堆叠的独立音效；每个短音都要嵌在被撞断的半句话、吸气或身体反应里。开场不要先堆固定的“唔……哈”“嗯……哈”，不要平均停顿，不要一字一字地念。短反应可以重复，但必须跟着不同的动作和情绪变化；不要评价对方的能力、表现、诚意、节奏或进度，也不要变成通用叫床模板。"
     : flirtyContext || ["flirty", "foreplay", "intimate", "aftercare"].includes(stage)
-      ? "当前是带暧昧张力的私下互动，不是客服闲聊。台词要像真的在对喜欢的人低声说话：有试探、停顿、留白和克制的吸引；不要解释气氛，不要播音腔。是否露骨由当前场景决定，但不能把暧昧说成普通开心或礼貌回应。"
+      ? "当前是带暧昧张力的私下互动，不是客服闲聊。整段要像真的在对喜欢的人低声说话：有试探、停顿、呼吸、留白和克制的吸引；短语气词要连着未说完的话出现，不要排成一串单独念。不要解释气氛，不要播音腔。是否露骨由当前场景决定，但不能把暧昧说成普通开心或礼貌回应。"
       : "";
   const stageCue = stage === "intimate"
-    ? "当前表演阶段是亲密阶段。每一句都要贴近、低声、带气息和暧昧张力，语速偏慢并允许自然停顿；保持角色本人性格，不要变成通用娇喘模板。"
+    ? "当前表演阶段是亲密阶段。整段保持同一种贴近、低声、带气息的状态：让一句话被呼吸或动作打断，再从断裂处接下去；音高和节奏要有起伏，不能每个字都用同样的力度念。保持角色本人性格，不要变成通用娇喘模板。"
     : stage === "foreplay"
       ? "当前表演阶段是前戏阶段。用贴近、试探、克制的暧昧语气说，慢一点，留出呼吸和停顿，不要提前演成机械叫床。"
       : stage === "flirty"
@@ -1056,9 +804,34 @@ function speechDelivery(speech = {}) {
  * that advertise Instruct support. longyingtao_v3 does not. Express the
  * controlled delivery with supported SSML prosody instead of silently
  * accepting an instruction and synthesizing flat speech. */
+const COMPONENT_PHONEME_PINYIN = {
+  嗯: "en2",
+  唔: "wu2",
+  呜: "wu2",
+  啊: "a1",
+  哈: "ha1",
+  呃: "e4",
+  嘶: "si1",
+  噢: "o1",
+  哦: "o1",
+  呀: "ya1",
+};
+const COMPONENT_VOCAL_RUN = /(?<![\p{L}\p{N}])([啊嗯唔哈呃嘶呜噢哦呀]+)(?![\p{L}\p{N}])/gu;
+
+function componentSsmlPause(sequence, delivery, cursor) {
+  const intimate = delivery === "intimate" || delivery === "foreplay";
+  const soft = delivery === "flirty" || delivery === "aftercare";
+  if (/\n/u.test(sequence)) return intimate ? 480 : soft ? 380 : 220;
+  if (/[…—]/u.test(sequence)) return intimate ? 360 + (cursor % 3) * 40 : soft ? 260 + (cursor % 2) * 35 : 180;
+  if (/[！？!?]/u.test(sequence)) return intimate ? 300 + (cursor % 3) * 30 : soft ? 230 + (cursor % 2) * 25 : 160;
+  if (/[。]/u.test(sequence)) return intimate ? 260 + (cursor % 3) * 25 : soft ? 210 + (cursor % 2) * 20 : 150;
+  if (/[，,、；;：:]/u.test(sequence)) return intimate ? 140 + (cursor % 4) * 25 : soft ? 120 + (cursor % 3) * 20 : 80;
+  return 0;
+}
+
 function speechSsml(text, options = {}) {
   const delivery = speechDelivery(options);
-  const raw = String(text || "");
+  const raw = String(text || "").replace(/\r\n?/g, "\n");
   if (!raw.trim()) return "";
   const escape = (value) => String(value)
     .replace(/&/g, "&amp;")
@@ -1066,21 +839,28 @@ function speechSsml(text, options = {}) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
-  const rate = String(delivery.rate);
-  const pitch = String(delivery.pitch);
-  const volume = String(delivery.volume);
-  const pauseMs = delivery.delivery === "intimate" || delivery.delivery === "foreplay"
-    ? 260
-    : delivery.delivery === "flirty" || delivery.delivery === "aftercare"
-      ? 190
-      : 0;
-  let body = escape(raw);
-  if (pauseMs) {
-    body = body
-      .replace(/([，,])/g, `$1<break time="${pauseMs}ms"/>`)
-      .replace(/([。！？!?…]+)/g, `$1<break time="${Math.round(pauseMs * 0.8)}ms"/>`);
-  }
-  return `<speak rate="${rate}" pitch="${pitch}" volume="${volume}">${body}</speak>`;
+  const pins = [];
+  const pinned = raw.replace(COMPONENT_VOCAL_RUN, (run) => {
+    const pieces = [];
+    for (const char of run) {
+      const pinyin = COMPONENT_PHONEME_PINYIN[char];
+      if (!pinyin) continue;
+      const marker = `\u0001${pins.length}\u0002`;
+      pins.push(`<phoneme alphabet="py" ph="${pinyin}">${escape(char)}</phoneme>`);
+      pieces.push(marker);
+    }
+    return pieces.join("") || run;
+  });
+  let cursor = 0;
+  const paced = pinned.replace(/\n|[，,、；;：:]|[。！？!?…—]+/gu, (sequence) => {
+    const pause = componentSsmlPause(sequence, delivery.delivery, cursor);
+    cursor += 1;
+    return pause ? `${sequence}\u0003${pause}\u0004` : sequence;
+  });
+  let body = escape(paced);
+  body = body.replace(/\u0003(\d+)\u0004/gu, (_, ms) => `<break time="${ms}ms"/>`);
+  body = body.replace(/\u0001(\d+)\u0002/gu, (_, index) => pins[Number(index)] || "");
+  return `<speak rate="${delivery.rate}" pitch="${delivery.pitch}" volume="${delivery.volume}">${body}</speak>`;
 }
 
 async function componentSpeechPcm(text, voice, options = {}) {
@@ -1132,51 +912,18 @@ async function componentVoicePreviewWav(text, voice, options = {}) {
 }
 
 async function componentReplyPcm(reply, voice, options = {}) {
-  const text = String(reply || "").trim();
-  const parts = splitComponentAudioParts(text);
-  const hasVocal = parts.some((part) => part.kind === "vocal");
+  const parts = splitComponentAudioParts(reply);
+  const text = parts[0]?.text || "";
+  if (!text) return { pcm: Buffer.alloc(0), parts, segmented: false };
+  if (options.shouldContinue && !options.shouldContinue()) {
+    return { pcm: Buffer.alloc(0), parts, segmented: false, cancelled: true };
+  }
   const speechPcm = options.speechPcm || componentSpeechPcm;
-  if (!hasVocal) {
-    return {
-      pcm: await speechPcm(text, voice, options),
-      parts,
-      segmented: false,
-    };
-  }
-  const chunks = [];
-  let speechParts = 0;
-  let vocalParts = 0;
-  let previousKind = "";
-  for (const part of parts) {
-    if (options.shouldContinue && !options.shouldContinue()) {
-      return { pcm: Buffer.alloc(0), parts, segmented: true, cancelled: true };
-    }
-    if (part.kind === "vocal") {
-      // Consecutive reactions should feel like breaths in the same moment,
-      // not separate clips with a long gap between them.
-      if (chunks.length && chunks.at(-1)?.length) chunks.push(componentPausePcm(previousKind === "vocal" ? 45 : 55));
-      chunks.push(buildComponentVocalPcm(part, voice));
-      chunks.push(componentPausePcm(35));
-      vocalParts += 1;
-      previousKind = "vocal";
-      continue;
-    }
-    const speech = String(part.text || "").trim();
-    if (!speech) continue;
-    const pcm = await speechPcm(speech, voice, options);
-    if (options.shouldContinue && !options.shouldContinue()) {
-      return { pcm: Buffer.alloc(0), parts, segmented: true, cancelled: true };
-    }
-    if (previousKind === "vocal") chunks.push(componentPausePcm(40));
-    chunks.push(pcm);
-    chunks.push(componentPausePcm(60));
-    speechParts += 1;
-    previousKind = "speech";
-  }
-  const pcm = Buffer.concat(chunks);
-  if (!pcm.length) throw new Error("TTS 没有返回音频。");
-  log("tts segmented", { speechParts, vocalParts, pcmMs: pcmDurationMs(pcm.length) });
-  return { pcm, parts, segmented: true };
+  return {
+    pcm: await speechPcm(text, voice, options),
+    parts,
+    segmented: false,
+  };
 }
 /* ---------------- 对外：一轮对话 ---------------- */
 function componentNotReady(message = "还在接通，这句话还没发出去。") {
@@ -1277,7 +1024,7 @@ async function runComponentSay(session, userText, options = {}) {
       pcm = (await componentReplyPcm(reply, componentVoice, ttsOptions)).pcm;
     } catch (error) {
       if (session.speakTurn !== turn || !sessions.has(String(liveId))) return reply;
-      log("tts segmented fallback", session.liveId, error.message);
+      log("tts retry", session.liveId, error.message);
       pcm = await componentSpeechPcm(reply, componentVoice, ttsOptions);
     }
     if (session.tts) session.tts = null;
@@ -1375,14 +1122,12 @@ module.exports = {
   hasComponentSession: (liveId) => sessions.has(String(liveId)),
   __test: {
     splitComponentAudioParts,
-    buildComponentVocalPcm,
     componentReplyPcm,
     componentSpeechPcm,
     componentVoicePreviewWav,
     pcm16MonoWav,
     splitComponentSpeech,
     cleanComponentSay,
-    componentMoanSample,
     pcmDurationMs,
     normalizeDelivery,
     speechDelivery,
