@@ -10,6 +10,8 @@ const {
     splitComponentAudioParts,
     buildComponentVocalPcm,
     componentReplyPcm,
+    componentVoicePreviewWav,
+    pcm16MonoWav,
     splitComponentSpeech,
     cleanComponentSay,
     pcmDurationMs,
@@ -138,4 +140,26 @@ test("moan builder keeps natural clips instead of reversing or padding tails", (
   const source = fs.readFileSync(path.join(__dirname, "..", "scripts", "build_chat_live_moans.js"), "utf8");
   assert.doesNotMatch(source, /tailStart|vibrato/);
   assert.match(source, /short instead of padding/);
+});
+
+test("voice preview wraps the selected CosyVoice PCM as a playable mono WAV", () => {
+  const pcm = Buffer.alloc(2400, 1);
+  const wav = pcm16MonoWav(pcm, 24000);
+  assert.equal(wav.toString("ascii", 0, 4), "RIFF");
+  assert.equal(wav.toString("ascii", 8, 12), "WAVE");
+  assert.equal(wav.readUInt16LE(20), 1);
+  assert.equal(wav.readUInt16LE(22), 1);
+  assert.equal(wav.readUInt32LE(24), 24000);
+  assert.equal(wav.readUInt16LE(34), 16);
+  assert.equal(wav.readUInt32LE(40), pcm.length);
+  assert.deepEqual(wav.slice(44), pcm);
+  assert.throws(() => pcm16MonoWav(Buffer.alloc(0)), /PCM 音频为空/);
+});
+
+test("voice preview uses the requested component voice and does not substitute another", async () => {
+  const previous = process.env.ALIYUN_DASHSCOPE_API_KEY;
+  delete process.env.ALIYUN_DASHSCOPE_API_KEY;
+  await assert.rejects(componentVoicePreviewWav("试听", "longanyang"), /TTS 未配置/);
+  if (previous === undefined) delete process.env.ALIYUN_DASHSCOPE_API_KEY;
+  else process.env.ALIYUN_DASHSCOPE_API_KEY = previous;
 });

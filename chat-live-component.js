@@ -1006,6 +1006,32 @@ async function componentSpeechPcm(text, voice, options = {}) {
   }
 }
 
+function pcm16MonoWav(pcm, sampleRate = PCM_SAMPLE_RATE) {
+  const audio = Buffer.isBuffer(pcm) ? pcm : Buffer.from(pcm || []);
+  if (!audio.length) throw new Error("PCM 音频为空。");
+  const rate = Math.max(8000, Math.min(192000, Math.round(Number(sampleRate) || PCM_SAMPLE_RATE)));
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + audio.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(audio.length, 40);
+  return Buffer.concat([header, audio]);
+}
+
+async function componentVoicePreviewWav(text, voice, options = {}) {
+  const pcm = await componentSpeechPcm(text, voice, options);
+  return pcm16MonoWav(pcm, PCM_SAMPLE_RATE);
+}
+
 async function componentReplyPcm(reply, voice, options = {}) {
   const text = String(reply || "").trim();
   const parts = splitComponentAudioParts(text);
@@ -1245,6 +1271,8 @@ module.exports = {
     buildComponentVocalPcm,
     componentReplyPcm,
     componentSpeechPcm,
+    componentVoicePreviewWav,
+    pcm16MonoWav,
     splitComponentSpeech,
     cleanComponentSay,
     componentMoanSample,

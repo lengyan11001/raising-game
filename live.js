@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -51,6 +51,66 @@
     };
   }
   async function api(url, options = {}) { const h = { "content-type": "application/json", ...(options.headers || {}) }; if (token()) h.authorization = `Bearer ${token()}`; const r = await fetch(url, { cache: "no-store", ...options, headers: h }); const p = await r.json().catch(() => ({})); if (!r.ok) { const error = new Error(p.message || `请求失败（${r.status}）`); error.status = r.status; error.code = p.code || ""; throw error; } return p; }
+  function stopVoicePreview() {
+    state.voicePreviewRequestId = (state.voicePreviewRequestId || 0) + 1;
+    const current = state.voicePreview;
+    if (!current) return;
+    try { current.audio?.pause?.(); } catch {}
+    if (current.url) URL.revokeObjectURL(current.url);
+    state.voicePreview = null;
+    document.querySelectorAll("[data-voice-preview]").forEach((button) => {
+      button.classList.remove("playing");
+      button.textContent = "▶ 试听";
+      button.disabled = false;
+    });
+  }
+  async function playVoicePreview(button) {
+    if (!button) return;
+    const scope = button.dataset.voiceScope === "component" ? "component" : "realtime";
+    const voiceType = button.dataset.voiceType || "";
+    if (state.voicePreview?.voiceType === voiceType && state.voicePreview?.scope === scope) return stopVoicePreview();
+    stopVoicePreview();
+    state.voicePreviewRequestId = (state.voicePreviewRequestId || 0) + 1;
+    const requestId = state.voicePreviewRequestId;
+    state.voicePreview = { requestId, scope, voiceType, audio: null, url: "" };
+    button.disabled = true;
+    button.textContent = "生成中…";
+    try {
+      const r = await fetch("/api/chat-live/creator/voices/preview", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json", ...(token() ? { authorization: `Bearer ${token()}` } : {}) },
+        body: JSON.stringify({ scope, voiceType }),
+      });
+      if (!r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        throw new Error(payload.message || "这个声音暂时无法试听，请换一个或稍后再试。");
+      }
+      const blob = await r.blob();
+      if (!blob.size) throw new Error("试听音频为空，请稍后再试。");
+      if (state.voicePreview?.requestId !== requestId || state.voicePreview?.scope !== scope || state.voicePreview?.voiceType !== voiceType) return;
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      const preview = state.voicePreview;
+      preview.audio = audio;
+      preview.url = url;
+      button.disabled = false;
+      button.textContent = "■ 停止";
+      button.classList.add("playing");
+      audio.onended = () => { if (state.voicePreview?.requestId === requestId) stopVoicePreview(); };
+      audio.onerror = () => { if (state.voicePreview?.requestId === requestId) { stopVoicePreview(); referralToast("试听播放失败，请稍后再试"); } };
+      await audio.play();
+    } catch (error) {
+      if (state.voicePreview?.requestId !== requestId) return;
+      stopVoicePreview();
+      referralToast(error.message || "这个声音暂时无法试听，请换一个或稍后再试。");
+    } finally {
+      if (state.voicePreview?.requestId !== requestId) {
+        button.disabled = false;
+        if (!button.classList.contains("playing")) button.textContent = "▶ 试听";
+      }
+    }
+  }
   const photo = (x) => x?.profilePhotos?.[0] || "";
   const rolePhoto = (x) => x?.portraitUrl || x?.avatarUrl || x?.posterUrl || x?.coverUrl || x?.imageUrl || x?.photoUrl || x?.characterImageUrl || "";
   const label = (key) => ({ zh: { home: "首页", messages: "消息", create: "创作", profile: "我的", language: "语言", recommended: "为你推荐", online: "位在线", call: "视频聊天", vip: "订阅 VIP", edit: "编辑资料", save: "保存", cancel: "取消" }, en: { home: "Home", messages: "Messages", create: "Create", profile: "Me", language: "Language", recommended: "Recommended", online: "online", call: "Video call", vip: "VIP", edit: "Edit profile", save: "Save", cancel: "Cancel" }, ja: { home: "ホーム", messages: "メッセージ", create: "作成", profile: "マイページ", language: "言語", recommended: "おすすめ", online: "オンライン", call: "ビデオ通話", vip: "VIP", edit: "プロフィール編集", save: "保存", cancel: "キャンセル" } }[state.language] || {} )[key] || key;
@@ -560,6 +620,12 @@
       if (state.page === "create") render();
     }
   }
+  function visibleComponentVoiceOptions(voices = []) {
+    return voices.filter((voice) => {
+      const desc = String(voice.desc || "");
+      return !/童|粤语|闽南|陕北|英语|印尼|日语|韩语|泰语|越南|方言/u.test(desc);
+    });
+  }
   async function openCreateEditor(id = "") {
     if (!token()) return askLogin();
     cancelCreateAutoProfile();
@@ -584,8 +650,10 @@
         };
       }
       state.creatorVoices = { realtime: realtime.voices || [], component: component.voices || [] };
-      const firstVoice = state.creatorVoices.realtime[0];
-      const firstComponentVoice = state.creatorVoices.component[0];
+      const visibleRealtimeVoices = state.creatorVoices.realtime.slice(0, 8);
+      const visibleComponentVoices = visibleComponentVoiceOptions(state.creatorVoices.component).slice(0, 8);
+      const firstVoice = visibleRealtimeVoices[0];
+      const firstComponentVoice = visibleComponentVoices[0];
       state.createDraft.voiceType = state.createDraft.voiceType || String(firstVoice?.id || firstVoice?.voice || firstVoice?.voiceType || "");
       state.createDraft.componentVoiceType = state.createDraft.componentVoiceType || String(firstComponentVoice?.id || firstComponentVoice?.voice || firstComponentVoice?.voiceType || "");
     } catch (error) { state.createError = error.message || "加载失败"; }
@@ -598,20 +666,24 @@
     }
   }
   function createEditor() {
+    stopVoicePreview();
     const d = createDraft();
-    const voices = (state.creatorVoices?.realtime || []).slice(0, 6);
-    const componentVoices = (state.creatorVoices?.component || []).slice(0, 6);
+    const voices = (state.creatorVoices?.realtime || []).slice(0, 8);
+    const componentVoices = visibleComponentVoiceOptions(state.creatorVoices?.component || []).slice(0, 8);
     const tags = ["温柔", "直率", "慢热", "爱开玩笑", "理性", "黏人"];
     const lockedGender = Boolean(state.createEditingId);
     const gender = d.gender === "male" ? "male" : (d.gender === "female" ? "female" : "");
     const voiceButtons = (list, key, fallback) => list.length
       ? list.map((voice, index) => {
         const id = String(voice.id || voice.voice || voice.voiceType || "");
-        const name = voice.name || voice.label || id || `${fallback} ${index + 1}`;
-        return `<button type="button" data-create-${key}="${esc(id)}" class="${d[key === "voice" ? "voiceType" : "componentVoiceType"] === id ? "selected" : ""}">▷ ${esc(name)}</button>`;
+        const name = voice.title || [voice.style, voice.gender].filter(Boolean).join(" · ") || voice.label || `${fallback} ${index + 1}`;
+        const desc = voice.desc || voice.description || "自然真实的声音";
+        const scope = key === "voice" ? "realtime" : "component";
+        const selected = d[key === "voice" ? "voiceType" : "componentVoiceType"] === id;
+        return `<div class="create-voice-card ${selected ? "selected" : ""}" data-create-${key}-card="${esc(id)}"><button type="button" class="create-voice-select" data-create-${key}="${esc(id)}" aria-pressed="${selected ? "true" : "false"}"><b>${esc(name)}</b><span>${esc(desc)}</span></button><button type="button" class="create-voice-preview" data-voice-preview data-voice-scope="${scope}" data-voice-type="${esc(id)}" data-voice-card="${esc(id)}" aria-label="试听${esc(name)}">▶ 试听</button></div>`;
       }).join("")
       : `<span class="create-muted">${fallback}正在准备中</span>`;
-    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>实时声音（必选）</small></div><div class="create-options voice">${voiceButtons(voices, "voice", "实时声音")}</div><div class="create-block-head create-second-voice-head"><b>组件声音</b><small>用于房间和组件模式（必选）</small></div><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "组件声音")}</div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
+    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>按风格选择，可试听</small></div><p class="create-voice-hint">点选你喜欢的说话感觉，再试听确认。</p><div class="create-voice-group"><b>实时通话声音</b><small>视频通话时使用</small><div class="create-options voice">${voiceButtons(voices, "voice", "实时声音")}</div></div><div class="create-voice-group"><b>房间 / 组件声音</b><small>进房间聊天时使用</small><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "组件声音")}</div></div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
   }
   function readCreateDraftFromForm() {
     const form = document.querySelector("[data-create-form]");
@@ -2087,6 +2159,8 @@ document.addEventListener("click", async (e) => {
     if (createGender && !state.createEditingId) { readCreateDraftFromForm(); createDraft().gender = createGender; createEditor(); return; }
     const createTag = e.target.closest("[data-create-tag]")?.dataset.createTag;
     if (createTag) { readCreateDraftFromForm(); const d = createDraft(); d.tags = d.tags.includes(createTag) ? d.tags.filter((x) => x !== createTag) : (d.tags.length >= 3 ? d.tags : [...d.tags, createTag]); createEditor(); return; }
+    const voicePreview = e.target.closest("[data-voice-preview]");
+    if (voicePreview) { playVoicePreview(voicePreview); return; }
     const createVoice = e.target.closest("[data-create-voice]")?.dataset.createVoice;
     if (createVoice) { readCreateDraftFromForm(); createDraft().voiceType = createVoice; createEditor(); return; }
     const createComponentVoice = e.target.closest("[data-create-component-voice]")?.dataset.createComponentVoice;

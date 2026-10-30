@@ -8361,6 +8361,174 @@ async function handleCreatorChatLiveVoices(req, res, url) {
   return handleAdminChatLiveVoices(req, res, url, { auth });
 }
 
+const CHAT_LIVE_VOICE_DISPLAY = {
+  Tina: { style: "甜美", gender: "女声", title: "甜美 · 女声", desc: "甜暖亲昵，适合恋爱陪伴" },
+  Cindy: { style: "可爱", gender: "女声", title: "可爱 · 女声", desc: "软糯俏皮，适合撒娇互动" },
+  "Liora Mira": { style: "温柔", gender: "女声", title: "温柔 · 女声", desc: "轻声细语，适合安静倾诉" },
+  Sunnybobi: { style: "元气", gender: "女声", title: "元气 · 女声", desc: "活泼直率，像熟悉的邻家女孩" },
+  Raymond: { style: "清爽", gender: "男声", title: "清爽 · 男声", desc: "清亮自然，适合轻松日常聊天" },
+  Ethan: { style: "阳光", gender: "男声", title: "阳光 · 男声", desc: "温暖有活力，像开朗的大男孩" },
+  "Theo Calm": { style: "治愈", gender: "男声", title: "治愈 · 男声", desc: "平静温和，适合倾听和安慰" },
+  Serena: { style: "温柔", gender: "女声", title: "温柔 · 女声", desc: "成熟柔和，适合慢节奏陪伴" },
+  Harvey: { style: "低沉", gender: "男声", title: "低沉磁性 · 男声", desc: "沉稳成熟，有故事感" },
+  Maia: { style: "知性", gender: "女声", title: "知性 · 女声", desc: "温柔从容，适合深入交流" },
+  Evan: { style: "少年", gender: "男声", title: "少年感 · 男声", desc: "年轻亲近，像黏人的年下男友" },
+  Qiao: { style: "俏皮", gender: "女声", title: "俏皮 · 女声", desc: "甜妹外表，个性直率有反差" },
+  longanyang: { style: "阳光", gender: "男声", title: "阳光 · 男声", desc: "开朗自然，适合日常陪伴" },
+  longanhuan: { style: "元气", gender: "女声", title: "元气 · 女声", desc: "欢快有感染力，适合活泼互动" },
+  longyingxiao_v3: { style: "甜美", gender: "女声", title: "甜美 · 女声", desc: "甜而不腻，亲和自然" },
+  longyingxun_v3: { style: "清新", gender: "男声", title: "清新 · 男声", desc: "年轻自然，像耐心的同龄人" },
+  longyingtao_v3: { style: "温柔", gender: "女声", title: "温柔 · 女声", desc: "沉稳柔和，适合安静倾诉" },
+  longanli_v3: { style: "清脆", gender: "女声", title: "清脆 · 女声", desc: "明亮沉稳，表达干净利落" },
+  longanwen_v3: { style: "知性", gender: "女声", title: "知性 · 女声", desc: "优雅从容，表达清晰" },
+  longanlang_v3: { style: "清爽", gender: "男声", title: "清爽 · 男声", desc: "干净年轻，适合轻松聊天" },
+  longanzhi_v3: { style: "成熟", gender: "男声", title: "成熟磁性 · 男声", desc: "稳重可靠，语气有分寸" },
+  longanqin_v3: { style: "亲和", gender: "女声", title: "亲和 · 女声", desc: "活泼友善，容易拉近距离" },
+  longhua_v3: { style: "甜美", gender: "女声", title: "甜美活力 · 女声", desc: "明快甜美，情绪饱满" },
+  longwan_v3: { style: "轻柔", gender: "女声", title: "轻柔 · 女声", desc: "细腻轻声，适合私密聊天" },
+  longanya_v3: { style: "优雅", gender: "女声", title: "优雅 · 女声", desc: "成熟优雅，语气温柔" },
+  longanyun_v3: { style: "温暖", gender: "男声", title: "温暖 · 男声", desc: "居家暖男，语气耐心" },
+};
+
+function chatLiveVoiceDisplayMeta(voice = {}, scope = "realtime") {
+  const voiceType = String(voice.voiceType || voice.voice_type || "");
+  const explicit = CHAT_LIVE_VOICE_DISPLAY[voiceType];
+  if (explicit) return explicit;
+  const desc = String(voice.desc || voice.description || "").trim();
+  const style = /童|儿童|男童|女童/u.test(desc)
+    ? "童声"
+    : (/甜/u.test(desc) ? "甜美"
+      : /温柔|温和/u.test(desc) ? "温柔"
+        : /元气|活力|活泼/u.test(desc) ? "元气"
+          : /知性|优雅/u.test(desc) ? "知性"
+            : /成熟|沉稳/u.test(desc) ? "成熟"
+              : /清爽|清亮/u.test(desc) ? "清爽"
+                : /低沉|磁性/u.test(desc) ? "低沉磁性"
+                  : scope === "component" ? "自然" : "特色");
+  const gender = /女/u.test(desc) ? "女声" : /男/u.test(desc) ? "男声" : "";
+  return {
+    style,
+    gender,
+    title: [style, gender].filter(Boolean).join(" · "),
+    desc: desc.replace(/[，,。].*$/u, "").slice(0, 30) || "自然真实的声音",
+  };
+}
+
+async function readChatLiveVoiceCatalog(scope = "realtime") {
+  const live = chatLiveConfigValue(await readAppConfig());
+  const catalogScope = scope === "component" ? "component" : "realtime";
+  const file = catalogScope === "component"
+    ? path.join(ROOT, "assets", "chat-live", "voices-component.json")
+    : CHAT_LIVE_VOICES_FILE;
+  const raw = await fs.readFile(file, "utf8");
+  const parsed = JSON.parse(raw);
+  const list = Array.isArray(parsed) ? parsed : [];
+  const region = live.region === "cn" ? "cn" : "overseas";
+  const blocked = region === "overseas" ? "doubao_cn" : "doubao_overseas";
+  const voices = list.filter((voice) => {
+    const provider = String(voice?.provider || "");
+    if (!voice?.voiceType || provider === "offline" || provider === blocked) return false;
+    return catalogScope === "component"
+      ? provider === "dashscope_cosyvoice"
+      : provider === "qwen_omni" || provider === "doubao_cn" || provider === "doubao_overseas";
+  }).map((voice) => ({
+    ...voice,
+    ...chatLiveVoiceDisplayMeta(voice, catalogScope),
+    preview: true,
+  }));
+  return { region, scope: catalogScope, voices };
+}
+
+const chatLiveVoicePreviewCache = new Map();
+const CHAT_LIVE_VOICE_PREVIEW_TTL_MS = 30 * 60 * 1000;
+const CHAT_LIVE_VOICE_PREVIEW_LIMIT = 32;
+
+function cachedChatLiveVoicePreview(key = "") {
+  const hit = chatLiveVoicePreviewCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt < Date.now()) {
+    chatLiveVoicePreviewCache.delete(key);
+    return null;
+  }
+  return hit;
+}
+
+function cacheChatLiveVoicePreview(key = "", audio = null) {
+  if (!key || !audio?.buffer?.length) return;
+  chatLiveVoicePreviewCache.set(key, { ...audio, expiresAt: Date.now() + CHAT_LIVE_VOICE_PREVIEW_TTL_MS });
+  while (chatLiveVoicePreviewCache.size > CHAT_LIVE_VOICE_PREVIEW_LIMIT) {
+    chatLiveVoicePreviewCache.delete(chatLiveVoicePreviewCache.keys().next().value);
+  }
+}
+
+async function realtimeChatLiveVoicePreviewWav(voiceType = "") {
+  const upstream = await viduLiveRequest("/ent/v2/audio-tts", {
+    method: "POST",
+    timeoutMs: 45000,
+    body: {
+      text: "你好呀，今天想和我聊点什么？",
+      voice_setting_voice_id: voiceType,
+      voice_setting_speed: 1,
+      voice_setting_volume: 0,
+      voice_setting_pitch: 0,
+    },
+  });
+  const fileUrl = String(upstream?.file_url || upstream?.data?.file_url || "").trim();
+  if (!fileUrl) throw new Error("上游没有返回试听音频。请稍后再试。");
+  const response = await fetch(fileUrl, { signal: AbortSignal.timeout(30000) });
+  if (!response.ok) throw new Error("试听音频下载失败，请稍后再试。");
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) throw new Error("试听音频为空，请稍后再试。");
+  const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim();
+  const riff = buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WAVE";
+  const id3 = buffer.length >= 3 && buffer.toString("ascii", 0, 3) === "ID3";
+  const mpeg = buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0;
+  const ftyp = buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp";
+  const ogg = buffer.length >= 4 && buffer.toString("ascii", 0, 4) === "OggS";
+  if (!riff && !id3 && !mpeg && !ftyp && !ogg) throw new Error("上游返回的内容不是可播放的音频。");
+  const mime = /^audio\//i.test(contentType)
+    ? contentType
+    : riff ? "audio/wav" : ogg ? "audio/ogg" : ftyp ? "audio/mp4" : "audio/mpeg";
+  return { buffer, mime };
+}
+
+async function handleCreatorChatLiveVoicePreview(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const scope = String(body.scope || "realtime") === "component" ? "component" : "realtime";
+  const voiceType = String(body.voiceType || body.voice_type || "").trim();
+  if (!voiceType) return sendJson(res, 422, { ok: false, code: "VOICE_REQUIRED", message: "请选择一个声音后再试听。" });
+  let catalog;
+  try {
+    catalog = await readChatLiveVoiceCatalog(scope);
+  } catch (error) {
+    return sendJson(res, 503, { ok: false, code: "VOICE_CATALOG_UNAVAILABLE", message: "声音清单暂时不可用。" });
+  }
+  const voice = catalog.voices.find((item) => String(item.voiceType || "") === voiceType);
+  if (!voice) return sendJson(res, 422, { ok: false, code: "VOICE_NOT_AVAILABLE", message: "这个声音当前不可用，请重新选择。" });
+  const cacheKey = `${catalog.region}:${scope}:${voiceType}`;
+  let audio = cachedChatLiveVoicePreview(cacheKey);
+  if (!audio) {
+    try {
+      audio = scope === "component"
+        ? { buffer: await chatLiveComponent.__test.componentVoicePreviewWav("你好呀，今天想和我聊点什么？", voiceType), mime: "audio/wav" }
+        : await realtimeChatLiveVoicePreviewWav(voiceType);
+      cacheChatLiveVoicePreview(cacheKey, audio);
+    } catch (error) {
+      console.warn("[chat-live-voice-preview] failed", JSON.stringify({ scope, voiceType, region: catalog.region, message: String(error?.message || error).slice(0, 180) }));
+      return sendJson(res, 503, { ok: false, code: "VOICE_PREVIEW_UNAVAILABLE", message: "这个声音暂时无法试听，请换一个或稍后再试。" });
+    }
+  }
+  res.writeHead(200, {
+    "content-type": audio.mime || "audio/wav",
+    "content-length": audio.buffer.length,
+    "cache-control": "private, max-age=1800",
+    "x-content-type-options": "nosniff",
+  });
+  res.end(audio.buffer);
+}
+
 async function handleCreatorGenerateChatLiveUndress(req, res, characterId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -8573,19 +8741,10 @@ async function handleAdminGenerateChatLiveUndress(req, res, characterId = "", op
 async function handleAdminChatLiveVoices(req, res, url = null, options = {}) {
   const auth = options.auth || await requireAdmin(req, res);
   if (!auth) return;
-  const live = chatLiveConfigValue(await readAppConfig());
   const scope = String(url?.searchParams?.get("scope") || "realtime");
-  const file = scope === "component"
-    ? path.join(ROOT, "assets", "chat-live", "voices-component.json")
-    : CHAT_LIVE_VOICES_FILE;
   try {
-    const raw = await fs.readFile(file, "utf8");
-    const voices = JSON.parse(raw);
-    const list = Array.isArray(voices) ? voices : [];
-    const region = live.region === "cn" ? "cn" : "overseas";
-    const blocked = region === "overseas" ? "doubao_cn" : "doubao_overseas";
-    const filtered = scope === "component" ? list : list.filter((voice) => String(voice?.provider || "") !== blocked);
-    return sendJson(res, 200, { ok: true, voices: filtered, viduRegion: region });
+    const catalog = await readChatLiveVoiceCatalog(scope);
+    return sendJson(res, 200, { ok: true, voices: catalog.voices, viduRegion: catalog.region, scope: catalog.scope });
   } catch (error) {
     return sendJson(res, 200, { ok: true, voices: [], message: "音色清单尚未生成。" });
   }
@@ -51556,6 +51715,9 @@ async function handleRequest(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/api/chat-live/creator/voices") {
       return await handleCreatorChatLiveVoices(req, res, url);
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat-live/creator/voices/preview") {
+      return await handleCreatorChatLiveVoicePreview(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/chat-live/characters") {

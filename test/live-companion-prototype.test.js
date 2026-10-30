@@ -61,6 +61,34 @@ test("live text chat keeps composing while a reply is pending", () => {
   assert.doesNotMatch(live, /const sendBtn = textForm\.querySelector\("button\[type=submit\]"\); sendBtn\.disabled = true/);
 });
 
+test("creator voice choices use understandable styles and real previews", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(live, /voice\.title \|\| \[voice\.style, voice\.gender\]/);
+  assert.doesNotMatch(live, /data-create-\$\{key\}[^>]*>▷ \$\{esc\(name\)\}/);
+  assert.match(live, /create-voice-card/);
+  assert.match(live, /data-voice-preview/);
+  assert.match(live, /正在理解图片/);
+  assert.match(live, /"生成中…"/);
+  assert.match(live, /"■ 停止"/);
+  assert.match(live, /voicePreviewRequestId/);
+  assert.match(live, /state\.voicePreview\?\.requestId !== requestId/);
+  assert.match(live, /function visibleComponentVoiceOptions\(voices = \[\]\)/);
+  assert.match(live, /!\/童\|粤语\|闽南\|陕北\|英语\|印尼\|日语\|韩语\|泰语\|越南\|方言\/u\.test\(desc\)/);
+  assert.match(live, /const visibleComponentVoices = visibleComponentVoiceOptions\(state\.creatorVoices\.component\)/);
+  assert.match(live, /\/api\/chat-live\/creator\/voices\/preview/);
+  assert.match(server, /url\.pathname === "\/api\/chat-live\/creator\/voices\/preview"/);
+  assert.match(server, /async function handleCreatorChatLiveVoicePreview[\s\S]*?requireUser\(req, res\)/);
+  assert.match(server, /VOICE_NOT_AVAILABLE/);
+  assert.match(server, /VOICE_PREVIEW_UNAVAILABLE/);
+  assert.match(server, /上游返回的内容不是可播放的音频/);
+  assert.match(server, /longyingxun_v3: \{ style: "清新"/);
+  assert.match(server, /longanli_v3: \{ style: "清脆"/);
+  assert.match(server, /voice_setting_voice_id: voiceType/);
+  assert.match(server, /componentVoicePreviewWav\("你好呀，今天想和我聊点什么？", voiceType\)/);
+  assert.match(css, /\.create-options\.voice \.create-voice-card/);
+  assert.match(css, /\.create-voice-preview\.playing/);
+});
+
 test("live recommendation cards keep one fixed frame", () => {
   assert.match(css, /\.person-card\{height:392px;display:flex;flex-direction:column\}/);
   assert.match(css, /\.person-image\{display:block;width:100%;height:330px;flex:0 0 330px\}/);
@@ -91,8 +119,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103005/);
-  assert.match(html, /live\.js\?v=2026103005/);
+  assert.match(html, /live\.css\?v=2026103006/);
+  assert.match(html, /live\.js\?v=2026103006/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
 });
 

@@ -469,8 +469,8 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   const shareSheetBody = live.match(/function openShareSheet\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
   assert.ok(shareSheetBody);
   assert.doesNotMatch(shareSheetBody, /total|cells|locks/);
-  assert.match(liveHtml, /live\.js\?v=2026103005/);
-  assert.match(liveHtml, /live\.css\?v=2026103005/);
+  assert.match(liveHtml, /live\.js\?v=2026103006/);
+  assert.match(liveHtml, /live\.css\?v=2026103006/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
   assert.match(adminHtml, /admin\.js\?v=20261030-auto-profile-1/);
   assert.match(admin, /async function renderCreatorData/);
