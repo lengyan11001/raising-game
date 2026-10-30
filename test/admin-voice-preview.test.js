@@ -13,8 +13,9 @@ const html = fs.readFileSync(path.join(root, "admin.html"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 
 const previewRoot = path.join(root, "assets", "admin", "voice-preview");
-const previewFiles = [
-  "joanna-moan-breath-c.wav",
+const currentPreviewFiles = ["joanna-user-rule-e.wav", "joanna-user-rule-f.wav"];
+const referencePreviewFiles = ["joanna-moan-breath-c.wav"];
+const historicalPreviewFiles = [
   "joanna-intimate-baseline-a.wav",
   "joanna-intimate-waitfix-a.wav",
   "joanna-intimate-waitfix-c.wav",
@@ -24,9 +25,16 @@ const previewFiles = [
   "joanna-intimate-wait-nohu-420.wav",
   "joanna-intimate-wait-nohu-520.wav",
   "joanna-intimate-wait-nohu-620.wav",
-  "joanna-user-rule-e.wav",
-  "joanna-user-rule-f.wav",
 ];
+
+function assertWav(fileName, minimumBytes) {
+  const file = path.join(previewRoot, fileName);
+  const stat = fs.statSync(file);
+  assert.ok(stat.size > minimumBytes, `${fileName} is a valid preview sample`);
+  const header = fs.readFileSync(file).subarray(0, 12);
+  assert.equal(header.subarray(0, 4).toString("ascii"), "RIFF");
+  assert.equal(header.subarray(8, 12).toString("ascii"), "WAVE");
+}
 
 test("admin has a top-level voice preview route and navigation entry", () => {
   assert.match(html, /href="#\/voice-preview" data-route="voice-preview"/);
@@ -35,54 +43,45 @@ test("admin has a top-level voice preview route and navigation entry", () => {
   assert.match(admin, /function renderVoicePreview\(\)/);
 });
 
-test("voice preview renders the reviewed Joanna samples and final candidate with seeking", () => {
+test("voice preview only lists the current E/F audition candidates", () => {
   assert.match(admin, /const VOICE_PREVIEW_ITEMS = \[/);
-  for (const fileName of previewFiles.filter((name) => name.includes("baseline") || name.includes("waitfix") || name.includes("final-d"))) {
-    assert.match(admin, new RegExp(`/assets/admin/voice-preview/${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=20261030-voice-preview-2`));
-  }
-  for (const fileName of previewFiles.filter((name) => name.includes("wait-nohu"))) {
-    assert.match(admin, new RegExp(`/assets/admin/voice-preview/${fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=20261030-voice-preview-6`));
-  }
-  assert.match(admin, /joanna-moan-breath-c\.wav\?v=20261030-voice-preview-5/);
-  assert.match(admin, /joanna-intimate-final-e\.wav\?v=20261030-voice-preview-3/);
-  assert.match(admin, /joanna-intimate-final-h\.wav\?v=20261030-voice-preview-4/);
-  assert.match(admin, /joanna-user-rule-e\.wav\?v=20261030-voice-preview-7/);
-  assert.match(admin, /joanna-user-rule-f\.wav\?v=20261030-voice-preview-7/);
-  assert.match(admin, /本轮 E · 自然对白 \+ 长气音/);
-  assert.match(admin, /本轮 F · 自然对白 \+ 长气音/);
-  assert.match(admin, /item\.id\.startsWith\("user-rule-"\)/);
-  assert.match(admin, /data-voice-seek="5\.0"/);
-  assert.match(admin, /data-voice-seek="8\.0"/);
-  assert.match(admin, /修正 H（已否决）/);
-  assert.match(admin, /已否决 \/ 仅对照/);
-  assert.match(admin, /item\.id\.startsWith\("final-"\).*16\.4/);
-  assert.match(admin, /data-voice-seek="28\.0"/);
-  assert.match(admin, /data-voice-seek="37\.6"/);
+  assert.match(admin, /id: "user-rule-e"/);
+  assert.match(admin, /id: "user-rule-f"/);
+  assert.match(admin, /joanna-user-rule-e\.wav\?v=20261030-voice-preview-10/);
+  assert.match(admin, /joanna-user-rule-f\.wav\?v=20261030-voice-preview-10/);
+  assert.match(admin, /duration: "9\.4 秒"/);
+  assert.match(admin, /duration: "9\.8 秒"/);
+  assert.match(admin, /当前只保留本轮 E \/ F 两条候选，历史音频已从后台试听页移除/);
   assert.match(admin, /data-voice-seek="0"/);
-  assert.match(admin, /data-voice-seek="0\.35"/);
-  assert.match(admin, /data-voice-seek="31\.5"/);
-  assert.match(admin, /data-voice-seek="28\.5"/);
-  assert.match(admin, /无呼接桥 520ms/);
-  assert.match(admin, /joanna-intimate-final-d\.wav\?v=20261030-voice-preview-2/);
+  assert.match(admin, /data-voice-seek="1\.1"/);
+  assert.match(admin, /data-voice-seek="5\.6"/);
   assert.match(admin, /audio\.currentTime = Math\.max\(0, seekTo\)/);
   assert.match(admin, /data-voice-preview-id/);
+
+  for (const fileName of historicalPreviewFiles) {
+    assert.doesNotMatch(admin, new RegExp(fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${fileName} must not be rendered in admin`);
+  }
+  assert.doesNotMatch(admin, /joanna-intimate-/);
+  assert.doesNotMatch(admin, /joanna-moan-breath-c\.wav/);
+  assert.doesNotMatch(admin, /无呼接桥|修正 H|已否决|原始气音 C/);
   assert.match(css, /\.adm-voice-preview-card audio\s*\{[\s\S]*?width:\s*100%/);
 });
 
-test("voice preview WAV files exist and are valid RIFF/WAVE", () => {
-  for (const fileName of previewFiles) {
-    const file = path.join(previewRoot, fileName);
-    const stat = fs.statSync(file);
-    const minimumBytes = fileName.includes("user-rule-") ? 400_000 : fileName.includes("moan-breath-c") ? 500_000 : 1_000_000;
-    assert.ok(stat.size > minimumBytes, `${fileName} is a valid preview sample`);
-    const header = fs.readFileSync(file).subarray(0, 12);
-    assert.equal(header.subarray(0, 4).toString("ascii"), "RIFF");
-    assert.equal(header.subarray(8, 12).toString("ascii"), "WAVE");
-    if (fileName === "moan-breath-c.wav") {
-      const digest = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
-      assert.equal(digest, "a6ea5970aa1e0ebf3e1ffa4dda52d58bec87daec95e1ee78004fffd10888d26e", "approved Joanna breath reference must remain byte-identical");
-    }
+test("current audition WAV files and the protected breath reference are valid", () => {
+  for (const fileName of currentPreviewFiles) assertWav(fileName, 250_000);
+  assertWav("joanna-moan-breath-c.wav", 500_000);
+  const digest = crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "joanna-moan-breath-c.wav"))).digest("hex");
+  assert.equal(digest, "a6ea5970aa1e0ebf3e1ffa4dda52d58bec87daec95e1ee78004fffd10888d26e", "approved Joanna breath reference must remain byte-identical");
+});
+
+test("historical audition files are not part of the current preview set", () => {
+  for (const fileName of historicalPreviewFiles) {
+    assert.equal(fs.existsSync(path.join(previewRoot, fileName)), false, `${fileName} should be removed from the backend audition folder`);
   }
+  assert.deepEqual(
+    fs.readdirSync(previewRoot).filter((fileName) => fileName.endsWith(".wav")).sort(),
+    [...currentPreviewFiles, ...referencePreviewFiles].sort(),
+  );
 });
 
 test("voice preview assets are served as seekable audio", () => {

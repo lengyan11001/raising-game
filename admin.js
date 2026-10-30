@@ -34,99 +34,19 @@ function pricingMultiplierText(value) {
 const VOICE_PREVIEW_ITEMS = [
   {
     id: "user-rule-e",
-    title: "本轮 E · 自然对白 + 长气音",
-    badge: "本轮 A/B",
-    description: "对白不额外加速，只比气音略紧凑；前后气音约 1.1 秒，以 23 秒处的状态为感觉参考，保持乔安瑜音色，没有清楚的哈/呼/hu。",
-    duration: "9.6 秒",
-    src: "/assets/admin/voice-preview/joanna-user-rule-e.wav?v=20261030-voice-preview-7",
+    title: "本轮 E · 对白 + 23 秒气音节奏",
+    badge: "当前候选 E",
+    description: "对白正常略快；前后气音直接取自长场景 23 秒附近，不拉伸。重点听气音是否有连续的起伏，而不是短促念字。",
+    duration: "9.4 秒",
+    src: "/assets/admin/voice-preview/joanna-user-rule-e.wav?v=20261030-voice-preview-10",
   },
   {
     id: "user-rule-f",
-    title: "本轮 F · 自然对白 + 长气音",
-    badge: "本轮 A/B",
-    description: "气音部分与 E 相同，只换自然对白的气口；重点判断对白是否只是略快于气音，而不是被加速。",
-    duration: "9.5 秒",
-    src: "/assets/admin/voice-preview/joanna-user-rule-f.wav?v=20261030-voice-preview-7",
-  },
-  {
-    id: "moan-breath-c",
-    title: "原始气音 C（当时认可）",
-    badge: "原始 0.95x",
-    description: "独立叫声/换气素材，rate=0.95 原速，保留全部 11.3 秒；不拼接、不裁尾、不重新对白化。先听这条确认基准。",
-    duration: "11.3 秒",
-    src: "/assets/admin/voice-preview/joanna-moan-breath-c.wav?v=20261030-voice-preview-5",
-  },
-  {
-    id: "wait-nohu-420",
-    title: "无呼接桥 420ms",
-    badge: "候选 · 短停顿",
-    description: "只移除 29 秒处多出的「呼」，保留第一个「等」和后面的「等等」原声；420ms 停顿偏紧。",
-    duration: "42.2 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-wait-nohu-420.wav?v=20261030-voice-preview-6",
-  },
-  {
-    id: "wait-nohu-520",
-    title: "无呼接桥 520ms",
-    badge: "推荐试听",
-    description: "只移除 29 秒处多出的「呼」，520ms 停顿更自然；前后两处「等」均保留 C 的原音与气口。",
-    duration: "42.3 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-wait-nohu-520.wav?v=20261030-voice-preview-6",
-  },
-  {
-    id: "wait-nohu-620",
-    title: "无呼接桥 620ms",
-    badge: "候选 · 长停顿",
-    description: "只移除 29 秒处多出的「呼」，620ms 停顿更慢；用于确认是否更贴近当时的呼吸节奏。",
-    duration: "42.4 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-wait-nohu-620.wav?v=20261030-voice-preview-6",
-  },
-  {
-    id: "baseline-a",
-    title: "基准 A",
-    badge: "修复前对照",
-    description: "保留 16–17 秒的抖动和原始句边界，仅用于对照，不是推荐版本。",
-    duration: "41.6 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-baseline-a.wav?v=20261030-voice-preview-2",
-  },
-  {
-    id: "waitfix-a",
-    title: "修正 A",
-    badge: "推荐主听",
-    description: "缩短「等」与「等等」之间的停顿，句间连接更顺；保留前后原声与稳定喘息。",
-    duration: "42.9 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-a.wav?v=20261030-voice-preview-2",
-  },
-  {
-    id: "waitfix-c",
-    title: "修正 C",
-    badge: "上一段优选",
-    description: "保留 C 的整体气口与氛围，作为本轮最终版的底稿；旧问题仍在，仅用于对比。",
-    duration: "43.1 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-waitfix-c.wav?v=20261030-voice-preview-2",
-  },
-  {
-    id: "final-d",
-    title: "修正 D（旧候选）",
-    badge: "保留对照",
-    description: "已修好 17 秒爆音、28 秒接缝和 29 秒 hu 音，但 38 秒后仍有长段生成造成的音色漂移；保留用于 A/B。",
-    duration: "44.2 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-final-d.wav?v=20261030-voice-preview-2",
-  },
-  {
-    id: "final-e",
-    title: "修正 E（旧尾段截短）",
-    badge: "对照",
-    description: "固定音色短尾段，但结尾只保留到 8.465 秒，后半气音被提前收住；保留用于对照。",
-    duration: "41.0 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-final-e.wav?v=20261030-voice-preview-3",
-  },
-  {
-    id: "final-h",
-    title: "修正 H（已否决）",
-    badge: "已否决 / 仅对照",
-    description: "这版引入了与原声不一致的变化，不作为候选；仅保留用于对照。请以顶部“原始气音 C”为准。",
-    duration: "43.4 秒",
-    src: "/assets/admin/voice-preview/joanna-intimate-final-h.wav?v=20261030-voice-preview-4",
+    title: "本轮 F · 对白 + 23 秒气音节奏",
+    badge: "当前候选 F",
+    description: "换一组对白气口，气音同样取自 23 秒附近的原声；重点比较对白是否自然、气音是否比上一版更连贯。",
+    duration: "9.8 秒",
+    src: "/assets/admin/voice-preview/joanna-user-rule-f.wav?v=20261030-voice-preview-10",
   },
 ];
 
@@ -7038,20 +6958,19 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。先听顶部本轮 E / F，重点判断长气音是否有感觉、对白是否只比气音略紧凑；原始 C 与历史长场景保留作对照。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。当前只保留本轮 E / F 两条候选，历史音频已从后台试听页移除。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>本轮重点</h3>
-            <p class="adm-muted">E / F 只差对白气口，气音构造相同。两段都从开头气音进入，中间是自然对白，约 8 秒进入收尾气音；不要用旧长场景的 29 秒问题段判断本轮短候选。</p>
+            <p class="adm-muted">E / F 都以长场景 23 秒处的真实气音节奏为母版，气音不拉伸；中间是正常偏快的对白，后面用同场景原声气音收尾。建议先完整听一遍，再分别听开头和后半气音。</p>
           </div>
         </div>
       </div>
-      <div class="adm-grid adm-grid-3 adm-voice-preview-grid">
+      <div class="adm-grid adm-voice-preview-grid adm-voice-preview-grid-compact">
         ${VOICE_PREVIEW_ITEMS.map((item) => {
-          const isUserRule = item.id.startsWith("user-rule-");
           return `
           <article class="adm-card adm-voice-preview-card" data-voice-preview-id="${escapeHtml(item.id)}">
             <div class="adm-card-head">
@@ -7065,15 +6984,7 @@ function renderVoicePreview() {
               <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span>${escapeHtml(item.duration)}</span>
-                ${isUserRule
-                  ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>开场气音</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="5.0"><i data-lucide="message-circle"></i>5 秒对白</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="8.0"><i data-lucide="waves"></i>8 秒收尾</button>'
-                  : item.id === "moan-breath-c"
-                  ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button>'
-                  : `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${item.id.startsWith("wait-nohu-") ? "26.5" : item.id.startsWith("final-") ? "16.4" : "27.5"}"><i data-lucide="locate-fixed"></i>${item.id.startsWith("wait-nohu-") ? "跳到接缝前" : item.id.startsWith("final-") ? "跳到 17 秒" : "跳到问题句"}</button>`}
-                ${item.id.startsWith("final-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.0"><i data-lucide="scissors"></i>跳到接缝</button>' : ""}
-                ${item.id.startsWith("wait-nohu-") ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="28.5"><i data-lucide="scissors"></i>只听过等—等等</button>' : ""}
-                ${item.id === "final-e" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="37.6"><i data-lucide="search-check"></i>跳到 38 秒</button>' : ""}
-                ${item.id === "final-h" ? '<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0.35"><i data-lucide="play"></i>开场</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="31.5"><i data-lucide="waves"></i>尾段</button>' : ""}
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="1.1"><i data-lucide="message-circle"></i>跳到对白</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="5.6"><i data-lucide="waves"></i>后半气音</button>
               </div>
             </div>
           </article>
