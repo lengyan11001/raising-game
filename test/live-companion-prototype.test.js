@@ -197,8 +197,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103038/);
-  assert.match(html, /live\.js\?v=2026103038/);
+  assert.match(html, /live\.css\?v=2026103039/);
+  assert.match(html, /live\.js\?v=2026103039/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 
@@ -287,7 +287,14 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /data-action="checkin-task"/);
   assert.match(live, /data-action="checkin-task-go"/);
   assert.match(live, /data-checkin-task-key="\$\{esc\(task\.key\)\}"/);
-  assert.match(live, /\/api\/live\/checkin\/tasks\/\$\{encodeURIComponent\(taskKey\)\}/);
+  assert.match(live, /\/api\/live\/checkin\/tasks\/\$\{encodeURIComponent\(key\)\}/);
+  assert.match(live, /checkinClaimKey/);
+  assert.doesNotMatch(live, /state\.checkinLoading \? "领取中…"/);
+  assert.match(live, /const claiming = state\.checkinClaimKey === String\(task\.key \|\| ""\)/);
+  assert.match(live, /const waitingForCheckin = state\.checkinLoading && !state\.checkin/);
+  assert.match(live, /let checkinLoadPromise = null/);
+  assert.match(live, /let checkinRevision = 0/);
+  assert.match(live, /if \(checkinRevision === loadRevision\) state\.checkin = result\.checkin \|\| null/);
   assert.doesNotMatch(live, /7 天签到/);
   assert.doesNotMatch(live, /data-checkin-day/);
   assert.match(css, /\.checkin-summary\{/);
@@ -343,6 +350,11 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(css, /\.feedback-form/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
   const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
+  assert.match(db, /app_chat_messages_user_role_created_idx/);
+  assert.match(db, /app_chat_live_sessions_user_updated_idx/);
+  assert.match(db, /app_chat_live_characters_creator_created_idx/);
+  assert.match(db, /app_chat_live_room_members_user_seen_idx/);
+  assert.match(db, /AS text_completed[\s\S]*?AS video_completed[\s\S]*?AS live_completed[\s\S]*?AS create_completed/);
   const admin = fs.readFileSync(path.join(root, "admin.js"), "utf8");
   assert.doesNotMatch(db, /V币|爱心币/);
   assert.doesNotMatch(admin, /V币|爱心币/);

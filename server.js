@@ -165,7 +165,6 @@ const {
   markAllLiveNotificationsReadInDb,
   getLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
-  getLiveCheckinSummaryInDb,
   getLiveDailyTaskClaimsInDb,
   getLiveDailyTaskCompletionInDb,
   createLiveDailyTaskClaimWithCreditInDb,
@@ -40924,10 +40923,10 @@ async function liveDailyTaskView(userId, taskDate) {
   const [claims, completion, checkinSummary] = await Promise.all([
     getLiveDailyTaskClaimsInDb(userId, taskDate),
     getLiveDailyTaskCompletionInDb({ userId, ...liveDailyTaskDayRange(taskDate) }),
-    getLiveCheckinSummaryInDb(userId, taskDate),
+    getLiveCheckinInDb(userId, taskDate),
   ]);
   const claimByKey = new Map((claims || []).map((item) => [String(item.taskKey || ""), item]));
-  const legacyCheckin = checkinSummary?.checkedIn === true && !claimByKey.has("checkin") ? checkinSummary.today : null;
+  const legacyCheckin = checkinSummary && !claimByKey.has("checkin") ? checkinSummary : null;
   const tasks = LIVE_DAILY_TASKS.map((task) => {
     const claim = claimByKey.get(task.key) || (task.key === "checkin" ? legacyCheckin : null);
     const claimed = Boolean(claim);
@@ -41013,14 +41012,13 @@ async function handleClaimLiveDailyTask(req, res, taskKey = "") {
     ledgerMeta: { userId: auth.user.id, username: auth.user.username || "", taskDate, taskKey: task.key, taskTitle: task.title },
     payload: { taskTitle: task.title, reward: task.reward },
   });
-  const checkin = await liveDailyTaskView(auth.user.id, taskDate);
   const user = result?.user || auth.user;
   return sendJson(res, 200, {
     ok: true,
     alreadyClaimed: result?.inserted === false,
     awardedCredits: result?.inserted ? task.reward : 0,
     taskKey: task.key,
-    checkin,
+    claim: result?.claim || null,
     user: userView(user),
   });
 }

@@ -530,6 +530,7 @@ async function ensureSchemaInner() {
     );
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_chat_live_characters (
       id TEXT PRIMARY KEY,
@@ -553,6 +554,11 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
   await query(`
+    CREATE INDEX IF NOT EXISTS app_chat_live_characters_creator_created_idx
+      ON app_chat_live_characters ((payload->>'createdByUserId'), created_at)
+      WHERE deleted_at IS NULL;
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_chat_live_sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -575,6 +581,7 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_updated_idx ON app_chat_live_sessions (user_id, updated_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
   await query(`
@@ -672,6 +679,7 @@ async function ensureSchemaInner() {
     );
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_user_seen_idx ON app_chat_live_room_members (user_id, joined_at, last_seen_at);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_chat_live_room_messages (
       id TEXT PRIMARY KEY,
@@ -4004,17 +4012,14 @@ async function getLiveDailyTaskCompletionInDb({ userId = "", startAt = "", endAt
   const cleanUserId = String(userId || "").trim();
   if (!cleanUserId || !startAt || !endAt) return {};
   await ensureSchema();
-  const params = [cleanUserId, startAt, endAt];
-  const [text, video, live, create] = await Promise.all([
-    query(`
-      SELECT EXISTS(
+  const { rows } = await query(`
+    SELECT
+      EXISTS(
         SELECT 1 FROM app_chat_messages
         WHERE user_id = $1 AND role = 'user'
           AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
-      ) AS completed
-    `, params),
-    query(`
-      SELECT EXISTS(
+      ) AS text_completed,
+      EXISTS(
         SELECT 1 FROM app_chat_live_sessions
         WHERE user_id = $1
           AND updated_at >= $2::timestamptz AND updated_at < $3::timestamptz
@@ -4024,10 +4029,8 @@ async function getLiveDailyTaskCompletionInDb({ userId = "", startAt = "", endAt
             COALESCE(NULLIF(payload->>'billedSeconds', '')::numeric, 0),
             COALESCE(NULLIF(payload->>'upstreamBilledSeconds', '')::numeric, 0)
           ) >= 60
-      ) AS completed
-    `, params),
-    query(`
-      SELECT (
+      ) AS video_completed,
+      (
         EXISTS(
           SELECT 1 FROM app_chat_live_sessions
           WHERE user_id = $1
@@ -4045,22 +4048,20 @@ async function getLiveDailyTaskCompletionInDb({ userId = "", startAt = "", endAt
             AND last_seen_at >= $2::timestamptz AND last_seen_at < $3::timestamptz
             AND last_seen_at - joined_at >= INTERVAL '60 seconds'
         )
-      ) AS completed
-    `, params),
-    query(`
-      SELECT EXISTS(
+      ) AS live_completed,
+      EXISTS(
         SELECT 1 FROM app_chat_live_characters
         WHERE COALESCE(payload->>'createdByUserId', '') = $1
           AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
           AND deleted_at IS NULL
-      ) AS completed
-    `, params),
-  ]);
+      ) AS create_completed
+  `, [cleanUserId, startAt, endAt]);
+  const row = rows[0] || {};
   return {
-    text: text.rows[0]?.completed === true,
-    video: video.rows[0]?.completed === true,
-    live: live.rows[0]?.completed === true,
-    create: create.rows[0]?.completed === true,
+    text: row.text_completed === true,
+    video: row.video_completed === true,
+    live: row.live_completed === true,
+    create: row.create_completed === true,
   };
 }
 async function createLiveDailyTaskClaimWithCreditInDb({
@@ -4097,16 +4098,22 @@ async function createLiveDailyTaskClaimWithCreditInDb({
       await client.query("COMMIT");
       return { claim: null, user: null, inserted: false };
     }
-    const userRows = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
-    const row = userRows.rows[0];
+    const now = new Date().toISOString();
+    const updated = await client.query(`
+      UPDATE app_users
+      SET credits = credits + $2::numeric,
+          payload = payload || jsonb_build_object('credits', credits + $2::numeric, 'updatedAt', $3::text),
+          updated_at = $3::timestamptz
+      WHERE id = $1
+      RETURNING *
+    `, [cleanUserId, amount, now]);
+    const row = updated.rows[0];
     if (!row) {
       const error = new Error("User not found for daily task claim.");
       error.statusCode = 404;
       throw error;
     }
-    const current = creditNumber(row.credits || 0);
-    const nextCredits = creditNumber(current + amount);
-    const now = new Date().toISOString();
+    const nextCredits = creditNumber(row.credits || 0);
     const meta = { ...(ledgerMeta || {}), taskId: `live-daily-task:${cleanUserId}:${cleanTaskDate}:${cleanTaskKey}`, taskKey: cleanTaskKey, taskDate: cleanTaskDate, credits: amount };
     const ledger = {
       id: cleanLedgerId,
@@ -4118,18 +4125,10 @@ async function createLiveDailyTaskClaimWithCreditInDb({
       createdAt: now,
     };
     await client.query(`
-      UPDATE app_users
-      SET credits = $2::numeric,
-          payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
-          updated_at = $3::timestamptz
-      WHERE id = $1
-    `, [cleanUserId, nextCredits, now]);
-    await client.query(`
       INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
       VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
       ON CONFLICT (id) DO NOTHING
     `, [cleanLedgerId, cleanUserId, amount, nextCredits, ledger.type, JSON.stringify(meta), JSON.stringify(ledger), now]);
-    const updated = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
     await client.query("COMMIT");
     return {
       claim: {

@@ -475,8 +475,8 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.doesNotMatch(live, /data-action="poster-share"/);
   assert.match(live, /async function copyShareLinkSilently\(\) \{[\s\S]*?navigator\.clipboard\.writeText\(link\)[\s\S]*?document\.execCommand\("copy"\)/);
   assert.match(live, /if \(a === "copy-poster-link"\) \{ await copyShareLinkSilently\(\); return; \}/);
-  assert.match(liveHtml, /live\.js\?v=2026103038/);
-  assert.match(liveHtml, /live\.css\?v=2026103038/);
+  assert.match(liveHtml, /live\.js\?v=2026103039/);
+  assert.match(liveHtml, /live\.css\?v=2026103039/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
   assert.match(adminHtml, /admin\.js\?v=20261030-voice-preview-10/);
   assert.match(admin, /async function renderCreatorData/);

@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -1321,33 +1321,43 @@
     const taskRows = tasks.map((task) => {
       const claimed = task.claimed === true;
       const claimable = !claimed && task.claimable === true && Number(task.reward || 0) > 0;
+      const claiming = state.checkinClaimKey === String(task.key || "");
+      const waitingForCheckin = state.checkinLoading && !state.checkin;
       const button = claimed
         ? `<button class="checkin-task-button claimed" type="button" disabled>已完成</button>`
         : claimable
-          ? `<button class="checkin-task-button" type="button" data-action="checkin-task" data-checkin-task-key="${esc(task.key)}" ${state.checkinLoading ? "disabled" : ""}>${state.checkinLoading ? "领取中…" : `领取 ${Number(task.reward || 0)} 积分`}</button>`
+          ? `<button class="checkin-task-button" type="button" data-action="checkin-task" data-checkin-task-key="${esc(task.key)}" ${claiming || waitingForCheckin ? "disabled" : ""}>${claiming ? "领取中…" : `领取 ${Number(task.reward || 0)} 积分`}</button>`
           : `<button class="checkin-task-button outline" type="button" data-action="checkin-task-go" data-checkin-task-key="${esc(task.key)}">${esc(task.action || "去完成")}</button>`;
       return `<div class="checkin-task-row${claimed ? " is-claimed" : ""}"><span class="checkin-task-icon">${checkinTaskIcon(task.key)}</span><div class="checkin-task-copy"><p><b>${esc(task.title || "")}</b><em>${esc(task.hint || "")}</em></p><small>${esc(task.description || "")}</small></div>${button}</div>`;
     }).join("");
     const dots = tasks.map((task, index) => `<i class="${task.claimed ? "done" : (index < claimedCount ? "done" : "")}" aria-hidden="true"></i>`).join("");
     subpage("每日领积分", `<main class="checkin-page-body"><section class="checkin-summary"><div class="checkin-summary-top"><div><span>今日已领</span><strong>${todayEarned}<small> 积分</small></strong></div><p>共 ${tasks.length} 项任务</p></div><div class="checkin-dots" aria-label="已完成 ${claimedCount} 项任务">${dots}</div></section><section class="checkin-task-list" aria-label="每日任务">${taskRows}<div class="checkin-rules"><div class="checkin-rules-head">${uiIcon("document")}<span>任务规则</span></div><p>1. 每天 24:00 重置，次日可重新领取。</p><p>2. 完成后即到账，同一任务当天只计一次。</p></div></section>${state.checkinError ? `<p class="checkin-error" role="alert">${esc(state.checkinError)}</p>` : ""}<p class="checkin-footnote">${uiIcon("lock")}任务奖励每日 24:00 重置，以实际到账为准</p></main>`, "home");
   }
+  let checkinLoadPromise = null;
+  let checkinRevision = 0;
   async function loadCheckin(force = false) {
     if (!token() || (state.checkin && !force)) return state.checkin;
+    if (checkinLoadPromise) return checkinLoadPromise;
     state.checkinLoading = true;
     state.checkinError = "";
+    const loadRevision = checkinRevision;
     if (state.page === "checkin") showCheckin();
-    try {
-      const result = await api("/api/live/checkin");
-      state.checkin = result.checkin || null;
-      if (result.user) state.user = result.user;
-      return state.checkin;
-    } catch (error) {
-      state.checkinError = error.message || "每日积分任务加载失败";
-      return null;
-    } finally {
-      state.checkinLoading = false;
-      if (state.page === "checkin") showCheckin();
-    }
+    checkinLoadPromise = (async () => {
+      try {
+        const result = await api("/api/live/checkin");
+        if (checkinRevision === loadRevision) state.checkin = result.checkin || null;
+        if (result.user) state.user = result.user;
+        return state.checkin;
+      } catch (error) {
+        state.checkinError = error.message || "每日积分任务加载失败";
+        return null;
+      } finally {
+        state.checkinLoading = false;
+        checkinLoadPromise = null;
+        if (state.page === "checkin") showCheckin();
+      }
+    })();
+    return checkinLoadPromise;
   }
   function openCheckinTask(taskKey) {
     const key = String(taskKey || "");
@@ -1370,20 +1380,34 @@
   }
   async function claimCheckinTask(taskKey = "checkin") {
     if (!token()) return askLogin();
-    if (state.checkinLoading) return;
-    state.checkinLoading = true;
+    const key = String(taskKey || "");
+    if (!key || state.checkinClaimKey) return;
+    state.checkinClaimKey = key;
     state.checkinError = "";
     showCheckin();
     try {
-      const result = await api(`/api/live/checkin/tasks/${encodeURIComponent(taskKey)}`, { method: "POST", body: "{}" });
-      state.checkin = result.checkin || state.checkin;
+      const result = await api(`/api/live/checkin/tasks/${encodeURIComponent(key)}`, { method: "POST", body: "{}" });
+      checkinRevision += 1;
       if (result.user) state.user = result.user;
+      if (result.checkin) {
+        state.checkin = result.checkin;
+      } else if (state.checkin?.tasks) {
+        const tasks = state.checkin.tasks.map((task) => task.key === key
+          ? { ...task, claimed: true, claimable: false, claimedAt: result.claim?.createdAt || new Date().toISOString() }
+          : task);
+        state.checkin = {
+          ...state.checkin,
+          tasks,
+          claimedTasks: tasks.filter((task) => task.claimed).length,
+          todayEarned: tasks.reduce((sum, task) => sum + (task.claimed ? Number(task.reward || 0) : 0), 0),
+        };
+      }
       const awarded = Number(result.awardedCredits || 0);
       referralToast(result.alreadyClaimed ? "今天这项奖励已经领取过了" : (awarded > 0 ? `领取成功，+${awarded} 积分` : "奖励已领取"));
     } catch (error) {
       state.checkinError = error.message || "领取失败，请稍后重试";
     } finally {
-      state.checkinLoading = false;
+      state.checkinClaimKey = "";
       if (state.page === "checkin") showCheckin();
     }
   }
@@ -2173,13 +2197,13 @@
         try { state.billing = (await api("/api/billing/summary")).billing || null; } catch {}
         const [notifications, checkin, income, feedback] = await Promise.allSettled([
           api("/api/live/notifications"),
-          api("/api/live/checkin"),
+          loadCheckin(),
           api("/api/live/creator-income?limit=50"),
           api("/api/support-messages?limit=30"),
         ]);
         if (notifications.status === "fulfilled") { state.notifications = notifications.value.notifications || []; state.notificationUnreadCount = Number(notifications.value.unreadCount || 0); }
         else state.notificationsError = notifications.reason?.message || "系统消息加载失败";
-        if (checkin.status === "fulfilled") { state.checkin = checkin.value.checkin || null; if (checkin.value.user) state.user = checkin.value.user; }
+        if (checkin.status === "fulfilled") { const value = checkin.value || null; state.checkin = value?.checkin || (value?.tasks ? value : state.checkin); if (value?.user) state.user = value.user; }
         else state.checkinError = checkin.reason?.message || "签到信息加载失败";
         if (income.status === "fulfilled") state.creatorIncome = income.value.income || null;
         else state.creatorIncomeError = income.reason?.message || "创作者收益加载失败";
