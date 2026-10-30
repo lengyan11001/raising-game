@@ -38,7 +38,8 @@ const VOICE_PREVIEW_ITEMS = [
     badge: "候选 A",
     description: "用当时 23 秒“啊……别看我”所在长场景的同一套提示词整段重生，没有剪接。重点听叫声、换气和快速独白是否连续自然。",
     duration: "41.5 秒",
-    src: "/assets/admin/voice-preview/joanna-user-rule-e.wav?v=20261030-voice-preview-11",
+    expectedDuration: 41.5,
+    src: "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "user-rule-f",
@@ -46,7 +47,8 @@ const VOICE_PREVIEW_ITEMS = [
     badge: "候选 B",
     description: "同样整段生成，只调整短句断点；重点比较后半段气息是否稳定、场景是否连贯。",
     duration: "46.8 秒",
-    src: "/assets/admin/voice-preview/joanna-user-rule-f.wav?v=20261030-voice-preview-11",
+    expectedDuration: 46.8,
+    src: "/assets/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
   },
 ];
 
@@ -6952,6 +6954,66 @@ async function renderPlatform(options = {}) {
 }
 
 /* ============ UNDRESS CONFIG ============ */
+function waitForVoicePreviewMetadata(audio) {
+  return new Promise((resolve, reject) => {
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA && Number.isFinite(audio.duration)) {
+      resolve(audio.duration);
+      return;
+    }
+    const timeout = window.setTimeout(() => finish(new Error("音频元数据加载超时")), 20000);
+    const onLoaded = () => finish(null, audio.duration);
+    const onError = () => finish(new Error("浏览器无法解码完整音频"));
+    function finish(error, duration = 0) {
+      window.clearTimeout(timeout);
+      audio.removeEventListener("loadedmetadata", onLoaded);
+      audio.removeEventListener("error", onError);
+      if (error) reject(error);
+      else resolve(duration);
+    }
+    audio.addEventListener("loadedmetadata", onLoaded, { once: true });
+    audio.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function loadVoicePreviewAudio(audio) {
+  const card = audio.closest("[data-voice-preview-id]");
+  const status = card?.querySelector("[data-voice-preview-status]");
+  const controls = card?.querySelectorAll("[data-voice-preview-control]") || [];
+  const source = audio.dataset.src || "";
+  const expectedDuration = Number(audio.dataset.expectedDuration || 0);
+  const minimumDuration = expectedDuration ? Math.max(30, expectedDuration - 4) : 30;
+  try {
+    if (!source) throw new Error("缺少音频地址");
+    if (status) status.textContent = `正在载入完整音频（约 ${expectedDuration.toFixed(1)} 秒）...`;
+    // Download the whole short audition file before playback. Browser range decoding
+    // of long WAV files was stopping the admin player after only a few seconds.
+    const response = await fetch(source);
+    if (!response.ok) throw new Error(`音频请求失败（HTTP ${response.status}）`);
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength < 100000) throw new Error(`音频下载不完整（${bytes.byteLength} 字节）`);
+    if (!audio.isConnected) return;
+    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: "audio/mp4" }));
+    audio.src = blobUrl;
+    audio.dataset.blobUrl = blobUrl;
+    audio.load();
+    const duration = await waitForVoicePreviewMetadata(audio);
+    if (!Number.isFinite(duration) || duration < minimumDuration) {
+      throw new Error(`播放器只识别到 ${Number.isFinite(duration) ? duration.toFixed(1) : "未知"} 秒，已阻止不完整播放`);
+    }
+    if (status) status.textContent = `完整音频已载入 · ${duration.toFixed(1)} 秒`;
+    controls.forEach((control) => { control.disabled = false; });
+  } catch (error) {
+    audio.removeAttribute("src");
+    audio.load();
+    if (audio.dataset.blobUrl) {
+      URL.revokeObjectURL(audio.dataset.blobUrl);
+      delete audio.dataset.blobUrl;
+    }
+    if (status) status.textContent = `音频加载失败：${error.message}`;
+    console.error("Voice preview load failed", { source, error });
+  }
+}
+
 function renderVoicePreview() {
   els.adminContent.innerHTML = `
     <section class="adm-page adm-voice-preview-page">
@@ -6981,10 +7043,10 @@ function renderVoicePreview() {
               <span class="adm-pill">${escapeHtml(item.badge)}</span>
             </div>
             <div class="adm-card-body">
-              <audio controls preload="metadata" src="${escapeHtml(item.src)}"></audio>
+              <audio controls preload="none" data-voice-preview-audio data-voice-preview-id="${escapeHtml(item.id)}" data-src="${escapeHtml(item.src)}" data-expected-duration="${escapeHtml(item.expectedDuration)}" aria-label="${escapeHtml(item.title)}"></audio>
               <div class="adm-voice-preview-meta">
-                <span>${escapeHtml(item.duration)}</span>
-                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0"><i data-lucide="play"></i>从头播放</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="23.0"><i data-lucide="message-circle"></i>跳到 23 秒</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="32.0"><i data-lucide="waves"></i>后半段</button>
+                <span data-voice-preview-status>等待载入完整音频 · ${escapeHtml(item.duration)}</span>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0" data-voice-preview-control disabled><i data-lucide="play"></i>从头播放</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="23.0" data-voice-preview-control disabled><i data-lucide="message-circle"></i>跳到 23 秒</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="32.0" data-voice-preview-control disabled><i data-lucide="waves"></i>后半段</button>
               </div>
             </div>
           </article>
@@ -6997,10 +7059,13 @@ function renderVoicePreview() {
       const card = button.closest("[data-voice-preview-id]");
       const audio = card?.querySelector("audio");
       const seekTo = Number(button.dataset.voiceSeek || 0);
-      if (!audio || !Number.isFinite(seekTo)) return;
-      audio.currentTime = Math.max(0, seekTo);
+      if (!audio || !Number.isFinite(seekTo) || !Number.isFinite(audio.duration)) return;
+      audio.currentTime = Math.min(audio.duration, Math.max(0, seekTo));
       audio.play().catch(() => {});
     });
+  });
+  els.adminContent.querySelectorAll("[data-voice-preview-audio]").forEach((audio) => {
+    loadVoicePreviewAudio(audio);
   });
   refreshIcons();
 }

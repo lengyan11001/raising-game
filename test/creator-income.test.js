@@ -478,7 +478,7 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.match(liveHtml, /live\.js\?v=2026103039/);
   assert.match(liveHtml, /live\.css\?v=2026103039/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
-  assert.match(adminHtml, /admin\.js\?v=20261030-voice-preview-11/);
+  assert.match(adminHtml, /admin\.js\?v=20261030-voice-preview-12/);
   assert.match(admin, /async function renderCreatorData/);
   assert.match(admin, /data-creator-withdraw-action="paid"/);
   assert.match(admin, /data-creator-withdraw-action="rejected"/);

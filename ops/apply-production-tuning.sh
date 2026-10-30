@@ -264,8 +264,11 @@ server {
     location ^~ /assets/admin/voice-preview/ {
         alias /opt/raising-game-demo/assets/admin/voice-preview/;
         access_log off;
-        types { audio/wav wav; }
-        default_type audio/wav;
+        types {
+            audio/wav wav;
+            audio/mp4 m4a;
+        }
+        default_type application/octet-stream;
         add_header Accept-Ranges bytes always;
         add_header Cache-Control "public, max-age=3600" always;
         add_header X-Content-Type-Options "nosniff" always;
