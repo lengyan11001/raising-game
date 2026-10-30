@@ -152,8 +152,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103010/);
-  assert.match(html, /live\.js\?v=2026103010/);
+  assert.match(html, /live\.css\?v=2026103011/);
+  assert.match(html, /live\.js\?v=2026103011/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-1/);
 });
 
@@ -248,11 +248,12 @@ test("live system messages, check-in, gift data, feedback, and billing rules are
   assert.match(live, /state\.page === "creator-income"\) showCreatorIncome\(\)/);
   assert.match(live, /api\("\/api\/live\/creator-income\?limit=50"\)/);
   assert.doesNotMatch(live, /\["feedback", "chat", "问题反馈"/);
+  assert.doesNotMatch(live, /\["rooms", "users", "我的陪伴房间"/);
   assert.match(live, /<nav class="profile-legal-links"[\s\S]*?data-action="feedback"[^>]*>问题反馈<\/a><\/nav>/);
   assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
   assert.match(live, /<section class="profile-menu" data-profile-menu>\$\{menu\}<\/section>/);
   const profileMenu = live.match(/const menu = \[([\s\S]*?)\]\.map/)?.[1] || "";
-  const menuOrder = ["创作者收益", "创作者中心", "钱包与消费记录", "陪伴等级", "我的陪伴房间", "邀请好友", "编辑资料与兴趣标签", "隐私与安全"];
+  const menuOrder = ["创作者收益", "创作者中心", "钱包与消费记录", "陪伴等级", "邀请好友", "编辑资料与兴趣标签", "隐私与安全"];
   const menuPositions = menuOrder.map((item) => profileMenu.indexOf(item));
   assert.ok(menuPositions.every((position) => position >= 0));
   assert.deepEqual(menuPositions, [...menuPositions].sort((a, b) => a - b));
