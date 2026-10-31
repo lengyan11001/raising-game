@@ -265,6 +265,8 @@ const {
   revokeApiSubtokenInDb,
   recordApiSubtokenUsageInDb,
   getGenerationRecordsFromDb,
+  getStalePreSubmitGenerationRecordsFromDb,
+  getGenerationRecordsForScheduledMaintenanceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
@@ -7185,7 +7187,7 @@ function publicChatLiveCharacter(character = {}) {
 function publicChatLiveCharacterForRequest(character = {}, hasMembership = false, user = null) {
   const value = publicChatLiveCharacter(character);
   if (!hasMembership) delete value.undressImageUrl;
-  value.album = publicChatLiveAlbum(character, hasMembership).filter((item) => !item.locked).map((item) => item.url);
+  value.album = publicChatLiveAlbum(character, hasMembership).filter((item) => !item.locked);
   /* These are computed server-side so the client never has to infer royalty
      eligibility from mutable presentation fields. */
   value.ownedByViewer = Boolean(user?.id)
@@ -9853,7 +9855,27 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
   }
   let detail = null;
   let upstreamError = "";
-  if (initial.liveId && initial.sharedRoomViewer !== true) {
+  const storedTerminalStatus = normalizeChatLiveUpstreamStatus(initial.upstreamStatus);
+  const storedUpstreamSeconds = Number(initial.upstreamBilledSeconds);
+  const hasStoredTerminalEvidence = initial.sharedRoomViewer !== true
+    && chatLiveUpstreamIsTerminal(storedTerminalStatus)
+    && Number.isFinite(storedUpstreamSeconds)
+    && storedUpstreamSeconds >= 0;
+  if (hasStoredTerminalEvidence) {
+    /*
+     * The monitor already persisted an authoritative terminal snapshot. Do
+     * not hit Vidu again on every settlement retry: a ledger reconciliation
+     * failure must not turn into an endless upstream polling loop.
+     */
+    detail = {
+      live: {
+        status: storedTerminalStatus,
+        billed_seconds: storedUpstreamSeconds,
+        credits_cost: Math.max(0, Number(initial.upstreamCredits || 0) || 0),
+        close_reason: initial.endReason || "",
+      },
+    };
+  } else if (initial.liveId && initial.sharedRoomViewer !== true) {
     try {
       detail = await waitForChatLiveUpstreamEnd(initial.liveId, initial.viduRegion || "", 60000);
     } catch (error) {
@@ -9868,7 +9890,7 @@ async function settleChatLiveSession(session = {}, { auth = null } = {}) {
    * is serialized per session: a slow retry cannot overwrite a newer settled
    * snapshot, and concurrent callbacks cannot split the same hold twice.
    */
-  const lockedResult = await withChatLiveSessionSettlementLockInDb(initial.id, async (lockedSession) => {
+  const lockedResult = await withChatLiveSessionSettlementLockInDb(initial.id, async (lockedSession, client) => {
     const current = lockedSession
       ? { ...lockedSession, endedAt: lockedSession.endedAt || requestedEndedAt || "" }
       : initial;
@@ -25726,6 +25748,78 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
   };
 }
 
+const ADMIN_GENERATION_MEDIA_TTL_MS = 30 * 60 * 1000;
+
+function signAdminGenerationMediaPayload(encodedPayload = "") {
+  return crypto.createHmac("sha256", unlockStreamSecret()).update(`admin-generation-media:${encodedPayload}`).digest("base64url");
+}
+
+function makeAdminGenerationMediaToken(taskId = "") {
+  const payload = base64UrlJson({
+    kind: "admin-generation-media",
+    taskId: String(taskId || ""),
+    exp: Date.now() + ADMIN_GENERATION_MEDIA_TTL_MS,
+  });
+  return `${payload}.${signAdminGenerationMediaPayload(payload)}`;
+}
+
+function parseAdminGenerationMediaToken(token = "") {
+  const [payload, signature] = String(token || "").split(".");
+  if (!payload || !signature) return null;
+  const expected = signAdminGenerationMediaPayload(payload);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!decoded || decoded.kind !== "admin-generation-media" || Number(decoded.exp || 0) < Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function adminGenerationMediaUrl(taskId = "") {
+  if (!taskId) return "";
+  return `/api/admin/generation-records/${encodeURIComponent(taskId)}/media?token=${encodeURIComponent(makeAdminGenerationMediaToken(taskId))}`;
+}
+
+function signAdminGenerationReferenceMediaPayload(encodedPayload = "") {
+  return crypto.createHmac("sha256", unlockStreamSecret()).update(`admin-generation-reference-media:${encodedPayload}`).digest("base64url");
+}
+
+function makeAdminGenerationReferenceMediaToken(taskId = "", referenceIndex = 0) {
+  const payload = base64UrlJson({
+    kind: "admin-generation-reference-media",
+    taskId: String(taskId || ""),
+    referenceIndex: Number(referenceIndex),
+    exp: Date.now() + ADMIN_GENERATION_MEDIA_TTL_MS,
+  });
+  return `${payload}.${signAdminGenerationReferenceMediaPayload(payload)}`;
+}
+
+function parseAdminGenerationReferenceMediaToken(token = "") {
+  const [payload, signature] = String(token || "").split(".");
+  if (!payload || !signature) return null;
+  const expected = signAdminGenerationReferenceMediaPayload(payload);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!decoded || decoded.kind !== "admin-generation-reference-media" || Number(decoded.exp || 0) < Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function adminGenerationReferenceMediaUrl(taskId = "", referenceIndex = 0, { download = false } = {}) {
+  if (!taskId || !Number.isInteger(Number(referenceIndex))) return "";
+  const token = encodeURIComponent(makeAdminGenerationReferenceMediaToken(taskId, referenceIndex));
+  return `/api/admin/generation-records/${encodeURIComponent(taskId)}/references/${encodeURIComponent(referenceIndex)}/media?token=${token}${download ? "&download=1" : ""}`;
+}
+
 function generationRecordMatchesQuery(record = {}, query = "") {
   const needle = String(query || "").trim().toLowerCase();
   if (!needle) return true;
@@ -26984,6 +27078,96 @@ function pipeFileStream(res, filePath, options = {}) {
     res.end(error.code === "ENOENT" ? "Not Found" : "File stream error");
   });
   return stream.pipe(res);
+}
+
+function parseSingleByteRange(rangeHeader = "", size = 0) {
+  const match = String(rangeHeader || "").match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) return null;
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) return { invalid: true };
+  let start;
+  let end;
+  if (!rawStart) {
+    const suffixLength = Number(rawEnd);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(rawStart);
+    end = rawEnd ? Number(rawEnd) : size - 1;
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= size) {
+    return { invalid: true };
+  }
+  return { start, end: Math.min(size - 1, end) };
+}
+
+function sendMediaFile(req, res, filePath, { contentType = "application/octet-stream", stat, headers = {} } = {}) {
+  const fileStat = stat || fsSync.statSync(filePath);
+  const range = parseSingleByteRange(req.headers.range, fileStat.size);
+  const baseHeaders = {
+    "content-type": contentType,
+    "accept-ranges": "bytes",
+    "cache-control": "private, max-age=300",
+    "x-accel-buffering": "no",
+    ...headers,
+  };
+  if (range?.invalid) {
+    res.writeHead(416, { ...baseHeaders, "content-range": `bytes */${fileStat.size}`, "content-length": 0 });
+    return res.end();
+  }
+  if (range) {
+    res.writeHead(206, {
+      ...baseHeaders,
+      "content-length": range.end - range.start + 1,
+      "content-range": `bytes ${range.start}-${range.end}/${fileStat.size}`,
+    });
+    if (req.method === "HEAD") return res.end();
+    return fsSync.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+  }
+  res.writeHead(200, { ...baseHeaders, "content-length": fileStat.size });
+  if (req.method === "HEAD") return res.end();
+  return fsSync.createReadStream(filePath).pipe(res);
+}
+
+async function proxyRemoteMedia(req, res, remoteUrl, { fallbackMime = "application/octet-stream", headers = {} } = {}) {
+  const requestHeaders = {};
+  if (req.headers.range) requestHeaders.range = req.headers.range;
+  let response;
+  try {
+    response = await fetch(remoteUrl, {
+      method: req.method,
+      headers: requestHeaders,
+      redirect: "follow",
+      signal: AbortSignal.timeout(120000),
+    });
+  } catch (error) {
+    return sendJson(res, 502, { ok: false, message: `Failed to read media: ${error.message || "upstream error"}` });
+  }
+  if (response.status === 416) {
+    res.writeHead(416, {
+      ...headers,
+      "content-range": response.headers.get("content-range") || "bytes */*",
+      "accept-ranges": "bytes",
+      "cache-control": "private, no-store",
+    });
+    return res.end();
+  }
+  if (!response.ok) return sendJson(res, 502, { ok: false, message: `Failed to read media: ${response.status}` });
+  const outputHeaders = {
+    ...headers,
+    "content-type": String(response.headers.get("content-type") || fallbackMime).split(";")[0].trim(),
+    "cache-control": headers["cache-control"] || "private, max-age=300",
+    "x-accel-buffering": "no",
+  };
+  for (const name of ["content-length", "content-range", "accept-ranges", "etag", "last-modified"]) {
+    const value = response.headers.get(name);
+    if (value) outputHeaders[name] = value;
+  }
+  if (response.status === 206 && !outputHeaders["accept-ranges"]) outputHeaders["accept-ranges"] = "bytes";
+  res.writeHead(response.status, outputHeaders);
+  if (req.method === "HEAD" || !response.body) return res.end();
+  return Readable.fromWeb(response.body).pipe(res);
 }
 
 function internalAssetRedirectPath(filePath = "") {
@@ -28758,9 +28942,29 @@ function startChatLiveSettlementScheduler() {
   setInterval(() => settleStaleChatLiveSessions().catch(() => {}), 60000).unref?.();
   setTimeout(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 90000).unref?.();
   setInterval(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 10 * 60 * 1000).unref?.();
+  /*
+   * Query only genuinely unsettled rows. Scanning the latest 100 sessions
+   * every five seconds repeatedly polled already-ended calls and starved the
+   * Node event loop. Stored terminal evidence is settled without another Vidu
+   * request, while active calls continue to renew prepaid coverage each tick.
+   */
   setInterval(async () => {
-    const sessions = await listChatLiveSessionsInDb({ limit: 100 }).catch(() => []);
-    await Promise.all(sessions.filter((item) => item && item.settled !== true && item.liveId).map((item) => monitorChatLiveSession(item).catch(() => null)));
+    const sessions = await listUnsettledChatLiveSessionsInDb({ limit: 30, minAgeSeconds: 5 }).catch(() => []);
+    const active = [];
+    for (const session of sessions) {
+      if (!session || session.settled === true || !session.liveId) continue;
+      const terminalStatus = normalizeChatLiveUpstreamStatus(session.upstreamStatus || session.status);
+      const storedSeconds = Number(session.upstreamBilledSeconds);
+      const hasTerminalEvidence = chatLiveUpstreamIsTerminal(terminalStatus)
+        && Number.isFinite(storedSeconds)
+        && storedSeconds >= 0;
+      if (hasTerminalEvidence) {
+        settleChatLiveSessionById(session.id).catch(() => null);
+      } else {
+        active.push(session);
+      }
+    }
+    await Promise.all(active.map((item) => monitorChatLiveSession(item).catch(() => null)));
   }, CHAT_LIVE_BILLING_TICK_MS).unref?.();
 }
 
@@ -50199,29 +50403,49 @@ async function handleAdminListGenerationRecords(req, res, url) {
 }
 
 async function handleAdminGetGenerationRecord(req, res, taskId) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const record = await getGenerationRecord(decodeURIComponent(taskId));
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
-  const enrichedRecord = await enrichAdminGenerationRecordMedia(record, auth.db);
-  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
-  return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(enrichedRecord, userMap) });
+  const enrichedRecord = await enrichAdminGenerationRecordMedia(record);
+  const user = record.userId ? await getUserByIdInDb(record.userId) : null;
+  const userMap = new Map(user ? [[user.id, user]] : []);
+  const view = adminGenerationRecordView(enrichedRecord, userMap);
+  const target = generationRecordDownloadTarget(enrichedRecord);
+  if (target?.localPath || isPublicHttpUrl(target?.url || "")) {
+    view.adminResultPreviewUrl = adminGenerationMediaUrl(enrichedRecord.taskId);
+    view.adminResultPreviewType = String(target.mime || "").startsWith("video/") ? "video" : "image";
+  }
+  view.mediaAssets = (Array.isArray(view.mediaAssets) ? view.mediaAssets : []).map((asset, index) => ({
+    ...asset,
+    adminPreviewUrl: adminGenerationReferenceMediaUrl(enrichedRecord.taskId, index),
+    adminDownloadUrl: adminGenerationReferenceMediaUrl(enrichedRecord.taskId, index, { download: true }),
+  }));
+  return sendJson(res, 200, { ok: true, record: view });
 }
 
 async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, referenceIndex, url) {
-  const auth = await requireAdmin(req, res);
-  if (!auth) return;
-  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  const mediaToken = url?.searchParams?.get("token") || "";
+  const tokenPayload = mediaToken ? parseAdminGenerationReferenceMediaToken(mediaToken) : null;
+  const decodedTaskId = decodeURIComponent(taskId);
+  const index = Number(referenceIndex);
+  if (tokenPayload && (tokenPayload.taskId !== decodedTaskId || Number(tokenPayload.referenceIndex) !== index)) {
+    return sendJson(res, 403, { ok: false, message: "Media token does not match this reference." });
+  }
+  if (!tokenPayload) {
+    const auth = await requireAdmin(req, res, { loadDb: false });
+    if (!auth) return;
+  }
+  const record = await getGenerationRecord(decodedTaskId);
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-  const index = Number(referenceIndex);
   if (!Number.isInteger(index) || index < 0 || index >= assets.length) {
     return sendJson(res, 404, { ok: false, message: "Reference media not found." });
   }
   const asset = assets[index] || {};
   let linked = null;
   if (asset.userAssetId) {
-    linked = (auth.db.userAssets || []).find((item) => String(item?.id || "") === String(asset.userAssetId) && !isSoftDeleted(item)) || await getUserAssetFromDb(asset.userAssetId);
+    linked = await getUserAssetFromDb(asset.userAssetId);
   }
   const localUrl = String(linked?.localUrl || asset.localUrl || asset.localImageUrl || asset.localVideoUrl || "").trim();
   let localPath = "";
@@ -50237,59 +50461,51 @@ async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, refer
   if (localPath) {
     try {
       const stat = await fs.stat(localPath);
-      headers["content-type"] = fallbackMime;
-      headers["content-length"] = stat.size;
-      res.writeHead(200, headers);
-      if (req.method === "HEAD") return res.end();
-      return pipeFileStream(res, localPath);
+      return sendMediaFile(req, res, localPath, { contentType: fallbackMime, stat, headers });
     } catch {
       // Use the durable public/R2 copy below when the local upload was cleaned up.
     }
   }
   if (!isPublicHttpUrl(remoteUrl)) return sendJson(res, 404, { ok: false, message: "Reference media is unavailable." });
-  let response;
-  try {
-    response = await fetch(remoteUrl, { redirect: "follow", signal: AbortSignal.timeout(120000) });
-  } catch (error) {
-    return sendJson(res, 502, { ok: false, message: `Failed to read reference media: ${error.message || "upstream error"}` });
-  }
-  if (!response.ok || !response.body) return sendJson(res, 502, { ok: false, message: `Failed to read reference media: ${response.status}` });
-  headers["content-type"] = String(response.headers.get("content-type") || fallbackMime).split(";")[0].trim();
-  const contentLength = response.headers.get("content-length");
-  if (contentLength) headers["content-length"] = contentLength;
-  res.writeHead(200, headers);
-  if (req.method === "HEAD") return res.end();
-  return Readable.fromWeb(response.body).pipe(res);
+  return proxyRemoteMedia(req, res, remoteUrl, { fallbackMime, headers });
 }
 
 async function handleAdminGenerationRecordMedia(req, res, taskId) {
-  const auth = await requireAdmin(req, res);
-  if (!auth) return;
-  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  const mediaToken = new URL(req.url || "/", "http://localhost").searchParams.get("token") || "";
+  const tokenPayload = mediaToken ? parseAdminGenerationMediaToken(mediaToken) : null;
+  const decodedTaskId = decodeURIComponent(taskId);
+  if (tokenPayload && tokenPayload.taskId !== decodedTaskId) {
+    return sendJson(res, 403, { ok: false, message: "Media token does not match this generation record." });
+  }
+  if (!tokenPayload) {
+    const auth = await requireAdmin(req, res, { loadDb: false });
+    if (!auth) return;
+  }
+  const record = await getGenerationRecord(decodedTaskId);
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   const target = generationRecordDownloadTarget(record);
-  const localPath = target?.localPath || localDownloadPathFromRecord(record, !isImageGenerationRecord(record), target?.url || "");
-  if (!localPath) return sendJson(res, 404, { ok: false, message: "Generated media is not available locally." });
-  const normalizedPath = path.normalize(localPath);
-  const relative = path.relative(ROOT, normalizedPath);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    return sendJson(res, 403, { ok: false, message: "Generated media path is not allowed." });
+  if (!target) return sendJson(res, 404, { ok: false, message: "Generated media is unavailable." });
+  const localPath = target.localPath || localDownloadPathFromRecord(record, !isImageGenerationRecord(record), target.url || "");
+  const mime = target.mime || (isImageGenerationRecord(record) ? imageMimeFromKnownPath(target.url || localPath) || "image/png" : videoMimeFromKnownPath(target.url || localPath) || "video/mp4");
+  const dispositionName = (target.fileName || path.basename(localPath || "generation")).replace(/[^a-z0-9._-]/gi, "-") || "generation";
+  const headers = { "content-disposition": `inline; filename="${dispositionName}"` };
+  if (localPath) {
+    const normalizedPath = path.normalize(localPath);
+    const relative = path.relative(ROOT, normalizedPath);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+      return sendJson(res, 403, { ok: false, message: "Generated media path is not allowed." });
+    }
+    try {
+      const stat = await fs.stat(normalizedPath);
+      return sendMediaFile(req, res, normalizedPath, { contentType: mime, stat, headers });
+    } catch (error) {
+      if (!isPublicHttpUrl(target.url || "")) {
+        return sendJson(res, error.code === "ENOENT" ? 404 : 500, { ok: false, message: error.code === "ENOENT" ? "Generated media is missing." : "Generated media could not be opened." });
+      }
+    }
   }
-  try {
-    const stat = await fs.stat(normalizedPath);
-    const mime = target?.mime || (isImageGenerationRecord(record) ? imageMimeFromKnownPath(normalizedPath) || "image/png" : videoMimeFromKnownPath(normalizedPath) || "video/mp4");
-    if (sendInternalAsset(res, normalizedPath, mime, stat, { privateCache: true })) return;
-    res.writeHead(200, {
-      "content-type": mime,
-      "content-length": stat.size,
-      "cache-control": "private, no-store",
-      "content-disposition": `inline; filename="${path.basename(normalizedPath).replace(/[^a-z0-9._-]/gi, "-")}"`,
-    });
-    if (req.method === "HEAD") return res.end();
-    return pipeFileStream(res, normalizedPath);
-  } catch (error) {
-    return sendJson(res, error.code === "ENOENT" ? 404 : 500, { ok: false, message: error.code === "ENOENT" ? "Generated media is missing." : "Generated media could not be opened." });
-  }
+  if (!isPublicHttpUrl(target.url || "")) return sendJson(res, 404, { ok: false, message: "Generated media is unavailable." });
+  return proxyRemoteMedia(req, res, target.url, { fallbackMime: mime, headers });
 }
 
 async function handleListGenerationRecords(req, res, url) {
@@ -51394,8 +51610,16 @@ async function serveStatic(req, res, url) {
     const isFrontendAsset = frontendNames.includes(pathname)
       || PLATFORM_ASSET_FILES.some((fileName) => pathname === `/${fileName}`)
       || ((liveTenantRequest || chatTenantRequest) && [".html", ".js", ".css"].includes(path.extname(pathname).toLowerCase()));
+    /*
+     * HTML must always revalidate so a deploy becomes visible immediately.
+     * Versioned JS/CSS is content-addressed by its query string and may be
+     * cached aggressively by browsers and the CDN. Previously every frontend
+     * asset was forced through the Node process on every refresh, even though
+     * the page already referenced a new ?v= build.
+     */
+    const isFrontendNoStore = isFrontendAsset && !isVersionedAsset;
     const isLongCacheAsset =
-      (isVersionedAsset && !isFrontendAsset) ||
+      isVersionedAsset ||
       contentType.startsWith("image/") ||
       contentType.startsWith("font/") ||
       filePath.startsWith(path.normalize(path.join(ROOT, "assets", "ourdream")));
@@ -51409,14 +51633,14 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
-      "cache-control": isFrontendAsset || isHtml
+      "cache-control": isFrontendNoStore || isHtml
         ? "no-store, no-cache, must-revalidate, max-age=0"
         : contentType.startsWith("video/") || isLongCacheAsset
-          ? "public, max-age=604800, immutable"
+          ? "public, max-age=31536000, immutable"
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
-      ...(isFrontendAsset || isHtml ? {
+      ...(isFrontendNoStore || isHtml ? {
         pragma: "no-cache",
         expires: "0",
         "cdn-cache-control": "no-store",
@@ -51637,9 +51861,12 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/ourdream/presets") {
       try {
-        const presets = await getOurDreamPresetLibrary({ force: url.searchParams.get("refresh") === "1" });
+        const forceRefresh = url.searchParams.get("refresh") === "1";
+        const presets = await getOurDreamPresetLibrary({ force: forceRefresh });
         return sendJson(res, 200, { ok: true, presets }, {
-          cacheControl: "no-store",
+          cacheControl: forceRefresh
+            ? "private, no-store, max-age=0"
+            : "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
         });
       } catch (error) {
         console.error("[ourdream-presets-unavailable]", error.message || error);
@@ -52729,7 +52956,11 @@ async function scanStalePreSubmitGenerationRecords(reason = "timer") {
   if (staleSubmitScanRunning) return;
   staleSubmitScanRunning = true;
   try {
-    const records = await readGenerationRecords();
+    const records = await getStalePreSubmitGenerationRecordsFromDb({
+      olderThanMs: GENERATION_SUBMIT_STALE_MS,
+      limit: 10,
+      providers: ["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"],
+    }) || [];
     const staleRecords = records
       .filter((record) => isStalePreSubmitGenerationRecord(record))
       .slice(0, 10);
@@ -53014,7 +53245,10 @@ async function scanActiveGenerationRecords(reason = "timer") {
   if (activeGenerationScanRunning) return;
   activeGenerationScanRunning = true;
   try {
-    const records = await readGenerationRecords();
+    const records = await getGenerationRecordsForScheduledMaintenanceFromDb({
+      maxAgeMs: GENERATION_ACTIVE_SCAN_MAX_AGE_MS,
+      limit: 100,
+    }) || [];
     const refundableRecords = records
       .filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record))
       .slice(0, 10);

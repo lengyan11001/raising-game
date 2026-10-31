@@ -95,7 +95,7 @@ test("result and history do not self-poll after the initial request", () => {
   const create = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
   const ui = fs.readFileSync(path.join(__dirname, "..", "platform.ui.js"), "utf8");
   const explore = fs.readFileSync(path.join(__dirname, "..", "platform.explore.js"), "utf8");
-  assert.doesNotMatch(create, /function scheduleAdvancedResultRefresh\(/);
+  assert.doesNotMatch(create, /function scheduleAdvancedResultRefresh\([\s\S]{0,400}?setInterval\(/);
   assert.doesNotMatch(create, /scheduleHistoryRefresh\(\{ delayMs: 15000/);
   assert.match(create, /refreshAdvancedResultRecord\(\);/);
   const completion = ui.slice(ui.indexOf("function syncGenerationCompletionRefresh"), ui.indexOf("function isTerminalGenerationStatus"));

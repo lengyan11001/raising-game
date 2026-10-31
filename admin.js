@@ -1991,10 +1991,12 @@ function recordRatioStyle(record = {}) {
 }
 
 function recordPreviewHtml(record) {
-  const localVideo = adminPreviewMediaUrl(recordVideoUrl(record));
+  const signedResult = adminPreviewMediaUrl(record.adminResultPreviewUrl);
+  const resultIsVideo = record.adminResultPreviewType === "video" || isVideoUrl(recordVideoUrl(record)) || isVideoUrl(record.remoteVideoUrl || record.providerVideoUrl || record.upstreamVideoUrl || "");
+  const localVideo = signedResult && resultIsVideo ? signedResult : adminPreviewMediaUrl(recordVideoUrl(record));
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = adminPreviewMediaUrl(
-    record.adminResultPreviewUrl
+    signedResult
     || (record.resultLocked ? record.lockedPreviewUrl : "")
     || recordImageResultUrl(record),
   );
@@ -2712,30 +2714,23 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
   const referenceUrl = (index, download = false) => {
     const asset = referenceByIndex.get(String(index));
     if (!record.taskId || !asset) return "";
-    return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${encodeURIComponent(index)}/media${download ? "?download=1" : ""}`;
+    return (download ? asset.adminDownloadUrl || asset.adminPreviewUrl : asset.adminPreviewUrl)
+      || `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${encodeURIComponent(index)}/media${download ? "?download=1" : ""}`;
   };
   bodyEl.querySelectorAll("[data-reference-preview]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const index = button.dataset.referencePreview || "";
       const asset = referenceByIndex.get(String(index));
       const url = referenceUrl(index);
       if (!asset || !url) return;
-      try {
-        const response = await fetch(url, { headers: state.token ? { authorization: `Bearer ${state.token}` } : {}, cache: "no-store" });
-        if (!response.ok) throw new Error(`预览失败（${response.status}）`);
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const lightbox = document.createElement("div");
-        lightbox.className = "adm-record-media-lightbox";
-        const isVideo = String(blob.type || asset.mime || "").startsWith("video/");
-        lightbox.innerHTML = `<button type="button" class="adm-record-media-lightbox-close" aria-label="关闭"><i data-lucide="x"></i></button>${isVideo ? `<video src="${escapeHtml(blobUrl)}" controls autoplay playsinline></video>` : `<img src="${escapeHtml(blobUrl)}" alt="" />`}<span>${escapeHtml(asset.label || "参考素材")}</span>`;
-        const close = () => { lightbox.remove(); URL.revokeObjectURL(blobUrl); };
-        lightbox.addEventListener("click", (event) => { if (event.target === lightbox || event.target.closest(".adm-record-media-lightbox-close")) close(); });
-        bodyEl.appendChild(lightbox);
-        refreshIcons();
-      } catch (error) {
-        toast(error.message || "参考素材预览失败。", "error");
-      }
+      const lightbox = document.createElement("div");
+      lightbox.className = "adm-record-media-lightbox";
+      const isVideo = String(asset.mime || "").startsWith("video/") || isVideoUrl(url) || isVideoUrl(asset.videoUrl || "");
+      lightbox.innerHTML = `<button type="button" class="adm-record-media-lightbox-close" aria-label="关闭"><i data-lucide="x"></i></button>${isVideo ? `<video src="${escapeHtml(url)}" controls autoplay playsinline preload="metadata"></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<span>${escapeHtml(asset.label || "参考素材")}</span>`;
+      const close = () => lightbox.remove();
+      lightbox.addEventListener("click", (event) => { if (event.target === lightbox || event.target.closest(".adm-record-media-lightbox-close")) close(); });
+      bodyEl.appendChild(lightbox);
+      refreshIcons();
     });
   });
   bodyEl.querySelectorAll("[data-reference-download]").forEach((link) => {
@@ -2767,29 +2762,9 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
 
 async function fetchAdminGenerationRecordDetail(record = {}) {
   if (!record?.taskId) return record;
-  if (record.upstreamPayload || record.createResponse || record.queryResponse) return record;
+  if (record.adminResultPreviewUrl && (record.upstreamPayload || record.createResponse || record.queryResponse)) return record;
   const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
   return payload.record || record;
-}
-
-async function fetchAdminGenerationRecordPreview(record = {}) {
-  if (!record?.taskId || record.resultLocked !== true) return record;
-  const response = await fetch(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}/media`, {
-    method: "GET",
-    headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    let payload = null;
-    try { payload = await response.json(); } catch {}
-    if (response.status === 401 || payload?.code === "LOGIN_REQUIRED") handleAuthExpired();
-    throw new Error(payload?.message || `Preview failed (${response.status}).`);
-  }
-  const blob = await response.blob();
-  if (!String(blob.type || "").startsWith("image/") && !String(blob.type || "").startsWith("video/")) {
-    throw new Error("Preview response is not media.");
-  }
-  return { ...record, adminResultPreviewUrl: URL.createObjectURL(blob) };
 }
 
 async function openGenerationRecordDetail(record) {
@@ -2808,11 +2783,6 @@ async function openGenerationRecordDetail(record) {
   });
   try {
     record = await fetchAdminGenerationRecordDetail(record);
-    try {
-      record = await fetchAdminGenerationRecordPreview(record);
-    } catch (previewError) {
-      toast(previewError.message || "Preview failed.", "error");
-    }
   } catch (error) {
     if (isActive()) {
       els.dialogBody.innerHTML = generationRecordDetailBody(record, { error: error.message || "加载详情失败。" });
@@ -2821,17 +2791,10 @@ async function openGenerationRecordDetail(record) {
     toast(error.message || "加载详情失败。", "error");
     return;
   }
-  if (!isActive()) {
-    if (record.adminResultPreviewUrl) URL.revokeObjectURL(record.adminResultPreviewUrl);
-    return;
-  }
+  if (!isActive()) return;
   els.dialogTitle.textContent = `生成详情 · ${record.taskId || taskId}`;
   els.dialogBody.innerHTML = generationRecordDetailBody(record);
   bindGenerationRecordDetailBody(els.dialogBody, record);
-  if (record.adminResultPreviewUrl) {
-    const previewUrl = record.adminResultPreviewUrl;
-    els.dialog.addEventListener("close", () => URL.revokeObjectURL(previewUrl), { once: true });
-  }
 }
 
 /* ============ SCENES ============ */

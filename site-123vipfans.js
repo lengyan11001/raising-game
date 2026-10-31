@@ -182,6 +182,8 @@
           const current = i === clipIndex;
           clip.classList.toggle("is-active", current);
           if (current && !stopped) {
+            const source = clip.dataset.src || "";
+            if (source && clip.getAttribute("src") !== source) clip.src = source;
             clip.preload = "auto";
             const played = clip.play();
             if (played && played.catch) played.catch(() => {});
@@ -238,9 +240,16 @@
         try { video.pause(); } catch (error) {}
       } else {
         const play = () => { const p = video.play(); if (p && p.catch) p.catch(() => {}); };
-        play();
+        const load = () => {
+          const source = video.dataset.src || "";
+          if (source && video.getAttribute("src") !== source) video.src = source;
+          video.preload = "auto";
+          play();
+        };
+        const idle = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 900));
+        idle(load, { timeout: 2200 });
         document.addEventListener("visibilitychange", () => {
-          if (document.hidden) { try { video.pause(); } catch (error) {} } else play();
+          if (document.hidden) { try { video.pause(); } catch (error) {} } else load();
         });
       }
     }

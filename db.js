@@ -5085,6 +5085,56 @@ async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDel
   return rows.map((row) => row.payload);
 }
 
+async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit = 10, providers = [] } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 10) || 10)));
+  const safeOlderThanMs = Math.max(0, Number(olderThanMs || 0));
+  const cleanProviders = [...new Set((Array.isArray(providers) ? providers : [])
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean))];
+  if (!cleanProviders.length) return [];
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'userId', '') <> ''
+      AND COALESCE(payload->>'awaitingUpstreamTask', 'false') = 'true'
+      AND COALESCE(payload->>'upstreamTaskId', '') = ''
+      AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('preparing', 'submitting', 'submitted', 'running', 'processing', 'queued', 'pending')
+      AND created_at <= NOW() - ($2::bigint * INTERVAL '1 millisecond')
+    ORDER BY created_at ASC
+    LIMIT $3
+  `, [cleanProviders, safeOlderThanMs, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function getGenerationRecordsForScheduledMaintenanceFromDb({ maxAgeMs = 24 * 60 * 60 * 1000, limit = 100 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(Number(limit || 100) || 100)));
+  const safeMaxAgeMs = Math.max(0, Number(maxAgeMs || 0));
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND created_at > NOW() - ($1::bigint * INTERVAL '1 millisecond')
+      AND (
+        LOWER(COALESCE(payload->>'status', '')) IN ('submitting', 'preparing', 'submitted', 'queued', 'pending', 'running', 'processing', 'generating')
+        OR (
+          LOWER(COALESCE(payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown')
+          AND LOWER(COALESCE(payload->>'billingStatus', '')) <> 'refunded'
+          AND COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0) > 0
+          AND COALESCE(NULLIF(payload->>'finalCredits', '')::numeric, COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0)) > 0
+        )
+      )
+    ORDER BY created_at ASC, updated_at ASC
+    LIMIT $2
+  `, [safeMaxAgeMs, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
 async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -6539,6 +6589,8 @@ module.exports = {
   getKvUpdatedAt,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
+  getStalePreSubmitGenerationRecordsFromDb,
+  getGenerationRecordsForScheduledMaintenanceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,

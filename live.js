@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile" };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -767,19 +767,39 @@
 
   function albumParts(role) {
     const raw = Array.isArray(role?.album) ? role.album : [];
-    const priv = Array.isArray(role?.privateResources) ? role.privateResources.slice() : [];
-    const urls = [];
+    const extraPrivate = Array.isArray(role?.privateResources) ? role.privateResources : [];
+    const photos = [];
+    const priv = [];
+    const normalize = (item, forcePrivate = false) => {
+      if (!item) return null;
+      if (typeof item === "string") return { url: item, thumbnailUrl: item, type: "image", locked: forcePrivate };
+      const url = String(item.url || "");
+      if (!url) return null;
+      return {
+        url,
+        thumbnailUrl: String(item.thumbnailUrl || url),
+        type: item.type === "video" ? "video" : "image",
+        locked: forcePrivate || item.locked === true || String(item.locked) === "true",
+      };
+    };
     raw.forEach((item) => {
-      if (item && typeof item === "object") {
-        if (item.locked) priv.push(item);
-        else if (item.url) urls.push(String(item.url));
-      } else if (item) urls.push(String(item));
+      const normalized = normalize(item);
+      if (!normalized) return;
+      (normalized.locked ? priv : photos).push(normalized);
+    });
+    extraPrivate.forEach((item) => {
+      const normalized = normalize(item, true);
+      if (normalized) priv.push(normalized);
     });
     const seen = new Set();
     return {
-      urls: urls.filter((url) => url && !seen.has(url) && seen.add(url)),
-      priv: priv.filter((item) => item && item.locked !== false),
+      photos: photos.filter((item) => !seen.has(item.url) && seen.add(item.url)),
+      priv: priv.filter((item) => !seen.has(item.url) && seen.add(item.url)),
     };
+  }
+  function albumThumb(item, alt = "相册照片") {
+    const src = item?.thumbnailUrl || item?.url || "";
+    return src ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" decoding="async" />` : '<div class="image-empty"><span>♙</span></div>';
   }
   function isLiveMember() {
     const subscription = state.billing?.subscription;
@@ -792,14 +812,14 @@
     const rate = Number(state.config?.pricing?.saleCreditsPerMinute || 0) || 0;
     const parts = albumParts(c);
     const resources = parts.priv;
-    const publicPhotos = parts.urls;
+    const publicPhotos = parts.photos;
     const lockedCount = resources.length;
     const totalCount = publicPhotos.length + lockedCount;
     const preview = publicPhotos.slice(0, lockedCount ? 3 : 4);
     const topic = (c.tags || []).map((x) => `<span class="topic-pill">${esc(x)}</span>`).join("") || '<span class="detail-empty">暂无人物标签</span>';
-    const albumCells = preview.map((url) => `<button class="album-cell" data-action="open-album" data-photo="${esc(url)}">${fitMedia(url, c.name || "相册")}</button>`).join("");
+    const albumCells = preview.map((item) => `<button class="album-cell" data-action="open-album" aria-label="查看相册">${albumThumb(item, c.name || "相册")}</button>`).join("");
     const lockedCell = lockedCount ? `<button class="album-cell is-locked" data-action="${member ? "open-album" : "unlock-private"}"><span class="lock-shade"><b>私密</b><small>${lockedCount} 张</small></span></button>` : "";
-    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${fitMedia(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span><button class="role-share-button" data-action="share-role" aria-label="分享角色">${uiIcon("share")}</button></div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>共 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
+    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${fitMedia(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span><button class="role-share-button" data-action="share-role" aria-label="分享角色">${uiIcon("share")}</button></div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>更多 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
   }
 
 
@@ -1694,6 +1714,8 @@
   function showRecharge(){
     state.pageReturn=state.pageReturn||(state.page==="role-detail"?"role-detail":(state.page==="vip"?"vip":"profile"));
     state.page="recharge";
+    state.walletSpendPage=1;
+    state.walletSpendTotalPages=1;
     const packages=(state.billing?.topupPackages?.length?state.billing.topupPackages:(state.config?.topupPackages||[])).slice().sort((a,b)=>Number(a.amount)-Number(b.amount));
     const credits=Number(state.user?.credits||0);
     const rate=Math.max(0,Number(state.config?.pricing?.saleCreditsPerMinute??0)||0);
@@ -1705,7 +1727,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>累计免费</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">最近消费</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>消费记录</small></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>累计免费</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">消费记录</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>每页 10 条</small></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
     loadRecentSpend();
   }
 
@@ -1787,19 +1809,31 @@
     if (!items.length) return `<div class="empty-state"><p>${esc(empty)}</p></div>`;
     return `<section class="ledger-card">${ledgerInner(items)}</section>`;
   }
-  async function loadRecentSpend() {
+  function spendPager(page, totalPages) {
+    if (totalPages <= 1) return "";
+    return `<nav class="ledger-pager" aria-label="消费记录分页"><button type="button" data-action="wallet-spend-page" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button><span>${page} / ${totalPages}</span><button type="button" data-action="wallet-spend-page" data-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button></nav>`;
+  }
+  async function loadRecentSpend({ scrollToLedger = false } = {}) {
     const box = document.querySelector("[data-recent-spend]");
     if (!box) return;
     if (!token()) {
       box.innerHTML = ledgerInner([], "登录后查看消费记录", "通话和礼物会记在这里");
       return;
     }
+    if (state.walletSpendLoading) return;
+    state.walletSpendLoading = true;
+    box.innerHTML = `<div><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取</b><small>消费记录</small></div></div>`;
     try {
-      const data = await api("/api/billing/spending?limit=200");
-      const rows = groupSpend(data.records || []).slice(0, 3);
-      box.innerHTML = ledgerInner(rows, "还没有消费记录", "通话和礼物会记在这里");
+      const data = await api(`/api/billing/spending?page=${state.walletSpendPage}&limit=10`);
+      state.walletSpendPage = Math.max(1, Number(data.page || 1) || 1);
+      state.walletSpendTotalPages = Math.max(1, Number(data.totalPages || 1) || 1);
+      const rows = groupSpend(data.records || []);
+      box.innerHTML = ledgerInner(rows, "还没有消费记录", "通话和礼物会记在这里") + spendPager(state.walletSpendPage, state.walletSpendTotalPages);
+      if (scrollToLedger) box.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       box.innerHTML = ledgerInner([], "消费记录没有加载出来", error.message || "请稍后重试");
+    } finally {
+      state.walletSpendLoading = false;
     }
   }
 
@@ -2481,19 +2515,13 @@ document.addEventListener("click", async (e) => {
     }
     if (a === "open-album") {
       if (!state.role) return;
-      const direct = e.target.closest(".album-cell[data-photo]")?.dataset.photo || "";
-      if (direct) {
-        document.querySelector("[data-photo-view]")?.remove();
-        app.insertAdjacentHTML("beforeend", `<div class="photo-lightbox" data-photo-view><button class="photo-lightbox-close" data-action="close-photo" aria-label="关闭">×</button><img src="${esc(direct)}" alt=""><p>TA 的相册</p></div>`);
-        return;
-      }
       const member = isLiveMember();
       const parts = albumParts(state.role);
-      const photos = parts.urls;
+      const photos = parts.photos;
       const priv = parts.priv;
       document.querySelector("[data-role-sheet]")?.remove();
-      const cells = photos.map((url) => `<button class="album-item" data-action="view-photo" data-photo="${esc(url)}">${fitMedia(url, "相册照片")}</button>`).join("");
-      const locks = priv.map((item) => member && item.url ? `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${fitMedia(item.url, "私密相册照片")}</button>` : `<button class="album-item is-locked" data-action="unlock-private"><span class="lock-shade"><b>私密</b><small>订阅后查看</small></span></button>`).join("");
+      const cells = photos.map((item) => `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${albumThumb(item)}</button>`).join("");
+      const locks = priv.map((item) => member && item.url ? `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${albumThumb(item, "私密相册照片")}</button>` : `<button class="album-item is-locked" data-action="unlock-private"><span class="lock-shade"><b>私密</b><small>订阅后查看</small></span></button>`).join("");
       const total = photos.length + priv.length;
       app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-action="close-sheet"><div class="language-sheet album-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>TA 的相册</h3><button data-action="close-sheet">×</button></div><div class="album-sheet-grid">${cells}${locks}${(cells || locks) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></div></div>`);
       return;
@@ -2511,6 +2539,13 @@ document.addEventListener("click", async (e) => {
     if (a === "pay-topup") { const selected=document.querySelector(".pay-plan.selected[data-topup-id]")?.dataset.topupId; if(!selected){ const note=document.querySelector("[data-pay-status]"); if(note) note.textContent="请先选择充值档位"; return; } return startCheckout({ packageId: selected }); }
     if (a === "rooms-all") return showRooms("home");
     if (a === "wallet") { state.pageReturn = state.page === "role-detail" ? "role-detail" : "profile"; return showRecharge(); }
+    if (a === "wallet-spend-page") {
+      const page = Math.max(1, Number(e.target.closest("[data-page]")?.dataset.page || state.walletSpendPage) || 1);
+      if (page === state.walletSpendPage && state.walletSpendTotalPages > 1) return;
+      state.walletSpendPage = page;
+      loadRecentSpend({ scrollToLedger: true });
+      return;
+    }
     if (a === "gift") return showWallet("gift");
     if (a === "recharge") { if (document.querySelector("[data-gift-sheet]") || state.page === "text-chat") state.pageReturn = "text-chat"; else state.pageReturn = state.page === "role-detail" ? "role-detail" : (state.page === "vip" ? "vip" : "profile"); showRecharge(); return; }
     if (a === "back-from-sub") { state.page = state.pageReturn || "profile"; state.pageReturn = ""; render(); return; }

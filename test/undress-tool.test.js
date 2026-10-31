@@ -100,13 +100,14 @@ test("locked free results expose no media and cannot be downloaded or added to a
 
 test("admins can inspect locked originals without making the public asset path accessible", () => {
   const handler = server.slice(server.indexOf("async function handleAdminGenerationRecordMedia"), server.indexOf("async function handleListGenerationRecords"));
-  assert.match(handler, /requireAdmin\(req, res\)/);
+  assert.match(handler, /requireAdmin\(req, res, \{ loadDb: false \}\)/);
   assert.match(handler, /generationRecordDownloadTarget\(record\)/);
-  assert.match(handler, /sendInternalAsset\(res, normalizedPath, mime, stat, \{ privateCache: true \}\)/);
+  assert.match(handler, /sendMediaFile\(req, res, normalizedPath/);
+  assert.match(handler, /parseAdminGenerationMediaToken\(mediaToken\)/);
   assert.match(server, /adminGenerationRecordMediaMatch[\s\S]*?handleAdminGenerationRecordMedia/);
-  assert.match(admin, /fetchAdminGenerationRecordPreview/);
-  assert.match(admin, /authorization: `Bearer \$\{state\.token\}`/);
-  assert.match(admin, /URL\.createObjectURL\(blob\)/);
+  assert.match(admin, /adminResultPreviewUrl/);
+  assert.doesNotMatch(admin, /async function fetchAdminGenerationRecordPreview/);
+  assert.doesNotMatch(admin, /async function fetchAdminGenerationRecordPreview[\s\S]{0,1200}URL\.createObjectURL\(blob\)/);
   assert.match(admin, /record\.resultLocked \? record\.lockedPreviewUrl/);
   assert.doesNotMatch(admin, /admPreview/);
   assert.match(server, /lockedRecord\?\.resultLocked === true[\s\S]*?sendText\(res, 403, "Unlock required"\)/);

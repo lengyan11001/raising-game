@@ -176,6 +176,15 @@ test("live gift and spending ledger rows keep a stable three-column layout", () 
   assert.match(live, /function ledgerRows\(items, empty\)[\s\S]*?<section class="ledger-card">/);
 });
 
+test("live wallet spending ledger paginates ten rows at a time", () => {
+  assert.match(live, /function spendPager\(page, totalPages\)/);
+  assert.match(live, /data-action="wallet-spend-page"/);
+  assert.match(live, /api\(`\/api\/billing\/spending\?page=\$\{state\.walletSpendPage\}&limit=10`\)/);
+  assert.match(live, /state\.walletSpendPage = Math\.max\(1, Number\(data\.page \|\| 1\) \|\| 1\)/);
+  assert.match(live, /state\.walletSpendTotalPages = Math\.max\(1, Number\(data\.totalPages \|\| 1\) \|\| 1\)/);
+  assert.match(css, /\.ledger-pager\{display:flex/);
+});
+
 test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(
@@ -197,8 +206,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103039/);
-  assert.match(html, /live\.js\?v=2026103039/);
+  assert.match(html, /live\.css\?v=2026103041/);
+  assert.match(html, /live\.js\?v=2026103041/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 
@@ -259,11 +268,15 @@ test("role detail labels, private-album header, and create empty state match the
   assert.match(css, /\.role-cover\{height:clamp\(500px,145vw,620px\)/);
   assert.match(css, /\.role-cover>\.fit-media[^}]*height:100%/);
   assert.match(css, /\.fit-media-photo\{[^}]*object-fit:contain/);
+  assert.match(css, /\.album-cell\{[^}]*aspect-ratio:3\/4/);
   assert.match(css, /\.album-cell>\.fit-media/);
-  assert.match(css, /\.album-sheet-grid button\{[^}]*aspect-ratio:9\/16/);
+  assert.match(css, /\.album-cell img\.fit-media-photo\{[^}]*object-fit:cover/);
+  assert.match(css, /\.album-sheet-grid button\{[^}]*aspect-ratio:3\/4/);
   assert.match(live, /const fitMedia = \(url, alt = ""\)/);
-  assert.match(live, /album-cell[^>]*>\$\{fitMedia\(url/);
-  assert.match(live, /class="album-item"[^>]*>\$\{fitMedia\(url/);
+  assert.match(live, /function albumThumb\(item, alt = "相册照片"\)[\s\S]*?item\?\.thumbnailUrl \|\| item\?\.url/);
+  assert.match(live, /album-cell[^>]*aria-label="查看相册"[^>]*>\$\{albumThumb\(item/);
+  assert.match(live, /class="album-item"[^>]*data-photo="\$\{esc\(item\.url\)\}"[^>]*>\$\{albumThumb\(item\)\}/);
+  assert.doesNotMatch(live, /album-cell[^>]*data-photo/);
   assert.match(live, /这不是聊天记录<br><em>这是关系<\/em>/);
   assert.match(live, /AI 给了 Ta 说话的能力<br><em>是你让 Ta 有了情感<\/em>/);
   assert.match(live, /角色是你写的，世界是你定的。<br>现实得不到的，在这里可以统统满足。/);

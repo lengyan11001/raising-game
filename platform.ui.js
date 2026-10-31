@@ -2764,7 +2764,7 @@ async function loadAdvancedPresets() {
   if (state.advancedPresetsLoaded || state.advancedPresetsLoading) return;
   state.advancedPresetsLoading = true;
   try {
-    const response = await fetch(`${OURDREAM_PRESET_URL}?v=4`, { cache: "no-store" });
+    const response = await fetch(`${OURDREAM_PRESET_URL}?v=4`);
     if (!response.ok) throw new Error(`Preset request failed: ${response.status}`);
     const rawPayload = await response.json();
     const payload = rawPayload?.presets || rawPayload;

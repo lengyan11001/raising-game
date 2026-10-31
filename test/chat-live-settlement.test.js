@@ -300,7 +300,7 @@ test("entry rollback keeps free usage immutable after finalization and refunds h
 
 test("settlement finalizes free usage inside the settlement lock and caps used seconds", () => {
   const settlementBlock = serverSource.match(/async function settleChatLiveSession\([\s\S]*?\n}\n\nasync function chargeChatLiveSettlementBalance/)[0];
-  assert.match(settlementBlock, /withChatLiveSessionSettlementLockInDb\(initial\.id, async \(lockedSession\) =>/);
+  assert.match(settlementBlock, /withChatLiveSessionSettlementLockInDb\(initial\.id, async \(lockedSession(?:, client)?\) =>/);
   assert.match(settlementBlock, /finalizeChatLiveFreeAllocationInDb\(/);
   assert.match(settlementBlock, /chatLiveBillableLimitSeconds\(current\)/);
   assert.match(settlementBlock, /client,\n      \);/);
@@ -445,7 +445,7 @@ test("monitor and settlement share a session-level PostgreSQL transaction lock",
   assert.match(dbSource, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
   assert.match(dbSource, /chat-live-settlement:\$\{id\}/);
   assert.match(dbSource, /SELECT payload FROM app_chat_live_sessions WHERE id = \$1 FOR UPDATE/);
-  assert.match(serverSource, /withChatLiveSessionSettlementLockInDb\(initial\.id, async \(lockedSession\) =>/);
+  assert.match(serverSource, /withChatLiveSessionSettlementLockInDb\(initial\.id, async \(lockedSession(?:, client)?\) =>/);
   assert.match(serverSource, /withChatLiveSessionSettlementLockInDb\(session\.id, async \(lockedSession\) =>/);
   const settlementBlock = serverSource.match(/async function settleChatLiveSession\([\s\S]*?\n}\n\nasync function chargeChatLiveSettlementBalance/)[0];
   const monitorBlock = serverSource.match(/async function monitorChatLiveSession\([\s\S]*?\n}\n\nasync function handleEndChatLiveSession/)[0];
