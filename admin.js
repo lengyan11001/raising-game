@@ -2988,6 +2988,18 @@ function sceneCard(scene) {
 }
 
 /* ============ MEMBERSHIP ACTIVATION CODES ============ */
+function membershipCodeUsersHtml(record = {}) {
+  const users = Array.isArray(record.redemptionUsers) ? record.redemptionUsers : [];
+  if (!users.length) return '<span class="adm-muted">未兑换</span>';
+  return `<div class="adm-membership-code-users">${users.map((user) => `
+    <div class="adm-membership-code-user">
+      <strong>${escapeHtml(user.username || user.id || "未知用户")}</strong>
+      <span class="adm-muted adm-mono">${escapeHtml(user.id || "")}</span>
+      ${user.redeemedAt ? `<span class="adm-muted">${escapeHtml(fmtDate(user.redeemedAt))}</span>` : ""}
+    </div>
+  `).join("")}</div>`;
+}
+
 async function renderMembershipCodes(pageArg = null, limitArg = null) {
   const savedPager = JSON.parse(sessionStorage.getItem("admMembershipCodesPager") || "{}");
   const page = normalizeAdminPage(pageArg || savedPager.page || 1);
@@ -3009,7 +3021,7 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
           <p class="adm-muted">创建 Creator Membership 激活码。每个码都可在下方记录中直接复制。</p>
         </div>
         <form class="adm-list-filters" id="membershipCodesFilterForm">
-          <input id="membershipCodesSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索会员码 / 备注 / ID" />
+          <input id="membershipCodesSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索会员码 / 备注 / ID / 用户" />
           <select id="membershipCodesStatusFilter">
             <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
             <option value="active" ${status === "active" ? "selected" : ""}>可用</option>
@@ -3039,7 +3051,7 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
         <div class="adm-card-head"><h3>激活码记录</h3><span class="adm-muted">共 ${escapeHtml(payload.total || 0)} 条</span></div>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-membership-code-table">
-            <thead><tr><th>会员码</th><th>状态</th><th>已使用 / 上限</th><th>有效期</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>会员码</th><th>用户对象</th><th>状态</th><th>已使用 / 上限</th><th>有效期</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
             <tbody>
               ${codes.length ? codes.map((record) => {
                 const codeStatus = String(record.status || "active").toLowerCase();
@@ -3047,6 +3059,7 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
                 return `
                   <tr data-id="${escapeHtml(record.id || "")}">
                     <td><div class="adm-membership-code-cell">${record.code ? `<div><code>${escapeHtml(record.code)}</code><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-copy-membership-code="${escapeHtml(record.code)}"><i data-lucide="copy"></i>复制</button></div>` : `<div><span class="adm-muted">历史码不可恢复</span><span class="adm-muted adm-mono">${escapeHtml(record.codePrefix || "VIP-")}****</span></div>`}<span class="adm-muted adm-mono adm-membership-code-id">${escapeHtml(record.id || "")}</span></div></td>
+                    <td>${membershipCodeUsersHtml(record)}</td>
                     <td>${statusPill(codeStatus)}</td>
                     <td><strong>${escapeHtml(record.redemptionCount || 0)}</strong> / ${escapeHtml(record.maxRedemptions || 1)}</td>
                     <td>${record.expiresAt ? fmtDate(record.expiresAt) : "永久"}</td>
@@ -3055,7 +3068,7 @@ async function renderMembershipCodes(pageArg = null, limitArg = null) {
                     <td><div class="adm-row-actions">${nextStatus ? `<button class="adm-btn adm-btn-sm ${nextStatus === "disabled" ? "adm-btn-danger" : "adm-btn-ghost"}" type="button" data-membership-code-status="${nextStatus}"><i data-lucide="${nextStatus === "disabled" ? "ban" : "circle-check"}"></i>${nextStatus === "disabled" ? "停用" : "启用"}</button>` : '<span class="adm-muted">已用完</span>'}</div></td>
                   </tr>
                 `;
-              }).join("") : '<tr><td colspan="7" class="adm-muted">暂无激活码。</td></tr>'}
+              }).join("") : '<tr><td colspan="8" class="adm-muted">暂无激活码。</td></tr>'}
             </tbody>
           </table>
         </div>

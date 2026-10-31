@@ -184,6 +184,13 @@ test("admin membership code list exposes a persistent one-click copy button", ()
   assert.match(admin, /adm-membership-code-cell[\s\S]*?data-copy-membership-code=/);
   assert.match(admin, /<i data-lucide="copy"><\/i>复制<\/button>/);
   assert.match(admin, /copyText\(button\.dataset\.copyMembershipCode \|\| "", "激活码已复制。"\)/);
+  assert.match(admin, /<th>用户对象<\/th>/);
+  assert.match(admin, /function membershipCodeUsersHtml/);
+  assert.match(admin, /record\.redemptionUsers/);
+  assert.match(db, /'id', COALESCE\(NULLIF\(users\.id, ''\), redemptions\.user_id\)/);
+  assert.match(db, /'username', COALESCE\(NULLIF\(users\.username, ''\), redemptions\.user_id\)/);
+  assert.match(db, /search_users\.username/);
+  assert.match(css, /\.adm-membership-code-users/);
   assert.doesNotMatch(admin, /newMembershipCodes|本次创建的明文码/);
   assert.match(css, /\.adm-membership-code-cell \.adm-btn \{ flex: 0 0 auto; \}/);
 });

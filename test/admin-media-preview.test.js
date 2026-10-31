@@ -121,8 +121,8 @@ test("media lightbox supports full-size image and playable video previews", () =
 });
 
 test("admin entry busts cached preview assets and disables edge caching", () => {
-  assert.match(html, /admin\.css\?v=20261031-record-fast-1/);
-  assert.match(html, /admin\.js\?v=20261031-record-fast-1/);
+  assert.match(html, /admin\.css\?v=20261031-membership-users-1/);
+  assert.match(html, /admin\.js\?v=20261031-membership-users-1/);
   assert.match(admin, /function adminMediaPreviewTrigger/);
   assert.match(css, /\.adm-media-lightbox/);
 });

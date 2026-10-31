@@ -1218,6 +1218,13 @@ function userSubscriptionFromRow(row = {}) {
 
 function membershipActivationCodeFromRow(row = {}) {
   const expiresAt = row.expires_at || "";
+  const redemptionUsers = Array.isArray(row.redemption_users)
+    ? row.redemption_users.map((user) => ({
+      id: String(user?.id || ""),
+      username: String(user?.username || user?.id || ""),
+      redeemedAt: user?.redeemedAt ? new Date(user.redeemedAt).toISOString() : "",
+    }))
+    : [];
   return {
     id: String(row.id || ""),
     tenantId: normalizeTenantId(row.tenant_id || DEFAULT_TENANT_ID),
@@ -1227,6 +1234,7 @@ function membershipActivationCodeFromRow(row = {}) {
     expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "",
     maxRedemptions: Math.max(1, Math.trunc(Number(row.max_redemptions || 1) || 1)),
     redemptionCount: Math.max(0, Math.trunc(Number(row.redemption_count || 0) || 0)),
+    redemptionUsers,
     notes: String(row.notes || ""),
     createdByUserId: String(row.created_by_user_id || ""),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
@@ -2124,12 +2132,43 @@ async function listMembershipActivationCodesInDb(tenantId = DEFAULT_TENANT_ID, {
   const cleanSearch = String(search || "").trim().toLowerCase();
   const { rows } = await query(
     `
-      SELECT *, COUNT(*) OVER()::int AS total_count
-      FROM app_membership_activation_codes
-      WHERE tenant_id = $1
-        AND ($2 = '' OR status = $2)
-        AND ($3 = '' OR LOWER(CONCAT_WS(' ', code_value, code_prefix, notes, id)) LIKE '%' || $3 || '%')
-      ORDER BY created_at DESC
+      SELECT
+        codes.*,
+        COUNT(*) OVER()::int AS total_count,
+        COALESCE(redeemed.users, '[]'::jsonb) AS redemption_users
+      FROM app_membership_activation_codes codes
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', COALESCE(NULLIF(users.id, ''), redemptions.user_id),
+            'username', COALESCE(NULLIF(users.username, ''), redemptions.user_id),
+            'redeemedAt', redemptions.redeemed_at
+          ) ORDER BY redemptions.redeemed_at DESC
+        ) AS users
+        FROM app_membership_activation_redemptions redemptions
+        LEFT JOIN app_users users
+          ON users.id = redemptions.user_id
+         AND users.tenant_id = redemptions.tenant_id
+        WHERE redemptions.code_id = codes.id
+          AND redemptions.tenant_id = codes.tenant_id
+      ) redeemed ON TRUE
+      WHERE codes.tenant_id = $1
+        AND ($2 = '' OR codes.status = $2)
+        AND (
+          $3 = ''
+          OR LOWER(CONCAT_WS(' ', codes.code_value, codes.code_prefix, codes.notes, codes.id)) LIKE '%' || $3 || '%'
+          OR EXISTS (
+            SELECT 1
+            FROM app_membership_activation_redemptions search_redemptions
+            LEFT JOIN app_users search_users
+              ON search_users.id = search_redemptions.user_id
+             AND search_users.tenant_id = search_redemptions.tenant_id
+            WHERE search_redemptions.code_id = codes.id
+              AND search_redemptions.tenant_id = codes.tenant_id
+              AND LOWER(CONCAT_WS(' ', search_redemptions.user_id, search_users.username)) LIKE '%' || $3 || '%'
+          )
+        )
+      ORDER BY codes.created_at DESC
       LIMIT $4 OFFSET $5
     `,
     [cleanTenantId, cleanStatus, cleanSearch, safeLimit, safeOffset],

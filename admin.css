@@ -1264,6 +1264,25 @@ a { color: inherit; text-decoration: none; }
 .adm-membership-code-cell .adm-btn { flex: 0 0 auto; }
 .adm-membership-code-cell svg { width: 16px; height: 16px; }
 .adm-membership-code-id { overflow-wrap: anywhere; }
+.adm-membership-code-users {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  max-width: 260px;
+}
+.adm-membership-code-user {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--adm-line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+}
+.adm-membership-code-user strong,
+.adm-membership-code-user span { overflow-wrap: anywhere; }
+.adm-membership-code-user strong { color: var(--adm-text); font-size: .82rem; }
+.adm-membership-code-user span { font-size: .72rem; }
 .adm-membership-code-table th:last-child,
 .adm-membership-code-table td:last-child { width: 120px; }
 
