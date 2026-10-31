@@ -56,6 +56,17 @@ test("admin media preview selects images, videos, and audio without autoplaying 
   });
   assert.match(ratioVideo, /class="adm-media-preview-trigger adm-record-thumb" style="--video-ratio:9 \/ 16;"/);
 
+  const lazyVideo = adminMediaPreviewTrigger({
+    url: "https://cdn.test/a.mp4",
+    kind: "video",
+    label: "生成结果",
+    className: "adm-record-thumb adm-record-thumb-preview",
+    preloadVideo: false,
+  });
+  assert.doesNotMatch(lazyVideo, /<video/);
+  assert.match(lazyVideo, /adm-media-preview-no-preload/);
+  assert.match(lazyVideo, /data-media-url="https:\/\/cdn\.test\/a\.mp4"/);
+
   const audio = adminMediaPreviewTrigger({ url: "https://cdn.test/a.mp3", kind: "ambient-music", label: "环境音乐" });
   assert.match(audio, /<audio class="adm-media-preview-audio" src="https:\/\/cdn\.test\/a\.mp3" controls preload="metadata"><\/audio>/);
 });
@@ -72,7 +83,7 @@ test("all live chat material editors render a preview trigger", () => {
 
 test("admin cards, records, templates, avatars, and geo samples render preview triggers", () => {
   assert.match(admin, /function videoOrPoster[\s\S]*?adminMediaPreviewTrigger/);
-  assert.match(admin, /function generationRecordRowHtml[\s\S]*?className: "adm-record-thumb adm-record-thumb-preview"[\s\S]*?style: ratioStyle/);
+  assert.match(admin, /function generationRecordRowHtml[\s\S]*?className: "adm-record-thumb adm-record-thumb-preview"[\s\S]*?preloadVideo: false/);
   assert.match(admin, /function platformTemplatePreview[\s\S]*?adminMediaPreviewTrigger\(\{[\s\S]*?kind: isVideoUrl\(preview\) \? "video" : "image"/);
   assert.match(admin, /function chatLiveCharacterRow[\s\S]*?className: "adm-avatar adm-avatar-preview"/);
   assert.match(admin, /function renderGeoSampleCard[\s\S]*?adminMediaPreviewTrigger/);
@@ -110,8 +121,8 @@ test("media lightbox supports full-size image and playable video previews", () =
 });
 
 test("admin entry busts cached preview assets and disables edge caching", () => {
-  assert.match(html, /admin\.css\?v=20261030-voice-preview-12/);
-  assert.match(html, /admin\.js\?v=20261030-voice-preview-12/);
+  assert.match(html, /admin\.css\?v=20261031-record-fast-1/);
+  assert.match(html, /admin\.js\?v=20261031-record-fast-1/);
   assert.match(admin, /function adminMediaPreviewTrigger/);
   assert.match(css, /\.adm-media-lightbox/);
 });

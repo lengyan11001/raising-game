@@ -1964,6 +1964,16 @@ body.has-adm-media-preview { overflow: hidden; }
 }
 .adm-record-thumb-preview img,
 .adm-record-thumb-preview video { object-fit: contain; }
+.adm-media-preview-no-preload {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255,255,255,.12), transparent 32%),
+    linear-gradient(145deg, rgba(165,116,255,.16), rgba(28,20,38,.82));
+}
+.adm-media-preview-no-preload .adm-media-preview-play {
+  width: 30px;
+  background: rgba(255,255,255,.16);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.24);
+}
 .platform-mini-preview-link {
   width: 58px;
   height: 42px;

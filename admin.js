@@ -2235,6 +2235,7 @@ function generationRecordRowHtml(record, index) {
       poster,
       className: "adm-record-thumb adm-record-thumb-preview",
       style: ratioStyle,
+      preloadVideo: false,
     })
     : imageResult || record.imageUrl
       ? adminMediaPreviewTrigger({
@@ -4046,7 +4047,7 @@ function adminMediaPreviewType(url = "", kind = "") {
   return "image";
 }
 
-function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "" } = {}) {
+function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true } = {}) {
   const source = String(url || "").trim();
   if (!source) return '<span class="adm-media-preview-empty">未上传</span>';
   const type = adminMediaPreviewType(source, kind);
@@ -4056,9 +4057,11 @@ function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", class
   const posterAttr = posterSource ? ` poster="${escapeHtml(posterSource)}"` : "";
   const styleAttr = String(style || "").trim() ? ` style="${escapeHtml(style)}"` : "";
   const media = type === "video"
-    ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
+    ? preloadVideo
+      ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
+      : `<span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
     : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
-  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
 }
 
 function closeAdminMediaPreview() {
