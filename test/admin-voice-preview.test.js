@@ -16,6 +16,7 @@ const previewRoot = path.join(root, "assets", "admin", "voice-preview");
 const currentPreviewFiles = [
   "joanna-scene-23s-a-bfa45922.m4a",
   "joanna-scene-23s-b-5c58fa85.m4a",
+  "qwen3-serena-scene-once-cc25477e.m4a",
 ];
 const legacyPreviewFiles = ["joanna-user-rule-e.wav", "joanna-user-rule-f.wav"];
 const referencePreviewFiles = ["joanna-moan-breath-c.wav"];
@@ -55,21 +56,29 @@ test("admin has a top-level voice preview route and navigation entry", () => {
   assert.match(admin, /function renderVoicePreview\(\)/);
 });
 
-test("voice preview only lists the complete A/B audition candidates", () => {
+test("voice preview lists the complete A/B and Qwen3 recommended candidates", () => {
   assert.match(admin, /const VOICE_PREVIEW_ITEMS = \[/);
   assert.match(admin, /id: "user-rule-e"/);
   assert.match(admin, /id: "user-rule-f"/);
+  assert.match(admin, /id: "qwen3-serena-once"/);
+  assert.match(admin, /qwen3-serena-scene-once-cc25477e\.m4a\?v=20261031-qwen3-serena-once/);
+  assert.match(admin, /Qwen3-TTS Flash 的 Serena 温柔女声/);
+  assert.match(admin, /seekMarkers: \[23\.0, 32\.0\]/);
+  assert.match(admin, /seekMarkers: \[32\.0, 48\.0\]/);
   assert.match(admin, /joanna-scene-23s-a-bfa45922\.m4a\?v=20261030-voice-preview-12/);
   assert.match(admin, /joanna-scene-23s-b-5c58fa85\.m4a\?v=20261030-voice-preview-12/);
   assert.doesNotMatch(admin, /joanna-user-rule-[ef]\.wav/);
   assert.match(admin, /duration: "41\.5 秒"/);
   assert.match(admin, /duration: "46\.8 秒"/);
+  assert.match(admin, /duration: "64\.2 秒"/);
   assert.match(admin, /expectedDuration: 41\.5/);
   assert.match(admin, /expectedDuration: 46\.8/);
-  assert.match(admin, /当前只保留本轮两条连续场景候选，均为完整提示词直接生成；历史音频已从后台试听页移除/);
+  assert.match(admin, /expectedDuration: 64\.16/);
+  assert.match(admin, /保留上一轮两条 Qwen-Audio 连续场景候选，并新增一条 Qwen3-TTS 推荐方案/);
   assert.match(admin, /data-voice-seek="0"/);
-  assert.match(admin, /data-voice-seek="23\.0"/);
-  assert.match(admin, /data-voice-seek="32\.0"/);
+  assert.match(admin, /item\.seekMarkers \|\| \[23\.0, 32\.0\]/);
+  assert.match(admin, /data-voice-seek="\$\{escapeHtml\(seekTo\)\}"/);
+  assert.match(admin, /跳到 \$\{escapeHtml\(seekTo\)\} 秒/);
   assert.match(admin, /audio\.currentTime = Math\.min\(audio\.duration, Math\.max\(0, seekTo\)\)/);
   assert.match(admin, /data-voice-preview-id/);
   assert.match(admin, /audio\.closest\("article\[data-voice-preview-id\]"\)/);
@@ -95,6 +104,8 @@ test("voice preview only lists the complete A/B audition candidates", () => {
 
 test("current audition M4A files and the protected breath reference are valid", () => {
   for (const fileName of currentPreviewFiles) assertM4a(fileName, 100_000);
+  assert.equal(fs.statSync(path.join(previewRoot, "qwen3-serena-scene-once-cc25477e.m4a")).size, 263453);
+  assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "qwen3-serena-scene-once-cc25477e.m4a"))).digest("hex"), "cc25477eca45334694af23db0b9e5150c5c08b96eb72b04789295c116712ba4e");
   assertWav("joanna-moan-breath-c.wav", 500_000);
   const digest = crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "joanna-moan-breath-c.wav"))).digest("hex");
   assert.equal(digest, "a6ea5970aa1e0ebf3e1ffa4dda52d58bec87daec95e1ee78004fffd10888d26e", "approved Joanna breath reference must remain byte-identical");

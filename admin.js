@@ -39,6 +39,7 @@ const VOICE_PREVIEW_ITEMS = [
     description: "用当时 23 秒“啊……别看我”所在长场景的同一套提示词整段重生，没有剪接。重点听叫声、换气和快速独白是否连续自然。",
     duration: "41.5 秒",
     expectedDuration: 41.5,
+    seekMarkers: [23.0, 32.0],
     src: "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
   },
   {
@@ -48,7 +49,18 @@ const VOICE_PREVIEW_ITEMS = [
     description: "同样整段生成，只调整短句断点；重点比较后半段气息是否稳定、场景是否连贯。",
     duration: "46.8 秒",
     expectedDuration: 46.8,
+    seekMarkers: [23.0, 32.0],
     src: "/assets/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
+  },
+  {
+    id: "qwen3-serena-once",
+    title: "Qwen3-TTS 推荐方案 · Serena 系统音整段生成",
+    badge: "推荐试听",
+    description: "推荐方案实测：Qwen3-TTS Flash 的 Serena 温柔女声，完整长场景一次连续生成；没有使用旧 Qwen-Audio 克隆音色，也没有逐段剪辑或拼接。对照重点：音色是否稳定、换气和短叫是否自然、句间停顿是否连贯。",
+    duration: "64.2 秒",
+    expectedDuration: 64.16,
+    seekMarkers: [32.0, 48.0],
+    src: "/assets/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
   },
 ];
 
@@ -6999,14 +7011,14 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。当前只保留本轮两条连续场景候选，均为完整提示词直接生成；历史音频已从后台试听页移除。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。保留上一轮两条 Qwen-Audio 连续场景候选，并新增一条 Qwen3-TTS 推荐方案；全部由完整提示词直接生成，没有逐段剪辑。历史音频已从后台试听页移除。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>本轮重点</h3>
-            <p class="adm-muted">这两条都沿用长场景中 23 秒“啊……别看我”那版提示词结构整段生成，没有做逐段剪辑；建议先完整听一遍，再单独听约 23 秒附近的叫声和换气。</p>
+            <p class="adm-muted">上轮两条沿用长场景中 23 秒“啊……别看我”那版提示词结构整段生成；新增的 Qwen3-TTS 推荐方案换用 Serena 系统音做同一类连续场景。先完整听 Qwen3 这条，再对照旧候选判断音色、呼吸和句间连贯性。</p>
           </div>
         </div>
       </div>
@@ -7025,7 +7037,7 @@ function renderVoicePreview() {
               <audio controls preload="none" data-voice-preview-audio data-voice-preview-id="${escapeHtml(item.id)}" data-src="${escapeHtml(item.src)}" data-expected-duration="${escapeHtml(item.expectedDuration)}" aria-label="${escapeHtml(item.title)}"></audio>
               <div class="adm-voice-preview-meta">
                 <span data-voice-preview-status>等待载入完整音频 · ${escapeHtml(item.duration)}</span>
-                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0" data-voice-preview-control disabled><i data-lucide="play"></i>从头播放</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="23.0" data-voice-preview-control disabled><i data-lucide="message-circle"></i>跳到 23 秒</button><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="32.0" data-voice-preview-control disabled><i data-lucide="waves"></i>后半段</button>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0" data-voice-preview-control disabled><i data-lucide="play"></i>从头播放</button>${(item.seekMarkers || [23.0, 32.0]).map((seekTo, index) => `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${escapeHtml(seekTo)}" data-voice-preview-control disabled><i data-lucide="${index === 0 ? "message-circle" : "waves"}"></i>${index === 0 ? `跳到 ${escapeHtml(seekTo)} 秒` : "后半段"}</button>`).join("")}
               </div>
             </div>
           </article>
