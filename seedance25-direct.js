@@ -1,5 +1,10 @@
 "use strict";
 
+const {
+  SEEDANCE25_DIRECT_SEED_MAX,
+  normalizeOptionalSeed,
+} = require("./seed-options");
+
 const SEEDANCE25_DIRECT_PROVIDER = "seedance-nsfw";
 const SEEDANCE25_DIRECT_LABEL = "Seedance 2.5";
 const SEEDANCE25_DIRECT_MODEL = "dreamina-seedance-2-5-260628";
@@ -67,7 +72,7 @@ function validateSeedance25DirectInput(input = {}) {
   const audios = uniqueUris(input.audioAssets || input.audioFiles);
   const firstFrameAsset = String(input.firstFrameAsset || input.firstFrameUrl || "").trim();
   const lastFrameAsset = String(input.lastFrameAsset || input.lastFrameUrl || "").trim();
-  const seed = input.seed === "" || input.seed === undefined || input.seed === null ? null : Number(input.seed);
+  const seed = normalizeOptionalSeed(input.seed, { max: SEEDANCE25_DIRECT_SEED_MAX }) ?? null;
   const generateAudio = input.generateAudio !== false && input.generate_audio !== false;
 
   if (!prompt && !images.length && !videos.length && !audios.length && !firstFrameAsset) {
@@ -80,10 +85,6 @@ function validateSeedance25DirectInput(input = {}) {
   if (!SEEDANCE25_DIRECT_RATIOS.includes(ratio)) {
     throw directInputError("SEEDANCE25_DIRECT_INVALID_RATIO", "Seedance 2.5 ratio is not supported.", { allowed: SEEDANCE25_DIRECT_RATIOS });
   }
-  if (seed !== null && (!Number.isInteger(seed) || seed < -1 || seed > 4294967295)) {
-    throw directInputError("SEEDANCE25_DIRECT_INVALID_SEED", "Seed must be -1 or an integer from 0 to 4294967295.");
-  }
-
   let duration = Number(input.duration);
   if (mode === "edit" && Number(input.inputVideoSeconds) > 0) duration = Math.ceil(Number(input.inputVideoSeconds));
   if (!Number.isInteger(duration) || duration < 4 || duration > 30) {

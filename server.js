@@ -19,6 +19,10 @@ const {
 } = require("./aliyun-video");
 const mulerouterAliyun = require("./mulerouter-aliyun");
 const {
+  SEEDANCE25_DIRECT_SEED_MAX,
+  normalizeOptionalSeed,
+} = require("./seed-options");
+const {
   SEEDANCE25_CNY_PER_POINT,
   SEEDANCE25_CNY_PER_USD,
   SEEDANCE25_MODEL,
@@ -18009,6 +18013,7 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
   const source = { ...requestParamsFromBody(body), ...body };
   const parameterExtras = plainObject(source.parameters);
   const payload = pickRequestFields(source, SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS);
+  delete payload.seed;
   const requestedContent = Array.isArray(source.content) ? source.content : null;
   const fallbackContent = Array.isArray(content) ? content : [];
   payload.model = String(firstPresent(source.model, MODEL_QUALITY));
@@ -18025,7 +18030,7 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
     advancedDurationBounds("seedance").min,
     advancedDurationBounds("seedance").max,
   );
-  const seedValue = firstPresent(source.seed, parameterExtras.seed);
+  const seedValue = normalizeOptionalSeed(firstPresent(source.seed, parameterExtras.seed));
   if (seedValue !== undefined) payload.seed = seedValue;
   const webSearchValue = firstPresent(source.web_search, source.webSearch, parameterExtras.web_search, parameterExtras.webSearch);
   if (webSearchValue !== undefined) payload.web_search = boolFromRequest(webSearchValue, false);
@@ -31752,7 +31757,9 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const requestedRatio = String(firstPresent(body.ratio, bodyParams.ratio, caseParams.ratio, direct && mode !== "omini" ? "adaptive" : "16:9")).trim().toLowerCase();
   const ratio = direct && mode !== "omini" ? "adaptive" : requestedRatio;
   const duration = Number(firstPresent(body.duration, bodyParams.duration, caseParams.duration, 4));
-  const seed = direct ? firstPresent(body.seed, bodyParams.seed, caseParams.seed, "") : "";
+  const seed = direct
+    ? normalizeOptionalSeed(firstPresent(body.seed, bodyParams.seed, caseParams.seed), { max: SEEDANCE25_DIRECT_SEED_MAX })
+    : "";
   const generateAudio = boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio), true);
   const preprocessReference = boolFromRequest(firstPresent(
     body.preprocessReference,
@@ -32583,7 +32590,7 @@ async function runAdvancedGenerationJob(job = {}) {
         mediaMode: isAliyunVideoProvider(provider) ? resolvedWan27MediaMode : (seedanceMode || undefined),
         videoCapability: isAliyunVideoProvider(provider) ? requestParams.videoCapability : undefined,
         seedanceMode: provider === "seedance" ? (seedanceMode || undefined) : undefined,
-        seed: requestParams.seed === undefined || requestParams.seed === "" ? undefined : requestParams.seed,
+        seed: normalizeOptionalSeed(requestParams.seed),
       };
       if (provider !== "seedance" || job.forwardModelToGateway) {
         gatewayBody.model = requestParams.model;
@@ -35535,7 +35542,7 @@ async function handleAdvancedGenerate(req, res) {
     bodyParams.preprocessReference,
     caseParams.preprocessReference,
   ), false);
-  requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
+  requestParams.seed = normalizeOptionalSeed(firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed));
   const normalizedSeedanceModel = provider === "seedance"
     ? seedanceConfiguredModelForRequest(requestedModel, requestParams.seedanceTier)
     : "";

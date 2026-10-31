@@ -2250,7 +2250,7 @@ async function submitAdvancedGenerate() {
                 n: outputImageCount,
                 prompt_extend: els.advancedQwenPromptExtend?.value !== "false",
                 watermark: els.advancedQwenWatermark?.value === "true",
-                seed: els.advancedWanSeed?.value === "" ? undefined : Number(els.advancedWanSeed.value),
+                seed: normalizeAdvancedSeed(els.advancedWanSeed?.value, { min: 0 }),
               }
             : { seedreamTier }),
           prompt,
@@ -2752,7 +2752,7 @@ async function submitAdvancedGenerate() {
         resolution: currentAdvancedResolution(),
         duration,
         preprocessReference,
-        seed: els.advancedWanSeed?.value || "",
+        seed: normalizeAdvancedSeed(els.advancedWanSeed?.value),
         params: {
           createKind: state.advancedCreateKind,
           createMode: state.advancedCreateMode,
@@ -3418,6 +3418,15 @@ function splitUrlList(value = "") {
     .split(/[\n,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeAdvancedSeed(value, { min = 1, max = 2147483647 } = {}) {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  if (!text) return undefined;
+  const seed = Number(text);
+  if (!Number.isSafeInteger(seed) || seed < min || seed > max) return undefined;
+  return seed;
 }
 
 function advancedBoolFromValue(value, fallback = true) {
