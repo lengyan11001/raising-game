@@ -801,6 +801,10 @@
     const src = item?.thumbnailUrl || item?.url || "";
     return src ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" decoding="async" />` : '<div class="image-empty"><span>♙</span></div>';
   }
+  function albumModalImage(item, alt = "相册照片") {
+    const src = item?.url || item?.thumbnailUrl || "";
+    return src ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" decoding="async" />` : '<div class="image-empty"><span>♙</span></div>';
+  }
   function isLiveMember() {
     const subscription = state.billing?.subscription;
     const end = Date.parse(subscription?.currentPeriodEnd || "");
@@ -2520,8 +2524,8 @@ document.addEventListener("click", async (e) => {
       const photos = parts.photos;
       const priv = parts.priv;
       document.querySelector("[data-role-sheet]")?.remove();
-      const cells = photos.map((item) => `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${albumThumb(item)}</button>`).join("");
-      const locks = priv.map((item) => member && item.url ? `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${albumThumb(item, "私密相册照片")}</button>` : `<button class="album-item is-locked" data-action="unlock-private"><span class="lock-shade"><b>私密</b><small>订阅后查看</small></span></button>`).join("");
+      const cells = photos.map((item) => `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${albumModalImage(item)}</button>`).join("");
+      const locks = priv.map((item) => member && item.url ? `<button class="album-item" data-action="view-photo" data-photo="${esc(item.url)}">${albumModalImage(item, "私密相册照片")}</button>` : `<button class="album-item is-locked" data-action="unlock-private"><span class="lock-shade"><b>私密</b><small>订阅后查看</small></span></button>`).join("");
       const total = photos.length + priv.length;
       app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-role-sheet data-action="close-sheet"><div class="language-sheet album-sheet" data-sheet><div class="sheet-handle"></div><div class="filter-sheet-head"><h3>TA 的相册</h3><button data-action="close-sheet">×</button></div><div class="album-sheet-grid">${cells}${locks}${(cells || locks) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></div></div>`);
       return;

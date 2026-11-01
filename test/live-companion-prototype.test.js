@@ -206,8 +206,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026103041/);
-  assert.match(html, /live\.js\?v=2026103041/);
+  assert.match(html, /live\.css\?v=2026110101/);
+  assert.match(html, /live\.js\?v=2026110101/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 
@@ -271,11 +271,13 @@ test("role detail labels, private-album header, and create empty state match the
   assert.match(css, /\.album-cell\{[^}]*aspect-ratio:3\/4/);
   assert.match(css, /\.album-cell>\.fit-media/);
   assert.match(css, /\.album-cell img\.fit-media-photo\{[^}]*object-fit:cover/);
-  assert.match(css, /\.album-sheet-grid button\{[^}]*aspect-ratio:3\/4/);
+  assert.match(css, /\.album-sheet-grid \.album-item\{[^}]*aspect-ratio:auto/);
+  assert.match(css, /\.album-sheet-grid \.album-item>img\{[^}]*height:auto[^}]*object-fit:contain/);
   assert.match(live, /const fitMedia = \(url, alt = ""\)/);
   assert.match(live, /function albumThumb\(item, alt = "相册照片"\)[\s\S]*?item\?\.thumbnailUrl \|\| item\?\.url/);
+  assert.match(live, /function albumModalImage\(item, alt = "相册照片"\)[\s\S]*?item\?\.url \|\| item\?\.thumbnailUrl/);
   assert.match(live, /album-cell[^>]*aria-label="查看相册"[^>]*>\$\{albumThumb\(item/);
-  assert.match(live, /class="album-item"[^>]*data-photo="\$\{esc\(item\.url\)\}"[^>]*>\$\{albumThumb\(item\)\}/);
+  assert.match(live, /class="album-item"[^>]*data-photo="\$\{esc\(item\.url\)\}"[^>]*>\$\{albumModalImage\(item\)\}/);
   assert.doesNotMatch(live, /album-cell[^>]*data-photo/);
   assert.match(live, /这不是聊天记录<br><em>这是关系<\/em>/);
   assert.match(live, /AI 给了 Ta 说话的能力<br><em>是你让 Ta 有了情感<\/em>/);
