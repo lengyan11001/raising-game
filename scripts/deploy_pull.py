@@ -90,6 +90,12 @@ def main() -> None:
         default=[],
         help="Require verified page content. Format: URL=EXPECTED_TEXT. The URL must also be passed to --verify-url.",
     )
+    parser.add_argument(
+        "--verify-not-contains",
+        action="append",
+        default=[],
+        help="Reject verified page content. Format: URL=UNEXPECTED_TEXT. The URL must also be passed to --verify-url.",
+    )
     parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
@@ -160,18 +166,36 @@ if printf '%s\n' "$changed_paths" | grep -E -- {pattern_q} >/dev/null; then
   printf '%s\n' "$changed_paths" | grep -E -- {pattern_q} >&2 || true
   echo 'Split the release or use the domain-specific deployment target.' >&2
   exit 26
+fi
+published_paths=$(git diff --name-only "$remote_head" "$(git rev-parse origin/{args.branch})")
+if printf '%s\n' "$published_paths" | grep -E -- {pattern_q} >/dev/null; then
+  echo 'The published commit forbids changes to:' >&2
+  printf '%s\n' {shlex.quote(forbidden_display)} >&2
+  echo 'Changed forbidden paths in published commit:' >&2
+  printf '%s\n' "$published_paths" | grep -E -- {pattern_q} >&2 || true
+  echo 'Split the release or use the domain-specific deployment target.' >&2
+  exit 26
 fi"""
 
     verify_contains: dict[str, list[str]] = {}
-    for requirement in args.verify_contains:
-        verify_url, separator, expected_text = str(requirement or "").partition("=")
-        if not separator or not verify_url.startswith(("http://", "https://")) or not expected_text:
-            raise SystemExit(f"Invalid --verify-contains value: {requirement}")
-        verify_contains.setdefault(verify_url, []).append(expected_text)
-    verify_urls = list(dict.fromkeys([*args.verify_url, *verify_contains]))
-    unknown_verify_urls = [verify_url for verify_url in verify_contains if verify_url not in args.verify_url]
+    verify_not_contains: dict[str, list[str]] = {}
+    for option_name, requirements, target_map in (
+        ("--verify-contains", args.verify_contains, verify_contains),
+        ("--verify-not-contains", args.verify_not_contains, verify_not_contains),
+    ):
+        for requirement in requirements:
+            verify_url, separator, expected_text = str(requirement or "").partition("=")
+            if not separator or not verify_url.startswith(("http://", "https://")) or not expected_text:
+                raise SystemExit(f"Invalid {option_name} value: {requirement}")
+            target_map.setdefault(verify_url, []).append(expected_text)
+    verify_urls = list(dict.fromkeys([*args.verify_url, *verify_contains, *verify_not_contains]))
+    unknown_verify_urls = [
+        verify_url
+        for verify_url in [*verify_contains, *verify_not_contains]
+        if verify_url not in args.verify_url
+    ]
     if unknown_verify_urls:
-        raise SystemExit(f"--verify-contains URL must also be passed to --verify-url: {unknown_verify_urls[0]}")
+        raise SystemExit(f"Verification URL must also be passed to --verify-url: {unknown_verify_urls[0]}")
     verification_checks = []
     for verify_url in verify_urls:
         verify_url_q = shlex.quote(verify_url)
@@ -183,7 +207,15 @@ fi"""
                 f"grep -F -- {expected_text_q} \"$verify_body\" >/dev/null || "
                 f"{{ echo \"Verified page missing expected content: {verify_url} => {expected_display}\"; exit 28; }}"
             )
-        expected_check = "\n".join(expected_checks) or "true"
+        unexpected_checks = []
+        for unexpected_text in verify_not_contains.get(verify_url, ()):
+            unexpected_text_q = shlex.quote(unexpected_text)
+            unexpected_display = unexpected_text.replace("\\", "\\\\").replace("'", "\\'")
+            unexpected_checks.append(
+                f"if grep -F -- {unexpected_text_q} \"$verify_body\" >/dev/null; then "
+                f"echo \"Verified page contains forbidden content: {verify_url} => {unexpected_display}\"; rm -f \"$verify_body\"; exit 30; fi"
+            )
+        expected_check = "\n".join([*expected_checks, *unexpected_checks]) or "true"
         verification_checks.append(f"""
 verify_body=$(mktemp)
 curl -fsSL --max-time 15 {verify_url_q} -o "$verify_body" || {{ echo "Page verification failed: {verify_url}"; rm -f "$verify_body"; exit 27; }}

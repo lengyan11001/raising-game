@@ -29,6 +29,11 @@ TARGETS = {
             "https://123vips.com/=platform.css",
             "https://123vips.com/=Vipeak AI",
         ),
+        # A live-only UI change must not bleed into the platform surface.
+        "verify_not_contains": (
+            "https://123vips.com/=live.css",
+            "https://123vips.com/=Vipeak Live",
+        ),
         "env_file": "/etc/raising-game-demo.env",
         "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
@@ -152,6 +157,8 @@ def main() -> None:
         print(f"[deploy-site] verify_url={verify_url}")
     for verify_contains in target.get("verify_contains", ()):
         print(f"[deploy-site] verify_contains={verify_contains}")
+    for verify_not_contains in target.get("verify_not_contains", ()):
+        print(f"[deploy-site] verify_not_contains={verify_not_contains}")
     print(f"[deploy-site] env_file={target['env_file']}")
     print(f"[deploy-site] password_source={password_source or '<missing>'}")
     for pattern in target.get("forbidden_env_patterns", ()):
@@ -215,6 +222,8 @@ def main() -> None:
         command.extend(["--verify-url", verify_url])
     for verify_contains in target.get("verify_contains", ()):
         command.extend(["--verify-contains", verify_contains])
+    for verify_not_contains in target.get("verify_not_contains", ()):
+        command.extend(["--verify-not-contains", verify_not_contains])
     raise SystemExit(subprocess.call(command, env=env))
 
 

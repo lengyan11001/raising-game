@@ -17,7 +17,13 @@ test("production deploy targets verify their intended domain surfaces", () => {
   assert.match(deploySite, /"verify_urls": \("https:\/\/live\.123vipeak\.com\/", "https:\/\/123vips\.com\/"\)/);
   assert.match(deployPull, /--verify-url/);
   assert.match(deployPull, /--verify-contains/);
+  assert.match(deployPull, /--verify-not-contains/);
   assert.match(deployPull, /Verified page missing expected content/);
+  assert.match(deployPull, /Verified page contains forbidden content/);
+  assert.match(
+    deploySite,
+    /"verify_not_contains": \(\s+"https:\/\/123vips\.com\/=live\.css",\s+"https:\/\/123vips\.com\/=Vipeak Live",/,
+  );
   assert.match(deployPull, /Page verification failed/);
   assert.match(deployPull, /Health check returned HTTP/);
   assert.match(deploySite, /expected_commit/);
