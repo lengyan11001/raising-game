@@ -182,6 +182,7 @@ const {
   markLiveNotificationReadInDb,
   markAllLiveNotificationsReadInDb,
   getLiveCheckinInDb,
+  getLiveCheckinHistoryPageFromDb,
   createLiveCheckinWithCreditInDb,
   getLiveDailyTaskClaimsInDb,
   getLiveDailyTaskCompletionInDb,
@@ -41011,6 +41012,26 @@ async function handleGetLiveCheckin(req, res) {
   return sendJson(res, 200, { ok: true, checkin, user: userView(auth.user) });
 }
 
+async function handleListLiveCheckinHistory(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "签到记录需要数据库服务。" });
+  const { page, limit } = pagingFromUrl(url, { defaultLimit: 10, maxLimit: 100 });
+  const result = await getLiveCheckinHistoryPageFromDb({ userId: auth.user.id, page, limit });
+  if (!result) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "签到记录需要数据库服务。" });
+  return sendJson(res, 200, {
+    ok: true,
+    records: result.items.map((item) => ({
+      ...item,
+      taskTitle: liveDailyTaskConfig(item.taskKey)?.title || item.taskTitle || "每日奖励",
+    })),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+    totalPages: result.totalPages,
+  });
+}
+
 async function handleCreateLiveCheckin(req, res) {
   return handleClaimLiveDailyTask(req, res, "checkin");
 }
@@ -52282,6 +52303,9 @@ async function handleRequest(req, res) {
     const liveNotificationReadMatch = url.pathname.match(/^\/api\/live\/notifications\/([^/]+)\/read$/);
     if (req.method === "POST" && liveNotificationReadMatch) {
       return await handleReadLiveNotification(req, res, decodeURIComponent(liveNotificationReadMatch[1]));
+    }
+    if (req.method === "GET" && url.pathname === "/api/live/checkin/history") {
+      return await handleListLiveCheckinHistory(req, res, url);
     }
     if (req.method === "GET" && url.pathname === "/api/live/checkin") {
       return await handleGetLiveCheckin(req, res);

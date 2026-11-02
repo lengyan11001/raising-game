@@ -168,20 +168,28 @@ test("live Google login uses the registered redirect URI while keeping account l
   assert.match(html, /<input name="password"/);
 });
 
-test("live gift and spending ledger rows keep a stable three-column layout", () => {
-  assert.match(css, /\.ledger-card\{display:grid/);
-  assert.match(css, /\.ledger-card>div\{display:grid;[^}]*grid-template-columns:42px minmax\(0,1fr\) auto/);
+test("wallet history uses one outer card with a stable three-column row layout", () => {
+  assert.match(css, /\.ledger-card\{[^}]*border:1px solid[^}]*border-radius:12px/);
+  assert.match(css, /\.ledger-row\{display:grid;[^}]*grid-template-columns:42px minmax\(0,1fr\) auto/);
   assert.match(css, /\.ledger-copy b,\.ledger-copy small\{[^}]*overflow:hidden[^}]*text-overflow:ellipsis/);
-  assert.match(css, /\.ledger-card>div>em\{[^}]*text-align:right/);
-  assert.match(live, /function ledgerRows\(items, empty\)[\s\S]*?<section class="ledger-card">/);
+  assert.match(css, /\.ledger-row>em\{[^}]*text-align:right/);
+  assert.match(live, /class="ledger-card wallet-history-card" data-wallet-history/);
+  assert.match(live, /function ledgerRows\(items, empty\)[\s\S]*?<section class="ledger-card ledger-card-basic">/);
 });
 
-test("live wallet spending ledger paginates ten rows at a time", () => {
+test("wallet history includes paginated spending and check-in records in the same card", () => {
+  assert.match(live, /data-action="wallet-history-tab"/);
+  assert.match(live, /data-wallet-history-tab="spend"/);
+  assert.match(live, /data-wallet-history-tab="checkin"/);
   assert.match(live, /function spendPager\(page, totalPages\)/);
-  assert.match(live, /data-action="wallet-spend-page"/);
+  assert.match(live, /function checkinPager\(page, totalPages\)/);
+  assert.match(live, /historyPager\(page, totalPages, "wallet-spend-page", "消费记录"\)/);
+  assert.match(live, /historyPager\(page, totalPages, "wallet-checkin-page", "签到记录"\)/);
   assert.match(live, /api\(`\/api\/billing\/spending\?page=\$\{state\.walletSpendPage\}&limit=10`\)/);
-  assert.match(live, /state\.walletSpendPage = Math\.max\(1, Number\(data\.page \|\| 1\) \|\| 1\)/);
+  assert.match(live, /api\(`\/api\/live\/checkin\/history\?page=\$\{state\.walletCheckinPage\}&limit=10`\)/);
   assert.match(live, /state\.walletSpendTotalPages = Math\.max\(1, Number\(data\.totalPages \|\| 1\) \|\| 1\)/);
+  assert.match(live, /state\.walletCheckinTotalPages = Math\.max\(1, Number\(data\.totalPages \|\| 1\) \|\| 1\)/);
+  assert.match(css, /\.wallet-history-tabs\{display:flex/);
   assert.match(css, /\.ledger-pager\{display:flex/);
 });
 

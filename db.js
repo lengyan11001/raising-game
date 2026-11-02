@@ -4463,6 +4463,70 @@ async function createLiveDailyTaskClaimWithCreditInDb({
   }
 }
 
+async function getLiveCheckinHistoryPageFromDb({ userId = "", page = 1, limit = 10 } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { items: [], total: 0, page: 1, limit: 10, totalPages: 1 };
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 100);
+  const { rows } = await query(`
+    WITH claim_rows AS (
+      SELECT
+        id,
+        task_date::text AS task_date,
+        task_key,
+        credits,
+        payload,
+        created_at
+      FROM app_live_daily_task_claims
+      WHERE user_id = $1
+    ),
+    legacy_checkin_rows AS (
+      SELECT
+        c.id,
+        c.checkin_date::text AS task_date,
+        'checkin'::text AS task_key,
+        c.credits,
+        jsonb_build_object('taskTitle', '每日签到', 'reward', c.credits) AS payload,
+        c.created_at
+      FROM app_live_checkins c
+      WHERE c.user_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM app_live_daily_task_claims d
+          WHERE d.user_id = c.user_id
+            AND d.task_date = c.checkin_date
+            AND d.task_key = 'checkin'
+        )
+    ),
+    merged AS (
+      SELECT * FROM claim_rows
+      UNION ALL
+      SELECT * FROM legacy_checkin_rows
+    )
+    SELECT *, COUNT(*) OVER()::int AS total_count
+    FROM merged
+    ORDER BY created_at DESC, id DESC
+    LIMIT $2 OFFSET $3
+  `, [cleanUserId, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return {
+    items: rows.map((row) => ({
+      id: String(row.id || ""),
+      userId: cleanUserId,
+      taskDate: String(row.task_date || ""),
+      taskKey: String(row.task_key || ""),
+      taskTitle: String(row.payload?.taskTitle || row.payload?.task_title || ""),
+      credits: creditNumber(row.credits || 0),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    })),
+    total,
+    page: Math.min(safePage, totalPages),
+    limit: safeLimit,
+    totalPages,
+  };
+}
+
 async function getLiveCheckinSummaryInDb(userId = "", checkinDate = "") {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -6529,6 +6593,7 @@ module.exports = {
   createLiveCheckinInDb,
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
+  getLiveCheckinHistoryPageFromDb,
   getLiveDailyTaskClaimsInDb,
   getLiveDailyTaskCompletionInDb,
   createLiveDailyTaskClaimWithCreditInDb,

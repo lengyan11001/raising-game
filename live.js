@@ -4,7 +4,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
@@ -1718,8 +1718,11 @@
   function showRecharge(){
     state.pageReturn=state.pageReturn||(state.page==="role-detail"?"role-detail":(state.page==="vip"?"vip":"profile"));
     state.page="recharge";
+    state.walletHistoryTab="spend";
     state.walletSpendPage=1;
     state.walletSpendTotalPages=1;
+    state.walletCheckinPage=1;
+    state.walletCheckinTotalPages=1;
     const packages=(state.billing?.topupPackages?.length?state.billing.topupPackages:(state.config?.topupPackages||[])).slice().sort((a,b)=>Number(a.amount)-Number(b.amount));
     const credits=Number(state.user?.credits||0);
     const rate=Math.max(0,Number(state.config?.pricing?.saleCreditsPerMinute??0)||0);
@@ -1731,7 +1734,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>累计免费</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><p class="section-label">消费记录</p><section class="ledger-card" data-recent-spend><div><div><b>正在读取</b><small>每页 10 条</small></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>累计免费</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><section class="ledger-card wallet-history-card" data-wallet-history><header class="wallet-history-head"><div><b>历史记录</b><small>积分收支与签到奖励</small></div><div class="wallet-history-tabs" role="tablist" aria-label="历史记录类型"><button type="button" role="tab" aria-selected="true" class="selected" data-action="wallet-history-tab" data-wallet-history-tab="spend">消费</button><button type="button" role="tab" aria-selected="false" data-action="wallet-history-tab" data-wallet-history-tab="checkin">签到</button></div></header><div class="wallet-history-body" data-wallet-history-body data-recent-spend aria-live="polite"><div class="ledger-row"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取消费记录</b><small>每页 10 条</small></div></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
     loadRecentSpend();
   }
 
@@ -1801,24 +1804,40 @@
     return moneyTime(date);
   }
   function ledgerInner(items, emptyTitle, emptyMeta) {
-    if (!items.length) return `<div><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>${esc(emptyTitle)}</b><small>${esc(emptyMeta || "")}</small></div></div>`;
+    if (!items.length) return `<div class="ledger-row ledger-row-empty"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>${esc(emptyTitle)}</b><small>${esc(emptyMeta || "")}</small></div></div>`;
     return items.map((item) => {
+      const icon = item.kind === "gift" ? "gift" : item.kind === "reward" ? "crown" : "chat";
       const avatar = item.portraitUrl
         ? `<img src="${esc(item.portraitUrl)}" alt="">`
-        : `<span class="ledger-ico">${uiIcon(item.kind === "gift" ? "gift" : "chat")}</span>`;
-      return `<div>${avatar}<div class="ledger-copy"><b>${esc(item.title || "消费")}</b><small>${esc(item.meta || "")}</small></div><em>${esc(item.amount || "")}</em></div>`;
+        : `<span class="ledger-ico">${uiIcon(icon)}</span>`;
+      return `<div class="ledger-row">${avatar}<div class="ledger-copy"><b>${esc(item.title || "消费")}</b><small>${esc(item.meta || "")}</small></div><em>${esc(item.amount || "")}</em></div>`;
     }).join("");
   }
   function ledgerRows(items, empty) {
     if (!items.length) return `<div class="empty-state"><p>${esc(empty)}</p></div>`;
-    return `<section class="ledger-card">${ledgerInner(items)}</section>`;
+    return `<section class="ledger-card ledger-card-basic">${ledgerInner(items)}</section>`;
+  }
+  function historyPager(page, totalPages, action, label) {
+    if (totalPages <= 1) return "";
+    return `<nav class="ledger-pager" aria-label="${esc(label)}分页"><button type="button" data-action="${esc(action)}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button><span>${page} / ${totalPages}</span><button type="button" data-action="${esc(action)}" data-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button></nav>`;
   }
   function spendPager(page, totalPages) {
-    if (totalPages <= 1) return "";
-    return `<nav class="ledger-pager" aria-label="消费记录分页"><button type="button" data-action="wallet-spend-page" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button><span>${page} / ${totalPages}</span><button type="button" data-action="wallet-spend-page" data-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button></nav>`;
+    return historyPager(page, totalPages, "wallet-spend-page", "消费记录");
+  }
+  function checkinPager(page, totalPages) {
+    return historyPager(page, totalPages, "wallet-checkin-page", "签到记录");
+  }
+  function setWalletHistoryTab(tab) {
+    const next = tab === "checkin" ? "checkin" : "spend";
+    state.walletHistoryTab = next;
+    document.querySelectorAll("[data-wallet-history-tab]").forEach((button) => {
+      const selected = button.dataset.walletHistoryTab === next;
+      button.classList.toggle("selected", selected);
+      button.setAttribute("aria-selected", selected ? "true" : "false");
+    });
   }
   async function loadRecentSpend({ scrollToLedger = false } = {}) {
-    const box = document.querySelector("[data-recent-spend]");
+    const box = document.querySelector("[data-wallet-history-body]");
     if (!box) return;
     if (!token()) {
       box.innerHTML = ledgerInner([], "登录后查看消费记录", "通话和礼物会记在这里");
@@ -1826,18 +1845,47 @@
     }
     if (state.walletSpendLoading) return;
     state.walletSpendLoading = true;
-    box.innerHTML = `<div><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取</b><small>消费记录</small></div></div>`;
+    box.innerHTML = `<div class="ledger-row"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取消费记录</b><small>每页 10 条</small></div></div>`;
     try {
       const data = await api(`/api/billing/spending?page=${state.walletSpendPage}&limit=10`);
       state.walletSpendPage = Math.max(1, Number(data.page || 1) || 1);
       state.walletSpendTotalPages = Math.max(1, Number(data.totalPages || 1) || 1);
       const rows = groupSpend(data.records || []);
       box.innerHTML = ledgerInner(rows, "还没有消费记录", "通话和礼物会记在这里") + spendPager(state.walletSpendPage, state.walletSpendTotalPages);
-      if (scrollToLedger) box.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (scrollToLedger) box.closest("[data-wallet-history]")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       box.innerHTML = ledgerInner([], "消费记录没有加载出来", error.message || "请稍后重试");
     } finally {
       state.walletSpendLoading = false;
+    }
+  }
+  async function loadCheckinHistory({ scrollToLedger = false } = {}) {
+    const box = document.querySelector("[data-wallet-history-body]");
+    if (!box) return;
+    if (!token()) {
+      box.innerHTML = ledgerInner([], "登录后查看签到记录", "每日签到和任务奖励会记在这里");
+      return;
+    }
+    if (state.walletCheckinLoading) return;
+    state.walletCheckinLoading = true;
+    box.innerHTML = `<div class="ledger-row"><span class="ledger-ico">${uiIcon("crown")}</span><div class="ledger-copy"><b>正在读取签到记录</b><small>每页 10 条</small></div></div>`;
+    try {
+      const data = await api(`/api/live/checkin/history?page=${state.walletCheckinPage}&limit=10`);
+      state.walletCheckinPage = Math.max(1, Number(data.page || 1) || 1);
+      state.walletCheckinTotalPages = Math.max(1, Number(data.totalPages || 1) || 1);
+      const rows = (data.records || []).map((item) => ({
+        id: item.id,
+        title: item.taskKey === "checkin" ? "每日签到" : (item.taskTitle || "每日任务奖励"),
+        meta: item.createdAt ? moneyTime(item.createdAt) : (item.taskDate || ""),
+        amount: `+${creditText(item.credits)}`,
+        kind: "reward",
+      }));
+      box.innerHTML = ledgerInner(rows, "还没有签到记录", "每日签到和任务奖励会记在这里") + checkinPager(state.walletCheckinPage, state.walletCheckinTotalPages);
+      if (scrollToLedger) box.closest("[data-wallet-history]")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      box.innerHTML = ledgerInner([], "签到记录没有加载出来", error.message || "请稍后重试");
+    } finally {
+      state.walletCheckinLoading = false;
     }
   }
 
@@ -2543,11 +2591,25 @@ document.addEventListener("click", async (e) => {
     if (a === "pay-topup") { const selected=document.querySelector(".pay-plan.selected[data-topup-id]")?.dataset.topupId; if(!selected){ const note=document.querySelector("[data-pay-status]"); if(note) note.textContent="请先选择充值档位"; return; } return startCheckout({ packageId: selected }); }
     if (a === "rooms-all") return showRooms("home");
     if (a === "wallet") { state.pageReturn = state.page === "role-detail" ? "role-detail" : "profile"; return showRecharge(); }
+    if (a === "wallet-history-tab") {
+      const tab = e.target.closest("[data-wallet-history-tab]")?.dataset.walletHistoryTab || "spend";
+      setWalletHistoryTab(tab);
+      if (tab === "checkin") loadCheckinHistory();
+      else loadRecentSpend();
+      return;
+    }
     if (a === "wallet-spend-page") {
       const page = Math.max(1, Number(e.target.closest("[data-page]")?.dataset.page || state.walletSpendPage) || 1);
       if (page === state.walletSpendPage && state.walletSpendTotalPages > 1) return;
       state.walletSpendPage = page;
       loadRecentSpend({ scrollToLedger: true });
+      return;
+    }
+    if (a === "wallet-checkin-page") {
+      const page = Math.max(1, Number(e.target.closest("[data-page]")?.dataset.page || state.walletCheckinPage) || 1);
+      if (page === state.walletCheckinPage && state.walletCheckinTotalPages > 1) return;
+      state.walletCheckinPage = page;
+      loadCheckinHistory({ scrollToLedger: true });
       return;
     }
     if (a === "gift") return showWallet("gift");
