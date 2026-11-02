@@ -11422,6 +11422,11 @@ body.wan30-launch-visible .site-head { top: 0; }
   line-height: 1.35;
 }
 .api-doc-nav-group button:hover { background: rgba(15,148,139,.07); }
+.api-doc-center .ghost-button.is-copied {
+  color: #087c74;
+  border-color: rgba(15,148,139,.28);
+  background: rgba(15,148,139,.12);
+}
 .api-doc-nav-group button.is-active {
   color: #087c74;
   background: rgba(15,148,139,.12);

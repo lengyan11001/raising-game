@@ -189,4 +189,8 @@ test("structured API docs expose readable sections, canonical downloads, and sec
   assert.match(uiSource, /data-download-api-section/);
   assert.match(uiSource, /downloadAllApiDocsBtn/);
   assert.match(uiSource, /downloadApiDocsJsonBtn/);
+  assert.match(uiSource, /copyTextToClipboard/);
+  assert.match(uiSource, /document\.execCommand\("copy"\)/);
+  assert.match(uiSource, /querySelector\("pre code"\)/);
+  assert.match(uiSource, /textContent \|\| ""/);
 });

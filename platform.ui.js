@@ -424,7 +424,7 @@ function apiDocMarkdownHtml(markdown = "") {
       <div class="api-doc-code">
         <div class="api-doc-code-head">
           <span>${escapeHtml(codeLanguage || "code")}</span>
-          <button class="ghost-button" type="button" data-api-copy-code="${escapeHtml(code)}"><i data-lucide="copy"></i>复制代码</button>
+          <button class="ghost-button" type="button" data-api-copy-code><i data-lucide="copy"></i>复制代码</button>
         </div>
         <pre><code>${escapeHtml(code)}</code></pre>
       </div>
@@ -493,6 +493,55 @@ function apiDocMarkdownHtml(markdown = "") {
   if (inCode) flushCode();
   flushAll();
   return output.join("\n");
+}
+
+async function copyTextToClipboard(text = "") {
+  const value = String(text ?? "");
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (error) {
+      console.warn("[clipboard-api]", error?.message || error);
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("浏览器拒绝了剪贴板访问，请允许复制后重试");
+}
+
+function showApiDocCopyResult(button, successText = "已复制") {
+  if (!button) return;
+  const original = button.innerHTML;
+  button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(successText)}`;
+  button.classList.add("is-copied");
+  refreshIcons();
+  window.setTimeout(() => {
+    button.innerHTML = original;
+    button.classList.remove("is-copied");
+    refreshIcons();
+  }, 1400);
+}
+
+async function copyApiDocText(button, text = "", successText = "已复制") {
+  try {
+    await copyTextToClipboard(text);
+    showApiDocCopyResult(button, successText);
+    return true;
+  } catch (error) {
+    showApiDocCopyResult(button, "复制失败");
+    console.warn("[api-doc-copy]", error?.message || error);
+    return false;
+  }
 }
 
 function activeApiDocSection() {
@@ -612,11 +661,7 @@ function renderApiDocsCenter() {
     button.addEventListener("click", async () => {
       const section = (state.apiDocsCenter?.sections || []).find((item) => item.id === button.dataset.copyApiSection);
       if (!section) return;
-      await navigator.clipboard.writeText(section.markdown || "");
-      const original = button.innerHTML;
-      button.innerHTML = `<i data-lucide="check"></i>已复制`;
-      refreshIcons();
-      window.setTimeout(() => { button.innerHTML = original; refreshIcons(); }, 1200);
+      await copyApiDocText(button, section.markdown || "", "已复制");
     });
   });
   els.apiDocsCenter.querySelectorAll("[data-download-api-section]").forEach((button) => {
@@ -628,11 +673,8 @@ function renderApiDocsCenter() {
   });
   els.apiDocsCenter.querySelectorAll("[data-api-copy-code]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(button.dataset.apiCopyCode || "");
-      const original = button.innerHTML;
-      button.innerHTML = `<i data-lucide="check"></i>已复制`;
-      refreshIcons();
-      window.setTimeout(() => { button.innerHTML = original; refreshIcons(); }, 1200);
+      const code = button.closest(".api-doc-code")?.querySelector("pre code")?.textContent || "";
+      await copyApiDocText(button, code, "已复制");
     });
   });
   els.apiDocsCenter.querySelector("#copyAllApiDocsBtn")?.addEventListener("click", async (event) => {
@@ -640,7 +682,7 @@ function renderApiDocsCenter() {
     button.disabled = true;
     try {
       const markdown = await fetchCanonicalApiDocsMarkdown();
-      await navigator.clipboard.writeText(markdown);
+      await copyTextToClipboard(markdown);
       button.innerHTML = `<i data-lucide="check"></i>已复制全部`;
     } catch (error) {
       button.innerHTML = `<i data-lucide="triangle-alert"></i>${escapeHtml(error.message || "复制失败")}`;
@@ -656,6 +698,13 @@ function renderApiDocsCenter() {
     try {
       const markdown = await fetchCanonicalApiDocsMarkdown();
       downloadTextFile("vipeak-api-docs.md", markdown);
+      button.innerHTML = `<i data-lucide="check"></i>已下载`;
+      refreshIcons();
+      window.setTimeout(() => renderApiDocsCenter(), 1400);
+    } catch (error) {
+      button.innerHTML = `<i data-lucide="triangle-alert"></i>${escapeHtml(error.message || "下载失败")}`;
+      refreshIcons();
+      window.setTimeout(() => renderApiDocsCenter(), 1800);
     } finally {
       button.disabled = false;
     }
