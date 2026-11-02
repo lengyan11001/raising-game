@@ -194,6 +194,9 @@ Before restarting, the helper rejects commits that touch another target's owned
 frontend files. After restarting, it requires the exact local commit, an HTTP 200
 health response, and the expected domain-specific page markers. A live release
 must also leave `https://123vips.com/` serving `platform.css` and `Vipeak AI`.
+The platform target additionally rejects `live.css` and `Vipeak Live` on
+`https://123vips.com/`, so a live UI release cannot silently replace the platform
+page with the wrong tenant.
 
 ## Wan2.7 production env
 
