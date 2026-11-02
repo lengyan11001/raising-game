@@ -4872,6 +4872,15 @@ function renderAccessGuides() {
       : state.user ? "" : "Sign in before purchasing access.";
   }
   ensureActiveAccessGuide();
+  if (!enabled || !active || !state.user) {
+    if (state.apiDocsCenter) {
+      state.apiDocsCenter = null;
+      state.apiDocsCenterActiveId = "";
+      state.apiDocsCenterError = "";
+    }
+  } else {
+    loadApiDocsCenter();
+  }
   if (els.accessModeTabs) {
     els.accessModeTabs.hidden = true;
     els.accessModeTabs.innerHTML = "";
@@ -4892,6 +4901,7 @@ function renderAccessGuides() {
     els.accessDocs.hidden = true;
     els.accessDocs.innerHTML = "";
   }
+  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled || !active;
   renderTokenDisplays();
   renderApiSubtokens();
   refreshIcons();

@@ -348,7 +348,12 @@ const {
   publicOriginFromRequest,
   requestOriginFromHeaders,
 } = require("./lib-http");
+const {
+  isLiveOwnedStaticPath,
+  resolveLiveStaticRoot,
+} = require("./lib-live-surface");
 const ROOT = __dirname;
+const LIVE_STATIC_ROOT = resolveLiveStaticRoot(ROOT, process.env.LIVE_STATIC_ROOT);
 const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.html",
   "platform.css",
@@ -423,6 +428,7 @@ const {
   PLATFORM_SITE_PROFILE,
   defaultPageForHostname,
   normalizeHostname,
+  standaloneLandingHostname,
   parseCsvList,
   toolVideoDefaultCapability,
   hostnameFromOrigin,
@@ -38111,7 +38117,9 @@ async function buildModelDocs(req) {
     },
     advancedExternalApi: externalAdvancedApiDoc(origin),
     endpoints: {
-      docsMarkdown: `${origin}/docs/models.md`,
+      docsMarkdown: `${origin}/docs/api.md`,
+      docsJson: `${origin}/docs/api.json`,
+      legacyDocsMarkdown: `${origin}/docs/models.md`,
       modelsJson: `${origin}/api/models`,
       byteplusGenerate: `${origin}/api/v3/contents/generations/tasks`,
       byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
@@ -38354,6 +38362,8 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
   }
 
   lines.push(
+    embedLiveIntegrationMarkdown(),
+    "",
     "## Billing",
     "",
     docs.billing?.note || "Credits are deducted according to the selected model and configured public rates.",
@@ -38823,6 +38833,128 @@ function buildModelDocsMarkdown(docs) {
   ].join("\n");
 }
 
+function apiDocSlug(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/`/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "section";
+}
+
+function apiDocGroup(title = "") {
+  const value = String(title || "").toLowerCase();
+  if (/embedded live|embed live|实时/.test(value)) return "live";
+  if (/reusable media|asset|upload|素材/.test(value)) return "assets";
+  if (/seedance|wan|w3\.0|video|task polling/.test(value)) return "video";
+  if (/seedream|qwen image|z-image|image/.test(value)) return "image";
+  if (/authentication|quick start|billing|endpoint|mulerouter|supported model/.test(value)) return "basics";
+  return "basics";
+}
+
+function splitMarkdownH2Sections(markdown = "") {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const intro = [];
+  const sections = [];
+  let current = null;
+  for (const line of lines) {
+    const match = line.match(/^##\s+(.+?)\s*$/);
+    if (match) {
+      if (current) sections.push(current);
+      current = { title: match[1].trim(), lines: [line] };
+      continue;
+    }
+    if (current) current.lines.push(line);
+    else intro.push(line);
+  }
+  if (current) sections.push(current);
+  return {
+    intro: intro.join("\n").replace(/^#\s+.*(?:\n|$)/, "").trim(),
+    sections: sections.map((section) => ({
+      title: section.title,
+      markdown: section.lines.join("\n").trim(),
+    })).filter((section) => section.title && section.markdown),
+  };
+}
+
+function quickStartApiDocMarkdown(docs = {}) {
+  return [
+    "## Quick Start",
+    "",
+    "1. Keep your API token on your server and send it as `Authorization: Bearer <user-token>`.",
+    "2. Query the model catalog with `GET /api/models` when you need machine-readable model metadata.",
+    "3. Upload reusable media first when your model supports asset references, then use the returned asset id in generation requests.",
+    "4. Create a video or image task with one of the documented endpoints and keep the returned task id.",
+    "5. Poll the matching task endpoint until the status is `succeeded` or `failed`.",
+    "6. Download successful output promptly; temporary upstream media links may expire.",
+    "",
+    `Base URL: ${docs.baseUrl || ""}`,
+    "",
+  ].join("\n");
+}
+
+function buildStructuredApiDocs(docs = {}) {
+  // The restricted builder already emits one H2 per public model family and keeps
+  // selective model exposure rules in one place. Use it as the canonical section
+  // source so the web UI, Markdown download, and JSON download cannot drift apart.
+  const source = buildRestrictedModelDocsMarkdown(docs);
+  const parsed = splitMarkdownH2Sections(source);
+  const sections = parsed.sections.slice();
+  if (!sections.some((section) => /^quick start$/i.test(section.title))) {
+    const insertAt = Math.max(1, sections.findIndex((section) => /^authentication$/i.test(section.title)) + 1);
+    sections.splice(insertAt, 0, {
+      title: "Quick Start",
+      markdown: quickStartApiDocMarkdown(docs),
+    });
+  }
+  const seen = new Map();
+  return {
+    version: "1.0",
+    title: `${docs.title || "Vipeak AI"} API Documentation`,
+    baseUrl: docs.baseUrl || "",
+    updatedAt: docs.updatedAt || new Date().toISOString(),
+    summary: parsed.intro || "Structured HTTP API documentation for generation, assets, polling, and embedded live chat.",
+    groups: [
+      { id: "basics", title: "基础与接入" },
+      { id: "video", title: "视频生成" },
+      { id: "image", title: "图片生成" },
+      { id: "assets", title: "素材管理" },
+      { id: "live", title: "实时聊天嵌入" },
+    ],
+    sections: sections.map((section) => {
+      const baseId = apiDocSlug(section.title);
+      const count = (seen.get(baseId) || 0) + 1;
+      seen.set(baseId, count);
+      return {
+        id: count === 1 ? baseId : `${baseId}-${count}`,
+        group: apiDocGroup(section.title),
+        title: section.title,
+        summary: markdownText(section.markdown.replace(/^##\s+.+$/m, "").replace(/[`*_#>|-]/g, " ")).slice(0, 180),
+        markdown: section.markdown,
+      };
+    }),
+  };
+}
+
+function buildStructuredApiDocsMarkdown(docs = {}) {
+  const structured = buildStructuredApiDocs(docs);
+  const contents = structured.sections.map((section) => `- [${section.title}](#${section.id})`).join("\n");
+  return [
+    `# ${structured.title}`,
+    "",
+    `- Version: ${structured.version}`,
+    `- Last updated: ${structured.updatedAt}`,
+    `- Base URL: ${structured.baseUrl}`,
+    "",
+    structured.summary,
+    "",
+    "## Table of Contents",
+    "",
+    contents,
+    "",
+    ...structured.sections.flatMap((section) => [section.markdown, "", "---", ""]),
+  ].join("\n").trimEnd() + "\n";
+}
+
 async function handleModelsJson(req, res) {
   const auth = await requireApiDocsAccess(req, res);
   if (!auth) return;
@@ -38835,6 +38967,20 @@ async function handleModelsMarkdown(req, res) {
   if (!auth) return;
   const docs = await buildModelDocs(req);
   return sendMarkdown(res, 200, buildModelDocsMarkdown(publicModelDocsView(docs)));
+}
+
+async function handleApiDocsJson(req, res) {
+  const auth = await requireApiDocsAccess(req, res);
+  if (!auth) return;
+  const docs = await buildModelDocs(req);
+  return sendJson(res, 200, buildStructuredApiDocs(publicModelDocsView(docs)));
+}
+
+async function handleApiDocsMarkdown(req, res) {
+  const auth = await requireApiDocsAccess(req, res);
+  if (!auth) return;
+  const docs = await buildModelDocs(req);
+  return sendMarkdown(res, 200, buildStructuredApiDocsMarkdown(publicModelDocsView(docs)));
 }
 
 function apiAccessEnabledForRequest(req) {
@@ -51784,13 +51930,18 @@ async function sendAdminHtml(req, res, filePath) {
 }
 
 async function serveStatic(req, res, url) {
+  const requestHost = requestHostname(req);
   const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
   const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
+  const liveStaticSurfaceRequest = liveTenantRequest || standaloneLandingHostname(requestHost);
   let pathname = decodeURIComponent(url.pathname === "/"
     ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : defaultPageForHostname(requestHostname(req)))
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
+  if (!liveStaticSurfaceRequest && !chatTenantRequest && !isPaymentHostRequest(req) && !isCmsHostRequest(req) && isLiveOwnedStaticPath(pathname)) {
+    return sendText(res, 404, "Not Found");
+  }
   if (isPaymentHostRequest(req)) {
     const allowedPaymentPath = pathname === "/pay.html"
       || pathname === "/pay.css"
@@ -51818,11 +51969,16 @@ async function serveStatic(req, res, url) {
       || pathname === "/live.js"
       || pathname === "/chat-live.js"
       || pathname === "/qrcode.js"
+      || pathname === "/site-landing.html"
+      || pathname === "/site-landing.css"
+      || pathname === "/site-landing.js"
       || pathname === "/favicon.ico"
       || pathname === "/favicon.svg"
       || pathname === "/downloads/vipeak-live.apk"
       || pathname.startsWith("/assets/brand/")
-      || pathname.startsWith("/assets/chat-live/gifts/");
+      || pathname.startsWith("/assets/chat-live/gifts/")
+      || pathname.startsWith("/assets/chat-live/moans/")
+      || pathname.startsWith("/assets/chat-live/welcome-newcomer");
     if (!allowedLivePath) return sendText(res, 404, "Not Found");
   }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
@@ -51846,9 +52002,10 @@ async function serveStatic(req, res, url) {
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
   }
-  const filePath = path.normalize(path.join(ROOT, pathname));
+  const staticRoot = liveStaticSurfaceRequest ? LIVE_STATIC_ROOT : ROOT;
+  const filePath = path.normalize(path.join(staticRoot, pathname));
 
-  if (!filePath.startsWith(ROOT)) {
+  if (!filePath.startsWith(staticRoot)) {
     return sendText(res, 403, "Forbidden");
   }
 
@@ -52453,6 +52610,16 @@ async function handleRequest(req, res) {
 
     if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/advanced/estimate") {
       return await handleAdvancedEstimate(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/docs/api.md") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      return await handleApiDocsMarkdown(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/docs/api.json") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      return await handleApiDocsJson(req, res);
     }
 
     if (req.method === "GET" && (url.pathname === "/docs/models.md" || url.pathname === "/models.md")) {

@@ -167,3 +167,26 @@ test("V3 task route rejects non-Seedance models instead of failing asynchronousl
   assert.match(mapper, /InvalidParameter\.UnsupportedModel/);
   assert.match(mapper, /\/api\/advanced\/generate/);
 });
+
+test("structured API docs expose readable sections, canonical downloads, and section-level UI actions", () => {
+  const start = serverSource.indexOf("function buildStructuredApiDocs");
+  const end = serverSource.indexOf("async function handleModelsJson", start);
+  const structuredSource = serverSource.slice(start, end);
+  const restrictedStart = serverSource.indexOf("function buildRestrictedModelDocsMarkdown");
+  const restrictedEnd = serverSource.indexOf("function templateDocMarkdown", restrictedStart);
+  const restrictedSource = serverSource.slice(restrictedStart, restrictedEnd);
+
+  assert.match(restrictedSource, /embedLiveIntegrationMarkdown\(\)/);
+  assert.match(structuredSource, /version: "1\.0"/);
+  assert.match(structuredSource, /groups: \[/);
+  assert.match(structuredSource, /sections: sections\.map/);
+  assert.match(structuredSource, /id: count === 1 \? baseId : `\$\{baseId\}-\$\{count\}`/);
+  assert.match(structuredSource, /"## Table of Contents"/);
+  assert.match(structuredSource, /quickStartApiDocMarkdown/);
+  assert.match(uiSource, /\/docs\/api\.json/);
+  assert.match(uiSource, /\/docs\/api\.md/);
+  assert.match(uiSource, /data-copy-api-section/);
+  assert.match(uiSource, /data-download-api-section/);
+  assert.match(uiSource, /downloadAllApiDocsBtn/);
+  assert.match(uiSource, /downloadApiDocsJsonBtn/);
+});

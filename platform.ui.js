@@ -337,8 +337,8 @@ function accessDocMarkdown(doc = accessDoc(activeAccessGuide)) {
   ].join("\n");
 }
 
-function downloadTextFile(filename = "api-doc.md", text = "") {
-  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+function downloadTextFile(filename = "api-doc.md", text = "", type = "text/markdown;charset=utf-8") {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -365,6 +365,327 @@ async function copyAccessMarkdown(button = null, doc = accessDoc(activeAccessGui
 function downloadAccessMarkdown(doc = accessDoc(activeAccessGuide)) {
   const slug = String(activeAccessGuide?.id || "api-doc").replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
   downloadTextFile(`${slug}.md`, accessDocMarkdown(doc));
+}
+
+function apiDocInlineMarkdown(value = "") {
+  let html = escapeHtml(value);
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return html;
+}
+
+function apiDocMarkdownTable(lines = []) {
+  const rows = lines
+    .filter((line) => !/^\|\s*:?-{3,}/.test(line))
+    .map((line) => line.replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
+  if (!rows.length) return "";
+  const [head, ...body] = rows;
+  return `
+    <div class="api-doc-table-wrap">
+      <table>
+        <thead><tr>${head.map((cell) => `<th>${apiDocInlineMarkdown(cell)}</th>`).join("")}</tr></thead>
+        <tbody>${body.map((row) => `<tr>${row.map((cell) => `<td>${apiDocInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function apiDocMarkdownHtml(markdown = "") {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const output = [];
+  let paragraph = [];
+  let listType = "";
+  let listItems = [];
+  let codeLines = [];
+  let codeLanguage = "";
+  let inCode = false;
+  let tableLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    output.push(`<p>${apiDocInlineMarkdown(paragraph.join(" ").trim())}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listItems.length) return;
+    const tag = listType === "ol" ? "ol" : "ul";
+    output.push(`<${tag}>${listItems.map((item) => `<li>${apiDocInlineMarkdown(item)}</li>`).join("")}</${tag}>`);
+    listItems = [];
+    listType = "";
+  };
+  const flushTable = () => {
+    if (tableLines.length) output.push(apiDocMarkdownTable(tableLines));
+    tableLines = [];
+  };
+  const flushCode = () => {
+    const code = codeLines.join("\n");
+    output.push(`
+      <div class="api-doc-code">
+        <div class="api-doc-code-head">
+          <span>${escapeHtml(codeLanguage || "code")}</span>
+          <button class="ghost-button" type="button" data-api-copy-code="${escapeHtml(code)}"><i data-lucide="copy"></i>复制代码</button>
+        </div>
+        <pre><code>${escapeHtml(code)}</code></pre>
+      </div>
+    `);
+    codeLines = [];
+    codeLanguage = "";
+  };
+  const flushAll = () => {
+    flushParagraph();
+    flushList();
+    flushTable();
+  };
+
+  for (const line of lines) {
+    const fence = line.match(/^```\s*([^\s]*)\s*$/);
+    if (fence) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        flushAll();
+        inCode = true;
+        codeLanguage = fence[1] || "code";
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      flushAll();
+      continue;
+    }
+    const heading = line.match(/^(#{3,5})\s+(.+)$/);
+    if (heading) {
+      flushAll();
+      const level = Math.min(6, heading[1].length + 1);
+      output.push(`<h${level}>${apiDocInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+    if (/^\s*---+\s*$/.test(line)) {
+      flushAll();
+      continue;
+    }
+    if (/^\s*\|/.test(line)) {
+      flushParagraph();
+      flushList();
+      tableLines.push(line.trim());
+      continue;
+    }
+    flushTable();
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const nextType = ordered ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((ordered || unordered)[1]);
+      continue;
+    }
+    flushList();
+    paragraph.push(line.trim());
+  }
+  if (inCode) flushCode();
+  flushAll();
+  return output.join("\n");
+}
+
+function activeApiDocSection() {
+  const sections = state.apiDocsCenter?.sections || [];
+  return sections.find((section) => section.id === state.apiDocsCenterActiveId) || sections[0] || null;
+}
+
+function apiDocSectionFilename(section = {}) {
+  return `${String(section.id || "api-section").replace(/[^a-z0-9-]+/gi, "-")}.md`;
+}
+
+async function fetchCanonicalApiDocsMarkdown() {
+  const response = await fetch(apiUrl("/docs/api.md"), {
+    cache: "no-store",
+    headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.message || `Documentation download failed: ${response.status}`);
+  }
+  return response.text();
+}
+
+function renderApiDocsCenter() {
+  if (!els.apiDocsCenter) return;
+  if (state.apiDocsCenterLoading && !state.apiDocsCenter) {
+    els.apiDocsCenter.innerHTML = `<div class="api-doc-center-loading"><i data-lucide="loader-circle"></i>加载接口文档...</div>`;
+    refreshIcons();
+    return;
+  }
+  if (state.apiDocsCenterError) {
+    els.apiDocsCenter.innerHTML = `
+      <div class="api-doc-center-error">
+        <strong>接口文档加载失败</strong>
+        <p>${escapeHtml(state.apiDocsCenterError)}</p>
+        <button class="ghost-button" id="retryApiDocsBtn" type="button"><i data-lucide="refresh-cw"></i>重新加载</button>
+      </div>
+    `;
+    els.apiDocsCenter.querySelector("#retryApiDocsBtn")?.addEventListener("click", () => loadApiDocsCenter({ force: true }));
+    refreshIcons();
+    return;
+  }
+  const docs = state.apiDocsCenter;
+  if (!docs) {
+    loadApiDocsCenter();
+    return;
+  }
+  const sections = Array.isArray(docs.sections) ? docs.sections : [];
+  const groups = Array.isArray(docs.groups) && docs.groups.length ? docs.groups : [
+    { id: "basics", title: "基础与接入" },
+    { id: "video", title: "视频生成" },
+    { id: "image", title: "图片生成" },
+    { id: "assets", title: "素材管理" },
+    { id: "live", title: "实时聊天嵌入" },
+  ];
+  const active = activeApiDocSection();
+  if (active && state.apiDocsCenterActiveId !== active.id) state.apiDocsCenterActiveId = active.id;
+  const nav = groups.map((group) => {
+    const children = sections.filter((section) => section.group === group.id);
+    if (!children.length) return "";
+    return `
+      <section class="api-doc-nav-group">
+        <strong>${escapeHtml(group.title)}</strong>
+        ${children.map((section) => `
+          <button class="${section.id === active?.id ? "is-active" : ""}" type="button" data-api-doc-section="${escapeHtml(section.id)}">
+            <span>${escapeHtml(section.title)}</span>
+          </button>
+        `).join("")}
+      </section>
+    `;
+  }).join("");
+  els.apiDocsCenter.innerHTML = `
+    <header class="api-doc-center-head">
+      <div>
+        <span class="copy-kicker"><i data-lucide="book-open-text"></i>API Documentation</span>
+        <h3>${escapeHtml(docs.title || "API Documentation")}</h3>
+        <p>${escapeHtml(docs.summary || "")}</p>
+        <div class="api-doc-meta">
+          <span>Version ${escapeHtml(docs.version || "1.0")}</span>
+          <span>Updated ${escapeHtml(formatDateTime(docs.updatedAt) || docs.updatedAt || "-")}</span>
+          <code>${escapeHtml(docs.baseUrl || "")}</code>
+        </div>
+      </div>
+      <div class="api-doc-center-actions">
+        <button class="ghost-button" id="copyAllApiDocsBtn" type="button"><i data-lucide="clipboard-copy"></i>复制全部</button>
+        <button class="ghost-button" id="downloadAllApiDocsBtn" type="button"><i data-lucide="file-down"></i>下载 Markdown</button>
+        <button class="ghost-button" id="downloadApiDocsJsonBtn" type="button"><i data-lucide="braces"></i>下载 JSON</button>
+      </div>
+    </header>
+    <div class="api-doc-layout">
+      <aside class="api-doc-nav" aria-label="API documentation sections">${nav}</aside>
+      <article class="api-doc-article">
+        ${active ? `
+          <div class="api-doc-article-head">
+            <div>
+              <span>${escapeHtml(groups.find((group) => group.id === active.group)?.title || "")}</span>
+              <h4>${escapeHtml(active.title)}</h4>
+            </div>
+            <div class="api-doc-section-actions">
+              <button class="ghost-button" type="button" data-copy-api-section="${escapeHtml(active.id)}"><i data-lucide="copy"></i>复制本节</button>
+              <button class="ghost-button" type="button" data-download-api-section="${escapeHtml(active.id)}"><i data-lucide="download"></i>下载本节</button>
+            </div>
+          </div>
+          <div class="api-doc-markdown">${apiDocMarkdownHtml(active.markdown)}</div>
+        ` : `<div class="api-doc-center-loading">No documentation sections available.</div>`}
+      </article>
+    </div>
+  `;
+  els.apiDocsCenter.querySelectorAll("[data-api-doc-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.apiDocsCenterActiveId = button.dataset.apiDocSection || "";
+      renderApiDocsCenter();
+      els.apiDocsCenter?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+  els.apiDocsCenter.querySelectorAll("[data-copy-api-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const section = (state.apiDocsCenter?.sections || []).find((item) => item.id === button.dataset.copyApiSection);
+      if (!section) return;
+      await navigator.clipboard.writeText(section.markdown || "");
+      const original = button.innerHTML;
+      button.innerHTML = `<i data-lucide="check"></i>已复制`;
+      refreshIcons();
+      window.setTimeout(() => { button.innerHTML = original; refreshIcons(); }, 1200);
+    });
+  });
+  els.apiDocsCenter.querySelectorAll("[data-download-api-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const section = (state.apiDocsCenter?.sections || []).find((item) => item.id === button.dataset.downloadApiSection);
+      if (!section) return;
+      downloadTextFile(apiDocSectionFilename(section), section.markdown || "");
+    });
+  });
+  els.apiDocsCenter.querySelectorAll("[data-api-copy-code]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(button.dataset.apiCopyCode || "");
+      const original = button.innerHTML;
+      button.innerHTML = `<i data-lucide="check"></i>已复制`;
+      refreshIcons();
+      window.setTimeout(() => { button.innerHTML = original; refreshIcons(); }, 1200);
+    });
+  });
+  els.apiDocsCenter.querySelector("#copyAllApiDocsBtn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const markdown = await fetchCanonicalApiDocsMarkdown();
+      await navigator.clipboard.writeText(markdown);
+      button.innerHTML = `<i data-lucide="check"></i>已复制全部`;
+    } catch (error) {
+      button.innerHTML = `<i data-lucide="triangle-alert"></i>${escapeHtml(error.message || "复制失败")}`;
+    } finally {
+      button.disabled = false;
+      refreshIcons();
+      window.setTimeout(() => renderApiDocsCenter(), 1600);
+    }
+  });
+  els.apiDocsCenter.querySelector("#downloadAllApiDocsBtn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const markdown = await fetchCanonicalApiDocsMarkdown();
+      downloadTextFile("vipeak-api-docs.md", markdown);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  els.apiDocsCenter.querySelector("#downloadApiDocsJsonBtn")?.addEventListener("click", () => {
+    downloadTextFile("vipeak-api-docs.json", JSON.stringify(state.apiDocsCenter, null, 2), "application/json;charset=utf-8");
+  });
+  refreshIcons();
+}
+
+async function loadApiDocsCenter({ force = false } = {}) {
+  if (!els.apiDocsCenter || !apiDocsAccessActive() || !state.user) return;
+  if (state.apiDocsCenterLoading) return;
+  if (state.apiDocsCenter && !force) {
+    renderApiDocsCenter();
+    return;
+  }
+  state.apiDocsCenterLoading = true;
+  state.apiDocsCenterError = "";
+  renderApiDocsCenter();
+  try {
+    const docs = await requestJson(apiUrl("/docs/api.json"));
+    state.apiDocsCenter = docs;
+    state.apiDocsCenterActiveId = state.apiDocsCenterActiveId || docs.sections?.[0]?.id || "";
+  } catch (error) {
+    state.apiDocsCenterError = error.message || String(error);
+  } finally {
+    state.apiDocsCenterLoading = false;
+    renderApiDocsCenter();
+  }
 }
 
 function legalDoc(type) {
@@ -742,7 +1063,7 @@ function allParameterDocsMarkdown({ revealToken = false } = {}) {
 
 async function fetchLatestModelDocsMarkdown({ revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
-  const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
+  const docsUrl = apiUrl("/docs/api.md");
   try {
     const headers = state.token ? { authorization: `Bearer ${state.token}` } : {};
     const response = await fetch(docsUrl, { cache: "no-store", headers });
@@ -846,51 +1167,25 @@ Price, free preview, and prepaid blocks follow the live site. The merchant balan
 async function tokenAccessPackageMarkdown() {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const baseUrl = API_ORIGIN || window.location.origin || "";
-  const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
+  const docsUrl = apiUrl("/docs/api.md");
+  const docsJsonUrl = apiUrl("/docs/api.json");
   const modelsJsonUrl = apiUrl("/api/models");
-  const taskUrl = apiUrl("/api/v3/contents/generations/tasks/<taskId>");
-  const seedreamImageUrl = apiUrl("/api/v3/images/generations");
   const modelDocs = await fetchLatestModelDocsMarkdown({ revealToken: true });
   return [
     "# Vipeak AI API Access Package",
     "",
     `Base URL: ${baseUrl}`,
     `API Token: ${token}`,
-    `Full parameter docs: ${docsUrl}`,
+    `Markdown documentation: ${docsUrl}`,
+    `Structured JSON documentation: ${docsJsonUrl}`,
     `Models JSON: ${modelsJsonUrl}`,
-    `Task API: ${taskUrl}`,
     "",
-    "This package includes the production token plus the core docs a client needs to integrate without extra clarification.",
+    "This package contains the production token and the complete canonical API documentation below.",
+    "Keep the token on your server. Do not expose it in browser code or public repositories.",
     "",
-    "## Embedded Live Chat",
+    `Advanced task detail: ${apiUrl("/api/generation-records/<taskId>")}`,
     "",
-    "This section is part of the stable copied access package. Search for Embedded Live Chat or /api/embed/live/tickets.",
-    "",
-    EMBED_LIVE_ACCESS_MARKDOWN.trim(),
-    "",
-    "## Supported Endpoints",
-    "",
-    `- Embedded live ticket: ${apiUrl("/api/embed/live/tickets")}`,
-    `- Embedded live voices: ${apiUrl("/api/embed/live/voices")}`,
-    `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
-    `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
-    `- Qwen Image 3.0 generate: ${seedreamImageUrl}`,
-    `- W3.0 / W3.0-Pro / W3.0-Prime / W3.0-VSR-Prime / Seedance 2.5: ${apiUrl("/api/advanced/generate")}`,
-    `- Z-Image Spicy Pro / Qwen Image Edit Spicy: ${apiUrl("/api/wan27/image-edit")}`,
-    `- Advanced asset upload: ${apiUrl("/api/user-assets")}`,
-    `- Advanced task detail: ${apiUrl("/api/generation-records/<taskId>")}`,
-    `- V3 task detail: ${taskUrl}`,
-    `- BytePlus-compatible asset upload: ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}`,
-    "",
-    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5 use the Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image route. The detailed model document below is the source of truth for fields and limits.",
-    "",
-    "## Quick Start",
-    "",
-    "```http",
-    hydrateAccessCopy(LIVE_HTTP_ACCESS_COPY, { revealToken: true }).trim(),
-    "```",
-    "",
-    "## Detailed Parameters",
+    "---",
     "",
     modelDocs.trim(),
     "",
