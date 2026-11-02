@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import shlex
 
 import paramiko
@@ -71,6 +72,25 @@ def main() -> None:
         default=[],
         help="Reject deployment unless PATH contains at least COUNT files. Format: /absolute/path=COUNT",
     )
+    parser.add_argument(
+        "--forbid-changed-path",
+        action="append",
+        default=[],
+        help="Reject deployment if the pulled commit range changes this repository-relative path.",
+    )
+    parser.add_argument(
+        "--verify-url",
+        action="append",
+        default=[],
+        help="Fetch this URL after deployment and fail unless it responds successfully. Repeat for multiple surfaces.",
+    )
+    parser.add_argument(
+        "--verify-contains",
+        action="append",
+        default=[],
+        help="Require verified page content. Format: URL=EXPECTED_TEXT. The URL must also be passed to --verify-url.",
+    )
+    parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
     if not PASSWORD:
@@ -122,6 +142,67 @@ systemctl cat {service_q} | grep -F -- {env_line_q} >/dev/null || {{ echo "Missi
         )
     required_files_check = "\n".join(required_file_checks) or "true"
 
+    forbidden_path_check = "true"
+    if args.forbid_changed_path:
+        normalized_paths = [path_text.strip("/") for path_text in args.forbid_changed_path if path_text.strip()]
+        def path_pattern(path_text: str) -> str:
+            return "(^|/)" + re.escape(path_text).replace("\\*", ".*") + "$"
+
+        forbidden_patterns = "|".join(path_pattern(path_text) for path_text in normalized_paths)
+        forbidden_display = "\n".join(f"  {path_text}" for path_text in normalized_paths)
+        if forbidden_patterns:
+            pattern_q = shlex.quote(forbidden_patterns)
+            forbidden_path_check = f"""changed_paths=$(git diff --name-only "$remote_head".."origin/{args.branch}")
+if printf '%s\n' "$changed_paths" | grep -E -- {pattern_q} >/dev/null; then
+  echo 'This deployment target forbids changes to:' >&2
+  printf '%s\n' {shlex.quote(forbidden_display)} >&2
+  echo 'Changed forbidden paths:' >&2
+  printf '%s\n' "$changed_paths" | grep -E -- {pattern_q} >&2 || true
+  echo 'Split the release or use the domain-specific deployment target.' >&2
+  exit 26
+fi"""
+
+    verify_contains: dict[str, list[str]] = {}
+    for requirement in args.verify_contains:
+        verify_url, separator, expected_text = str(requirement or "").partition("=")
+        if not separator or not verify_url.startswith(("http://", "https://")) or not expected_text:
+            raise SystemExit(f"Invalid --verify-contains value: {requirement}")
+        verify_contains.setdefault(verify_url, []).append(expected_text)
+    verify_urls = list(dict.fromkeys([*args.verify_url, *verify_contains]))
+    unknown_verify_urls = [verify_url for verify_url in verify_contains if verify_url not in args.verify_url]
+    if unknown_verify_urls:
+        raise SystemExit(f"--verify-contains URL must also be passed to --verify-url: {unknown_verify_urls[0]}")
+    verification_checks = []
+    for verify_url in verify_urls:
+        verify_url_q = shlex.quote(verify_url)
+        expected_checks = []
+        for expected_text in verify_contains.get(verify_url, ()):
+            expected_text_q = shlex.quote(expected_text)
+            expected_display = expected_text.replace("\\", "\\\\").replace("'", "\\'")
+            expected_checks.append(
+                f"grep -F -- {expected_text_q} \"$verify_body\" >/dev/null || "
+                f"{{ echo \"Verified page missing expected content: {verify_url} => {expected_display}\"; exit 28; }}"
+            )
+        expected_check = "\n".join(expected_checks) or "true"
+        verification_checks.append(f"""
+verify_body=$(mktemp)
+curl -fsSL --max-time 15 {verify_url_q} -o "$verify_body" || {{ echo "Page verification failed: {verify_url}"; rm -f "$verify_body"; exit 27; }}
+{expected_check}
+rm -f "$verify_body"
+echo "Verified page: {verify_url}"
+""")
+    verification_check = "\n".join(verification_checks) or "true"
+
+    if args.commit:
+        expected_q = shlex.quote(args.commit)
+        commit_check = f"""deployed_commit=$(git rev-parse HEAD)
+if [ "$deployed_commit" != {expected_q} ]; then
+  echo "Deployed commit mismatch: expected {args.commit}, got $deployed_commit" >&2
+  exit 29
+fi"""
+    else:
+        commit_check = "true"
+
     command = f"""
 set -euo pipefail
 cd {args.remote_root}
@@ -132,16 +213,30 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   git status --short --untracked-files=no >&2
   exit 25
 fi
-git checkout {args.branch}
+git fetch origin {args.branch}
+if git show-ref --verify --quiet refs/heads/{args.branch}; then
+  git checkout {args.branch}
+else
+  git checkout -b {args.branch} "origin/{args.branch}"
+fi
+remote_head=$(git rev-parse HEAD)
+{forbidden_path_check}
 git pull --ff-only origin {args.branch}
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short
 git log -1 --oneline
 {"true" if args.no_restart else f"systemctl status {args.service} --no-pager -l | head -25"}
-curl -sS -o /tmp/raising-game-health -w 'http=%{{http_code}}\\n' {args.health_url} -m 10
+health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || {{ echo "Health check failed: {args.health_url}"; exit 27; }}
+echo "http=$health_code"
 cat /tmp/raising-game-health 2>/dev/null || true
 echo
+if [ "$health_code" != "200" ]; then
+  echo "Health check returned HTTP $health_code: {args.health_url}" >&2
+  exit 27
+fi
+{verification_check}
+{commit_check}
 """
 
     client = paramiko.SSHClient()

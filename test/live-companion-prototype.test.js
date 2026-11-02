@@ -196,8 +196,10 @@ test("spending API returns a real current-month summary for the wallet card", ()
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
   assert.match(server, /function shanghaiCurrentMonthRange\(now = new Date\(\)\)/);
-  assert.match(server, /monthlySummary = await getSpendingMonthlySummaryFromDb/);
-  assert.match(server, /monthlySummary,\n    user: userView\(auth\.user\)/);
+  assert.match(server, /const liveTenant = requestTenantDescriptor\(req\)\.toolId === "live"/);
+  assert.match(server, /liveTenant \? await getSpendingMonthlySummaryFromDb/);
+  assert.match(server, /if \(liveTenant\) payload\.monthlySummary = monthlySummary/);
+  assert.doesNotMatch(server, /types, monthlySummary, user: userView/);
   assert.match(db, /async function getSpendingMonthlySummaryFromDb/);
   assert.match(db, /type LIKE 'character_chat%' OR type LIKE 'chat_live%'/);
   assert.match(db, /type LIKE '%gift%'/);

@@ -43780,16 +43780,24 @@ async function handleListSpendingRecords(req, res, url) {
   const exportRequested = String(url?.searchParams?.get("export") || "").toLowerCase() === "csv";
   const auth = await requireUser(req, res, { loadDb: exportRequested });
   if (!auth) return;
+  // The monthly wallet summary belongs to Vipeak Live only. The platform and
+  // tool tenants share this backend process, so additive live-only fields must
+  // never leak into their billing responses.
+  const liveTenant = requestTenantDescriptor(req).toolId === "live";
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, type, fromDate, toDate, exportCsv } = billingQueryFilters(url);
   const monthRange = shanghaiCurrentMonthRange();
   if (dbEnabled() && !exportCsv) {
     const result = await getUserSpendingRecordsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type, fromDate, toDate });
-    const monthlySummary = await getSpendingMonthlySummaryFromDb({ userId: auth.user.id, fromDate: monthRange.from, toDate: monthRange.to });
-    if (result) return sendJson(res, 200, { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, monthlySummary, user: userView(auth.user) });
+    const monthlySummary = liveTenant ? await getSpendingMonthlySummaryFromDb({ userId: auth.user.id, fromDate: monthRange.from, toDate: monthRange.to }) : null;
+    if (result) {
+      const payload = { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, user: userView(auth.user) };
+      if (liveTenant) payload.monthlySummary = monthlySummary;
+      return sendJson(res, 200, payload);
+    }
   }
   const rawRecords = (auth.db.creditLedger || []).filter((entry) => entry.userId === auth.user.id);
-  const monthlySummary = spendingMonthlySummaryFromEntries(rawRecords, monthRange);
+  const monthlySummary = liveTenant ? spendingMonthlySummaryFromEntries(rawRecords, monthRange) : null;
   const records = groupChatLiveSpendingEntries(rawRecords)
     .map(publicSpendingLedger)
     .filter((entry) => {
@@ -43832,7 +43840,7 @@ async function handleListSpendingRecords(req, res, url) {
     ], rows));
   }
 
-  return sendJson(res, 200, {
+  const payload = {
     ok: true,
     records: records.slice(offset, offset + limit),
     total: records.length,
@@ -43840,9 +43848,10 @@ async function handleListSpendingRecords(req, res, url) {
     limit,
     totalPages: Math.max(1, Math.ceil(records.length / limit)),
     types,
-    monthlySummary,
     user: userView(auth.user),
-  });
+  };
+  if (liveTenant) payload.monthlySummary = monthlySummary;
+  return sendJson(res, 200, payload);
 }
 
 async function handleSpendCredits(req, res) {

@@ -24,9 +24,48 @@ TARGETS = {
         "remote_root": "/opt/raising-game-demo",
         "service": "raising-game-demo",
         "health_url": "https://123vips.com/api/health",
+        "verify_urls": ("https://123vips.com/",),
+        "verify_contains": (
+            "https://123vips.com/=platform.css",
+            "https://123vips.com/=Vipeak AI",
+        ),
         "env_file": "/etc/raising-game-demo.env",
         "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "forbidden_changed_paths": ("live.html", "live.css", "live.js"),
+        "forbidden_env_patterns": (r"^TOS_",),
+        "required_env_patterns": (
+            r"^R2_ACCESS_KEY_ID=.+$",
+            r"^R2_SECRET_ACCESS_KEY=.+$",
+            r"^R2_ENDPOINT=.+\.r2\.cloudflarestorage\.com/?\"?$",
+            r"^R2_BUCKET=\"?vipeak-media\"?$",
+            r"^R2_PUBLIC_BASE_URL=\"?https://media\.123vips\.com\"?$",
+        ),
+    },
+    "live": {
+        # Vipeak Live is a hostname-routed tenant on the same production
+        # process as 123vips.com. Keep this as an explicit target so a live
+        # release is never verified only through the platform domain.
+        "host": "47.84.76.131",
+        "port": 22,
+        "branch": "old-site",
+        "remote_root": "/opt/raising-game-demo",
+        "service": "raising-game-demo",
+        "health_url": "https://live.123vipeak.com/api/health",
+        # Both domains share one process. Verify the live surface and confirm
+        # the platform home page still serves its own assets after every live
+        # release.
+        "verify_urls": ("https://live.123vipeak.com/", "https://123vips.com/"),
+        "verify_contains": (
+            "https://live.123vipeak.com/=live.css",
+            "https://live.123vipeak.com/=Vipeak Live",
+            "https://123vips.com/=platform.css",
+            "https://123vips.com/=Vipeak AI",
+        ),
+        "env_file": "/etc/raising-game-demo.env",
+        "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
+        "password_env": ("LIVE_SITE_SSH_PASSWORD", "OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "forbidden_changed_paths": ("platform.html", "platform.css", "platform*.js", "site-landing.*", "admin.html", "admin.css", "admin.js"),
         "forbidden_env_patterns": (r"^TOS_",),
         "required_env_patterns": (
             r"^R2_ACCESS_KEY_ID=.+$",
@@ -93,7 +132,7 @@ def enforce_shared_sync_for_new2() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deploy a fixed production target.")
-    parser.add_argument("--site", choices=sorted(TARGETS), required=True, help="old=123vips.com, new2=667zui.video")
+    parser.add_argument("--site", choices=sorted(TARGETS), required=True, help="old=shared platform surface (123vips.com), live=live.123vipeak.com on the same process, new2=667zui.video")
     parser.add_argument("--port", type=int, default=None, help="Override the fixed SSH port for this site.")
     parser.add_argument("--dry-run", action="store_true", help="Print the fixed target and exit.")
     parser.add_argument("--no-restart", action="store_true", help="Pull code without restarting the service.")
@@ -109,12 +148,18 @@ def main() -> None:
     print(f"[deploy-site] remote_root={target['remote_root']}")
     print(f"[deploy-site] service={target['service']}")
     print(f"[deploy-site] health_url={target['health_url']}")
+    for verify_url in target.get("verify_urls", ()):
+        print(f"[deploy-site] verify_url={verify_url}")
+    for verify_contains in target.get("verify_contains", ()):
+        print(f"[deploy-site] verify_contains={verify_contains}")
     print(f"[deploy-site] env_file={target['env_file']}")
     print(f"[deploy-site] password_source={password_source or '<missing>'}")
     for pattern in target.get("forbidden_env_patterns", ()):
         print(f"[deploy-site] forbid_env_pattern={pattern}")
     for pattern in target.get("required_env_patterns", ()):
         print(f"[deploy-site] require_env_pattern={pattern}")
+    for changed_path in target.get("forbidden_changed_paths", ()):
+        print(f"[deploy-site] forbid_changed_path={changed_path}")
     for required_path, minimum in target.get("required_file_counts", ()):
         print(f"[deploy-site] require_min_files={required_path}={minimum}")
     if args.dry_run:
@@ -125,6 +170,14 @@ def main() -> None:
         expected = ", ".join(target["password_env"])
         raise SystemExit(f"Missing SSH password env. Set one of: {expected}")
 
+    expected_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=Path(__file__).resolve().parent.parent,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    print(f"[deploy-site] expected_commit={expected_commit}")
     env = os.environ.copy()
     env["DEPLOY_HOST"] = target["host"]
     env["DEPLOY_USER"] = env.get("DEPLOY_USER", "root")
@@ -143,6 +196,8 @@ def main() -> None:
         target["service"],
         "--health-url",
         target["health_url"],
+        "--commit",
+        expected_commit,
         "--port",
         str(port),
     ]
@@ -152,8 +207,14 @@ def main() -> None:
         command.extend(["--forbid-env-pattern", pattern])
     for pattern in target.get("required_env_patterns", ()):
         command.extend(["--require-env-pattern", pattern])
+    for changed_path in target.get("forbidden_changed_paths", ()):
+        command.extend(["--forbid-changed-path", changed_path])
     for required_path, minimum in target.get("required_file_counts", ()):
         command.extend(["--require-min-files", f"{required_path}={minimum}"])
+    for verify_url in target.get("verify_urls", ()):
+        command.extend(["--verify-url", verify_url])
+    for verify_contains in target.get("verify_contains", ()):
+        command.extend(["--verify-contains", verify_contains])
     raise SystemExit(subprocess.call(command, env=env))
 
 

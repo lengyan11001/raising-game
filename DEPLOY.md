@@ -66,13 +66,40 @@ Only then disable `raising-game-new-proxy` and Nginx on the former host. Do not
 remove its backup or database until the new origin has been observed serving all
 domains successfully.
 
+## Production topology (do not confuse these domains)
+
+`123vips.com` and `live.123vipeak.com` are **not separate production deployments**.
+Both Nginx server blocks proxy to the same `raising-game-demo` process on
+`47.84.76.131:4174`; the hostname selects the tenant/page (`platform.html` versus
+`live.html`). A code release therefore ships to the shared process, even when the
+visible change belongs to only one domain.
+
+Use the target that names the surface you intend to verify:
+
+- `old`: shared platform surface, verified at `https://123vips.com`
+- `live`: Vipeak Live tenant on the same host/process, verified at `https://live.123vipeak.com`
+
+Do not call `old` a "live-only" deployment. Do not treat a successful
+`123vips.com/api/health` check as proof that a live change was verified. The deploy
+helper rejects path overlap between these two targets: `old` refuses changes to
+`live.html`, `live.css`, or `live.js`; `live` refuses platform/admin/landing
+frontend changes. Shared backend changes must still be reviewed for tenant-specific
+effects and tested on both domains.
+
 ## Fixed deploy commands
 
-Old site:
+Shared platform surface (`123vips.com`):
 
 ```powershell
 $env:OLD_SITE_SSH_PASSWORD="..."
 python .\scripts\deploy_site.py --site old
+```
+
+Vipeak Live tenant (`live.123vipeak.com`, same host/process):
+
+```powershell
+$env:LIVE_SITE_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site live
 ```
 
 The deploy helper requires the replacement server password through the environment;
@@ -88,7 +115,7 @@ python .\scripts\deploy_site.py --site new2
 `deploy_site.py --site new2` runs the shared-code drift check before SSH. If it
 fails, sync first with `python .\scripts\sync_old_to_new2.py`.
 
-Both production targets also enforce a minimum character-media file count before
+All current production targets also enforce a minimum character-media file count before
 pulling or restarting. This prevents a fresh server with an empty
 `assets/ourdream/characters/` directory from publishing broken Explore and SEO
 images. New2 must keep these files on its own server or its own storage; its
@@ -148,20 +175,25 @@ $env:OLD_SITE_SSH_PASSWORD="..."
 python .\scripts\deploy_site.py --site old
 ```
 
-Fixed production target:
+Fixed production targets:
 
 - site: `old`
-- domain: `https://123vips.com`
-- host: `47.84.76.131`
-- SSH port: `22`
-- branch: `old-site`
-- remote root: `/opt/raising-game-demo`
-- service: `raising-game-demo`
-- env file: `/etc/raising-game-demo.env`
-- health URL: `https://123vips.com/api/health`
+  - verifies: `https://123vips.com`
+  - health URL: `https://123vips.com/api/health`
+- site: `live`
+  - verifies: `https://live.123vipeak.com`
+  - health URL: `https://live.123vipeak.com/api/health`
+- both shared targets use host `47.84.76.131`, SSH port `22`, branch `old-site`,
+  remote root `/opt/raising-game-demo`, service `raising-game-demo`, and env file
+  `/etc/raising-game-demo.env`
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
 files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
+
+Before restarting, the helper rejects commits that touch another target's owned
+frontend files. After restarting, it requires the exact local commit, an HTTP 200
+health response, and the expected domain-specific page markers. A live release
+must also leave `https://123vips.com/` serving `platform.css` and `Vipeak AI`.
 
 ## Wan2.7 production env
 
