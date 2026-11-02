@@ -428,6 +428,7 @@ const {
   PLATFORM_SITE_PROFILE,
   defaultPageForHostname,
   normalizeHostname,
+  standaloneLandingHostname,
   parseCsvList,
   toolVideoDefaultCapability,
   hostnameFromOrigin,
