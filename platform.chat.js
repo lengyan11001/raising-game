@@ -1,0 +1,877 @@
+"use strict";
+
+function activeChatConversation() {
+  return state.chatConversations.find((item) => item.id === state.chatActiveConversationId) || null;
+}
+
+function chatCopy(en, zh) { return state.lang === "zh" ? zh : en; }
+
+function chatPoster(character = {}) {
+  return String(character.posterUrl || DEFAULT_TEMPLATE_COVER);
+}
+
+function chatTimeLabel(value = "") {
+  const date = new Date(value || 0);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleDateString(state.lang || "en", { month: "short", day: "numeric" });
+}
+
+function chatFormattedText(value = "") {
+  return escapeHtml(String(value || "")).replace(/\*([^*\n]+)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+}
+
+function renderChatConversationList() {
+  if (!els.chatConversationList) return;
+  const zh = String(state.lang || "").toLowerCase().startsWith("zh");
+  const search = document.querySelector("#chatSearch");
+  if (search) search.placeholder = zh ? "搜索聊天..." : "Search chats...";
+  const query = String(state.chatSearch || "").trim().toLowerCase();
+  const items = state.chatConversations.filter((item) => !query || `${item.title} ${item.lastMessage}`.toLowerCase().includes(query));
+  els.chatConversationList.innerHTML = items.length ? items.map((item) => `
+    <button class="chat-conversation-item ${item.id === state.chatActiveConversationId ? "is-active" : ""}" type="button" data-chat-conversation="${escapeHtml(item.id)}">
+      <img src="${escapeHtml(chatPoster(item.character))}" alt="" />
+      <span><strong>${escapeHtml(item.title || item.character?.name || "Chat")}</strong><small>${escapeHtml(item.lastMessage || "Start chatting")}</small></span>
+      <time>${escapeHtml(chatTimeLabel(item.updatedAt))}</time>
+    </button>
+  `).join("") : `<div class="chat-list-empty">${state.chatLoading ? (zh ? "加载中..." : "Loading...") : (zh ? "暂无聊天" : "No chats yet")}</div>`;
+  els.chatConversationList.querySelectorAll("[data-chat-conversation]").forEach((button) => {
+    button.addEventListener("click", () => { els.chatShell?.classList.remove("mobile-list-open"); openChatConversation(button.dataset.chatConversation || ""); });
+  });
+}
+
+function chatMessageMarkup(message = {}) {
+  const assistant = message.role !== "user";
+  const media = message.kind === "image";
+  const pending = message.pending === true;
+  const mediaMarkup = media ? (message.imageUrl
+    ? `<figure class="chat-message-media"><img src="${escapeHtml(message.imageUrl)}" alt="${escapeHtml(message.content || "Generated scene")}" /><figcaption>${chatFormattedText(message.content || "Generated scene")}</figcaption></figure>`
+    : `<div class="chat-media-pending ${message.status === "failed" ? "is-failed" : ""}"><i data-lucide="${message.status === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(message.error || "Generating image...")}</span></div>`) : chatFormattedText(message.content || "");
+  return `
+    <article class="chat-message ${assistant ? "is-assistant" : "is-user"}${pending ? " is-pending" : ""}" data-chat-message="${escapeHtml(message.id || "")}">
+      <div class="chat-message-content">${mediaMarkup}</div>
+      ${pending ? "" : `<div class="chat-message-actions">
+        <button class="icon-btn" type="button" data-chat-copy aria-label="Copy" title="Copy"><i data-lucide="copy"></i></button>
+        ${assistant && !media ? `<button class="icon-btn" type="button" data-chat-read aria-label="Read aloud" title="Read aloud"><i data-lucide="volume-2"></i></button>` : ""}
+        ${assistant && !media
+          ? `<button class="icon-btn" type="button" data-chat-regenerate aria-label="Regenerate" title="Regenerate"><i data-lucide="refresh-cw"></i></button>`
+          : !assistant ? `<button class="icon-btn" type="button" data-chat-edit aria-label="Edit" title="Edit"><i data-lucide="pencil"></i></button>` : ""}
+        ${assistant && !media ? `<button class="icon-btn" type="button" data-chat-continue aria-label="Continue" title="Continue"><i data-lucide="fast-forward"></i></button>` : ""}
+        ${media && message.status === "succeeded" ? `<button class="icon-btn" type="button" data-chat-animate aria-label="Create video" title="Create video"><i data-lucide="clapperboard"></i></button>` : ""}
+        <details class="chat-message-more"><summary class="icon-btn" aria-label="More" title="More"><i data-lucide="ellipsis"></i></summary><div>
+          <button type="button" data-chat-branch><i data-lucide="git-branch"></i>Branch from here</button>
+          <button type="button" data-chat-report><i data-lucide="flag"></i>Report</button>
+          <button type="button" data-chat-delete><i data-lucide="trash-2"></i>Delete</button>
+        </div></details>
+      </div>`}
+    </article>`;
+}
+
+function bindChatThreadActions() {
+  if (!els.chatThread) return;
+  els.chatThread.querySelectorAll("[data-chat-message]").forEach((article) => {
+    const message = state.chatMessages.find((item) => item.id === article.dataset.chatMessage);
+    article.querySelector("[data-chat-copy]")?.addEventListener("click", () => navigator.clipboard?.writeText(message?.imageUrl || message?.content || ""));
+    article.querySelector("[data-chat-read]")?.addEventListener("click", () => readChatMessage(message));
+    article.querySelector("[data-chat-regenerate]")?.addEventListener("click", () => sendChatMessage({ action: "regenerate", targetMessageId: message?.id || "" }));
+    article.querySelector("[data-chat-continue]")?.addEventListener("click", () => sendChatMessage({ action: "continue", targetMessageId: message?.id || "" }));
+    article.querySelector("[data-chat-branch]")?.addEventListener("click", () => branchChatFromMessage(message?.id || ""));
+    article.querySelector("[data-chat-report]")?.addEventListener("click", () => reportChatMessage(message));
+    article.querySelector("[data-chat-delete]")?.addEventListener("click", () => deleteChatMessage(message?.id || ""));
+    article.querySelector("[data-chat-animate]")?.addEventListener("click", (event) => openChatImageInVideo(message, event.currentTarget));
+    article.querySelector("[data-chat-edit]")?.addEventListener("click", () => {
+      if (!els.chatInput) return;
+      els.chatInput.value = message?.content || "";
+      els.chatInput.dataset.editMessageId = message?.id || "";
+      els.chatInput.focus();
+    });
+  });
+}
+
+function renderChatThread({ scroll = true } = {}) {
+  const conversation = activeChatConversation();
+  if (!els.chatThread || !conversation) return;
+  els.chatThread.style.setProperty("--chat-background", `url("${chatPoster(conversation.character).replace(/["\\]/g, "")}")`);
+  els.chatThread.classList.toggle("has-background", conversation.backgroundEnabled !== false);
+  const pendingMessages = (state.chatPendingMessages || []).map((item) => ({ ...item, pending: true }));
+  els.chatThread.innerHTML = state.chatMessages.map(chatMessageMarkup).join("") + pendingMessages.map(chatMessageMarkup).join("") || `<div class="chat-list-empty">No messages yet</div>`;
+  bindChatThreadActions();
+  if (scroll) requestAnimationFrame(() => { els.chatThread.scrollTop = els.chatThread.scrollHeight; });
+  state.chatMessages.filter((message) => message.kind === "image" && message.taskId && message.status === "generating").forEach((message) => pollChatImage(conversation.id, message.taskId));
+}
+
+function renderChatTracker(conversation = activeChatConversation()) {
+  if (!els.chatTracker) return;
+  els.chatTracker.hidden = !conversation || !state.chatTrackerVisible;
+  if (els.chatTracker.hidden) return;
+  const tracker = conversation.tracker || {};
+  const zh = String(state.lang || "").toLowerCase().startsWith("zh");
+  const fields = [
+    ["clock-3", zh ? "日期和时间" : "Date and time", tracker.dateTime],
+    ["map-pin", zh ? "地点" : "Location", tracker.location],
+    ["shirt", zh ? "服装" : `${conversation.character?.name || "Character"}'s outfit`, tracker.outfit],
+    ["heart-handshake", zh ? "关系" : "Relationship", tracker.relationship],
+    ["smile", zh ? "心情" : "Mood", tracker.mood],
+  ].filter(([, , value]) => value);
+  els.chatTracker.innerHTML = `<header><strong>${zh ? "状态追踪" : "State tracker"}</strong><span>${zh ? "实时" : "Live"}</span></header>${fields.length ? fields.map(([icon, label, value]) => `<div><i data-lucide="${icon}"></i><span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span></div>`).join("") : `<p>${zh ? "下一次角色回复后显示状态。" : "State appears after the next character reply."}</p>`}`;
+}
+
+function syncChatViewportHeight() {
+  if (!els.chatShell) return;
+  if (window.innerWidth > 720) {
+    els.chatShell.style.removeProperty("height");
+    return;
+  }
+  const documentTop = Math.max(0, Math.round(els.chatShell.getBoundingClientRect().top + window.scrollY));
+  els.chatShell.style.height = `${Math.max(320, window.innerHeight - documentTop)}px`;
+}
+
+function renderChatSettings(conversation = activeChatConversation()) {
+  if (!els.chatSettingsBody) return;
+  document.querySelectorAll("[data-chat-setting]").forEach((button) => button.classList.toggle("is-active", button.dataset.chatSetting === state.chatSetting));
+  if (!conversation) {
+    els.chatSettingsBody.innerHTML = "";
+    return;
+  }
+  if (state.chatSetting === "memory") {
+    els.chatSettingsBody.innerHTML = `
+      <label class="chat-setting-field"><span>Pinned memory</span><textarea id="chatMemoryInput" rows="7" maxlength="4000" placeholder="Facts this character should always remember">${escapeHtml(conversation.memory || "")}</textarea></label>
+      <label class="chat-setting-field"><span>Custom instructions</span><textarea id="chatInstructionsInput" rows="7" maxlength="4000" placeholder="How the character should respond">${escapeHtml(conversation.instructions || "")}</textarea></label>
+      <button class="primary-button" id="chatSaveMemoryBtn" type="button">Save memory</button>`;
+    document.querySelector("#chatSaveMemoryBtn")?.addEventListener("click", () => updateChatPreferences({
+      memory: document.querySelector("#chatMemoryInput")?.value || "",
+      instructions: document.querySelector("#chatInstructionsInput")?.value || "",
+    }));
+    return;
+  }
+  if (state.chatSetting === "preferences") {
+    els.chatSettingsBody.innerHTML = `
+      <label class="chat-toggle"><span><strong>Character background</strong><small>Show the character image behind messages</small></span><input id="chatBackgroundToggle" type="checkbox" ${conversation.backgroundEnabled !== false ? "checked" : ""} /></label>`;
+    document.querySelector("#chatBackgroundToggle")?.addEventListener("change", (event) => updateChatPreferences({ backgroundEnabled: event.currentTarget.checked }));
+    return;
+  }
+  const styles = [
+    ["balanced", "Balanced", "Natural conversation with vivid roleplay"],
+    ["immersive", "Immersive", "Longer, sensory and character-driven"],
+    ["concise", "Concise", "Short, direct replies"],
+    ["cinematic", "Cinematic", "Atmospheric scenes and strong pacing"],
+  ];
+  els.chatSettingsBody.innerHTML = `<div class="chat-style-options">${styles.map(([id, label, description]) => `
+    <button class="chat-style-option ${conversation.style === id ? "is-active" : ""}" type="button" data-chat-style="${id}">
+      <span><strong>${label}</strong><small>${description}</small></span><i data-lucide="${conversation.style === id ? "circle-check" : "circle"}"></i>
+    </button>`).join("")}</div>`;
+  els.chatSettingsBody.querySelectorAll("[data-chat-style]").forEach((button) => button.addEventListener("click", () => updateChatPreferences({ style: button.dataset.chatStyle })));
+}
+
+function renderChatPanel() {
+  const zh = String(state.lang || "").toLowerCase().startsWith("zh");
+  const chatTitle = document.querySelector("[data-panel=chat] .chat-list-head strong");
+  if (chatTitle) chatTitle.textContent = zh ? "聊天" : "Chats";
+  const emptyTitle = document.querySelector("#chatEmpty strong");
+  if (emptyTitle) emptyTitle.textContent = chatCopy("Start a character chat", "开始角色聊天");
+  if (els.chatEmptyBrowseBtn) els.chatEmptyBrowseBtn.textContent = chatCopy("Browse characters", "浏览角色");
+  renderChatConversationList();
+  const conversation = activeChatConversation();
+  const hasConversation = Boolean(conversation);
+  if (els.chatEmpty) els.chatEmpty.hidden = hasConversation;
+  if (els.chatThread) els.chatThread.hidden = !hasConversation;
+  if (els.chatComposer) els.chatComposer.hidden = !hasConversation;
+  if (els.chatSendBtn) els.chatSendBtn.disabled = false;
+  if (els.chatSuggestion) els.chatSuggestion.hidden = !hasConversation || !state.chatMessages.length;
+  if (els.chatMainHead) {
+    els.chatMainHead.innerHTML = hasConversation ? `<button class="icon-btn chat-mobile-control" type="button" data-chat-mobile-list aria-label="Chats"><i data-lucide="panel-left"></i></button><img src="${escapeHtml(chatPoster(conversation.character))}" alt="" /><span><strong>${escapeHtml(conversation.title)}</strong><small>BytePlus Language</small></span><button class="icon-btn chat-mobile-control" type="button" data-chat-mobile-settings aria-label="Chat settings"><i data-lucide="sliders-horizontal"></i></button>` : "";
+    els.chatMainHead.querySelector("[data-chat-mobile-list]")?.addEventListener("click", () => els.chatShell?.classList.toggle("mobile-list-open"));
+    els.chatMainHead.querySelector("[data-chat-mobile-settings]")?.addEventListener("click", () => els.chatShell?.classList.toggle("mobile-settings-open"));
+    /* 在线聊天（Vidu 实时数字人）：和角色聊天按钮并排的实时视频入口 */
+    const liveCharacter = (window.ChatLive?.available?.() && window.ChatLive.characters().find((item) => (
+      String(item.id) === String(conversation.characterId || conversation.character?.id || "")
+      || String(item.linkName || "").toLowerCase() === String(conversation.title || conversation.character?.name || "").toLowerCase()
+      || String(item.name || "").toLowerCase() === String(conversation.title || conversation.character?.name || "").toLowerCase()
+    ))) || null;
+    if (liveCharacter) {
+      const liveButton = document.createElement("button");
+      liveButton.type = "button";
+      liveButton.className = "icon-btn chat-live-entry";
+      liveButton.dataset.chatLiveStart = liveCharacter.id;
+      liveButton.title = `在线聊天 · ${window.ChatLive.saleCreditsPerMinute()} 积分/分钟`;
+      liveButton.innerHTML = `<i data-lucide="video"></i><span>在线聊天</span>`;
+      els.chatMainHead.appendChild(liveButton);
+      liveButton.addEventListener("click", () => {
+        window.ChatLive.open(liveCharacter.id).catch((error) => window.alert(error.message || String(error)));
+      });
+      refreshIcons();
+    }
+  }
+  if (els.chatThread && hasConversation) {
+    renderChatThread();
+  }
+  if (els.chatCharacterCard) {
+    els.chatCharacterCard.innerHTML = hasConversation ? `
+      <img src="${escapeHtml(chatPoster(conversation.character))}" alt="${escapeHtml(conversation.character?.name || "")}" />
+      <strong>${escapeHtml(conversation.character?.name || conversation.title)}</strong>
+      <p>${escapeHtml(conversation.character?.description || "")}</p>
+      <div>${(conversation.character?.tags || []).slice(0, 5).map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : "";
+  }
+  if (els.chatSuggestionBtn && hasConversation) els.chatSuggestionBtn.textContent = zh ? `告诉我更多，${String(conversation.character?.name || "").split(/\s+/)[0] || "请"}。` : `Tell me more, ${String(conversation.character?.name || "").split(/\s+/)[0] || "please"}.`;
+  renderChatTracker(conversation);
+  renderChatMode();
+  renderChatSettings(conversation);
+  refreshIcons();
+  requestAnimationFrame(syncChatViewportHeight);
+}
+
+async function loadChatConversations({ selectFirst = true } = {}) {
+  if (!state.user) {
+    state.chatConversations = [];
+    state.chatActiveConversationId = "";
+    state.chatMessages = [];
+    renderChatPanel();
+    return;
+  }
+  state.chatLoading = true;
+  renderChatConversationList();
+  try {
+    const payload = await requestJson("/api/chat/conversations");
+    state.chatConversations = payload.conversations || [];
+    if (selectFirst && !state.chatActiveConversationId && state.chatConversations[0]) state.chatActiveConversationId = state.chatConversations[0].id;
+    if (state.chatActiveConversationId) await openChatConversation(state.chatActiveConversationId, { renderList: false });
+  } finally {
+    state.chatLoading = false;
+    renderChatPanel();
+  }
+}
+
+async function openChatConversation(conversationId = "", { renderList = true, messagesOnly = false } = {}) {
+  if (!conversationId) return;
+  state.chatActiveConversationId = conversationId;
+  if (renderList) renderChatConversationList();
+  const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+  state.chatMessages = payload.messages || [];
+  const index = state.chatConversations.findIndex((item) => item.id === conversationId);
+  if (index >= 0) state.chatConversations[index] = payload.conversation;
+  else state.chatConversations.unshift(payload.conversation);
+  if (messagesOnly && els.chatThread) {
+    renderChatThread();
+    return;
+  }
+  renderChatPanel();
+}
+
+async function startCharacterChat(characterId = "") {
+  if (!state.user) {
+    openLogin();
+    return false;
+  }
+  const existing = state.chatConversations.find((item) => item.characterId === characterId);
+  if (existing) {
+    state.chatActiveConversationId = existing.id;
+    setTab("chat");
+    return true;
+  }
+  try {
+    const payload = await requestJson("/api/chat/conversations", { method: "POST", body: { characterId } });
+    state.chatConversations.unshift(payload.conversation);
+    state.chatActiveConversationId = payload.conversation.id;
+    state.chatMessages = payload.messages || [];
+    setTab("chat");
+    return true;
+  } catch (error) {
+    if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) {
+      if (typeof openTopupDialog === "function") openTopupDialog();
+    }
+    throw error;
+  }
+}
+
+const CHAT_ONBOARDING_KEY = "vipeakChatOnboardingCompleted";
+let chatOnboardingTimer = 0;
+
+function chatOnboardingCompleted() {
+  try { return localStorage.getItem(CHAT_ONBOARDING_KEY) === "1"; } catch (error) { return false; }
+}
+
+function markChatOnboardingCompleted() {
+  try { localStorage.setItem(CHAT_ONBOARDING_KEY, "1"); } catch (error) {}
+}
+
+function chatOnboardingCharacters() {
+  return (state.homeCharacters || []).filter((item) => item && !item.deletedAt).slice(0, 3);
+}
+
+function chatOnboardingRoleCard(item = {}) {
+  const image = typeof characterAppearanceImageUrl === "function"
+    ? characterAppearanceImageUrl(item)
+    : item.posterUrl || item.imageUrl || "";
+  return `
+    <button class="chat-onboarding-role" type="button" data-chat-onboarding-character="${escapeHtml(item.id || "")}">
+      <img src="${escapeHtml(image || "/assets/brand/logo-mark.svg")}" alt="${escapeHtml(item.name || "Character")}" loading="lazy" />
+      <span class="chat-onboarding-role-copy"><strong>${escapeHtml(item.name || "Character")}</strong><small>${escapeHtml(item.title || item.description || "Ready for a private conversation.")}</small></span>
+      <span class="chat-onboarding-role-cta"><i data-lucide="lock-keyhole"></i>${state.lang === "zh" ? "充值解锁" : "Unlock chat"}</span>
+    </button>
+  `;
+}
+
+function closeChatOnboarding({ completed = true } = {}) {
+  const overlay = document.querySelector("[data-chat-onboarding]");
+  if (!overlay) return;
+  if (completed) markChatOnboardingCompleted();
+  window.clearTimeout(chatOnboardingTimer);
+  overlay.classList.add("is-closing");
+  window.setTimeout(() => overlay.remove(), 180);
+}
+
+function renderChatOnboardingStep(overlay, step = 0) {
+  if (!overlay) return;
+  const body = overlay.querySelector("[data-chat-onboarding-body]");
+  const progress = overlay.querySelector("[data-chat-onboarding-progress]");
+  const title = overlay.querySelector("[data-chat-onboarding-title]");
+  const copy = overlay.querySelector("[data-chat-onboarding-copy]");
+  const steps = [
+    {
+      title: state.lang === "zh" ? "你想遇见怎样的她？" : "Who do you want to meet?",
+      copy: state.lang === "zh" ? "先选一个方向，我们会为你准备合适的角色。" : "Start with a direction and we'll prepare the right lineup.",
+      options: [["flirty", "暧昧撩人", "Flirty"], ["romantic", "浪漫陪伴", "Romantic"], ["roleplay", "沉浸扮演", "Roleplay"]],
+    },
+    {
+      title: state.lang === "zh" ? "你喜欢怎样的相处方式？" : "What kind of connection feels right?",
+      copy: state.lang === "zh" ? "你的选择会影响推荐的氛围和性格。" : "This shapes the mood and personality we recommend.",
+      options: [["slow", "慢慢升温", "Slow burn"], ["direct", "直接一点", "Direct"], ["surprise", "交给她决定", "Surprise me"]],
+    },
+    {
+      title: state.lang === "zh" ? "选择她的性格" : "Choose her personality",
+      copy: state.lang === "zh" ? "放心，之后仍然可以随时更换角色。" : "You can switch characters whenever you like.",
+      options: [["confident", "自信主动", "Confident"], ["playful", "俏皮有趣", "Playful"], ["caring", "温柔体贴", "Caring"]],
+    },
+    {
+      title: state.lang === "zh" ? "你更喜欢哪种生活感？" : "What kind of everyday energy do you like?",
+      copy: state.lang === "zh" ? "从校园、职场到夜晚冒险，选一个你想进入的世界。" : "From campus and work to late-night adventures, pick a world to enter.",
+      options: [["casual", "轻松日常", "Casual everyday"], ["mature", "成熟魅力", "Mature energy"], ["adventure", "冒险刺激", "Adventure"]],
+    },
+    {
+      title: state.lang === "zh" ? "你喜欢什么样的外形？" : "What look catches your eye?",
+      copy: state.lang === "zh" ? "这是为了匹配角色风格，不会限制你之后的选择。" : "This matches a visual style without limiting your choices later.",
+      options: [["petite", "纤细轻盈", "Petite"], ["curvy", "曲线丰满", "Curvy"], ["athletic", "健康活力", "Athletic"]],
+    },
+    {
+      title: state.lang === "zh" ? "准备好开始了吗？" : "Ready to start?",
+      copy: state.lang === "zh" ? "最后选择聊天节奏，我们就为你展示角色。" : "Choose a final pace and we'll reveal your characters.",
+      options: [["gentle", "温柔聊天", "Gentle"], ["playful", "轻松调情", "Playful"], ["intense", "沉浸深入", "Immersive"]],
+    },
+  ];
+  if (step < steps.length) {
+    const current = steps[step];
+    title.textContent = current.title;
+    copy.textContent = current.copy;
+    progress.textContent = `${step + 1} / ${steps.length}`;
+    body.innerHTML = `<div class="chat-onboarding-options">${current.options.map(([id, zh, en]) => `
+      <button class="chat-onboarding-option" type="button" data-chat-onboarding-option="${id}">
+        <span class="chat-onboarding-option-dot"></span><strong>${state.lang === "zh" ? zh : en}</strong><i data-lucide="arrow-right"></i>
+      </button>`).join("")}</div>`;
+    body.querySelectorAll("[data-chat-onboarding-option]").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.classList.add("is-selected");
+        window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 180);
+      });
+    });
+  } else if (step === steps.length) {
+    title.textContent = state.lang === "zh" ? "正在为你匹配角色" : "Finding your matches";
+    copy.textContent = state.lang === "zh" ? "请稍等一下，马上就好。" : "Give us a moment — your lineup is almost ready.";
+    progress.textContent = "…";
+    body.innerHTML = `<div class="chat-onboarding-loading"><span class="chat-onboarding-loader"></span><div class="chat-onboarding-progress-track"><i></i></div></div>`;
+    refreshIcons();
+    window.clearTimeout(chatOnboardingTimer);
+    chatOnboardingTimer = window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 850);
+    return;
+  } else {
+    title.textContent = state.lang === "zh" ? "为你准备好了" : "Your lineup is ready";
+    copy.textContent = state.lang === "zh" ? "选择一个角色，充值后即可开始专属聊天。" : "Choose a character, top up, and start a private chat.";
+    progress.textContent = "READY";
+    const roles = chatOnboardingCharacters();
+    body.innerHTML = `
+      <div class="chat-onboarding-results">${roles.length ? roles.map(chatOnboardingRoleCard).join("") : `<p class="chat-onboarding-empty">${state.lang === "zh" ? "角色正在准备中，请稍后再试。" : "Characters are loading. Please try again shortly."}</p>`}</div>
+      <button class="primary-button chat-onboarding-enter" type="button" data-chat-onboarding-enter><i data-lucide="message-circle-heart"></i>${state.lang === "zh" ? "进入角色大厅" : "Enter character hall"}</button>
+    `;
+    body.querySelectorAll("[data-chat-onboarding-character]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.chatOnboardingCharacter || "";
+        startCharacterChat(id).then((started) => { if (started) closeChatOnboarding(); }).catch((error) => {
+          if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) return;
+          if (typeof window.alert === "function") window.alert(error.message || "Unable to open chat.");
+        });
+      });
+    });
+    body.querySelector("[data-chat-onboarding-enter]")?.addEventListener("click", () => closeChatOnboarding());
+  }
+  refreshIcons();
+}
+
+function initChatOnboarding() {
+  if (typeof isTenantTool !== "function" || !isTenantTool("chat") || chatOnboardingCompleted()) return;
+  if (document.querySelector("[data-chat-onboarding]")) return;
+  const overlay = document.createElement("section");
+  overlay.className = "chat-onboarding";
+  overlay.dataset.chatOnboarding = "";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.innerHTML = `
+    <div class="chat-onboarding-backdrop" data-chat-onboarding-skip></div>
+    <div class="chat-onboarding-panel">
+      <div class="chat-onboarding-topline"><span>5VIPS CHAT</span><span data-chat-onboarding-progress>1 / 6</span></div>
+      <div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div>
+      <h2 data-chat-onboarding-title></h2>
+      <p data-chat-onboarding-copy></p>
+      <div data-chat-onboarding-body></div>
+      <button class="chat-onboarding-skip" type="button" data-chat-onboarding-skip>${state.lang === "zh" ? "跳过引导，先看看角色" : "Skip guide and browse characters"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll("[data-chat-onboarding-skip]").forEach((button) => button.addEventListener("click", () => closeChatOnboarding()));
+  renderChatOnboardingStep(overlay, 0);
+}
+
+// Chat onboarding presentation follows the reference community flow: a
+// full-screen translucent panel, vertical step rail, timed progress, binary
+// questions, image choices, matching state, then locked character results.
+var chatOnboardingClockTimer2 = 0;
+var chatOnboardingAnswers2 = {};
+
+function chatOnboardingStepDefinitions2() {
+  const imagesA = chatOnboardingRoleImages2(0, 4);
+  const imagesB = chatOnboardingRoleImages2(4, 4);
+  const imagesC = chatOnboardingRoleImages2(8, 4);
+  return [
+    { label: state.lang === "zh" ? "成年" : "Age", icon: "badge-check", title: state.lang === "zh" ? "您是否已满18岁？" : "Are you 18 or older?", kind: "binary", options: [["yes", "已满", "I am"], ["no", "不满", "Not yet"]] },
+    { label: state.lang === "zh" ? "需求" : "Intent", icon: "heart-handshake", title: state.lang === "zh" ? "您是否有约炮需求？" : "Are you looking for an intimate connection?", kind: "binary", options: [["yes", "是", "Yes"], ["no", "否", "No"]] },
+    { label: state.lang === "zh" ? "生活" : "Lifestyle", icon: "coffee", title: state.lang === "zh" ? "能否接受只进入身体，不介入生活？" : "Can it stay physical and separate from everyday life?", kind: "binary", options: [["yes", "可以", "Yes"], ["no", "不能", "No"]] },
+    { label: state.lang === "zh" ? "胸部" : "Style", icon: "users-round", title: state.lang === "zh" ? "什么样的风格使你兴奋？" : "What kind of look catches your eye?", kind: "images", options: imagesA },
+    { label: state.lang === "zh" ? "年龄" : "Age", icon: "calendar-heart", title: state.lang === "zh" ? "什么样的年龄最适合你？" : "What age range feels right?", kind: "images", options: imagesB },
+    { label: state.lang === "zh" ? "臀部" : "Figure", icon: "accessibility", title: state.lang === "zh" ? "喜欢什么样的身材？" : "What kind of figure do you like?", kind: "images", options: imagesC },
+    { label: state.lang === "zh" ? "姿势" : "Mood", icon: "person-standing", title: state.lang === "zh" ? "什么样的互动最吸引你？" : "What kind of interaction feels exciting?", kind: "images", options: chatOnboardingRoleImages2(12, 2) },
+  ];
+}
+
+function chatOnboardingRoleImages2(offset = 0, count = 4) {
+  return (state.homeCharacters || []).filter((item) => item && !item.deletedAt).slice(offset, offset + count).map((item) => ({
+    id: item.id || "",
+    name: item.name || "Character",
+    image: typeof characterAppearanceImageUrl === "function" ? characterAppearanceImageUrl(item) : item.posterUrl || item.imageUrl || "",
+  }));
+}
+
+function renderChatOnboardingRail2(overlay, step, definitions) {
+  const rail = overlay.querySelector("[data-chat-onboarding-rail]");
+  if (!rail) return;
+  const railItems = [...definitions, { label: state.lang === "zh" ? "下载" : "Enter", icon: "download" }];
+  const activeIndex = Math.min(step, definitions.length);
+  rail.innerHTML = railItems.map((item, index) => {
+    const answer = chatOnboardingAnswers2[index];
+    return `<button class="chat-onboarding-rail-item ${index === activeIndex ? "is-active" : ""} ${answer ? "is-complete" : ""}" type="button" data-chat-onboarding-rail-step="${index}">
+      <span class="chat-onboarding-rail-label">${escapeHtml(item.label)}</span>
+      ${answer?.image ? `<img src="${escapeHtml(answer.image)}" alt="" />` : `<i data-lucide="${escapeHtml(item.icon)}"></i>`}
+      ${answer?.text ? `<small>${escapeHtml(answer.text)}</small>` : ""}
+    </button>`;
+  }).join("");
+  rail.querySelectorAll("[data-chat-onboarding-rail-step]").forEach((button) => button.addEventListener("click", () => {
+    const target = Number(button.dataset.chatOnboardingRailStep);
+    if (target <= step || chatOnboardingAnswers2[target]) renderChatOnboardingStep(overlay, target);
+  }));
+}
+
+function startChatOnboardingClock2(overlay) {
+  let remaining = 5 * 60;
+  const clock = overlay.querySelector("[data-chat-onboarding-clock]");
+  const tick = () => {
+    if (!clock) return;
+    clock.textContent = `${String(Math.floor(remaining / 60)).padStart(2, "0")} : ${String(remaining % 60).padStart(2, "0")}`;
+    if (remaining > 0) remaining -= 1;
+  };
+  tick();
+  window.clearInterval(chatOnboardingClockTimer2);
+  chatOnboardingClockTimer2 = window.setInterval(tick, 1000);
+}
+
+function closeChatOnboarding({ completed = true } = {}) {
+  const overlay = document.querySelector("[data-chat-onboarding]");
+  if (!overlay) return;
+  if (completed) markChatOnboardingCompleted();
+  window.clearTimeout(chatOnboardingTimer);
+  window.clearInterval(chatOnboardingClockTimer2);
+  overlay.classList.add("is-closing");
+  window.setTimeout(() => overlay.remove(), 180);
+}
+
+function renderChatOnboardingStep(overlay, step = 0) {
+  if (!overlay) return;
+  const body = overlay.querySelector("[data-chat-onboarding-body]");
+  const title = overlay.querySelector("[data-chat-onboarding-title]");
+  const copy = overlay.querySelector("[data-chat-onboarding-copy]");
+  const progress = overlay.querySelector("[data-chat-onboarding-progress]");
+  const definitions = chatOnboardingStepDefinitions2();
+  renderChatOnboardingRail2(overlay, step, definitions);
+  if (step < definitions.length) {
+    const current = definitions[step];
+    title.textContent = current.title;
+    copy.textContent = state.lang === "zh" ? "选择一个选项继续，之后也可以随时更换。" : "Choose an option to continue. You can change your mind later.";
+    progress.textContent = `${step + 1} / 8`;
+    if (current.kind === "binary") {
+      body.innerHTML = `<div class="chat-onboarding-binary">${current.options.map(([id, zh, en], index) => `<button class="chat-onboarding-binary-option ${index ? "is-negative" : ""}" type="button" data-chat-onboarding-option="${id}">${state.lang === "zh" ? zh : en}</button>`).join("")}</div>`;
+    } else {
+      body.innerHTML = `<div class="chat-onboarding-image-options">${current.options.map((item, index) => `<button class="chat-onboarding-image-option" type="button" data-chat-onboarding-option="${index}"><img src="${escapeHtml(item.image || "/assets/brand/logo-mark.svg")}" alt="${escapeHtml(item.name || "Option")}" loading="lazy" /><span>${escapeHtml(item.name || (state.lang === "zh" ? `选项 ${index + 1}` : `Option ${index + 1}`))}</span></button>`).join("")}</div>`;
+    }
+    body.querySelectorAll("[data-chat-onboarding-option]").forEach((button) => button.addEventListener("click", () => {
+      const optionIndex = Number(button.dataset.chatOnboardingOption);
+      const option = current.kind === "images" ? current.options[optionIndex] : null;
+      const textIndex = state.lang === "zh" ? 1 : 2;
+      const textOption = current.options.find((entry) => entry[0] === button.dataset.chatOnboardingOption);
+      chatOnboardingAnswers2[step] = current.kind === "images" ? { image: option?.image || "", text: option?.name || "" } : { text: textOption?.[textIndex] || "" };
+      if (step === 0 && button.dataset.chatOnboardingOption === "no") {
+        showAgeForbidden();
+        closeChatOnboarding({ completed: false });
+        return;
+      }
+      renderChatOnboardingStep(overlay, step + 1);
+    }));
+  } else if (step === definitions.length) {
+    title.textContent = state.lang === "zh" ? "正在为你匹配角色" : "Finding your matches";
+    copy.textContent = state.lang === "zh" ? "请稍等一下，马上就好。" : "Give us a moment — your lineup is almost ready.";
+    progress.textContent = "8 / 8";
+    body.innerHTML = `<div class="chat-onboarding-loading"><span class="chat-onboarding-loader"></span><div class="chat-onboarding-progress-track"><i></i></div></div>`;
+    window.clearTimeout(chatOnboardingTimer);
+    chatOnboardingTimer = window.setTimeout(() => renderChatOnboardingStep(overlay, step + 1), 1100);
+  } else {
+    title.textContent = state.lang === "zh" ? "为你准备好了" : "Your lineup is ready";
+    copy.textContent = state.lang === "zh" ? "选择一个角色，充值后即可开始专属聊天。" : "Choose a character, top up, and start a private chat.";
+    progress.textContent = "READY";
+    const roles = chatOnboardingCharacters();
+    body.innerHTML = `<div class="chat-onboarding-results">${roles.length ? roles.map(chatOnboardingRoleCard).join("") : `<p class="chat-onboarding-empty">${state.lang === "zh" ? "角色正在准备中，请稍后再试。" : "Characters are loading. Please try again shortly."}</p>`}</div><button class="primary-button chat-onboarding-enter" type="button" data-chat-onboarding-enter><i data-lucide="message-circle-heart"></i>${state.lang === "zh" ? "进入角色大厅" : "Enter character hall"}</button>`;
+    body.querySelectorAll("[data-chat-onboarding-character]").forEach((button) => button.addEventListener("click", () => {
+      startCharacterChat(button.dataset.characterChat || button.dataset.chatOnboardingCharacter || "").then((started) => { if (started) closeChatOnboarding(); }).catch((error) => {
+        if (error?.code === "CHAT_UNLOCK_REQUIRED" || error?.status === 402) return;
+        window.alert(error.message || "Unable to open chat.");
+      });
+    }));
+    body.querySelector("[data-chat-onboarding-enter]")?.addEventListener("click", () => closeChatOnboarding());
+  }
+  refreshIcons();
+}
+
+function initChatOnboarding() {
+  if (typeof isTenantTool !== "function" || !isTenantTool("chat") || chatOnboardingCompleted()) return;
+  if (document.querySelector("[data-chat-onboarding]")) return;
+  const overlay = document.createElement("section");
+  overlay.className = "chat-onboarding";
+  overlay.dataset.chatOnboarding = "";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  const backdropImage = chatOnboardingRoleImages2(0, 1)[0]?.image || "";
+  overlay.innerHTML = `<div class="chat-onboarding-backdrop" ${backdropImage ? `style="background-image:url('${escapeHtml(backdropImage)}')"` : ""}></div><div class="chat-onboarding-panel"><aside class="chat-onboarding-rail" data-chat-onboarding-rail></aside><div class="chat-onboarding-main"><div class="chat-onboarding-topline"><span data-chat-onboarding-progress>1 / 8</span><strong data-chat-onboarding-clock>05 : 00</strong></div><div class="chat-onboarding-mark"><i data-lucide="message-circle-heart"></i></div><h2 data-chat-onboarding-title></h2><p data-chat-onboarding-copy></p><div data-chat-onboarding-body></div></div></div>`;
+  document.body.appendChild(overlay);
+  chatOnboardingAnswers2 = {};
+  startChatOnboardingClock2(overlay);
+  renderChatOnboardingStep(overlay, 0);
+}
+
+function renderChatMode() {
+  const imageMode = state.chatMode === "image";
+  if (els.chatInput) els.chatInput.placeholder = imageMode ? "Describe an image..." : "Send a message";
+  if (els.chatModeBtn) {
+    els.chatModeBtn.innerHTML = `<i data-lucide="${imageMode ? "image" : "message-circle"}"></i>`;
+    els.chatModeBtn.title = imageMode ? "Image mode" : "Chat mode";
+  }
+  if (els.chatSendBtn && !state.chatSending) els.chatSendBtn.innerHTML = `<i data-lucide="${imageMode ? "sparkles" : "send"}"></i><span>${imageMode ? "Generate" : "Send"}</span>`;
+  if (els.chatContinueBtn) els.chatContinueBtn.hidden = imageMode;
+  if (els.chatVoiceBtn) els.chatVoiceBtn.hidden = imageMode;
+  els.chatModeMenu?.querySelectorAll("[data-chat-mode]").forEach((button) => button.classList.toggle("is-active", button.dataset.chatMode === state.chatMode));
+}
+
+function readChatMessage(message = {}) {
+  if (!message.content || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(String(message.content).replace(/\*/g, ""));
+  utterance.lang = state.lang || "en-US";
+  window.speechSynthesis.speak(utterance);
+}
+
+function reportChatMessage(message = {}) {
+  if (typeof openSupportDialog !== "function") return;
+  openSupportDialog();
+  if (els.supportSubject) els.supportSubject.value = "Character chat message report";
+  if (els.supportMessage) els.supportMessage.value = `Conversation: ${message.conversationId || ""}\nMessage: ${message.id || ""}\n\nPlease describe the issue:`;
+}
+
+function scheduleChatTrackerRefresh(conversationId = "") {
+  [10000, 26000].forEach((delayMs) => window.setTimeout(async () => {
+    if (state.chatActiveConversationId !== conversationId) return;
+    try {
+      const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+      const index = state.chatConversations.findIndex((item) => item.id === conversationId);
+      if (index >= 0) state.chatConversations[index] = payload.conversation;
+      renderChatTracker(payload.conversation);
+      refreshIcons();
+    } catch {}
+  }, delayMs));
+}
+
+async function branchChatFromMessage(messageId = "") {
+  const conversation = activeChatConversation();
+  if (!conversation || !messageId) return;
+  const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/branch`, { method: "POST", body: { messageId } });
+  state.chatConversations.unshift(payload.conversation);
+  state.chatActiveConversationId = payload.conversation.id;
+  state.chatMessages = payload.messages || [];
+  renderChatPanel();
+}
+
+async function deleteChatMessage(messageId = "") {
+  const conversation = activeChatConversation();
+  if (!conversation || !messageId || !window.confirm("Delete this message?")) return;
+  const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages/${encodeURIComponent(messageId)}`, { method: "DELETE" });
+  state.chatMessages = payload.messages || [];
+  const index = state.chatConversations.findIndex((item) => item.id === conversation.id);
+  if (index >= 0) state.chatConversations[index] = payload.conversation;
+  renderChatPanel();
+}
+
+async function openChatImageInVideo(message = {}, button = null) {
+  if (!message.taskId) return;
+  if (button) button.disabled = true;
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(message.taskId)}/add-asset`, { method: "POST" });
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+      if (typeof useAssetInAdvanced === "function") useAssetInAdvanced(payload.asset, "use");
+      setTab("advanced");
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function pollChatImage(conversationId = "", taskId = "") {
+  const key = `${conversationId}:${taskId}`;
+  if (!conversationId || !taskId || state.chatImagePolls.has(key)) return;
+  const poll = async () => {
+    try {
+      const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}/images/${encodeURIComponent(taskId)}/refresh`, { method: "POST" });
+      const index = state.chatMessages.findIndex((message) => message.taskId === taskId);
+      if (index >= 0 && payload.message) state.chatMessages[index] = payload.message;
+      if (state.chatActiveConversationId === conversationId) renderChatPanel();
+      if (payload.done) {
+        state.chatImagePolls.delete(key);
+        return;
+      }
+    } catch (error) {
+      console.warn("Chat image refresh failed", error);
+    }
+    state.chatImagePolls.set(key, window.setTimeout(poll, 3500));
+  };
+  state.chatImagePolls.set(key, window.setTimeout(poll, 1200));
+}
+
+async function generateChatImage({ mode = "image" } = {}) {
+  const conversation = activeChatConversation();
+  if (!conversation || state.chatSending) return;
+  const prompt = String(els.chatInput?.value || "").trim();
+  if (mode === "image" && !prompt) return;
+  state.chatSending = true;
+  renderChatPanel();
+  if (els.chatSendBtn) {
+    els.chatSendBtn.disabled = true;
+    els.chatSendBtn.innerHTML = `<i data-lucide="loader-circle"></i><span>Creating...</span>`;
+  }
+  try {
+    const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/images`, { method: "POST", body: { mode, prompt } });
+    if (els.chatInput) els.chatInput.value = "";
+    state.chatMessages.push(payload.message);
+    const index = state.chatConversations.findIndex((item) => item.id === conversation.id);
+    if (index >= 0) state.chatConversations[index] = payload.conversation;
+    renderChatPanel();
+    pollChatImage(conversation.id, payload.taskId);
+  } catch (error) {
+    if (els.chatInput && !els.chatInput.value) els.chatInput.value = prompt;
+    window.alert(error.message || "Image generation failed.");
+  } finally {
+    state.chatSending = false;
+    if (els.chatSendBtn) els.chatSendBtn.disabled = false;
+    renderChatPanel();
+  }
+}
+
+const CHAT_BURST_SETTLE_MS = 1000;
+
+function chatPendingMessage(content = "") {
+  return { id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, role: "user", content: String(content || "") };
+}
+
+function scheduleChatBurstFlush(delay = CHAT_BURST_SETTLE_MS) {
+  if (state.chatBurstTimer) window.clearTimeout(state.chatBurstTimer);
+  state.chatNextBurstAt = Date.now() + delay;
+  state.chatBurstTimer = window.setTimeout(() => {
+    state.chatBurstTimer = 0;
+    state.chatNextBurstAt = 0;
+    flushChatBurst().catch(() => {});
+  }, delay);
+}
+
+function queueChatMessage(content = "") {
+  const text = String(content || "").trim();
+  if (!text) return;
+  state.chatPendingMessages = [...(state.chatPendingMessages || []), chatPendingMessage(text)];
+  if (els.chatInput) {
+    els.chatInput.value = "";
+    delete els.chatInput.dataset.editMessageId;
+    els.chatInput.focus();
+  }
+  renderChatThread();
+  scheduleChatBurstFlush();
+}
+
+async function flushChatBurst() {
+  const conversation = activeChatConversation();
+  const pending = Array.isArray(state.chatPendingMessages) ? [...state.chatPendingMessages] : [];
+  if (!conversation || !pending.length) return;
+  if (state.chatSending) {
+    scheduleChatBurstFlush(500);
+    return;
+  }
+  const queued = pending.filter((item) => String(item.content || "").trim());
+  const contents = queued.map((item) => String(item.content || "").trim());
+  if (!contents.length) {
+    state.chatPendingMessages = [];
+    renderChatThread();
+    return;
+  }
+  state.chatSending = true;
+  if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
+  try {
+    const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
+      method: "POST",
+      body: { contents, content: contents[contents.length - 1], action: "send", language: els.languageSelect?.value || state.lang },
+      timeoutMs: 50000,
+    });
+    state.chatPendingMessages = (state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id));
+    if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
+    await openChatConversation(conversation.id, { renderList: false, messagesOnly: true });
+    scheduleChatTrackerRefresh(conversation.id);
+    renderAccountMenu();
+    renderTopupSummary();
+  } catch (error) {
+    state.chatPendingMessages = (state.chatPendingMessages || []).filter((item) => !pending.some((sent) => sent.id === item.id));
+  } finally {
+    state.chatSending = false;
+    if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
+    renderChatThread();
+    if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
+  }
+}
+
+async function submitChatMessage({ action = "send", targetMessageId = "", content = "" } = {}) {
+  const conversation = activeChatConversation();
+  if (!conversation || state.chatSending) return;
+  const effectiveAction = action;
+  const text = String(content || "").trim();
+  if (!["continue", "regenerate"].includes(effectiveAction) && !text) return;
+  const previousMessages = state.chatMessages.slice();
+  state.chatSending = true;
+  renderChatPanel();
+  if (els.chatContinueBtn) els.chatContinueBtn.disabled = true;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}/messages`, {
+      method: "POST",
+      body: { content: text, action: effectiveAction, targetMessageId, language: els.languageSelect?.value || state.lang },
+    });
+    if (els.chatInput) delete els.chatInput.dataset.editMessageId;
+    if (payload.credits !== undefined && state.user) state.user.credits = payload.credits;
+    await openChatConversation(conversation.id);
+    scheduleChatTrackerRefresh(conversation.id);
+    renderAccountMenu();
+    renderTopupSummary();
+  } catch (error) {
+    state.chatMessages = previousMessages;
+    window.alert(error.message || "Chat failed.");
+  } finally {
+    state.chatSending = false;
+    if (els.chatContinueBtn) els.chatContinueBtn.disabled = false;
+    renderChatPanel();
+  }
+}
+
+async function sendChatMessage({ action = "send", targetMessageId = "" } = {}) {
+  if (state.chatMode === "image" && action === "send") return generateChatImage({ mode: "image" });
+  const conversation = activeChatConversation();
+  if (!conversation) return;
+  const editMessageId = els.chatInput?.dataset.editMessageId || "";
+  const content = String(els.chatInput?.value || "").trim();
+  const effectiveAction = editMessageId && action === "send" ? "edit" : action;
+  if (effectiveAction === "send") {
+    queueChatMessage(content);
+    return;
+  }
+  if (state.chatSending) return;
+  return submitChatMessage({ action: effectiveAction, targetMessageId: targetMessageId || editMessageId, content });
+}
+
+async function updateChatPreferences(changes = {}) {
+  const conversation = activeChatConversation();
+  if (!conversation) return;
+  const payload = await requestJson(`/api/chat/conversations/${encodeURIComponent(conversation.id)}`, { method: "PATCH", body: changes });
+  const index = state.chatConversations.findIndex((item) => item.id === conversation.id);
+  if (index >= 0) state.chatConversations[index] = payload.conversation;
+  renderChatPanel();
+}
+
+els.chatBrowseBtn?.addEventListener("click", () => setTab("gallery"));
+els.chatEmptyBrowseBtn?.addEventListener("click", () => setTab("gallery"));
+els.chatSearch?.addEventListener("input", () => { state.chatSearch = els.chatSearch.value || ""; renderChatConversationList(); });
+els.chatComposer?.addEventListener("submit", (event) => { event.preventDefault(); sendChatMessage(); });
+els.chatInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); }
+});
+els.chatInput?.addEventListener("input", () => {
+  if (!String(els.chatInput?.value || "").trim()) return;
+  if (state.chatPendingMessages?.length) scheduleChatBurstFlush();
+});
+els.chatContinueBtn?.addEventListener("click", () => sendChatMessage({ action: "continue" }));
+els.chatSuggestionBtn?.addEventListener("click", () => { if (els.chatInput) { els.chatInput.value = els.chatSuggestionBtn.textContent || ""; els.chatInput.focus(); } });
+els.chatModeBtn?.addEventListener("click", () => { if (els.chatModeMenu) els.chatModeMenu.hidden = !els.chatModeMenu.hidden; });
+els.chatModeMenu?.querySelectorAll("[data-chat-mode]").forEach((button) => button.addEventListener("click", () => {
+  state.chatMode = button.dataset.chatMode === "image" ? "image" : "chat";
+  els.chatModeMenu.hidden = true;
+  renderChatMode();
+  refreshIcons();
+  els.chatInput?.focus();
+}));
+els.chatModeMenu?.querySelector("[data-chat-scene]")?.addEventListener("click", () => {
+  els.chatModeMenu.hidden = true;
+  if (window.confirm("Generate an image from the current scene? Image generation credits apply.")) generateChatImage({ mode: "scene" });
+});
+els.chatModeMenu?.querySelector("[data-chat-tracker]")?.addEventListener("click", () => {
+  state.chatTrackerVisible = !state.chatTrackerVisible;
+  els.chatModeMenu.hidden = true;
+  renderChatPanel();
+});
+els.chatVoiceBtn?.addEventListener("click", () => {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    window.alert("Voice input is not supported in this browser.");
+    return;
+  }
+  const recognition = new Recognition();
+  recognition.lang = state.lang || "en-US";
+  recognition.interimResults = false;
+  recognition.onstart = () => els.chatVoiceBtn?.classList.add("is-recording");
+  recognition.onend = () => els.chatVoiceBtn?.classList.remove("is-recording");
+  recognition.onerror = () => els.chatVoiceBtn?.classList.remove("is-recording");
+  recognition.onresult = (event) => {
+    const transcript = String(event.results?.[0]?.[0]?.transcript || "").trim();
+    if (transcript && els.chatInput) els.chatInput.value = `${els.chatInput.value ? `${els.chatInput.value} ` : ""}${transcript}`;
+  };
+  recognition.start();
+});
+document.querySelectorAll("[data-chat-setting]").forEach((button) => button.addEventListener("click", () => { state.chatSetting = button.dataset.chatSetting || "style"; renderChatSettings(); refreshIcons(); }));
+document.querySelectorAll("[data-chat-close-panels]").forEach((button) => button.addEventListener("click", () => els.chatShell?.classList.remove("mobile-list-open", "mobile-settings-open")));
+window.addEventListener("resize", syncChatViewportHeight);
+/* 在线聊天（Vidu 实时数字人）：拉一次配置，chat 面板里就能出现实时入口 */
+if (window.ChatLive && typeof window.ChatLive.loadConfig === "function") {
+  window.ChatLive.loadConfig().then(() => { if (typeof renderChatPanel === "function") renderChatPanel(); }).catch(() => {});
+}

@@ -1,0 +1,500 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const root = path.resolve(__dirname, "..");
+const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
+const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
+const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const platformExploreSource = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
+const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
+const css = fs.readFileSync(path.join(root, "platform.css"), "utf8");
+const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const config = fs.readFileSync(path.join(root, "platform.config.js"), "utf8");
+
+function extractFunction(source, name) {
+  const marker = `function ${name}(`;
+  const declaration = source.indexOf(marker);
+  if (declaration === -1) throw new Error(`missing function ${name}`);
+  const start = source.slice(Math.max(0, declaration - 6), declaration) === "async " ? declaration - 6 : declaration;
+
+  const scan = (from, opening, closing, initialDepth) => {
+    let depth = initialDepth;
+    let quote = "";
+    let escaped = false;
+    let lineComment = false;
+    let blockComment = false;
+    for (let index = from; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (lineComment) {
+        if (char === "\n") lineComment = false;
+        continue;
+      }
+      if (blockComment) {
+        if (char === "*" && next === "/") {
+          blockComment = false;
+          index += 1;
+        }
+        continue;
+      }
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === quote) quote = "";
+        continue;
+      }
+      if (char === "/" && next === "/") {
+        lineComment = true;
+        index += 1;
+        continue;
+      }
+      if (char === "/" && next === "*") {
+        blockComment = true;
+        index += 1;
+        continue;
+      }
+      if (char === "\"" || char === "'" || char === "`") {
+        quote = char;
+        continue;
+      }
+      if (char === opening) depth += 1;
+      else if (char === closing) {
+        depth -= 1;
+        if (depth === 0) return index;
+      }
+    }
+    return -1;
+  };
+
+  const paramsEnd = scan(source.indexOf("(", start), "(", ")", 0);
+  if (paramsEnd === -1) throw new Error(`unterminated parameters for ${name}`);
+  const bodyStart = source.indexOf("{", paramsEnd + 1);
+  if (bodyStart === -1) throw new Error(`missing body for ${name}`);
+  const bodyEnd = scan(bodyStart, "{", "}", 0);
+  if (bodyEnd === -1) throw new Error(`unterminated function ${name}`);
+  return source.slice(start, bodyEnd + 1);
+}
+
+function elementMarkup(id) {
+  const match = html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)<\\/select>`));
+  assert.ok(match, `missing #${id}`);
+  return match[1];
+}
+
+test("Custom is a main navigation entry backed by the Advanced workspace", () => {
+  assert.match(html, /class="top-tab" data-tab="custom"[\s\S]*?data-i18n="advanced\.modeCustom"/);
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(root, "platform.config.js"), "utf8").match(/const ADVANCED_CREATE_KINDS = \[([\s\S]*?)\];/)?.[1] || "",
+    /id: "custom"/,
+  );
+  assert.match(ui, /if \(kind === ADVANCED_CUSTOM_KIND\.id\) return ADVANCED_CUSTOM_KIND/);
+  assert.match(platformExploreSource, /const customAdvancedRoute = isAdvancedCustomRoute\(tab\)/);
+  assert.match(platformExploreSource, /nextTab === "advanced" && state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id[\s\S]*?"#custom"/);
+  assert.match(css, /\.advanced-workspace \{[\s\S]*?grid-template-columns: minmax\(320px, 420px\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-workspace\.is-create-custom \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-create-kind-tabs \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.advanced-workspace\.is-create-custom \.advanced-create-switch \{[\s\S]*?display: none !important/);
+  assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.copy-card, \.advanced-workspace, \.topup-strip \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.advanced-workspace\.is-create-custom \{ grid-template-columns: 1fr; \}/);
+});
+
+test("Wan3.0 controls are available from Custom without a launch banner", () => {
+  assert.match(config, /const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw"/);
+  assert.match(html, /value="wan30">W3\.0<\/option>/);
+  assert.match(html, /value="wan30-prime">W3\.0-Prime<\/option>/);
+  assert.doesNotMatch(html, /id="wan30LaunchBanner"/);
+});
+
+test("Advanced hides the asset panel without removing it from Custom", () => {
+  assert.match(html, /data-advanced-mobile-tab="assets"/);
+  assert.match(html, /data-advanced-side-tab="assets"/);
+  assert.match(html, /id="advancedAssetsView"/);
+  assert.match(html, /id="advancedResultView" data-advanced-side-view="result"/);
+  assert.match(config, /advancedSideTab: isAdvancedCustomRoute\(window\.location\.hash\) \? "assets" : "result"/);
+  assert.match(create, /const assetsAllowed = state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id/);
+  assert.match(css, /\.advanced-workspace:not\(\.is-create-custom\) \.advanced-side-tabs/);
+  assert.match(css, /\.advanced-workspace:not\(\.is-create-custom\) \[data-advanced-mobile-tab="assets"\]/);
+  assert.match(platformExploreSource, /state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id\) loadAdvancedAssets\(\)/);
+});
+
+test("Advanced results use a compact multi-column card grid", () => {
+  assert.match(css, /\.advanced-result-list \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@media \(min-width: 1440px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(create, /class="advanced-result-actions"/);
+  assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
+});
+
+test("Advanced engine list contains English model families, not task modes", () => {
+  const engine = elementMarkup("advancedProvider");
+  assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
+  assert.match(engine, /value="wan30"(?: selected)?>W3\.0<\/option>/);
+  assert.match(engine, /value="wan30-prime">W3\.0-Prime<\/option>/);
+  assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="seedance-nsfw" selected>Seedance 2\.5<\/option>/);
+  assert.match(engine, /value="wan27">Wan 2\.7/);
+  assert.doesNotMatch(engine, /value="wan-legacy"/);
+  assert.doesNotMatch(engine, /value="wan-animate">Wan Animate/);
+  assert.match(engine, /value="happyhorse">HappyHorse/);
+  assert.match(engine, /value="seedance">Seedance 2\.0/);
+  assert.doesNotMatch(engine, /value="seedance25">Seedance 2\.5/);
+  assert.match(engine, /value="seedance-nsfw" selected>Seedance 2\.5<\/option>/);
+  assert.doesNotMatch(engine, /\(NSFW\)/i);
+  assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
+});
+
+test("Seedance 2.5 keeps its engine everywhere but loses the NSFW wording", () => {
+  const workflowModels = config.match(/const WORKFLOW_VIDEO_MODEL_LIBRARY = Object\.freeze\(\[([\s\S]*?)\]\);/)?.[1] || "";
+  assert.match(workflowModels, /id: "seedance-nsfw", label: "Seedance 2\.5"/);
+  assert.doesNotMatch(workflowModels, /NSFW/);
+  assert.doesNotMatch(workflowModels, /id: "seedance25"/);
+  assert.doesNotMatch(html, /NSFW/);
+  assert.match(ui, /if \(normalized === "seedance-nsfw"\) return "Seedance 2\.5";/);
+  assert.match(create, /provider === "seedance-nsfw" \? "Seedance 2\.5"/);
+  assert.match(ui, /normalizeAdvancedProvider\(row\.provider\) !== "seedance25"/);
+  assert.doesNotMatch(create, /els\.advancedProvider\.value = "seedance-nsfw"/);
+  assert.match(create, /els\.advancedProvider\.value = DEFAULT_ADVANCED_PROVIDER/);
+  // An engine the picker does not offer must not be restored into the select.
+  assert.match(ui, /function advancedEngineOptionExists\(value = ""\)/);
+  assert.match(ui, /return advancedEngineOptionExists\(resolved\) \? resolved : DEFAULT_ADVANCED_PROVIDER;/);
+});
+
+test("stale Seedance submissions include the direct NSFW provider", () => {
+  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", "aliyun-wan30"/);
+  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER/);
+});
+
+test("Playflux image templates resolve prompts on the server", () => {
+  assert.match(server, /function findImageEditTemplate\(config = \{}, templateId = ""\)/);
+  assert.match(server, /function imageEditPromptFromTemplate\(template = \{\}, \{ sourceImageCount = 0/);
+  assert.match(server, /imageEditPromptFromTemplate\(template, \{/);
+  assert.match(server, /body\.prompt,[\s\S]*bodyParams\.prompt,[\s\S]*imageEditPromptFromTemplate/);
+  assert.match(server, /const templateId = String\(firstPresent\(body\.templateId, bodyParams\.templateId/);
+  assert.match(server, /const template = findImageEditTemplate\(config, templateId\)/);
+  assert.match(server, /const previewUrl = publicHttpUrlForUpstream\(template\.previewUrl\)/);
+  assert.match(server, /if \(!prompt\) return sendJson\(res, 400, \{ ok: false, message: "Prompt is required\." \}\)/);
+  assert.match(platformExploreSource, /requestJson\("\/api\/wan27\/image-edit"/);
+  assert.doesNotMatch(platformExploreSource.match(/requestJson\("\/api\/wan27\/image-edit"[\s\S]{0,900}?body: \{([\s\S]*?)\n        \},/g)?.join("\n") || "", /prompt:/);
+});
+
+test("Seedance keeps only the two product modes", () => {
+  const mode = elementMarkup("advancedSeedanceMediaMode");
+  const values = [...mode.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(values, ["reference_video", "first_last_frame"]);
+  assert.match(ui, /seedance25: Object\.freeze\(\[[\s\S]*?value: "omini"[\s\S]*?value: "first_last_frame"/);
+  assert.doesNotMatch(ui.match(/seedance25: Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] || "", /value: "(?:edit|extend)"/);
+  assert.match(server, /SEEDANCE25_DIRECT_RATIOS,[\s\S]*SEEDANCE25_DIRECT_RESOLUTIONS,[\s\S]*require\("\.\/seedance25-direct"\)/);
+});
+
+test("Wan and HappyHorse task modes live in the parameter capability map", () => {
+  assert.match(ui, /wan30: Object\.freeze\(\[[\s\S]*?value: "wan30-video"/);
+  assert.match(ui, /"wan30-prime": Object\.freeze\(\[[\s\S]*?value: "wan30-video-prime"/);
+  assert.match(ui, /wan27:[\s\S]*?value: "wan27-i2v"[\s\S]*?value: "wan27-video-edit"/);
+  assert.match(ui, /happyhorse:[\s\S]*?value: "happyhorse-i2v", label: "First Frame"[\s\S]*?value: "happyhorse-video-edit"/);
+  assert.match(ui, /label\.textContent = "Mode"/);
+  assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
+});
+
+test("Wan3.0 engine selection is authoritative over a stale mode", () => {
+  const capabilities = new Set([
+    "wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro",
+    "wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit", "wan-legacy",
+  ]);
+  const groups = {
+    wan30: [{ value: "wan30-video" }, { value: "wan30-video-pro" }],
+    "wan30-prime": [{ value: "wan30-video-prime" }, { value: "wan30-video-prime-pro" }],
+  };
+  const els = {
+    advancedProvider: { value: "wan30-prime" },
+    advancedVideoCapability: { value: "wan30-video" },
+  };
+  const currentCapability = new Function(
+    "ADVANCED_ALIYUN_VIDEO_CAPABILITIES",
+    "ADVANCED_VIDEO_CAPABILITY_GROUPS",
+    "els",
+    "advancedEngineValue",
+    "advancedVideoCapabilityOptions",
+    `${extractFunction(ui, "currentAdvancedVideoCapability")}
+return currentAdvancedVideoCapability;`,
+  )(
+    capabilities,
+    groups,
+    els,
+    (value) => String(value || "").trim().toLowerCase(),
+    (engine) => groups[engine] || [],
+  );
+  assert.equal(currentCapability(), "wan30-video-prime");
+  els.advancedProvider.value = "wan30";
+  assert.equal(currentCapability(), "wan30-video");
+  els.advancedVideoCapability.value = "wan30-video-pro";
+  assert.equal(currentCapability(), "wan30-video-pro");
+});
+
+test("Wan3.0 browser price fallback never returns zero for sold models", () => {
+  const pricing = new Function(
+    "state",
+    "normalizeAdvancedProvider",
+    "normalizeAdvancedResolution",
+    "currentAdvancedVideoCapability",
+    "creditsAmount",
+    "userPricingMultiplier",
+    "normalizeVideoRatio",
+    "advancedProviderLabel",
+    `${extractFunction(ui, "advancedPricing")}
+return advancedPricing;`,
+  )(
+    { config: { platform: { advancedPricing: {} } }, user: { pricingMultiplier: 1 } },
+    (value) => String(value || "").toLowerCase().includes("wan30") ? "wan30" : "seedance",
+    (value) => String(value || "").toLowerCase(),
+    () => "wan30-video",
+    (value) => Math.max(0, Math.round(Number(value || 0) * 10000) / 10000),
+    () => 1,
+    (value) => value || "adaptive",
+    () => "W3.0",
+  );
+  const regular = pricing(5, "wan30", "720p", "adaptive", { videoCapability: "wan30-video" });
+  const prime = pricing(5, "wan30", "720p", "adaptive", { videoCapability: "wan30-video-prime" });
+  const vsrPrime = pricing(5, "wan30", "1080p", "adaptive", { videoCapability: "wan30-video-prime-pro" });
+  assert.equal(regular.credits, 75);
+  assert.equal(prime.credits, 100);
+  assert.equal(vsrPrime.credits, 202.3988);
+  assert.ok(regular.credits > 0 && prime.credits > 0 && vsrPrime.credits > 0);
+});
+
+test("Wan3.0 Pro capabilities expose only 1080p, 2k, and 4k", () => {
+  const resolutions = new Function(
+    "normalizeAdvancedProvider",
+    "currentAdvancedVideoCapability",
+    "normalizeAdvancedResolution",
+    "advancedEngineValue",
+    "ADVANCED_VIDEO_CAPABILITY_GROUPS",
+    `${extractFunction(ui, "advancedVideoResolutionOptions")}
+return advancedVideoResolutionOptions;`,
+  )(
+    (value) => String(value || "").toLowerCase().includes("wan30") ? "wan30" : "seedance",
+    () => "wan30-video-prime-pro",
+    (value) => value,
+    (value) => value,
+    {},
+  );
+  assert.deepEqual(resolutions("wan30"), ["1080p", "2k", "4k"]);
+});
+
+test("Wan3.0 Prime shares controls and uses its configured rate table", () => {
+  assert.match(create, /\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"\]\.includes\(capability\)/);
+  assert.match(create, /new Set\(\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"/);
+  assert.match(ui, /"wan30-video-pro": "W3\.0-Pro"/);
+  assert.match(ui, /"wan30-video-prime": "W3\.0-Prime"/);
+  assert.match(ui, /"wan30-video-prime-pro": "W3\.0-VSR-Prime"/);
+  assert.match(ui, /wan30PrimeCreditsPerSecondByResolution/);
+  assert.match(server, /ALIYUN_WAN30_PRIME_MODEL = process\.env\.ALIYUN_WAN30_PRIME_MODEL \|\| "wan3\.0-video-prime"/);
+  assert.match(server, /ALIYUN_WAN30_PRIME_PRICE_FACTOR, 1\.5/);
+  assert.match(server, /"wan30-video-prime": Object\.freeze\(\{ "480p": 10, "720p": 20, "1080p": 38 \}\)/);
+  assert.match(server, /wan30PrimeCreditsPerSecondByResolution/);
+  assert.match(server, /key: "wan30-prime-480p"/);
+  assert.match(server, /key === "wan30-prime-1080p"/);
+  assert.match(server, /provider === "wan30"\s*\? aliyunVideoModelForCapability\(requestParams\.videoCapability\)/);
+});
+
+test("only explicit frame modes use dedicated upload controls", () => {
+  assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
+  assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
+  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
+});
+
+test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", () => {
+  assert.match(create, /function advancedAliyunUsesSharedReferenceUpload/);
+  assert.match(create, /function advancedUsesSharedReferenceUpload/);
+  assert.match(create, /"wan-animate-move"/);
+  assert.match(create, /"wan-animate-mix"/);
+  assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
+  assert.match(create, /aliyunVideo && advancedAliyunUsesSharedReferenceUpload\(capability\)/);
+  assert.match(create, /const sharedReferenceUpload = advancedUsesSharedReferenceUpload\(provider, capability\)/);
+  assert.match(create, /els\.advancedImage\.accept = sharedReferenceUpload \? sharedAccept : advancedCreateUploadAcceptValue\(\)/);
+  assert.match(create, /"wan30-video"/);
+  assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
+  assert.match(main, /await uploadAdvancedMediaReference\(file, "audio"\)/);
+  assert.match(create, /data-remove-shared-video/);
+  assert.match(create, /data-remove-shared-audio/);
+  assert.doesNotMatch(css, /\.advanced-upload-box\.is-wan \.advanced-upload-previews\s*\{[\s\S]*?grid-template-columns:\s*minmax\(120px, 1fr\)/);
+});
+
+test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
+  assert.match(create, /const videoOptions = advancedVideoResolutionOptions\(provider\)/);
+  assert.match(ui, /function advancedVideoResolutionOptions\(provider = currentAdvancedProvider\(\)\)/);
+  assert.match(ui, /capability === "wan30-video-pro" \|\| capability === "wan30-video-prime-pro"\) return \["1080p", "2k", "4k"\]/);
+  assert.match(create, /resolution: currentAdvancedResolution\(\)/);
+  assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
+  assert.match(create, /const fallbackRatio = provider === "seedance25" \? "16:9"/);
+  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
+  assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
+  assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
+  assert.match(main, /\["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\)/);
+  assert.match(main, /uploadAdvancedDocumentReference\(file\)/);
+  assert.match(main, /Wan 3\.0 documents cannot be combined with other media inputs/);
+  assert.match(config, /const ADVANCED_WAN30_DOCUMENT_MAX_BYTES = 100 \* 1024 \* 1024/);
+  assert.match(create, /Wan 3\.0 documents must be 100MB or smaller/);
+  assert.match(create, /id: "document", label: "Document", type: "document"/);
+  assert.match(create, /currentAdvancedProvider\(\) === "wan30" && isDocumentAsset\(asset\)/);
+  assert.match(create, /target\.id === "document"/);
+  assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
+});
+
+test("Wan3.0 prompt extension is an opt-in control for all Wan capabilities", () => {
+  assert.match(html, /class="field advanced-wan-prompt-extend-option" hidden/);
+  assert.match(html, /id="advancedWanPromptExtend" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /id="advancedWanPromptExtend"[^>]*checked/);
+  assert.match(create, /\["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"\]\.includes\(capability\)/);
+  assert.match(create, /const promptExtend = provider === "wan30" && Boolean\(els\.advancedWanPromptExtend\?\.checked\)/);
+  assert.match(create, /prompt_extend: provider === "wan30" \? promptExtend : undefined/);
+  assert.match(create, /\(provider === "wan30" \? \{ prompt_extend: promptExtend \} : \{\}\)/);
+  assert.match(create, /els\.advancedWanPromptExtend\.checked = false/);
+  assert.match(server, /prompt_extend: provider === "wan30"[\s\S]*?boolFromRequest\(firstPresent\(body\.prompt_extend/);
+});
+
+test("Wan3.0 skill prompt optimization is a separate opt-in control", () => {
+  assert.match(html, /class="field advanced-wan-prompt-optimize-option" hidden/);
+  assert.match(html, /id="advancedWanPromptOptimize" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /id="advancedWanPromptOptimize"[^>]*checked/);
+  assert.match(config, /advancedWanPromptOptimize: document\.querySelector\("#advancedWanPromptOptimize"\)/);
+  assert.match(ui, /function optimizeWan30Prompt\(prompt = ""\)/);
+  assert.match(create, /const wanPromptOptimize = provider === "wan30" && Boolean\(els\.advancedWanPromptOptimize\?\.checked\)/);
+  assert.match(create, /if \(wanPromptOptimize\) prompt = optimizeWan30Prompt\(prompt\)/);
+  assert.match(create, /wan_prompt_optimize: provider === "wan30" \? wanPromptOptimize : undefined/);
+  assert.match(create, /params\.wan_prompt_optimize/);
+  assert.match(main, /els\.advancedWanPromptOptimize\.checked = false/);
+});
+
+test("Advanced image files enter the asset library before generation", () => {
+  assert.match(create, /async function uploadAdvancedImageReference/);
+  assert.match(create, /requestJson\("\/api\/user-assets", \{[\s\S]*?provider,/);
+  assert.match(create, /assetId: asset\.id,[\s\S]*?dataUrl: assetPreviewUrl\(asset\)/);
+  assert.match(create, /function assetPreviewUrl\(asset = \{\}\) \{[\s\S]*?asset\.publicUrl \|\| asset\.cdnUrl \|\| asset\.previewUrl \|\| asset\.localUrl/);
+  assert.match(create, /function restoreMediaUrl\(item = \{\}\) \{[\s\S]*?item\.publicUrl[\s\S]*?item\.localUrl/);
+  assert.match(ui, /function mediaAssetPreviewUrl\(asset = \{\}\) \{[\s\S]*?asset\.publicUrl[\s\S]*?asset\.localUrl/);
+  assert.match(main, /const ref = await uploadAdvancedImageReference\(file, \{ provider \}\)/);
+  assert.match(main, /state\.advancedSeedanceFirstFrameAssetId = ref\.assetId/);
+  assert.match(main, /state\.advancedSeedanceLastFrameAssetId = ref\.assetId/);
+  assert.match(ui, /assetId: item\.assetId \|\| "",[\s\S]*?dataUrl: url/);
+  assert.match(ui, /id: "local-upload-character",[\s\S]*?assetId: ref\.assetId \|\| ""/);
+});
+
+test("prompt image paste and @ mentions follow the shared upload control for every model", () => {
+  assert.match(create, /function advancedPromptPasteImageRule\(\)/);
+  assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);
+  assert.match(create, /else if \(\["wan27", "happyhorse"\]\.includes\(provider\)\) limit = advancedAliyunReferenceImageLimit\(capability\)/);
+  assert.match(create, /else if \(advancedUsesSharedReferenceUpload\(provider, capability\)\) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT/);
+  assert.match(create, /sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /rule\.target === "frames"/);
+  assert.match(create, /syncAdvancedPromptMentionLabels\(previousPromptRefs\)/);
+  assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);
+});
+
+test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
+  assert.match(ui, /function advancedVideoEditUsesSourceDuration/);
+  assert.match(create, /followInputDuration: advancedVideoEditUsesSourceDuration\(videoCapability\)/);
+  assert.match(create, /Math\.ceil\(aliyunInputVideoSeconds\)/);
+  assert.match(server, /duration: followInputDuration \? 0/);
+  assert.match(server, /requestParams\.videoCapability === "wan27-video-edit" && requestParams\.followInputDuration/);
+});
+
+test("video prompts are forwarded without a system negative prompt", () => {
+  assert.doesNotMatch(server, /DEFAULT_VIDEO_NEGATIVE_PROMPT/);
+  assert.doesNotMatch(server, /appendDefaultVideoNegativePrompt/);
+  assert.doesNotMatch(server, /Negative prompt: extra fingers/);
+  assert.match(server, /const content = \[\{ type: "text", text: String\(prompt \|\| ""\)\.trim\(\) \}\]/);
+  assert.match(server, /prompt,\s*media: normalizedMedia/);
+  assert.match(server, /const submittedFinalPrompt = finalPrompt/);
+});
+
+test("Seedance 2.5 server pricing migrates old rounded defaults and preserves six decimals", () => {
+  assert.match(server, /const normalizeStoredCredits = \(value, fallback, digits = 4\)/);
+  assert.match(server, /const normalizeSeedance25Credits = \(value, fallback, resolution\)/);
+  assert.match(server, /const previousPointsPerSecond = resolution === "720p" \? 260 : 130/);
+  assert.match(server, /const previousIntegerDefault = Math\.round\(previousDefault\)/);
+  assert.match(server, /const previousLegacyUiDefault = resolution === "720p" \? 40 : 20/);
+  assert.match(server, /\[previousDefault, previousRoundedDefault, previousIntegerDefault, previousLegacyUiDefault\]\.some/);
+  assert.match(server, /const SEEDANCE25_MODEL_ID = SEEDANCE25_MODEL/);
+  assert.match(server, /"480p": normalizeSeedance25Credits\(seedance25\["480p"\]/);
+  assert.match(server, /"720p": normalizeSeedance25Credits\(seedance25\["720p"\]/);
+  assert.match(server, /key\.startsWith\("seedance25-"\) \|\| key\.startsWith\("seedance-nsfw-"\) \? 6 : 4/);
+});
+
+test("direct Seedance 2.5 waits until every uploaded Ark asset is available", () => {
+  assert.match(server, /function arkAssetStillProcessing\(error\)/);
+  assert.match(server, /asset is still processing\|not available yet/i);
+  assert.match(server, /async function submitArkTaskAfterAssetsReady\(payload, \{ attempts = 12, waitMs = 10000 \} = \{\}\)/);
+  assert.match(server, /submitted = await submitArkTaskAfterAssetsReady\(upstreamPayload\)/);
+});
+
+test("Seedance image preprocessing is shared by the model family and remains opt-in", () => {
+  assert.match(html, /id="advancedPreprocessReference" type="checkbox"/);
+  assert.doesNotMatch(html, /id="advancedPreprocessReference"[^>]*checked/);
+  assert.match(create, /\["seedance", "seedance25", "seedance-nsfw"\]\.includes\(provider\)[\s\S]*Boolean\(els\.advancedPreprocessReference\?\.checked\)/);
+  assert.match(create, /els\.advancedPreprocessReference\.checked = false/);
+  assert.match(server, /requestParams\.preprocessReference = provider === "seedance" && boolFromRequest/);
+  assert.match(server, /const preprocessReference = boolFromRequest\(firstPresent\([\s\S]*body\.preprocessReference/);
+  assert.match(server, /prepareSeedanceReferenceAsset\(db, userAsset, true\)/);
+  assert.match(server, /seedance25PublicAssetUrls\(db, imageAssets, \{ preprocessReference: true \}\)/);
+  assert.match(server, /preprocessReference: provider === "seedance" \? requestParams\.preprocessReference : undefined/);
+  assert.match(server, /provider: "seedance25",[\s\S]*?preprocessReference,[\s\S]*?functionMode: upstreamInput\.mode/);
+  assert.match(server, /function makeSeedancePreprocessedReferencePrompt\(item = \{\}\)/);
+  assert.match(server, /A male person must remain male, a female person must remain female/);
+  assert.match(server, /a scene with no people must remain a scene with no people/);
+  assert.match(server, /const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2"/);
+  assert.match(server, /const preprocessVersion = SEEDANCE_PREPROCESS_REFERENCE_VERSION/);
+  assert.match(server, /preserveSourceComposition: true/);
+  assert.match(server, /function seedream5SubmitRetryPolicy\(error\)/);
+  assert.match(server, /timeout while downloading url\|timed\? out while downloading/);
+  assert.match(server, /attempts: 4, waitMs: 5000, reason: "reference-download"/);
+  assert.match(server, /\[408, 425, 429, 500, 502, 503, 504, 520, 522\]\.includes\(statusCode\)/);
+  assert.match(server, /attempts: 3, waitMs: 3000, reason: "upstream-transient"/);
+});
+
+test("Seedance reference preprocessing is included in configured billing and cached references are not charged again", () => {
+  assert.match(server, /function seedancePreprocessPricingForAssets\(auth = \{\}, config = \{\}, assets = \[\], enabled = false\)/);
+  assert.match(server, /asset\.syntheticReferenceAssetUri[\s\S]*?asset\.syntheticReferenceVersion === SEEDANCE_PREPROCESS_REFERENCE_VERSION/);
+  assert.match(server, /advancedModelPricing\("seedream5-image", \{[\s\S]*?referenceImageCount: 1,[\s\S]*?outputImageCount: 1/);
+  assert.match(server, /preprocessCredits: preprocessPricing\.credits/);
+  assert.match(server, /originalPreprocessCredits: preprocessPricing\.originalCredits/);
+  assert.match(server, /credits: creditsAmount\(videoPricing\.credits \+ preprocessPricing\.credits\)/);
+  assert.match(server, /type: "advanced_generation"[\s\S]*?preprocessImageCount: preprocessPricing\.imageCount/);
+  assert.match(server, /preprocessAssetIds: preprocessPricing\.items\.map/);
+});
+
+test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
+  assert.match(main, /advancedDuration\?\.addEventListener\("input", handleAdvancedDurationSelection\)/);
+  assert.match(main, /advancedDuration\?\.addEventListener\("change", handleAdvancedDurationSelection\)/);
+  assert.match(server, /const PLATFORM_ASSET_FILES = Object\.freeze/);
+  assert.match(server, /function applyPlatformAssetVersion/);
+  assert.match(server, /applyPlatformAssetVersion\(html, await currentPlatformAssetVersion\(\)\)/);
+});
+
+test("shared video uploads use capability-specific duration limits", () => {
+  assert.match(ui, /function advancedVideoInputDurationRule/);
+  assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);
+  assert.match(ui, /"wan-animate-move": \{ min: 1\.8, max: 30\.2, displayMin: 2, displayMax: 30 \}/);
+  assert.match(ui, /"happyhorse-video-edit": \{ min: 2\.8, max: 60\.2, displayMin: 3, displayMax: 60 \}/);
+  assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, currentAdvancedProvider\(\), currentAdvancedVideoCapability\(\)\)/);
+  assert.match(create, /advancedVideoInputDurationMessage\(aliyunInputVideoSeconds, provider, videoCapability, \{ allowUnknown: true \}\)/);
+  assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
+  assert.doesNotMatch(main, /const maxVideoSeconds = capability/);
+});
+
+test("Wan input combinations are inferred and media URLs are not exposed in the UI", () => {
+  assert.match(html, /id="advancedWanMediaMode" type="hidden" value="multimodal"/);
+  assert.doesNotMatch(html, /class="field wan-mode-field/);
+  assert.doesNotMatch(html, /id="advancedWan(?:Audio|Clip)Url"/);
+  assert.doesNotMatch(html, /id="advancedSeedance(?:Video|Audio)Urls"/);
+  assert.match(create, /capability === "wan27-i2v"\) return 2/);
+});
+
+test("custom media previews avoid retaining full-resolution image copies", () => {
+  assert.match(config, /const ADVANCED_CLIENT_IMAGE_MAX_PIXELS = 2000000/);
+  assert.match(create, /function readFileAsDataUrl\(file\)/);
+  assert.match(create, /scaledCanvasSize\(width, height, ADVANCED_CLIENT_IMAGE_MAX_PIXELS\)/);
+  assert.match(create, /for \(let index = 0; index < selectedFiles.length; index \+= 1\)/);
+  assert.match(create, /loading="lazy" decoding="async"/);
+});

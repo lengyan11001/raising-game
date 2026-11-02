@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" role="img" aria-label="AI animation studio illustration">
+  <defs>
+    <linearGradient id="vpfWarm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff5bb0"/>
+      <stop offset="0.55" stop-color="#f038a8"/>
+      <stop offset="1" stop-color="#7b5bff"/>
+    </linearGradient>
+    <linearGradient id="vpfCool" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#b45bff"/>
+    </linearGradient>
+    <linearGradient id="vpfGlass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1030" stop-opacity="0.94"/>
+      <stop offset="1" stop-color="#0d0719" stop-opacity="0.96"/>
+    </linearGradient>
+    <radialGradient id="vpfGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f038a8" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#f038a8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vpfGlow2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6f6bff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#6f6bff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="vpfBlur" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+  </defs>
+
+  <style>
+    .vpf-float-a { animation: vpfFloat 7s ease-in-out infinite; }
+    .vpf-float-b { animation: vpfFloat 9s ease-in-out infinite reverse; }
+    .vpf-pulse   { animation: vpfPulse 6s ease-in-out infinite; }
+    .vpf-dash    { stroke-dasharray: 14 18; animation: vpfDash 9s linear infinite; }
+    .vpf-spark   { animation: vpfSpark 4.5s ease-in-out infinite; }
+    .vpf-bar     { animation: vpfBar 5s ease-in-out infinite; transform-origin: left center; }
+    @keyframes vpfFloat { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-16px) } }
+    @keyframes vpfPulse { 0%,100% { opacity: .55 } 50% { opacity: .95 } }
+    @keyframes vpfDash  { to { stroke-dashoffset: -320 } }
+    @keyframes vpfSpark { 0%,100% { opacity: .25; transform: translateY(0) } 50% { opacity: 1; transform: translateY(-10px) } }
+    @keyframes vpfBar   { 0% { transform: scaleX(.35) } 60% { transform: scaleX(.86) } 100% { transform: scaleX(.35) } }
+    @media (prefers-reduced-motion: reduce) {
+      .vpf-float-a, .vpf-float-b, .vpf-pulse, .vpf-dash, .vpf-spark, .vpf-bar { animation: none; }
+    }
+  </style>
+
+  <!-- ambient glow -->
+  <g filter="url(#vpfBlur)" opacity="0.9">
+    <ellipse class="vpf-pulse" cx="640" cy="470" rx="330" ry="230" fill="url(#vpfGlow)"/>
+    <ellipse cx="400" cy="300" rx="240" ry="200" fill="url(#vpfGlow2)"/>
+  </g>
+
+  <!-- back frames -->
+  <g class="vpf-float-b" opacity="0.55">
+    <g transform="rotate(-9 380 330)">
+      <rect x="120" y="200" width="420" height="270" rx="30" fill="none" stroke="url(#vpfCool)" stroke-width="2.5" opacity="0.75"/>
+      <rect x="146" y="226" width="368" height="218" rx="20" fill="#150c28" opacity="0.6"/>
+    </g>
+    <g transform="rotate(6 830 300)">
+      <rect x="640" y="150" width="400" height="260" rx="30" fill="none" stroke="url(#vpfWarm)" stroke-width="2.5" opacity="0.7"/>
+      <rect x="666" y="176" width="348" height="208" rx="20" fill="#170d2b" opacity="0.6"/>
+    </g>
+  </g>
+
+  <!-- light trail -->
+  <path class="vpf-dash" d="M120 660 C 340 520, 560 760, 780 600 S 1080 430, 1140 320"
+        fill="none" stroke="url(#vpfWarm)" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+
+  <!-- hero frame -->
+  <g class="vpf-float-a">
+    <g transform="rotate(-3 620 470)">
+      <rect x="330" y="290" width="600" height="380" rx="46" fill="url(#vpfGlass)" stroke="url(#vpfWarm)" stroke-width="3"/>
+      <rect x="330" y="290" width="600" height="380" rx="46" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1.5"/>
+
+      <!-- preview area -->
+      <rect x="366" y="326" width="528" height="230" rx="28" fill="#0a0516"/>
+      <rect x="366" y="326" width="528" height="230" rx="28" fill="url(#vpfGlow2)" opacity="0.35"/>
+      <circle cx="630" cy="441" r="54" fill="#f038a8" opacity="0.22"/>
+      <circle cx="630" cy="441" r="38" fill="url(#vpfWarm)"/>
+      <path d="M620 424 L656 441 L620 458 Z" fill="#1a0620"/>
+
+      <!-- scrub bar -->
+      <rect x="366" y="580" width="528" height="8" rx="4" fill="#ffffff" opacity="0.12"/>
+      <rect class="vpf-bar" x="366" y="580" width="340" height="8" rx="4" fill="url(#vpfWarm)"/>
+
+      <!-- timeline thumbs -->
+      <g opacity="0.95">
+        <rect x="366" y="610" width="96" height="42" rx="12" fill="url(#vpfCool)" opacity="0.85"/>
+        <rect x="478" y="610" width="96" height="42" rx="12" fill="url(#vpfWarm)" opacity="0.85"/>
+        <rect x="590" y="610" width="96" height="42" rx="12" fill="#ffffff" opacity="0.14"/>
+        <rect x="702" y="610" width="96" height="42" rx="12" fill="#ffffff" opacity="0.09"/>
+        <rect x="814" y="610" width="80" height="42" rx="12" fill="#ffffff" opacity="0.06"/>
+      </g>
+
+      <!-- node dots -->
+      <circle cx="330" cy="290" r="7" fill="#fff" opacity="0.7"/>
+      <circle cx="930" cy="290" r="7" fill="#fff" opacity="0.7"/>
+      <circle cx="330" cy="670" r="7" fill="#fff" opacity="0.7"/>
+      <circle cx="930" cy="670" r="7" fill="#fff" opacity="0.7"/>
+    </g>
+  </g>
+
+  <!-- sparks -->
+  <g fill="#ffd0ec">
+    <circle class="vpf-spark" cx="250" cy="560" r="5" opacity="0.8"/>
+    <circle class="vpf-spark" cx="1010" cy="520" r="6" opacity="0.8" style="animation-delay:.8s"/>
+    <circle class="vpf-spark" cx="880" cy="180" r="4" opacity="0.8" style="animation-delay:1.6s"/>
+    <circle class="vpf-spark" cx="420" cy="150" r="5" opacity="0.8" style="animation-delay:2.4s"/>
+    <circle class="vpf-spark" cx="1090" cy="700" r="4" opacity="0.8" style="animation-delay:1.1s"/>
+  </g>
+</svg>

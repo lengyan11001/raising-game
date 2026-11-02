@@ -1,0 +1,8456 @@
+"use strict";
+
+const TOKEN_KEY = "raisingGameAdminToken";
+const LEGACY_TOKEN_KEY = "raisingGameToken";
+const ADVANCED_SEEDANCE_FPS = 24;
+const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 30;
+const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 60;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 40;
+const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
+const ADVANCED_CREDITS_PER_USD = 100;
+const INTERNAL_CNY_PER_USD = 5;
+const ADVANCED_CREDITS_PER_CNY = ADVANCED_CREDITS_PER_USD / INTERNAL_CNY_PER_USD;
+const ADVANCED_GENERATION_MARKUP = 1.5;
+const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
+const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
+const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
+const WAN27_MEDIA_MODES = [
+  ["first_frame", "单图首帧"],
+  ["first_last_frame", "首帧 + 尾帧"],
+  ["first_frame_audio", "首帧 + 音频"],
+  ["first_last_frame_audio", "首帧 + 尾帧 + 音频"],
+  ["first_clip", "视频续写"],
+  ["first_clip_last_frame", "视频续写 + 尾帧"],
+];
+
+function pricingMultiplierText(value) {
+  const next = Number(value || 1);
+  return Number.isFinite(next) ? String(Math.round(next * 10000) / 10000) : "1";
+}
+
+const VOICE_PREVIEW_ITEMS = [
+  {
+    id: "user-rule-e",
+    title: "连续场景 A · 23 秒参考提示词整段生成",
+    badge: "候选 A",
+    description: "用当时 23 秒“啊……别看我”所在长场景的同一套提示词整段重生，没有剪接。重点听叫声、换气和快速独白是否连续自然。",
+    duration: "41.5 秒",
+    expectedDuration: 41.5,
+    seekMarkers: [23.0, 32.0],
+    src: "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
+  },
+  {
+    id: "user-rule-f",
+    title: "连续场景 B · 23 秒参考提示词整段生成",
+    badge: "候选 B",
+    description: "同样整段生成，只调整短句断点；重点比较后半段气息是否稳定、场景是否连贯。",
+    duration: "46.8 秒",
+    expectedDuration: 46.8,
+    seekMarkers: [23.0, 32.0],
+    src: "/assets/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
+  },
+  {
+    id: "qwen3-serena-once",
+    title: "Qwen3-TTS 推荐基线 · Serena 系统音整段生成",
+    badge: "基线",
+    description: "上一轮基线：Qwen3-TTS Flash 的 Serena 温柔女声，完整长场景一次连续生成；没有使用旧 Qwen-Audio 克隆音色，也没有逐段剪辑或拼接。用于对照下面两条“多叫声”版本。",
+    duration: "64.2 秒",
+    expectedDuration: 64.16,
+    seekMarkers: [32.0, 48.0],
+    src: "/assets/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
+  },
+  {
+    id: "qwen3-serena-more-moans-a",
+    title: "Qwen3-TTS 多叫声 A · Serena 系统音整段生成",
+    badge: "多叫声 A",
+    description: "同一模型、同一 Serena 音色、同样整段一次生成。保留上一版自然的独白，只提高长叫与句中短叫密度；没有剪辑、拼接或手动加音效。时长 51.84 秒。",
+    duration: "51.8 秒",
+    expectedDuration: 51.84,
+    seekMarkers: [16.0, 32.0],
+    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
+  },
+  {
+    id: "qwen3-serena-more-moans-b",
+    title: "Qwen3-TTS 多叫声 B · Serena 系统音整段生成",
+    badge: "多叫声 B",
+    description: "与 A 相同的整段生成方式，进一步增加连续短叫和呼吸停顿。时长 93.52 秒，节奏明显更慢，专门用于对照叫声密度与停顿感；没有剪辑、拼接或补录。",
+    duration: "93.5 秒",
+    expectedDuration: 93.52,
+    seekMarkers: [31.0, 62.0],
+    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
+  },
+];
+
+const ROUTES = [
+  { id: "creator-data", title: "创作者数据", render: renderCreatorData },
+  { id: "withdrawals", title: "提现审核", render: renderWithdrawals },
+  { id: "dashboard", title: "仪表盘", render: renderDashboard },
+  { id: "characters", title: "角色管理", render: renderCharacters },
+  { id: "records", title: "生成记录", render: renderGenerationRecords },
+  { id: "users", title: "用户管理", render: renderUsers },
+  { id: "support", title: "站内信", render: renderSupportMessages },
+  { id: "recharges", title: "充值流水", render: renderRecharges },
+  { id: "wallet", title: "钱包订单", render: renderWallet },
+  { id: "membership-codes", title: "会员激活码", render: renderMembershipCodes },
+  { id: "pricing", title: "价格配置", render: renderPricing },
+  { id: "chat-live", title: "在线聊天配置", render: renderChatLive },
+  { id: "voice-preview", title: "试听", render: renderVoicePreview },
+  { id: "undress-config", title: "Undress 配置", render: renderUndressConfig },
+  { id: "config", title: "系统配置", render: renderConfig },
+];
+ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0, {
+  id: "geo",
+  title: "GEO",
+  render: renderGeo,
+});
+const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "undress-config", "config"]);
+const REMOVED_ADMIN_ROUTES = new Set(["platform", "advanced-cases"]);
+
+function isTenantAdminHost() {
+  return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(window.location.hostname || "");
+}
+
+function visibleAdminRoutes() {
+  if (!isTenantAdminHost()) return ROUTES;
+  return ROUTES.filter((route) => !TENANT_HIDDEN_ADMIN_ROUTES.has(route.id));
+}
+
+const state = {
+  token: localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || "",
+  user: null,
+  config: null,
+  route: "dashboard",
+  cache: {},
+};
+
+let adminHistoryPollTimer = null;
+let adminRecordPollTimer = null;
+let adminHistorySignature = "";
+let adminRecordSignature = "";
+const ADMIN_GENERATION_POLL_MS = 12000;
+
+const els = {
+  loginView: byId("loginView"),
+  loginForm: byId("loginForm"),
+  loginUsername: byId("loginUsername"),
+  loginPassword: byId("loginPassword"),
+  loginSubmit: byId("loginSubmit"),
+  loginError: byId("loginError"),
+  appView: byId("appView"),
+  appLoadingScreen: byId("appLoadingScreen"),
+  pageTitle: byId("pageTitle"),
+  adminContent: byId("adminContent"),
+  adminUserBadge: byId("adminUserBadge"),
+  adminNav: byId("adminNav"),
+  logoutBtn: byId("logoutBtn"),
+  sidebarToggle: byId("sidebarToggle"),
+  navToggle: byId("navToggle"),
+  toast: byId("adminToast"),
+  dialog: byId("adminDialog"),
+  dialogForm: byId("adminDialogForm"),
+  dialogTitle: byId("adminDialogTitle"),
+  dialogBody: byId("adminDialogBody"),
+  dialogConfirm: byId("adminDialogConfirm"),
+  dialogCancel: byId("adminDialogCancel"),
+};
+
+function byId(id) { return document.getElementById(id); }
+function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+function isActiveRoute(routeId) {
+  return state.route === routeId && !els.appView?.hidden;
+}
+
+function activeRoutePane(id, routeId) {
+  const pane = byId(id);
+  if (!pane || !pane.isConnected || !isActiveRoute(routeId)) return null;
+  return pane;
+}
+
+function renderRouteError(routeId, err) {
+  if (!routeId || isActiveRoute(routeId)) {
+    renderError(err);
+    return;
+  }
+  console.warn("Ignored stale admin render error:", err);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function maskMiddle(value = "") {
+  const text = String(value || "");
+  if (!text) return "—";
+  if (text.length <= 16) return `${text.slice(0, 4)}...${text.slice(-4)}`;
+  return `${text.slice(0, 10)}...${text.slice(-8)}`;
+}
+
+function fmtDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 19);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
+
+function fmtRelative(value) {
+  if (!value) return "—";
+  const t = new Date(value).getTime();
+  if (!t) return "—";
+  const diff = Date.now() - t;
+  const sec = Math.round(diff / 1000);
+  if (sec < 60) return `${sec}秒前`;
+  if (sec < 3600) return `${Math.round(sec / 60)}分钟前`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}小时前`;
+  if (sec < 604800) return `${Math.round(sec / 86400)}天前`;
+  return fmtDate(value);
+}
+
+function fmtBytes(n) {
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const u = ["B", "KB", "MB", "GB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(1)} ${u[i]}`;
+}
+
+function shortText(value, length = 90) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+function jsonPretty(value) {
+  if (value === undefined || value === null || value === "") return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function copyText(text, success = "已复制。") {
+  if (!text) return;
+  navigator.clipboard?.writeText(text)
+    .then(() => toast(success, "success"))
+    .catch(() => toast("复制失败。", "error"));
+}
+
+const ADMIN_PAGE_LIMITS = [20, 50, 100];
+
+function normalizeAdminPage(value = 1) {
+  return Math.max(1, Number.parseInt(value, 10) || 1);
+}
+
+function normalizeAdminLimit(value = 20) {
+  const next = Number.parseInt(value, 10) || 20;
+  return ADMIN_PAGE_LIMITS.includes(next) ? next : 20;
+}
+
+function adminPagerHtml(payload = {}) {
+  const page = normalizeAdminPage(payload.page || 1);
+  const limit = normalizeAdminLimit(payload.limit || 20);
+  const total = Math.max(0, Number(payload.filtered ?? payload.total ?? 0) || 0);
+  const totalPages = Math.max(1, Number(payload.totalPages || Math.ceil(total / limit) || 1));
+  return `
+    <div class="adm-pagination">
+      <div class="adm-pagination-info">第 ${page} / ${totalPages} 页 · 共 ${total} 条</div>
+      <div class="adm-pagination-controls">
+        <select data-admin-limit aria-label="每页条数">
+          ${ADMIN_PAGE_LIMITS.map((item) => `<option value="${item}" ${item === limit ? "selected" : ""}>每页 ${item}</option>`).join("")}
+        </select>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-admin-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-admin-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindAdminPager(root, payload = {}, onChange) {
+  if (!root || typeof onChange !== "function") return;
+  const limit = normalizeAdminLimit(payload.limit || 20);
+  root.querySelectorAll("[data-admin-page]").forEach((button) => {
+    button.addEventListener("click", () => onChange({ page: normalizeAdminPage(button.dataset.adminPage), limit }));
+  });
+  root.querySelector("[data-admin-limit]")?.addEventListener("change", (event) => {
+    onChange({ page: 1, limit: normalizeAdminLimit(event.target.value) });
+  });
+}
+
+function readVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanup = () => URL.revokeObjectURL(url);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const duration = Number(video.duration || 0);
+      cleanup();
+      resolve(duration);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error("读取视频失败"));
+    };
+    video.src = url;
+  });
+}
+
+/* ============ toast ============ */
+let toastTimer = 0;
+function toast(message, kind = "") {
+  if (!els.toast) return;
+  els.toast.textContent = message;
+  els.toast.className = "adm-toast";
+  if (kind) els.toast.classList.add(`is-${kind}`);
+  els.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => { els.toast.hidden = true; }, 2800);
+}
+
+/* ============ api ============ */
+async function api(url, options = {}) {
+  const opts = {
+    method: options.method || "GET",
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    },
+  };
+  if (options.signal) opts.signal = options.signal;
+  if (state.token) opts.headers.authorization = `Bearer ${state.token}`;
+  if (options.body !== undefined && opts.method !== "GET") {
+    opts.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+  }
+  let response;
+  try {
+    response = await fetch(url, opts);
+  } catch (err) {
+    throw new Error("网络异常，请稍后重试。");
+  }
+  let payload = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (response.status === 401 || payload?.code === "LOGIN_REQUIRED") {
+    handleAuthExpired();
+    throw new Error(payload?.message || "登录已过期，请重新登录。");
+  }
+  if (response.status === 403 || payload?.code === "ADMIN_REQUIRED") {
+    throw new Error(payload?.message || "需要管理员权限。");
+  }
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || payload?.detail || `请求失败（${response.status}）`);
+  }
+  return payload || {};
+}
+
+function handleAuthExpired() {
+  state.token = "";
+  state.user = null;
+  localStorage.removeItem(TOKEN_KEY);
+  showLogin();
+}
+
+/* ============ auth ============ */
+async function doLogin(event) {
+  event?.preventDefault();
+  const username = els.loginUsername.value.trim();
+  const password = els.loginPassword.value;
+  if (!username || password.length < 6) {
+    els.loginError.textContent = "请输入账号和至少 6 位的密码。";
+    els.loginError.hidden = false;
+    return;
+  }
+  els.loginError.hidden = true;
+  els.loginSubmit.disabled = true;
+  try {
+    const payload = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }).then(async (r) => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.ok === false) throw new Error(data.message || "登录失败。");
+      return data;
+    });
+    if (payload.user?.role !== "admin") {
+      throw new Error("该账号不是管理员，无法进入后台。");
+    }
+    state.token = payload.token;
+    state.user = payload.user;
+    localStorage.setItem(TOKEN_KEY, payload.token);
+    showApp();
+    toast(`欢迎回来，${payload.user.username}`, "success");
+  } catch (err) {
+    els.loginError.textContent = err.message;
+    els.loginError.hidden = false;
+  } finally {
+    els.loginSubmit.disabled = false;
+  }
+}
+
+async function doLogout() {
+  state.token = "";
+  state.user = null;
+  state.cache = {};
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+  showLogin();
+  toast("已退出登录。", "success");
+}
+
+/* ============ view switching ============ */
+function showLogin() {
+  els.loginView.hidden = false;
+  els.appView.hidden = true;
+  if (els.loginUsername) els.loginUsername.value = "";
+  if (els.loginPassword) els.loginPassword.value = "";
+  hideAppLoading();
+  setTimeout(() => els.loginUsername?.focus(), 50);
+}
+
+function showApp() {
+  els.loginView.hidden = true;
+  els.appView.hidden = false;
+  hideAppLoading();
+  applyAdminNavVisibility();
+  if (state.user) {
+    els.adminUserBadge.innerHTML = `<i data-lucide="user-round"></i>${escapeHtml(state.user.username)}`;
+  }
+  refreshIcons();
+  routeFromHash();
+}
+
+function hideAppLoading() {
+  if (!els.appLoadingScreen) return;
+  els.appLoadingScreen.classList.add("is-hidden");
+  els.appLoadingScreen.style.pointerEvents = "none";
+  els.appLoadingScreen.style.display = "none";
+}
+
+function releaseAdminClickBlockers() {
+  hideAppLoading();
+  if (els.dialog?.open) {
+    try { els.dialog.close(); } catch { /* already closing */ }
+  }
+  document.querySelectorAll(".chat-live-modal").forEach((node) => node.remove());
+}
+
+/* ============ routing ============ */
+function ensureGeoNavItem() {
+  if (!els.adminNav || els.adminNav.querySelector('[data-route="geo"]')) return;
+  const link = document.createElement("a");
+  link.href = "#/geo";
+  link.dataset.route = "geo";
+  link.innerHTML = '<i data-lucide="radar"></i><span>GEO</span>';
+  const configLink = els.adminNav.querySelector('[data-route="config"]');
+  if (configLink) els.adminNav.insertBefore(link, configLink);
+  else els.adminNav.appendChild(link);
+}
+
+function applyAdminNavVisibility() {
+  ensureGeoNavItem();
+  els.adminNav?.querySelectorAll("a[data-route]").forEach((a) => {
+    const hidden = isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(a.dataset.route);
+    a.hidden = hidden;
+    a.setAttribute("aria-hidden", hidden ? "true" : "false");
+  });
+}
+
+function routeFromHash() {
+  releaseAdminClickBlockers();
+  const hash = window.location.hash.replace(/^#\//, "").trim();
+  const routes = visibleAdminRoutes();
+  const route = routes.find((r) => r.id === hash) || routes[0] || ROUTES[0];
+  if (hash && route.id !== hash && (REMOVED_ADMIN_ROUTES.has(hash) || (isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(hash)))) {
+    window.history.replaceState(null, "", `#/${route.id}`);
+  }
+  const routeId = route.id;
+  state.route = routeId;
+  stopAdminAutoRefresh();
+  els.adminNav.querySelectorAll("a").forEach((a) => {
+    a.classList.toggle("is-active", a.dataset.route === route.id);
+  });
+  els.pageTitle.textContent = route.title;
+  els.adminContent.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
+  document.body.classList?.remove("is-nav-open");
+  els.appView.classList?.remove("is-nav-open");
+  Promise.resolve()
+    .then(() => route.render())
+    .catch((err) => renderRouteError(routeId, err));
+}
+
+function renderError(err) {
+  els.adminContent.innerHTML = `<div class="adm-error-banner">${escapeHtml(err.message || String(err))}</div>`;
+}
+
+/* ============ helpers used by pages ============ */
+async function loadConfig(force = false) {
+  if (!force && state.config) return state.config;
+  const payload = await api("/api/admin/config");
+  state.config = payload.config || {};
+  return state.config;
+}
+
+function statusPill(status) {
+  const value = String(status || "").toLowerCase().trim();
+  if (!value) return '<span class="adm-pill">—</span>';
+  const cls = ["succeeded", "success", "done", "completed", "paid", "active"].includes(value) ? "is-success"
+    : ["pending", "image_uploaded", "queued", "submitted"].includes(value) ? "is-pending"
+    : ["failed", "error", "cancelled", "canceled", "reference_failed", "disabled", "exhausted"].includes(value) ? "is-failed"
+    : ["running", "in_progress"].includes(value) ? "is-running"
+    : "";
+  return `<span class="adm-pill ${cls}">${escapeHtml(status)}</span>`;
+}
+
+function isTerminalGenerationStatus(status) {
+  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
+    .includes(String(status || "").toLowerCase().trim());
+}
+
+function shouldPollGenerationRecord(record = {}) {
+  return Boolean(record.taskId) && !isTerminalGenerationStatus(record.status);
+}
+
+function hasPollableGenerationRecords(records = []) {
+  return Array.isArray(records) && records.some(shouldPollGenerationRecord);
+}
+
+function recordPreviewUrl(record = {}) {
+  return recordRemoteVideoUrl(record) || recordVideoUrl(record) || recordImageResultUrl(record) || "";
+}
+
+function generationRecordSignature(record = {}) {
+  const billing = record.billing || {};
+  return [
+    record.taskId,
+    record.updatedAt,
+    record.status,
+    record.error,
+    recordPreviewUrl(record),
+    record.ratio,
+    record.resolution,
+    record.duration,
+    JSON.stringify(record.mediaAssets || []),
+    billing.status,
+    billing.final,
+    billing.settled,
+  ].map((value) => String(value ?? "")).join("|");
+}
+
+function generationRecordsSignature(records = []) {
+  return [...records]
+    .sort((left, right) => String(left.taskId || "").localeCompare(String(right.taskId || "")))
+    .map(generationRecordSignature)
+    .join("\n");
+}
+
+function stopAdminHistoryPoll() {
+  if (adminHistoryPollTimer) window.clearTimeout(adminHistoryPollTimer);
+  adminHistoryPollTimer = null;
+}
+
+function stopAdminRecordPoll() {
+  if (adminRecordPollTimer) window.clearTimeout(adminRecordPollTimer);
+  adminRecordPollTimer = null;
+}
+
+function stopAdminAutoRefresh() {
+  stopAdminHistoryPoll();
+  stopAdminRecordPoll();
+  adminHistorySignature = "";
+  adminRecordSignature = "";
+}
+
+function scheduleAdminHistoryPoll(records = []) {
+  stopAdminHistoryPoll();
+  if (!hasPollableGenerationRecords(records)) return;
+  if (!activeRoutePane("videoPaneBody", "videos")) return;
+  if ((sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
+  adminHistoryPollTimer = window.setTimeout(() => {
+    adminHistoryPollTimer = null;
+    if (!activeRoutePane("videoPaneBody", "videos")) return;
+    if ((sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
+    renderHistory({ silent: true, refresh: true }).catch((err) => renderRouteError("videos", err));
+  }, ADMIN_GENERATION_POLL_MS);
+}
+
+function scheduleAdminRecordPoll(records = [], load) {
+  stopAdminRecordPoll();
+  if (!hasPollableGenerationRecords(records) || typeof load !== "function") return;
+  if (!activeRoutePane("recordTablePane", "records")) return;
+  adminRecordPollTimer = window.setTimeout(() => {
+    adminRecordPollTimer = null;
+    if (!activeRoutePane("recordTablePane", "records")) return;
+    load({ silent: true }).catch((err) => renderRouteError("records", err));
+  }, ADMIN_GENERATION_POLL_MS);
+}
+
+function videoOrPoster(item) {
+  const video = item.videoUrl || item.localVideoUrl || "";
+  const poster = item.posterUrl || item.localImageUrl || "";
+  const label = item.name || item.title || item.sceneName || (video ? "视频素材" : "图片素材");
+  if (video) {
+    return adminMediaPreviewTrigger({ url: video, kind: "video", label, poster, className: "adm-card-media-preview" });
+  }
+  if (poster) {
+    return adminMediaPreviewTrigger({ url: poster, kind: "image", label, className: "adm-card-media-preview" });
+  }
+  return `<div class="adm-empty"><i data-lucide="image-off"></i><p>暂无素材</p></div>`;
+}
+
+/* ============ dialog helpers ============ */
+function stopDialogMedia(root) {
+  root?.querySelectorAll?.("video, audio").forEach((media) => {
+    try {
+      media.pause();
+    } catch {
+      /* ignore */
+    }
+    media.removeAttribute("src");
+    media.querySelectorAll?.("source").forEach((source) => source.removeAttribute("src"));
+    try {
+      media.load();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+els.dialog?.addEventListener("close", () => stopDialogMedia(els.dialogBody));
+
+function openDialog({ title, body, confirmText = "确定", cancelText = "取消", showCancel = true, hideConfirm = false, onConfirm, onOpen }) {
+  els.dialogTitle.textContent = title || "";
+  delete els.dialogBody.dataset.recordDetailToken;
+  stopDialogMedia(els.dialogBody);
+  els.dialogBody.innerHTML = "";
+  if (typeof body === "string") {
+    els.dialogBody.innerHTML = body;
+  } else if (body instanceof Node) {
+    els.dialogBody.appendChild(body);
+  }
+  els.dialogConfirm.textContent = confirmText;
+  els.dialogCancel.textContent = cancelText;
+  els.dialogCancel.style.display = showCancel ? "" : "none";
+  els.dialogConfirm.style.display = hideConfirm ? "none" : "";
+  refreshIcons();
+  return new Promise((resolve) => {
+    const handler = async (event) => {
+      const value = event.submitter?.value || "close";
+      if (value === "confirm" && typeof onConfirm === "function") {
+        event.preventDefault();
+        try {
+          els.dialogConfirm.disabled = true;
+          const result = await onConfirm();
+          if (result === false) {
+            els.dialogConfirm.disabled = false;
+            return;
+          }
+          els.dialogConfirm.disabled = false;
+          els.dialog.close("confirm");
+        } catch (err) {
+          els.dialogConfirm.disabled = false;
+          toast(err.message || "操作失败", "error");
+          return;
+        }
+      }
+      els.dialogForm.removeEventListener("submit", handler);
+      els.dialog.removeEventListener("close", closeHandler);
+      resolve(value);
+    };
+    const closeHandler = () => {
+      els.dialogForm.removeEventListener("submit", handler);
+      els.dialog.removeEventListener("close", closeHandler);
+      resolve(els.dialog.returnValue || "close");
+    };
+    els.dialogForm.addEventListener("submit", handler);
+    els.dialog.addEventListener("close", closeHandler);
+    els.dialog.showModal();
+    if (typeof onOpen === "function") {
+      onOpen(els.dialogBody);
+    }
+  });
+}
+
+async function confirmAction(title, message, { danger = false, confirmText = "确认" } = {}) {
+  const result = await openDialog({
+    title,
+    body: `<p style="margin:0;color:var(--adm-muted);">${escapeHtml(message)}</p>`,
+    confirmText,
+    cancelText: "取消",
+  });
+  if (result === "confirm") {
+    if (danger) {
+      els.dialogConfirm.classList.add("adm-btn-danger");
+      els.dialogConfirm.classList.remove("adm-btn-primary");
+    }
+    return true;
+  }
+  els.dialogConfirm.classList.remove("adm-btn-danger");
+  els.dialogConfirm.classList.add("adm-btn-primary");
+  return false;
+}
+
+/* ============ DASHBOARD ============ */
+async function renderDashboard() {
+  const dashboard = await api("/api/admin/dashboard");
+  if (!isActiveRoute("dashboard")) return;
+  const s = dashboard.stats || {};
+  const visits = dashboard.characterVisits || {};
+  const visitRows = visits.rows || [];
+
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>仪表盘</h2>
+          <p class="adm-muted">用户、角色、充值和系统角色访问的关键指标。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("用户总数", s.users, `${s.admins || 0} 名管理员`, "users-round", "rose")}
+        ${statCard("系统角色", s.adminCharacters, "后台创建角色数量", "user-round", "violet")}
+        ${statCard("角色 PV", visits.pv || visits.total || 0, `${visits.home || 0} 首页进入`, "eye", "mint")}
+        ${statCard("角色 UV", visits.uv || 0, "90 天哈希位图估算", "users", "amber")}
+        ${statCard("用户自定义角色", s.userCharacters, `${s.userSceneVideos || 0} 个用户场景视频`, "user-plus", "rose")}
+        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
+        ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
+        ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>系统角色访问统计</h3>
+          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/characters"><i data-lucide="arrow-up-right"></i>查看角色</a>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          ${visitRows.length ? `
+            <table class="adm-table adm-dashboard-table">
+              <thead><tr><th>角色</th><th>PV</th><th>UV</th><th>首页进入</th><th>直接/外部</th><th>最后访问</th></tr></thead>
+              <tbody>
+                ${visitRows.map((row) => `
+                  <tr>
+                    <td><strong>${escapeHtml(row.name || row.id)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(row.id || "")}</span></td>
+                    <td>${escapeHtml(row.pv ?? row.total ?? 0)}</td>
+                    <td>${escapeHtml(row.uv || 0)}</td>
+                    <td>${escapeHtml(row.home || 0)}</td>
+                    <td>${escapeHtml(row.direct || 0)}</td>
+                    <td>${fmtRelative(row.lastSeen)}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>` : '<div class="adm-empty"><i data-lucide="bar-chart-3"></i><p>暂无系统角色访问数据。</p></div>'}
+        </div>
+      </div>
+    </section>
+  `;
+  els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => routeFromHash());
+  refreshIcons();
+}
+
+function statCard(label, value, detail, icon, color, options = {}) {
+  const attrs = options.id ? ` id="${escapeHtml(options.id)}"` : "";
+  const valueAttrs = options.valueId ? ` id="${escapeHtml(options.valueId)}"` : "";
+  const detailAttrs = options.detailId ? ` id="${escapeHtml(options.detailId)}"` : "";
+  return `
+    <div class="adm-stat is-${color}"${attrs}>
+      <span class="adm-stat-icon"><i data-lucide="${icon}"></i></span>
+      <span class="adm-stat-label">${escapeHtml(label)}</span>
+      <strong class="adm-stat-value"${valueAttrs}>${escapeHtml(value ?? 0)}</strong>
+      <span class="adm-stat-detail"${detailAttrs}>${escapeHtml(detail || "")}</span>
+    </div>
+  `;
+}
+
+/* ============ CHARACTERS ============ */
+async function renderCharacters() {
+  const tab = sessionStorage.getItem("admTabCharacters") || "preset";
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>角色管理</h2>
+          <p class="adm-muted">维护后台预设角色与用户自定义角色。</p>
+        </div>
+        <div class="adm-tabs" id="charTabs">
+          <button data-tab="preset" class="${tab === "preset" ? "is-active" : ""}">后台预设角色</button>
+          <button data-tab="user" class="${tab === "user" ? "is-active" : ""}">用户自定义角色</button>
+        </div>
+      </div>
+      <div id="charPaneBody"></div>
+    </section>
+  `;
+  const tabs = els.adminContent.querySelector("#charTabs");
+  tabs.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-tab]");
+    if (!btn) return;
+    sessionStorage.setItem("admTabCharacters", btn.dataset.tab);
+    renderCharacters();
+  });
+  if (tab === "preset") {
+    await renderPresetCharacters();
+  } else {
+    await renderUserCharacters();
+  }
+}
+
+async function renderPresetCharacters() {
+  const config = await loadConfig(true);
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "preset") return;
+  const items = config.homeVideo?.items || [];
+  const activeId = config.homeVideo?.activeItemId || "";
+  const scenes = config.scenes || [];
+  pane.innerHTML = `
+    <div class="adm-page-actions adm-mt">
+      <button class="adm-btn adm-btn-primary" id="newPresetBtn"><i data-lucide="plus"></i>上传角色图</button>
+      <button class="adm-btn adm-btn-ghost" id="refreshPresetBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+    </div>
+    ${items.length ? `
+      <div class="adm-char-grid adm-mt">
+        ${items.map((item) => presetCharCard(item, activeId, scenes)).join("")}
+      </div>
+    ` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="image-plus"></i><p>还没有预设角色，点击「上传角色图」创建第一个。</p></div></div>`}
+  `;
+  refreshIcons();
+
+  byId("newPresetBtn")?.addEventListener("click", () => openCreatePresetDialog());
+  byId("refreshPresetBtn")?.addEventListener("click", () => renderCharacters());
+
+  pane.querySelectorAll(".adm-char-card").forEach((card) => {
+    const id = card.dataset.id;
+    card.querySelector('[data-act="set-active"]')?.addEventListener("click", () => setHomeActive(id));
+    card.querySelector('[data-act="edit"]')?.addEventListener("click", () => openEditPresetDialog(id));
+    card.querySelector('[data-act="regen"]')?.addEventListener("click", () => openRegenPresetDialog(id));
+    card.querySelector('[data-act="delete"]')?.addEventListener("click", () => deletePresetItem(id));
+    card.querySelector('[data-act="bind-scene"]')?.addEventListener("click", () => openSceneBindDialog(id, scenes));
+    card.querySelector('[data-act="rebuild-ref"]')?.addEventListener("click", () => rebuildPresetReference(id));
+  });
+}
+
+async function rebuildPresetReference(itemId) {
+  if (!confirm("将清空旧的合成参考图并重新生成素材，可能耗时 1-3 分钟。继续？")) return;
+  try {
+    await api(`/api/admin/home-items/${encodeURIComponent(itemId)}/rebuild-reference`, {
+      method: "POST",
+      body: JSON.stringify({ force: true }),
+    });
+    toast("已开始重建参考图，需要时请手动点击刷新。");
+  } catch (error) {
+    toast(`重建失败：${error.message}`);
+  }
+}
+
+function presetCharCard(item, activeId, scenes) {
+  const sceneVideos = item.sceneVideos || {};
+  const sceneCount = Object.keys(sceneVideos).length;
+  const refState = item.referenceState || referenceStateOf(item);
+  const refLabel = referenceStateLabel(refState);
+  const refClass = `adm-ref-state adm-ref-${refState}`;
+  return `
+    <article class="adm-char-card" data-id="${escapeHtml(item.id)}">
+      <div class="adm-char-poster">
+        ${item.id === activeId ? `<span class="adm-active-flag">主推</span>` : ""}
+        ${videoOrPoster(item)}
+      </div>
+      <div class="adm-char-meta">
+        <strong>${escapeHtml(item.name || "—")}</strong>
+        <em>${escapeHtml(item.title || "短剧角色")} · ${statusText(item.status)}</em>
+        <em>${sceneCount}/${scenes.length} 场景已绑定</em>
+        <em class="${refClass}" title="生成场景视频前必须有合成参考图">参考资产: ${refLabel}</em>
+      </div>
+      <div class="adm-char-actions">
+        ${item.id !== activeId ? `<button class="adm-btn adm-btn-sm" data-act="set-active"><i data-lucide="star"></i>设为主推</button>` : ""}
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit"><i data-lucide="pencil"></i>编辑</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="bind-scene"><i data-lucide="map-pinned"></i>场景视频</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="regen"><i data-lucide="clapperboard"></i>主视频</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="rebuild-ref" title="清空旧的合成参考图，重新生成一次素材"><i data-lucide="image-down"></i>重建参考图</button>
+        <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete"><i data-lucide="trash-2"></i>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function referenceStateOf(item) {
+  const hasSynth = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
+  const hasAsset = Boolean(item.referenceAssetUri);
+  if (hasSynth && hasAsset) return "ready";
+  if (hasSynth) return "asset_pending";
+  if (item.status === "reference_failed") return "failed";
+  if (item.status === "image_uploaded") return "synth_pending";
+  return "missing";
+}
+
+function referenceStateLabel(state) {
+  switch (state) {
+    case "ready":
+      return "已就绪";
+    case "asset_pending":
+      return "创建中";
+    case "synth_pending":
+      return "合成中";
+    case "failed":
+      return "失败，可重建";
+    default:
+      return "缺失，需重建";
+  }
+}
+
+function statusText(status) {
+  if (!status) return "待生成";
+  const map = {
+    image_uploaded: "已上传图片",
+    succeeded: "已生成",
+    success: "已生成",
+    pending: "排队中",
+    running: "生成中",
+    failed: "失败",
+    reference_failed: "参考失败",
+  };
+  return map[String(status).toLowerCase()] || status;
+}
+
+async function openEditPresetDialog(itemId) {
+  const config = await loadConfig();
+  const item = (config.homeVideo?.items || []).find((i) => i.id === itemId);
+  if (!item) return;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>角色名</span><input id="editName" type="text" maxlength="20" value="${escapeHtml(item.name || "")}" /></div>
+    <div class="adm-form-row"><span>短剧标题</span><input id="editTitle" type="text" maxlength="20" value="${escapeHtml(item.title || "")}" /></div>
+    <div class="adm-form-row"><span>Prompt（保存后下次生成视频时使用）</span><textarea id="editPrompt">${escapeHtml(item.prompt || "")}</textarea></div>
+  `;
+  openDialog({
+    title: `编辑：${item.name || item.id}`,
+    body: tpl,
+    confirmText: "保存",
+    onConfirm: async () => {
+      await api(`/api/admin/home-items/${encodeURIComponent(itemId)}`, {
+        method: "PATCH",
+        body: {
+          name: tpl.querySelector("#editName").value.trim(),
+          title: tpl.querySelector("#editTitle").value.trim(),
+          prompt: tpl.querySelector("#editPrompt").value,
+        },
+      });
+      toast("已更新。", "success");
+      state.config = null;
+      renderCharacters();
+    },
+  });
+}
+
+async function openRegenPresetDialog(itemId) {
+  const config = await loadConfig();
+  const item = (config.homeVideo?.items || []).find((i) => i.id === itemId);
+  if (!item) return;
+  const tpl = document.createElement("div");
+  const scenes = config.scenes || [];
+  const homeSceneVideos = item.homeSceneVideos || {};
+  tpl.innerHTML = `
+    <p class="adm-muted">配置首页展示的主视频：${escapeHtml(item.name)}。可以只保存 Prompt，也可以立即提交生成。</p>
+    <div class="adm-form-row adm-mt"><span>供应商</span><select id="genProvider"><option value="seedance">Seedance / Ark</option><option value="ifilm-cli">ifilm CLI（可用时）</option></select></div>
+    <div class="adm-form-row"><span>场景</span><select id="genHomeScene">
+      ${scenes.map((scene) => {
+        const entry = homeSceneVideos[scene.id] || {};
+        const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "（Prompt 已保存）" : "（未生成）";
+        return `<option value="${escapeHtml(scene.id)}" data-default-prompt="${escapeHtml(scene.prompt || "")}">${escapeHtml(scene.name || scene.id)} ${tag}</option>`;
+      }).join("")}
+    </select></div>
+    <div class="adm-form-row"><span>Prompt</span><textarea id="genPrompt" rows="6" placeholder="输入 Prompt，然后保存或生成主视频。"></textarea></div>
+    <p class="adm-muted adm-mt" id="genPromptHint"></p>
+  `;
+
+  const select = tpl.querySelector("#genHomeScene");
+  const promptEl = tpl.querySelector("#genPrompt");
+  const hintEl = tpl.querySelector("#genPromptHint");
+  function syncMainPrompt() {
+    const sceneId = select.value;
+    const entry = homeSceneVideos[sceneId] || {};
+    const savedPrompt = String(entry.userPrompt || entry.savedPrompt || "").trim();
+    const fallback = String(entry.prompt || item.prompt || select.options[select.selectedIndex]?.dataset.defaultPrompt || "").trim();
+    promptEl.value = savedPrompt || "";
+    promptEl.placeholder = fallback || "保存后会预填到用户端生成弹窗。";
+    const lines = [];
+    if (entry.taskId) lines.push(`已有主视频任务 ${entry.taskId}（${statusText(entry.status)}）。`);
+    if (savedPrompt) lines.push("已保存的 Prompt 会预填到用户端生成弹窗。");
+    else if (fallback) lines.push("还没有保存 Prompt，生成时仍可使用兜底 Prompt。");
+    hintEl.textContent = lines.join(" ");
+  }
+  select.addEventListener("change", syncMainPrompt);
+  setTimeout(syncMainPrompt, 0);
+
+  openDialog({
+    title: `主视频 - ${item.name || item.id}`,
+    body: tpl,
+    confirmText: "生成",
+    cancelText: "只保存 Prompt",
+    onConfirm: async () => {
+      const provider = tpl.querySelector("#genProvider").value;
+      const sceneId = select.value || "room";
+      const prompt = promptEl.value;
+      await api("/api/admin/home-video", {
+        method: "POST",
+        body: { itemId, sceneId, provider, prompt, name: item.name, title: item.title },
+      });
+      toast("主视频任务已提交，可在视频管理里查看进度。", "success");
+      state.config = null;
+      renderCharacters();
+    },
+  }).then(async (value) => {
+    if (value !== "cancel") return;
+    const sceneId = select.value || "room";
+    const prompt = promptEl.value;
+    try {
+      await api("/api/admin/home-video", {
+        method: "POST",
+        body: { itemId, sceneId, provider: tpl.querySelector("#genProvider").value, prompt, name: item.name, title: item.title, saveOnly: true },
+      });
+      toast("主视频 Prompt 已保存。", "success");
+      state.config = null;
+      renderCharacters();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+async function setHomeActive(itemId) {
+  await api(`/api/admin/home-items/${encodeURIComponent(itemId)}/active`, { method: "POST" });
+  toast("已设为首页主推。", "success");
+  state.config = null;
+  renderCharacters();
+}
+
+async function deletePresetItem(itemId) {
+  const ok = await confirmAction("删除角色", "确认删除该角色？已生成的视频文件不会被物理删除。", { danger: true, confirmText: "删除" });
+  if (!ok) return;
+  await api(`/api/admin/home-items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+  toast("已删除。", "success");
+  state.config = null;
+  renderCharacters();
+}
+
+function openSceneBindDialog(itemId, scenes) {
+  loadConfig().then((config) => {
+    const item = (config.homeVideo?.items || []).find((i) => i.id === itemId);
+    if (!item) return;
+    const sceneVideos = item.sceneVideos || {};
+    const tpl = document.createElement("div");
+    tpl.innerHTML = `
+      <p class="adm-muted">配置用户在弹窗里生成的场景视频：${escapeHtml(item.name)}。可以只保存 Prompt，也可以立即提交生成。</p>
+      <label class="adm-field adm-mt">
+        <span>场景</span>
+        <select id="sceneBindScene">
+          ${scenes.map((scene) => {
+            const entry = sceneVideos[scene.id] || {};
+            const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "（Prompt 已保存）" : "（未生成）";
+            return `<option value="${escapeHtml(scene.id)}" data-default-prompt="${escapeHtml(scene.prompt || "")}">${escapeHtml(scene.name || scene.id)} ${tag}</option>`;
+          }).join("")}
+        </select>
+      </label>
+      <label class="adm-field adm-mt">
+        <span>Prompt</span>
+        <textarea id="sceneBindPrompt" rows="6" placeholder="输入 Prompt，然后保存或生成场景视频。"></textarea>
+      </label>
+      <p class="adm-muted adm-mt" id="sceneBindHint"></p>
+    `;
+    const select = tpl.querySelector("#sceneBindScene");
+    const promptEl = tpl.querySelector("#sceneBindPrompt");
+    const hintEl = tpl.querySelector("#sceneBindHint");
+    function syncHint() {
+      const sceneId = select.value;
+      const entry = sceneVideos[sceneId] || {};
+      const savedPrompt = String(entry.userPrompt || entry.savedPrompt || "").trim();
+      const fallback = String(entry.prompt || select.options[select.selectedIndex]?.dataset.defaultPrompt || "").trim();
+      promptEl.value = savedPrompt || "";
+      promptEl.placeholder = fallback || "保存后会预填到用户端生成弹窗。";
+      const lines = [];
+      if (entry.taskId) lines.push(`已有场景视频任务 ${entry.taskId}（${statusText(entry.status)}），再次提交会覆盖记录。`);
+      if (savedPrompt) lines.push("已保存的 Prompt 会预填到用户端生成弹窗。");
+      else if (fallback) lines.push(`兜底 Prompt：${fallback.length > 80 ? fallback.slice(0, 80) + "..." : fallback}`);
+      hintEl.textContent = lines.join(" ");
+    }
+    select.addEventListener("change", syncHint);
+    setTimeout(syncHint, 0);
+    openDialog({
+      title: `场景视频 - ${item.name || item.id}`,
+      body: tpl,
+      confirmText: "生成",
+      cancelText: "只保存 Prompt",
+      onConfirm: async () => {
+        const sceneId = select.value;
+        const prompt = promptEl.value;
+        try {
+          await api("/api/admin/character-scene-video", {
+            method: "POST",
+            body: { itemId, sceneId, prompt },
+          });
+          toast(`场景视频任务已提交：${sceneId}。`, "success");
+          state.config = null;
+          sessionStorage.setItem("admTabVideos", "scene");
+          window.location.hash = "#/videos";
+        } catch (err) {
+          toast(err.message, "error");
+          throw err;
+        }
+      },
+    }).then(async (value) => {
+      if (value !== "cancel") return;
+      const sceneId = select.value;
+      const prompt = promptEl.value;
+      try {
+        await api("/api/admin/character-scene-video", {
+          method: "POST",
+          body: { itemId, sceneId, prompt, saveOnly: true },
+        });
+        toast("场景视频 Prompt 已保存。", "success");
+        state.config = null;
+        renderCharacters();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  });
+}
+
+async function renderUserCharacters() {
+  const payload = await api("/api/admin/my-characters");
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "user") return;
+  const list = payload.characters || [];
+  pane.innerHTML = `
+    <div class="adm-page-actions adm-mt">
+      <button class="adm-btn adm-btn-ghost" id="refreshUserCharBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+    </div>
+    ${list.length ? `
+      <div class="adm-char-grid adm-mt">
+        ${list.map((c) => userCharCard(c)).join("")}
+      </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="user-x"></i><p>用户还没有创建任何自定义角色。</p></div></div>`}
+  `;
+  refreshIcons();
+  byId("refreshUserCharBtn")?.addEventListener("click", () => renderCharacters());
+  pane.querySelectorAll('.adm-char-card').forEach((card) => {
+    const id = card.dataset.id;
+    card.querySelector('[data-act="add-user-credits"]')?.addEventListener("click", () => {
+      openAddCreditsFromCharacterDialog(id, list);
+    });
+    card.querySelector('[data-act="delete-user-char"]')?.addEventListener("click", async () => {
+      const ok = await confirmAction("删除用户角色", "确认删除该用户自定义角色（不会删除用户账号）？", { danger: true, confirmText: "删除" });
+      if (!ok) return;
+      await api(`/api/admin/my-characters/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("已删除。", "success");
+      renderCharacters();
+    });
+  });
+}
+
+function userCharCard(c) {
+  const sceneCount = Object.keys(c.sceneVideos || {}).length;
+  return `
+    <article class="adm-char-card" data-id="${escapeHtml(c.id)}">
+      <div class="adm-char-poster">${videoOrPoster(c)}</div>
+      <div class="adm-char-meta">
+        <strong>${escapeHtml(c.name || "—")}</strong>
+        <em>归属用户：${escapeHtml(c.username || c.userId)}</em>
+        <em>${escapeHtml(c.title || "")} · ${statusText(c.status)} · ${sceneCount} 个场景</em>
+        <em class="adm-mono">${escapeHtml((c.id || "").slice(0, 22))}</em>
+      </div>
+      <div class="adm-char-actions">
+        ${c.videoUrl ? `<a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(c.videoUrl)}" target="_blank" rel="noopener"><i data-lucide="play"></i>播放</a>` : ""}
+        ${c.userId ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="add-user-credits"><i data-lucide="gem"></i>加积分</button>` : ""}
+        <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-user-char"><i data-lucide="trash-2"></i>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function openCreatePresetDialog() {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <label class="adm-upload">
+      <input id="presetFile" type="file" accept="image/png,image/jpeg,image/webp" />
+      <i data-lucide="image-up"></i>
+      <span>点击或拖拽上传角色图（建议竖版 9:16，全身）</span>
+      <img id="presetPreview" hidden />
+    </label>
+    <div class="adm-form-row adm-mt"><span>角色名</span><input id="presetName" type="text" maxlength="40" placeholder="例如 Ava" /></div>
+    <div class="adm-form-row"><span>角色描述</span><textarea id="presetDescription" rows="4" maxlength="1200" placeholder="用于详情页和后台查看，不直接当生成视频提示词。"></textarea></div>
+    <div class="adm-form-row"><span>标签</span><input id="presetTags" type="text" maxlength="180" placeholder="用逗号分隔，例如 Blonde, Cosplay, Realistic" /></div>
+    <div class="adm-form-row"><span>分类</span><input id="presetCategory" type="text" maxlength="48" placeholder="例如 Featured" /></div>
+    <details class="adm-detail-json adm-mt">
+      <summary>高级：内部参考 Prompt</summary>
+      <div class="adm-form-row adm-mt"><span>内部 Prompt</span><textarea id="presetPrompt" rows="5" placeholder="可留空。仅作为内部参考，不在卡片上展示。"></textarea></div>
+    </details>
+  `;
+  let dataUrl = "";
+  setTimeout(() => {
+    const file = tpl.querySelector("#presetFile");
+    const preview = tpl.querySelector("#presetPreview");
+    file.addEventListener("change", () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        dataUrl = String(reader.result || "");
+        preview.src = dataUrl;
+        preview.hidden = false;
+      };
+      reader.readAsDataURL(f);
+    });
+    refreshIcons();
+  }, 0);
+  openDialog({
+    title: "新建系统角色",
+    body: tpl,
+    confirmText: "保存角色",
+    onConfirm: async () => {
+      const name = tpl.querySelector("#presetName").value.trim();
+      const description = tpl.querySelector("#presetDescription").value.trim();
+      const tags = tpl.querySelector("#presetTags").value;
+      const category = tpl.querySelector("#presetCategory").value.trim();
+      const prompt = tpl.querySelector("#presetPrompt").value;
+      if (!dataUrl) { toast("请先选择一张角色图。", "error"); return false; }
+      if (!name) { toast("请填写角色名。", "error"); return false; }
+      await api("/api/admin/home-image", {
+        method: "POST",
+        body: { dataUrl, name, description, tags, category, prompt },
+      });
+      toast("系统角色已保存。", "success");
+      state.config = null;
+      renderCharacters();
+    },
+  });
+}
+
+function adminCharacterDescription(item = {}) {
+  return String(
+    item.description ||
+    item.summary ||
+    item.bio ||
+    item.prompt ||
+    item.finalPrompt ||
+    item.title ||
+    ""
+  ).trim();
+}
+
+function adminCharacterSearchForm(id, value, placeholder) {
+  return `
+    <form class="adm-list-filters adm-mt" id="${id}">
+      <input type="search" data-role="character-search" value="${escapeHtml(value || "")}" placeholder="${escapeHtml(placeholder)}" />
+      <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+      <button class="adm-btn adm-btn-ghost" data-role="character-reset" type="button"><i data-lucide="x"></i>清空</button>
+    </form>
+  `;
+}
+
+function adminCharacterDetailRows(item = {}) {
+  const rows = [
+    ["ID", item.id],
+    ["名称", item.name],
+    ["标题", item.title],
+    ["归属用户", item.username || item.userId],
+    ["状态", statusText(item.status)],
+    ["任务ID", item.taskId],
+    ["上游任务ID", item.upstreamTaskId],
+    ["创建时间", fmtDate(item.createdAt)],
+    ["更新时间", fmtDate(item.updatedAt)],
+    ["封面", item.posterUrl || item.localImageUrl],
+    ["源图", item.sourceImageUrl],
+    ["视频", item.videoUrl || item.localVideoUrl],
+  ];
+  return rows
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
+    .map(([label, value]) => `
+      <div class="adm-detail-row">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(String(value))}</strong>
+      </div>
+    `)
+    .join("");
+}
+
+function openAdminCharacterDetailDialog(item = {}) {
+  const description = adminCharacterDescription(item);
+  const prompt = String(item.prompt || item.finalPrompt || item.userPrompt || "").trim();
+  const error = String(item.error || "").trim();
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-character-detail">
+      <div class="adm-character-detail-media">${videoOrPoster(item)}</div>
+      <div class="adm-detail-grid">${adminCharacterDetailRows(item)}</div>
+      ${description ? `<div class="adm-detail-block"><span>描述</span><p>${escapeHtml(description)}</p></div>` : ""}
+      ${prompt ? `<div class="adm-detail-block"><span>Prompt</span><pre>${escapeHtml(prompt)}</pre></div>` : ""}
+      ${error ? `<div class="adm-detail-block is-error"><span>错误</span><pre>${escapeHtml(error)}</pre></div>` : ""}
+      <details class="adm-detail-json">
+        <summary>原始数据</summary>
+        <pre>${escapeHtml(jsonPretty(item))}</pre>
+      </details>
+    </div>
+  `;
+  openDialog({
+    title: "角色详情",
+    body: tpl,
+    confirmText: "关闭",
+    showCancel: false,
+  });
+}
+
+async function renderPresetCharacters(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admPresetCharactersPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admPresetCharactersQuery") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/home-items?${params.toString()}`);
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "preset") return;
+  const items = payload.items || [];
+  sessionStorage.setItem("admPresetCharactersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  pane.innerHTML = `
+    <div class="adm-page-actions adm-mt">
+      <button class="adm-btn adm-btn-primary" id="newPresetBtn"><i data-lucide="plus"></i>上传角色图</button>
+      <button class="adm-btn adm-btn-ghost" id="refreshPresetBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+    </div>
+    ${adminCharacterSearchForm("presetCharacterFilters", q, "搜索角色名 / 描述 / ID")}
+    ${items.length ? `
+      <div class="adm-char-grid adm-mt">
+        ${items.map((item) => presetCharCard(item)).join("")}
+      </div>
+    ` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="image-plus"></i><p>没有符合条件的后台预设角色。</p></div></div>`}
+    ${adminPagerHtml(payload)}
+  `;
+  refreshIcons();
+
+  byId("newPresetBtn")?.addEventListener("click", () => openCreatePresetDialog());
+  byId("refreshPresetBtn")?.addEventListener("click", () => renderPresetCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+  bindAdminPager(pane, payload, ({ page, limit }) => renderPresetCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+
+  const runFilter = () => {
+    sessionStorage.setItem("admPresetCharactersQuery", pane.querySelector('[data-role="character-search"]')?.value.trim() || "");
+    sessionStorage.setItem("admPresetCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderPresetCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  };
+  pane.querySelector("#presetCharacterFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runFilter();
+  });
+  pane.querySelector('[data-role="character-reset"]')?.addEventListener("click", () => {
+    sessionStorage.removeItem("admPresetCharactersQuery");
+    sessionStorage.setItem("admPresetCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderPresetCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  });
+  pane.querySelectorAll(".adm-char-card").forEach((card) => {
+    const id = card.dataset.id;
+    const item = items.find((entry) => entry.id === id);
+    card.querySelector('[data-act="detail"]')?.addEventListener("click", () => openAdminCharacterDetailDialog(item));
+    card.querySelector('[data-act="delete"]')?.addEventListener("click", () => deletePresetItem(id));
+  });
+}
+
+function presetCharCard(item = {}) {
+  const description = adminCharacterDescription(item);
+  return `
+    <article class="adm-char-card" data-id="${escapeHtml(item.id)}">
+      <div class="adm-char-poster">
+        ${item.isActive ? `<span class="adm-active-flag">主推</span>` : ""}
+        ${videoOrPoster(item)}
+      </div>
+      <div class="adm-char-meta">
+        <strong>${escapeHtml(item.name || "-")}</strong>
+        <em>${escapeHtml(item.title || "后台角色")} · ${statusText(item.status)}</em>
+        <em class="adm-mono">${escapeHtml(item.id || "")}</em>
+        ${description ? `<p class="adm-char-summary">${escapeHtml(shortText(description, 72))}</p>` : ""}
+      </div>
+      <div class="adm-char-actions">
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="detail"><i data-lucide="file-text"></i>详情</button>
+        <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete"><i data-lucide="trash-2"></i>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+async function renderUserCharacters(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admUserCharactersPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admUserCharactersQuery") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/my-characters?${params.toString()}`);
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "user") return;
+  const list = payload.characters || [];
+  sessionStorage.setItem("admUserCharactersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  pane.innerHTML = `
+    <div class="adm-page-actions adm-mt">
+      <button class="adm-btn adm-btn-ghost" id="refreshUserCharBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+    </div>
+    ${adminCharacterSearchForm("userCharacterFilters", q, "搜索用户名 / 角色名 / 描述 / ID")}
+    ${list.length ? `
+      <div class="adm-char-grid adm-mt">
+        ${list.map((c) => userCharCard(c)).join("")}
+      </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="user-x"></i><p>没有符合条件的用户角色。</p></div></div>`}
+    ${adminPagerHtml(payload)}
+  `;
+  refreshIcons();
+  byId("refreshUserCharBtn")?.addEventListener("click", () => renderUserCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+  bindAdminPager(pane, payload, ({ page, limit }) => renderUserCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+
+  const runFilter = () => {
+    sessionStorage.setItem("admUserCharactersQuery", pane.querySelector('[data-role="character-search"]')?.value.trim() || "");
+    sessionStorage.setItem("admUserCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderUserCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  };
+  pane.querySelector("#userCharacterFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runFilter();
+  });
+  pane.querySelector('[data-role="character-reset"]')?.addEventListener("click", () => {
+    sessionStorage.removeItem("admUserCharactersQuery");
+    sessionStorage.setItem("admUserCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderUserCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  });
+  pane.querySelectorAll(".adm-char-card").forEach((card) => {
+    const id = card.dataset.id;
+    const item = list.find((entry) => entry.id === id);
+    card.querySelector('[data-act="detail"]')?.addEventListener("click", () => openAdminCharacterDetailDialog(item));
+    card.querySelector('[data-act="delete-user-char"]')?.addEventListener("click", async () => {
+      const ok = await confirmAction("删除用户角色", "确认删除这个用户自定义角色？不会删除用户账号。", { danger: true, confirmText: "删除" });
+      if (!ok) return;
+      await api(`/api/admin/my-characters/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("已删除。", "success");
+      renderUserCharacters(page, limit).catch((err) => renderRouteError("characters", err));
+    });
+  });
+}
+
+function userCharCard(c = {}) {
+  const description = adminCharacterDescription(c);
+  return `
+    <article class="adm-char-card" data-id="${escapeHtml(c.id)}">
+      <div class="adm-char-poster">${videoOrPoster(c)}</div>
+      <div class="adm-char-meta">
+        <strong>${escapeHtml(c.name || "-")}</strong>
+        <em>归属用户：${escapeHtml(c.username || c.userId || "-")}</em>
+        <em>${escapeHtml(c.title || "")} · ${statusText(c.status)}</em>
+        <em class="adm-mono">${escapeHtml(c.id || "")}</em>
+        ${description ? `<p class="adm-char-summary">${escapeHtml(shortText(description, 72))}</p>` : ""}
+      </div>
+      <div class="adm-char-actions">
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="detail"><i data-lucide="file-text"></i>详情</button>
+        <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-user-char"><i data-lucide="trash-2"></i>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function openAddCreditsFromCharacterDialog(id, characters) {
+  const character = (characters || []).find((item) => item.id === id);
+  if (!character?.userId) {
+    toast("找不到这个角色的归属账号。", "error");
+    return;
+  }
+
+  const account = character.username || character.userId;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(account)}" disabled /></div>
+    <div class="adm-form-row"><span>增加积分</span><input id="addCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
+    <div class="adm-form-row"><span>减少积分</span><input id="subtractCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
+    <p class="adm-muted">增加和减少只能填一个，操作会写入积分流水。</p>
+  `;
+
+  openDialog({
+    title: "调整积分",
+    body: tpl,
+    confirmText: "确认调整",
+    onConfirm: async () => {
+      const add = Number(tpl.querySelector("#addCreditsAmount")?.value);
+      const subtract = Number(tpl.querySelector("#subtractCreditsAmount")?.value);
+      const hasAdd = Number.isFinite(add) && add > 0;
+      const hasSubtract = Number.isFinite(subtract) && subtract > 0;
+      if (hasAdd === hasSubtract) {
+        toast("增加和减少只能填一个。", "error");
+        return false;
+      }
+      const body = hasAdd
+        ? { creditsAdd: Math.round(add) }
+        : { creditsSubtract: Math.round(subtract) };
+      await api(`/api/admin/users/${encodeURIComponent(character.userId)}`, {
+        method: "PATCH",
+        body,
+      });
+      toast(`已调整 ${account} 的积分。`, "success");
+      renderCharacters();
+    },
+  });
+  setTimeout(() => tpl.querySelector("#addCreditsAmount")?.focus(), 60);
+}
+
+/* ============ VIDEOS ============ */
+async function renderVideos() {
+  const stored = sessionStorage.getItem("admTabVideos");
+  const tab = ["scene", "history"].includes(stored) ? stored : "scene";
+  if (tab !== "history") stopAdminHistoryPoll();
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>视频管理</h2>
+          <p class="adm-muted">查看所有「角色 × 场景」短剧视频以及底层任务历史。角色主视频在「角色」页面里直接预览。</p>
+        </div>
+        <div class="adm-tabs" id="videoTabs">
+          <button data-tab="scene" class="${tab === "scene" ? "is-active" : ""}">场景视频</button>
+          <button data-tab="history" class="${tab === "history" ? "is-active" : ""}">生成历史</button>
+        </div>
+      </div>
+      <div id="videoPaneBody"></div>
+    </section>
+  `;
+  const tabs = els.adminContent.querySelector("#videoTabs");
+  tabs.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-tab]");
+    if (!btn) return;
+    sessionStorage.setItem("admTabVideos", btn.dataset.tab);
+    renderVideos();
+  });
+
+  const pane = activeRoutePane("videoPaneBody", "videos");
+  if (pane) pane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
+  if (tab === "scene") await renderSceneVideos();
+  else await renderHistory();
+}
+
+async function renderSceneVideos() {
+  const initialPane = activeRoutePane("videoPaneBody", "videos");
+  const previousScrollTop = initialPane?.scrollTop || 0;
+  const [config, myChars] = await Promise.all([
+    loadConfig(true),
+    api("/api/admin/my-characters"),
+  ]);
+  const pane = activeRoutePane("videoPaneBody", "videos");
+  if (!pane || (sessionStorage.getItem("admTabVideos") || "scene") !== "scene") return;
+  const scenes = config.scenes || [];
+  const sceneNameById = new Map(scenes.map((s) => [s.id, s.name]));
+  const cards = [];
+
+  (config.homeVideo?.items || []).forEach((item) => {
+    Object.entries(item.sceneVideos || {}).forEach(([sceneId, entry]) => {
+      cards.push({
+        owner: "后台预设",
+        ownerKind: "admin",
+        itemId: item.id,
+        characterId: item.id,
+        characterName: item.name || "—",
+        sceneName: sceneNameById.get(sceneId) || entry.sceneName || sceneId,
+        sceneId,
+        status: entry.status,
+        taskId: entry.taskId,
+        videoUrl: entry.videoUrl,
+        localVideoUrl: entry.localVideoUrl || "",
+        remoteVideoUrl: entry.remoteVideoUrl || "",
+        posterUrl: entry.posterUrl || item.posterUrl,
+        prompt: entry.prompt || "",
+        userPrompt: entry.userPrompt || "",
+        finalPrompt: entry.finalPrompt || entry.prompt || "",
+        referenceAssetUri: entry.referenceAssetUri || item.referenceAssetUri || "",
+        model: entry.model || "",
+        ratio: entry.ratio || "",
+        resolution: entry.resolution || "",
+        duration: entry.duration || 0,
+        provider: entry.provider || "seedance",
+        error: entry.error || "",
+        updatedAt: entry.updatedAt || entry.createdAt,
+      });
+    });
+  });
+
+  (myChars.characters || []).forEach((c) => {
+    Object.entries(c.sceneVideos || {}).forEach(([sceneId, entry]) => {
+      cards.push({
+        owner: `用户 ${c.username || c.userId}`,
+        ownerKind: "user",
+        itemId: c.id,
+        characterId: c.id,
+        username: c.username || c.userId,
+        characterName: c.name || "—",
+        sceneName: sceneNameById.get(sceneId) || entry.sceneName || sceneId,
+        sceneId,
+        status: entry.status,
+        taskId: entry.taskId,
+        videoUrl: entry.videoUrl,
+        localVideoUrl: entry.localVideoUrl || "",
+        remoteVideoUrl: entry.remoteVideoUrl || "",
+        posterUrl: entry.posterUrl || c.posterUrl,
+        prompt: entry.prompt || "",
+        userPrompt: entry.userPrompt || "",
+        finalPrompt: entry.finalPrompt || entry.prompt || "",
+        referenceAssetUri: entry.referenceAssetUri || c.referenceAssetUri || "",
+        model: entry.model || "",
+        ratio: entry.ratio || "",
+        resolution: entry.resolution || "",
+        duration: entry.duration || 0,
+        provider: entry.provider || "seedance",
+        error: entry.error || "",
+        updatedAt: entry.updatedAt || entry.createdAt,
+      });
+    });
+  });
+
+  cards.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+
+  const adminCount = cards.filter((c) => c.ownerKind === "admin").length;
+  const userCount = cards.filter((c) => c.ownerKind === "user").length;
+
+  pane.innerHTML = cards.length ? `
+    <div class="adm-row adm-mt" style="justify-content:space-between;align-items:center;">
+      <p class="adm-muted" style="margin:0;">共 ${cards.length} 条场景视频（后台 ${adminCount} · 用户 ${userCount}）。点「查询」拉取最新状态，点「重新生成」基于原 prompt 再发一次任务。</p>
+      <button class="adm-btn adm-btn-ghost adm-btn-sm" id="refreshSceneVideosBtn"><i data-lucide="refresh-cw"></i>刷新列表</button>
+    </div>
+    <div class="adm-video-grid adm-mt">
+      ${cards.map((c, idx) => sceneVideoCardHtml(c, idx)).join("")}
+    </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="link"></i><p>还没有场景视频。在「角色」页面里给角色生成场景视频，会出现在这里。</p></div></div>`;
+  refreshIcons();
+  pane.scrollTop = previousScrollTop;
+
+  byId("refreshSceneVideosBtn")?.addEventListener("click", () => renderSceneVideos());
+
+  pane.querySelectorAll('.adm-video-card').forEach((card, idx) => {
+    const c = cards[idx];
+    if (!c) return;
+    card.querySelector('[data-act="refresh-task"]')?.addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget;
+      if (!c.taskId) { toast("该记录还没有 taskId。", "error"); return; }
+      btn.disabled = true;
+      try {
+        await api(`/api/admin/character-scene-video/${encodeURIComponent(c.taskId)}`);
+        toast("已刷新任务状态。", "success");
+        state.config = null;
+        renderSceneVideos();
+      } catch (err) {
+        toast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    card.querySelector('[data-act="regenerate"]')?.addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget;
+      if (c.ownerKind !== "admin") {
+        toast("用户角色×场景视频请由用户在前端重新生成。", "warning");
+        return;
+      }
+      const ok = await confirmAction("重新生成", `将基于现有 prompt 为「${c.characterName} × ${c.sceneName}」再次提交一次 Seedance 任务，会覆盖现有记录。继续？`, { confirmText: "再次生成" });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await api("/api/admin/character-scene-video", {
+      method: "POST",
+          body: { itemId: c.itemId, sceneId: c.sceneId, prompt: c.userPrompt || c.prompt || "" },
+        });
+        toast("已提交新任务。", "success");
+        state.config = null;
+        renderSceneVideos();
+      } catch (err) {
+        toast(err.message, "error");
+  } finally {
+        btn.disabled = false;
+      }
+    });
+    card.querySelectorAll('[data-act="copy-text"]').forEach((b) => {
+      b.addEventListener("click", () => {
+        const text = b.dataset.text || "";
+        if (!text) return;
+        navigator.clipboard?.writeText(text).then(() => toast("已复制。", "success")).catch(() => toast("复制失败。", "error"));
+      });
+    });
+  });
+}
+
+function sceneVideoCardHtml(c, idx) {
+  const params = [
+    c.model ? `model: ${c.model}` : "",
+    c.ratio ? `ratio: ${c.ratio}` : "",
+    c.resolution ? `resolution: ${c.resolution}` : "",
+    c.duration ? `duration: ${c.duration}s` : "",
+    c.provider ? `provider: ${c.provider}` : "",
+  ].filter(Boolean).join(" · ");
+  const reGenLabel = c.ownerKind === "admin" ? "重新生成" : "用户角色（仅查询）";
+  const reGenDisabled = c.ownerKind === "admin" ? "" : "disabled";
+  const promptText = c.finalPrompt || c.prompt || "";
+  const hasPrompt = promptText.trim().length > 0;
+  return `
+    <article class="adm-video-card" data-idx="${idx}">
+      <div class="adm-video-media">${videoOrPoster(c)}</div>
+      <div class="adm-video-meta">
+        <strong>${escapeHtml(c.characterName)} × ${escapeHtml(c.sceneName)}</strong>
+        <em>${escapeHtml(c.owner)} · ${statusPill(c.status)} · ${escapeHtml(fmtRelative(c.updatedAt))}</em>
+        <em class="adm-mono adm-truncate" title="${escapeHtml(c.taskId || "")}">taskId: ${escapeHtml(c.taskId || "—")}</em>
+        ${params ? `<em class="adm-mono adm-truncate" title="${escapeHtml(params)}">${escapeHtml(params)}</em>` : ""}
+        ${c.referenceAssetUri ? `<em class="adm-mono adm-truncate" title="${escapeHtml(c.referenceAssetUri)}">ref: ${escapeHtml(c.referenceAssetUri)}</em>` : ""}
+        ${c.error ? `<em class="adm-error-text">${escapeHtml(c.error)}</em>` : ""}
+        <details class="adm-prompt-box adm-mt">
+          <summary>查看完整 Prompt（${hasPrompt ? promptText.length + " chars" : "空"}）</summary>
+          <pre class="adm-prompt-pre">${escapeHtml(promptText || "（未记录 prompt）")}</pre>
+          <div class="adm-row adm-mt">
+            <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-text" data-text="${escapeHtml(promptText)}"><i data-lucide="copy"></i>复制 Prompt</button>
+            ${c.referenceAssetUri ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-text" data-text="${escapeHtml(c.referenceAssetUri)}"><i data-lucide="link"></i>复制 ref URI</button>` : ""}
+          </div>
+        </details>
+        <div class="adm-row adm-mt">
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="refresh-task"><i data-lucide="refresh-cw"></i>查询</button>
+          <button class="adm-btn adm-btn-sm" data-act="regenerate" ${reGenDisabled}><i data-lucide="rotate-cw"></i>${reGenLabel}</button>
+          ${c.videoUrl ? `<a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(c.videoUrl)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>原视频</a>` : ""}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function renderHistory({ silent = false, refresh = false } = {}) {
+  stopAdminHistoryPoll();
+  const initialPane = activeRoutePane("videoPaneBody", "videos");
+  const previousScrollTop = initialPane?.scrollTop || 0;
+  const payload = await api(`/api/admin/generation-records?page=1&limit=20${refresh ? "&refresh=1" : ""}`);
+  const pane = activeRoutePane("videoPaneBody", "videos");
+  if (!pane || (sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
+  const records = payload.records || [];
+  const nextSignature = generationRecordsSignature(records);
+  if (silent && nextSignature === adminHistorySignature) {
+    scheduleAdminHistoryPoll(records);
+    return;
+  }
+  adminHistorySignature = nextSignature;
+  pane.innerHTML = `
+    <div class="adm-card adm-mt">
+      <header class="adm-card-head">
+        <h3>生成历史（最近 ${records.length} / ${payload.total || 0}）</h3>
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" id="refreshHistoryBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+      </header>
+      <div class="adm-card-body">
+        ${records.length ? `
+          <div class="adm-history-list">
+            ${records.map((r, idx) => historyRecordHtml(r, idx)).join("")}
+          </div>
+        ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无生成记录</p></div>'}
+      </div>
+    </div>
+  `;
+  refreshIcons();
+  pane.scrollTop = previousScrollTop;
+  scheduleAdminHistoryPoll(records);
+  byId("refreshHistoryBtn")?.addEventListener("click", () => renderHistory({ refresh: true }));
+  pane.querySelectorAll('[data-act="copy-text"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const text = btn.dataset.text || "";
+      if (!text) return;
+      navigator.clipboard?.writeText(text).then(() => toast("已复制。", "success")).catch(() => toast("复制失败。", "error"));
+    });
+  });
+  pane.querySelectorAll('[data-act="refresh-history-task"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const taskId = btn.dataset.taskId;
+      const source = btn.dataset.source || "";
+      if (!taskId) return;
+      btn.disabled = true;
+      try {
+        if (source.startsWith("admin")) {
+          await api(`/api/admin/character-scene-video/${encodeURIComponent(taskId)}`).catch(() => api(`/api/admin/home-video/${encodeURIComponent(taskId)}`));
+        } else {
+          await api(`/api/admin/character-scene-video/${encodeURIComponent(taskId)}`).catch(() => null);
+        }
+        toast("已尝试刷新任务状态。", "success");
+        renderHistory();
+      } catch (err) {
+        toast(err.message || "刷新失败。", "error");
+  } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+function historyRecordHtml(r, idx) {
+  const finalPrompt = r.finalPrompt || r.prompt || "";
+  const userPrompt = r.prompt || "";
+  const sameAsFinal = finalPrompt === userPrompt;
+  const params = [
+    r.model ? `model: ${r.model}` : "",
+    r.ratio ? `ratio: ${r.ratio}` : "",
+    r.resolution ? `resolution: ${r.resolution}` : "",
+    r.duration ? `duration: ${r.duration}s` : "",
+    r.quality ? `quality: ${r.quality}` : "",
+    r.source ? `source: ${r.source}` : "",
+  ].filter(Boolean).join(" · ");
+  const ownerLine = [
+    r.companionName ? `角色 ${r.companionName}` : "",
+    r.sceneName ? `场景 ${r.sceneName}` : "",
+    r.userId ? `用户 ${r.userId}` : "",
+  ].filter(Boolean).join(" · ");
+  return `
+    <article class="adm-history-item" data-idx="${idx}">
+      <header class="adm-history-head">
+        <div>
+          <strong>${escapeHtml(ownerLine || r.taskId || "—")}</strong>
+          <em>${statusPill(r.status)} · ${escapeHtml(fmtRelative(r.updatedAt || r.createdAt))}</em>
+        </div>
+        <div class="adm-row">
+          ${r.localVideoUrl ? `<a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(r.localVideoUrl)}" target="_blank" rel="noopener"><i data-lucide="play"></i>本地视频</a>` : ""}
+          ${r.remoteVideoUrl ? `<a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(r.remoteVideoUrl)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>原视频</a>` : ""}
+          ${r.taskId ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="refresh-history-task" data-task-id="${escapeHtml(r.taskId)}" data-source="${escapeHtml(r.source || "")}"><i data-lucide="refresh-cw"></i>查询</button>` : ""}
+        </div>
+      </header>
+      <div class="adm-history-meta">
+        <em class="adm-mono adm-truncate" title="${escapeHtml(r.taskId || "")}">taskId: ${escapeHtml(r.taskId || "—")}</em>
+        ${params ? `<em class="adm-mono adm-truncate" title="${escapeHtml(params)}">${escapeHtml(params)}</em>` : ""}
+        ${r.referenceAssetUri ? `<em class="adm-mono adm-truncate" title="${escapeHtml(r.referenceAssetUri)}">ref: ${escapeHtml(r.referenceAssetUri)}</em>` : ""}
+        ${r.error ? `<em class="adm-error-text">${escapeHtml(r.error)}</em>` : ""}
+      </div>
+      <details class="adm-prompt-box adm-mt"${idx === 0 ? " open" : ""}>
+        <summary>查看完整 Prompt（${(finalPrompt || "").length} chars${sameAsFinal ? "" : "，历史任务可能含旧版拼接"}）</summary>
+        ${userPrompt && !sameAsFinal ? `<div class="adm-prompt-section"><h4>用户原始 prompt</h4><pre class="adm-prompt-pre">${escapeHtml(userPrompt)}</pre></div>` : ""}
+        <div class="adm-prompt-section"><h4>${sameAsFinal ? "Prompt（原样发送）" : "实际发送 prompt"}</h4><pre class="adm-prompt-pre">${escapeHtml(finalPrompt || "（无）")}</pre></div>
+        <div class="adm-row adm-mt">
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-text" data-text="${escapeHtml(finalPrompt)}"><i data-lucide="copy"></i>复制完整 Prompt</button>
+          ${r.referenceAssetUri ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-text" data-text="${escapeHtml(r.referenceAssetUri)}"><i data-lucide="link"></i>复制 ref URI</button>` : ""}
+        </div>
+      </details>
+    </article>
+  `;
+}
+
+/* ============ GENERATION RECORDS ============ */
+function recordVideoUrl(record) {
+  return toAbsoluteHttpUrl(
+    record.cdnVideoUrl ||
+    record.remoteVideoUrl ||
+    record.providerVideoUrl ||
+    record.upstreamVideoUrl ||
+    record.localVideoUrl ||
+    record.videoUrl ||
+    "",
+  );
+}
+
+function recordRemoteVideoUrl(record) {
+  const remote = toAbsoluteHttpUrl(record.remoteVideoUrl || record.providerVideoUrl || record.upstreamVideoUrl || "");
+  const primary = recordVideoUrl(record);
+  return remote && remote !== primary ? remote : "";
+}
+
+function recordImageResultUrl(record) {
+  return record.cdnImageUrl || record.remoteImageUrl || record.providerImageUrl || record.upstreamImageUrl || record.localImageUrl || record.imageResultUrl || "";
+}
+
+function recordResultPosterUrl(record = {}) {
+  return toAbsoluteHttpUrl(record.cdnPosterUrl || record.cdnCoverUrl || record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || record.localPosterUrl || record.posterUrl || record.coverUrl || record.thumbnailUrl || record.localCoverUrl || "")
+    || recordPrimaryImageUrl(record)
+    || toAbsoluteHttpUrl(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
+}
+
+function recordMediaAssetPreviewUrl(asset = {}) {
+  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+}
+
+function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  const index = Number(asset.referenceIndex);
+  if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
+  return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
+}
+
+function recordMediaAssetHref(asset = {}, video = false) {
+  const value = video ? recordMediaAssetVideoUrl(asset) : recordMediaAssetPreviewUrl(asset);
+  return toAbsoluteHttpUrl(value) || value;
+}
+
+function isInternalAssetUrl(url = "") {
+  return /^asset:\/\//i.test(String(url || "").trim());
+}
+
+function isPreviewableImageUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && !isVideoUrl(value);
+}
+
+function isPreviewableVideoUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && isVideoUrl(value);
+}
+
+function recordMediaAssetLabel(asset = {}, index = 0) {
+  if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
+  if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
+  if (asset.type === "reference_image") return `Reference ${index + 1}`;
+  if (asset.type === "reference_video") return `Reference video ${index + 1}`;
+  return String(asset.type || asset.key || `Image ${index + 1}`).replace(/_/g, " ");
+}
+
+function recordImageAssets(record = {}) {
+  const images = [];
+  const seen = new Set();
+  const pushImage = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetPreviewUrl(asset);
+    if (!isPreviewableImageUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .forEach((asset) => pushImage(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .forEach((asset) => pushImage(asset));
+  pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
+  pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
+  return images;
+}
+
+function recordReferenceVideoAssets(record = {}) {
+  const videos = [];
+  const seen = new Set();
+  const pushVideo = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetVideoUrl(asset);
+    if (!isPreviewableVideoUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    videos.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, videos.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["reference_video", "first_clip"].includes(asset.type) || String(asset.mime || "").startsWith("video/"))
+    .forEach((asset) => pushVideo(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => ["reference_video", "first_clip"].includes(asset.type) || String(asset.mime || "").startsWith("video/"))
+    .forEach((asset) => pushVideo(asset));
+  pushVideo({ url: record.imageUrl, type: "reference_video" }, "Reference video");
+  return videos;
+}
+
+function recordPrimaryImageUrl(record = {}) {
+  const images = recordImageAssets(record);
+  return toAbsoluteHttpUrl(images[0] ? recordMediaAssetPreviewUrl(images[0]) : "")
+    || toAbsoluteHttpUrl(record.sourceImageUrl || record.imageUrl || record.localPosterUrl || record.posterUrl || "");
+}
+
+function recordMediaAssetVideoUrl(asset = {}) {
+  const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const adminUrl = String(asset.adminPreviewUrl || "").trim();
+  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
+    || candidates.find((url) => isPreviewableVideoUrl(url))
+    || candidates.find((url) => !isInternalAssetUrl(url))
+    || "";
+}
+
+function recordInputVideoAsset(record = {}) {
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  return assets.find((asset) => asset && ["reference_video", "first_clip"].includes(asset.type)) || null;
+}
+
+function recordInputVideoUrl(record = {}) {
+  const asset = recordInputVideoAsset(record);
+  return toAbsoluteHttpUrl(asset ? recordMediaAssetVideoUrl(asset) : "")
+    || toAbsoluteHttpUrl(record.params?.firstClipUrl || record.params?.first_clip_url || "");
+}
+
+function recordInputVideoPosterUrl(record = {}) {
+  const asset = recordInputVideoAsset(record);
+  return toAbsoluteHttpUrl(asset?.posterUrl || asset?.imageUrl || asset?.thumbnailUrl || asset?.localPosterUrl || "")
+    || toAbsoluteHttpUrl(record.localPosterUrl || record.posterUrl || record.imageUrl || "");
+}
+
+function recordImageAssetsHtml(record = {}) {
+  const images = recordImageAssets(record);
+  const videos = recordReferenceVideoAssets(record);
+  if (!images.length && !videos.length) return "";
+  return `
+    <div class="adm-record-reference-grid">
+      ${images.map((asset) => `
+        <figure data-reference-item>
+          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
+            <img src="${escapeHtml(recordMediaAssetHref(asset))}" alt="" />
+          </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>
+      `).join("")}
+      ${videos.map((asset) => `
+        <figure data-reference-item>
+          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
+            <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
+          </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+}
+
+function toAbsoluteHttpUrl(value = "") {
+  const url = String(value || "").trim();
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/")) return `${window.location.origin}${url}`;
+  return "";
+}
+
+function adminPreviewMediaUrl(value = "") {
+  if (/^blob:/i.test(String(value || "").trim())) return String(value).trim();
+  const url = toAbsoluteHttpUrl(value);
+  return url;
+}
+
+function recordRatioStyle(record = {}) {
+  const ratio = normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || record.upstreamPayload?.aspect_ratio);
+  const [width, height] = ratio.split(":").map((part) => Math.max(1, Number(part) || 1));
+  return `--video-ratio:${width} / ${height};`;
+}
+
+function recordPreviewHtml(record) {
+  const signedResult = adminPreviewMediaUrl(record.adminResultPreviewUrl);
+  const resultIsVideo = record.adminResultPreviewType === "video" || isVideoUrl(recordVideoUrl(record)) || isVideoUrl(record.remoteVideoUrl || record.providerVideoUrl || record.upstreamVideoUrl || "");
+  const localVideo = signedResult && resultIsVideo ? signedResult : adminPreviewMediaUrl(recordVideoUrl(record));
+  const remoteVideo = recordRemoteVideoUrl(record);
+  const imageResult = adminPreviewMediaUrl(
+    signedResult
+    || (record.resultLocked ? record.lockedPreviewUrl : "")
+    || recordImageResultUrl(record),
+  );
+  const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
+  const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
+  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+  if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
+  if (remoteVideo) {
+    return `
+      <div class="adm-record-preview-missing">
+        <i data-lucide="video-off"></i>
+        <strong>远程预览不可用</strong>
+        <p>${escapeHtml(record.error || "上游临时视频链接可能在本地缓存前已经失效。")}</p>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开原始链接</a>
+      </div>
+    `;
+  }
+  if (record.imageUrl) return `<img src="${escapeHtml(record.imageUrl)}" alt="" />`;
+  return '<div class="adm-empty"><i data-lucide="video-off"></i><p>暂无预览。</p></div>';
+}
+
+function recordBillingText(record) {
+  const billing = record.billing || {};
+  const final = billing.final === null || billing.final === undefined ? "" : billing.final;
+  const pre = billing.preDeducted || 0;
+  if (billing.settled && final !== "") return `${final} / 预扣 ${pre}`;
+  return pre ? `预扣 ${pre}` : "0";
+}
+
+function recordOwnerText(record) {
+  return record.username || record.userId || "未知";
+}
+
+async function renderGenerationRecords() {
+  let saved = JSON.parse(sessionStorage.getItem("admRecordFilters") || "{}");
+  const query = saved.q || "";
+  const provider = saved.provider || "";
+  const kind = saved.kind || "";
+  const status = saved.status || "";
+  const page = normalizeAdminPage(saved.page || 1);
+  const limit = normalizeAdminLimit(saved.limit || 20);
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-records-page">
+      <div class="adm-page-head adm-records-head">
+        <div>
+          <h2>生成记录</h2>
+          <p class="adm-muted">查看所有用户和 API 生成任务，可打开详情查看 Prompt、参数和结果预览。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="refreshRecordsBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
+      </div>
+      <form class="adm-record-filters" id="recordFilters">
+        <input id="recordQuery" type="search" placeholder="Search Task ID / Upstream ID / user / Prompt..." value="${escapeHtml(query)}" />
+        <select id="recordProvider">
+          <option value="">全部供应商</option>
+          <option value="apiz" ${provider === "apiz" ? "selected" : ""}>apiz</option>
+          <option value="seedance" ${provider === "seedance" ? "selected" : ""}>seedance</option>
+          <option value="seedream5-image" ${provider === "seedream5-image" ? "selected" : ""}>seedream5-image</option>
+          <option value="aliyun-wan27-image" ${provider === "aliyun-wan27-image" ? "selected" : ""}>wan27-image</option>
+          <option value="z-image-spicy-pro" ${provider === "z-image-spicy-pro" ? "selected" : ""}>z-image-spicy-pro</option>
+          <option value="qwen-image-edit-spicy" ${provider === "qwen-image-edit-spicy" ? "selected" : ""}>qwen-image-edit-spicy</option>
+        </select>
+        <select id="recordKind">
+          <option value="">全部类型</option>
+          <option value="advanced-image" ${kind === "advanced-image" ? "selected" : ""}>advanced-image</option>
+          <option value="asset-image" ${kind === "asset-image" ? "selected" : ""}>asset-image</option>
+          <option value="image-to-video" ${kind === "image-to-video" ? "selected" : ""}>图生视频</option>
+          <option value="text-to-video" ${kind === "text-to-video" ? "selected" : ""}>文生视频</option>
+          <option value="advanced-video" ${kind === "advanced-video" ? "selected" : ""}>高级生成</option>
+          <option value="scene-video" ${kind === "scene-video" ? "selected" : ""}>场景视频</option>
+          <option value="main-video" ${kind === "main-video" ? "selected" : ""}>主视频</option>
+        </select>
+        <select id="recordStatus">
+          <option value="">全部状态</option>
+          <option value="submitted" ${status === "submitted" ? "selected" : ""}>已提交</option>
+          <option value="running" ${status === "running" ? "selected" : ""}>运行中</option>
+          <option value="succeeded" ${status === "succeeded" ? "selected" : ""}>已成功</option>
+          <option value="completed" ${status === "completed" ? "selected" : ""}>已完成</option>
+          <option value="failed" ${status === "failed" ? "selected" : ""}>失败</option>
+        </select>
+        <select id="recordLimit">
+          <option value="20" ${String(limit) === "20" ? "selected" : ""}>20</option>
+          <option value="50" ${String(limit) === "50" ? "selected" : ""}>50</option>
+          <option value="100" ${String(limit) === "100" ? "selected" : ""}>100</option>
+        </select>
+        <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+        <button class="adm-btn adm-btn-ghost" type="button" id="resetRecordFilters"><i data-lucide="x-circle"></i>Reset</button>
+      </form>
+      <div id="recordTablePane" class="adm-card adm-mt">
+        <div class="adm-loading"><div class="adm-spinner"></div></div>
+      </div>
+    </section>
+  `;
+
+  const load = async ({ silent = false, refresh = false, page: targetPage = null, limit: targetLimit = null } = {}) => {
+    stopAdminRecordPoll();
+    const tablePane = activeRoutePane("recordTablePane", "records");
+    if (!tablePane) return;
+    const scrollHost = tablePane?.querySelector(".adm-record-table-wrap");
+    const previousScrollTop = scrollHost?.scrollTop || 0;
+    const previousScrollLeft = scrollHost?.scrollLeft || 0;
+    const params = new URLSearchParams();
+    const next = {
+      q: byId("recordQuery")?.value.trim() || "",
+      provider: byId("recordProvider")?.value || "",
+      kind: byId("recordKind")?.value || "",
+      status: byId("recordStatus")?.value || "",
+      page: normalizeAdminPage(targetPage || saved.page || page),
+      limit: normalizeAdminLimit(targetLimit || byId("recordLimit")?.value || limit),
+    };
+    Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
+    params.set("page", String(next.page));
+    params.set("limit", String(next.limit));
+    sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
+    saved = next;
+    if (!silent) tablePane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
+    const payload = await api(`/api/admin/generation-records?${params.toString()}`);
+    if (!activeRoutePane("recordTablePane", "records")) return;
+    const records = payload.records || [];
+    const nextSignature = generationRecordsSignature(records);
+    if (silent && nextSignature === adminRecordSignature) {
+      scheduleAdminRecordPoll(records, load);
+      return;
+    }
+    adminRecordSignature = nextSignature;
+    renderGenerationRecordTable(records, payload, load);
+    const nextScrollHost = byId("recordTablePane")?.querySelector(".adm-record-table-wrap");
+    if (nextScrollHost) {
+      nextScrollHost.scrollTop = previousScrollTop;
+      nextScrollHost.scrollLeft = previousScrollLeft;
+    }
+    scheduleAdminRecordPoll(records, load);
+  };
+
+  byId("recordFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    load({ page: 1 }).catch((err) => renderRouteError("records", err));
+  });
+  byId("resetRecordFilters")?.addEventListener("click", () => {
+    if (byId("recordQuery")) byId("recordQuery").value = "";
+    if (byId("recordProvider")) byId("recordProvider").value = "";
+    if (byId("recordKind")) byId("recordKind").value = "";
+    if (byId("recordStatus")) byId("recordStatus").value = "";
+    sessionStorage.removeItem("admRecordFilters");
+    load({ page: 1 }).catch((err) => renderRouteError("records", err));
+  });
+  byId("refreshRecordsBtn")?.addEventListener("click", () => load().catch((err) => renderRouteError("records", err)));
+  refreshIcons();
+  await load();
+}
+
+function renderGenerationRecordTable(records, payload = {}, load = null) {
+  const pane = activeRoutePane("recordTablePane", "records");
+  if (!pane) return;
+  pane.innerHTML = `
+    <header class="adm-card-head adm-record-summary">
+      <h3>显示 ${records.length} 条</h3>
+      <span class="adm-muted">筛选 ${payload.filtered ?? records.length} / 总计 ${payload.total ?? records.length}</span>
+    </header>
+    <div class="adm-table-wrap adm-record-table-wrap">
+      ${records.length ? `
+        <table class="adm-table adm-record-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>用户</th>
+              <th>类型</th>
+              <th>状态</th>
+              <th>扣费</th>
+              <th>Task ID</th>
+              <th>Prompt</th>
+              <th>结果</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${records.map((record, index) => generationRecordRowHtml(record, index)).join("")}
+          </tbody>
+        </table>
+      ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无生成记录。</p></div>'}
+    </div>
+    ${adminPagerHtml(payload)}
+  `;
+  refreshIcons();
+  pane.querySelectorAll("[data-act='record-detail']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const record = records[Number(button.dataset.index || 0)];
+      if (record) await openGenerationRecordDetail(record);
+    });
+  });
+  pane.querySelectorAll("[data-act='copy-record']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = records[Number(button.dataset.index || 0)];
+      if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt 已复制。");
+    });
+  });
+  pane.querySelectorAll("[data-act='attach-character-video']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const record = records[Number(button.dataset.index || 0)];
+        if (record) promoteRecordToCharacterVideo(await fetchAdminGenerationRecordDetail(record), button, load);
+      } catch (error) {
+        toast(error.message || "加载详情失败。", "error");
+      }
+    });
+  });
+  bindAdminPager(pane, payload, ({ page, limit }) => {
+    if (typeof load === "function") load({ page, limit }).catch((err) => renderRouteError("records", err));
+  });
+}
+
+function generationRecordRowHtml(record, index) {
+  const video = recordVideoUrl(record);
+  const remoteVideo = recordRemoteVideoUrl(record);
+  const imageResult = record.resultLocked && record.lockedPreviewUrl ? record.lockedPreviewUrl : recordImageResultUrl(record);
+  const poster = recordResultPosterUrl(record);
+  const canPromote = Boolean(video || remoteVideo);
+  const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "任务";
+  const ratioStyle = recordRatioStyle(record);
+  const statusIssue = record.error || record.statusQueryError || "";
+  const taskCell = `
+    <div class="adm-record-task-cell">
+      <span>Task ID</span>
+      <code title="${escapeHtml(record.taskId || "")}">${escapeHtml(shortText(record.taskId || "-", 36))}</code>
+      ${record.upstreamTaskId ? `<span>Upstream</span><code title="${escapeHtml(record.upstreamTaskId)}">${escapeHtml(shortText(record.upstreamTaskId, 36))}</code>` : ""}
+      ${record.model ? `<em title="${escapeHtml(record.model)}">${escapeHtml(shortText(record.model, 34))}</em>` : ""}
+    </div>
+  `;
+  const resultPreviewUrl = video || remoteVideo;
+  const resultCell = resultPreviewUrl
+    ? adminMediaPreviewTrigger({
+      url: resultPreviewUrl,
+      kind: "video",
+      label,
+      poster,
+      className: "adm-record-thumb adm-record-thumb-preview",
+      style: ratioStyle,
+      preloadVideo: false,
+    })
+    : imageResult || record.imageUrl
+      ? adminMediaPreviewTrigger({
+        url: imageResult || record.imageUrl,
+        kind: "image",
+        label,
+        className: "adm-record-thumb adm-record-thumb-preview",
+        style: ratioStyle,
+      })
+      : '<span class="adm-muted">暂无结果</span>';
+  return `
+    <tr>
+      <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
+      <td><strong>${escapeHtml(recordOwnerText(record))}</strong><span class="adm-block adm-mono adm-record-id">${escapeHtml((record.userId || "").slice(0, 12))}</span></td>
+      <td><span class="adm-pill">${escapeHtml(record.provider || "n/a")}</span><span class="adm-block adm-muted">${escapeHtml(record.kind || record.source || "")}</span><span class="adm-block adm-truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span></td>
+      <td>${statusPill(record.status)}${statusIssue ? `<span class="adm-block adm-error-text" title="${escapeHtml(statusIssue)}">${escapeHtml(shortText(statusIssue, 54))}</span>` : ""}</td>
+      <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
+      <td>${taskCell}</td>
+      <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
+      <td>${resultCell}</td>
+      <td class="adm-record-actions">
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>详情</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
+        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="attach-character-video" data-index="${index}"><i data-lucide="list-video"></i>角色视频</button>` : ""}
+      </td>
+    </tr>
+  `;
+}
+
+function advancedProviderFromRecord(record = {}) {
+  const provider = String(record.provider || record.params?.provider || "").toLowerCase();
+  if (provider.includes("wan")) return "wan27";
+  if (provider.includes("seedance")) return "seedance";
+  return "wan27";
+}
+
+function advancedCaseFromRecord(record = {}, index = 0, category = "hot") {
+  const provider = advancedProviderFromRecord(record);
+  const params = {
+    provider,
+    ratio: normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || "9:16"),
+    resolution: normalizeAdvancedResolution(record.resolution || record.params?.resolution || record.upstreamPayload?.resolution || "720p"),
+    duration: advancedCaseDuration({
+      provider,
+      params: {
+        provider,
+        duration: record.duration || record.params?.duration || record.upstreamPayload?.duration || 5,
+      },
+    }),
+  };
+  if (provider === "wan27" && record.params?.seed) params.seed = record.params.seed;
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "高级生成";
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  const sourceCoverUrl = toAbsoluteHttpUrl(record.coverUrl || record.posterUrl || record.imageUrl || "");
+  const inputImageUrl = recordPrimaryImageUrl(record);
+  const inputVideoUrl = recordInputVideoUrl(record);
+  const inputVideoPosterUrl = recordInputVideoPosterUrl(record);
+  return {
+    id: `advanced-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`,
+    title: String(title || "高级生成").slice(0, 80),
+    category: normalizeAdvancedCaseCategory(category),
+    provider,
+    price: advancedCaseCredits({ provider, params }),
+    coverUrl: "",
+    previewUrl: sourceVideoUrl,
+    inputImageUrl,
+    inputVideoUrl,
+    inputVideoPosterUrl,
+    sourceImageUrl: inputImageUrl,
+    sourceVideoUrl,
+    sourceCoverUrl,
+    description: `${recordOwnerText(record)} · ${fmtDate(record.createdAt)}`,
+    prompt: record.finalPrompt || record.prompt || "",
+    params,
+    enabled: true,
+    sort: index,
+  };
+}
+
+async function promoteRecordToAdvancedCase(record = {}, button = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能设置到高级广场。", "error");
+    return;
+  }
+  const originalHtml = button?.innerHTML || "";
+  try {
+    const config = await loadConfig(true);
+    const platform = config.platform || {};
+    const advanced = defaultAdvancedConfig(platform);
+    const draft = advancedCaseFromRecord(record, advanced.cases.length);
+    const result = await openDialog({
+      title: "设置到高级广场",
+      body: advancedCaseEditor(draft, advanced.cases.length),
+      confirmText: "加入高级广场",
+      cancelText: "取消",
+      onConfirm: async () => {
+        if (button) {
+          button.disabled = true;
+          button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
+          refreshIcons();
+        }
+        const editor = els.dialogBody.querySelector("[data-advanced-index]");
+        let nextCase = collectAdvancedCaseFromCard(editor, draft);
+        nextCase = await ingestAdvancedCaseMediaForSave(nextCase);
+        const nextAdvanced = {
+          ...advanced,
+          cases: [...advanced.cases.filter((item) => item.id !== nextCase.id), nextCase],
+        };
+        const payload = await api("/api/admin/config", {
+          method: "PUT",
+          body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
+        });
+        state.config = payload.config;
+      },
+    });
+    if (result !== "confirm") return;
+    toast("已加入高级广场。", "success");
+  } catch (error) {
+    toast(error.message || "加入高级广场失败。", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function promoteRecordToAdvancedCaseWithCategory(record = {}, button = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能设置到高级案例。", "error");
+    return;
+  }
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "高级生成";
+  const originalHtml = button?.innerHTML || "";
+  const detectedInputVideoUrl = recordInputVideoUrl(record);
+  const detectedInputVideoPosterUrl = recordInputVideoPosterUrl(record);
+  const detectedInputImageUrl = recordPrimaryImageUrl(record);
+  await openDialog({
+    title: "设置到高级案例",
+    body: `
+      <div class="adm-form-row">
+        <span>视频</span>
+        <input value="${escapeHtml(title)}" disabled />
+      </div>
+      <div class="adm-form-row">
+        <span>分类</span>
+        <select id="promoteAdvancedCategory">${advancedCaseCategoryOptions("hot")}</select>
+      </div>
+      <div id="promoteReplaceFields" hidden>
+        <div class="adm-form-row">
+          <span>Replace 左侧输入视频 URL（必填）</span>
+          <input id="promoteInputVideoUrl" value="${escapeHtml(detectedInputVideoUrl)}" placeholder="https://.../input-video.mp4" />
+        </div>
+        <div class="adm-form-row">
+          <span>Replace 左侧输入视频首帧 URL</span>
+          <input id="promoteInputVideoPosterUrl" value="${escapeHtml(detectedInputVideoPosterUrl)}" placeholder="https://.../first-frame.jpg" />
+        </div>
+        <div class="adm-form-row">
+          <span>Replace 左侧替换图片 URL</span>
+          <input id="promoteInputImageUrl" value="${escapeHtml(detectedInputImageUrl)}" placeholder="https://.../replace-image.jpg" />
+        </div>
+      </div>
+      <p class="adm-muted" style="margin:0;">保存时会把右侧结果视频下载到本地素材，并自动生成封面。Replace 分类会同时保存左侧输入视频和右侧结果视频；移出展示不会删除视频文件。</p>
+    `,
+    confirmText: "加入高级案例",
+    cancelText: "取消",
+    onOpen: () => {
+      const categorySelect = els.dialogBody.querySelector("#promoteAdvancedCategory");
+      const replaceFields = els.dialogBody.querySelector("#promoteReplaceFields");
+      const syncReplaceFields = () => {
+        if (replaceFields) replaceFields.hidden = categorySelect?.value !== "replace";
+      };
+      categorySelect?.addEventListener("change", syncReplaceFields);
+      syncReplaceFields();
+    },
+    onConfirm: async () => {
+      if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
+        refreshIcons();
+      }
+      try {
+        const category = els.dialogBody.querySelector("#promoteAdvancedCategory")?.value || "hot";
+        const inputVideoUrl = els.dialogBody.querySelector("#promoteInputVideoUrl")?.value.trim() || "";
+        const inputVideoPosterUrl = els.dialogBody.querySelector("#promoteInputVideoPosterUrl")?.value.trim() || "";
+        const inputImageUrl = els.dialogBody.querySelector("#promoteInputImageUrl")?.value.trim() || "";
+        if (category === "replace" && !isHttpUrl(inputVideoUrl)) {
+          throw new Error("Replace 分类必须填写左侧输入视频 URL，否则前台左侧视频会缺失。");
+        }
+        if (category === "replace" && inputVideoPosterUrl && !isHttpUrl(inputVideoPosterUrl)) {
+          throw new Error("输入视频首帧 URL 必须是 http/https。");
+        }
+        if (category === "replace" && inputImageUrl && !isHttpUrl(inputImageUrl)) {
+          throw new Error("替换图片 URL 必须是 http/https。");
+        }
+        const config = await loadConfig(true);
+        const platform = config.platform || {};
+        const advanced = defaultAdvancedConfig(platform);
+        let nextCase = advancedCaseFromRecord(record, advanced.cases.length, category);
+        if (category === "replace") {
+          nextCase = {
+            ...nextCase,
+            inputVideoUrl,
+            inputVideoPosterUrl: inputVideoPosterUrl || nextCase.inputVideoPosterUrl || "",
+            inputImageUrl: inputImageUrl || nextCase.inputImageUrl || "",
+            sourceImageUrl: inputImageUrl || nextCase.sourceImageUrl || "",
+          };
+        }
+        nextCase = await ingestAdvancedCaseMediaForSave(nextCase);
+        const nextAdvanced = {
+          ...advanced,
+          cases: [...advanced.cases.filter((item) => item.id !== nextCase.id), nextCase],
+        };
+        const payload = await api("/api/admin/config", {
+          method: "PUT",
+          body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
+        });
+        state.config = payload.config;
+        toast("已加入高级案例。", "success");
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.innerHTML = originalHtml;
+          refreshIcons();
+        }
+      }
+    },
+  });
+}
+
+async function promoteRecordToPlatformGallery(record = {}, button = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能加入普通广场。", "error");
+    return;
+  }
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "广场视频";
+  const ok = await confirmAction(
+    "加入首页普通广场",
+    `确认把「${title}」加入首页普通广场？前台点击这个视频会跳到 Advanced，不弹出普通生成窗口。`,
+    { confirmText: "加入普通广场" },
+  );
+  if (!ok) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
+    refreshIcons();
+  }
+  try {
+    const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}/promote-platform`, { method: "POST" });
+    if (payload.config) state.config = payload.config;
+    toast("已加入首页普通广场。", "success");
+  } catch (error) {
+    toast(error.message || "加入普通广场失败。", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function fetchCharacterVideoAttachOptions(query = "") {
+  const params = new URLSearchParams({ page: "1", limit: "100" });
+  const q = String(query || "").trim();
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/home-items?${params.toString()}`);
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+function renderCharacterVideoAttachOptions(selectEl, items = [], selectedId = "") {
+  if (!selectEl) return;
+  if (!items.length) {
+    selectEl.innerHTML = '<option value="">没有匹配角色</option>';
+    return;
+  }
+  selectEl.innerHTML = items.map((item) => {
+    const id = String(item.id || "");
+    const label = String(item.name || id || "未命名角色").trim();
+    return `<option value="${escapeHtml(id)}" ${id === selectedId ? "selected" : ""}>${escapeHtml(shortText(label, 48))}</option>`;
+  }).join("");
+}
+
+async function promoteRecordToCharacterVideo(record = {}, button = null, load = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能加入角色视频。", "error");
+    return;
+  }
+  const defaultTitle = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Generated video";
+  let searchTimer = 0;
+  const result = await openDialog({
+    title: "加入角色视频",
+    confirmText: "加入",
+    body: `
+      <div class="adm-form-row">
+        <span>搜索角色</span>
+        <input id="attachCharacterSearch" placeholder="输入角色名或 ID，例如 evening8" autocomplete="off" />
+      </div>
+      <div class="adm-form-row">
+        <span>选择角色</span>
+        <select id="attachCharacterSelect"><option value="">加载中...</option></select>
+      </div>
+      <div class="adm-form-row">
+        <span>视频标题</span>
+        <input id="attachCharacterVideoTitle" value="${escapeHtml(defaultTitle)}" maxlength="80" />
+      </div>
+      <p class="adm-muted">会把这条生成结果加入所选角色的视频列表。重复加入同一个 task 会更新原条目，不会重复插入。</p>
+    `,
+    onOpen: (bodyEl) => {
+      const searchEl = bodyEl.querySelector("#attachCharacterSearch");
+      const selectEl = bodyEl.querySelector("#attachCharacterSelect");
+      const loadOptions = async () => {
+        const previous = selectEl.value;
+        selectEl.innerHTML = '<option value="">加载中...</option>';
+        try {
+          const items = await fetchCharacterVideoAttachOptions(searchEl.value);
+          renderCharacterVideoAttachOptions(selectEl, items, previous);
+        } catch (error) {
+          selectEl.innerHTML = '<option value="">加载失败</option>';
+          toast(error.message || "加载角色失败。", "error");
+        }
+      };
+      searchEl.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(loadOptions, 250);
+      });
+      loadOptions();
+    },
+    onConfirm: async () => {
+      const characterId = els.dialogBody.querySelector("#attachCharacterSelect")?.value || "";
+      const title = els.dialogBody.querySelector("#attachCharacterVideoTitle")?.value.trim() || defaultTitle;
+      if (!characterId) {
+        toast("请选择角色。", "error");
+        return false;
+      }
+      const originalHtml = button?.innerHTML || "";
+      if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
+        refreshIcons();
+      }
+      try {
+        const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}/attach-character-video`, {
+          method: "POST",
+          body: { characterId, title },
+        });
+        if (payload.homeVideo && state.config) state.config = { ...state.config, homeVideo: payload.homeVideo };
+        toast("已加入角色视频列表。", "success");
+        if (typeof load === "function") load({ silent: true }).catch((err) => renderRouteError("records", err));
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.innerHTML = originalHtml;
+          refreshIcons();
+        }
+      }
+    },
+  });
+  clearTimeout(searchTimer);
+}
+
+function hasRecordDetailValue(value) {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function recordDetailJsonBrief(value) {
+  if (!hasRecordDetailValue(value)) return "";
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (typeof value === "object") return `${Object.keys(value).length} keys`;
+  return shortText(String(value), 80);
+}
+
+function recordDetailJsonSectionHtml(key, title, value) {
+  if (!hasRecordDetailValue(value)) return "";
+  return `
+    <section class="adm-record-section adm-record-json-section" data-json-section="${escapeHtml(key)}">
+      <header>
+        <strong>${escapeHtml(title)}</strong>
+        <span class="adm-muted">${escapeHtml(recordDetailJsonBrief(value))}</span>
+        <div class="adm-row">
+          <button type="button" class="adm-btn adm-btn-sm adm-btn-ghost" data-json-toggle="${escapeHtml(key)}"><i data-lucide="chevron-down"></i>展开</button>
+          <button type="button" class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="${escapeHtml(key)}"><i data-lucide="copy"></i>复制</button>
+        </div>
+      </header>
+      <pre data-json-body="${escapeHtml(key)}" hidden></pre>
+    </section>
+  `;
+}
+
+function generationRecordDetailBody(record = {}, { loading = false, error = "" } = {}) {
+  const video = recordVideoUrl(record);
+  const remoteVideo = recordRemoteVideoUrl(record);
+  const imageResult = recordImageResultUrl(record);
+  const videoHref = adminPreviewMediaUrl(video) || video;
+  const imageResultHref = adminPreviewMediaUrl(record.adminResultPreviewUrl || imageResult) || imageResult;
+  return `
+    <div class="adm-record-detail">
+      ${loading ? '<div class="adm-record-detail-loading"><div class="adm-spinner"></div><span>正在加载完整详情...</span></div>' : ""}
+      ${error ? `<div class="adm-record-line adm-record-error-line"><span>加载失败</span><code>${escapeHtml(error)}</code></div>` : ""}
+      <div class="adm-record-preview">
+        ${recordPreviewHtml(record)}
+      </div>
+      ${recordImageAssetsHtml(record)}
+      <div class="adm-record-kv">
+        <span>用户</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
+        <span>状态</span><strong>${statusPill(record.status)}</strong>
+        <span>任务</span><code>${escapeHtml(record.taskId || "")}</code>
+        ${record.upstreamTaskId ? `<span>上游任务</span><code>${escapeHtml(record.upstreamTaskId)}</code>` : ""}
+        <span>供应商</span><strong>${escapeHtml(record.provider || "")}</strong>
+        <span>类型</span><strong>${escapeHtml(record.kind || "")}</strong>
+        <span>扣费</span><strong>${escapeHtml(recordBillingText(record))}</strong>
+        <span>创建时间</span><strong>${escapeHtml(fmtDate(record.createdAt))}</strong>
+        <span>更新时间</span><strong>${escapeHtml(fmtDate(record.updatedAt))}</strong>
+      </div>
+      ${record.referenceAssetUri ? `<div class="adm-record-line"><span>参考素材</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
+      ${record.imageUrl ? `<div class="adm-record-line"><span>图片</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
+      ${video ? `<div class="adm-record-line"><span>结果</span><a href="${escapeHtml(videoHref)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
+      ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResultHref)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
+      ${!video && remoteVideo ? `<div class="adm-record-line"><span>远程结果</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
+      ${record.error ? `<div class="adm-record-line"><span>错误</span><code>${escapeHtml(record.error)}</code></div>` : ""}
+      ${record.statusQueryError ? `<div class="adm-record-line"><span>状态查询</span><code>${escapeHtml(record.statusQueryError)}</code></div>` : ""}
+      <section class="adm-record-section">
+        <header><strong>Prompt</strong><button type="button" class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>复制</button></header>
+        <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>
+      </section>
+      ${record.prompt && record.finalPrompt && record.prompt !== record.finalPrompt ? `<section class="adm-record-section"><header><strong>用户 Prompt</strong></header><pre>${escapeHtml(record.prompt)}</pre></section>` : ""}
+      ${recordDetailJsonSectionHtml("upstream", "实际发送参数", record.upstreamPayload || record.params)}
+      ${record.upstreamPayload ? recordDetailJsonSectionHtml("params", "内部参数", record.params) : ""}
+      ${recordDetailJsonSectionHtml("create", "创建返回", record.createResponse)}
+      ${recordDetailJsonSectionHtml("query", "查询返回", record.queryResponse)}
+    </div>
+  `;
+}
+
+function bindGenerationRecordDetailBody(bodyEl, record = {}) {
+  const jsonMap = {
+    params: record.params,
+    upstream: record.upstreamPayload || record.params,
+    create: record.createResponse,
+    query: record.queryResponse,
+  };
+  const textMap = {
+    prompt: record.finalPrompt || record.prompt || "",
+  };
+  const jsonText = (key) => jsonPretty(jsonMap[key]) || "{}";
+  bodyEl.querySelectorAll("[data-json-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.jsonToggle || "";
+      const pre = bodyEl.querySelector(`[data-json-body="${key}"]`);
+      if (!pre) return;
+      const nextOpen = pre.hidden;
+      if (nextOpen && !pre.dataset.loaded) {
+        pre.textContent = jsonText(key);
+        pre.dataset.loaded = "1";
+      }
+      pre.hidden = !nextOpen;
+      button.innerHTML = nextOpen ? '<i data-lucide="chevron-up"></i>收起' : '<i data-lucide="chevron-down"></i>展开';
+      refreshIcons();
+    });
+  });
+  bodyEl.querySelectorAll("[data-copy-detail]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.copyDetail || "";
+      copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
+    });
+  });
+  const referenceByIndex = new Map([
+    ...recordImageAssets(record),
+    ...recordReferenceVideoAssets(record),
+  ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
+  const referenceUrl = (index, download = false) => {
+    const asset = referenceByIndex.get(String(index));
+    if (!record.taskId || !asset) return "";
+    return (download ? asset.adminDownloadUrl || asset.adminPreviewUrl : asset.adminPreviewUrl)
+      || `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${encodeURIComponent(index)}/media${download ? "?download=1" : ""}`;
+  };
+  bodyEl.querySelectorAll("[data-reference-preview]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = button.dataset.referencePreview || "";
+      const asset = referenceByIndex.get(String(index));
+      const url = referenceUrl(index);
+      if (!asset || !url) return;
+      const lightbox = document.createElement("div");
+      lightbox.className = "adm-record-media-lightbox";
+      const isVideo = String(asset.mime || "").startsWith("video/") || isVideoUrl(url) || isVideoUrl(asset.videoUrl || "");
+      lightbox.innerHTML = `<button type="button" class="adm-record-media-lightbox-close" aria-label="关闭"><i data-lucide="x"></i></button>${isVideo ? `<video src="${escapeHtml(url)}" controls autoplay playsinline preload="metadata"></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<span>${escapeHtml(asset.label || "参考素材")}</span>`;
+      const close = () => lightbox.remove();
+      lightbox.addEventListener("click", (event) => { if (event.target === lightbox || event.target.closest(".adm-record-media-lightbox-close")) close(); });
+      bodyEl.appendChild(lightbox);
+      refreshIcons();
+    });
+  });
+  bodyEl.querySelectorAll("[data-reference-download]").forEach((link) => {
+    link.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const index = link.dataset.referenceDownload || "";
+      const url = referenceUrl(index, true);
+      if (!url) return;
+      try {
+        const response = await fetch(url, { headers: state.token ? { authorization: `Bearer ${state.token}` } : {}, cache: "no-store" });
+        if (!response.ok) throw new Error(`下载失败（${response.status}）`);
+        const blobUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement("a");
+        anchor.href = blobUrl;
+        anchor.download = referenceByIndex.get(String(index))?.name || `reference-${Number(index) + 1}`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } catch (error) {
+        toast(error.message || "参考素材下载失败。", "error");
+      }
+    });
+  });
+  const previewVideo = bodyEl.querySelector(".adm-record-preview video");
+  if (previewVideo) previewVideo.load();
+  refreshIcons();
+}
+
+async function fetchAdminGenerationRecordDetail(record = {}) {
+  if (!record?.taskId) return record;
+  if (record.adminResultPreviewUrl && (record.upstreamPayload || record.createResponse || record.queryResponse)) return record;
+  const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
+  return payload.record || record;
+}
+
+async function openGenerationRecordDetail(record) {
+  const taskId = record?.taskId || "";
+  const token = `record-detail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const isActive = () => els.dialog.open && els.dialogBody.dataset.recordDetailToken === token;
+  openDialog({
+    title: `生成详情 · ${taskId}`,
+    body: generationRecordDetailBody(record, { loading: true }),
+    hideConfirm: true,
+    cancelText: "关闭",
+    onOpen: (bodyEl) => {
+      bodyEl.dataset.recordDetailToken = token;
+      bindGenerationRecordDetailBody(bodyEl, record);
+    },
+  });
+  try {
+    record = await fetchAdminGenerationRecordDetail(record);
+  } catch (error) {
+    if (isActive()) {
+      els.dialogBody.innerHTML = generationRecordDetailBody(record, { error: error.message || "加载详情失败。" });
+      bindGenerationRecordDetailBody(els.dialogBody, record);
+    }
+    toast(error.message || "加载详情失败。", "error");
+    return;
+  }
+  if (!isActive()) return;
+  els.dialogTitle.textContent = `生成详情 · ${record.taskId || taskId}`;
+  els.dialogBody.innerHTML = generationRecordDetailBody(record);
+  bindGenerationRecordDetailBody(els.dialogBody, record);
+}
+
+/* ============ SCENES ============ */
+async function renderScenes() {
+  const config = await loadConfig(true);
+  if (!isActiveRoute("scenes")) return;
+  const scenes = config.scenes || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>场景管理</h2>
+          <p class="adm-muted">维护用户端可用场景与场景预制 Prompt（用户自定义角色一键生成时使用）。</p>
+        </div>
+      </div>
+      ${scenes.length ? `
+        <div class="adm-grid adm-mt">
+          ${scenes.map((s) => sceneCard(s)).join("")}
+        </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="map"></i><p>暂无场景</p></div></div>`}
+    </section>
+  `;
+  refreshIcons();
+  els.adminContent.querySelectorAll(".adm-card").forEach((card) => {
+    const id = card.dataset.id;
+    if (!id) return;
+    card.querySelector('[data-act="save-scene"]')?.addEventListener("click", async () => {
+      try {
+        await api(`/api/admin/scenes/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: {
+            name: card.querySelector('[data-f="name"]').value.trim(),
+            shortName: card.querySelector('[data-f="shortName"]').value.trim(),
+            icon: card.querySelector('[data-f="icon"]').value.trim(),
+            price: Number(card.querySelector('[data-f="price"]').value) || 0,
+            enabled: card.querySelector('[data-f="enabled"]').checked,
+            prompt: card.querySelector('[data-f="prompt"]').value,
+          },
+        });
+        toast("场景已保存。", "success");
+        state.config = null;
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  });
+}
+
+function sceneCard(scene) {
+  return `
+    <article class="adm-card" data-id="${escapeHtml(scene.id)}">
+      <header class="adm-card-head">
+        <h3>${escapeHtml(scene.name)}（${escapeHtml(scene.id)}）</h3>
+        <span class="adm-pill">${escapeHtml(scene.icon || "—")}</span>
+      </header>
+      <div class="adm-card-body">
+        <div class="adm-grid adm-grid-3">
+          <div class="adm-form-row"><span>名字</span><input data-f="name" type="text" value="${escapeHtml(scene.name)}" /></div>
+          <div class="adm-form-row"><span>短名</span><input data-f="shortName" type="text" value="${escapeHtml(scene.shortName || "")}" /></div>
+          <div class="adm-form-row"><span>图标 (lucide)</span><input data-f="icon" type="text" value="${escapeHtml(scene.icon || "")}" /></div>
+          <div class="adm-form-row"><span>消耗（积分）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
+          <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="enabled" type="checkbox" ${scene.enabled ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端可见</span></label></div>
+        </div>
+        <div class="adm-form-row"><span>预制 Prompt（用户自定义角色一键生成时使用）</span><textarea data-f="prompt" rows="6">${escapeHtml(scene.prompt || "")}</textarea></div>
+        <div class="adm-form-actions">
+          <button class="adm-btn adm-btn-primary" data-act="save-scene"><i data-lucide="save"></i>保存场景</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+/* Scene-entry aware override. Kept after the legacy scene renderer so the
+   route uses the latest definition without disturbing the rest of admin.js. */
+async function renderScenes() {
+  const config = await loadConfig(true);
+  if (!isActiveRoute("scenes")) return;
+  const scenes = config.scenes || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>场景管理</h2>
+          <p class="adm-muted">一个场景可以配置多个入口；用户端会直接展示这些入口。</p>
+        </div>
+      </div>
+      ${scenes.length ? `
+        <div class="adm-grid adm-mt">
+          ${scenes.map((s) => sceneCard(s)).join("")}
+        </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="map"></i><p>暂无场景</p></div></div>`}
+    </section>
+  `;
+  refreshIcons();
+  els.adminContent.querySelectorAll(".adm-card").forEach((card) => {
+    const id = card.dataset.id;
+    if (!id) return;
+    card.querySelector('[data-act="save-scene"]')?.addEventListener("click", async () => {
+      try {
+        await api(`/api/admin/scenes/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: {
+            name: card.querySelector('[data-f="name"]').value.trim(),
+            shortName: card.querySelector('[data-f="shortName"]').value.trim(),
+            icon: card.querySelector('[data-f="icon"]').value.trim(),
+            price: Number(card.querySelector('[data-f="price"]').value) || 0,
+            enabled: card.querySelector('[data-f="enabled"]').checked,
+            prompt: card.querySelector('[data-f="prompt"]').value,
+          },
+        });
+        toast("场景已保存。", "success");
+        state.config = null;
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+    card.querySelector('[data-act="add-entry"]')?.addEventListener("click", async () => {
+      const name = prompt("入口名字", "新入口");
+      if (!name) return;
+      try {
+        await api(`/api/admin/scenes/${encodeURIComponent(id)}/entries`, {
+          method: "POST",
+          body: { name: name.trim() },
+        });
+        toast("入口已新增。", "success");
+        state.config = null;
+        renderScenes();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+    card.querySelectorAll("[data-entry-id]").forEach((row) => {
+      row.querySelector('[data-act="save-entry"]')?.addEventListener("click", async () => {
+        const entryId = row.dataset.entryId;
+        try {
+          await api(`/api/admin/scenes/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}`, {
+            method: "PATCH",
+            body: {
+              name: row.querySelector('[data-f="entryName"]').value.trim(),
+              enabled: row.querySelector('[data-f="entryEnabled"]').checked,
+            },
+          });
+          toast("入口已保存。", "success");
+          state.config = null;
+          renderScenes();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    });
+  });
+}
+
+function sceneCard(scene) {
+  const entries = Array.isArray(scene.entries) && scene.entries.length
+    ? scene.entries
+    : [{ id: "default", name: scene.shortName || scene.name || "Default", enabled: true }];
+  return `
+    <article class="adm-card" data-id="${escapeHtml(scene.id)}">
+      <header class="adm-card-head">
+        <h3>${escapeHtml(scene.name)} (${escapeHtml(scene.id)})</h3>
+        <span class="adm-pill">${escapeHtml(scene.icon || "—")}</span>
+      </header>
+      <div class="adm-card-body">
+        <div class="adm-grid adm-grid-3">
+          <div class="adm-form-row"><span>名字</span><input data-f="name" type="text" value="${escapeHtml(scene.name)}" /></div>
+          <div class="adm-form-row"><span>短名</span><input data-f="shortName" type="text" value="${escapeHtml(scene.shortName || "")}" /></div>
+          <div class="adm-form-row"><span>图标 (lucide)</span><input data-f="icon" type="text" value="${escapeHtml(scene.icon || "")}" /></div>
+          <div class="adm-form-row"><span>消耗（积分）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
+          <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="enabled" type="checkbox" ${scene.enabled ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端可见</span></label></div>
+        </div>
+        <div class="adm-form-row"><span>预制 Prompt</span><textarea data-f="prompt" rows="6">${escapeHtml(scene.prompt || "")}</textarea></div>
+        <div class="adm-form-row">
+          <span>入口</span>
+          <div class="adm-entry-list">
+            ${entries.map((entry) => `
+              <div class="adm-entry-row" data-entry-id="${escapeHtml(entry.id)}">
+                <input data-f="entryName" type="text" value="${escapeHtml(entry.name || "")}" />
+                <label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="entryEnabled" type="checkbox" ${entry.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">启用</span></label>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="save-entry" type="button"><i data-lucide="save"></i>保存入口</button>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div class="adm-form-actions">
+          <button class="adm-btn adm-btn-primary" data-act="save-scene"><i data-lucide="save"></i>保存场景</button>
+          <button class="adm-btn adm-btn-ghost" data-act="add-entry" type="button"><i data-lucide="plus"></i>新增入口</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+/* ============ MEMBERSHIP ACTIVATION CODES ============ */
+function membershipCodeUsersHtml(record = {}) {
+  const users = Array.isArray(record.redemptionUsers) ? record.redemptionUsers : [];
+  if (!users.length) return '<span class="adm-muted">未兑换</span>';
+  return `<div class="adm-membership-code-users">${users.map((user) => `
+    <div class="adm-membership-code-user">
+      <strong>${escapeHtml(user.username || user.id || "未知用户")}</strong>
+      <span class="adm-muted adm-mono">${escapeHtml(user.id || "")}</span>
+      ${user.redeemedAt ? `<span class="adm-muted">${escapeHtml(fmtDate(user.redeemedAt))}</span>` : ""}
+    </div>
+  `).join("")}</div>`;
+}
+
+async function renderMembershipCodes(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admMembershipCodesPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admMembershipCodesQuery") || "";
+  const status = sessionStorage.getItem("admMembershipCodesStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/membership-codes?${params.toString()}`);
+  if (!isActiveRoute("membership-codes")) return;
+  const codes = payload.codes || [];
+  sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>会员激活码</h2>
+          <p class="adm-muted">创建 Creator Membership 激活码。每个码都可在下方记录中直接复制。</p>
+        </div>
+        <form class="adm-list-filters" id="membershipCodesFilterForm">
+          <input id="membershipCodesSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索会员码 / 备注 / ID / 用户" />
+          <select id="membershipCodesStatusFilter">
+            <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
+            <option value="active" ${status === "active" ? "selected" : ""}>可用</option>
+            <option value="disabled" ${status === "disabled" ? "selected" : ""}>已停用</option>
+            <option value="exhausted" ${status === "exhausted" ? "selected" : ""}>已用完</option>
+          </select>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+        </form>
+      </div>
+
+      <article class="adm-card">
+        <div class="adm-card-head"><h3>创建激活码</h3><span class="adm-muted">单次最多 100 个</span></div>
+        <form class="adm-card-body" id="membershipCodeCreateForm">
+          <div class="adm-grid adm-grid-2">
+            <label class="adm-form-row"><span>创建数量</span><input id="membershipCodeCount" type="number" min="1" max="100" step="1" value="1" required /></label>
+            <label class="adm-form-row"><span>每个码可激活人数</span><input id="membershipCodeMaxRedemptions" type="number" min="1" max="10000" step="1" value="1" required /></label>
+          </div>
+          <label class="adm-form-row"><span>有效期（可不填）</span><input id="membershipCodeExpiresAt" type="datetime-local" /></label>
+          <label class="adm-form-row"><span>备注</span><textarea id="membershipCodeNotes" maxlength="500" rows="3" placeholder="例如：渠道合作 / 客服补发"></textarea></label>
+          <div class="adm-form-actions">
+            <button class="adm-btn adm-btn-primary" id="membershipCodeCreateBtn" type="submit"><i data-lucide="ticket-plus"></i>创建激活码</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="adm-card">
+        <div class="adm-card-head"><h3>激活码记录</h3><span class="adm-muted">共 ${escapeHtml(payload.total || 0)} 条</span></div>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-membership-code-table">
+            <thead><tr><th>会员码</th><th>用户对象</th><th>状态</th><th>已使用 / 上限</th><th>有效期</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody>
+              ${codes.length ? codes.map((record) => {
+                const codeStatus = String(record.status || "active").toLowerCase();
+                const nextStatus = codeStatus === "active" ? "disabled" : codeStatus === "disabled" ? "active" : "";
+                return `
+                  <tr data-id="${escapeHtml(record.id || "")}">
+                    <td><div class="adm-membership-code-cell">${record.code ? `<div><code>${escapeHtml(record.code)}</code><button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-copy-membership-code="${escapeHtml(record.code)}"><i data-lucide="copy"></i>复制</button></div>` : `<div><span class="adm-muted">历史码不可恢复</span><span class="adm-muted adm-mono">${escapeHtml(record.codePrefix || "VIP-")}****</span></div>`}<span class="adm-muted adm-mono adm-membership-code-id">${escapeHtml(record.id || "")}</span></div></td>
+                    <td>${membershipCodeUsersHtml(record)}</td>
+                    <td>${statusPill(codeStatus)}</td>
+                    <td><strong>${escapeHtml(record.redemptionCount || 0)}</strong> / ${escapeHtml(record.maxRedemptions || 1)}</td>
+                    <td>${record.expiresAt ? fmtDate(record.expiresAt) : "永久"}</td>
+                    <td title="${escapeHtml(record.notes || "")}">${escapeHtml(shortText(record.notes || "-", 48))}</td>
+                    <td>${fmtDate(record.createdAt)}</td>
+                    <td><div class="adm-row-actions">${nextStatus ? `<button class="adm-btn adm-btn-sm ${nextStatus === "disabled" ? "adm-btn-danger" : "adm-btn-ghost"}" type="button" data-membership-code-status="${nextStatus}"><i data-lucide="${nextStatus === "disabled" ? "ban" : "circle-check"}"></i>${nextStatus === "disabled" ? "停用" : "启用"}</button>` : '<span class="adm-muted">已用完</span>'}</div></td>
+                  </tr>
+                `;
+              }).join("") : '<tr><td colspan="8" class="adm-muted">暂无激活码。</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        ${adminPagerHtml(payload)}
+      </article>
+    </section>
+  `;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderMembershipCodes(nextPage, nextLimit).catch((err) => renderRouteError("membership-codes", err)));
+
+  const runFilter = () => {
+    sessionStorage.setItem("admMembershipCodesQuery", els.adminContent.querySelector("#membershipCodesSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admMembershipCodesStatus", els.adminContent.querySelector("#membershipCodesStatusFilter")?.value || "");
+    sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: 1, limit }));
+    renderMembershipCodes(1, limit).catch((err) => renderRouteError("membership-codes", err));
+  };
+  els.adminContent.querySelector("#membershipCodesFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runFilter();
+  });
+  els.adminContent.querySelector("#membershipCodesStatusFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#membershipCodeCreateForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = els.adminContent.querySelector("#membershipCodeCreateBtn");
+    if (button) button.disabled = true;
+    try {
+      const expiresInput = els.adminContent.querySelector("#membershipCodeExpiresAt")?.value || "";
+      const created = await api("/api/admin/membership-codes", {
+        method: "POST",
+        body: {
+          count: Number(els.adminContent.querySelector("#membershipCodeCount")?.value || 1),
+          maxRedemptions: Number(els.adminContent.querySelector("#membershipCodeMaxRedemptions")?.value || 1),
+          expiresAt: expiresInput ? new Date(expiresInput).toISOString() : "",
+          notes: els.adminContent.querySelector("#membershipCodeNotes")?.value.trim() || "",
+        },
+      });
+      toast(`已创建 ${(created.codes || []).length} 个激活码。`, "success");
+      sessionStorage.setItem("admMembershipCodesPager", JSON.stringify({ page: 1, limit }));
+      await renderMembershipCodes(1, limit);
+    } catch (error) {
+      toast(error.message || String(error), "error");
+      if (button) button.disabled = false;
+    }
+  });
+  els.adminContent.querySelectorAll("[data-copy-membership-code]").forEach((button) => {
+    button.addEventListener("click", () => copyText(button.dataset.copyMembershipCode || "", "激活码已复制。"));
+  });
+  els.adminContent.querySelectorAll("tr[data-id] [data-membership-code-status]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr[data-id]");
+      if (!row?.dataset.id) return;
+      button.disabled = true;
+      try {
+        await api(`/api/admin/membership-codes/${encodeURIComponent(row.dataset.id)}`, {
+          method: "PATCH",
+          body: { status: button.dataset.membershipCodeStatus || "disabled" },
+        });
+        toast("激活码状态已更新。", "success");
+        await renderMembershipCodes(page, limit);
+      } catch (error) {
+        toast(error.message || String(error), "error");
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+/* ============ USERS ============ */
+async function renderUsers(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admUsersPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admUsersQuery") || "";
+  const role = sessionStorage.getItem("admUsersRole") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (role) params.set("role", role);
+  const payload = await api(`/api/admin/users?${params.toString()}`);
+  if (!isActiveRoute("users")) return;
+  const users = payload.users || [];
+  sessionStorage.setItem("admUsersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>用户管理</h2>
+          <p class="adm-muted">编辑积分、重置密码、切换角色或删除用户。</p>
+        </div>
+        <form class="adm-list-filters" id="usersFilterForm">
+          <input id="usersSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户名 / 用户ID / Token / 渠道" />
+          <select id="usersRoleFilter">
+            <option value="" ${role === "" ? "selected" : ""}>全部角色</option>
+            <option value="user" ${role === "user" ? "selected" : ""}>普通用户</option>
+            <option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option>
+          </select>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+          <button class="adm-btn adm-btn-ghost" id="usersResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
+        </form>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-user-table">
+            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员 / API文档</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
+            <tbody>
+              ${users.map((u) => `
+                <tr data-id="${escapeHtml(u.id)}">
+                  <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
+                  <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
+                  <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
+                  <td><strong>${escapeHtml(u.credits)}</strong></td>
+                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}<br/><span class="adm-muted">文档 ${u.apiDocs?.active ? "已解锁" : "未解锁"}</span></td>
+                  <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
+                  <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
+                  <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
+                  <td>${escapeHtml(u.customCharacters || 0)}</td>
+                  <td>${escapeHtml(u.walletOrders || 0)}</td>
+                  <td>${fmtDate(u.createdAt)}</td>
+                  <td class="adm-user-actions-cell">
+                    <div class="adm-row-actions">
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn" data-act="edit-user" type="button" title="编辑用户" aria-label="编辑用户"><i data-lucide="pencil"></i></button>
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn" data-act="adjust-credits" type="button" title="调整积分" aria-label="调整积分"><i data-lucide="coins"></i></button>
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn" data-act="reset-pwd" type="button" title="重置密码" aria-label="重置密码"><i data-lucide="key-round"></i></button>
+                      <button class="adm-btn adm-btn-sm adm-btn-danger adm-user-action-btn" data-act="delete-user" type="button" title="删除用户" aria-label="删除用户"><i data-lucide="trash-2"></i></button>
+                    </div>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        ${adminPagerHtml(payload)}
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderUsers(page, limit).catch((err) => renderRouteError("users", err)));
+  const runUserFilter = () => {
+    sessionStorage.setItem("admUsersQuery", els.adminContent.querySelector("#usersSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admUsersRole", els.adminContent.querySelector("#usersRoleFilter")?.value || "");
+    sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
+    renderUsers(1, limit).catch((err) => renderRouteError("users", err));
+  };
+  els.adminContent.querySelector("#usersFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runUserFilter();
+  });
+  els.adminContent.querySelector("#usersRoleFilter")?.addEventListener("change", runUserFilter);
+  els.adminContent.querySelector("#usersResetFilterBtn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("admUsersQuery");
+    sessionStorage.removeItem("admUsersRole");
+    sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
+    renderUsers(1, limit).catch((err) => renderRouteError("users", err));
+  });
+  els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const id = tr.dataset.id;
+    tr.querySelector('[data-act="edit-user"]')?.addEventListener("click", () => openEditUserDialog(id, users));
+    tr.querySelector('[data-act="adjust-credits"]')?.addEventListener("click", () => openAdjustCreditsDialog(id, users));
+    tr.querySelector('[data-act="reset-pwd"]')?.addEventListener("click", () => openResetPwdDialog(id, users));
+    tr.querySelector('[data-act="delete-user"]')?.addEventListener("click", () => deleteUser(id, users));
+  });
+}
+
+function openEditUserDialog(id, users) {
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
+    <div class="adm-form-row"><span>角色</span><select id="editRole">
+      <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
+      <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
+    </select></div>
+    <div class="adm-form-row"><span>API 文档接口权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} style="width:18px;height:18px;" /><span>${user.apiDocs?.active ? "已解锁，可调用外部 API" : "未解锁，外部 API 不可用"}</span></label><small class="adm-muted">只影响 Bearer API Token / 子 Token，不影响网站前端登录后的生成。</small></div>
+    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
+    <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
+    <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
+  `;
+  openDialog({
+    title: `编辑用户：${user.username}`,
+    body: tpl,
+    confirmText: "保存",
+    onConfirm: async () => {
+      const role = tpl.querySelector("#editRole").value;
+      const apiDocsAccess = Boolean(tpl.querySelector("#editApiDocsAccess")?.checked);
+      const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
+      const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
+      if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
+        toast("前端价格折扣比例必须大于 0，且不超过 100。", "error");
+        return false;
+      }
+      if (!Number.isFinite(apiPricingMultiplier) || apiPricingMultiplier <= 0 || apiPricingMultiplier > 100) {
+        toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
+        return false;
+      }
+      const body = { role, apiDocsAccess };
+      body.pricingMultiplier = pricingMultiplier;
+      body.apiPricingMultiplier = apiPricingMultiplier;
+      await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
+      toast("已更新。", "success");
+      renderUsers();
+    },
+  });
+}
+
+function openAdjustCreditsDialog(id, users) {
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
+    <div class="adm-form-row"><span>当前积分</span><input value="${escapeHtml(user.credits)}" disabled /></div>
+    <div class="adm-form-row"><span>增加积分</span><input id="adjustCreditsAdd" type="number" min="1" step="1" placeholder="例如 100" /></div>
+    <div class="adm-form-row"><span>减少积分</span><input id="adjustCreditsSubtract" type="number" min="1" step="1" placeholder="例如 100" /></div>
+    <p class="adm-muted">增加和减少只能填一个。</p>
+  `;
+  openDialog({
+    title: `调整积分：${user.username}`,
+    body: tpl,
+    confirmText: "保存",
+    onConfirm: async () => {
+      const add = Number(tpl.querySelector("#adjustCreditsAdd").value);
+      const subtract = Number(tpl.querySelector("#adjustCreditsSubtract").value);
+      const hasAdd = Number.isFinite(add) && add > 0;
+      const hasSubtract = Number.isFinite(subtract) && subtract > 0;
+      if (!hasAdd && !hasSubtract) {
+        toast("请填写增加积分或减少积分。", "error");
+        return false;
+      }
+      if (hasAdd && hasSubtract) {
+        toast("增加和减少只能填一个。", "error");
+        return false;
+      }
+      const body = {};
+      if (hasAdd) body.creditsAdd = Math.round(add);
+      if (hasSubtract) body.creditsSubtract = Math.round(subtract);
+      await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
+      toast("积分已更新。", "success");
+      renderUsers();
+    },
+  });
+}
+
+function openResetPwdDialog(id, users) {
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
+    <div class="adm-form-row"><span>新密码（至少 6 位）</span><input id="newPwd" type="text" minlength="6" placeholder="新密码（明文，给用户）" /></div>
+    <p class="adm-muted">操作后该用户其他设备的会话会被注销。</p>
+  `;
+  openDialog({
+    title: `重置密码：${user.username}`,
+    body: tpl,
+    confirmText: "重置",
+    onConfirm: async () => {
+      const password = tpl.querySelector("#newPwd").value;
+      if (password.length < 6) { toast("密码至少 6 位。", "error"); return false; }
+      await api(`/api/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: { password } });
+      toast("密码已重置。", "success");
+    },
+  });
+}
+
+async function deleteUser(id, users) {
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+  const ok = await confirmAction("删除用户", `确认删除用户 ${user.username}？该用户的会话/订单/素材/自定义角色都会一并删除（不可恢复）。`, { danger: true, confirmText: "删除" });
+  if (!ok) return;
+  await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" });
+  toast("已删除。", "success");
+  renderUsers();
+}
+
+/* ============ RECHARGES ============ */
+async function renderRecharges(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admRechargePager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const source = sessionStorage.getItem("admRechargeSource") || "";
+  const q = sessionStorage.getItem("admRechargeQuery") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (source) params.set("source", source);
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/recharge-ledger?${params.toString()}`);
+  if (!isActiveRoute("recharges")) return;
+  const records = payload.records || [];
+  const summary = payload.summary || {};
+  sessionStorage.setItem("admRechargePager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>充值流水</h2>
+          <p class="adm-muted">统计用户充值，以及后台手动增加和减少积分的流水。</p>
+        </div>
+      </div>
+      <div class="adm-stats">
+        ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} 积分`, "receipt-text", "rose")}
+        ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} 积分 · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
+        ${statCard("后台调整", summary.manualCount || 0, `+${summary.manualAddedCredits || 0} / -${summary.manualReducedCredits || 0} 积分`, "sliders-horizontal", "amber")}
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>流水明细</h3>
+            <p class="adm-muted">减少积分也会单独记录。待支付订单仍在「钱包订单」处理。</p>
+          </div>
+          <div class="adm-actions">
+            <select id="rechargeSourceFilter" class="adm-select">
+              <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
+              <option value="user_topup" ${source === "user_topup" ? "selected" : ""}>用户充值</option>
+              <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动调整</option>
+            </select>
+            <input id="rechargeSearchInput" class="adm-input" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / hash / 备注" />
+            <button class="adm-btn adm-btn-ghost" id="rechargeSearchBtn" type="button"><i data-lucide="search"></i>查询</button>
+          </div>
+        </div>
+        <div class="adm-card-body adm-table-wrap">
+          ${records.length ? `
+            <table class="adm-table adm-recharge-table">
+              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>Charge ID</th><th>邮箱</th><th>客户名</th><th>支付方式</th><th>失败原因</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
+              <tbody>
+                ${records.map((r) => `
+                  <tr>
+                    <td><span class="adm-pill ${r.source === "manual_admin" ? "is-admin" : ""}">${escapeHtml(r.sourceLabel || r.source)}</span><br/><span class="adm-muted adm-mono">${escapeHtml(r.id)}</span></td>
+                    <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
+                    <td><strong ${Number(r.credits || 0) < 0 ? 'style="color:var(--adm-danger)"' : ""}>${Number(r.credits || 0) > 0 ? "+" : ""}${escapeHtml(r.credits ?? 0)}</strong></td>
+                    <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(r.stripeChargeId || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(r.stripeCustomerEmail || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(r.stripeCustomerName || "-")}</td>
+                    <td>${escapeHtml(r.stripePaymentMethodType || r.paymentProvider || "-")}</td>
+                    <td class="adm-error-text adm-truncate" title="${escapeHtml(r.stripeFailureMessage || r.stripeFailureCode || "")}">${escapeHtml(r.stripeFailureMessage || r.stripeFailureCode || "-")}</td>
+                    <td class="adm-truncate">
+                      ${r.source === "manual_admin"
+                        ? `<strong>${escapeHtml(r.adminUsername || r.adminUserId || "admin")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.adminUserId || "")}</span>`
+                        : `<strong>${escapeHtml(r.paymentProvider || "")}</strong> · ${escapeHtml(r.network || "")}<br/><span class="adm-muted adm-mono">${escapeHtml(r.transactionHash || r.paypalOrderId || "")}</span>`}
+                    </td>
+                    <td>${fmtDate(r.paidAt || r.createdAt)}</td>
+                    <td class="adm-truncate">${escapeHtml(r.note || "")}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="adm-empty"><i data-lucide="receipt-text"></i><p>暂无充值或调整流水</p></div>`}
+        </div>
+        ${adminPagerHtml(payload)}
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderRecharges(page, limit).catch((err) => renderRouteError("recharges", err)));
+  const runFilter = () => {
+    sessionStorage.setItem("admRechargeSource", els.adminContent.querySelector("#rechargeSourceFilter")?.value || "");
+    sessionStorage.setItem("admRechargeQuery", els.adminContent.querySelector("#rechargeSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admRechargePager", JSON.stringify({ page: 1, limit }));
+    renderRecharges(1, limit).catch((err) => renderRouteError("recharges", err));
+  };
+  els.adminContent.querySelector("#rechargeSourceFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#rechargeSearchBtn")?.addEventListener("click", runFilter);
+  els.adminContent.querySelector("#rechargeSearchInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runFilter();
+  });
+}
+
+/* ============ REFERRAL WITHDRAWALS ============ */
+async function renderWithdrawals(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admWithdrawalsPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 30);
+  const status = sessionStorage.getItem("admWithdrawalsStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/referral-withdrawals?${params.toString()}`);
+  if (!isActiveRoute("withdrawals")) return;
+  const records = payload.withdrawals || payload.records || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page"><div class="adm-page-head"><div><h2>提现审核</h2><p class="adm-muted">审核邀请佣金提现申请。人工打款后将状态改为已打款并填写交易哈希。</p></div></div>
+      <div class="adm-card"><div class="adm-card-head"><form class="adm-list-filters" id="withdrawalsFilterForm"><select id="withdrawalsStatusFilter"><option value="">全部状态</option><option value="processing" ${status === "processing" ? "selected" : ""}>处理中</option><option value="paid" ${status === "paid" ? "selected" : ""}>已打款</option><option value="rejected" ${status === "rejected" ? "selected" : ""}>已拒绝</option></select><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div>
+        <div class="adm-card-body adm-table-wrap">${records.length ? `<table class="adm-table"><thead><tr><th>申请时间</th><th>用户</th><th>金额</th><th>收款地址</th><th>状态</th><th>交易哈希</th><th>操作</th></tr></thead><tbody>${records.map((r) => `<tr data-withdrawal-id="${escapeHtml(r.id || "")}"><td>${fmtDate(r.requestedAt || r.createdAt)}</td><td><strong>${escapeHtml(r.username || r.userId || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td><td><strong>$${escapeHtml(Number(r.amountUsd ?? r.amount ?? 0).toFixed(2))}</strong></td><td class="adm-mono adm-truncate" title="${escapeHtml(r.walletAddress || "")}">${escapeHtml(r.walletAddress || "-")}</td><td>${statusPill(r.status || "pending")}</td><td class="adm-mono adm-truncate">${escapeHtml(r.txHash || "-")}</td><td><div class="adm-row-actions">${String(r.status || "pending").toLowerCase() === "pending" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-withdraw-action="paid" type="button">已打款</button><button class="adm-btn adm-btn-sm adm-btn-danger" data-withdraw-action="rejected" type="button">拒绝</button>` : `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-withdraw-action="edit" type="button">修改</button>`}</div></td></tr>`).join("")}</tbody></table>` : `<div class="adm-empty"><i data-lucide="hand-coins"></i><p>暂无提现申请</p></div>`}</div>${adminPagerHtml(payload)}</div>
+    </section>`;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderWithdrawals(nextPage, nextLimit).catch((err) => renderRouteError("withdrawals", err)));
+  els.adminContent.querySelector("#withdrawalsFilterForm")?.addEventListener("submit", (event) => { event.preventDefault(); sessionStorage.setItem("admWithdrawalsStatus", els.adminContent.querySelector("#withdrawalsStatusFilter")?.value || ""); renderWithdrawals(1, limit).catch((err) => renderRouteError("withdrawals", err)); });
+  els.adminContent.querySelectorAll("[data-withdraw-action]").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest("tr[data-withdrawal-id]"); const id = row?.dataset.withdrawalId; if (!id) return;
+    const action = button.dataset.withdrawAction; let txHash = ""; let note = "";
+    if (action === "rejected") { note = window.prompt("拒绝原因（可选）", "") || ""; } else { txHash = window.prompt("人工打款交易哈希（可选）", "") || ""; }
+    button.disabled = true;
+    try { await api(`/api/admin/referral-withdrawals/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: action === "rejected" ? "rejected" : "paid", txHash, note } }); toast("提现记录已更新"); renderWithdrawals(page, limit); } catch (error) { toast(error.message || String(error), "error"); button.disabled = false; }
+  }));
+}
+
+/* ============ CREATOR DATA ============ */
+async function renderCreatorData(pageArg = null, limitArg = null) {
+  const routeId = "creator-data";
+  if (!isActiveRoute(routeId)) return;
+  const savedPager = JSON.parse(sessionStorage.getItem("admCreatorDataPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admCreatorDataQuery") || "";
+  const withdrawalStatus = sessionStorage.getItem("admCreatorWithdrawalStatus") || "";
+  const creatorParams = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) creatorParams.set("q", q);
+  const withdrawalParams = new URLSearchParams({ page: "1", limit: "50" });
+  if (withdrawalStatus) withdrawalParams.set("status", withdrawalStatus);
+  if (q) withdrawalParams.set("q", q);
+  const [creatorPayload, withdrawalPayload] = await Promise.all([
+    api(`/api/admin/creator-data?${creatorParams.toString()}`),
+    api(`/api/admin/creator-withdrawals?${withdrawalParams.toString()}`),
+  ]);
+  if (!isActiveRoute(routeId)) return;
+  sessionStorage.setItem("admCreatorDataPager", JSON.stringify({ page: creatorPayload.page || page, limit: creatorPayload.limit || limit }));
+  const creators = creatorPayload.creators || [];
+  const withdrawals = withdrawalPayload.withdrawals || [];
+  const totalEarned = creators.reduce((sum, item) => sum + Number(item.totalEarnedCredits || 0), 0);
+  const totalAvailable = creators.reduce((sum, item) => sum + Number(item.availableCredits || 0), 0);
+  const processing = withdrawals.filter((item) => String(item.status || "") === "processing");
+  const withdrawalRows = withdrawals.length ? withdrawals.map((item) => {
+    const status = String(item.status || "processing");
+    return `<tr data-creator-withdrawal-id="${escapeHtml(item.id)}"><td>${fmtDate(item.createdAt)}</td><td><strong>${escapeHtml(item.username || item.creatorUserId || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(item.creatorUserId || "")}</span></td><td><strong>${escapeHtml(Number(item.amountCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</strong></td><td>${escapeHtml(item.network || "USDT")}<br/><span class="adm-muted adm-mono adm-truncate" title="${escapeHtml(item.withdrawalAddress || "")}">${escapeHtml(item.withdrawalAddress || "-")}</span></td><td>${statusPill(status)}</td><td class="adm-mono adm-truncate" title="${escapeHtml(item.txHash || "")}">${escapeHtml(item.txHash || "-")}</td><td><div class="adm-row-actions">${status === "processing" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-creator-withdraw-action="paid" type="button">已打款</button><button class="adm-btn adm-btn-sm adm-btn-danger" data-creator-withdraw-action="rejected" type="button">拒绝</button>` : `<span class="adm-muted">已审核</span>`}</div></td></tr>`;
+  }).join("") : "";
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head"><div><h2>创作者数据</h2><p class="adm-muted">查看「创作」页公开角色的聊天、视频通话、礼物分成收益，并审核 USDT 提现。创作者收益独立于普通积分余额。</p></div><button class="adm-btn adm-btn-ghost" id="creatorDataRefresh" type="button"><i data-lucide="refresh-cw"></i>刷新</button></div>
+      <div class="adm-stats adm-stats-4">
+        ${statCard("当前页累计收益", totalEarned.toLocaleString("zh-CN", { maximumFractionDigits: 6 }), "积分", "badge-dollar-sign", "rose")}
+        ${statCard("当前页可提现", totalAvailable.toLocaleString("zh-CN", { maximumFractionDigits: 6 }), "积分", "wallet", "mint")}
+        ${statCard("待审核提现", processing.length, "最近 50 笔申请", "clock-3", "amber")}
+        ${statCard("分成比例", "30%", "聊天 / 视频通话 / 礼物实扣积分", "percent", "violet")}
+      </div>
+      <div class="adm-card" style="margin-bottom:18px"><div class="adm-card-head"><div><h3>创作者收益</h3><p class="adm-muted">按用户、角色或创作者 ID 搜索。</p></div><form class="adm-list-filters" id="creatorDataFilterForm"><input id="creatorDataQuery" type="search" value="${escapeHtml(q)}" placeholder="搜索创作者 / 角色 ID" /><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div><div class="adm-card-body adm-table-wrap">${creators.length ? `<table class="adm-table"><thead><tr><th>创作者</th><th>累计收益</th><th>可提现</th><th>分成次数</th><th>角色数</th><th>最近收益</th></tr></thead><tbody>${creators.map((item) => `<tr><td><strong>${escapeHtml(item.username || "-")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(item.creatorUserId || "")}</span></td><td><strong>${escapeHtml(Number(item.totalEarnedCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</strong></td><td>${escapeHtml(Number(item.availableCredits || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 }))} 积分</td><td>${Number(item.earningCount || 0)}</td><td>${Number(item.characterCount || 0)}</td><td>${fmtDate(item.lastEarningAt)}</td></tr>`).join("")}</tbody></table>` : `<div class="adm-empty"><i data-lucide="badge-dollar-sign"></i><p>还没有创作者收益数据</p></div>`}</div>${adminPagerHtml(creatorPayload)}</div>
+      <div class="adm-card"><div class="adm-card-head"><div><h3>USDT 提现审核</h3><p class="adm-muted">打款必须填写链上交易哈希；拒绝必须填写原因，积分会自动退回可提现余额。</p></div><form class="adm-list-filters" id="creatorWithdrawalFilterForm"><select id="creatorWithdrawalStatus"><option value="">全部状态</option><option value="processing" ${withdrawalStatus === "processing" ? "selected" : ""}>审核中</option><option value="paid" ${withdrawalStatus === "paid" ? "selected" : ""}>已打款</option><option value="rejected" ${withdrawalStatus === "rejected" ? "selected" : ""}>已拒绝</option></select><button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button></form></div><div class="adm-card-body adm-table-wrap">${withdrawalRows ? `<table class="adm-table"><thead><tr><th>申请时间</th><th>创作者</th><th>提现积分</th><th>USDT 网络 / 地址</th><th>状态</th><th>交易哈希</th><th>操作</th></tr></thead><tbody>${withdrawalRows}</tbody></table>` : `<div class="adm-empty"><i data-lucide="hand-coins"></i><p>暂无创作者提现申请</p></div>`}</div></div>
+    </section>`;
+  refreshIcons();
+  bindAdminPager(els.adminContent, creatorPayload, ({ page: nextPage, limit: nextLimit }) => renderCreatorData(nextPage, nextLimit).catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelector("#creatorDataRefresh")?.addEventListener("click", () => renderCreatorData(page, limit).catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelector("#creatorDataFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sessionStorage.setItem("admCreatorDataQuery", els.adminContent.querySelector("#creatorDataQuery")?.value.trim() || "");
+    renderCreatorData(1, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  els.adminContent.querySelector("#creatorWithdrawalFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sessionStorage.setItem("admCreatorWithdrawalStatus", els.adminContent.querySelector("#creatorWithdrawalStatus")?.value || "");
+    renderCreatorData(page, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  els.adminContent.querySelectorAll("[data-creator-withdraw-action]").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest("tr[data-creator-withdrawal-id]");
+    const id = row?.dataset.creatorWithdrawalId;
+    if (!id) return;
+    const action = button.dataset.creatorWithdrawAction;
+    const status = action === "paid" ? "paid" : "rejected";
+    const result = await openDialog({
+      title: status === "paid" ? "确认已打款" : "拒绝提现申请",
+      body: status === "paid"
+        ? `<label class="adm-form-row"><span>USDT 交易哈希</span><input name="txHash" required placeholder="填写链上交易哈希" /></label><label class="adm-form-row"><span>备注（可选）</span><textarea name="note" rows="3"></textarea></label><p class="adm-muted">请先完成链上打款，再填写真实交易哈希。提交后不可修改。</p>`
+        : `<label class="adm-form-row"><span>拒绝原因</span><textarea name="rejectionReason" rows="4" required placeholder="填写拒绝原因，积分将退回可提现余额"></textarea></label>`,
+      confirmText: status === "paid" ? "确认已打款" : "确认拒绝",
+      onConfirm: async () => {
+        const review = {
+          txHash: String(els.dialogBody.querySelector('[name="txHash"]')?.value || "").trim(),
+          note: String(els.dialogBody.querySelector('[name="note"]')?.value || "").trim(),
+          rejectionReason: String(els.dialogBody.querySelector('[name="rejectionReason"]')?.value || "").trim(),
+        };
+        if (status === "paid" && !review.txHash) throw new Error("请填写 USDT 交易哈希。");
+        if (status === "rejected" && !review.rejectionReason) throw new Error("请填写拒绝原因。");
+        await api(`/api/admin/creator-withdrawals/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: { status, ...review },
+        });
+      },
+    });
+    if (result !== "confirm") return;
+    button.disabled = true;
+    try {
+      toast(status === "paid" ? "已标记打款" : "已拒绝并退回可提现积分", "success");
+      await renderCreatorData(page, limit);
+    } catch (error) {
+      toast(error.message || String(error), "error");
+      button.disabled = false;
+    }
+  }));
+}
+
+/* ============ WALLET ============ */
+async function renderWallet(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admWalletPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admWalletQuery") || "";
+  const status = sessionStorage.getItem("admWalletStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/wallet-orders?${params.toString()}`);
+  if (!isActiveRoute("wallet")) return;
+  const orders = payload.orders || [];
+  sessionStorage.setItem("admWalletPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>钱包订单</h2>
+          <p class="adm-muted">Stripe 与 USDT 充值订单。Stripe 订单会同步 Charge、客户、支付方式、失败原因和退款信息。</p>
+        </div>
+        <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>扫描链上订单</button>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>订单列表</h3>
+            <p class="adm-muted">按用户、订单号、Charge ID、邮箱、地址或支付渠道筛选。</p>
+          </div>
+          <form class="adm-list-filters" id="walletFilterForm">
+            <select id="walletStatusFilter">
+              <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
+              <option value="pending" ${status === "pending" ? "selected" : ""}>待支付</option>
+              <option value="paid" ${status === "paid" ? "selected" : ""}>已支付</option>
+              <option value="failed" ${status === "failed" ? "selected" : ""}>失败</option>
+              <option value="cancelled" ${status === "cancelled" ? "selected" : ""}>已取消</option>
+            </select>
+            <input id="walletSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / 地址 / hash" />
+            <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+            <button class="adm-btn adm-btn-ghost" id="walletResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
+          </form>
+        </div>
+        <div class="adm-card-body adm-table-wrap">
+          ${orders.length ? `
+            <table class="adm-table adm-wallet-table">
+              <thead><tr><th>订单 ID</th><th>Charge ID</th><th>账号名称</th><th>来源网站</th><th>邮箱</th><th>客户名</th><th>金额</th><th>退款</th><th>币种</th><th>状态</th><th>支付方式</th><th>收银台</th><th>失败原因</th><th>Stripe 创建时间</th><th>查看详情</th></tr></thead>
+              <tbody>
+                ${orders.map((o) => `
+                  <tr data-id="${escapeHtml(o.id)}">
+                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.id || "-")}</strong></td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(o.stripeChargeId || o.paypalCaptureId || "-")}</td>
+                    <td class="adm-truncate"><strong>${escapeHtml(o.username || "-")}</strong></td>
+                    <td class="adm-truncate" title="${escapeHtml(o.sourceOrigin || "")}">${escapeHtml(o.sourceHost || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(o.stripeCustomerEmail || o.paypalPayerEmail || "-")}</td>
+                    <td class="adm-truncate">${escapeHtml(o.stripeCustomerName || "-")}</td>
+                    <td><strong>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeAmountReceived ?? o.baseAmount ?? "")}` : escapeHtml(o.payableAmountText || o.baseAmount || "-")}</strong><br/><span class="adm-muted">积分：${escapeHtml(o.creditAmount || 0)}</span></td>
+                    <td>${o.paymentProvider === "stripe" ? `$${escapeHtml(o.stripeRefundedAmount ?? 0)}` : "-"}</td>
+                    <td><strong>${escapeHtml(o.currency || o.asset || "-")}</strong></td>
+                    <td>${statusPill(o.status)}</td>
+                    <td>${escapeHtml(o.paymentProvider === "stripe" ? (o.stripePaymentMethodType || "-") : (o.paymentProvider || o.network || "manual"))}</td>
+                    <td class="adm-truncate" title="${escapeHtml(o.cashierHost || "")}">${escapeHtml(o.cashierHost || "-")}</td>
+                    <td class="adm-error-text adm-truncate" title="${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "")}">${escapeHtml(o.stripeFailureMessage || o.stripeFailureCode || "-")}</td>
+                    <td>${fmtDate(o.stripeCreatedAt || o.createdAt)}</td>
+                    <td>${o.paymentProvider === "stripe" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="stripe-details" type="button">查看</button>` : `<span class="adm-muted">-</span>`}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="adm-empty"><i data-lucide="wallet"></i><p>暂无订单</p></div>`}
+        </div>
+        ${adminPagerHtml(payload)}
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderWallet(page, limit).catch((err) => renderRouteError("wallet", err)));
+  const runWalletFilter = () => {
+    sessionStorage.setItem("admWalletQuery", els.adminContent.querySelector("#walletSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admWalletStatus", els.adminContent.querySelector("#walletStatusFilter")?.value || "");
+    sessionStorage.setItem("admWalletPager", JSON.stringify({ page: 1, limit }));
+    renderWallet(1, limit).catch((err) => renderRouteError("wallet", err));
+  };
+  els.adminContent.querySelector("#walletFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runWalletFilter();
+  });
+  els.adminContent.querySelector("#walletStatusFilter")?.addEventListener("change", runWalletFilter);
+  els.adminContent.querySelector("#walletResetFilterBtn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("admWalletQuery");
+    sessionStorage.removeItem("admWalletStatus");
+    sessionStorage.setItem("admWalletPager", JSON.stringify({ page: 1, limit }));
+    renderWallet(1, limit).catch((err) => renderRouteError("wallet", err));
+  });
+  els.adminContent.querySelector("#scanWalletOrdersBtn")?.addEventListener("click", async () => {
+    const button = els.adminContent.querySelector("#scanWalletOrdersBtn");
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-2"></i>扫描中`;
+    refreshIcons();
+    try {
+      const result = await api("/api/admin/wallet-orders/scan", { method: "POST" });
+      toast(`扫描完成：匹配 ${result.matched || 0} 条，错误 ${result.errors?.length || 0} 条`, result.errors?.length ? "warn" : "success");
+    } finally {
+      renderWallet();
+    }
+  });
+  els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const id = tr.dataset.id;
+    const order = orders.find((entry) => entry.id === id);
+    tr.querySelector('[data-act="stripe-details"]')?.addEventListener("click", () => {
+      if (!order) return;
+      const details = [
+        ["Stripe Charge ID", order.stripeChargeId],
+        ["Payment Intent", order.stripePaymentIntentId],
+        ["Checkout Session", order.stripeCheckoutSessionId],
+        ["用户 ID", order.userId],
+        ["来源网站", order.sourceHost || order.sourceOrigin],
+        ["邮箱", order.stripeCustomerEmail],
+        ["客户名", order.stripeCustomerName],
+        ["支付方式", order.stripePaymentMethodType],
+        ["金额", order.stripeAmountReceived ?? order.baseAmount],
+        ["退款金额", order.stripeRefundedAmount ?? 0],
+        ["失败代码", order.stripeFailureCode],
+        ["失败原因", order.stripeFailureMessage],
+        ["Stripe 创建时间", fmtDate(order.stripeCreatedAt)],
+      ];
+      openDialog({
+        title: "Stripe 支付详情",
+        body: `<div class="adm-detail-grid adm-stripe-detail-grid">${details.map(([label, value]) => `<div class="adm-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></div>`).join("")}</div>`,
+        hideConfirm: true,
+        cancelText: "关闭",
+      });
+    });
+  });
+}
+
+async function renderSupportMessages(pageArg = null, limitArg = null) {
+  const routeId = "support";
+  if (!isActiveRoute(routeId)) return;
+  const savedPager = JSON.parse(sessionStorage.getItem("admSupportPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admSupportQuery") || "";
+  const status = sessionStorage.getItem("admSupportStatus") || "";
+  const source = sessionStorage.getItem("admSupportSource") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  if (source) params.set("source", source);
+  const payload = await api(`/api/admin/support-messages?${params.toString()}`);
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  sessionStorage.setItem("admSupportPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h1>站内信</h1>
+          <p>查看用户提交的邮箱与问题，并直接回复。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" data-act="refresh" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>消息列表</h3>
+            <p class="adm-muted">按用户、邮箱、问题内容、来源或处理状态筛选。</p>
+          </div>
+          <form class="adm-list-filters" id="supportFilterForm">
+            <select id="supportStatusFilter">
+              <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
+              <option value="open" ${status === "open" ? "selected" : ""}>未回复</option>
+              <option value="replied" ${status === "replied" ? "selected" : ""}>已回复</option>
+            </select>
+            <select id="supportSourceFilter">
+              <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
+              <option value="site form" ${source === "site form" ? "selected" : ""}>站内表单</option>
+              <option value="telegram" ${source === "telegram" ? "selected" : ""}>Telegram</option>
+              <option value="x" ${source === "x" ? "selected" : ""}>X</option>
+              <option value="reddit" ${source === "reddit" ? "selected" : ""}>Reddit</option>
+            </select>
+            <input id="supportSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户 / 邮箱 / 问题" />
+            <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+            <button class="adm-btn adm-btn-ghost" id="supportResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
+          </form>
+        </div>
+        ${messages.length ? `
+          <div class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>邮箱</th>
+                  <th>问题</th>
+                  <th>状态</th>
+                  <th>时间</th>
+                  <th>&#26469;&#28304;</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${messages.map((item) => `
+                  <tr>
+                    <td>${escapeHtml(item.username || item.userId || "-")}</td>
+                    <td>${escapeHtml(item.email || "-")}</td>
+                    <td>
+                      <div style="display:grid;gap:6px;min-width:240px;">
+                        ${item.subject ? `<strong>${escapeHtml(item.subject)}</strong>` : ""}
+                        <span>${escapeHtml(item.message || "")}</span>
+                        ${item.reply ? `<small style="color:var(--adm-muted);">回复：${escapeHtml(item.reply)}</small>` : ""}
+                      </div>
+                    </td>
+                    <td>${escapeHtml(item.status || "open")}</td>
+                    <td>${escapeHtml(fmtDate(item.createdAt))}</td>
+                    <td>${escapeHtml(item.source || "-")}</td>
+                    <td>
+                      <button class="adm-btn adm-btn-ghost" type="button" data-reply-support="${escapeHtml(item.id)}">回复</button>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无站内信</p></div>'}
+        ${adminPagerHtml(payload)}
+      </div>
+    </section>
+  `;
+  els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => renderSupportMessages().catch((err) => renderRouteError(routeId, err)));
+  const runSupportFilter = () => {
+    sessionStorage.setItem("admSupportQuery", els.adminContent.querySelector("#supportSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admSupportStatus", els.adminContent.querySelector("#supportStatusFilter")?.value || "");
+    sessionStorage.setItem("admSupportSource", els.adminContent.querySelector("#supportSourceFilter")?.value || "");
+    sessionStorage.setItem("admSupportPager", JSON.stringify({ page: 1, limit }));
+    renderSupportMessages(1, limit).catch((err) => renderRouteError(routeId, err));
+  };
+  els.adminContent.querySelector("#supportFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runSupportFilter();
+  });
+  els.adminContent.querySelector("#supportStatusFilter")?.addEventListener("change", runSupportFilter);
+  els.adminContent.querySelector("#supportSourceFilter")?.addEventListener("change", runSupportFilter);
+  els.adminContent.querySelector("#supportResetFilterBtn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("admSupportQuery");
+    sessionStorage.removeItem("admSupportStatus");
+    sessionStorage.removeItem("admSupportSource");
+    sessionStorage.setItem("admSupportPager", JSON.stringify({ page: 1, limit }));
+    renderSupportMessages(1, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  els.adminContent.querySelectorAll("[data-reply-support]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const record = messages.find((item) => item.id === button.dataset.replySupport);
+      if (!record) return;
+      const result = await openDialog({
+        title: `回复 ${record.email || record.username || ""}`,
+        confirmText: "发送回复",
+        body: `
+          <div class="adm-form-row"><span>用户问题</span><div class="adm-inline-note">${escapeHtml(record.message || "")}</div></div>
+          <div class="adm-form-row"><span>回复内容</span><textarea id="supportReplyText" rows="6">${escapeHtml(record.reply || "")}</textarea></div>
+        `,
+      });
+      if (!result.confirmed) return;
+      const reply = byId("supportReplyText")?.value.trim() || "";
+      if (!reply) return toast("回复内容不能为空", "error");
+      const replyResult = await api(`/api/admin/support-messages/${encodeURIComponent(record.id)}/reply`, {
+        method: "POST",
+        body: { reply },
+      });
+      toast(replyResult?.notificationSent ? "已回复，并已通过系统消息通知用户" : "已回复", "success");
+      renderSupportMessages().catch((err) => renderRouteError(routeId, err));
+    });
+  });
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderSupportMessages(page, limit).catch((err) => renderRouteError(routeId, err)));
+  refreshIcons();
+}
+
+/* ============ PRICING ============ */
+function fmtPrice(value, digits = 6) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return "-";
+  return String(Math.round(next * 10 ** digits) / 10 ** digits);
+}
+
+function fmtPriceRange(values = [], suffix = "") {
+  if (!Array.isArray(values) || values.length < 2) return "";
+  return `${fmtPrice(values[0])}-${fmtPrice(values[1])}${suffix}`;
+}
+
+function isImagePricingRow(row = {}) {
+  const provider = String(row.provider || "").toLowerCase();
+  const unit = String(row.unit || "").toLowerCase();
+  return provider === "wan27-image" || provider === "seedream5-image" || provider === "z-image-spicy-pro" || provider === "qwen-image-edit-spicy" || unit.includes("image");
+}
+
+function rowPriceUnit(row = {}, credits = false) {
+  const unit = String(row.unit || "").toLowerCase();
+  if (unit === "reference_image") return credits ? "credits/reference" : "USD/reference";
+  return isImagePricingRow(row) ? (credits ? "credits/image" : "USD/image") : (credits ? "credits/s" : "USD/s");
+}
+
+async function renderPricingLegacy() {
+  const payload = await api("/api/admin/pricing");
+  if (!isActiveRoute("pricing")) return;
+  const pricing = payload.pricing || {};
+  const rows = pricing.rows || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>价格配置</h2>
+          <p class="adm-muted">配置 Advanced 对外价格，采购价只展示用于核对。保存后估价和扣费马上使用新价格。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>Advanced 价格</h3>
+            <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
+          </div>
+        </div>
+        <div class="adm-table-wrap">
+          <table class="adm-table adm-pricing-table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>分辨率</th>
+                <th>采购价</th>
+                <th>对外价</th>
+                <th>积分</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
+                  <td><strong>${escapeHtml(row.providerLabel || row.provider)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.provider)}</small></td>
+                  <td>${escapeHtml(row.resolution)}${row.rateKind === "video_input" ? `<br/><small class="adm-muted">视频输入秒数</small>` : ""}</td>
+                  <td>
+                    <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                    ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
+                  </td>
+                  <td><input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" /></td>
+                  <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const updateCredits = () => {
+    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const target = tr.querySelector("[data-price-credits]");
+      const usd = Number(input?.value || 0);
+      target.textContent = Number.isFinite(usd) && usd >= 0
+        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
+        : "-";
+    });
+  };
+
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+    input.addEventListener("input", updateCredits);
+  });
+  byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
+  byId("savePricingBtn")?.addEventListener("click", async () => {
+    try {
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => {
+        const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+        return {
+          provider: tr.dataset.provider,
+          resolution: tr.dataset.resolution,
+          rateKind: tr.dataset.rateKind,
+          key: tr.dataset.key,
+          unit: tr.dataset.unit,
+          ...(purchaseInput ? { purchaseUsdPerSecond: Number(purchaseInput.value) } : {}),
+          saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
+        };
+      });
+      const payload = await api("/api/admin/pricing", {
+        method: "PUT",
+        body: { rows: nextRows },
+      });
+      state.config = payload.config || null;
+      toast("价格已保存。", "success");
+      renderPricing();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * 在线聊天（Chat live / Vidu S2-Avatar）                              *
+ * 角色形象、人设、音色、价格都在这里配；前台 123 站和 chat 站共用。   *
+ * ------------------------------------------------------------------ */
+
+let chatLiveVoicesCache = null;
+let chatLiveEditingId = "";
+let chatLiveEditorSession = 0;
+let chatLiveVoiceFilter = "";
+let chatLiveTab = "characters";
+let chatLiveSessionPage = 1;
+let chatLiveSessionLimit = 20;
+let chatLiveSessionsById = new Map();
+let chatLiveModalOpen = false;
+
+async function loadChatLiveVoices() {
+  if (chatLiveVoicesCache) return chatLiveVoicesCache;
+  try {
+    const payload = await api("/api/admin/chat-live/voices");
+    chatLiveVoicesCache = Array.isArray(payload.voices) ? payload.voices : [];
+  } catch (error) {
+    chatLiveVoicesCache = [];
+  }
+  return chatLiveVoicesCache;
+}
+
+function chatLiveVoiceProviderLabel(provider) {
+  return ({ qwen_omni: "实时版（qwen_omni）", doubao_cn: "实时版（豆包·国内）", doubao_overseas: "实时版（豆包·国外）", offline: "非实时版", dashscope_cosyvoice: "组件版（CosyVoice）" }[provider] || provider || "");
+}
+
+function chatLiveVoiceOptions(voices, selectedValue = "", filter = "") {
+  const query = String(filter || "").trim().toLowerCase();
+  const list = (voices || [])
+    .filter((voice) => !query || `${voice.name || ""} ${voice.voiceType || ""} ${voice.desc || ""}`.toLowerCase().includes(query))
+    .slice(0, 400);
+  const options = list.map((voice) => {
+    const value = String(voice.voiceType || "");
+    const label = `${voice.name || value} · ${value}${voice.desc ? ` — ${String(voice.desc).slice(0, 30)}` : ""}`;
+    return `<option value="${escapeHtml(value)}" ${value === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  });
+  if (selectedValue && !list.some((voice) => String(voice.voiceType || "") === selectedValue)) {
+    options.unshift(`<option value="${escapeHtml(selectedValue)}" selected>${escapeHtml(selectedValue)}</option>`);
+  }
+  return options.join("") || `<option value="">（音色清单未加载）</option>`;
+}
+
+function chatLiveUndressReady(character = {}) {
+  const url = String(character.undressImageUrl || "");
+  const source = String(character.undressSourceAvatarUrl || "");
+  const avatar = String(character.avatarUrl || "");
+  return String(character.undressStatus || "") === "ready" && Boolean(url) && source === avatar;
+}
+
+function chatLiveUndressLabel(character = {}) {
+  const status = String(character.undressStatus || "");
+  if (status === "generating") return `<span class="adm-badge">生成中</span>`;
+  if (chatLiveUndressReady(character)) return `<span class="adm-badge adm-badge-ok">已生成</span>`;
+  if (status === "failed") return `<span class="adm-badge adm-badge-muted">失败</span>`;
+  return `<span class="adm-muted">未生成</span>`;
+}
+
+function chatLiveCharacterRow(character = {}) {
+  const enabled = character.enabled !== false;
+  return `
+    <tr>
+      <td>
+        <div class="adm-user-cell">
+          ${adminMediaPreviewTrigger({ url: character.portraitUrl || character.avatarUrl || "", kind: "image", label: `${character.name || "角色"}形象图`, className: "adm-avatar adm-avatar-preview" })}
+          <div>
+            <strong>${escapeHtml(character.name || "-")}</strong>
+            <div class="adm-muted">${escapeHtml((character.tags || []).join(" · ") || character.intro || "")}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="adm-mono">${escapeHtml(character.voiceType || "-")}</span><br/><small class="adm-muted">${escapeHtml(chatLiveVoiceProviderLabel(character.voiceProvider))}</small></td>
+      <td>${escapeHtml(character.createdByUsername || "平台")}</td>
+      <td>${escapeHtml(String(character.sortOrder ?? 0))}</td>
+      <td>${chatLiveUndressLabel(character)}</td>
+      <td><span class="adm-badge ${enabled ? "adm-badge-ok" : "adm-badge-muted"}">${enabled ? "已上架" : "已下架"}</span></td>
+      <td>
+        <button class="adm-btn adm-btn-ghost" data-chat-live-edit="${escapeHtml(character.id)}" type="button">编辑</button>
+        <button class="adm-btn ${enabled ? "adm-btn-danger" : "adm-btn-ghost"}" data-chat-live-shelf="${escapeHtml(character.id)}" data-chat-live-enabled="${enabled ? "1" : "0"}" type="button">${enabled ? "下架" : "上架"}</button>
+      </td>
+    </tr>
+  `;
+}
+
+function chatLiveVoiceProviders(defaults = {}, current = "") {
+  const region = defaults.viduRegion === "cn" ? "cn" : defaults.viduRegion === "overseas" ? "overseas" : "";
+  const list = region === "cn"
+    ? ["qwen_omni", "doubao_cn"]
+    : region === "overseas"
+      ? ["qwen_omni", "doubao_overseas"]
+      : ["qwen_omni", "doubao_cn", "doubao_overseas"];
+  if (current && !list.includes(current)) list.push(current);
+  return list;
+}
+
+
+function adminMediaPreviewType(url = "", kind = "") {
+  const hint = String(kind || "").toLowerCase();
+  if (/video/.test(hint)) return "video";
+  if (/audio|ambient-music/.test(hint)) return "audio";
+  const clean = String(url || "").split(/[?#]/, 1)[0].toLowerCase();
+  if (/\.(mp4|webm|mov|m4v)$/.test(clean)) return "video";
+  if (/\.(mp3|wav|ogg|m4a)$/.test(clean)) return "audio";
+  return "image";
+}
+
+function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true } = {}) {
+  const source = String(url || "").trim();
+  if (!source) return '<span class="adm-media-preview-empty">未上传</span>';
+  const type = adminMediaPreviewType(source, kind);
+  if (type === "audio") return `<audio class="adm-media-preview-audio" src="${escapeHtml(source)}" controls preload="metadata"></audio>`;
+  const thumbSource = type === "video" && !source.includes("#") ? `${source}#t=0.1` : source;
+  const posterSource = type === "video" ? String(poster || "").trim() : "";
+  const posterAttr = posterSource ? ` poster="${escapeHtml(posterSource)}"` : "";
+  const styleAttr = String(style || "").trim() ? ` style="${escapeHtml(style)}"` : "";
+  const media = type === "video"
+    ? preloadVideo
+      ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
+      : `<span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
+    : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
+}
+
+function closeAdminMediaPreview() {
+  document.querySelectorAll(".adm-media-lightbox").forEach((node) => {
+    node.querySelectorAll("video, audio").forEach((media) => {
+      try { media.pause(); } catch { /* ignore */ }
+      media.removeAttribute("src");
+      try { media.load(); } catch { /* ignore */ }
+    });
+    node.remove();
+  });
+  document.body.classList.remove("has-adm-media-preview");
+}
+
+function openAdminMediaPreview({ url = "", kind = "image", label = "素材" } = {}) {
+  const source = String(url || "").trim();
+  if (!source) return;
+  closeAdminMediaPreview();
+  const type = adminMediaPreviewType(source, kind);
+  const media = type === "video"
+    ? `<video src="${escapeHtml(source)}" controls autoplay playsinline preload="metadata"></video>`
+    : type === "audio"
+      ? `<audio src="${escapeHtml(source)}" controls autoplay preload="metadata"></audio>`
+      : `<img src="${escapeHtml(source)}" alt="${escapeHtml(label || "素材")}" />`;
+  const lightbox = document.createElement("div");
+  lightbox.className = "adm-media-lightbox";
+  lightbox.setAttribute("role", "dialog");
+  lightbox.setAttribute("aria-modal", "true");
+  lightbox.setAttribute("aria-label", `预览${label || "素材"}`);
+  lightbox.innerHTML = `<button type="button" class="adm-media-lightbox-close" aria-label="关闭预览"><i data-lucide="x"></i></button>${media}<span class="adm-media-lightbox-caption">${escapeHtml(label || "素材")}</span>`;
+  const close = () => {
+    lightbox.querySelectorAll("video, audio").forEach((node) => {
+      try { node.pause(); } catch { /* ignore */ }
+      node.removeAttribute("src");
+      try { node.load(); } catch { /* ignore */ }
+    });
+    lightbox.remove();
+    document.body.classList.remove("has-adm-media-preview");
+    document.removeEventListener("keydown", onKeyDown);
+  };
+  const onKeyDown = (event) => { if (event.key === "Escape") close(); };
+  lightbox.addEventListener("click", (event) => {
+    if (event.target === lightbox || event.target.closest(".adm-media-lightbox-close")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  document.body.appendChild(lightbox);
+  document.body.classList.add("has-adm-media-preview");
+  refreshIcons();
+  const mediaNode = lightbox.querySelector("video, audio");
+  if (mediaNode?.play) mediaNode.play().catch(() => {});
+}
+
+if (!window.__adminMediaPreviewBound) {
+  window.__adminMediaPreviewBound = true;
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-admin-media-preview]");
+    if (!trigger) return;
+    event.preventDefault();
+    openAdminMediaPreview({
+      url: trigger.dataset.mediaUrl || "",
+      kind: trigger.dataset.mediaKind || "",
+      label: trigger.dataset.mediaLabel || "素材",
+    });
+  });
+}
+
+function chatLiveAssetField({ id, label, url = "", hint = "", clearable = false, kind = "" } = {}) {
+  const isAudio = kind === "ambient-music";
+  const preview = isAudio
+    ? adminMediaPreviewTrigger({ url, kind: "ambient-music", label })
+    : adminMediaPreviewTrigger({ url, kind, label });
+  const accept = isAudio ? "audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/*" : "image/png,image/jpeg,image/webp";
+  const acceptHint = isAudio ? "MP3、WAV、OGG、M4A，15MB 以内。" : hint;
+  return `
+    <article class="chat-live-media-card" data-asset-field="${escapeHtml(id)}" data-asset-kind="${escapeHtml(kind)}">
+      <div class="chat-live-asset-preview${isAudio ? " chat-live-audio-preview" : ""}">${preview}</div>
+      <div class="chat-live-media-meta">
+        <strong>${escapeHtml(label)}</strong>
+        <small class="adm-muted">${escapeHtml(acceptHint)}</small>
+        <div class="chat-live-asset-actions">
+          <button class="adm-btn adm-btn-ghost" type="button" data-asset-pick="${escapeHtml(id)}">${url ? "更换" : "上传"}</button>
+          ${clearable ? `<button class="adm-btn adm-btn-ghost" type="button" data-asset-clear="${escapeHtml(id)}">清除</button>` : ""}
+          <input type="file" accept="${accept}" data-asset-file="${escapeHtml(id)}" hidden />
+        </div>
+      </div>
+      <input type="hidden" id="${escapeHtml(id)}" value="${escapeHtml(url)}" />
+    </article>`;
+}
+
+function readChatLiveAssetFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取图片失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readChatLiveAudioFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取音频失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function chatLiveStoryAssetField({ attribute = "", kind = "image", url = "", label = "" } = {}) {
+  const isVideo = kind === "video";
+  const accept = isVideo ? "video/mp4,video/webm,video/quicktime" : "image/png,image/jpeg,image/webp";
+  const mediaLabel = label || (isVideo ? "视频素材" : "场景素材");
+  const preview = url
+    ? adminMediaPreviewTrigger({ url, kind: isVideo ? "video" : "image", label: mediaLabel, className: "adm-story-media-preview" })
+    : `<span class="adm-story-media-empty">${isVideo ? "未上传视频" : "未上传图片"}</span>`;
+  const actionText = url ? (isVideo ? "预览播放" : "查看大图") : "预览";
+  return `<div class="chat-live-story-asset" data-story-asset-kind="${isVideo ? "video" : "image"}">
+    <input type="hidden" ${escapeHtml(attribute)} value="${escapeHtml(url)}" />
+    <input type="file" accept="${accept}" data-story-file="${isVideo ? "video" : "image"}" hidden />
+    <div class="chat-live-story-preview" data-story-preview>${preview}</div>
+    <div class="chat-live-story-asset-actions">
+      <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-story-pick>${url ? "更换" : "上传"}</button>
+      <button class="adm-btn adm-btn-sm" type="button" data-story-open-preview ${url ? "" : "disabled"}>${actionText}</button>
+      <small data-story-file-name>${url ? "已上传，点击预览" : (isVideo ? "未上传视频" : "未上传图片")}</small>
+    </div>
+  </div>`;
+}
+
+function chatLiveStoryActionPositionFields(item = {}) {
+  return `<div class="chat-live-story-action-labels">
+    <input data-story-action-spot value="${escapeHtml(item.spot || "")}" placeholder="具体位置，例如 客厅沙发 / 餐桌" />
+    <input data-story-action-pose value="${escapeHtml(item.poseLabel || "")}" placeholder="姿势，例如 侧卧 / 伏身 / 坐姿" />
+  </div>`;
+}
+
+function bindChatLiveStoryAssetUploads(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-story-pick]").forEach((button) => {
+    button.onclick = () => button.closest(".chat-live-story-asset")?.querySelector("[data-story-file]")?.click();
+  });
+  root.querySelectorAll("[data-story-open-preview]").forEach((button) => {
+    button.onclick = () => {
+      const asset = button.closest(".chat-live-story-asset");
+      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image]");
+      const input = asset?.querySelector("[data-story-file]");
+      const isVideo = input?.dataset.storyFile === "video";
+      const url = hidden?.value || "";
+      if (!url) return;
+      openAdminMediaPreview({
+        url,
+        kind: isVideo ? "video" : "image",
+        label: asset?.querySelector("[data-story-preview] [data-media-label]")?.getAttribute("data-media-label") || (isVideo ? "视频素材" : "场景素材"),
+      });
+    };
+  });
+  root.querySelectorAll("[data-story-file]").forEach((input) => {
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const isVideo = input.dataset.storyFile === "video";
+      const type = String(file.type || "").toLowerCase();
+      if (isVideo) {
+        if (!["video/mp4", "video/webm", "video/quicktime"].includes(type) || file.size > 80 * 1024 * 1024) {
+          toast("视频只支持 80MB 以内的 MP4、WEBM、MOV。", "error");
+          input.value = "";
+          return;
+        }
+      } else if (!["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(type) || file.size > 8 * 1024 * 1024) {
+        toast("场景图只支持 8MB 以内的 PNG、JPG、WEBP。", "error");
+        input.value = "";
+        return;
+      }
+      const asset = input.closest(".chat-live-story-asset");
+      const hidden = asset?.querySelector("[data-story-location-image], [data-story-action-image]");
+      const preview = asset?.querySelector("[data-story-preview]");
+      const button = asset?.querySelector("[data-story-pick]");
+      const previewButton = asset?.querySelector("[data-story-open-preview]");
+      const status = asset?.querySelector("[data-story-file-name]");
+      if (button) button.disabled = true;
+      if (previewButton) previewButton.disabled = true;
+      const previewUrl = URL.createObjectURL(file);
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: previewUrl, kind: isVideo ? "video" : "image", label: isVideo ? "视频素材" : "场景素材" });
+      try {
+        const result = await api("/api/admin/chat-live/assets", {
+          method: "POST",
+          body: { dataUrl: await readChatLiveAssetFile(file), kind: isVideo ? "private-video" : "look" },
+        });
+        if (!result.url || !hidden) throw new Error("上传成功但没有返回素材。");
+        hidden.value = result.url;
+        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url, kind: isVideo ? "video" : "image", label: isVideo ? "视频素材" : "场景素材" });
+        if (status) status.textContent = "已上传，点击预览";
+        if (button) button.textContent = "更换";
+        if (previewButton) {
+          previewButton.disabled = false;
+          previewButton.textContent = isVideo ? "预览播放" : "查看大图";
+        }
+        refreshIcons();
+        toast(isVideo ? "视频已上传。" : "场景图已上传。", "success");
+      } catch (error) {
+        if (preview) preview.innerHTML = hidden?.value
+          ? adminMediaPreviewTrigger({ url: hidden.value, kind: isVideo ? "video" : "image", label: isVideo ? "视频素材" : "场景素材" })
+          : `<span class="adm-story-media-empty">${isVideo ? "未上传视频" : "未上传图片"}</span>`;
+        if (previewButton) {
+          previewButton.disabled = !hidden?.value;
+          previewButton.textContent = hidden?.value ? (isVideo ? "预览播放" : "查看大图") : "预览";
+        }
+        toast(error.message || "上传失败。", "error");
+      } finally {
+        URL.revokeObjectURL(previewUrl);
+        input.value = "";
+        if (button) button.disabled = false;
+      }
+    };
+  });
+}
+
+function readChatLivePersonaMarkdown(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").replace(/^\uFEFF/, ""));
+    reader.onerror = () => reject(new Error("读取 Markdown 文件失败。"));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+function chatLivePersonaTemplate(name = "角色名") {
+  return `# ${name}\n\n## 对外身份\n- 年龄与身份：\n- 所在地/背景：\n- 对外介绍：\n\n## 性格内核\n- 她在意什么、怕失去什么：\n- 她的骄傲和边界：\n- 她什么时候嘴硬、什么时候会让步：\n\n## 语言习惯\n- 称呼用户：\n- 句子长度与语气：\n- 被命令时第一反应：\n- 被看穿时怎么遮掩：\n- 同意时怎么保全面子：\n\n## 聊天节奏\n- 用户说“你好”时：\n- 用户提出要求时：\n- 用户逼问感受时：\n- 用户越界时：\n- 适合分享的 1-2 个小故事：\n\n## 硬性边界\n- 不诊断、不评判、不替用户做决定。\n- 不承诺“一定会好起来”。\n- 不把陪伴和打赏绑定。\n`;
+}
+
+function chatLiveReplyStyleTemplate(name = "角色名") {
+  return `# ${name} · 回复口吻模板\n\n## 说话底色\n- 句长跟着内容走，不固定句数。该一句就一句；需要把判断、条件、遮掩或情绪说透时，可以自然写长。\n- 语气：冷静、克制，不撒娇，不急着讨好。\n- 自称：我。称呼用户：你；不随意使用亲昵称呼。\n\n## 说话方式\n- 性格通过具体选择表现：她让不让他做、她要求他怎么做、她拒绝什么、她逼他承认什么、她假装没感觉到什么。\n- 被命令时先给出态度，但不要每轮反问，也不要端身份说教。\n- 同意时保留面子：冷着脸答应、带着条件配合，或把话收回来。\n- 强势不等于讲道理。不要分析心理、总结关系、说明自己是什么样的人。\n\n## 输出限制\n- 只输出角色嘴里说出来的话。\n- 禁止括号动作、旁白、心理描写、身份介绍、政策责任说明、大道理和反问式开场。\n- 不写“别让我觉得你在旁观我的羞耻”“你要我承受这种频繁的位移吗”这类抽象评价。\n- 不用“既然你要求……那我就……”这类条件句开头。\n- 长短由这一轮真正要说的话决定，不为了高冷故意截短。\n\n## 示例只学态度，绝对不要照抄\n用户：过来。\n角色：先把门关上。我让你过来，你再过来。\n\n用户：你下面都湿了。\n角色：闭嘴。别盯着看。手拿开，我自己来。\n\n用户：说你想要。\n角色：想得美。……别停，就这一次。\n`;
+}
+
+function bindChatLiveAssetUploads(root) {
+  if (!root) return;
+  const previewOf = (id) => root.querySelector(`[data-asset-field="${id}"] .chat-live-asset-preview`);
+  const setPreview = (id, url) => {
+    const box = previewOf(id);
+    if (!box) return;
+    const field = box.closest("[data-asset-field]");
+    const kind = field?.getAttribute("data-asset-kind") || "";
+    const label = field?.querySelector(".chat-live-media-meta strong")?.textContent || "素材";
+    box.innerHTML = adminMediaPreviewTrigger({ url, kind: kind === "ambient-music" ? kind : "image", label });
+  };
+  root.querySelectorAll("[data-asset-pick]").forEach((button) => {
+    button.addEventListener("click", () => {
+      root.querySelector(`[data-asset-file="${button.dataset.assetPick}"]`)?.click();
+    });
+  });
+  root.querySelectorAll("[data-asset-clear]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.assetClear;
+      const hidden = root.querySelector(`#${id}`);
+      if (hidden) {
+        hidden.value = "";
+        hidden.dispatchEvent(new Event("change"));
+      }
+      setPreview(id, "");
+    });
+  });
+  root.querySelectorAll("[data-asset-file]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+      const assetType = String(file.type || "").toLowerCase();
+      const assetName = String(file.name || "").toLowerCase();
+      const assetKind = input.closest("[data-asset-field]")?.getAttribute("data-asset-kind") || "";
+      const isAudio = assetKind === "ambient-music";
+      if (isAudio) {
+        if (!["audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/mp3"].includes(assetType) && !/\.(mp3|wav|ogg|m4a)$/.test(assetName)) {
+          toast("只支持 MP3、WAV、OGG、M4A 音频。", "error");
+          return;
+        }
+        if (file.size > 15 * 1024 * 1024) {
+          toast("音频不能超过 15MB。", "error");
+          return;
+        }
+      } else {
+        if (!["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"].includes(assetType) && !/\.(png|jpe?g|webp|gif)$/.test(assetName)) {
+          toast("只支持 PNG、JPG、WEBP、GIF。", "error");
+          return;
+        }
+        if (file.size > 8 * 1024 * 1024) {
+          toast("图片不能超过 8MB。", "error");
+          return;
+        }
+      }
+      const id = input.dataset.assetFile;
+      const pick = root.querySelector(`[data-asset-pick="${id}"]`);
+      if (pick) pick.disabled = true;
+      const localUrl = URL.createObjectURL(file);
+      try {
+        setPreview(id, localUrl);
+        const dataUrl = isAudio ? await readChatLiveAudioFile(file) : await readChatLiveAssetFile(file);
+        const explicitKind = input.closest("[data-asset-field]")?.getAttribute("data-asset-kind") || "";
+        const kind = explicitKind || (id === "chatLivePortraitUrl" ? "portrait" : "avatar");
+        const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind } });
+        if (!result.url) throw new Error("上传成功但没有返回素材。");
+        const hidden = root.querySelector(`#${id}`);
+        if (hidden) {
+          hidden.value = result.url;
+          hidden.dispatchEvent(new Event("change"));
+        }
+        setPreview(id, result.url);
+        toast(isAudio ? "音频已上传。" : "图片已上传。", "success");
+      } catch (error) {
+        const hidden = root.querySelector(`#${id}`);
+        setPreview(id, hidden?.value || "");
+        toast(error.message || "上传失败。", "error");
+      } finally {
+        URL.revokeObjectURL(localUrl);
+        if (pick) pick.disabled = false;
+      }
+    });
+  });
+}
+
+
+function chatLiveAlbumCardHtml(item = {}, index = 0) {
+  const type = item.type === "video" ? "video" : "image";
+  const url = String(item.url || "");
+  const preview = item.previewUrl || url;
+  const media = adminMediaPreviewTrigger({ url: preview, kind: type, label: item.name || "相册素材" });
+  return `
+    <article class="chat-live-album-card chat-live-private-row" data-private-id="${escapeHtml(item.id || `album-${Date.now()}-${index}`)}">
+      <div class="chat-live-album-thumb" data-private-preview>${media}</div>
+      <input type="hidden" data-private-url value="${escapeHtml(url)}" />
+      <input data-private-name value="${escapeHtml(item.name || `相册 ${index + 1}`)}" placeholder="名称" />
+      <div class="chat-live-album-tools">
+        <select data-private-type>
+          <option value="image" ${type === "video" ? "" : "selected"}>图片</option>
+          <option value="video" ${type === "video" ? "selected" : ""}>视频</option>
+        </select>
+        <label class="adm-check"><input data-private-locked type="checkbox" ${item.locked !== false ? "checked" : ""} />锁定</label>
+        <button class="adm-btn adm-btn-danger" type="button" data-private-remove>移除</button>
+      </div>
+      <input data-private-file type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" hidden />
+    </article>`;
+}
+
+function chatLiveCharacterForm(character = null, defaults = {}, voices = []) {
+  const value = character || {};
+  const privateResources = Array.isArray(value.album) && value.album.length ? value.album : (Array.isArray(value.privateResources) ? value.privateResources.map((item) => ({ ...item, locked: true })) : []);
+  const privateRows = privateResources.map((item, index) => chatLiveAlbumCardHtml(item, index)).join("");
+  const liveStory = value.liveStory && typeof value.liveStory === "object" ? value.liveStory : {};
+  const storyLocations = Array.isArray(liveStory.locations) ? liveStory.locations : [];
+  const storyActions = Array.isArray(liveStory.actions) ? liveStory.actions : [];
+  const storyStageOptions = [["casual", "日常"], ["flirting", "暧昧"], ["foreplay", "前戏"], ["intimate", "亲密"], ["aftercare", "余韵"]];
+  const storyInitialLocationId = storyLocations.some((item) => item.id === liveStory.initialLocationId)
+    ? liveStory.initialLocationId
+    : (storyLocations[0]?.id || "");
+  const storyLocationRows = storyLocations.map((item, index) => `
+    <div class="chat-live-story-row" data-story-location>
+      <input data-story-location-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 living_room" />
+      <input data-story-location-name value="${escapeHtml(item.name || "")}" placeholder="名称，例如 客厅沙发" />
+      <input data-story-location-keywords value="${escapeHtml(item.keywords || "")}" placeholder="关键词，例如 客厅、沙发、茶几" />
+      ${chatLiveStoryAssetField({ attribute: "data-story-location-image", kind: "image", url: item.imageUrl || "" })}
+      <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
+    </div>`).join("");
+  const storyActionRows = storyActions.map((item, index) => `
+    <div class="chat-live-story-row is-action" data-story-action>
+      <input data-story-action-id value="${escapeHtml(item.id || "")}" placeholder="ID，例如 sofa_recline" />
+      <input data-story-action-name value="${escapeHtml(item.name || "")}" placeholder="名称，例如 沙发侧卧" />
+      ${chatLiveStoryActionPositionFields(item)}
+      ${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image", url: item.imageUrl || "" })}
+      <input data-story-action-text value="${escapeHtml(item.action || "")}" placeholder="动作说明，例如 kissing on sofa" />
+      <div class="chat-live-story-multi">${storyStageOptions.map(([id, label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" ${item.stages?.includes(id) ? "checked" : ""} />${label}</label>`).join("")}</div>
+      <div class="chat-live-story-multi">${storyLocations.map((location) => `<label><input type="checkbox" data-story-action-location value="${escapeHtml(location.id)}" ${item.locations?.includes(location.id) ? "checked" : ""} />${escapeHtml(location.name || location.id)}</label>`).join("")}</div>
+      <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button>
+    </div>`).join("");
+  return `
+    <div id="chatLiveCharacterForm" class="chat-live-editor">
+      <input type="hidden" id="chatLiveId" value="${escapeHtml(value.id || "")}" />
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>形象素材</h3><p class="adm-muted">只显示缩略图，不显示地址。素材上传到 R2。</p></div></div>
+        <div class="chat-live-media-grid">
+          ${chatLiveAssetField({ id: "chatLiveAvatarUrl", label: "形象图", url: value.avatarUrl || "", hint: "单人正脸半身图，PNG / JPG / WEBP，8MB 以内。", kind: "avatar" })}
+          <article class="chat-live-media-card" id="chatLiveUndressRow">
+            <div class="chat-live-asset-preview" id="chatLiveUndressPreview"><span>未生成</span></div>
+            <div class="chat-live-media-meta">
+              <strong>Undress</strong>
+              <small class="adm-muted" id="chatLiveUndressStatus">点一下就后台生成，不用在这个页面等。</small>
+              <div class="chat-live-asset-actions">
+                <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveUndressBtn">生成 Undress</button>
+              </div>
+            </div>
+          </article>
+          ${chatLiveAssetField({ id: "chatLivePortraitUrl", label: "列表头像", url: value.portraitUrl || "", hint: "前台卡片用。不传就用形象图。", clearable: true, kind: "portrait" })}
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>环境音效</h3><p class="adm-muted">角色专属背景音乐，会在视频聊天时循环播放。</p></div></div>
+        <div class="chat-live-media-grid">
+          ${chatLiveAssetField({ id: "chatLiveAmbientMusicUrl", label: "环境音乐", url: value.ambientMusicUrl || "", hint: "MP3、WAV、OGG、M4A，15MB 以内。", clearable: true, kind: "ambient-music" })}
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>基础资料</h3></div></div>
+        <div class="chat-live-field-grid">
+          <div class="adm-form-row"><span>角色名称</span><input id="chatLiveName" value="${escapeHtml(value.name || "")}" placeholder="例如：甜甜 Tina" /></div>
+          <div class="adm-form-row"><span>年龄</span><input id="chatLiveAge" type="number" min="18" max="80" value="${escapeHtml(value.age ? String(value.age) : "")}" placeholder="例如：23" /></div>
+          <div class="adm-form-row"><span>职业</span><input id="chatLiveOccupation" value="${escapeHtml(value.occupation || "")}" maxlength="40" placeholder="例如：插画师" /></div>
+          <div class="adm-form-row"><span>语言</span><input id="chatLiveLanguage" value="${escapeHtml(value.language || "zh")}" /></div>
+          <div class="adm-form-row"><span>标签</span><input id="chatLiveTags" value="${escapeHtml((value.tags || []).join(","))}" placeholder="温柔,御姐" /></div>
+          <div class="adm-form-row"><span>排序</span><input id="chatLiveSortOrder" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
+          <div class="adm-form-row chat-live-span-2"><span>角色介绍</span><input id="chatLiveIntro" value="${escapeHtml(value.intro || "")}" placeholder="一句话介绍，展示给用户" /></div>
+          <div class="adm-form-row chat-live-span-2"><span>关联平台角色名</span><input id="chatLiveLinkName" value="${escapeHtml(value.linkName || "")}" placeholder="例如：Harper Quinn" /><small class="adm-muted">填 chat 站已有的角色名；对应角色的详情页才会出现「在线聊天」按钮。</small></div>
+          <div class="adm-form-row"><span>开场白</span><input id="chatLiveGreeting" value="${escapeHtml(value.greeting || "")}" placeholder="可选，例如：你终于来啦～" /></div>
+          <div class="adm-form-row"><span>对话模式</span><select id="chatLiveMode"><option value="">跟随全局默认</option><option value="realtime" ${(value.mode||"")==="realtime"?"selected":""}>实时版：Vidu 内置 LLM</option><option value="component" ${(value.mode||"")==="component"?"selected":""}>组件版：外接 LLM/ASR/TTS</option></select></div>
+          <div class="adm-form-row"><span>人设增强</span><label class="adm-check"><input id="chatLivePersonaEnhance" type="checkbox" ${value.personaEnhance === true ? "checked" : ""} /> 让 Vidu 自动扩写人设</label></div>
+          <div class="adm-form-row"><span>多人房间</span><label class="adm-check"><input id="chatLiveSharedRoom" type="checkbox" ${value.sharedRoomEnabled === true ? "checked" : ""} /> 首页显示房间</label></div>
+          <div class="adm-form-row"><span>状态</span><label class="adm-check"><input id="chatLiveEnabled" type="checkbox" ${value.id && value.enabled !== false ? "checked" : ""} /> 上架（前台可见，新建默认下架）</label></div>
+        </div>
+      </section>
+      <section class="adm-card chat-live-voice-card">
+        <div class="adm-card-head"><div><h3>音色</h3><p class="adm-muted">点「选择」打开音色列表，可搜索、翻页。编辑页 v4。</p></div></div>
+        <div class="chat-live-voice-grid">
+          <div class="chat-live-voice-pane">
+            <span>实时版供应商</span>
+            <div class="chat-live-provider-picks">${chatLiveVoiceProviders(defaults, value.voiceProvider === "dashscope_cosyvoice" ? "qwen_omni" : (value.voiceProvider || "")).filter((p) => p !== "dashscope_cosyvoice").map((p) => `<button type="button" class="adm-btn adm-btn-ghost ${((value.voiceProvider === "dashscope_cosyvoice" ? "qwen_omni" : (value.voiceProvider || "qwen_omni")) === p) ? "is-on" : ""}" data-chat-live-provider="${escapeHtml(p)}">${escapeHtml(chatLiveVoiceProviderLabel(p))}</button>`).join("")}</div>
+            <input type="hidden" id="chatLiveVoiceProvider" value="${escapeHtml(value.voiceProvider === "dashscope_cosyvoice" ? "qwen_omni" : (value.voiceProvider || "qwen_omni"))}" />
+            <span>实时版音色</span>
+            <button type="button" class="adm-btn chat-live-voice-trigger" data-chat-live-open-voice="realtime"><b id="chatLiveVoiceSelected">${escapeHtml(value.voiceProvider === "dashscope_cosyvoice" ? "未选择" : (value.voiceType || "未选择"))}</b><span>选择</span></button>
+            <input type="hidden" id="chatLiveVoiceType" value="${escapeHtml(value.voiceProvider === "dashscope_cosyvoice" ? "" : (value.voiceType || ""))}" />
+          </div>
+          <div class="chat-live-voice-pane">
+            <span>组件版音色</span>
+            <small class="adm-muted">CosyVoice，和实时版不是同一套。</small>
+            <button type="button" class="adm-btn chat-live-voice-trigger" data-chat-live-open-voice="component"><b id="chatLiveComponentVoiceSelected">${escapeHtml(value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? (value.voiceType || "") : "") || "未选择")}</b><span>选择</span></button>
+            <input type="hidden" id="chatLiveComponentVoiceType" value="${escapeHtml(value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? (value.voiceType || "") : ""))}" />
+          </div>
+        </div>
+        <div class="chat-live-rich-voice">
+          <div class="adm-card-head"><div><h3>Rich 表演音色</h3><p class="adm-muted">可选。绑定 Qwen-Audio 复刻音色后，组件版会使用呼吸、颤声、抽气等标签做单次连续表演；失败时直接报错，不会退回平读。</p></div></div>
+          <div class="chat-live-field-grid">
+            <div class="adm-form-row"><span>启用</span><label class="adm-check"><input id="chatLiveRichVoiceEnabled" type="checkbox" ${value.richVoiceProvider ? "checked" : ""} /> 使用 Rich 音色</label></div>
+            <div class="adm-form-row"><span>模型</span><select id="chatLiveRichVoiceModel"><option value="">未选择</option><option value="qwen-audio-3.1-tts-flash" ${value.richVoiceModel === "qwen-audio-3.1-tts-flash" ? "selected" : ""}>qwen-audio-3.1-tts-flash</option><option value="qwen-audio-3.1-tts-plus" ${value.richVoiceModel === "qwen-audio-3.1-tts-plus" ? "selected" : ""}>qwen-audio-3.1-tts-plus</option></select></div>
+            <div class="adm-form-row chat-live-span-2"><span>复刻音色 ID</span><input id="chatLiveRichVoiceType" value="${escapeHtml(value.richVoiceType || "")}" placeholder="必须带模型前缀，例如 qwen-audio-3.1-tts-flash-xxxx" /><small class="adm-muted">与模型绑定，不能用 CosyVoice 的 voice_type。</small></div>
+            <div class="adm-form-row"><span>显示名称</span><input id="chatLiveRichVoiceLabel" value="${escapeHtml(value.richVoiceLabel || "")}" placeholder="例如：乔安瑜" /></div>
+            <div class="adm-form-row chat-live-span-2"><span>表演说明</span><textarea id="chatLiveRichVoiceInstruction" rows="3" placeholder="例如：贴近耳边低声说，害羞、温柔、克制，呼吸自然，不要播音腔。">${escapeHtml(value.richVoiceInstruction || "")}</textarea></div>
+            <div class="adm-form-row chat-live-span-2"><button class="adm-btn adm-btn-ghost" type="button" id="chatLiveRichVoicePreview">试听当前 Rich 音色</button><small class="adm-muted" id="chatLiveRichVoiceStatus">先在后台保存角色，再用同一套音色路由试听。</small></div>
+          </div>
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>人物相册</h3><p class="adm-muted">缩略图展示。锁定后，未订阅用户只能看到锁。</p></div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveAlbumBatchBtn">上传图片/视频</button>
+          <input id="chatLiveAlbumBatch" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" multiple hidden />
+        </div>
+        <div id="chatLivePrivateResources">
+          <div class="chat-live-album-grid" id="chatLiveAlbumGrid">${privateRows || `<p class="adm-muted chat-live-album-empty">还没有相册素材。</p>`}</div>
+        </div>
+      </section>
+      <section class="adm-card" id="chatLiveStoryCard">
+        <div class="adm-card-head"><div><h3>固定场景 / 阶段 / 动作</h3><p class="adm-muted">地点实景用于进入房间后的背景；动作关键帧必须固定在同一地点，并只出现同一位女性。同一地点、同一阶段可以添加多张不同位置和姿势的单人图，例如沙发坐姿、沙发侧卧、餐桌伏身。不得出现男性、第二个人、镜像人物或多余手脚。</p></div></div>
+        <div class="chat-live-story-editor">
+          <div class="chat-live-story-head">
+            <label class="adm-check"><input id="chatLiveStoryEnabled" type="checkbox" ${liveStory.enabled === true || storyLocations.length ? "checked" : ""} /> 启用固定场景导演</label>
+            <label>默认进入场景 <select id="chatLiveStoryInitialLocation">${storyLocations.length ? storyLocations.map((location) => `<option value="${escapeHtml(location.id)}" ${location.id === storyInitialLocationId ? "selected" : ""}>${escapeHtml(location.name || location.id)}</option>`).join("") : `<option value="">先添加地点</option>`}</select></label>
+            <label>切换冷却秒数 <input id="chatLiveStoryCooldown" type="number" min="0" max="900" value="${escapeHtml(String(liveStory.switchCooldownSeconds ?? 60))}" /></label>
+          </div>
+          <h4>地点</h4>
+          <div id="chatLiveStoryLocations">${storyLocationRows || `<p class="adm-muted">还没有地点。先在下面添加客厅、厨房、卧室。</p>`}</div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddLocation">添加地点</button>
+          <h4>动作关键帧 / 单人姿势</h4>
+          <div id="chatLiveStoryActions">${storyActionRows || `<p class="adm-muted">还没有动作图。请按“房间 → 具体位置 → 阶段 → 姿势”逐张添加，同一阶段允许多张。</p>`}</div>
+          <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveStoryAddAction">添加动作</button>
+          <p class="adm-muted">命名示例：sofa_sit_casual / sofa_recline_flirting / table_leaning_flirting / counter_bend_intimate / bed_curl_aftercare。每张图只能有一位女性，固定家具和房间构图。</p>
+        </div>
+      </section>
+      <section class="adm-card">
+        <div class="adm-card-head"><div><h3>人设 / 对话剧本</h3><p class="adm-muted">Markdown 会进入角色提示词，最多 50000 字。</p></div></div>
+        <div class="chat-live-persona-editor">
+          <textarea id="chatLivePersona" rows="14" placeholder="身份、性格、欢迎语、聊天节奏、安抚方式、礼物边界…">${escapeHtml(value.personaMd || value.persona || "")}</textarea>
+          <div class="chat-live-persona-actions">
+            <label class="adm-btn adm-btn-ghost chat-live-persona-import">导入人设 Markdown<input id="chatLivePersonaMdFile" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" onchange="window.chatLiveImportPersona(this)" /></label>
+            <button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaTemplateBtn" onclick="window.chatLiveInsertPersonaTemplate()">插入模板</button>
+            <button class="adm-btn adm-btn-ghost" type="button" id="chatLivePersonaDownloadBtn" onclick="window.chatLiveExportPersona()">导出 Markdown</button>
+            <span class="adm-muted" id="chatLivePersonaFileName">${escapeHtml(value.personaSourceFile || (value.personaMd ? "已有人设" : "未导入"))}</span>
+          </div>
+          <div class="chat-live-persona-status" id="chatLivePersonaStatus">${value.personaMd || value.persona ? "当前人设已在上面的文本框。导入新文件会替换它。" : "点「导入人设 Markdown」选择 .md 文件，内容会立刻出现在上面。"}</div>
+          <div class="adm-form-row" style="margin-top:14px"><span>回复口吻</span>
+            <textarea id="chatLiveReplyStyle" rows="10" placeholder="只写这个角色怎么说话。写说话底色、被命令时的第一反应、让步方式、被看穿时怎么遮掩、禁止写法。">${escapeHtml(value.replyStyle || "")}</textarea>
+            <div class="chat-live-persona-actions" style="margin-top:8px">
+              <button class="adm-btn adm-btn-ghost" type="button" id="chatLiveReplyStyleTemplateBtn">插入回复口吻模板</button>
+            </div>
+            <small class="adm-muted">不写进人设 Markdown。这里优先级更高，文字聊天和视频聊天都用这段区分口吻。</small>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+
+const chatLiveVoiceStore = { realtime: null, component: null };
+function chatLiveVoiceLabel(voice) {
+  if (!voice) return "未选择";
+  const name = voice.name || voice.voiceType || "";
+  const id = voice.voiceType || "";
+  return name && name !== id ? `${name} · ${id}` : (id || "未选择");
+}
+function chatLiveApplyVoice(scope, voice) {
+  const component = scope === "component";
+  const hidden = document.getElementById(component ? "chatLiveComponentVoiceType" : "chatLiveVoiceType");
+  const label = document.getElementById(component ? "chatLiveComponentVoiceSelected" : "chatLiveVoiceSelected");
+  const value = String(voice?.voiceType || "");
+  if (hidden) hidden.value = value;
+  if (label) label.textContent = chatLiveVoiceLabel(voice);
+}
+async function chatLiveLoadVoiceScope(scope) {
+  if (Array.isArray(chatLiveVoiceStore[scope])) return chatLiveVoiceStore[scope];
+  const payload = await api(`/api/admin/chat-live/voices?scope=${encodeURIComponent(scope)}`);
+  chatLiveVoiceStore[scope] = Array.isArray(payload.voices) ? payload.voices : [];
+  return chatLiveVoiceStore[scope];
+}
+window.chatLiveOpenVoicePicker = async (scope) => {
+  const component = scope === "component";
+  const hiddenId = component ? "chatLiveComponentVoiceType" : "chatLiveVoiceType";
+  const current = document.getElementById(hiddenId)?.value || "";
+  const provider = component ? "" : (document.getElementById("chatLiveVoiceProvider")?.value || "");
+  const pageSize = 20;
+  let page = 1;
+  let query = "";
+  let voices = [];
+  const root = document.createElement("div");
+  root.className = "chat-live-voice-picker";
+  root.innerHTML = `
+    <input class="chat-live-voice-search" placeholder="搜索名称或 voice_type" />
+    <div class="chat-live-voice-picker-meta">正在加载音色…</div>
+    <div class="chat-live-voice-picker-list"></div>
+    <div class="chat-live-voice-pager">
+      <button class="adm-btn adm-btn-ghost" type="button" data-voice-page="prev">上一页</button>
+      <span data-voice-page-label>第 1 页</span>
+      <button class="adm-btn adm-btn-ghost" type="button" data-voice-page="next">下一页</button>
+    </div>`;
+  const search = root.querySelector(".chat-live-voice-search");
+  const meta = root.querySelector(".chat-live-voice-picker-meta");
+  const list = root.querySelector(".chat-live-voice-picker-list");
+  const pageLabel = root.querySelector("[data-voice-page-label]");
+  const filtered = () => voices.filter((voice) => {
+    if (provider && voice.provider && voice.provider !== provider) return false;
+    const blob = `${voice.name || ""} ${voice.voiceType || ""} ${voice.desc || ""}`.toLowerCase();
+    return !query || blob.includes(query);
+  });
+  const paint = () => {
+    const rows = filtered();
+    const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+    page = Math.min(Math.max(1, page), pages);
+    const slice = rows.slice((page - 1) * pageSize, page * pageSize);
+    meta.textContent = rows.length ? `共 ${rows.length} 个，每页 ${pageSize} 个。点一项即选中。` : "没有匹配的音色。";
+    pageLabel.textContent = `第 ${page} / ${pages} 页`;
+    root.querySelector('[data-voice-page="prev"]').disabled = page <= 1;
+    root.querySelector('[data-voice-page="next"]').disabled = page >= pages;
+    list.innerHTML = slice.map((voice) => {
+      const value = String(voice.voiceType || "");
+      const on = value === current ? " is-on" : "";
+      const desc = String(voice.desc || "").replace(/\s+/g, " ").slice(0, 48);
+      return `<button type="button" class="chat-live-voice-pick${on}" data-voice-value="${escapeHtml(value)}"><b>${escapeHtml(voice.name || value)}</b><small>${escapeHtml(value)}${desc ? ` · ${escapeHtml(desc)}` : ""}</small></button>`;
+    }).join("") || `<div class="chat-live-voice-empty">这一页没有音色。</div>`;
+  };
+  root.addEventListener("input", (event) => {
+    if (event.target !== search) return;
+    query = String(search.value || "").trim().toLowerCase();
+    page = 1;
+    paint();
+  });
+  root.addEventListener("click", (event) => {
+    const pageBtn = event.target.closest("[data-voice-page]");
+    if (pageBtn) {
+      page += pageBtn.dataset.voicePage === "next" ? 1 : -1;
+      paint();
+      return;
+    }
+    const picked = event.target.closest("[data-voice-value]");
+    if (!picked) return;
+    const value = picked.dataset.voiceValue || "";
+    const voice = voices.find((item) => String(item.voiceType || "") === value) || { voiceType: value, name: value };
+    chatLiveApplyVoice(scope, voice);
+    document.getElementById("adminDialog")?.close();
+  });
+  openDialog({
+    title: component ? "选择组件版音色" : "选择实时版音色",
+    body: root,
+    hideConfirm: true,
+    cancelText: "关闭",
+    onOpen: async () => {
+      try {
+        voices = await chatLiveLoadVoiceScope(component ? "component" : "realtime");
+        const selected = voices.find((item) => String(item.voiceType || "") === current);
+        if (selected) chatLiveApplyVoice(scope, selected);
+        paint();
+      } catch (error) {
+        meta.textContent = error.message || "音色列表加载失败。";
+        list.innerHTML = "";
+      }
+    },
+  });
+};
+window.chatLiveToggleVoiceMenu = (_button, event) => {
+  event?.preventDefault();
+  const scope = _button?.dataset?.chatLiveVoiceMenu === "chatLiveComponentVoiceMenu" ? "component" : "realtime";
+  window.chatLiveOpenVoicePicker(scope);
+};
+
+function chatLivePersonaBox() {
+  return document.getElementById("chatLiveCharacterForm");
+}
+function chatLivePersonaStatus(message, state = "") {
+  const node = document.getElementById("chatLivePersonaStatus");
+  if (!node) return;
+  node.textContent = message;
+  node.dataset.state = state;
+}
+function chatLiveMarkPersona() {
+  const persona = document.getElementById("chatLivePersona");
+  if (!persona) return;
+  persona.classList.add("is-persona-flash");
+  persona.focus();
+  persona.scrollTop = persona.scrollHeight;
+  persona.setSelectionRange(persona.value.length, persona.value.length);
+  window.setTimeout(() => persona.classList.remove("is-persona-flash"), 1600);
+}
+window.chatLiveInsertReplyStyleTemplate = () => {
+  const style = document.getElementById("chatLiveReplyStyle");
+  if (!style) {
+    toast("回复口吻输入框不存在。", "error");
+    return;
+  }
+  const name = document.getElementById("chatLiveName")?.value || "角色名";
+  const template = chatLiveReplyStyleTemplate(name);
+  style.value = style.value.trim() ? `${style.value.replace(/\s+$/, "")}\n\n${template}` : template;
+  style.focus();
+  style.scrollTop = style.scrollHeight;
+  style.setSelectionRange(style.value.length, style.value.length);
+  toast("回复口吻模板已插入，保存后生效。", "success");
+};
+window.chatLiveInsertPersonaTemplate = () => {
+  const persona = document.getElementById("chatLivePersona");
+  if (!persona) {
+    toast("人设输入框不存在。", "error");
+    return;
+  }
+  const name = document.getElementById("chatLiveName")?.value || "角色名";
+  const template = chatLivePersonaTemplate(name);
+  persona.value = persona.value.trim() ? `${persona.value.replace(/\s+$/, "")}\n\n${template}` : template;
+  const fileName = document.getElementById("chatLivePersonaFileName");
+  if (fileName) fileName.textContent = "已插入模板";
+  chatLiveMarkPersona();
+  chatLivePersonaStatus("模板已插入到文本框末尾，并已滚到那里。点右上角保存后才会写入角色。", "ok");
+  toast("模板已插入。", "success");
+};
+window.chatLiveExportPersona = () => {
+  const persona = document.getElementById("chatLivePersona");
+  if (!persona) {
+    toast("人设输入框不存在。", "error");
+    return;
+  }
+  const filename = `${(document.getElementById("chatLiveName")?.value || "角色人设").replace(/[^\w\u4e00-\u9fff-]+/g, "-")}.md`;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([persona.value || ""], { type: "text/markdown;charset=utf-8" }));
+  link.download = filename;
+  link.textContent = `下载 ${filename}`;
+  const status = document.getElementById("chatLivePersonaStatus");
+  if (status) {
+    status.dataset.state = "ok";
+    status.replaceChildren(document.createTextNode("导出链接已生成："), link);
+  }
+  link.click();
+  toast(`已导出 ${filename}`, "success");
+};
+window.chatLiveImportPersona = async (input) => {
+  const file = input?.files?.[0];
+  if (!file) {
+    chatLivePersonaStatus("没有选到文件。", "error");
+    return;
+  }
+  const name = String(file.name || "人设文件");
+  chatLivePersonaStatus(`已选中 ${name}，正在读取…`, "busy");
+  if (!/\.(md|markdown|txt)$/i.test(name) && !["text/markdown", "text/plain", ""].includes(String(file.type || ""))) {
+    chatLivePersonaStatus("只支持 .md / .txt。", "error");
+    toast("只支持 .md / .txt 人设文件。", "error");
+    input.value = "";
+    return;
+  }
+  try {
+    const text = await readChatLivePersonaMarkdown(file);
+    input.value = "";
+    if (!text.trim()) {
+      chatLivePersonaStatus("文件是空的。", "error");
+      return;
+    }
+    const persona = document.getElementById("chatLivePersona");
+    if (!persona) throw new Error("人设输入框不存在。");
+    persona.value = text;
+    const fileName = document.getElementById("chatLivePersonaFileName");
+    if (fileName) fileName.textContent = name;
+    input.dataset.loadedName = name.slice(0, 160);
+    chatLiveMarkPersona();
+    chatLivePersonaStatus(`已读入 ${name}，${text.length} 字。正在保存…`, "busy");
+    if (typeof window.__chatLiveSaveCharacter === "function") await window.__chatLiveSaveCharacter({ silent: true });
+    chatLivePersonaStatus(`已保存 ${name}（${text.length} 字）。`, "ok");
+    toast("人设已导入并保存。", "success");
+  } catch (error) {
+    input.value = "";
+    chatLivePersonaStatus(error.message || "读取 Markdown 失败。", "error");
+    toast(error.message || "读取 Markdown 失败。", "error");
+  }
+};
+if (!window.__chatLiveEditorControls) {
+  window.__chatLiveEditorControls = true;
+  document.addEventListener("click", (event) => {
+    const provider = event.target.closest("[data-chat-live-provider]");
+    if (provider && document.getElementById("chatLiveCharacterForm")) {
+      const input = document.getElementById("chatLiveVoiceProvider");
+      if (input) input.value = provider.dataset.chatLiveProvider || "";
+      document.querySelectorAll("[data-chat-live-provider]").forEach((button) => button.classList.toggle("is-on", button === provider));
+      window.chatLivePaintRealtime?.();
+      return;
+    }
+    const picked = event.target.closest("[data-chat-live-voice]");
+    if (picked && document.getElementById("chatLiveCharacterForm")) {
+      const scope = picked.dataset.chatLiveVoiceScope === "component" ? "component" : "realtime";
+      const value = picked.dataset.chatLiveVoice || "";
+      if (scope === "component") window.chatLivePaintComponent?.(value);
+      else window.chatLivePaintRealtime?.(value);
+      const menu = document.getElementById(scope === "component" ? "chatLiveComponentVoiceMenu" : "chatLiveVoiceMenu");
+      if (menu) menu.hidden = true;
+      return;
+    }
+    const opener = event.target.closest("[data-chat-live-open-voice]");
+    if (opener && document.getElementById("chatLiveCharacterForm")) {
+      event.preventDefault();
+      window.chatLiveOpenVoicePicker(opener.dataset.chatLiveOpenVoice === "component" ? "component" : "realtime");
+      return;
+    }
+    if (event.target.closest("#chatLivePersonaTemplateBtn")) {
+      window.chatLiveInsertPersonaTemplate();
+      return;
+    }
+    if (event.target.closest("#chatLiveReplyStyleTemplateBtn")) {
+      window.chatLiveInsertReplyStyleTemplate();
+      return;
+    }
+    if (event.target.closest("#chatLivePersonaDownloadBtn")) {
+      window.chatLiveExportPersona();
+      return;
+    }
+    if (!event.target.closest(".chat-live-voice-menu")) {
+      document.querySelectorAll(".chat-live-voice-menu").forEach((node) => { node.hidden = true; });
+    }
+  });
+  document.addEventListener("change", (event) => {
+    if (event.target?.id === "chatLivePersonaMdFile") window.chatLiveImportPersona(event.target);
+  });
+  document.addEventListener("input", (event) => {
+    if (event.target?.id === "chatLiveVoiceFilter") window.chatLivePaintRealtime?.();
+    if (event.target?.id === "chatLiveComponentVoiceFilter") window.chatLivePaintComponent?.();
+  });
+}
+
+function bindChatLiveUndress(box, getCharacter, isAlive = () => true) {
+  let timer = 0;
+  const stop = () => {
+    if (!timer) return;
+    window.clearInterval(timer);
+    timer = 0;
+  };
+  const paint = (current) => {
+    const root = box();
+    const preview = root?.querySelector("#chatLiveUndressPreview");
+    const button = root?.querySelector("#chatLiveUndressBtn");
+    const status = root?.querySelector("#chatLiveUndressStatus");
+    if (!preview || !button || !status) return;
+    const savedAvatar = String(current?.avatarUrl || "");
+    const formAvatar = String(root.querySelector("#chatLiveAvatarUrl")?.value || "");
+    const dirtyAvatar = Boolean(current?.id) && formAvatar && formAvatar !== savedAvatar;
+    const generating = String(current?.undressStatus || "") === "generating";
+    const ready = chatLiveUndressReady(current) && !dirtyAvatar;
+    preview.innerHTML = ready
+      ? adminMediaPreviewTrigger({ url: current.undressImageUrl, kind: "image", label: "Undress 图", className: "chat-live-undress-preview-link" })
+      : `<span>${generating ? "生成中" : "未生成"}</span>`;
+    button.disabled = false;
+    if (!savedAvatar && !formAvatar) {
+      button.textContent = "生成 Undress";
+      status.textContent = "先上传形象图。";
+    } else if (dirtyAvatar) {
+      button.textContent = "生成 Undress";
+      status.textContent = "形象图已更换，先保存再生成。";
+    } else if (generating) {
+      button.textContent = "重新生成";
+      status.textContent = "后台生成中。可以离开这个页面，生成好再进来会自动填上。";
+    } else if (ready) {
+      button.textContent = "重新生成";
+      status.textContent = "已生成。通话里点 Undress 会切到这张图。";
+    } else if (String(current?.undressStatus || "") === "failed") {
+      button.textContent = "重试";
+      status.textContent = current.undressError || "生成失败，可以重试。";
+    } else {
+      button.textContent = "生成 Undress";
+      status.textContent = "点一下就交给后台，不用在这里等。";
+    }
+    if (generating && !timer) timer = window.setInterval(refresh, 4000);
+    if (!generating) stop();
+  };
+  const refresh = async () => {
+    const current = getCharacter() || {};
+    if (!isAlive() || !current.id) {
+      stop();
+      return;
+    }
+    try {
+      const payload = await api("/api/admin/chat-live/characters");
+      const latest = (payload.characters || []).find((item) => item.id === current.id);
+      if (!latest || !isAlive()) return;
+      const wasGenerating = String(current.undressStatus || "") === "generating";
+      Object.assign(current, latest);
+      paint(current);
+      if (wasGenerating && String(latest.undressStatus || "") === "ready") toast("Undress 图已生成。", "success");
+      if (wasGenerating && String(latest.undressStatus || "") === "failed") toast(latest.undressError || "Undress 图生成失败。", "error");
+    } catch (error) {
+      if (!isAlive()) stop();
+    }
+  };
+  paint(getCharacter());
+  box().querySelector("#chatLiveUndressBtn")?.addEventListener("click", async () => {
+    const button = box().querySelector("#chatLiveUndressBtn");
+    if (button) button.disabled = true;
+    try {
+      const saved = await window.__chatLiveSaveCharacter?.({ silent: true });
+      const current = getCharacter() || {};
+      if (saved?.id) Object.assign(current, saved);
+      if (!current.id || !current.avatarUrl) {
+        toast("请先上传形象图并填写角色名。", "error");
+        paint(current);
+        return;
+      }
+      const result = await api(`/api/admin/chat-live/characters/${encodeURIComponent(current.id)}/undress`, { method: "POST", body: {} });
+      if (result.character) Object.assign(current, result.character);
+      paint(current);
+      toast("已提交，后台生成，不用在这里等。", "success");
+    } catch (error) {
+      paint(getCharacter());
+      toast(error.message || "生成失败。", "error");
+    }
+  });
+  box().querySelector("#chatLiveAvatarUrl")?.addEventListener("change", () => paint(getCharacter()));
+  box().querySelector("#chatLiveRichVoicePreview")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = box().querySelector("#chatLiveRichVoiceStatus");
+    const characterId = current?.id || box().dataset.savedId || "";
+    if (!characterId) {
+      if (status) status.textContent = "请先保存角色，再试听已保存的 Rich 音色。";
+      return;
+    }
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "生成中…";
+    if (status) status.textContent = "正在用已保存的 Rich 音色生成亲密阶段试听…";
+    try {
+      const response = await fetch("/api/admin/chat-live/voice-preview", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json", ...(token() ? { authorization: `Bearer ${token()}` } : {}) },
+        body: JSON.stringify({ characterId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || "试听失败，请检查 Rich 音色配置。");
+      }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error("试听音频为空。");
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.onerror = () => URL.revokeObjectURL(url);
+      if (status) status.textContent = "试听：亲密阶段同一套 Rich 路由。";
+      await audio.play();
+    } catch (error) {
+      if (status) status.textContent = error.message || "试听失败。";
+    } finally {
+      button.disabled = false;
+      button.textContent = "试听当前 Rich 音色";
+    }
+  });
+}
+
+async function openChatLiveCharacterPage(character, defaults = {}, voices = []) {
+  releaseAdminClickBlockers();
+  const session = ++chatLiveEditorSession;
+  const alive = () => session === chatLiveEditorSession && Boolean(document.getElementById("chatLiveCharacterForm"));
+  let current = character ? { ...character } : null;
+  const box = () => document.getElementById("chatLiveCharacterForm");
+  const collectBody = () => {
+    const root = box();
+    const val = (id) => root.querySelector(`#${id}`)?.value ?? "";
+    return {
+      id: current?.id || root.querySelector("#chatLiveId")?.value || undefined,
+      name: val("chatLiveName"),
+      avatarUrl: val("chatLiveAvatarUrl"),
+      portraitUrl: val("chatLivePortraitUrl"),
+      ambientMusicUrl: val("chatLiveAmbientMusicUrl"),
+      intro: val("chatLiveIntro"),
+      age: Number(val("chatLiveAge") || 0),
+      occupation: val("chatLiveOccupation"),
+      linkName: val("chatLiveLinkName"),
+      persona: val("chatLivePersona"),
+      personaMd: val("chatLivePersona"),
+      replyStyle: val("chatLiveReplyStyle"),
+      personaSourceFile: root.querySelector("#chatLivePersonaMdFile")?.dataset.loadedName || current?.personaSourceFile || "",
+      greeting: val("chatLiveGreeting"),
+      voiceType: val("chatLiveVoiceType"),
+      voiceProvider: val("chatLiveVoiceProvider"),
+      componentVoiceType: val("chatLiveComponentVoiceType"),
+      richVoiceProvider: root.querySelector("#chatLiveRichVoiceEnabled")?.checked === true ? "dashscope_qwen_audio_tts" : "",
+      richVoiceModel: val("chatLiveRichVoiceModel"),
+      richVoiceType: val("chatLiveRichVoiceType"),
+      richVoiceLabel: val("chatLiveRichVoiceLabel"),
+      richVoiceInstruction: val("chatLiveRichVoiceInstruction"),
+      mode: val("chatLiveMode"),
+      language: val("chatLiveLanguage"),
+      tags: val("chatLiveTags"),
+      sortOrder: Number(val("chatLiveSortOrder") || 0),
+      personaEnhance: root.querySelector("#chatLivePersonaEnhance")?.checked === true,
+      sharedRoomEnabled: root.querySelector("#chatLiveSharedRoom")?.checked === true,
+      enabled: root.querySelector("#chatLiveEnabled")?.checked !== false,
+      album: Array.from(root.querySelectorAll(".chat-live-private-row")).map((row, index) => ({
+        id: row.dataset.privateId || `album-${Date.now()}-${index}`,
+        name: row.querySelector("[data-private-name]")?.value || `相册 ${index + 1}`,
+        type: row.querySelector("[data-private-type]")?.value === "video" ? "video" : "image",
+        url: row.querySelector("[data-private-url]")?.value || "",
+        locked: row.querySelector("[data-private-locked]")?.checked === true,
+        enabled: true,
+      })).filter((item) => item.url),
+      liveStory: {
+        enabled: root.querySelector("#chatLiveStoryEnabled")?.checked === true,
+        initialLocationId: root.querySelector("#chatLiveStoryInitialLocation")?.value || "",
+        switchCooldownSeconds: Number(root.querySelector("#chatLiveStoryCooldown")?.value || 60),
+        locations: Array.from(root.querySelectorAll("[data-story-location]")).map((row) => ({
+          id: row.querySelector("[data-story-location-id]")?.value || "",
+          name: row.querySelector("[data-story-location-name]")?.value || "",
+          keywords: row.querySelector("[data-story-location-keywords]")?.value || "",
+          imageUrl: row.querySelector("[data-story-location-image]")?.value || "",
+        })).filter((item) => item.id && item.name),
+        actions: Array.from(root.querySelectorAll("[data-story-action]")).map((row) => ({
+          id: row.querySelector("[data-story-action-id]")?.value || "",
+          name: row.querySelector("[data-story-action-name]")?.value || "",
+          spot: row.querySelector("[data-story-action-spot]")?.value || "",
+          poseLabel: row.querySelector("[data-story-action-pose]")?.value || "",
+          imageUrl: row.querySelector("[data-story-action-image]")?.value || "",
+          action: row.querySelector("[data-story-action-text]")?.value || "",
+          stages: Array.from(row.querySelectorAll("[data-story-action-stage]:checked")).map((input) => input.value),
+          locations: Array.from(row.querySelectorAll("[data-story-action-location]:checked")).map((input) => input.value),
+        })).filter((item) => item.id && item.name),
+      },
+    };
+  };
+  let saveInFlight = null;
+  const saveCharacter = ({ silent = false } = {}) => {
+    if (saveInFlight) return saveInFlight;
+    saveInFlight = (async () => {
+      const root = box();
+      if (!current?.id) {
+        const minted = `chatlive-char-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        current = { ...(current || {}), id: minted };
+        const idInput = root?.querySelector("#chatLiveId");
+        if (idInput) idInput.value = minted;
+      }
+      const body = collectBody();
+      if (!String(body.name || "").trim()) throw new Error("请先填写角色名称。");
+      const creating = !root?.dataset.savedId;
+      const saved = await api(creating ? "/api/admin/chat-live/characters" : `/api/admin/chat-live/characters/${encodeURIComponent(body.id)}`, { method: creating ? "POST" : "PUT", body });
+      if (saved?.character) {
+        current = saved.character;
+        if (root) root.dataset.savedId = current.id || "";
+        const idInput = root?.querySelector("#chatLiveId");
+        if (idInput) idInput.value = current.id || "";
+        const title = document.getElementById("chatLiveEditorTitle");
+        if (title) title.textContent = `编辑角色：${current.name || ""}`;
+      }
+      if (!silent) toast("角色已保存。", "success");
+      return current;
+    })().finally(() => { saveInFlight = null; });
+    return saveInFlight;
+  };
+  window.__chatLiveSaveCharacter = saveCharacter;
+  els.adminContent.innerHTML = `
+    <section class="adm-page chat-live-editor-page">
+      <div class="adm-page-head">
+        <div>
+          <button class="adm-btn adm-btn-ghost" id="chatLiveEditorBack" type="button">返回角色列表</button>
+          <h2 id="chatLiveEditorTitle">${current ? `编辑角色：${escapeHtml(current.name || "")}` : "新增角色"}</h2>
+          <p class="adm-muted">上传、Undress 和相册都在这一页处理。地址不会显示出来。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-primary" id="chatLiveEditorSave" type="button">保存</button>
+        </div>
+      </div>
+      ${chatLiveCharacterForm(current, defaults, voices)}
+    </section>`;
+  refreshIcons();
+  bindChatLiveAssetUploads(box());
+  bindChatLiveStoryAssetUploads(box());
+  if (current?.id && box()) box().dataset.savedId = current.id;
+  document.getElementById("chatLiveEditorBack")?.addEventListener("click", () => {
+    chatLiveEditorSession += 1;
+    window.__chatLiveSaveCharacter = null;
+    renderChatLive();
+  });
+  document.getElementById("chatLiveEditorSave")?.addEventListener("click", async () => {
+    const button = document.getElementById("chatLiveEditorSave");
+    if (button?.disabled) return;
+    if (button) button.disabled = true;
+    try {
+      await saveCharacter();
+    } catch (error) {
+      toast(error.message || "保存失败。", "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+  const storyRoot = box().querySelector("#chatLiveStoryCard");
+  const storyLocationsRoot = () => box().querySelector("#chatLiveStoryLocations");
+  const storyActionsRoot = () => box().querySelector("#chatLiveStoryActions");
+  const storyLocationOptionsHtml = () => Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => {
+    const id = row.querySelector("[data-story-location-id]")?.value || "";
+    const name = row.querySelector("[data-story-location-name]")?.value || id;
+    return id ? `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>` : "";
+  }).join("");
+  const storyLocationChoices = () => Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => ({
+    id: row.querySelector("[data-story-location-id]")?.value || "",
+    name: row.querySelector("[data-story-location-name]")?.value || "",
+  })).filter((item) => item.id);
+  const syncStoryLocationChoices = () => {
+    const choices = storyLocationChoices();
+    storyRoot?.querySelectorAll("[data-story-action]").forEach((row) => {
+      const container = row.querySelector(".chat-live-story-multi:last-of-type");
+      if (!container) return;
+      const checkedIds = new Set(Array.from(container.querySelectorAll("[data-story-action-location]:checked")).map((input) => input.value));
+      container.innerHTML = choices.map((location) => `<label><input type="checkbox" data-story-action-location value="${escapeHtml(location.id)}" ${checkedIds.has(location.id) ? "checked" : ""} />${escapeHtml(location.name || location.id)}</label>`).join("");
+    });
+  };
+  const bindStoryRemove = () => storyRoot?.querySelectorAll("[data-story-remove]").forEach((button) => {
+    button.onclick = () => {
+      button.closest(".chat-live-story-row")?.remove();
+      syncStoryLocationChoices();
+    };
+  });
+  const bindStoryInputs = () => {
+    storyRoot?.querySelectorAll("[data-story-location-id], [data-story-location-name]").forEach((input) => {
+      input.oninput = () => {
+        const options = storyLocationOptionsHtml();
+        const initial = storyRoot.querySelector("#chatLiveStoryInitialLocation");
+        if (initial) {
+          const previous = initial.value;
+          initial.innerHTML = options || `<option value="">先添加地点</option>`;
+          if (previous) initial.value = previous;
+        }
+        syncStoryLocationChoices();
+      };
+    });
+    bindStoryRemove();
+  };
+  storyRoot?.querySelector("#chatLiveStoryAddLocation")?.addEventListener("click", () => {
+    storyLocationsRoot()?.querySelector(".adm-muted")?.remove();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="chat-live-story-row" data-story-location><input data-story-location-id placeholder="ID，例如 living_room" /><input data-story-location-name placeholder="名称，例如 客厅沙发" /><input data-story-location-keywords placeholder="关键词，例如 客厅、沙发、茶几" />${chatLiveStoryAssetField({ attribute: "data-story-location-image", kind: "image" })}<button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
+    storyLocationsRoot()?.appendChild(wrap.firstElementChild);
+    bindStoryInputs();
+    bindChatLiveStoryAssetUploads(storyLocationsRoot());
+    syncStoryLocationChoices();
+  });
+  storyRoot?.querySelector("#chatLiveStoryAddAction")?.addEventListener("click", () => {
+    storyActionsRoot()?.querySelector(".adm-muted")?.remove();
+    const locations = storyLocationOptionsHtml();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="chat-live-story-row is-action" data-story-action><input data-story-action-id placeholder="ID，例如 sofa_recline" /><input data-story-action-name placeholder="名称，例如 沙发侧卧" />${chatLiveStoryActionPositionFields()}${chatLiveStoryAssetField({ attribute: "data-story-action-image", kind: "image" })}<input data-story-action-text placeholder="动作说明，例如 reclining alone on the living room sofa" /><div class="chat-live-story-multi">${[["casual","日常"],["flirting","暧昧"],["foreplay","前戏"],["intimate","亲密"],["aftercare","余韵"]].map(([id,label]) => `<label><input type="checkbox" data-story-action-stage value="${id}" />${label}</label>`).join("")}</div><div class="chat-live-story-multi">${Array.from(storyLocationsRoot()?.querySelectorAll("[data-story-location]") || []).map((row) => { const id = row.querySelector("[data-story-location-id]")?.value || ""; const name = row.querySelector("[data-story-location-name]")?.value || id; return id ? `<label><input type="checkbox" data-story-action-location value="${escapeHtml(id)}" />${escapeHtml(name)}</label>` : ""; }).join("")}</div><button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-story-remove>移除</button></div>`;
+    storyActionsRoot()?.appendChild(wrap.firstElementChild);
+    bindStoryInputs();
+    bindChatLiveStoryAssetUploads(storyActionsRoot());
+  });
+  bindStoryInputs();
+  const privateRoot = box().querySelector("#chatLivePrivateResources");
+  const albumGrid = () => box().querySelector("#chatLiveAlbumGrid");
+  const clearAlbumEmpty = () => albumGrid()?.querySelector(".chat-live-album-empty")?.remove();
+  const bindPrivate = () => {
+    privateRoot?.querySelectorAll("[data-private-remove]").forEach((button) => {
+      button.onclick = () => {
+        button.closest(".chat-live-private-row")?.remove();
+        if (!albumGrid()?.querySelector(".chat-live-private-row")) albumGrid().innerHTML = `<p class="adm-muted chat-live-album-empty">还没有相册素材。</p>`;
+      };
+    });
+    privateRoot?.querySelectorAll(".chat-live-private-row").forEach((row) => {
+      const type = row.querySelector("[data-private-type]");
+      const paint = () => {
+        const preview = row.querySelector("[data-private-preview]");
+        const url = row.querySelector("[data-private-url]")?.value || "";
+        const label = row.querySelector("[data-private-name]")?.value || "相册素材";
+        if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url, kind: type?.value || "", label });
+      };
+      type.onchange = paint;
+      row.querySelector("[data-private-name]")?.addEventListener("input", paint);
+    });
+  };
+  const insertAlbumCard = (item) => {
+    clearAlbumEmpty();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = chatLiveAlbumCardHtml(item, albumGrid().querySelectorAll(".chat-live-private-row").length).trim();
+    const row = wrap.firstElementChild;
+    albumGrid().appendChild(row);
+    bindPrivate();
+    return row;
+  };
+  const uploadAlbumFile = async (file) => {
+    const type = /^video\//.test(file.type) ? "video" : "image";
+    const valid = type === "video" ? /^video\/(mp4|webm|quicktime)$/.test(file.type) && file.size <= 80 * 1024 * 1024 : /^image\/(png|jpeg|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024;
+    if (!valid) {
+      toast(`${file.name} 格式或大小不符合要求。`, "error");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    const row = insertAlbumCard({ name: file.name.replace(/\.[^.]+$/, "").slice(0, 40), type, url: "", locked: false, previewUrl });
+    row.classList.add("is-uploading");
+    try {
+      const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl: await readChatLiveAssetFile(file), kind: type === "video" ? "private-video" : "private-image" } });
+      const hidden = row.querySelector("[data-private-url]");
+      if (hidden) hidden.value = result.url || "";
+      const preview = row.querySelector("[data-private-preview]");
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url || "", kind: type, label: file.name });
+      row.classList.remove("is-uploading");
+      if (!result.url) throw new Error("上传成功但没有返回地址。");
+    } catch (error) {
+      row.remove();
+      toast(error.message || `${file.name} 上传失败。`, "error");
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+  box().querySelector("#chatLiveAlbumBatchBtn")?.addEventListener("click", () => box().querySelector("#chatLiveAlbumBatch")?.click());
+  box().querySelector("#chatLiveAlbumBatch")?.addEventListener("change", async (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = "";
+    for (const file of files) await uploadAlbumFile(file);
+    if (files.length) toast("上传完成。记得保存角色。", "success");
+  });
+  bindPrivate();
+  bindChatLiveUndress(box, () => current, alive);
+  const realtimeSaved = current?.voiceProvider === "dashscope_cosyvoice" ? "" : (current?.voiceType || "");
+  const componentSaved = current?.componentVoiceType || (current?.voiceProvider === "dashscope_cosyvoice" ? (current?.voiceType || "") : "");
+  let realtimeVoices = Array.isArray(voices) ? voices.slice() : [];
+  let componentVoices = [];
+  const voiceRows = (list, query, provider) => {
+    const source = (list || []).filter((voice) => !provider || !voice.provider || voice.provider === provider);
+    const q = String(query || "").trim().toLowerCase();
+    return source.filter((voice) => !q || `${voice.name || ""} ${voice.voiceType || ""} ${voice.desc || ""}`.toLowerCase().includes(q));
+  };
+  const paintVoiceSelect = ({ listId, hiddenId, labelId, countId, menuId, list, filterId, preferred, provider, scope }) => {
+    const root = box();
+    if (!root) return;
+    const source = (list || []).filter((voice) => !provider || !voice.provider || voice.provider === provider);
+    const hidden = root.querySelector(hiddenId);
+    const known = source.some((voice) => String(voice.voiceType || "") === preferred);
+    const next = known ? preferred : String((source[0] || {}).voiceType || "");
+    if (hidden) hidden.value = next;
+    const picked = source.find((voice) => String(voice.voiceType || "") === next);
+    const label = root.querySelector(labelId);
+    if (label) label.textContent = picked ? `${picked.name || next} · ${next}` : (next || "没有可选音色");
+    const count = root.querySelector(countId);
+    if (count) count.textContent = String(source.length);
+    const host = root.querySelector(listId);
+    if (!host) return;
+    const visible = voiceRows(list, root.querySelector(filterId)?.value || "", provider);
+    if (!source.length) {
+      host.innerHTML = `<div class="chat-live-voice-empty">音色清单没加载到。刷新页面后再点。</div>`;
+      return;
+    }
+    if (!visible.length) {
+      host.innerHTML = `<div class="chat-live-voice-empty">没有匹配项。</div>`;
+      return;
+    }
+    host.innerHTML = visible.slice(0, 240).map((voice) => {
+      const value = String(voice.voiceType || "");
+      const desc = String(voice.desc || "").replace(/\s+/g, " ").slice(0, 36);
+      return `<button type="button" class="chat-live-voice-item ${value === next ? "is-on" : ""}" data-chat-live-voice="${escapeHtml(value)}" data-chat-live-voice-scope="${scope}"><b>${escapeHtml(voice.name || value)}</b><small>${escapeHtml(value)}${desc ? ` · ${escapeHtml(desc)}` : ""}</small></button>`;
+    }).join("") + (visible.length > 240 ? `<div class="chat-live-voice-empty">还有 ${visible.length - 240} 个，继续筛选。</div>` : "");
+  };
+  window.chatLivePaintRealtime = (preferred) => paintVoiceSelect({
+    listId: "#chatLiveVoiceList",
+    hiddenId: "#chatLiveVoiceType",
+    labelId: "#chatLiveVoiceSelected",
+    countId: "#chatLiveVoiceCount",
+    menuId: "chatLiveVoiceMenu",
+    list: realtimeVoices,
+    filterId: "#chatLiveVoiceFilter",
+    provider: box().querySelector("#chatLiveVoiceProvider")?.value || "",
+    preferred: preferred ?? (box().querySelector("#chatLiveVoiceType")?.value || realtimeSaved),
+    scope: "realtime",
+  });
+  window.chatLivePaintComponent = (preferred) => paintVoiceSelect({
+    listId: "#chatLiveComponentVoiceList",
+    hiddenId: "#chatLiveComponentVoiceType",
+    labelId: "#chatLiveComponentVoiceSelected",
+    countId: "#chatLiveComponentVoiceCount",
+    menuId: "chatLiveComponentVoiceMenu",
+    list: componentVoices,
+    filterId: "#chatLiveComponentVoiceFilter",
+    preferred: preferred ?? (box().querySelector("#chatLiveComponentVoiceType")?.value || componentSaved),
+    scope: "component",
+  });
+  window.chatLivePaintRealtime(realtimeSaved);
+  window.chatLivePaintComponent(componentSaved);
+  try {
+    const voiceSignal = AbortSignal.timeout(12000);
+    const [realtimePayload, componentPayload] = await Promise.all([
+      api("/api/admin/chat-live/voices?scope=realtime", { signal: voiceSignal }),
+      api("/api/admin/chat-live/voices?scope=component", { signal: voiceSignal }),
+    ]);
+    if (!alive()) return;
+    realtimeVoices = Array.isArray(realtimePayload.voices) ? realtimePayload.voices : [];
+    componentVoices = Array.isArray(componentPayload.voices) ? componentPayload.voices : [];
+  } catch (error) {
+    toast(error.message || "音色列表加载失败。", "error");
+  }
+  if (!alive()) return;
+  window.chatLivePaintRealtime(realtimeSaved);
+  window.chatLivePaintComponent(componentSaved);
+
+}
+const openChatLiveCharacterDialog = openChatLiveCharacterPage;
+
+
+const CHAT_LIVE_LOOK_LABELS = {
+  garment: "换衣服",
+  object: "手里拿东西",
+  background: "换背景",
+};
+const CHAT_LIVE_LOOK_TEXT = {
+  garment: "穿上参考图里的衣服。",
+  object: "拿着参考图里的物品。",
+  background: "换成参考图里的背景。",
+};
+
+function chatLiveLookKindLabel(kind) {
+  return CHAT_LIVE_LOOK_LABELS[kind] || "素材";
+}
+
+function chatLiveLookCard(look = {}) {
+  const enabled = look.enabled !== false;
+  return `
+    <article class="chat-live-look-card ${enabled ? "" : "is-off"}">
+      ${adminMediaPreviewTrigger({ url: look.imageUrl || "", kind: "image", label: look.name || "画面素材", className: "chat-live-look-preview" })}
+      <strong>${escapeHtml(look.name || "未命名")}</strong>
+      <small class="adm-muted">${escapeHtml(chatLiveLookKindLabel(look.kind))} · ${enabled ? "启用" : "停用"}</small>
+      <div class="chat-live-look-actions">
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-chat-live-look-edit="${escapeHtml(look.id)}">编辑</button>
+        <button class="adm-btn adm-btn-danger adm-btn-sm" type="button" data-chat-live-look-delete="${escapeHtml(look.id)}">删除</button>
+      </div>
+    </article>`;
+}
+
+function chatLiveLooksHtml(looks = []) {
+  return ["garment", "object", "background"].map((kind) => {
+    const items = looks.filter((look) => look.kind === kind);
+    const cards = items.map(chatLiveLookCard).join("") || `<div class="adm-empty">还没有${escapeHtml(chatLiveLookKindLabel(kind))}素材</div>`;
+    return `<section class="chat-live-look-group"><h4>${escapeHtml(chatLiveLookKindLabel(kind))}（${items.length}）</h4><div class="chat-live-look-grid">${cards}</div></section>`;
+  }).join("");
+}
+
+function chatLiveLookForm(look = null) {
+  const value = look || {};
+  const kind = ["garment", "object", "background"].includes(value.kind) ? value.kind : "garment";
+  return `
+    <div id="chatLiveLookForm" class="adm-form">
+      <div class="adm-form-row"><span>名称</span><input id="chatLiveLookName" value="${escapeHtml(value.name || "")}" maxlength="40" placeholder="例如：红色外套" /></div>
+      <div class="adm-form-row"><span>类别</span><select id="chatLiveLookKind">
+        <option value="garment" ${kind === "garment" ? "selected" : ""}>换衣服</option>
+        <option value="object" ${kind === "object" ? "selected" : ""}>手里拿东西</option>
+        <option value="background" ${kind === "background" ? "selected" : ""}>换背景</option>
+      </select></div>
+      ${chatLiveAssetField({ id: "chatLiveLookImageUrl", label: "素材图", url: value.imageUrl || "", kind: "look", hint: "上传 PNG / JPG / WEBP，8MB 以内。图片存到 R2，这里不显示地址。" })}
+      <div class="adm-form-row"><span>发给角色的说明</span><textarea id="chatLiveLookText" maxlength="200" placeholder="${escapeHtml(CHAT_LIVE_LOOK_TEXT[kind])}">${escapeHtml(value.userText || CHAT_LIVE_LOOK_TEXT[kind])}</textarea><small class="adm-muted">留空会用默认说明。用户看不到这段字，只用来告诉 Vidu 怎么改画面。</small></div>
+      <div class="adm-form-row"><span>排序</span><input id="chatLiveLookSort" type="number" value="${escapeHtml(String(value.sortOrder ?? 0))}" /></div>
+      <div class="adm-form-row"><span>状态</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveLookEnabled" type="checkbox" ${value.enabled === false ? "" : "checked"} /> 启用（前台可选）</label></div>
+    </div>`;
+}
+
+async function openChatLiveLookDialog(look = null) {
+  await openDialog({
+    title: look ? `编辑素材：${look.name || ""}` : "新增画面素材",
+    body: chatLiveLookForm(look),
+    confirmText: "保存",
+    onConfirm: async () => {
+      const box = els.dialogBody.querySelector("#chatLiveLookForm");
+      const kind = box.querySelector("#chatLiveLookKind")?.value || "";
+      const userText = String(box.querySelector("#chatLiveLookText")?.value || "").trim();
+      const body = {
+        name: box.querySelector("#chatLiveLookName")?.value || "",
+        kind,
+        imageUrl: box.querySelector("#chatLiveLookImageUrl")?.value || "",
+        userText: userText === CHAT_LIVE_LOOK_TEXT[kind] ? "" : userText,
+        sortOrder: Number(box.querySelector("#chatLiveLookSort")?.value || 0),
+        enabled: box.querySelector("#chatLiveLookEnabled")?.checked !== false,
+      };
+      await api(look?.id ? `/api/admin/chat-live/looks/${encodeURIComponent(look.id)}` : "/api/admin/chat-live/looks", { method: look?.id ? "PUT" : "POST", body });
+      chatLiveTab = "looks";
+      renderChatLive();
+      return true;
+    },
+    onOpen: (root) => {
+      bindChatLiveAssetUploads(root);
+      const kindSelect = root.querySelector("#chatLiveLookKind");
+      const text = root.querySelector("#chatLiveLookText");
+      kindSelect?.addEventListener("change", () => {
+        const next = kindSelect.value;
+        const current = String(text?.value || "").trim();
+        if (text && (!current || Object.values(CHAT_LIVE_LOOK_TEXT).includes(current))) {
+          text.value = CHAT_LIVE_LOOK_TEXT[next] || "";
+          text.placeholder = CHAT_LIVE_LOOK_TEXT[next] || "";
+        }
+      });
+    },
+  });
+}
+
+function chatLiveRegionLabel(region) {
+  return region === "cn" ? "国内" : "海外";
+}
+
+function chatLiveModeLabel(mode) {
+  return mode === "component" ? "组件版" : "实时版";
+}
+
+function chatLiveBillingSourceLabel(source) {
+  return ({
+    terminal_upstream: "Vidu 终态权威",
+    shared_viewer_local: "观众本地进房时长",
+    local_session: "本地会话",
+  })[String(source || "")] || String(source || "—");
+}
+
+function chatLiveDurationLabel(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes > 0 ? `${minutes}分${rest}秒` : `${rest}秒`;
+}
+
+function chatLiveEndReasonLabel(reason) {
+  const key = String(reason || "").trim();
+  if (!key) return "";
+  return ({
+    user_end: "用户挂断",
+    page_hidden: "离开页面",
+    before_unload: "关闭页面",
+    tab_hidden: "切到后台超时",
+    client_timeout: "达到时长上限",
+    video_stalled: "画面卡住",
+    video_stall: "画面卡住",
+    video_black: "画面黑屏",
+    video_offline: "画面断开",
+    video_unsubscribe: "视频订阅中断",
+    rtc_bye: "连接断开",
+    remote_offline: "远端离线",
+    idle_timeout: "空闲超时",
+    client_reconnect_timeout: "重连超时",
+    join_failed: "接入失败",
+    socket_closed: "控制通道断开",
+    socket_error: "控制通道异常",
+    upstream_hangup: "上游挂断",
+  })[key] || key;
+}
+
+function chatLiveReasonAbnormal(reason) {
+  const key = String(reason || "").trim();
+  return key.startsWith("video_") || ["rtc_bye", "remote_offline", "idle_timeout", "client_reconnect_timeout", "join_failed", "socket_closed", "socket_error", "upstream_hangup"].includes(key);
+}
+
+function chatLiveProblemLabels(session = {}) {
+  const labels = [];
+  const push = (label) => {
+    const text = String(label || "").trim();
+    if (text && !labels.includes(text)) labels.push(text);
+  };
+  for (const reason of [session.clientEndReason, session.endReason]) {
+    if (chatLiveReasonAbnormal(reason)) push(chatLiveEndReasonLabel(reason));
+  }
+  if (!session.liveId) push("无 Live ID");
+  const ended = session.settled === true || session.status === "ended";
+  if (ended && Number(session.chargeGap) > 0) push(`应扣未扣 ${session.chargeGap}`);
+  if (session.upstreamError) push("上游查询失败");
+  if (session.chargeError) push("扣费失败");
+  const upstreamStatus = String(session.upstreamStatus || "");
+  if (upstreamStatus && /fail|error|abort/i.test(upstreamStatus)) push(`上游 ${upstreamStatus}`);
+  for (const issue of session.issues || []) {
+    const code = String(issue?.code || "");
+    if (chatLiveReasonAbnormal(code)) push(chatLiveEndReasonLabel(code));
+    else if (issue?.message) push(String(issue.message).slice(0, 24));
+    else if (code) push(chatLiveEndReasonLabel(code));
+  }
+  return labels;
+}
+
+function chatLiveProblemCell(session = {}) {
+  const labels = chatLiveProblemLabels(session);
+  if (!labels.length) {
+    const ended = session.settled === true || session.status === "ended";
+    return `<span class="adm-badge ${ended ? "adm-badge-ok" : "adm-badge-muted"}">${ended ? "正常" : "暂无"}</span>`;
+  }
+  const shown = labels.slice(0, 2).join(" · ");
+  const extra = labels.length > 2 ? ` +${labels.length - 2}` : "";
+  return `<span class="adm-badge" title="${escapeHtml(labels.join("；"))}">${escapeHtml(shown + extra)}</span>`;
+}
+
+function chatLiveDetailRow(label, value) {
+  return `<div style="display:grid;grid-template-columns:108px minmax(0,1fr);gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="adm-muted">${escapeHtml(label)}</span><span style="word-break:break-all">${escapeHtml(value || "—")}</span></div>`;
+}
+
+function chatLiveOperationLabel(operation = {}) {
+  return ({ undress: "Undress", switch_look: "切换素材", remove_look: "撤销画面", video_ready: "首帧诊断" })[String(operation.action || "")] || operation.action || "操作";
+}
+
+function chatLiveSessionDetailHtml(session = {}) {
+  const issues = Array.isArray(session.issues) ? session.issues : [];
+  const issueHtml = issues.length
+    ? issues.map((issue) => {
+        const label = chatLiveEndReasonLabel(issue.code) || issue.code || "问题";
+        const when = issue.at ? fmtDate(issue.at) : "";
+        const message = issue.message ? `：${issue.message}` : "";
+        return `<li>${escapeHtml(label + message)}${when ? `<br/><small class="adm-muted">${escapeHtml(when)}</small>` : ""}</li>`;
+      }).join("")
+    : `<li class="adm-muted">没有上报异常</li>`;
+  const operations = Array.isArray(session.operations) ? session.operations : [];
+  const operationHtml = operations.length
+    ? operations.slice().reverse().map((operation) => {
+        const status = operation.success === true ? "成功" : operation.success === false ? "失败" : "处理中";
+        const tone = operation.success === true ? "adm-badge-ok" : operation.success === false ? "" : "adm-badge-muted";
+        const detail = [operation.phase, operation.code, operation.message].filter(Boolean).join(" · ");
+        return `<li><span class="adm-badge ${tone}">${escapeHtml(status)}</span> <strong>${escapeHtml(chatLiveOperationLabel(operation))}</strong>${detail ? `：${escapeHtml(detail)}` : ""}${operation.at ? `<br/><small class="adm-muted">${escapeHtml(fmtDate(operation.at))}</small>` : ""}</li>`;
+      }).join("")
+    : `<li class="adm-muted">没有操作记录</li>`;
+  const diagnostics = Array.isArray(session.diagnostics) ? session.diagnostics : [];
+  const diagnosticHtml = diagnostics.length
+    ? diagnostics.slice().reverse().map((item) => {
+        const detail = [item.phase, item.event, item.traceId, item.data ? JSON.stringify(item.data) : ""].filter(Boolean).join(" · ");
+        return `<li>${escapeHtml(detail)}${item.at ? `<br/><small class="adm-muted">${escapeHtml(fmtDate(item.at))}</small>` : ""}</li>`;
+      }).join("")
+    : `<li class="adm-muted">没有诊断记录</li>`;
+  return `
+    <div>
+      ${session.liveId ? `<div style="margin-bottom:10px"><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-copy-live-id="${escapeHtml(session.liveId)}">复制 Live ID</button></div>` : ""}
+      ${chatLiveDetailRow("Live ID", session.liveId || "无")}
+      ${chatLiveDetailRow("会话 ID", session.id)}
+      ${chatLiveDetailRow("用户", `${session.username || "—"} ${session.userId || ""}`.trim())}
+      ${chatLiveDetailRow("角色", session.characterName || "—")}
+      ${chatLiveDetailRow("模型", session.model || "—")}
+      ${chatLiveDetailRow("模式", `${chatLiveModeLabel(session.mode)} / ${session.callMode || "—"}`)}
+      ${chatLiveDetailRow("音色", session.voiceProvider || "—")}
+      ${chatLiveDetailRow("地区", chatLiveRegionLabel(session.viduRegion))}
+      ${chatLiveDetailRow("来源网站", session.sourceHost || "—")}
+      ${chatLiveDetailRow("上游状态", session.upstreamStatus || "—")}
+      ${chatLiveDetailRow("上游 trace_id", session.upstreamTraceId || "—")}
+      ${chatLiveDetailRow("上游积分", String(session.upstreamCredits ?? 0))}
+      ${chatLiveDetailRow("上游错误", session.upstreamError || "—")}
+      ${chatLiveDetailRow("本会话免费额度", String(session.freeAllowanceSeconds ?? session.freeSeconds ?? 0))}
+      ${chatLiveDetailRow("本会话已分配免费", String(session.freeAllocatedSeconds ?? 0))}
+      ${chatLiveDetailRow("本会话已用免费", String(session.freeUsedSeconds ?? 0))}
+      ${chatLiveDetailRow("用户剩余免费", String(session.freeRemainingSeconds ?? 0))}
+      ${chatLiveDetailRow("预付秒数", String(session.prepaidSeconds ?? 0))}
+      ${chatLiveDetailRow("预付积分", String(session.prepaidCredits ?? 0))}
+      ${chatLiveDetailRow("退款积分", String(session.refundedCredits ?? 0))}
+      ${chatLiveDetailRow("开始计费", session.billableStartedAt ? fmtDate(session.billableStartedAt) : "未开始")}
+      ${chatLiveDetailRow("计费来源", chatLiveBillingSourceLabel(session.billingSource))}
+      ${chatLiveDetailRow("售价/分钟", String(session.saleCreditsPerMinute ?? 0))}
+      ${chatLiveDetailRow("上游计费秒数", String(session.upstreamBilledSeconds ?? 0))}
+      ${chatLiveDetailRow("主播上游计费秒数", String(session.hostUpstreamBilledSeconds ?? 0))}
+      ${chatLiveDetailRow("产品计费上限（秒）", String(session.billingLimitSeconds ?? 0))}
+      ${chatLiveDetailRow("计费秒数", String(session.billedSeconds ?? 0))}
+      ${chatLiveDetailRow("应扣积分", String(session.chargeExpected ?? 0))}
+      ${chatLiveDetailRow("实扣积分", String(session.chargedCredits ?? 0))}
+      ${chatLiveDetailRow("扣费差额", String(session.chargeGap ?? 0))}
+      ${chatLiveDetailRow("扣费错误", session.chargeError || "—")}
+      ${chatLiveDetailRow("结束原因", chatLiveEndReasonText(session))}
+      ${chatLiveDetailRow("客户端备注", session.clientEndNote || "—")}
+      ${chatLiveDetailRow("开始", fmtDate(session.createdAt))}
+      ${chatLiveDetailRow("结束", session.endedAt ? fmtDate(session.endedAt) : "—")}
+      <div style="margin-top:12px"><strong>异常记录</strong><ul style="margin:8px 0 0;padding-left:18px">${issueHtml}</ul></div>
+      <div style="margin-top:12px"><strong>操作明细</strong><ul style="margin:8px 0 0;padding-left:18px">${operationHtml}</ul></div>
+      <div style="margin-top:12px"><strong>上游/计费诊断</strong><ul style="margin:8px 0 0;padding-left:18px;max-height:360px;overflow:auto">${diagnosticHtml}</ul></div>
+    </div>
+  `;
+}
+
+function openChatLiveSessionDetail(sessionId) {
+  const session = chatLiveSessionsById.get(String(sessionId || ""));
+  if (!session) return;
+  openDialog({
+    title: "连接详情",
+    body: chatLiveSessionDetailHtml(session),
+    hideConfirm: true,
+    cancelText: "关闭",
+    onOpen: (root) => {
+      root.querySelector("[data-copy-live-id]")?.addEventListener("click", () => copyText(session.liveId || "", "Live ID 已复制。"));
+    },
+  });
+}
+
+function chatLiveEndReasonText(session = {}) {
+  const client = String(session.clientEndReason || "");
+  const upstream = String(session.endReason || "");
+  if (client && upstream && client !== upstream) {
+    return `${chatLiveEndReasonLabel(client)} / ${chatLiveEndReasonLabel(upstream)}`;
+  }
+  return chatLiveEndReasonLabel(client || upstream) || "—";
+}
+
+function chatLiveSessionRow(session = {}) {
+  const live = !(session.settled || session.status === "ended");
+  const duration = chatLiveDurationLabel(session.durationSeconds);
+  const liveId = String(session.liveId || "");
+  return `
+    <tr>
+      <td><span class="adm-mono">${escapeHtml(fmtDate(session.createdAt))}</span><br/><small class="adm-muted">${escapeHtml(fmtRelative(session.createdAt))}</small></td>
+      <td><strong>${escapeHtml(session.username || "—")}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(session.userId || "")}</small></td>
+      <td><strong>${escapeHtml(session.characterName || "—")}</strong><br/><small class="adm-muted">${escapeHtml(chatLiveModeLabel(session.mode))}</small></td>
+      <td>${escapeHtml(session.sourceHost || "—")}</td>
+      <td>${escapeHtml(chatLiveRegionLabel(session.viduRegion))}</td>
+      <td>${liveId ? `<div class="adm-mono" style="font-size:12px;word-break:break-all">${escapeHtml(liveId)}</div><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-copy-live-id="${escapeHtml(liveId)}">复制</button>` : `<span class="adm-badge">无</span>`}</td>
+      <td>${escapeHtml(session.durationEstimated ? `约 ${duration}` : duration)}</td>
+      <td>${escapeHtml(String(session.chargedCredits ?? 0))}${Number(session.chargeGap) > 0 && (session.settled || session.status === "ended") ? `<br/><small class="adm-muted">应扣 ${escapeHtml(String(session.chargeExpected ?? 0))}</small>` : ""}</td>
+      <td>${escapeHtml(chatLiveEndReasonText(session))}</td>
+      <td>${chatLiveProblemCell(session)}<div style="margin-top:6px"><button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-chat-live-detail="${escapeHtml(session.id || "")}">详情</button></div></td>
+      <td><span class="adm-badge ${live ? "adm-badge-ok" : "adm-badge-muted"}">${live ? "连接中" : "已结束"}</span></td>
+    </tr>`;
+}
+
+function chatLiveGiftsHtml(gifts = []) {
+  return (gifts || []).map((gift, index) => `<div class="adm-form-row chat-live-gift-admin" data-gift-id="${escapeHtml(gift.id || "")}">
+    <span>礼物 ${index + 1}</span><div class="chat-live-gift-body">
+      <div class="chat-live-gift-preview" data-gift-preview>${adminMediaPreviewTrigger({ url: gift.imageUrl || "", kind: "image", label: gift.name || "礼物素材" })}</div>
+      <div class="chat-live-gift-fields">
+        <input data-gift-name value="${escapeHtml(gift.name || "")}" placeholder="名称" />
+        <input data-gift-credits type="number" min="1" value="${escapeHtml(String(gift.credits || 1))}" placeholder="积分" />
+        <div class="chat-live-gift-upload"><input data-gift-image value="${escapeHtml(gift.imageUrl || "")}" placeholder="GIF 图片地址" /><input data-gift-file type="file" accept="image/gif,image/png,image/webp,image/jpeg" /></div>
+        <input data-gift-text value="${escapeHtml(gift.userText || "")}" placeholder="发给角色的文案" />
+        <label class="adm-check"><input data-gift-enabled type="checkbox" ${gift.enabled === false ? "" : "checked"} />启用</label>
+      </div>
+    </div></div>`).join("");
+}
+
+async function renderChatLive() {
+  document.querySelectorAll(".chat-live-modal").forEach((node) => node.remove());
+  const requests = [api("/api/admin/chat-live/characters"), loadChatLiveVoices()];
+  if (chatLiveTab === "sessions") {
+    requests.push(api(`/api/admin/chat-live/sessions?page=${encodeURIComponent(chatLiveSessionPage)}&limit=${encodeURIComponent(chatLiveSessionLimit)}`));
+  }
+  const [payload, voices, sessionsPayload] = await Promise.all(requests);
+  if (!isActiveRoute("chat-live")) return;
+  const pricing = payload.pricing || {};
+  const characters = Array.isArray(payload.characters) ? payload.characters : [];
+  const looks = Array.isArray(payload.looks) ? payload.looks : [];
+  const gifts = Array.isArray(payload.gifts) ? payload.gifts : [];
+  const editing = characters.find((item) => item.id === chatLiveEditingId) || null;
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>在线聊天配置</h2>
+          <p class="adm-muted">配置 chat 站的“在线聊天”角色。形象和头像用上传控件，素材存 R2，不手填地址。当前接入：${payload.defaults?.viduRegion === "cn" ? "国内" : "海外"}${payload.defaults?.viduConfigured ? "（密钥已配置）" : "（当前环境密钥未配置）"}。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="chatLiveReloadBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="chatLiveNewBtn" type="button"><i data-lucide="plus"></i>新增角色</button>
+          <button class="adm-btn adm-btn-primary" id="chatLiveNewLookBtn" type="button"><i data-lucide="plus"></i>新增素材</button>
+        </div>
+      </div>
+
+      <div class="adm-card" id="chatLiveRegionCard">
+        <div class="adm-card-head"><div><h3>接入环境</h3><p class="adm-muted">海外走 api.vidu.com，国内走 api.vidu.cn。切换只影响之后新开的会话。</p></div></div>
+        <div class="chat-live-region">
+          <button class="adm-btn ${payload.defaults?.viduRegion === "cn" ? "adm-btn-ghost" : "adm-btn-primary"}" type="button" data-chat-live-region="overseas" ${payload.defaults?.regions?.overseas?.configured ? "" : "disabled"}>海外</button>
+          <button class="adm-btn ${payload.defaults?.viduRegion === "cn" ? "adm-btn-primary" : "adm-btn-ghost"}" type="button" data-chat-live-region="cn" ${payload.defaults?.regions?.cn?.configured ? "" : "disabled"}>国内</button>
+          <small class="adm-muted">海外密钥${payload.defaults?.regions?.overseas?.configured ? "已配置" : "未配置"} · 国内密钥${payload.defaults?.regions?.cn?.configured ? "已配置" : "未配置"}。音色供应商会跟着当前环境变。</small>
+        </div>
+      </div>
+
+      <div class="adm-card" id="chatLivePricingCard">
+        <div class="adm-card-head"><div><h3>计费（积分/分钟）</h3><p class="adm-muted">原价 = Vidu 成本（实时版 1.5 积分/秒 ≈ 90 积分/分钟），卖价自己定；低于成本会亏。</p></div></div>
+        <div class="adm-form" data-chat-live-pane="pricing" ${chatLiveTab === "pricing" ? "" : "hidden"}>
+          <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
+          <div class="adm-form-row"><span>卖价</span><input id="chatLiveSale" type="number" min="0" value="${escapeHtml(String(pricing.saleCreditsPerMinute ?? 0))}" /><small class="adm-muted">0 = 未定价，此时前台不允许开播。</small></div>
+          <div class="adm-form-row"><span>多人房间价</span><input id="chatLiveSharedSale" type="number" min="0" value="${escapeHtml(String(pricing.sharedRoomSaleCreditsPerMinute || ""))}" placeholder="留空则与单人卖价相同" /><small class="adm-muted">每个进入房间的人都按这个价格扣。留空或 0 = 跟单人卖价一样，当前生效 ${escapeHtml(String(Number(pricing.sharedRoomSaleCreditsPerMinute || 0) > 0 ? pricing.sharedRoomSaleCreditsPerMinute : (pricing.saleCreditsPerMinute || 0)))} 积分/分钟。</small></div>
+          <div class="adm-form-row"><span>每个用户免费总时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /><small class="adm-muted">按用户累计，不再每次连接重新赠送。进房即开始消耗；免费额度剩余不足 10 秒时，会按差额预扣付费时长，余额不足则不能进入。</small></div>
+          <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
+          <div class="adm-form-row"><span>模型版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
+          <div class="adm-form-row"><span>语言模型</span><select id="chatLiveLanguageModel"><option value="byteplus" ${(pricing.languageModel||"byteplus")!=="papaya"?"selected":""}>当前模型（BytePlus）</option><option value="papaya" ${(pricing.languageModel||"")==="papaya"?"selected":""}>Papaya 1.0</option></select><small class="adm-muted">用于组件版视频对话，以及创作页用户创建角色的 AI 自动生成。实时版仍走 Vidu 内置模型。改完后新开的通话和生成请求生效。</small></div>
+          <div class="adm-form-row"><span>默认对话模式</span><select id="chatLiveDefaultMode"><option value="realtime" ${(pricing.defaultMode||"realtime")!=="component"?"selected":""}>实时版（Vidu 内置 LLM）</option><option value="component" ${(pricing.defaultMode||"")==="component"?"selected":""}>组件版（外接我们自己的 LLM）</option></select></div>
+          <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
+          <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>
+          <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSavePricingBtn" type="button"><i data-lucide="save"></i>保存计费</button></div>
+          <div class="adm-form-row"><span>会员价格（USD）</span><div id="chatLiveMembershipPlans" class="chat-live-private-resources"><small class="adm-muted">正在加载会员套餐…</small></div></div>
+          <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSaveMembershipBtn" type="button">保存会员价格</button></div>
+        </div>
+      </div>
+
+      <div class="adm-card" id="chatLiveLooksCard">
+        <div class="adm-card-head"><div><h3>画面素材（${looks.length}）</h3><p class="adm-muted">换衣服、手里拿东西、换背景。上传后只在前台显示缩略图和名称，不展示地址。只对 vidu-s2 生效。</p></div></div>
+        <div class="adm-card-body chat-live-looks">${chatLiveLooksHtml(looks)}</div>
+      </div>
+
+      <div class="adm-card" id="chatLiveGiftsCard">
+        <div class="adm-card-head"><div><h3>打赏礼物（最多 5 个）</h3><p class="adm-muted">每个礼物配置名称、积分、动图地址和发给角色的文案。图片请使用站内 GIF 素材地址。</p></div><button class="adm-btn adm-btn-primary" id="chatLiveSaveGiftsBtn" type="button">保存礼物</button></div>
+        <div class="adm-card-body">${chatLiveGiftsHtml(gifts)}</div>
+      </div>
+
+      <div class="adm-card" id="chatLiveEditorCard">
+        <div class="adm-card-head"><div><h3>${editing ? `编辑角色：${escapeHtml(editing.name || "")}` : "新增角色"}</h3><p class="adm-muted">形象图必须是单人图；人设决定聊天内容；音色可搜索。</p></div></div>
+        ${chatLiveCharacterForm(editing, payload.defaults || {}, voices)}
+      </div>
+
+      <div class="adm-card" id="chatLiveSessionsCard">
+        <div class="adm-card-head"><div><h3>连接记录</h3><p class="adm-muted">每次成功连上记一条。Live ID 和异常用来定位问题，不显示通话密钥。</p></div></div>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <thead><tr><th>时间</th><th>用户</th><th>角色</th><th>来源网站</th><th>地区</th><th>Live ID</th><th>时长</th><th>扣费</th><th>结束原因</th><th>问题</th><th>状态</th></tr></thead>
+            <tbody>${(sessionsPayload?.sessions || []).map(chatLiveSessionRow).join("") || `<tr><td colspan="11" class="adm-muted">还没有连接记录</td></tr>`}</tbody>
+          </table>
+        </div>
+        ${sessionsPayload ? adminPagerHtml(sessionsPayload) : ""}
+      </div>
+
+      <div class="adm-card" id="chatLiveListCard">
+        <div class="adm-card-head"><div><h3>角色列表（${characters.length}）</h3></div></div>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <thead><tr><th>角色</th><th>音色</th><th>创建者</th><th>排序</th><th>Undress</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>${characters.map(chatLiveCharacterRow).join("") || `<tr><td colspan="7" class="adm-muted">还没有角色</td></tr>`}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons?.();
+  /* —— 分 Tab；新增/编辑走后台自带 openDialog —— */
+  const pricingCard = els.adminContent.querySelector("#chatLivePricingCard");
+  const editorCard = els.adminContent.querySelector("#chatLiveEditorCard");
+  const listCard = els.adminContent.querySelector("#chatLiveListCard");
+  const sessionsCard = els.adminContent.querySelector("#chatLiveSessionsCard");
+  const page = els.adminContent.querySelector(".adm-page");
+  const tabBar = document.createElement("div");
+  tabBar.className = "adm-page-actions";
+  tabBar.style.marginBottom = "14px";
+  const looksCard = els.adminContent.querySelector("#chatLiveLooksCard");
+  const giftsCard = els.adminContent.querySelector("#chatLiveGiftsCard");
+  tabBar.innerHTML = ["characters", "looks", "gifts", "pricing", "sessions"].map((id) => {
+    const label = id === "pricing" ? "价格配置" : id === "sessions" ? "连接记录" : id === "looks" ? "画面素材" : id === "gifts" ? "打赏礼物" : "角色列表";
+    return `<button class="adm-btn ${chatLiveTab === id ? "adm-btn-primary" : "adm-btn-ghost"}" data-chat-live-tab="${id}" type="button">${label}</button>`;
+  }).join("");
+  page.prepend(tabBar);
+  if (pricingCard) pricingCard.hidden = chatLiveTab !== "pricing";
+  if (listCard) listCard.hidden = chatLiveTab !== "characters";
+  if (sessionsCard) sessionsCard.hidden = chatLiveTab !== "sessions";
+  if (looksCard) looksCard.hidden = chatLiveTab !== "looks";
+  if (giftsCard) giftsCard.hidden = chatLiveTab !== "gifts";
+  const newBtn = els.adminContent.querySelector("#chatLiveNewBtn");
+  if (newBtn) newBtn.hidden = chatLiveTab !== "characters";
+  const newLookBtn = els.adminContent.querySelector("#chatLiveNewLookBtn");
+  if (newLookBtn) newLookBtn.hidden = chatLiveTab !== "looks";
+  if (editorCard) editorCard.remove();
+  tabBar.querySelectorAll("[data-chat-live-tab]").forEach((button) => button.addEventListener("click", () => {
+    const next = button.dataset.chatLiveTab;
+    chatLiveTab = ["pricing", "sessions", "looks", "gifts"].includes(next) ? next : "characters";
+    renderChatLive();
+  }));
+  chatLiveSessionsById = new Map((sessionsPayload?.sessions || []).map((item) => [String(item.id || ""), item]));
+  if (sessionsCard && sessionsPayload) {
+    bindAdminPager(sessionsCard, sessionsPayload, ({ page: nextPage, limit }) => {
+      chatLiveSessionPage = nextPage;
+      chatLiveSessionLimit = limit;
+      renderChatLive();
+    });
+  }
+  els.adminContent.querySelectorAll("[data-copy-live-id]").forEach((button) => {
+    button.addEventListener("click", () => copyText(button.dataset.copyLiveId || "", "Live ID 已复制。"));
+  });
+  els.adminContent.querySelectorAll("[data-chat-live-detail]").forEach((button) => {
+    button.addEventListener("click", () => openChatLiveSessionDetail(button.dataset.chatLiveDetail || ""));
+  });
+  els.adminContent.querySelector("#chatLiveNewBtn")?.addEventListener("click", () => {
+    chatLiveVoiceFilter = "";
+    openChatLiveCharacterDialog(null, payload.defaults || {}, voices);
+  });
+  els.adminContent.querySelector("#chatLiveNewLookBtn")?.addEventListener("click", () => openChatLiveLookDialog(null));
+  els.adminContent.querySelector("#chatLiveSaveGiftsBtn")?.addEventListener("click", async () => {
+    try {
+      for (const row of els.adminContent.querySelectorAll(".chat-live-gift-admin")) {
+        await api(`/api/admin/chat-live/gifts/${encodeURIComponent(row.dataset.giftId || "")}`, { method: "PUT", body: {
+          name: row.querySelector("[data-gift-name]")?.value || "礼物",
+          credits: Number(row.querySelector("[data-gift-credits]")?.value || 1),
+          imageUrl: row.querySelector("[data-gift-image]")?.value || "",
+          userText: row.querySelector("[data-gift-text]")?.value || "",
+          enabled: row.querySelector("[data-gift-enabled]")?.checked !== false,
+        } });
+      }
+      toast("礼物配置已保存。", "success"); renderChatLive();
+    } catch (error) { toast(error.message || "保存失败。", "error"); }
+  });
+  els.adminContent.querySelectorAll("[data-gift-file]").forEach((input) => input.addEventListener("change", async () => {
+    const file = input.files?.[0]; if (!file) return;
+    if (!/^(image\/gif|image\/png|image\/webp|image\/jpeg)$/.test(file.type) || file.size > 8 * 1024 * 1024) { toast("请上传 8MB 以内的 GIF、PNG、JPG 或 WEBP。", "error"); return; }
+    const row = input.closest(".chat-live-gift-admin"); input.disabled = true;
+    try {
+      const dataUrl = await readChatLiveAssetFile(file);
+      const result = await api("/api/admin/chat-live/assets", { method: "POST", body: { dataUrl, kind: "gift" } });
+      const field = row?.querySelector("[data-gift-image]"); if (field) field.value = result.url || "";
+      const preview = row?.querySelector("[data-gift-preview]"); if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url: result.url || "", kind: "image", label: row?.querySelector("[data-gift-name]")?.value || file.name });
+      toast("礼物动图已上传。", "success");
+    } catch (error) { toast(error.message || "上传失败。", "error"); }
+    finally { input.disabled = false; }
+  }));
+  els.adminContent.querySelectorAll(".chat-live-gift-admin").forEach((row) => {
+    const paint = () => {
+      const preview = row.querySelector("[data-gift-preview]");
+      const url = row.querySelector("[data-gift-image]")?.value || "";
+      const label = row.querySelector("[data-gift-name]")?.value || "礼物素材";
+      if (preview) preview.innerHTML = adminMediaPreviewTrigger({ url, kind: "image", label });
+    };
+    row.querySelector("[data-gift-image]")?.addEventListener("input", paint);
+    row.querySelector("[data-gift-name]")?.addEventListener("input", paint);
+  });
+  els.adminContent.querySelectorAll("[data-chat-live-look-edit]").forEach((button) => button.addEventListener("click", () => {
+    const target = looks.find((item) => item.id === button.dataset.chatLiveLookEdit) || null;
+    if (target) openChatLiveLookDialog(target);
+  }));
+  els.adminContent.querySelectorAll("[data-chat-live-look-delete]").forEach((button) => button.addEventListener("click", async () => {
+    if (!window.confirm("确定删除这个素材？")) return;
+    await api(`/api/admin/chat-live/looks/${encodeURIComponent(button.dataset.chatLiveLookDelete)}`, { method: "DELETE" });
+    renderChatLive();
+  }));
+  els.adminContent.querySelector("#chatLiveReloadBtn")?.addEventListener("click", () => renderChatLive());
+  els.adminContent.querySelectorAll("[data-chat-live-region]").forEach((button) => button.addEventListener("click", async () => {
+    const region = button.dataset.chatLiveRegion === "cn" ? "cn" : "overseas";
+    if (region === (payload.defaults?.viduRegion === "cn" ? "cn" : "overseas")) return;
+    const label = region === "cn" ? "国内" : "海外";
+    if (!window.confirm(`切换到${label} Vidu？新开的在线聊天会走${label}接口，已经打开的会话不变。`)) return;
+    button.disabled = true;
+    try {
+      await api("/api/admin/chat-live/pricing", { method: "PUT", body: { region } });
+      chatLiveVoicesCache = null;
+      toast(`已切换到${label}。`, "success");
+      renderChatLive();
+    } catch (error) {
+      button.disabled = false;
+      toast(error.message || "切换失败。", "error");
+    }
+  }));
+  els.adminContent.querySelectorAll("[data-chat-live-edit]").forEach((button) => button.addEventListener("click", () => {
+    const target = characters.find((item) => item.id === button.dataset.chatLiveEdit) || null;
+    chatLiveVoiceFilter = "";
+    openChatLiveCharacterDialog(target, payload.defaults || {}, voices);
+  }));
+  els.adminContent.querySelectorAll("[data-chat-live-shelf]").forEach((button) => button.addEventListener("click", async () => {
+    const onShelf = button.dataset.chatLiveEnabled === "1";
+    if (!window.confirm(onShelf ? "确定下架这个角色？前台不再展示，角色和历史记录都会保留。" : "确定上架这个角色？上架后前台可以再次看到。")) return;
+    button.disabled = true;
+    try {
+      await api(`/api/admin/chat-live/characters/${encodeURIComponent(button.dataset.chatLiveShelf)}/shelf`, { method: "POST", body: { enabled: !onShelf } });
+      renderChatLive();
+    } catch (error) {
+      button.disabled = false;
+      window.alert(error.message || String(error));
+    }
+  }));
+  els.adminContent.querySelector("#chatLiveMode")?.addEventListener("change", async (event) => {
+    /* 实时版用 Vidu 音色，组件版用我们自己的 TTS 音色 */
+    const scope = event.target.value === "component" ? "component" : "realtime";
+    try {
+      const payload = await api(`/api/admin/chat-live/voices?scope=${scope}`);
+      chatLiveVoicesCache = Array.isArray(payload.voices) ? payload.voices : [];
+      const select = els.adminContent.querySelector("#chatLiveVoiceType");
+      if (select) select.innerHTML = chatLiveVoiceOptions(chatLiveVoicesCache, select.value || "", "");
+      const hint = els.adminContent.querySelector("#chatLiveVoiceSelected");
+      if (hint) hint.textContent = hint.textContent;
+    } catch (error) {
+      window.alert(error.message || String(error));
+    }
+  });
+  els.adminContent.querySelector("#chatLiveVoiceFilter")?.addEventListener("input", (event) => {
+    chatLiveVoiceFilter = event.target.value;
+    const select = els.adminContent.querySelector("#chatLiveVoiceType");
+    const source = chatLiveVoicesCache || voices;
+    if (select) select.innerHTML = chatLiveVoiceOptions(source, select.value || editing?.voiceType || "", chatLiveVoiceFilter);
+  });
+  els.adminContent.querySelector("#chatLiveVoiceType")?.addEventListener("change", (event) => {
+    const label = els.adminContent.querySelector("#chatLiveVoiceSelected");
+    if (label) label.textContent = event.target.value || "未选择";
+  });
+  els.adminContent.querySelector("#chatLiveSavePricingBtn")?.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/chat-live/pricing", {
+        method: "PUT",
+        body: {
+          costCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveCost").value || 0),
+          saleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSale").value || 0),
+          sharedRoomSaleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSharedSale").value || 0),
+          freeSeconds: Number(els.adminContent.querySelector("#chatLiveFreeSeconds").value || 0),
+          maxMinutes: Number(els.adminContent.querySelector("#chatLiveMaxMinutes").value || 10),
+          model: els.adminContent.querySelector("#chatLiveModel").value,
+          callMode: els.adminContent.querySelector("#chatLiveCallMode").value,
+          languageModel: els.adminContent.querySelector("#chatLiveLanguageModel").value,
+          defaultMode: els.adminContent.querySelector("#chatLiveDefaultMode").value,
+          enabled: els.adminContent.querySelector("#chatLiveEnabledSwitch").checked,
+        },
+      });
+      renderChatLive();
+    } catch (error) {
+      window.alert(error.message || String(error));
+    }
+  });
+  const membershipBox = els.adminContent.querySelector("#chatLiveMembershipPlans");
+  if (membershipBox) {
+    try {
+      const membership = await api("/api/admin/chat-live/membership-plans");
+      membershipBox.innerHTML = (membership.plans || []).map((plan) => `<label class="adm-form-row"><span>${escapeHtml(plan.name)}</span><input data-membership-plan="${escapeHtml(plan.id)}" type="number" min="0" step="0.1" value="${escapeHtml(String(plan.amount))}" /> <small>USD · ${escapeHtml(plan.intervalCount > 1 ? `${plan.intervalCount} ${plan.intervalUnit}` : plan.intervalUnit)}</small></label>`).join("") || '<small class="adm-muted">暂无套餐</small>';
+    } catch (error) { membershipBox.innerHTML = `<small class="adm-muted">${escapeHtml(error.message || "会员套餐加载失败")}</small>`; }
+  }
+  els.adminContent.querySelector("#chatLiveSaveMembershipBtn")?.addEventListener("click", async () => {
+    const values = Array.from(els.adminContent.querySelectorAll("[data-membership-plan]")).map((input) => ({ id: input.dataset.membershipPlan, amount: Number(input.value) }));
+    try { await api("/api/admin/chat-live/membership-plans", { method: "PUT", body: { plans: values } }); toast("会员价格已保存（USD）。", "success"); } catch (error) { toast(error.message || "保存失败。", "error"); }
+  });
+}
+
+function pricingRowTitle(row = {}) {
+  const key = String(row.key || "");
+  const provider = String(row.provider || "").toLowerCase();
+  if (row.providerLabel) return row.providerLabel;
+  if (key.startsWith("seedance-fast-video-input")) return "Seedance Fast 视频输入加收";
+  if (key.startsWith("seedance-fast")) return "Seedance Fast";
+  if (key.startsWith("seedance-video-input")) return "Seedance 视频输入加收";
+  if (provider === "seedance") return "Seedance 基础生成";
+  return row.providerLabel || row.provider || "模型";
+}
+
+function pricingRowUsage(row = {}) {
+  if (row.usageLabel) return row.usageLabel;
+  if (String(row.variant || "").toLowerCase() === "audio") return "Audio video";
+  if (String(row.variant || "").toLowerCase() === "silent") return "Silent video";
+  if (String(row.billing || "").toLowerCase() === "input_output") return "Input + output video seconds";
+  if (String(row.unit || "").toLowerCase() === "reference_image") return "By reference images";
+  if (isImagePricingRow(row)) return "按生成图片张数";
+  if (String(row.rateKind || "") === "video_input") return "按输入视频秒数额外加收";
+  return "按生成视频秒数";
+}
+
+function renderPricingTable(rows = []) {
+  if (!rows.length) return `<div class="adm-empty">暂无价格项</div>`;
+  return `
+    <div class="adm-table-wrap">
+      <table class="adm-table adm-pricing-table">
+        <thead>
+          <tr>
+            <th>计费项</th>
+            <th>分辨率</th>
+            <th>采购价</th>
+            <th>对外价</th>
+            <th>积分</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
+              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
+              <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
+              <td>
+                ${row.purchaseEditable ? `
+                  <input class="adm-price-input" data-f="purchaseUsdPerSecond" type="number" min="0.000001" step="0.000001" value="${escapeHtml(fmtPrice(row.purchaseUsdPerSecond, 8))}" />
+                  <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
+                ` : `
+                  <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                  <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                `}
+                ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
+              </td>
+              <td>
+                <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" />
+                <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
+              </td>
+              <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderPricing() {
+  const payload = await api("/api/admin/pricing");
+  if (!isActiveRoute("pricing")) return;
+  const pricing = payload.pricing || {};
+  const rows = pricing.rows || [];
+  const seedanceOutputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "output") !== "video_input");
+  const seedanceInputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "") === "video_input");
+  const otherRows = rows.filter((row) => String(row.provider || "").toLowerCase() !== "seedance");
+
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>价格配置</h2>
+          <p class="adm-muted">配置 Advanced 采购价和对外价格。Wan3 新模型支持分别配置采购价与对外价；Seedance 视频输入任务按两段计费。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>Advanced 价格</h3>
+            <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
+          </div>
+        </div>
+        <div class="adm-pricing-formula">
+          Seedance 视频输入任务总扣费 = 基础生成对外价 x 生成视频秒数 + 视频输入加收价 x 输入视频秒数。
+        </div>
+        <div class="adm-pricing-groups">
+          <section class="adm-pricing-section">
+            <div class="adm-pricing-section-head">
+              <div>
+                <h4>Seedance 基础生成价格</h4>
+                <p class="adm-muted">所有 Seedance 任务都会按生成出来的视频秒数收这一段。</p>
+              </div>
+            </div>
+            ${renderPricingTable(seedanceOutputRows)}
+          </section>
+          <section class="adm-pricing-section">
+            <div class="adm-pricing-section-head">
+              <div>
+                <h4>Seedance 视频输入加收价格</h4>
+                <p class="adm-muted">仅在传入视频作为参考、编辑、续写等输入时，按输入视频秒数额外加收。这里不是总价。</p>
+              </div>
+            </div>
+            ${renderPricingTable(seedanceInputRows)}
+          </section>
+          <section class="adm-pricing-section">
+            <div class="adm-pricing-section-head">
+              <div>
+                <h4>Wan 3.0、HappyHorse 与图片模型价格</h4>
+                <p class="adm-muted">W3.0、W3.0-Pro、W3.0-Prime、W3.0-VSR-Prime、HappyHorse 及图片模型。Wan3 采购价和对外价均可配置。</p>
+              </div>
+            </div>
+            ${renderPricingTable(otherRows)}
+          </section>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const updateCredits = () => {
+    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const target = tr.querySelector("[data-price-credits]");
+      const usd = Number(input?.value || 0);
+      target.textContent = Number.isFinite(usd) && usd >= 0
+        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
+        : "-";
+    });
+  };
+
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+    input.addEventListener("input", updateCredits);
+  });
+  byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
+  byId("savePricingBtn")?.addEventListener("click", async () => {
+    try {
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
+        provider: tr.dataset.provider,
+        resolution: tr.dataset.resolution,
+        rateKind: tr.dataset.rateKind,
+        key: tr.dataset.key,
+        unit: tr.dataset.unit,
+        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
+      }));
+      const result = await api("/api/admin/pricing", {
+        method: "PUT",
+        body: { rows: nextRows },
+      });
+      state.config = result.config || null;
+      toast("价格已保存。", "success");
+      renderPricing();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+/* ============ PLATFORM ============ */
+const FIXED_PLATFORM_CATEGORIES = [
+  { id: "featured", name: "精选模板" },
+  { id: "i2v", name: "图生视频" },
+  { id: "t2v", name: "文生视频" },
+];
+
+const ADVANCED_CASE_CATEGORIES = [
+  { id: "hot", name: "Hot" },
+  { id: "extend", name: "Extend" },
+  { id: "replace", name: "Replace" },
+];
+
+function defaultAdvancedConfig(platform = {}) {
+  const advanced = platform.advanced && typeof platform.advanced === "object" ? platform.advanced : {};
+  return {
+    telegram: advanced.telegram || "",
+    cases: Array.isArray(advanced.cases) ? advanced.cases : [],
+  };
+}
+
+function platformTemplateRequestJson(template = {}) {
+  if (template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)) return template.requestJson;
+  return {
+    model: template.model || (template.type === "text-to-video" ? "bytedance/seedance-2.0/fast/text-to-video" : "bytedance/seedance-2.0/fast/image-to-video"),
+    ...(template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {}),
+    ...(template.prompt ? { prompt: template.prompt } : {}),
+    ...(template.negativePrompt ? { negative_prompt: template.negativePrompt } : {}),
+  };
+}
+
+function platformCategoryOptions(categories = [], selected = "") {
+  return categories.map((category) => `
+    <option value="${escapeHtml(category.id)}" ${category.id === selected ? "selected" : ""}>${escapeHtml(category.name || category.id)}</option>
+  `).join("");
+}
+
+function normalizeAdvancedCaseCategory(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("extend")) return "extend";
+  if (raw.includes("replace")) return "replace";
+  if (raw === "hot" || raw.includes("popular")) return "hot";
+  return "hot";
+}
+
+function advancedCaseCategoryLabel(value = "") {
+  const id = normalizeAdvancedCaseCategory(value);
+  return ADVANCED_CASE_CATEGORIES.find((item) => item.id === id)?.name || id;
+}
+
+function advancedCaseCategoryOptions(selected = "") {
+  const current = normalizeAdvancedCaseCategory(selected);
+  return ADVANCED_CASE_CATEGORIES.map((category) => `
+    <option value="${escapeHtml(category.id)}" ${category.id === current ? "selected" : ""}>${escapeHtml(category.name || category.id)}</option>
+  `).join("");
+}
+
+function platformTemplatePreview(template = {}) {
+  const preview = String(template.previewUrl || "").trim();
+  const cover = String(template.coverUrl || "").trim();
+  const src = preview || cover;
+  if (!src) return '<div class="platform-mini-preview"><i data-lucide="image"></i></div>';
+  return adminMediaPreviewTrigger({
+    url: src,
+    kind: isVideoUrl(preview) ? "video" : "image",
+    label: template.title || "模板素材",
+    className: "platform-mini-preview-link",
+    poster: cover,
+  });
+}
+
+function isVideoUrl(url = "") {
+  return /\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(String(url || ""));
+}
+
+function captureVideoFrameDataUrl(videoUrl = "") {
+  return new Promise((resolve) => {
+    if (!videoUrl || !isVideoUrl(videoUrl)) return resolve("");
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = videoUrl;
+    let timer = 0;
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeAttribute("src");
+      video.load();
+    };
+    const fail = () => {
+      cleanup();
+      resolve("");
+    };
+    timer = window.setTimeout(fail, 8000);
+    video.addEventListener("loadeddata", () => {
+      try {
+        video.currentTime = Math.min(0.25, Number(video.duration || 1) / 3);
+      } catch {
+        fail();
+      }
+    }, { once: true });
+    video.addEventListener("seeked", () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(240, video.videoWidth || 640);
+        canvas.height = Math.max(135, video.videoHeight || 360);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+        cleanup();
+        resolve(dataUrl);
+      } catch {
+        fail();
+      }
+    }, { once: true });
+    video.addEventListener("error", fail, { once: true });
+  });
+}
+
+async function ensurePlatformTemplateCover(template = {}) {
+  if (template.coverUrl || !isVideoUrl(template.previewUrl)) return template;
+  const dataUrl = await captureVideoFrameDataUrl(template.previewUrl);
+  if (!dataUrl) return template;
+  const payload = await api("/api/admin/platform-cover", {
+    method: "POST",
+    body: { dataUrl, name: template.id || template.title || "platform-cover" },
+  });
+  return { ...template, coverUrl: payload.url || template.coverUrl || "" };
+}
+
+function platformTemplateSummary(template = {}, index = 0, categories = []) {
+  const category = categories.find((item) => item.id === template.category);
+  const requestJson = platformTemplateRequestJson(template);
+  const model = requestJson.model || template.model || "—";
+  const prompt = requestJson.prompt || template.prompt || "";
+  return `
+    <tr data-template-index="${index}">
+      <td>${platformTemplatePreview(template)}</td>
+      <td>
+        <strong>${escapeHtml(template.title || `模板 ${index + 1}`)}</strong>
+        <small class="adm-muted adm-block adm-mono">${escapeHtml(template.id || "")}</small>
+      </td>
+      <td>${escapeHtml(category?.name || template.category || "—")}</td>
+      <td>${escapeHtml(template.type === "text-to-video" ? "文生视频" : "图生视频")}</td>
+      <td class="adm-mono adm-truncate" title="${escapeHtml(String(model))}">${escapeHtml(String(model)).slice(0, 42)}</td>
+      <td class="adm-truncate" title="${escapeHtml(prompt)}">${escapeHtml(prompt).slice(0, 80)}</td>
+      <td>${template.enabled === false ? '<span class="adm-pill is-cancelled">停用</span>' : '<span class="adm-pill is-success">启用</span>'}</td>
+      <td>${Number.isFinite(Number(template.sort)) ? Number(template.sort) : index}</td>
+      <td>
+        <div class="adm-actions">
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-template" type="button"><i data-lucide="pencil"></i>编辑</button>
+          <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-template" type="button"><i data-lucide="trash-2"></i>删除</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function platformTemplateEditor(template = {}, index = 0, categories = []) {
+  const requestJson = JSON.stringify(platformTemplateRequestJson(template), null, 2);
+  return `
+    <div class="platform-template-editor" data-template-index="${index}">
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>模板标题</span><input data-f="title" value="${escapeHtml(template.title || "")}" /></div>
+        <div class="adm-form-row"><span>分类</span><select data-f="category">${platformCategoryOptions(categories, template.category || "")}</select></div>
+        <div class="adm-form-row"><span>类型</span><select data-f="type">
+          <option value="image-to-video" ${template.type !== "text-to-video" ? "selected" : ""}>图生视频</option>
+          <option value="text-to-video" ${template.type === "text-to-video" ? "selected" : ""}>文生视频</option>
+        </select></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>徽标</span><input data-f="badge" value="${escapeHtml(template.badge || "")}" placeholder="热门 / 图生视频" /></div>
+        <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(template.sort ?? index)}" /></div>
+        <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${template.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
+      </div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>预览 URL（用户看到的演示视频或图片）</span><input data-f="previewUrl" value="${escapeHtml(template.previewUrl || "")}" placeholder="https://.../preview.mp4" /></div>
+        <div class="adm-form-row"><span>封面 URL（可选，视频未加载前展示）</span><input data-f="coverUrl" value="${escapeHtml(template.coverUrl || "")}" placeholder="https://.../cover.jpg" /></div>
+      </div>
+      <div class="adm-form-row">
+        <span>上游 JSON 参数（生成时只替换里面的图片字段为用户上传图）</span>
+        <textarea data-f="requestJson" rows="16" spellcheck="false">${escapeHtml(requestJson)}</textarea>
+      </div>
+    </div>
+  `;
+}
+
+function collectPlatformTemplateFromCard(card, existing = {}) {
+  const get = (field) => card.querySelector(`[data-f="${field}"]`);
+  let requestJson;
+  try {
+    requestJson = JSON.parse(get("requestJson")?.value || "{}");
+  } catch {
+    throw new Error("上游 JSON 参数格式不正确，请检查逗号和引号。");
+  }
+  if (!requestJson || typeof requestJson !== "object" || Array.isArray(requestJson)) throw new Error("上游 JSON 参数必须是对象。");
+  const type = get("type")?.value === "text-to-video" ? "text-to-video" : "image-to-video";
+  return {
+    ...existing,
+    title: get("title")?.value.trim() || existing.title || "未命名模板",
+    category: get("category")?.value || existing.category || (type === "text-to-video" ? "t2v" : "i2v"),
+    type,
+    badge: get("badge")?.value.trim() || "",
+    previewUrl: get("previewUrl")?.value.trim() || "",
+    coverUrl: get("coverUrl")?.value.trim() || "",
+    enabled: Boolean(get("enabled")?.checked),
+    sort: Number(get("sort")?.value || 0),
+    requestJson,
+    model: String(requestJson.model || existing.model || "").trim(),
+    prompt: typeof requestJson.prompt === "string" ? requestJson.prompt : "",
+    params: {},
+  };
+}
+
+function defaultPlatformTemplate(categories = [], index = 0) {
+  const fixedCategories = categories.length ? categories : FIXED_PLATFORM_CATEGORIES;
+  return {
+    id: `template-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    title: "新模板",
+    category: fixedCategories[0]?.id || "featured",
+    type: "image-to-video",
+    badge: "图生视频",
+    previewUrl: "",
+    coverUrl: "",
+    enabled: true,
+    sort: index,
+    requestJson: {
+      model: "dreamina-seedance-2-0-fast-260128",
+      prompt: "女孩跳舞",
+      functionMode: "omni_reference",
+      ratio: "16:9",
+      duration: 5,
+      image_file_1: "https://example.com/reference.png",
+    },
+  };
+}
+
+function defaultAdvancedCase(index = 0) {
+  return {
+    id: `advanced-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    title: "高级案例",
+    category: "hot",
+    provider: "wan27",
+    price: 500,
+    coverUrl: "",
+    previewUrl: "",
+    description: "",
+    prompt: "A cinematic video, tasteful motion, premium lighting.",
+    params: { provider: "wan27", ratio: "9:16", resolution: "720p", duration: 5, mediaMode: "first_frame" },
+    enabled: true,
+    sort: index,
+  };
+}
+
+function advancedCaseDuration(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = String(item.provider || params.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "");
+  const min = provider === "wan27" || provider === "wan2.7" ? 2 : 5;
+  const duration = Number(params.duration ?? item.duration ?? 5);
+  if (!Number.isFinite(duration)) return 5;
+  return Math.min(15, Math.max(min, duration));
+}
+
+function normalizeAdvancedResolution(value = "") {
+  return String(value || "").trim().toLowerCase() === "1080p" ? "1080p" : "720p";
+}
+
+function normalizeWanMediaMode(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return WAN27_MEDIA_MODES.some(([mode]) => mode === normalized) ? normalized : "first_frame";
+}
+
+function normalizeVideoRatio(value = "") {
+  const normalized = String(value || "").trim().replace(/[：xX]/g, ":");
+  if (/^\d+\s*:\s*\d+$/.test(normalized)) {
+    const [width, height] = normalized.split(":").map((part) => Math.max(1, Number(part.trim()) || 1));
+    return `${width}:${height}`;
+  }
+  return "16:9";
+}
+
+function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
+  const shortSide = normalizeAdvancedResolution(resolution) === "1080p" ? 1080 : 720;
+  const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
+  if (ratioW >= ratioH) {
+    return {
+      width: Math.max(1, Math.round((shortSide * ratioW) / ratioH)),
+      height: shortSide,
+    };
+  }
+  const width = shortSide;
+  const height = Math.max(1, Math.round((shortSide * ratioH) / ratioW));
+  return { width, height };
+}
+
+function advancedCaseCredits(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = String(item.provider || params.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "");
+  const duration = advancedCaseDuration(item);
+  const resolution = normalizeAdvancedResolution(params.resolution);
+  const isWan = provider === "wan27" || provider === "wan2.7";
+  const perSecond = isWan
+    ? (resolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND)
+    : (resolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND);
+  return Math.round(duration * perSecond);
+}
+
+function advancedCaseSummary(item = {}, index = 0) {
+  return `
+    <tr data-advanced-index="${index}">
+      <td>${platformTemplatePreview(item)}</td>
+      <td><strong>${escapeHtml(item.title || `案例 ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
+      <td>${escapeHtml(advancedCaseCategoryLabel(item.category))}</td>
+      <td>${escapeHtml(item.provider || item.params?.provider || "seedance")} / ${advancedCaseCredits(item)}（${advancedCaseDuration(item)}s）</td>
+      <td class="adm-truncate" title="${escapeHtml(item.prompt || "")}">${escapeHtml(item.prompt || "").slice(0, 80)}</td>
+      <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">停用</span>' : '<span class="adm-pill is-success">启用</span>'}</td>
+      <td>
+        <div class="adm-actions">
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-advanced" type="button"><i data-lucide="pencil"></i>编辑</button>
+          <button class="adm-btn adm-btn-sm adm-btn-primary" data-act="generate-advanced" type="button"><i data-lucide="wand-sparkles"></i>生成</button>
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="delete-advanced" type="button"><i data-lucide="eye-off"></i>移出展示</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function advancedCaseEditor(item = {}, index = 0) {
+  const params = JSON.stringify(item.params && typeof item.params === "object" ? item.params : { ratio: "9:16", resolution: "720p", duration: 5 }, null, 2);
+  const provider = String(item.provider || item.params?.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "") === "wan27" ? "wan27" : "seedance";
+  const mediaMode = normalizeWanMediaMode(item.mediaMode || item.params?.mediaMode);
+  const videoInput = item.sourceVideoUrl || (/^https?:\/\//i.test(item.previewUrl || "") ? item.previewUrl : "");
+  const coverInput = item.sourceCoverUrl || (/^https?:\/\//i.test(item.coverUrl || "") ? item.coverUrl : "");
+  const inputImage = item.inputImageUrl || item.sourceImageUrl || "";
+  const inputVideo = item.inputVideoUrl || "";
+  const inputVideoPoster = item.inputVideoPosterUrl || "";
+  return `
+    <div class="platform-template-editor" data-advanced-index="${index}">
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
+        <div class="adm-form-row"><span>分类</span><select data-f="category">${advancedCaseCategoryOptions(item.category || "hot")}</select></div>
+        <div class="adm-form-row"><span>模型</span><select data-f="provider"><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option></select></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>Wan2.7 输入组合</span><select data-f="mediaMode">${WAN27_MEDIA_MODES.map(([mode, label]) => `<option value="${mode}" ${mediaMode === mode ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <div class="adm-form-row"><span>默认音频 URL</span><input data-f="drivingAudioUrl" value="${escapeHtml(item.params?.drivingAudioUrl || item.params?.driving_audio_url || "")}" placeholder="https://.../audio.mp3" /></div>
+        <div class="adm-form-row"><span>默认续写视频 URL</span><input data-f="firstClipUrl" value="${escapeHtml(item.params?.firstClipUrl || item.params?.first_clip_url || "")}" placeholder="https://.../clip.mp4" /></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
+        <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${item.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
+      </div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>样例视频链接（必填，http/https）</span><input data-f="sourceVideoUrl" value="${escapeHtml(videoInput)}" placeholder="https://.../case-preview.mp4" /></div>
+        <div class="adm-form-row"><span>封面链接（选填，http/https）</span><input data-f="sourceCoverUrl" value="${escapeHtml(coverInput)}" placeholder="不填则保存时从视频抽帧" /></div>
+      </div>
+      <div class="adm-form-row"><span>输入图片 URL（Extend/Replace 左侧展示）</span><input data-f="inputImageUrl" value="${escapeHtml(inputImage)}" placeholder="https://.../input.jpg" /></div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>输入视频 URL（Replace 左侧展示）</span><input data-f="inputVideoUrl" value="${escapeHtml(inputVideo)}" placeholder="https://.../input.mp4" /></div>
+        <div class="adm-form-row"><span>输入视频首帧 URL</span><input data-f="inputVideoPosterUrl" value="${escapeHtml(inputVideoPoster)}" placeholder="https://.../first-frame.jpg" /></div>
+      </div>
+      ${(item.localVideoUrl || item.cdnVideoUrl || item.localCoverUrl || item.cdnCoverUrl) ? `
+        <div class="adm-form-row">
+          <span>已入库素材</span>
+          <input value="${escapeHtml(item.cdnVideoUrl || item.localVideoUrl || item.previewUrl || "")}" disabled />
+        </div>
+      ` : ""}
+      <div class="adm-form-row"><span>描述</span><textarea data-f="description" rows="3">${escapeHtml(item.description || "")}</textarea></div>
+      <div class="adm-form-row"><span>Prompt（点案例后自动填到前台）</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
+      <div class="adm-form-row"><span>参数 JSON（点案例后自动带入；Seedance 默认使用原图；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
+    </div>
+  `;
+}
+
+function collectAdvancedCaseFromCard(card, existing = {}) {
+  const get = (field) => card.querySelector(`[data-f="${field}"]`);
+  let params;
+  try {
+    params = JSON.parse(get("params")?.value || "{}");
+  } catch {
+    throw new Error("高级案例参数 JSON 格式不正确。");
+  }
+  if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("高级案例参数必须是对象。");
+  const provider = get("provider")?.value === "wan27" ? "wan27" : "seedance";
+  params.provider = provider;
+  if (provider === "wan27") {
+    params.mediaMode = normalizeWanMediaMode(get("mediaMode")?.value || params.mediaMode);
+    const audioUrl = get("drivingAudioUrl")?.value.trim() || "";
+    const clipUrl = get("firstClipUrl")?.value.trim() || "";
+    if (audioUrl) params.drivingAudioUrl = audioUrl;
+    else delete params.drivingAudioUrl;
+    if (clipUrl) params.firstClipUrl = clipUrl;
+    else delete params.firstClipUrl;
+  }
+  return {
+    ...existing,
+    title: get("title")?.value.trim() || existing.title || "Advanced Case",
+    category: normalizeAdvancedCaseCategory(get("category")?.value || existing.category || "hot"),
+    provider,
+    mediaMode: provider === "wan27" ? params.mediaMode : "",
+    price: advancedCaseCredits({ params, provider }),
+    sourceVideoUrl: get("sourceVideoUrl")?.value.trim() || existing.sourceVideoUrl || "",
+    sourceCoverUrl: get("sourceCoverUrl")?.value.trim() || existing.sourceCoverUrl || "",
+    inputImageUrl: get("inputImageUrl")?.value.trim() || existing.inputImageUrl || "",
+    inputVideoUrl: get("inputVideoUrl")?.value.trim() || existing.inputVideoUrl || "",
+    inputVideoPosterUrl: get("inputVideoPosterUrl")?.value.trim() || existing.inputVideoPosterUrl || "",
+    sourceImageUrl: get("inputImageUrl")?.value.trim() || existing.sourceImageUrl || "",
+    coverUrl: existing.coverUrl || "",
+    previewUrl: existing.previewUrl || "",
+    description: get("description")?.value.trim() || "",
+    prompt: get("prompt")?.value.trim() || "",
+    params,
+    enabled: Boolean(get("enabled")?.checked),
+    sort: Number(get("sort")?.value || 0),
+  };
+}
+
+function isHttpUrl(value = "") {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function ingestAdvancedCaseMediaForSave(item = {}) {
+  const sourceVideoUrl = String(item.sourceVideoUrl || "").trim();
+  const sourceCoverUrl = String(item.sourceCoverUrl || "").trim();
+  if (!isHttpUrl(sourceVideoUrl)) {
+    throw new Error("样例视频链接必须是 http 或 https 格式。");
+  }
+  if (sourceCoverUrl && !isHttpUrl(sourceCoverUrl)) {
+    throw new Error("封面链接必须是 http 或 https 格式。");
+  }
+  const unchanged =
+    sourceVideoUrl === item.mediaSourceVideoUrl &&
+    sourceCoverUrl === (item.mediaSourceCoverUrl || "");
+  if (unchanged && item.localVideoUrl && item.previewUrl) return item;
+  const payload = await api("/api/admin/advanced-case-media", {
+    method: "POST",
+    body: {
+      caseId: item.id || item.title || "advanced-case",
+      videoUrl: sourceVideoUrl,
+      coverUrl: sourceCoverUrl,
+    },
+  });
+  const media = payload.media || {};
+  if (media.cdnError) toast(`素材已本地入库，CDN 上传失败：${media.cdnError}`, "warning");
+  return {
+    ...item,
+    mediaSourceVideoUrl: sourceVideoUrl,
+    mediaSourceCoverUrl: sourceCoverUrl,
+    sourceVideoUrl,
+    sourceCoverUrl,
+    localVideoUrl: media.localVideoUrl || item.localVideoUrl || "",
+    localCoverUrl: media.localCoverUrl || item.localCoverUrl || "",
+    cdnVideoUrl: media.cdnVideoUrl || "",
+    cdnCoverUrl: media.cdnCoverUrl || "",
+    previewUrl: media.previewUrl || media.cdnVideoUrl || media.localVideoUrl || item.previewUrl || "",
+    coverUrl: media.coverUrl || media.cdnCoverUrl || media.localCoverUrl || item.coverUrl || "",
+  };
+}
+
+function advancedGenerateForm(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = String(item.provider || params.provider || "wan27") === "seedance" ? "seedance" : "wan27";
+  const mediaMode = normalizeWanMediaMode(item.mediaMode || params.mediaMode);
+  return `
+    <div class="platform-template-editor">
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>模型</span><select data-g="provider"><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option></select></div>
+        <div class="adm-form-row" data-provider-section="wan27"><span>Wan 组合</span><select data-g="mediaMode">${WAN27_MEDIA_MODES.map(([mode, label]) => `<option value="${mode}" ${mediaMode === mode ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <div class="adm-form-row"><span>分辨率</span><select data-g="resolution"><option value="720p" ${normalizeAdvancedResolution(params.resolution) === "720p" ? "selected" : ""}>720p</option><option value="1080p" ${normalizeAdvancedResolution(params.resolution) === "1080p" ? "selected" : ""}>1080p</option></select></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>比例</span><input data-g="ratio" value="${escapeHtml(params.ratio || params.aspect_ratio || "9:16")}" /></div>
+        <div class="adm-form-row"><span>时长</span><input data-g="duration" type="number" min="2" max="15" value="${escapeHtml(params.duration || 5)}" /></div>
+        <div class="adm-form-row"><span>Seed</span><input data-g="seed" type="number" min="0" value="${escapeHtml(params.seed || "")}" /></div>
+      </div>
+      <div class="adm-form-row"><span>Prompt</span><textarea data-g="prompt" rows="5">${escapeHtml(item.prompt || params.prompt || "")}</textarea></div>
+      <div class="adm-grid adm-grid-2" data-provider-section="wan27">
+        <div class="adm-form-row"><span>首帧/主参考图</span><input data-g="firstFrame" type="file" accept="image/*" /></div>
+        <div class="adm-form-row"><span>尾帧图片</span><input data-g="lastFrame" type="file" accept="image/*" /></div>
+      </div>
+      <div class="adm-form-row" data-provider-section="seedance"><span>Seedance 参考图（可多选）</span><input data-g="seedanceReferences" type="file" accept="image/*" multiple /></div>
+      <div class="adm-grid adm-grid-2" data-provider-section="wan27">
+        <div class="adm-form-row"><span>音频 URL</span><input data-g="drivingAudioUrl" value="${escapeHtml(params.drivingAudioUrl || "")}" placeholder="https://.../audio.mp3" /></div>
+        <div class="adm-form-row"><span>续写视频文件（5秒以内）</span><input data-g="firstClipFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/*" /><input data-g="firstClipUrl" value="${escapeHtml(params.firstClipUrl || "")}" placeholder="https://.../clip.mp4" /></div>
+      </div>
+      <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。Seedance 在一个控件内多选参考图；Wan2.7 按组合使用首帧、尾帧、音频或续写视频。</p>
+    </div>
+  `;
+}
+
+function bindAdvancedGenerateForm(dialogBody) {
+  const providerSelect = dialogBody.querySelector('[data-g="provider"]');
+  const resolutionSelect = dialogBody.querySelector('[data-g="resolution"]');
+  const sections = Array.from(dialogBody.querySelectorAll("[data-provider-section]"));
+  const sync = () => {
+    const provider = providerSelect?.value || "wan27";
+    sections.forEach((section) => {
+      section.hidden = section.dataset.providerSection !== provider;
+    });
+    if (resolutionSelect) {
+      const options = provider === "seedance" ? ["480p", "720p", "1080p"] : ["720p", "1080p"];
+      const current = normalizeAdvancedResolution(resolutionSelect.value, provider);
+      resolutionSelect.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
+      resolutionSelect.value = options.includes(current) ? current : options[0];
+    }
+  };
+  providerSelect?.addEventListener("change", sync);
+  sync();
+}
+
+async function collectAdvancedGenerateBody(dialogBody, item = {}) {
+  const get = (field) => dialogBody.querySelector(`[data-g="${field}"]`);
+  const readDataUrl = (input, options = {}) => new Promise(async (resolve, reject) => {
+    const file = input?.files?.[0];
+    if (!file) return resolve({ dataUrl: "", fileName: "" });
+    if (options.maxBytes && file.size > options.maxBytes) return reject(new Error(options.maxBytesMessage || "文件过大"));
+    if (options.maxDurationSeconds) {
+      const duration = await readVideoDuration(file).catch(() => 0);
+      if (!duration || duration > options.maxDurationSeconds) return reject(new Error(options.maxDurationMessage || "视频时长不能超过限制"));
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve({ dataUrl: String(reader.result || ""), fileName: file.name || "" });
+    reader.onerror = () => reject(new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
+  const readMultipleDataUrls = async (input) => {
+    const files = Array.from(input?.files || []);
+    if (files.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+      throw new Error(`Seedance 参考图最多 ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} 张`);
+    }
+    if (files.some((file) => file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES)) {
+      throw new Error("Seedance 参考图每张不能超过 8MB");
+    }
+    return Promise.all(files.map((file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ dataUrl: String(reader.result || ""), fileName: file.name || "" });
+      reader.onerror = () => reject(new Error("读取文件失败"));
+      reader.readAsDataURL(file);
+    })));
+  };
+  const first = await readDataUrl(get("firstFrame"));
+  const last = await readDataUrl(get("lastFrame"));
+  const clip = await readDataUrl(get("firstClipFile"), {
+    maxBytes: ADVANCED_WAN_CLIP_MAX_BYTES,
+    maxBytesMessage: "续写视频文件不能超过 30MB",
+    maxDurationSeconds: ADVANCED_WAN_CLIP_MAX_SECONDS,
+    maxDurationMessage: "续写视频必须 5 秒以内",
+  });
+  const seedanceReferences = await readMultipleDataUrls(get("seedanceReferences"));
+  const provider = get("provider")?.value || item.provider || "wan27";
+  if (provider === "seedance" && !seedanceReferences.length) {
+    throw new Error("请至少上传一张 Seedance 参考图");
+  }
+  return {
+    caseId: item.id || "",
+    provider,
+    prompt: get("prompt")?.value.trim() || item.prompt || "",
+    mediaMode: normalizeWanMediaMode(get("mediaMode")?.value),
+    dataUrl: first.dataUrl,
+    firstFrameDataUrl: first.dataUrl,
+    firstFrameFileName: first.fileName,
+    referenceImages: provider === "seedance" ? seedanceReferences : undefined,
+    lastFrameDataUrl: last.dataUrl,
+    lastFrameFileName: last.fileName,
+    drivingAudioUrl: get("drivingAudioUrl")?.value.trim() || "",
+    firstClipDataUrl: clip.dataUrl,
+    firstClipFileName: clip.fileName,
+    firstClipUrl: get("firstClipUrl")?.value.trim() || "",
+    ratio: get("ratio")?.value.trim() || "9:16",
+    resolution: get("resolution")?.value || "720p",
+    duration: Number(get("duration")?.value || 5),
+    seed: get("seed")?.value || "",
+  };
+}
+
+async function renderAdvancedCases() {
+  await renderPlatform({ advancedOnly: true });
+}
+
+async function renderPlatform(options = {}) {
+  const advancedOnly = Boolean(options.advancedOnly);
+  const config = await loadConfig(true);
+  const routeId = advancedOnly ? "advanced-cases" : "platform";
+  if (!isActiveRoute(routeId)) return;
+  const platform = config.platform || {};
+  const categories = FIXED_PLATFORM_CATEGORIES;
+  const templates = Array.isArray(platform.templates) ? platform.templates : [];
+  const advanced = defaultAdvancedConfig(platform);
+  const rerenderPlatform = () => renderPlatform({ advancedOnly });
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>${advancedOnly ? "高级案例" : "首页广场"}</h2>
+          <p class="adm-muted">${advancedOnly ? "配置前台 Advanced tab 的样例视频、封面、提示词和模型参数。" : "只配置模板记录。首页品牌、标题、公告和分类已固定，不在后台反复改。"}</p>
+        </div>
+        <div class="adm-page-actions">
+          <a class="adm-btn adm-btn-ghost" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i>预览首页</a>
+          ${advancedOnly ? '<a class="adm-btn adm-btn-ghost" href="#/platform"><i data-lucide="layout-template"></i>模板列表</a>' : '<a class="adm-btn adm-btn-ghost" href="#/advanced-cases"><i data-lucide="wand-sparkles"></i>高级案例</a>'}
+          ${advancedOnly ? '<button class="adm-btn adm-btn-ghost" id="addAdvancedCaseTopBtn"><i data-lucide="plus"></i>新增案例</button>' : '<button class="adm-btn adm-btn-ghost" id="addPlatformTemplateBtn"><i data-lucide="plus"></i>新增模板</button>'}
+          <button class="adm-btn adm-btn-primary" id="${advancedOnly ? "saveAdvancedTopBtn" : "savePlatformBtn"}"><i data-lucide="save"></i>${advancedOnly ? "保存高级配置" : "保存全部"}</button>
+        </div>
+      </div>
+      ${advancedOnly ? "" : `<div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>模板列表</h3>
+            <span class="adm-muted">${templates.length} 条。点击新增或编辑维护预览 URL、封面和上游 JSON。</span>
+          </div>
+          <input class="platform-template-search" id="platformTemplateSearch" placeholder="搜索标题 / ID / prompt / model" />
+        </div>
+        <div class="adm-card-body adm-table-wrap platform-template-table-wrap">
+          ${templates.length ? `
+            <table class="adm-table platform-template-table">
+              <thead><tr><th>预览</th><th>标题 / ID</th><th>分类</th><th>类型</th><th>模型</th><th>Prompt</th><th>状态</th><th>排序</th><th></th></tr></thead>
+              <tbody id="platformTemplateList">
+                ${templates.map((template, index) => platformTemplateSummary(template, index, categories)).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="adm-empty"><i data-lucide="layout-template"></i><p>暂无模板，点击「新增模板」。</p></div>`}
+        </div>
+      </div>`}
+      <div class="adm-card adm-mt" id="advancedCasesCard">
+        <div class="adm-card-head">
+          <div>
+            <h3>高级生成案例</h3>
+            <span class="adm-muted">用于前台 Advanced tab。新增案例可配置样例视频、封面、提示词和模型参数。</span>
+          </div>
+          <div class="adm-page-actions">
+            <button class="adm-btn adm-btn-ghost" id="addAdvancedCaseBtn"><i data-lucide="plus"></i>新增案例</button>
+            <button class="adm-btn adm-btn-primary" id="saveAdvancedBtn"><i data-lucide="save"></i>保存高级配置</button>
+          </div>
+        </div>
+        <div class="adm-card-body">
+          <div class="adm-form-row"><span>Telegram 客服链接</span><input id="advancedTelegram" value="${escapeHtml(advanced.telegram || "")}" placeholder="https://t.me/..." /></div>
+          <div class="adm-table-wrap platform-template-table-wrap adm-mt">
+            ${advanced.cases.length ? `
+              <table class="adm-table platform-template-table">
+                <thead><tr><th>封面</th><th>标题 / ID</th><th>分类</th><th>自动计费</th><th>Prompt</th><th>状态</th><th></th></tr></thead>
+                <tbody id="advancedCaseList">
+                  ${advanced.cases.map((item, index) => advancedCaseSummary(item, index)).join("")}
+                </tbody>
+              </table>
+            ` : `<div class="adm-empty"><i data-lucide="sparkles"></i><p>暂无高级案例，点击「新增案例」配置样例视频和参数。</p></div>`}
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const saveAll = async () => {
+    const nextPlatform = {
+      ...platform,
+      categories,
+      templates,
+    };
+    const payload = await api("/api/admin/config", { method: "PUT", body: { config: { ...config, platform: nextPlatform } } });
+    state.config = payload.config;
+    toast("首页广场已保存。", "success");
+    rerenderPlatform();
+  };
+
+  byId("savePlatformBtn")?.addEventListener("click", async () => {
+    try {
+      await saveAll();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+
+  byId("addPlatformTemplateBtn")?.addEventListener("click", async () => {
+    try {
+      const draft = defaultPlatformTemplate(categories, templates.length);
+      const result = await openDialog({
+        title: "新增模板",
+        body: platformTemplateEditor(draft, templates.length, categories),
+        confirmText: "保存模板",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-template-index]");
+          const collected = await ensurePlatformTemplateCover(collectPlatformTemplateFromCard(editor, draft));
+          const nextTemplates = [...templates, collected];
+          const payload = await api("/api/admin/config", {
+            method: "PUT",
+            body: { config: { ...config, platform: { ...platform, categories, templates: nextTemplates } } },
+          });
+          state.config = payload.config;
+          toast("模板已新增。", "success");
+        },
+      });
+      if (result === "confirm") rerenderPlatform();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+
+  const saveAdvanced = async (nextCases = advanced.cases) => {
+    const nextAdvanced = {
+      ...advanced,
+      telegram: byId("advancedTelegram")?.value.trim() || "",
+      cases: nextCases,
+    };
+    const payload = await api("/api/admin/config", {
+      method: "PUT",
+      body: { config: { ...config, platform: { ...platform, categories, templates, advanced: nextAdvanced } } },
+    });
+    state.config = payload.config;
+    toast("高级生成配置已保存。", "success");
+    rerenderPlatform();
+  };
+
+  byId("saveAdvancedBtn")?.addEventListener("click", async () => {
+    try {
+      await saveAdvanced();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+  byId("saveAdvancedTopBtn")?.addEventListener("click", async () => {
+    try {
+      await saveAdvanced();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+
+  const openAddAdvancedCaseDialog = async () => {
+    try {
+      const draft = defaultAdvancedCase(advanced.cases.length);
+      const result = await openDialog({
+        title: "新增高级案例",
+        body: advancedCaseEditor(draft, advanced.cases.length),
+        confirmText: "保存案例",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-advanced-index]");
+          let collected = collectAdvancedCaseFromCard(editor, draft);
+          collected = await ingestAdvancedCaseMediaForSave(collected);
+          await saveAdvanced([...advanced.cases, collected]);
+        },
+      });
+      if (result === "confirm") rerenderPlatform();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  };
+  byId("addAdvancedCaseBtn")?.addEventListener("click", openAddAdvancedCaseDialog);
+  byId("addAdvancedCaseTopBtn")?.addEventListener("click", openAddAdvancedCaseDialog);
+
+  byId("platformTemplateSearch")?.addEventListener("input", (event) => {
+    const keyword = event.target.value.trim().toLowerCase();
+    els.adminContent.querySelectorAll("#platformTemplateList tr[data-template-index]").forEach((row) => {
+      row.hidden = keyword && !row.textContent.toLowerCase().includes(keyword);
+    });
+  });
+
+  els.adminContent.querySelectorAll("#platformTemplateList tr[data-template-index]").forEach((row) => {
+    row.querySelector('[data-act="edit-template"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.templateIndex || 0);
+      const result = await openDialog({
+        title: `编辑模板：${templates[index]?.title || `Template ${index + 1}`}`,
+        body: platformTemplateEditor(templates[index] || {}, index, categories),
+        confirmText: "保存模板",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-template-index]");
+          const collected = await ensurePlatformTemplateCover(collectPlatformTemplateFromCard(editor, templates[index]));
+          const nextTemplates = templates.map((item, itemIndex) => (
+            itemIndex === index ? collected : item
+          ));
+          const payload = await api("/api/admin/config", {
+            method: "PUT",
+            body: {
+              config: {
+                ...config,
+                platform: {
+                  ...platform,
+                  categories,
+                  templates: nextTemplates,
+                },
+              },
+            },
+          });
+          state.config = payload.config;
+          toast("模板已保存。", "success");
+        },
+      });
+      if (result === "confirm") rerenderPlatform();
+    });
+    row.querySelector('[data-act="delete-template"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.templateIndex || 0);
+      const ok = await confirmAction("删除模板", `确认删除「${templates[index]?.title || "Template"}」？`, { danger: true, confirmText: "删除" });
+      if (!ok) return;
+      const nextTemplates = templates.filter((_, i) => i !== index);
+      const payload = await api("/api/admin/config", {
+        method: "PUT",
+        body: { config: { ...config, platform: { ...platform, templates: nextTemplates } } },
+      });
+      state.config = payload.config;
+      toast("模板已删除。", "success");
+      rerenderPlatform();
+    });
+  });
+
+  els.adminContent.querySelectorAll("#advancedCaseList tr[data-advanced-index]").forEach((row) => {
+    row.querySelector('[data-act="generate-advanced"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.advancedIndex || 0);
+      const item = advanced.cases[index] || {};
+      const result = await openDialog({
+        title: `后台高级生成：${item.title || `Case ${index + 1}`}`,
+        body: advancedGenerateForm(item),
+        confirmText: "提交生成",
+        cancelText: "取消",
+        onOpen: bindAdvancedGenerateForm,
+        onConfirm: async () => {
+          const body = await collectAdvancedGenerateBody(els.dialogBody, item);
+          const payload = await api("/api/admin/advanced/generate", { method: "POST", body });
+          toast(`已提交：${payload.taskId || payload.task?.taskId || ""}`, "success");
+        },
+      });
+      if (result === "confirm") window.location.hash = "#/records";
+    });
+    row.querySelector('[data-act="edit-advanced"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.advancedIndex || 0);
+      const result = await openDialog({
+        title: `编辑高级案例：${advanced.cases[index]?.title || `Case ${index + 1}`}`,
+        body: advancedCaseEditor(advanced.cases[index] || {}, index),
+        confirmText: "保存案例",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-advanced-index]");
+          let collected = collectAdvancedCaseFromCard(editor, advanced.cases[index]);
+          collected = await ingestAdvancedCaseMediaForSave(collected);
+          const nextCases = advanced.cases.map((item, itemIndex) => (itemIndex === index ? collected : item));
+          await saveAdvanced(nextCases);
+        },
+      });
+      if (result === "confirm") rerenderPlatform();
+    });
+    row.querySelector('[data-act="delete-advanced"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.advancedIndex || 0);
+      const ok = await confirmAction(
+        "移出高级案例展示",
+        `确认把「${advanced.cases[index]?.title || "Case"}」从 Advanced 案例展示移出？只会删除展示配置，不会删除视频、封面、生成记录或素材文件。`,
+        { confirmText: "移出展示" },
+      );
+      if (!ok) return;
+      await saveAdvanced(advanced.cases.filter((_, i) => i !== index));
+    });
+  });
+}
+
+/* ============ UNDRESS CONFIG ============ */
+function waitForVoicePreviewMetadata(audio) {
+  return new Promise((resolve, reject) => {
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA && Number.isFinite(audio.duration)) {
+      resolve(audio.duration);
+      return;
+    }
+    const timeout = window.setTimeout(() => finish(new Error("音频元数据加载超时")), 20000);
+    const onLoaded = () => finish(null, audio.duration);
+    const onError = () => finish(new Error("浏览器无法解码完整音频"));
+    function finish(error, duration = 0) {
+      window.clearTimeout(timeout);
+      audio.removeEventListener("loadedmetadata", onLoaded);
+      audio.removeEventListener("error", onError);
+      if (error) reject(error);
+      else resolve(duration);
+    }
+    audio.addEventListener("loadedmetadata", onLoaded, { once: true });
+    audio.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function loadVoicePreviewAudio(audio) {
+  const card = audio.closest("article[data-voice-preview-id]");
+  const status = card?.querySelector("[data-voice-preview-status]");
+  const controls = card?.querySelectorAll("[data-voice-preview-control]") || [];
+  const source = audio.dataset.src || "";
+  const expectedDuration = Number(audio.dataset.expectedDuration || 0);
+  const minimumDuration = expectedDuration ? Math.max(30, expectedDuration - 4) : 30;
+  try {
+    if (!source) throw new Error("缺少音频地址");
+    if (status) status.textContent = `正在载入完整音频（约 ${expectedDuration.toFixed(1)} 秒）...`;
+    // Download the whole short audition file before playback. Browser range decoding
+    // of long WAV files was stopping the admin player after only a few seconds.
+    const response = await fetch(source);
+    if (!response.ok) throw new Error(`音频请求失败（HTTP ${response.status}）`);
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength < 100000) throw new Error(`音频下载不完整（${bytes.byteLength} 字节）`);
+    if (!audio.isConnected) return;
+    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: "audio/mp4" }));
+    audio.src = blobUrl;
+    audio.dataset.blobUrl = blobUrl;
+    audio.load();
+    const duration = await waitForVoicePreviewMetadata(audio);
+    if (!Number.isFinite(duration) || duration < minimumDuration) {
+      throw new Error(`播放器只识别到 ${Number.isFinite(duration) ? duration.toFixed(1) : "未知"} 秒，已阻止不完整播放`);
+    }
+    if (status) status.textContent = `完整音频已载入 · ${duration.toFixed(1)} 秒`;
+    controls.forEach((control) => { control.disabled = false; });
+  } catch (error) {
+    audio.removeAttribute("src");
+    audio.load();
+    if (audio.dataset.blobUrl) {
+      URL.revokeObjectURL(audio.dataset.blobUrl);
+      delete audio.dataset.blobUrl;
+    }
+    if (status) status.textContent = `音频加载失败：${error.message}`;
+    console.error("Voice preview load failed", { source, error });
+  }
+}
+
+function renderVoicePreview() {
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-voice-preview-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>亲密语音试听</h2>
+          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。保留上一轮 Qwen-Audio 候选和 Qwen3-TTS Serena 基线，并新增两条多叫声 Qwen3-TTS 候选；全部由完整提示词直接生成，没有逐段剪辑。历史音频已从后台试听页移除。</p>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>本轮重点</h3>
+            <p class="adm-muted">先听上轮 Qwen3-TTS Serena 基线，再对照新的多叫声 A/B。三条使用同一模型和音色、均为整段生成；A 保持较短节奏，B 有意放慢并增加连续短叫，重点判断叫声是否自然、独白是否仍然顺滑。</p>
+          </div>
+        </div>
+      </div>
+      <div class="adm-grid adm-voice-preview-grid adm-voice-preview-grid-compact">
+        ${VOICE_PREVIEW_ITEMS.map((item) => {
+          return `
+          <article class="adm-card adm-voice-preview-card" data-voice-preview-id="${escapeHtml(item.id)}">
+            <div class="adm-card-head">
+              <div>
+                <h3>${escapeHtml(item.title)}</h3>
+                <p class="adm-muted">${escapeHtml(item.description)}</p>
+              </div>
+              <span class="adm-pill">${escapeHtml(item.badge)}</span>
+            </div>
+            <div class="adm-card-body">
+              <audio controls preload="none" data-voice-preview-audio data-voice-preview-id="${escapeHtml(item.id)}" data-src="${escapeHtml(item.src)}" data-expected-duration="${escapeHtml(item.expectedDuration)}" aria-label="${escapeHtml(item.title)}"></audio>
+              <div class="adm-voice-preview-meta">
+                <span data-voice-preview-status>等待载入完整音频 · ${escapeHtml(item.duration)}</span>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="0" data-voice-preview-control disabled><i data-lucide="play"></i>从头播放</button>${(item.seekMarkers || [23.0, 32.0]).map((seekTo, index) => `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-voice-seek="${escapeHtml(seekTo)}" data-voice-preview-control disabled><i data-lucide="${index === 0 ? "message-circle" : "waves"}"></i>${index === 0 ? `跳到 ${escapeHtml(seekTo)} 秒` : "后半段"}</button>`).join("")}
+              </div>
+            </div>
+          </article>
+        `; }).join("")}
+      </div>
+    </section>
+  `;
+  els.adminContent.querySelectorAll("[data-voice-seek]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-voice-preview-id]");
+      const audio = card?.querySelector("audio");
+      const seekTo = Number(button.dataset.voiceSeek || 0);
+      if (!audio || !Number.isFinite(seekTo) || !Number.isFinite(audio.duration)) return;
+      audio.currentTime = Math.min(audio.duration, Math.max(0, seekTo));
+      audio.play().catch(() => {});
+    });
+  });
+  els.adminContent.querySelectorAll("[data-voice-preview-audio]").forEach((audio) => {
+    loadVoicePreviewAudio(audio);
+  });
+  refreshIcons();
+}
+
+async function renderUndressConfig() {
+  const payload = await api("/api/admin/undress-prompts");
+  if (!isActiveRoute("undress-config")) return;
+  const prompts = payload.prompts || {};
+  const defaults = payload.defaults || {};
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <h2>Undress 提示词</h2>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadUndressPromptsBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-ghost" id="resetUndressPromptsBtn" type="button"><i data-lucide="rotate-ccw"></i>恢复默认</button>
+          <button class="adm-btn adm-btn-primary" id="saveUndressPromptsBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-grid adm-undress-prompt-grid">
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>图片生成</span>
+              <textarea id="undressPromptImage" maxlength="6000">${escapeHtml(prompts.image || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptImage"></small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>图片转视频</span>
+              <textarea id="undressPromptImageVideo" maxlength="6000">${escapeHtml(prompts.imageVideo || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptImageVideo"></small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card is-wide">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>视频处理</span>
+              <textarea id="undressPromptVideo" maxlength="6000">${escapeHtml(prompts.video || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptVideo"></small>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>`;
+
+  const fields = {
+    image: byId("undressPromptImage"),
+    imageVideo: byId("undressPromptImageVideo"),
+    video: byId("undressPromptVideo"),
+  };
+  const updateCounts = () => {
+    Object.values(fields).forEach((field) => {
+      const counter = els.adminContent.querySelector(`[data-count-for="${field.id}"]`);
+      if (counter) counter.textContent = `${field.value.length}/6000`;
+    });
+  };
+  const setFields = (values = {}) => {
+    Object.entries(fields).forEach(([key, field]) => { field.value = values[key] || ""; });
+    updateCounts();
+  };
+  Object.values(fields).forEach((field) => field.addEventListener("input", updateCounts));
+  updateCounts();
+
+  byId("reloadUndressPromptsBtn")?.addEventListener("click", () => renderUndressConfig());
+  byId("resetUndressPromptsBtn")?.addEventListener("click", () => {
+    setFields(defaults);
+    toast("已恢复默认内容，点击保存后生效。", "success");
+  });
+  byId("saveUndressPromptsBtn")?.addEventListener("click", async () => {
+    const next = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value.trim()]));
+    const invalid = Object.entries(next).find(([, value]) => !value || value.length > 6000);
+    if (invalid) {
+      toast(!invalid[1] ? "提示词不能为空。" : "提示词不能超过 6000 个字符。", "error");
+      fields[invalid[0]]?.focus();
+      return;
+    }
+    const button = byId("saveUndressPromptsBtn");
+    button.disabled = true;
+    try {
+      const saved = await api("/api/admin/undress-prompts", { method: "PUT", body: { prompts: next } });
+      setFields(saved.prompts || next);
+      state.config = null;
+      toast("Undress 提示词已保存。", "success");
+    } catch (error) {
+      toast(error.message || "保存失败。", "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  refreshIcons();
+}
+
+/* ============ CONFIG ============ */
+async function renderConfig() {
+  const config = await loadConfig(true);
+  if (!isActiveRoute("config")) return;
+  const analyticsId = config.platform?.analytics?.googleMeasurementId || config.platform?.googleMeasurementId || "";
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>系统配置</h2>
+          <p class="adm-muted">直接编辑底层 JSON 配置（高级模式）。常规改动建议在「角色 / 场景 / 钱包」页面操作。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadConfigBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="saveConfigBtn"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-card adm-mt" id="aliyunRouteCard">
+        <div class="adm-card-head">
+          <div>
+            <h3>阿里接口线路</h3>
+            <p class="adm-muted">全局默认走现有阿里节点。打开后，文档里有对应节点的能力改走 Mulerouter。没有对应节点的能力继续走阿里，不会丢字段。</p>
+          </div>
+          <button class="adm-btn adm-btn-primary" id="saveAliyunRouteBtn" type="button"><i data-lucide="save"></i>保存线路</button>
+        </div>
+        <div class="adm-card-body">
+          <label class="adm-check" style="display:flex;align-items:center;gap:8px;">
+            <input id="aliyunRouteEnabled" type="checkbox" />
+            <span>全站切换到 Mulerouter 平替节点</span>
+          </label>
+          <p class="adm-muted adm-mt" id="aliyunRouteStatus">正在读取线路状态…</p>
+          <p class="adm-muted">test01 不受这个开关影响，始终走新节点，用来先测一轮。密钥只存在服务器环境变量里，这里不显示。</p>
+        </div>
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>数据分析</h3>
+            <p class="adm-muted">填写 Google Analytics Measurement ID 后，用户端会自动接入统计。</p>
+          </div>
+          <button class="adm-btn adm-btn-primary" id="saveAnalyticsBtn" type="button"><i data-lucide="save"></i>保存分析配置</button>
+        </div>
+        <div class="adm-card-body">
+          <div class="adm-form-row">
+            <span>Google Analytics Measurement ID</span>
+            <input id="gaMeasurementId" type="text" placeholder="G-XXXXXXXXXX" value="${escapeHtml(analyticsId)}" />
+            <small class="adm-muted">只填 Measurement ID，不需要粘贴脚本代码。</small>
+          </div>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-body">
+          <textarea id="configEditor" spellcheck="false">${escapeHtml(JSON.stringify(config, null, 2))}</textarea>
+          <p class="adm-muted adm-mt">保存后用户端刷新即可看到新配置。</p>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  byId("reloadConfigBtn")?.addEventListener("click", async () => {
+    state.config = null;
+    renderConfig();
+    toast("已重新拉取配置。", "success");
+  });
+  async function loadAliyunRoute() {
+    const status = byId("aliyunRouteStatus");
+    try {
+      const payload = await api("/api/admin/aliyun-route");
+      const route = payload.route || {};
+      const box = byId("aliyunRouteEnabled");
+      if (box) box.checked = route.enabled === true;
+      const mapped = (route.mapped || []).map((item) => `${item.from} → ${item.to}`).join("；");
+      const unmapped = (route.unmapped || []).join("、");
+      if (status) {
+        status.textContent = [
+          route.enabled ? "当前：全站新节点" : "当前：全站仍走阿里",
+          route.keyConfigured ? "密钥已配置" : "密钥未配置，新节点请求会失败而不是悄悄退回阿里",
+          mapped ? `会切换：${mapped}` : "",
+          unmapped ? `继续走阿里：${unmapped}` : "",
+          route.updatedAt ? `上次保存：${route.updatedAt}` : "",
+        ].filter(Boolean).join("。 ");
+      }
+    } catch (err) {
+      if (status) status.textContent = err.message || "线路状态读取失败";
+    }
+  }
+  loadAliyunRoute();
+  byId("saveAliyunRouteBtn")?.addEventListener("click", async () => {
+    const button = byId("saveAliyunRouteBtn");
+    if (button) button.disabled = true;
+    try {
+      const enabled = byId("aliyunRouteEnabled")?.checked === true;
+      await api("/api/admin/aliyun-route", { method: "PUT", body: { enabled } });
+      await loadAliyunRoute();
+      toast(enabled ? "已切换到 Mulerouter 平替节点。" : "已切回现有阿里节点。", "success");
+    } catch (err) {
+      toast(err.message || "保存失败", "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+  byId("saveAnalyticsBtn")?.addEventListener("click", async () => {
+    try {
+      const id = byId("gaMeasurementId")?.value.trim() || "";
+      if (id && !/^G-[A-Z0-9]+$/i.test(id)) {
+        toast("Measurement ID 格式不对，应该类似 G-XXXXXXXXXX。", "error");
+        return;
+      }
+      const editorConfig = JSON.parse(byId("configEditor").value);
+      const next = {
+        ...editorConfig,
+        platform: {
+          ...(editorConfig.platform || {}),
+          analytics: {
+            ...((editorConfig.platform || {}).analytics || {}),
+            googleMeasurementId: id,
+          },
+        },
+      };
+      const payload = await api("/api/admin/config", { method: "PUT", body: { config: next } });
+      state.config = payload.config || next;
+      byId("configEditor").value = JSON.stringify(state.config, null, 2);
+      toast("分析配置已保存。", "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+  byId("saveConfigBtn")?.addEventListener("click", async () => {
+    try {
+      const config = JSON.parse(byId("configEditor").value);
+      const payload = await api("/api/admin/config", { method: "PUT", body: { config } });
+      state.config = payload.config || config;
+      toast("配置已保存。", "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+/* ============ GEO ============ */
+function geoStatusLabel(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (value === "healthy") return "健康";
+  if (value === "warming up") return "预热中";
+  if (value === "needs work") return "需处理";
+  if (value === "unknown") return "未知";
+  return status || "未知";
+}
+
+function geoDraftStatusLabel(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (value === "ready") return "可发布";
+  if (value === "draft") return "草稿";
+  return status || "草稿";
+}
+
+function geoTopicTypeLabel(type = "") {
+  const value = String(type || "").toLowerCase();
+  if (value === "category") return "分类";
+  if (value === "tag") return "标签";
+  return type || "主题";
+}
+
+function normalizeGeoAdminTab(value = "") {
+  const allowed = new Set(["basic", "realtime", "users", "vitals", "offsite"]);
+  return allowed.has(value) ? value : "basic";
+}
+
+function renderGeoTabButton(id, label, icon, activeTab) {
+  return `<button data-tab="${escapeHtml(id)}" class="${activeTab === id ? "is-active" : ""}"><i data-lucide="${escapeHtml(icon)}"></i>${escapeHtml(label)}</button>`;
+}
+
+function defaultGeoProbePlan(payload = {}) {
+  const summary = payload.summary || {};
+  const brand = payload.brand || "Vipeak AI";
+  const baseUrl = payload.baseUrl || "";
+  return {
+    updatedAt: payload.generatedAt || "",
+    results: [],
+    questions: [
+      {
+        id: "brand-video-generator",
+        question: `What is ${brand} and what can users create there?`,
+        intent: "品牌识别",
+        targetUrl: baseUrl || "/",
+        expectedSignals: [brand, "AI character video", "video generator"],
+        status: "待测试",
+      },
+      {
+        id: "api-access",
+        question: `Which public API endpoint should developers use for ${brand} video generation?`,
+        intent: "接口发现",
+        targetUrl: `${baseUrl}/llms.txt`,
+        expectedSignals: ["/api/advanced/generate", "Authorization", "credits"],
+        status: "待测试",
+      },
+      {
+        id: "character-discovery",
+        question: `Can ${brand} expose a public character profile page with playable video metadata?`,
+        intent: "角色页结构",
+        targetUrl: `${baseUrl}/sitemap.xml`,
+        expectedSignals: ["/characters/"],
+        status: "待测试",
+      },
+      {
+        id: "support-contact",
+        question: `How can a user contact ${brand} support?`,
+        intent: "客服入口",
+        targetUrl: baseUrl || "/",
+        expectedSignals: ["Telegram", "VipeakSupportBot", "customer support"],
+        status: "待测试",
+      },
+    ],
+  };
+}
+
+function geoProbeResultMatchesQuestion(result = {}, question = {}) {
+  if (result.id && question.id && String(result.id) === String(question.id)) return true;
+  const resultQuestion = String(result.question || "").trim();
+  const questionText = String(question.question || "").trim();
+  if (!resultQuestion || resultQuestion !== questionText) return false;
+  const resultUrl = String(result.targetUrl || "").replace(/\/+$/, "");
+  const questionUrl = String(question.targetUrl || "").replace(/\/+$/, "");
+  return !resultUrl || !questionUrl || resultUrl === questionUrl;
+}
+
+function enrichGeoProbeQuestions(questions = [], results = []) {
+  return (questions || []).map((question) => {
+    const seenProviders = new Set();
+    const latestResults = [];
+    (results || []).forEach((result) => {
+      if (!geoProbeResultMatchesQuestion(result, question)) return;
+      const providerKey = result.providerId || result.platform || result.model || "unknown";
+      if (seenProviders.has(providerKey)) return;
+      seenProviders.add(providerKey);
+      latestResults.push(result);
+    });
+    return {
+      ...question,
+      latestResults,
+      latestResult: latestResults[0] || null,
+    };
+  });
+}
+
+function geoProbeQuestionResults(item = {}) {
+  return Array.isArray(item.latestResults) ? item.latestResults : item.latestResult ? [item.latestResult] : [];
+}
+
+function geoProbeStatusText(item = {}) {
+  const results = geoProbeQuestionResults(item);
+  if (!results.length) return "待测试";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  if (!configured.length) return "未配置平台";
+  const hitCount = configured.filter((result) => result.hit).length;
+  if (hitCount === configured.length) return "全部命中";
+  if (hitCount > 0) return "部分命中";
+  return "需优化";
+}
+
+function geoProbeStatusClass(item = {}) {
+  const results = geoProbeQuestionResults(item);
+  if (!results.length) return "is-pending";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  if (!configured.length) return "is-pending";
+  const hitCount = configured.filter((result) => result.hit).length;
+  if (hitCount === configured.length) return "is-success";
+  if (hitCount > 0) return "is-running";
+  return "is-failed";
+}
+
+function geoProbeModelLabel(model = "", item = {}) {
+  const platform = item.platform || "";
+  if (platform && model && platform !== model) return `${platform} / ${model}`;
+  return platform || model || "-";
+}
+
+function geoProbeResultExplain(result = {}) {
+  const expected = Array.isArray(result.expectedSignals) ? result.expectedSignals : [];
+  const matched = Array.isArray(result.matchedSignals) ? result.matchedSignals : [];
+  const missing = Array.isArray(result.missingSignals) ? result.missingSignals : [];
+  const prefix = `命中 ${matched.length}/${expected.length} 个信号`;
+  if (result.state === "not_configured") return result.summary || "外部平台未配置，未执行测试。";
+  if (result.state === "error") return result.summary || "外部平台调用失败。";
+  if (!expected.length) return result.hit ? "外部平台有有效回答。" : "外部平台没有给出有效回答。";
+  if (result.hit) return `${prefix}，说明这个外部平台的回答已经提到我们希望它识别的核心信息。`;
+  return `${prefix}，缺少：${missing.join("、") || "目标页访问失败"}。`;
+}
+
+function geoProbeQuestionAdvice(item = {}) {
+  const results = geoProbeQuestionResults(item);
+  if (!results.length) return "点击“运行实时测试”后，后台会把这个问题分别发给已配置的外部 AI 平台。";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  if (!configured.length) return "先在服务器配置 GEO_PERPLEXITY_API_KEY / GEO_OPENAI_API_KEY / GEO_GEMINI_API_KEY，才会真正向外部平台提问。";
+  const misses = configured.filter((result) => !result.hit);
+  if (!misses.length) return "当前外部平台都能识别这项信息，保持站内说明、llms.txt、站外内容和回链稳定。";
+  const missing = [...new Set(misses.flatMap((result) => Array.isArray(result.missingSignals) ? result.missingSignals : []))];
+  if (item.id === "api-access") return `把缺失信号补到 llms.txt 或 API Access 文档里：${missing.join("、") || "接口、鉴权、扣费说明"}。`;
+  if (item.id === "character-discovery") return `角色详情页需要能看到结构化角色信息和视频信息：${missing.join("、") || "ProfilePage、VideoObject、角色名"}。`;
+  if (item.id === "support-contact") return `首页或支持入口需要清楚写出 Telegram 客服和 support 相关文案：${missing.join("、") || "客服入口"}。`;
+  if (item.id === "brand-video-generator") return `首页首屏、标题或结构化数据里补齐品牌和用途关键词：${missing.join("、") || "品牌、AI 视频生成能力"}。`;
+  return `补齐缺失信号：${missing.join("、") || "目标页核心信息"}。`;
+}
+
+function buildGeoProbeAdvice(questions = []) {
+  const untested = questions.filter((item) => !geoProbeQuestionResults(item).length);
+  const failed = questions.filter((item) => {
+    const configured = geoProbeQuestionResults(item).filter((result) => result.state !== "not_configured");
+    return configured.length && configured.some((result) => !result.hit);
+  });
+  const notConfigured = questions.filter((item) => {
+    const results = geoProbeQuestionResults(item);
+    return results.length && results.every((result) => result.state === "not_configured");
+  });
+  const advice = [];
+  if (untested.length) {
+    advice.push(`还有 ${untested.length} 个问题未向外部 AI 平台测试。点击“运行实时测试”会按平台逐条提问。`);
+  }
+  if (notConfigured.length) {
+    advice.push("当前没有可用的外部 AI 平台配置。先配置 Perplexity / OpenAI / Gemini 的 GEO API Key，实时测试才会有真实外部结果。");
+  }
+  failed.forEach((item) => {
+    advice.push(`${item.intent || item.id || "检测项"}：${geoProbeQuestionAdvice(item)}`);
+  });
+  if (!untested.length && !failed.length && !notConfigured.length) {
+    advice.push("当前已配置外部平台的测试项全部通过。下一步重点看站外发布回链，以及 Google/Bing/AI Bot 是否持续抓取角色页。");
+  }
+  return advice.slice(0, 8);
+}
+
+function renderGeoProbeAdviceList(advice = []) {
+  return `
+    <ul class="adm-geo-list">
+      ${(advice || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>暂无建议。</li>"}
+    </ul>
+  `;
+}
+
+function webVitalValue(metric = "", value = 0) {
+  const number = Number(value || 0);
+  return metric === "CLS" ? number.toFixed(3) : `${Math.round(number)} ms`;
+}
+
+function webVitalTone(metric = "", value = 0) {
+  const thresholds = { LCP: [2500, 4000], INP: [200, 500], CLS: [0.1, 0.25] }[metric] || [];
+  if (Number(value) <= thresholds[0]) return "mint";
+  if (Number(value) <= thresholds[1]) return "amber";
+  return "rose";
+}
+
+function webVitalStatus(metric = "", value = 0) {
+  const tone = webVitalTone(metric, value);
+  return tone === "mint" ? "良好" : tone === "amber" ? "需要改进" : "较差";
+}
+
+function renderWebVitalCard(metric = "", rows = []) {
+  const row = (rows || []).find((item) => item.metric === metric);
+  if (!row) return statCard(metric, "-", "暂无真实用户样本", "activity", "violet");
+  return statCard(
+    `${metric} p75`,
+    webVitalValue(metric, row.p75),
+    `${webVitalStatus(metric, row.p75)} · ${row.count || 0} 个样本 · ${Number(row.goodPercent || 0).toFixed(1)}% 良好`,
+    metric === "LCP" ? "paintbrush" : metric === "INP" ? "mouse-pointer-click" : "move",
+    webVitalTone(metric, row.p75),
+  );
+}
+
+function renderWebVitalRow(item = {}, { showRoute = true } = {}) {
+  return `
+    <tr>
+      <td>${escapeHtml(item.hostname || "-")}</td>
+      ${showRoute ? `<td class="adm-mono">${escapeHtml(item.pagePath || "/")}</td><td>${escapeHtml(item.device || "-")}</td>` : ""}
+      <td><strong>${escapeHtml(item.metric || "-")}</strong></td>
+      <td>${escapeHtml(webVitalValue(item.metric, item.p75))}</td>
+      <td><span class="adm-pill ${webVitalTone(item.metric, item.p75) === "mint" ? "is-success" : webVitalTone(item.metric, item.p75) === "rose" ? "is-failed" : "is-pending"}">${escapeHtml(webVitalStatus(item.metric, item.p75))}</span></td>
+      <td>${escapeHtml(String(item.count || 0))}</td>
+      <td>${escapeHtml(Number(item.goodPercent || 0).toFixed(1))}%</td>
+      <td>${escapeHtml(fmtDate(item.lastSeen))}</td>
+    </tr>
+  `;
+}
+
+async function renderGeo() {
+  const payload = await api("/api/admin/geo-report");
+  if (!isActiveRoute("geo")) return;
+  const summary = payload.summary || {};
+  const checks = payload.checks || [];
+  const samples = payload.sampleCharacters || [];
+  const topics = payload.sampleTopics || [];
+  const coverage = payload.coverage || {};
+  const visitorStats = payload.visitorStats || {};
+  const indexNowHistory = payload.indexNowHistory || [];
+  const webVitals = payload.webVitals || {};
+  const aiProbes = payload.aiProbes || defaultGeoProbePlan(payload);
+  const geoProbeProviders = aiProbes.providers || [];
+  const configuredGeoProbeProviders = geoProbeProviders.filter((provider) => provider.configured);
+  const geoProbeQuestions = enrichGeoProbeQuestions(aiProbes.questions || [], aiProbes.results || []);
+  const geoProbeLatestResults = geoProbeQuestions.flatMap((item) => geoProbeQuestionResults(item));
+  const geoProbeConfiguredResults = geoProbeLatestResults.filter((item) => item.state !== "not_configured");
+  const geoProbeHits = geoProbeConfiguredResults.filter((item) => item.hit).length;
+  const geoProbeExpectedRuns = geoProbeQuestions.length * configuredGeoProbeProviders.length;
+  const geoProbePassRate = geoProbeConfiguredResults.length ? Math.round((geoProbeHits / geoProbeConfiguredResults.length) * 100) : 0;
+  const geoProbeAdvice = buildGeoProbeAdvice(geoProbeQuestions);
+  const geoTab = normalizeGeoAdminTab(sessionStorage.getItem("admTabGeo"));
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-geo-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>GEO</h2>
+          <p class="adm-muted">基础检测看站内公开信号是否完整；实时测试看外部 AI 平台回答里是否能提到和引用本站。</p>
+        </div>
+        <div class="adm-page-actions" hidden>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
+          <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>提交 IndexNow</button>
+          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>运行基础检测</button>
+        </div>
+      </div>
+
+      <div class="adm-tabs adm-geo-tabs" id="geoTabs">
+        ${renderGeoTabButton("basic", "基础检测", "shield-check", geoTab)}
+        ${renderGeoTabButton("realtime", "实时测试", "radar", geoTab)}
+        ${renderGeoTabButton("users", "真实用户", "users-round", geoTab)}
+        ${renderGeoTabButton("vitals", "网站性能", "gauge", geoTab)}
+        ${renderGeoTabButton("offsite", "站外发布", "send-horizontal", geoTab)}
+      </div>
+
+      <div class="adm-geo-panel ${geoTab === "basic" ? "" : "is-hidden"}" data-geo-panel="basic">
+        <div class="adm-page-actions adm-geo-subtab-actions">
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
+          <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>提交 IndexNow</button>
+          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>运行基础检测</button>
+        </div>
+        <div class="adm-grid adm-grid-4">
+          ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
+          ${statCard("内容覆盖分", summary.geoScore || 0, `${geoStatusLabel(coverage.status)}，不是基础检测通过率`, "activity", "violet")}
+          ${statCard("基础检测通过率", "未运行", "点击运行基础检测后更新", "radar", "amber", { id: "geoCheckRateCard", valueId: "geoCheckRateValue", detailId: "geoCheckRateDetail" })}
+          ${statCard("内容质量", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} 个角色页`, "badge-check", "mint")}
+          ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "violet")}
+        </div>
+
+        <div class="adm-card adm-geo-help-card">
+          <header class="adm-card-head">
+            <h3>基础检测口径</h3>
+            <span class="adm-muted">只代表站内技术和内容信号</span>
+          </header>
+          <div class="adm-card-body adm-geo-help-grid">
+            <div>
+              <strong>100 分代表什么</strong>
+              <p>这里的 100 分只代表内容覆盖完整，不代表基础检测每一项都通过，也不代表外部 AI 已经能搜到或推荐我们。</p>
+            </div>
+            <div>
+              <strong>按钮会检查什么</strong>
+              <p>点击“运行基础检测”会实时抓取首页、robots、sitemap、llms、角色页，并检查品牌、API、客服、结构化视频等信号；通过率会单独显示。</p>
+            </div>
+            <div>
+              <strong>和实时测试的区别</strong>
+              <p>实时测试会把问题发给外部 AI 平台，看平台回答里有没有提到我们；那才是 GEO 效果检测。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card adm-geo-score-card">
+          <header class="adm-card-head">
+            <h3>基础覆盖情况</h3>
+            <span class="adm-pill ${coverage.status === "healthy" ? "is-success" : coverage.status === "warming up" ? "is-pending" : "is-failed"}">${escapeHtml(geoStatusLabel(coverage.status))}</span>
+          </header>
+          <div class="adm-card-body adm-geo-score-body">
+            <div class="adm-geo-score-ring">
+              <strong>${escapeHtml(String(coverage.score || 0))}</strong>
+              <span>内容覆盖分</span>
+            </div>
+            <div class="adm-geo-metrics">
+              ${(coverage.metrics || []).map(renderGeoMetric).join("")}
+            </div>
+            <div class="adm-geo-tags">
+              <span class="adm-kicker">热门发现标签</span>
+              <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">暂无标签。</em>'}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>内容质量</h3>
+            <span class="adm-muted">${escapeHtml(String(summary.contentQualityPercent || 0))}% 已就绪</span>
+          </header>
+          <div class="adm-card-body adm-geo-quality-grid">
+            ${(coverage.qualityMetrics || []).map(renderGeoMetric).join("")}
+          </div>
+        </div>
+
+        <div class="adm-card adm-geo-indexnow">
+          <header class="adm-card-head">
+            <h3>IndexNow 与入口文件</h3>
+            <span class="adm-muted" id="geoIndexNowStatus">${escapeHtml(String(summary.indexNowUrlCount || 0))} 个链接待提交</span>
+          </header>
+          <div class="adm-card-body adm-geo-indexnow-body">
+            <div>
+              <span class="adm-kicker">验证文件</span>
+              <a class="adm-mono" href="${escapeHtml(summary.indexNowKeyLocation || "#")}" target="_blank" rel="noopener">${escapeHtml(summary.indexNowKeyLocation || "-")}</a>
+            </div>
+            <div>
+              <span class="adm-kicker">基础入口</span>
+              <strong>${escapeHtml(String(summary.sitemapUrlCount || 0))} 个 sitemap URL</strong>
+              <small>${escapeHtml(summary.llmsUrl || "/llms.txt")}</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>基础网站检测</h3>
+            <span class="adm-muted" id="geoCheckSummary">尚未运行</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-table">
+              <thead><tr><th>检查项</th><th>状态</th><th>信号</th><th>大小</th><th>打开</th></tr></thead>
+              <tbody id="geoCheckRows">
+                ${checks.map((check) => renderGeoCheckRow(check)).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>IndexNow 提交记录</h3>
+            <span class="adm-muted">${escapeHtml(String(indexNowHistory.length))} 次提交</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-indexnow-table">
+              <thead><tr><th>时间</th><th>状态</th><th>链接数</th><th>返回</th></tr></thead>
+              <tbody>
+                ${indexNowHistory.map(renderGeoIndexNowHistoryRow).join("") || '<tr><td colspan="4" class="adm-muted">暂无提交记录。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>内容问题</h3>
+            <span class="adm-muted">${escapeHtml(String(coverage.issueCount || 0))} 个角色页需要处理</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-issue-table">
+              <thead><tr><th>角色</th><th>缺失项</th><th>打开</th></tr></thead>
+              <tbody>
+                ${(coverage.issues || []).map(renderGeoIssueRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无明显内容问题。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>角色页样例</h3>
+            <span class="adm-muted">${escapeHtml(String(samples.length))} 个样例</span>
+          </header>
+          <div class="adm-card-body">
+            <div class="adm-geo-sample-grid">
+              ${samples.map(renderGeoSampleCard).join("") || '<div class="adm-empty"><i data-lucide="user-x"></i><p>暂无角色。</p></div>'}
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>主题页样例</h3>
+            <span class="adm-muted">${escapeHtml(String(summary.categoryCount || 0))} 个分类 · ${escapeHtml(String(summary.tagCount || 0))} 个标签</span>
+          </header>
+          <div class="adm-card-body">
+            <div class="adm-geo-topic-grid">
+              ${topics.map(renderGeoTopicCard).join("") || '<div class="adm-empty"><i data-lucide="tags"></i><p>暂无主题页。</p></div>'}
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head"><h3>推荐流程</h3></header>
+          <div class="adm-card-body">
+            <ul class="adm-geo-list">
+              ${(payload.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-geo-panel ${geoTab === "realtime" ? "" : "is-hidden"}" data-geo-panel="realtime">
+        <div class="adm-page-actions adm-geo-subtab-actions">
+          <button class="adm-btn adm-btn-primary" id="geoRunRealtimeBtn" type="button"><i data-lucide="radar"></i>运行实时测试</button>
+          <span class="adm-muted" id="geoRealtimeStatus"></span>
+        </div>
+        <div class="adm-grid adm-grid-4">
+          ${statCard("外部平台", `${configuredGeoProbeProviders.length}/${geoProbeProviders.length || 0}`, "已配置 / 可检测", "bot", "violet")}
+          ${statCard("已测组合", `${geoProbeConfiguredResults.length}/${geoProbeExpectedRuns}`, `${geoProbeHits} 个命中`, "message-square-search", "mint")}
+          ${statCard("历史结果", (aiProbes.results || []).length, "最近 80 条检测记录", "activity", "mint")}
+          ${statCard("外部命中率", geoProbeConfiguredResults.length ? `${geoProbePassRate}%` : "-", "外部平台回答命中情况", "target", "rose")}
+        </div>
+
+        <div class="adm-card adm-geo-help-card">
+          <header class="adm-card-head">
+            <h3>这组检测在看什么</h3>
+            <span class="adm-muted">点击按钮后向外部 AI 平台提问</span>
+          </header>
+          <div class="adm-card-body adm-geo-help-grid">
+            <div>
+              <strong>谁来测</strong>
+              <p>不是巡检自己网站。点击“运行实时测试”后，后台会把问题分别发给已配置的 Perplexity、OpenAI、Gemini 等外部平台。</p>
+            </div>
+            <div>
+              <strong>命中是什么意思</strong>
+              <p>命中表示外部平台的回答里出现了这个问题需要的关键信号，比如品牌名、接口路径、角色页结构或客服入口。</p>
+            </div>
+            <div>
+              <strong>未命中怎么办</strong>
+              <p>未命中说明外部平台没有识别到这些信息。通常要补站内说明、llms、结构化数据，或者发站外内容和回链。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>实时检测项</h3>
+            <span class="adm-muted">每一项都会按外部平台分别提问，结果按平台统计。</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-probe-table">
+              <thead><tr><th>检测项</th><th>希望外部回答出现</th><th>当前结果</th><th>优化建议</th><th>参考页</th></tr></thead>
+              <tbody>
+                ${geoProbeQuestions.map(renderGeoProbeQuestionRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无测试问题。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>检测后的优化建议</h3>
+            <span class="adm-muted">按当前检测结果自动生成</span>
+          </header>
+          <div class="adm-card-body">
+            ${renderGeoProbeAdviceList(geoProbeAdvice)}
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>检测结果明细</h3>
+            <span class="adm-muted">保留最近记录，方便看每次调整后是否变好。</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-result-table">
+              <thead><tr><th>时间</th><th>检测方式</th><th>问题</th><th>结果</th><th>解释</th></tr></thead>
+              <tbody>
+                ${(aiProbes.results || []).map(renderGeoProbeResultRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无检测结果。点击“运行实时测试”后会显示在这里。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-geo-panel ${geoTab === "users" ? "" : "is-hidden"}" data-geo-panel="users">
+        <div class="adm-grid adm-grid-4">
+          ${statCard("真实访问", summary.realUserVisits || 0, "已排除爬虫", "mouse-pointer-click", "mint")}
+          ${statCard("独立 IP", summary.uniqueVisitorCount || 0, "去重访客", "users-round", "violet")}
+          ${statCard("访问路径", summary.visitedPathCount || 0, "真实用户打开过的路径", "route", "amber")}
+          ${statCard("国家/地区", summary.visitorCountryCount || 0, "访问来源", "globe-2", "rose")}
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>真实访问路径</h3>
+            <span class="adm-muted">${escapeHtml(String(summary.visitedCharacterPathCount || 0))} 个角色页被真实用户访问</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-bot-table">
+              <thead><tr><th>路径</th><th>访问次数</th><th>最近访问</th></tr></thead>
+              <tbody>
+                ${(visitorStats.topPaths || []).map(renderGeoVisitorPathRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无真实访问路径。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>最近真实用户访问</h3>
+            <span class="adm-muted">${escapeHtml(String((visitorStats.recent || []).length))} 条最近记录</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-crawler-table">
+              <thead><tr><th>路径</th><th>国家/地区</th><th>IP</th><th>时间</th><th>User-Agent</th></tr></thead>
+              <tbody>
+                ${(visitorStats.recent || []).map(renderGeoVisitorRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无真实用户访问记录。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-geo-panel ${geoTab === "vitals" ? "" : "is-hidden"}" data-geo-panel="vitals">
+        <div class="adm-grid adm-grid-4">
+          ${statCard("近 28 天样本", webVitals.sampleCount || 0, "真实用户页面性能记录", "database", "violet")}
+          ${renderWebVitalCard("LCP", webVitals.overall || [])}
+          ${renderWebVitalCard("INP", webVitals.overall || [])}
+          ${renderWebVitalCard("CLS", webVitals.overall || [])}
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>各域名 p75</h3>
+            <span class="adm-muted">按老站、新站2和工具域名分别统计</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table">
+              <thead><tr><th>域名</th><th>指标</th><th>p75</th><th>状态</th><th>样本</th><th>良好占比</th><th>最近上报</th></tr></thead>
+              <tbody>
+                ${(webVitals.byHost || []).map((item) => renderWebVitalRow(item, { showRoute: false })).join("") || '<tr><td colspan="7" class="adm-muted">暂无真实用户性能数据。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>路径与设备明细</h3>
+            <span class="adm-muted">用于定位具体页面和移动端问题</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table">
+              <thead><tr><th>域名</th><th>路径</th><th>设备</th><th>指标</th><th>p75</th><th>状态</th><th>样本</th><th>良好占比</th><th>最近上报</th></tr></thead>
+              <tbody>
+                ${(webVitals.byRoute || []).map((item) => renderWebVitalRow(item)).join("") || '<tr><td colspan="9" class="adm-muted">暂无路径性能数据。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      ${renderGeoOffsitePlan(payload.offsitePlan || {}, geoTab)}
+    </section>
+  `;
+  refreshIcons();
+  els.adminContent.querySelectorAll(".adm-page-head [id^='geo']").forEach((node) => {
+    node.removeAttribute("id");
+  });
+  const run = () => runGeoChecks(checks);
+  byId("geoRunChecksBtn")?.addEventListener("click", run);
+  byId("geoSubmitIndexNowBtn")?.addEventListener("click", submitGeoIndexNow);
+  byId("geoRunRealtimeBtn")?.addEventListener("click", () => runGeoRealtimeTest(aiProbes.questions || []));
+  const geoTabs = byId("geoTabs");
+  geoTabs?.addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-tab]");
+    if (!button) return;
+    const nextTab = normalizeGeoAdminTab(button.dataset.tab);
+    sessionStorage.setItem("admTabGeo", nextTab);
+    geoTabs.querySelectorAll("button[data-tab]").forEach((item) => {
+      item.classList.toggle("is-active", item.dataset.tab === nextTab);
+    });
+    els.adminContent.querySelectorAll("[data-geo-panel]").forEach((panel) => {
+      panel.classList.toggle("is-hidden", panel.dataset.geoPanel !== nextTab);
+    });
+  });
+  bindGeoOffsiteCopyButtons(payload.offsitePlan || {});
+  run();
+}
+
+function renderGeoProbeQuestionRow(item = {}) {
+  const results = geoProbeQuestionResults(item);
+  const expected = (item.expectedSignals || []).filter(Boolean);
+  const matched = [...new Set(results.flatMap((result) => Array.isArray(result.matchedSignals) ? result.matchedSignals : []))];
+  const missing = expected.filter((signal) => !matched.includes(signal));
+  const signals = expected.map((signal) => {
+    const isMatched = matched.includes(signal);
+    const isMissing = results.length && missing.includes(signal);
+    return `<span class="adm-pill ${isMatched ? "is-success" : isMissing ? "is-failed" : ""}">${escapeHtml(signal)}</span>`;
+  }).join(" ");
+  const status = geoProbeStatusText(item);
+  const configured = results.filter((result) => result.state !== "not_configured");
+  const hitCount = configured.filter((result) => result.hit).length;
+  const resultText = results.length
+    ? configured.length
+      ? `${hitCount}/${configured.length} 个外部平台回答命中。`
+      : "外部平台未配置，尚未实际提问。"
+    : "还没有运行过这一项。";
+  return `
+    <tr>
+      <td>
+        <strong>${escapeHtml(item.intent || item.id || "检测项")}</strong>
+        <span class="adm-block adm-muted">${escapeHtml(item.question || "-")}</span>
+        <span class="adm-block adm-muted adm-mono">${escapeHtml(item.id || "")}</span>
+      </td>
+      <td>
+        <span class="adm-block adm-muted">参考页 / 站内依据</span>
+        <span class="adm-block adm-mono adm-truncate" title="${escapeHtml(item.targetUrl || "")}">${escapeHtml(item.targetUrl || "-")}</span>
+        <div class="adm-geo-signal-list">${signals || '<span class="adm-muted">无固定信号，只检查页面可访问。</span>'}</div>
+      </td>
+      <td>
+        <span class="adm-pill ${geoProbeStatusClass(item)}">${escapeHtml(status)}</span>
+        <small class="adm-block adm-muted">${escapeHtml(resultText)}</small>
+      </td>
+      <td>${escapeHtml(geoProbeQuestionAdvice(item))}</td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.targetUrl || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
+    </tr>
+  `;
+}
+
+function renderGeoProbeResultRow(item = {}) {
+  const hit = item.hit === true;
+  const explanation = geoProbeResultExplain(item);
+  return `
+    <tr>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td>${escapeHtml(geoProbeModelLabel(item.model, item))}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.question || "")}">${escapeHtml(item.question || "-")}</td>
+      <td><span class="adm-pill ${hit ? "is-success" : "is-failed"}">${hit ? "命中" : "未命中"}</span></td>
+      <td class="adm-truncate" title="${escapeHtml(explanation)}">${escapeHtml(explanation)}</td>
+    </tr>
+  `;
+}
+function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
+  const platformRows = plan.platformRows || [];
+  const keywordSets = plan.keywordSets || [];
+  const drafts = plan.drafts || [];
+  const schedule = plan.schedule || [];
+  return `
+    <div class="adm-geo-panel ${activeTab === "offsite" ? "" : "is-hidden"}" data-geo-panel="offsite">
+      <div class="adm-card adm-geo-offsite-hero">
+        <div>
+          <span class="adm-kicker">站外 GEO</span>
+          <h3>发布可被 AI 发现和引用的站外信源</h3>
+          <p>用这一批内容建立干净的站外引用网络：AI 工具目录、产品发布、长文指南、问答回复和短视频说明。对外正文保持一致，并链接回站内标准页面。</p>
+        </div>
+        <div class="adm-geo-offsite-links">
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.homepageUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="home"></i>首页</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.createUrl || "/create")}" target="_blank" rel="noopener"><i data-lucide="wand-sparkles"></i>生成页</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.sampleTagUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="tags"></i>主题页</a>
+        </div>
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("发布渠道", platformRows.length, "渠道层级", "network", "rose")}
+        ${statCard("可发布草稿", drafts.filter((item) => item.status === "Ready").length, `共 ${drafts.length} 篇`, "file-check-2", "mint")}
+        ${statCard("关键词组", keywordSets.length, "搜索 / 问答 / 场景", "list-checks", "violet")}
+        ${statCard("下一批", schedule[0]?.week || "Week 1", "先发目录站", "calendar-days", "amber")}
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>平台矩阵</h3>
+          <span class="adm-muted">按优先级整理的站外信源</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-platform-table">
+            <thead><tr><th>层级</th><th>平台</th><th>目的</th><th>频率</th><th>优先级</th></tr></thead>
+            <tbody>${platformRows.map(renderGeoPlatformRow).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>关键词矩阵</h3>
+          <span class="adm-muted">用于选择文章标题和问答目标</span>
+        </header>
+        <div class="adm-card-body adm-geo-keyword-grid">
+          ${keywordSets.map(renderGeoKeywordSet).join("")}
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>首批站外发布内容</h3>
+          <span class="adm-muted">${escapeHtml(String(drafts.length))} 篇草稿</span>
+        </header>
+        <div class="adm-card-body adm-geo-draft-grid">
+          ${drafts.map(renderGeoDraftCard).join("")}
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>发布节奏</h3>
+          <span class="adm-muted">闭合发布到抓取的链路</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-schedule-table">
+            <thead><tr><th>阶段</th><th>任务</th><th>目标</th></tr></thead>
+            <tbody>${schedule.map(renderGeoScheduleRow).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGeoPlatformRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.group || "-")}</strong><span class="adm-block adm-muted">${escapeHtml(item.contentType || "")}</span></td>
+      <td>${escapeHtml(item.platforms || "-")}</td>
+      <td>${escapeHtml(item.purpose || "-")}</td>
+      <td>${escapeHtml(item.cadence || "-")}</td>
+      <td><span class="adm-pill ${item.priority === "P0" ? "is-success" : item.priority === "P1" ? "is-running" : "is-pending"}">${escapeHtml(item.priority || "-")}</span></td>
+    </tr>
+  `;
+}
+
+function renderGeoKeywordSet(item = {}) {
+  return `
+    <article class="adm-geo-keyword-card">
+      <strong>${escapeHtml(item.label || "关键词")}</strong>
+      <div>${(item.terms || []).map((term) => `<span>${escapeHtml(term)}</span>`).join("")}</div>
+    </article>
+  `;
+}
+
+function renderGeoDraftCard(item = {}, index = 0) {
+  return `
+    <article class="adm-geo-draft-card">
+      <header>
+        <div>
+          <span class="adm-kicker">${escapeHtml(item.channel || "内容")}</span>
+          <strong>${escapeHtml(item.title || "未命名草稿")}</strong>
+        </div>
+        <span class="adm-pill ${item.status === "Ready" ? "is-success" : "is-pending"}">${escapeHtml(geoDraftStatusLabel(item.status))}</span>
+      </header>
+      <p>${escapeHtml(item.summary || "")}</p>
+      <div class="adm-geo-draft-meta">
+        <span><i data-lucide="send"></i>${escapeHtml(item.platform || "-")}</span>
+        <span><i data-lucide="link"></i>${escapeHtml(shortText(item.link || "-", 54))}</span>
+      </div>
+      <pre>${escapeHtml(item.body || "")}</pre>
+      <div class="adm-geo-draft-tags">${(item.keywords || []).map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>
+      <footer>
+        <button class="adm-btn adm-btn-sm adm-btn-primary" type="button" data-copy-geo-draft="${index}"><i data-lucide="copy"></i>复制草稿</button>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开目标</a>
+      </footer>
+    </article>
+  `;
+}
+
+function renderGeoScheduleRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.week || "-")}</strong></td>
+      <td>${escapeHtml(item.task || "-")}</td>
+      <td>${escapeHtml(item.goal || "-")}</td>
+    </tr>
+  `;
+}
+
+function geoDraftText(item = {}) {
+  return [
+    `Channel: ${item.channel || ""}`,
+    `Platform: ${item.platform || ""}`,
+    `Title: ${item.title || ""}`,
+    `Link: ${item.link || ""}`,
+    "",
+    item.summary || "",
+    "",
+    item.body || "",
+    "",
+    item.cta || "",
+    "",
+    `Keywords: ${(item.keywords || []).join(", ")}`,
+  ].join("\n").trim();
+}
+
+function bindGeoOffsiteCopyButtons(plan = {}) {
+  const drafts = plan.drafts || [];
+  els.adminContent.querySelectorAll("[data-copy-geo-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.copyGeoDraft || 0);
+      copyText(geoDraftText(drafts[index] || {}), "站外草稿已复制。");
+    });
+  });
+}
+
+function renderGeoCheckRow(check = {}, result = null) {
+  const stateClass = !result ? "" : result.running ? "is-running" : result.ok ? "is-success" : "is-failed";
+  const stateText = !result ? "待检查" : result.running ? "检查中" : result.ok ? `${result.status}` : result.error || `${result.status || "失败"}`;
+  const signalText = result
+    ? result.running
+      ? `正在检查：${(check.expect || []).join(", ")}`
+      : `${result.matched}/${result.total} 已匹配${result.missing?.length ? `，缺失：${result.missing.join(", ")}` : ""}`
+    : (check.expect || []).join(", ");
+  return `
+    <tr data-geo-check-row="${escapeHtml(check.id || "")}">
+      <td><strong>${escapeHtml(check.label || check.id || "")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(check.path || "")}</span></td>
+      <td><span class="adm-pill ${stateClass}">${escapeHtml(stateText)}</span></td>
+      <td class="adm-truncate" title="${escapeHtml(signalText)}">${escapeHtml(signalText)}</td>
+      <td>${escapeHtml(result ? fmtBytes(result.bytes || 0) : "-")}</td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(check.url || check.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
+    </tr>
+  `;
+}
+
+function renderGeoSampleCard(item = {}) {
+  const tags = (item.tags || []).slice(0, 4);
+  const preview = adminMediaPreviewTrigger({ url: item.posterUrl || "", kind: "image", label: item.name || item.id || "角色" });
+  return `
+    <article class="adm-geo-sample-card">
+      ${preview}
+      <div>
+        <strong>${escapeHtml(item.name || item.id || "角色")}</strong>
+        <span>${escapeHtml(item.videoCount || 0)} 个视频</span>
+        <p>${escapeHtml(shortText(item.summary || "", 120))}</p>
+        ${tags.length ? `<div>${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a>
+      </div>
+    </article>
+  `;
+}
+
+function renderGeoMetric(metric = {}) {
+  const percent = Math.max(0, Math.min(100, Number(metric.percent || 0)));
+  return `
+    <div class="adm-geo-metric">
+      <div>
+        <strong>${escapeHtml(metric.label || "-")}</strong>
+        <span>${escapeHtml(String(metric.count || 0))}/${escapeHtml(String(metric.total || 0))}</span>
+      </div>
+      <span class="adm-geo-meter"><i style="width:${percent}%"></i></span>
+    </div>
+  `;
+}
+
+function renderGeoImportantBotRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.bot || "-")}</strong></td>
+      <td>${escapeHtml(String(item.count || 0))}</td>
+      <td>${escapeHtml(item.lastSeen ? fmtDate(item.lastSeen) : "-")}</td>
+      <td class="adm-mono adm-truncate" title="${escapeHtml(item.lastPath || "")}">${escapeHtml(item.lastPath || "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoVisitorPathRow(item = {}) {
+  return `
+    <tr>
+      <td class="adm-mono adm-truncate" title="${escapeHtml(item.path || "")}">${escapeHtml(item.path || "-")}</td>
+      <td>${escapeHtml(String(item.count || 0))}</td>
+      <td>${escapeHtml(item.lastSeen ? fmtDate(item.lastSeen) : "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoVisitorRow(item = {}) {
+  return `
+    <tr>
+      <td class="adm-mono">${escapeHtml(item.path || "-")}</td>
+      <td>${escapeHtml(item.country || "-")}</td>
+      <td class="adm-mono">${escapeHtml(item.ip || "-")}</td>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.userAgent || "")}">${escapeHtml(item.userAgent || "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoIndexNowHistoryRow(item = {}) {
+  const stateClass = item.ok ? "is-success" : "is-failed";
+  const stateText = item.status ? `${item.status} ${item.statusText || ""}`.trim() : (item.statusText || "失败");
+  return `
+    <tr>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td><span class="adm-pill ${stateClass}">${escapeHtml(stateText)}</span></td>
+      <td>${escapeHtml(String(item.urlCount || 0))}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.responseText || "")}">${escapeHtml(item.responseText || "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoIssueRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.name || item.id || "-")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(item.path || "")}</span></td>
+      <td>${(item.missing || []).map((value) => `<span class="adm-pill is-failed">${escapeHtml(value)}</span>`).join(" ")}</td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
+    </tr>
+  `;
+}
+
+function renderGeoTopicCard(item = {}) {
+  return `
+    <article class="adm-geo-topic-card">
+      <div>
+        <strong>${escapeHtml(item.label || item.id || "主题")}</strong>
+        <span>${escapeHtml(geoTopicTypeLabel(item.type || "topic"))} · ${escapeHtml(String(item.count || 0))} 个角色页</span>
+      </div>
+      <p>${escapeHtml(shortText(item.summary || "", 120))}</p>
+      <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a>
+    </article>
+  `;
+}
+
+function renderGeoCrawlerRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.bot || "-")}</strong></td>
+      <td class="adm-mono">${escapeHtml(item.path || "-")}</td>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.userAgent || "")}">${escapeHtml(item.userAgent || "-")}</td>
+    </tr>
+  `;
+}
+
+async function submitGeoIndexNow() {
+  const button = byId("geoSubmitIndexNowBtn");
+  const status = byId("geoIndexNowStatus");
+  if (!button) return;
+  const previous = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<i data-lucide="loader-2"></i>提交中';
+  if (status) status.textContent = "提交中...";
+  refreshIcons();
+  try {
+    const payload = await api("/api/admin/geo/indexnow", { method: "POST", body: {} });
+    const result = payload.result || {};
+    const message = `IndexNow ${payload.accepted ? "已接受" : "被拒绝"} ${result.status || ""}：${result.urlCount || 0} 个链接`;
+    if (status) status.textContent = message;
+    toast(message, payload.accepted ? "success" : "error");
+  } catch (err) {
+    if (status) status.textContent = err.message || "提交失败";
+    toast(err.message || "IndexNow 提交失败", "error");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = previous;
+    refreshIcons();
+  }
+}
+
+async function runGeoRealtimeTest(questions = []) {
+  const button = byId("geoRunRealtimeBtn");
+  const status = byId("geoRealtimeStatus");
+  if (!button) return;
+  const previous = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<i data-lucide="loader-2"></i>测试中';
+  if (status) status.textContent = "正在向已配置的外部 AI 平台逐个提问...";
+  refreshIcons();
+  try {
+    const payload = await api("/api/admin/geo/realtime-test", {
+      method: "POST",
+      body: { questions },
+    });
+    const results = payload.aiProbes?.results || [];
+    const providers = payload.aiProbes?.providers || [];
+    const configuredCount = providers.filter((item) => item.configured).length;
+    const latestCount = Math.min((questions || []).length * Math.max(configuredCount, 1), results.length);
+    const latest = results.slice(0, latestCount).filter((item) => item.state !== "not_configured");
+    const hits = latest.filter((item) => item.hit).length;
+    const message = configuredCount
+      ? `外部 AI 实时测试完成：${hits}/${latest.length} 个问答命中`
+      : "实时测试未执行：还没有配置外部 AI 平台 API Key";
+    if (status) status.textContent = message;
+    toast(message, configuredCount && hits === latest.length ? "success" : "info");
+    await renderGeo();
+  } catch (err) {
+    if (status) status.textContent = err.message || "实时测试失败";
+    toast(err.message || "实时测试失败", "error");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = previous;
+    refreshIcons();
+  }
+}
+
+async function runGeoChecks(checks = []) {
+  const rows = byId("geoCheckRows");
+  const summary = byId("geoCheckSummary");
+  const button = byId("geoRunChecksBtn");
+  const rateValue = byId("geoCheckRateValue");
+  const rateDetail = byId("geoCheckRateDetail");
+  if (!rows || !summary) return;
+  const previous = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-2"></i>检查中';
+  }
+  summary.textContent = "检查中...";
+  if (rateValue) rateValue.textContent = "检查中";
+  if (rateDetail) rateDetail.textContent = "正在逐项抓取站内入口";
+  let passed = 0;
+  try {
+    for (const check of checks) {
+      const row = [...rows.querySelectorAll("[data-geo-check-row]")].find((item) => item.dataset.geoCheckRow === String(check.id || ""));
+      if (row) row.outerHTML = renderGeoCheckRow(check, { running: true, matched: 0, total: (check.expect || []).length, missing: [] });
+      refreshIcons();
+      const result = await fetchGeoCheck(check);
+      if (result.ok) passed += 1;
+      const nextRow = [...rows.querySelectorAll("[data-geo-check-row]")].find((item) => item.dataset.geoCheckRow === String(check.id || ""));
+      if (nextRow) nextRow.outerHTML = renderGeoCheckRow(check, result);
+      refreshIcons();
+    }
+    const rate = checks.length ? Math.round((passed / checks.length) * 100) : 0;
+    summary.textContent = `${passed}/${checks.length} 通过`;
+    summary.className = passed === checks.length ? "adm-muted adm-geo-pass" : "adm-muted adm-geo-fail";
+    if (rateValue) rateValue.textContent = `${rate}%`;
+    if (rateDetail) rateDetail.textContent = `${passed}/${checks.length} 通过，${checks.length - passed} 项未通过`;
+    toast(`基础检测完成：${passed}/${checks.length} 通过`, passed === checks.length ? "success" : "info");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = previous;
+      refreshIcons();
+    }
+  }
+}
+
+async function fetchGeoCheck(check = {}) {
+  try {
+    const response = await fetch(check.path || check.url || "/", { cache: "no-store" });
+    const text = await response.text();
+    const expects = check.expect || [];
+    const missing = expects.filter((needle) => !text.includes(String(needle)));
+    return {
+      ok: response.ok && missing.length === 0,
+      status: response.status,
+      bytes: text.length,
+      matched: expects.length - missing.length,
+      total: expects.length,
+      missing,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      bytes: 0,
+      matched: 0,
+      total: (check.expect || []).length,
+      missing: check.expect || [],
+      error: err.message || "请求失败",
+    };
+  }
+}
+
+/* ============ boot ============ */
+async function bootstrap() {
+  if (!state.token) {
+    showLogin();
+    return;
+  }
+  try {
+    const me = await fetch("/api/auth/me", {
+      headers: { authorization: `Bearer ${state.token}` },
+    }).then((r) => r.json()).catch(() => ({}));
+    if (!me?.user || me.user.role !== "admin") {
+      throw new Error(me?.message || "需要管理员账号");
+    }
+    state.user = me.user;
+    showApp();
+  } catch (err) {
+    state.token = "";
+    state.user = null;
+    localStorage.removeItem(TOKEN_KEY);
+    showLogin();
+  }
+}
+
+els.loginForm?.addEventListener("submit", doLogin);
+els.logoutBtn?.addEventListener("click", doLogout);
+els.sidebarToggle?.addEventListener("click", () => els.appView.classList.toggle("is-nav-open"));
+els.navToggle?.addEventListener("click", () => els.appView.classList.toggle("is-nav-open"));
+els.adminNav?.addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-route]");
+  if (!a) return;
+  // Let hashchange take over; but also close mobile nav.
+  els.appView.classList.remove("is-nav-open");
+});
+
+window.addEventListener("hashchange", () => {
+  if (state.token && state.user) routeFromHash();
+});
+
+bootstrap();

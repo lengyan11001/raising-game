@@ -1,0 +1,78 @@
+"use strict";
+
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://oauth.telegram.org https://accounts.google.com https://g.alicdn.com https://checkout.airwallex.com https://checkout-demo.airwallex.com https://static.airwallex.com",
+  "frame-src 'self' https://accounts.google.com https://checkout.airwallex.com https://checkout-demo.airwallex.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' https: data: blob:",
+  "media-src 'self' https: blob:",
+  "font-src 'self' https: data:",
+  "connect-src 'self' https: wss: blob:",
+  "worker-src 'self' blob:",
+  "form-action 'self' https:",
+  "upgrade-insecure-requests",
+].join("; ");
+
+const PUBLIC_SECURITY_HEADERS = Object.freeze({
+  "content-security-policy": CONTENT_SECURITY_POLICY,
+  "cross-origin-opener-policy": "same-origin-allow-popups",
+  /* 在线聊天（Vidu 实时数字人）需要麦克风；摄像头保留给将来的双向模式 */
+  "permissions-policy": "camera=(self), geolocation=(), microphone=(self), browsing-topics=()",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+});
+
+function firstForwardedValue(value = "") {
+  return String(value || "").split(",")[0].trim().toLowerCase();
+}
+
+function requestProtocol(req = {}) {
+  if (req.socket?.encrypted) return "https";
+  return firstForwardedValue(req.headers?.["x-forwarded-proto"] || "http");
+}
+
+function requestHost(req = {}) {
+  return firstForwardedValue(req.headers?.["x-forwarded-host"] || req.headers?.host || "");
+}
+
+function isLocalHostname(host = "") {
+  const hostname = String(host || "").replace(/^\[/, "").replace(/\](?::\d+)?$/, "").replace(/:\d+$/, "");
+  return /^(localhost|127\.0\.0\.1|::1)$/i.test(hostname);
+}
+
+function httpsRedirectLocation(req = {}, url = {}) {
+  const protocol = requestProtocol(req);
+  const host = requestHost(req);
+  if (protocol !== "http" || !host || isLocalHostname(host)) return "";
+  return `https://${host}${url.pathname || "/"}${url.search || ""}`;
+}
+
+function applyPublicSecurityHeaders(req, res) {
+  const pathname = String(req?.url || "").split("?")[0];
+  const embed = pathname === "/embed" || pathname.startsWith("/embed/");
+  const headers = embed ? {
+    ...PUBLIC_SECURITY_HEADERS,
+    "content-security-policy": CONTENT_SECURITY_POLICY.replace("frame-ancestors 'none'", "frame-ancestors https:"),
+    "permissions-policy": "camera=*, geolocation=(), microphone=*, browsing-topics=()",
+  } : PUBLIC_SECURITY_HEADERS;
+  Object.entries(headers).forEach(([name, value]) => {
+    if (embed && name === "x-frame-options") return;
+    if (!res.hasHeader(name)) res.setHeader(name, value);
+  });
+  if (requestProtocol(req) === "https" && !res.hasHeader("strict-transport-security")) {
+    res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
+}
+
+module.exports = {
+  CONTENT_SECURITY_POLICY,
+  PUBLIC_SECURITY_HEADERS,
+  applyPublicSecurityHeaders,
+  httpsRedirectLocation,
+  requestProtocol,
+};

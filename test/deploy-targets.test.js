@@ -1,0 +1,226 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+
+const root = path.resolve(__dirname, "..");
+const deploySite = fs.readFileSync(path.join(root, "scripts", "deploy_site.py"), "utf8");
+const deployPull = fs.readFileSync(path.join(root, "scripts", "deploy_pull.py"), "utf8");
+const materializer = path.join(root, "scripts", "materialize_static_release.py");
+const snapshotBuilder = path.join(root, "scripts", "build_release_snapshot.py");
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd || root,
+    env: { ...process.env, ...(options.env || {}) },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `${command} ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`);
+  return result.stdout;
+}
+
+function runPython(source) {
+  return run("python3", ["-c", source]);
+}
+
+function writeFile(file, content = "x\n") {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content);
+}
+
+test("production deploy targets use isolated release branches and roots", () => {
+  assert.match(deploySite, /"branch": "platform-release"/);
+  assert.match(deploySite, /"remote_root": "\/opt\/raising-game-demo"/);
+  assert.match(deploySite, /"audit_base": "release-base\/platform"/);
+  assert.match(deploySite, /"branch": "live-release"/);
+  assert.match(deploySite, /"remote_root": "\/opt\/raising-game-live-src"/);
+  assert.match(deploySite, /"static_root": "\/opt\/raising-game-live-static"/);
+  assert.match(deploySite, /"audit_base": "release-base\/live"/);
+  assert.match(deploySite, /"requires_restart": False/);
+  assert.match(deploySite, /materialize_static_release\.py --source \/opt\/raising-game-live-src --target \/opt\/raising-game-live-static --profile live/);
+  assert.match(deploySite, /"https:\/\/123vips\.com\/live\.html=404"/);
+  assert.match(deploySite, /"https:\/\/123vips\.com\/=Vipeak AI"/);
+  assert.match(deploySite, /"https:\/\/123vips\.com\/=Vipeak Live"/);
+  assert.match(deployPull, /Refusing to deploy an integration branch/);
+  assert.match(deployPull, /--audit-base/);
+  assert.match(deployPull, /--forbid-changed-path/);
+  assert.match(deployPull, /--verify-status/);
+  assert.match(deployPull, /Deployed commit mismatch/);
+});
+
+test("integration branches are rejected before any SSH connection", () => {
+  for (const branch of ["old-site", "main"]) {
+    const result = spawnSync("python3", [path.join(root, "scripts", "deploy_pull.py"), "--branch", branch], {
+      cwd: root,
+      env: { ...process.env, DEPLOY_SSH_PASSWORD: "not-used" },
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Refusing to deploy an integration branch/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\[ssh\] connecting/);
+  }
+});
+
+test("platform history rejects 33a6e65 even when a later commit deletes live files", () => {
+  const output = runPython(String.raw`
+import importlib.util
+import json
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_pull", root / "scripts" / "deploy_pull.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+patterns = [
+    "live.html", "live.css", "live.js", "qrcode.js", "site-landing.*",
+    "downloads/vipeak-live.apk", "mobile/live-android/**",
+    "assets/brand/live-*", "assets/chat-live/moans/**",
+    "assets/chat-live/welcome-newcomer*",
+]
+entries = module.changed_entries_for_release(root, "33a6e65^", "HEAD")
+matched = module.forbidden_release_entries(entries, patterns)
+assert "live.html" in matched, matched
+assert "live.css" in matched, matched
+assert "live.js" in matched, matched
+assert "downloads/vipeak-live.apk" in matched, matched
+assert "mobile/live-android/src/com/vipeak/live/MainActivity.java" in matched, matched
+print(json.dumps(matched))
+`);
+  assert.match(output, /live\.html/);
+});
+
+test("release history permits deleting foreign paths but rejects all ways of introducing them", () => {
+  const output = runPython(String.raw`
+import importlib.util
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_pull", root / "scripts" / "deploy_pull.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+patterns = [
+    "live.html", "live.css", "live.js", "qrcode.js", "site-landing.*",
+    "downloads/vipeak-live.apk", "mobile/live-android/**",
+    "assets/brand/live-*", "assets/chat-live/moans/**",
+    "assets/chat-live/welcome-newcomer*",
+]
+assert module.forbidden_release_entries([("D", "live.html")], patterns) == []
+assert module.forbidden_release_entries([("R100", "archive/live.html")], patterns) == []
+for entry in [
+    ("A", "live.html"),
+    ("M", "live.css"),
+    ("C100", "live.js"),
+    ("R100", "live.html"),
+    ("A", "mobile/live-android/src/com/vipeak/live/MainActivity.java"),
+    ("A", "assets/brand/live-logo.png"),
+    ("A", "assets/chat-live/moans/joanna.wav"),
+    ("A", "assets/chat-live/welcome-newcomer.webp"),
+]:
+    assert module.forbidden_release_entries([entry], patterns), entry
+print("ok")
+`);
+  assert.match(output, /ok/);
+});
+
+test("live surface helpers block live-owned paths on platform and retain chat-live", () => {
+  const liveSurface = require(path.join(root, "lib-live-surface"));
+  assert.equal(liveSurface.isLiveOwnedStaticPath("/live.html"), true);
+  assert.equal(liveSurface.isLiveOwnedStaticPath("/downloads/vipeak-live.apk"), true);
+  assert.equal(liveSurface.isLiveOwnedStaticPath("/assets/brand/live-logo.png"), true);
+  assert.equal(liveSurface.isLiveOwnedStaticPath("/assets/chat-live/moans/joanna.wav"), true);
+  assert.equal(liveSurface.isLiveOwnedStaticPath("/chat-live.js"), false);
+  assert.equal(liveSurface.shouldBlockLiveOwnedStatic({ pathname: "/live.html", toolId: "" }), true);
+  assert.equal(liveSurface.shouldBlockLiveOwnedStatic({ pathname: "/live.html", toolId: "live" }), false);
+  assert.equal(liveSurface.shouldBlockLiveOwnedStatic({ pathname: "/chat-live.js", toolId: "chat" }), false);
+  assert.equal(liveSurface.shouldBlockLiveOwnedStatic({ pathname: "/site-landing.html", isStandaloneLandingHost: true }), false);
+  assert.equal(liveSurface.resolveLiveStaticRoot(root, ""), "/opt/raising-game-live-static");
+  assert.doesNotMatch(deploySite, /liveStaticSurfaceRequest[^\n]*\|\|\s*ROOT/);
+});
+
+test("live materializer copies only allowlisted static files and atomically replaces the target", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "live-release-"));
+  const source = path.join(workspace, "source");
+  const target = path.join(workspace, "target");
+  fs.mkdirSync(source, { recursive: true });
+  run("git", ["init", "-q"], { cwd: source });
+  run("git", ["config", "user.email", "test@example.com"], { cwd: source });
+  run("git", ["config", "user.name", "Test"], { cwd: source });
+
+  const files = [
+    "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
+    "site-landing.html", "site-landing.css", "site-landing.js",
+    "downloads/vipeak-live.apk", "assets/chat-live/gifts/flower.svg",
+    "assets/chat-live/moans/joanna.wav", "assets/chat-live/welcome-newcomer.webp",
+    "assets/brand/default-avatar.jpg", "assets/brand/MaShanZheng-Regular.ttf",
+    "assets/brand/wechat-logo.png", "assets/brand/alipay-logo.svg",
+    "assets/brand/live-logo.png", "assets/brand/showcase/campus.webp",
+    "mobile/live-android/README.md", "server.js", "platform.html",
+    "assets/chat-live/welcome-other.webp",
+  ];
+  for (const file of files) writeFile(path.join(source, file), file);
+  writeFile(path.join(source, ".env.local"), "SECRET=1\n");
+  run("git", ["add", "."], { cwd: source });
+  run("git", ["commit", "-qm", "fixture"], { cwd: source });
+
+  fs.mkdirSync(target, { recursive: true });
+  writeFile(path.join(target, "stale.txt"), "stale\n");
+  run("python3", [materializer, "--source", source, "--target", target, "--profile", "live"]);
+
+  for (const file of [
+    "live.html", "chat-live.js", "site-landing.html", "downloads/vipeak-live.apk",
+    "assets/chat-live/gifts/flower.svg", "assets/chat-live/moans/joanna.wav",
+    "assets/chat-live/welcome-newcomer.webp", "assets/brand/live-logo.png",
+    "assets/brand/showcase/campus.webp", "mobile/live-android/README.md",
+  ]) {
+    assert.equal(fs.existsSync(path.join(target, file)), true, file);
+  }
+  for (const file of ["server.js", "platform.html", ".env.local", "assets/chat-live/welcome-other.webp", "stale.txt"]) {
+    assert.equal(fs.existsSync(path.join(target, file)), false, file);
+  }
+});
+
+test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "release-snapshot-"));
+  const source = path.join(workspace, "source");
+  fs.mkdirSync(source, { recursive: true });
+  run("git", ["init", "-q"], { cwd: source });
+  run("git", ["config", "user.email", "test@example.com"], { cwd: source });
+  run("git", ["config", "user.name", "Test"], { cwd: source });
+
+  const files = [
+    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/deploy_pull.py",
+    "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
+    "site-landing.html", "site-landing.css", "site-landing.js",
+    "downloads/vipeak-live.apk", "mobile/live-android/MainActivity.java",
+    "assets/brand/live-logo.png", "assets/chat-live/moans/joanna.wav",
+    "assets/chat-live/gifts/flower.svg", "assets/brand/default-avatar.jpg",
+    "test/live-upload-poster-nav.test.js", "verification/live-transaction/ROLLBACK.sh",
+    "platform.html", "platform.js", "admin.html", "admin.js", "chat.html",
+    "chat.js", "server.js", "db.js", "package.json", "lib-live-surface.js",
+    "assets/ourdream/characters/one.webp", "assets/admin/one.webp",
+  ];
+  for (const file of files) writeFile(path.join(source, file), file);
+  run("git", ["add", "."], { cwd: source });
+  run("git", ["commit", "-qm", "fixture"], { cwd: source });
+  run("python3", [snapshotBuilder, "--repo-root", source, "--source", "HEAD"], { cwd: source });
+
+  const platformTree = run("git", ["ls-tree", "-r", "--name-only", "platform-release"], { cwd: source }).split("\n").filter(Boolean);
+  const liveTree = run("git", ["ls-tree", "-r", "--name-only", "live-release"], { cwd: source }).split("\n").filter(Boolean);
+  for (const file of ["live.html", "live.css", "live.js", "downloads/vipeak-live.apk", "test/live-upload-poster-nav.test.js"]) {
+    assert.equal(platformTree.includes(file), false, file);
+  }
+  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json"]) {
+    assert.equal(liveTree.includes(file), false, file);
+  }
+  for (const file of ["live.html", "chat-live.js", "assets/chat-live/moans/joanna.wav"]) {
+    assert.equal(liveTree.includes(file), true, file);
+  }
+  assert.equal(liveTree.some((file) => file.startsWith("scripts/")), false);
+  assert.equal(run("git", ["rev-list", "--count", "release-base/platform..platform-release"], { cwd: source }).trim(), "1");
+  assert.equal(run("git", ["rev-list", "--count", "release-base/live..live-release"], { cwd: source }).trim(), "1");
+});

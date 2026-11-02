@@ -1,0 +1,68 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
+const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
+const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
+const main = fs.readFileSync(path.resolve(__dirname, "..", "platform.main.js"), "utf8");
+const css = fs.readFileSync(path.resolve(__dirname, "..", "platform.css"), "utf8");
+const platformHtml = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+const payHtml = fs.readFileSync(path.resolve(__dirname, "..", "pay.html"), "utf8");
+const payJs = fs.readFileSync(path.resolve(__dirname, "..", "pay.js"), "utf8");
+
+test("PayPal launches are restricted to the dedicated payment host", () => {
+  assert.match(server, /PAYMENT_HOSTS/);
+  assert.match(server, /pay\.seed2\.io/);
+  assert.match(server, /\/api\/pay\/paypal\/checkout-sessions/);
+  assert.match(server, /\/paypal-return/);
+  assert.match(server, /\/paypal-cancel/);
+  assert.match(server, /function sendPayPalCheckoutHostRequired/);
+  assert.match(server, /code: "PAYPAL_CHECKOUT_REQUIRED"/);
+  assert.match(server, /url\.pathname === "\/api\/pay\/paypal\/orders"\) \{\s*return sendPayPalCheckoutHostRequired\(res\)/);
+  assert.match(server, /paypalCheckoutSessionStartMatch\) \{\s*if \(!isPaymentHostRequest\(req\)\) return sendPayPalCheckoutHostRequired\(res\)/);
+  assert.match(server, /paypalCaptureMatch\) \{\s*if \(!isPaymentHostRequest\(req\)\) return sendPayPalCheckoutHostRequired\(res\)/);
+  assert.match(server, /paypalOrderId: order\.paypalOrderId/);
+  assert.match(server, /"payer-action", "approve"/);
+  assert.match(server, /order\.paypalOrderId\s*\? await paypalRequest\(`\/v2\/checkout\/orders\/\$\{encodeURIComponent\(order\.paypalOrderId\)\}`\)/);
+  assert.match(server, /billingPlanId/);
+  assert.doesNotMatch(server, /async function handleCreatePayPalOrder[\s\S]*?orderKind: selection\.kind/);
+});
+
+test("Stripe is the default payment method while USDT remains selectable", () => {
+  assert.match(config, /topupMethod: "stripe"/);
+  assert.match(main, /setTopupMethod\("stripe"\)/);
+  assert.match(explore, /setTopupMethod\("stripe", \{ skipSummary: true \}\)/);
+  assert.ok(platformHtml.indexOf('data-topup-method="stripe"') < platformHtml.indexOf('data-topup-method="usdt"'));
+});
+
+test("Top-up UI redirects to the Stripe cashier instead of embedding a provider SDK", () => {
+  assert.match(explore, /\/api\/pay\/stripe\/checkout-sessions/);
+  assert.doesNotMatch(explore, /\/api\/pay\/paypal\/orders/);
+  assert.match(explore, /Continue to Stripe/);
+  assert.match(explore, /paypal-redirect-button/);
+  assert.match(css, /\.paypal-checkout \.paypal-redirect-button span\s*\{\s*color:\s*#fff/);
+  assert.doesNotMatch(explore, /www\.paypal\.com\/sdk\/js/);
+});
+
+test("Dedicated payment page exists and can start Stripe or PayPal checkout sessions", () => {
+  assert.match(payHtml, /Secure checkout/);
+  assert.match(payHtml, /Stripe payment/);
+  assert.match(payJs, /checkout-sessions/);
+  assert.match(payJs, /Continue to Stripe/);
+  assert.match(payJs, /Opening \$\{isStripe \? "Stripe" : "PayPal"\} checkout/);
+  assert.match(payJs, /checkout-sessions\/\$\{encodeURIComponent\(activeId\)\}\/start/);
+});
+
+test("PayPal checkout failures retain safe diagnostics and advance the retry id", () => {
+  assert.match(server, /function paypalErrorSummary\(payload = \{\}, statusCode = 0\)/);
+  assert.match(server, /paypalErrorCode = summary\.issue \|\| summary\.name/);
+  assert.match(server, /order\.paypalDebugId = summary\.debugId/);
+  assert.match(server, /order\.paypalCheckoutAttempt = checkoutAttempt \+ 1/);
+  assert.match(server, /\[paypal-checkout-create-failed\]/);
+  assert.match(server, /message: paypalPublicFailureMessage\(summary\)/);
+  assert.match(server, /errorMessage: order\.paypalErrorCode \? paypalPublicFailureMessage\(failureSummary\) : ""/);
+  assert.match(payJs, /Payment reference: \$\{reference\}/);
+  assert.match(payJs, /failed \? "Try PayPal again"/);
+});

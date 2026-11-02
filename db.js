@@ -1,0 +1,6760 @@
+const { Pool } = require("pg");
+
+const DEFAULT_TENANT_ID = "main";
+const CREATOR_WITHDRAWAL_MIN_CREDITS = 2000;
+
+function normalizeTenantId(value = DEFAULT_TENANT_ID) {
+  const cleaned = String(value || DEFAULT_TENANT_ID)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return cleaned || DEFAULT_TENANT_ID;
+}
+
+function dbEnabled() {
+  return Boolean(process.env.DATABASE_URL);
+}
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+let pool;
+let schemaPromise;
+
+function getPool() {
+  if (!dbEnabled()) return null;
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.PGSSLMODE === "disable" ? false : undefined,
+      max: Number(process.env.PGPOOL_MAX || 20),
+      idleTimeoutMillis: Number(process.env.PGPOOL_IDLE_TIMEOUT_MS || 30000),
+      connectionTimeoutMillis: Number(process.env.PGPOOL_CONNECTION_TIMEOUT_MS || 5000),
+      maxUses: Number(process.env.PGPOOL_MAX_USES || 7500),
+    });
+    pool.on("error", (error) => {
+      // PostgreSQL can terminate an idle connection during a planned restart.
+      // Keep that asynchronous pool event from taking down the HTTP server.
+      const code = String(error?.code || "").trim();
+      const message = String(error?.message || error || "database connection error").trim();
+      console.error(`[db-pool-error]${code ? ` ${code}` : ""} ${message}`);
+    });
+  }
+  return pool;
+}
+
+async function query(text, params = []) {
+  const p = getPool();
+  if (!p) throw new Error("DATABASE_URL is not configured");
+  return p.query(text, params);
+}
+
+async function ensureSchema() {
+  if (!dbEnabled()) return;
+  if (schemaPromise) return schemaPromise;
+  schemaPromise = ensureSchemaInner().catch((error) => {
+    schemaPromise = null;
+    throw error;
+  });
+  return schemaPromise;
+}
+
+async function ensureSchemaInner() {
+  const createUniqueIndex = async (sql) => {
+    try {
+      await query(sql);
+    } catch (error) {
+      if (String(error.code || "") !== "23505") throw error;
+      console.warn("[db-schema] skipped unique index because existing duplicate rows need cleanup:", error.constraint || error.message);
+    }
+  };
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_kv (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_catalog_entries (
+      id TEXT NOT NULL,
+      catalog TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (catalog, id)
+    );
+  `);
+  await query(`
+    ALTER TABLE app_catalog_entries
+      ADD COLUMN IF NOT EXISTS catalog TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_catalog_entries_catalog_scope_order_idx ON app_catalog_entries (catalog, scope, sort_order ASC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_runtime_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_catalog_migration_state (
+      migration_key TEXT PRIMARY KEY,
+      imported_count INTEGER NOT NULL DEFAULT 0,
+      migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_users (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      username TEXT NOT NULL,
+      api_token TEXT UNIQUE,
+      role TEXT NOT NULL DEFAULT 'user',
+      password_hash TEXT NOT NULL DEFAULT '',
+      credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      api_pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_users
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+      ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS api_token TEXT,
+      ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
+      ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS api_pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`
+    UPDATE app_users
+    SET username = COALESCE(NULLIF(username, ''), NULLIF(payload->>'username', ''), id)
+    WHERE username = '';
+  `);
+  await query(`
+    UPDATE app_users
+    SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
+    WHERE tenant_id = '';
+  `);
+  await query(`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_username_key;`);
+  await query(`DROP INDEX IF EXISTS app_users_username_uidx;`);
+  await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_google_uidx ON app_users (tenant_id, (payload->>'googleId')) WHERE deleted_at IS NULL AND COALESCE(payload->>'googleId', '') <> '';`);
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_sessions
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`
+    UPDATE app_sessions
+    SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
+    WHERE tenant_id = '';
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_wallet_orders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      chain TEXT NOT NULL DEFAULT '',
+      transaction_hash TEXT NOT NULL DEFAULT '',
+      paypal_order_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_wallet_orders
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS chain TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS transaction_hash TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS paypal_order_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_chain_tx_uidx
+      ON app_wallet_orders (chain, transaction_hash)
+      WHERE transaction_hash <> '';
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_paypal_uidx
+      ON app_wallet_orders (paypal_order_id)
+      WHERE paypal_order_id <> '';
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_referral_withdrawals (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'processing',
+      amount_usd NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      wallet_address TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_referral_withdrawals
+    ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
+    ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS wallet_address TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_creator_earning_ledger (
+      id TEXT PRIMARY KEY,
+      creator_user_id TEXT NOT NULL DEFAULT '',
+      viewer_user_id TEXT NOT NULL DEFAULT '',
+      character_id TEXT NOT NULL DEFAULT '',
+      session_id TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '',
+      source_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      earning_rate NUMERIC(12, 6) NOT NULL DEFAULT 0,
+      delta_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_creator_earning_ledger
+    ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS viewer_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS session_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS source_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS earning_rate NUMERIC(12, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS delta_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
+  await query(`DROP INDEX IF EXISTS app_creator_earning_session_uidx;`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx
+      ON app_creator_earning_ledger (type, session_id)
+      WHERE session_id <> '';
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_creator_withdrawals (
+      id TEXT PRIMARY KEY,
+      creator_user_id TEXT NOT NULL DEFAULT '',
+      amount_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      network TEXT NOT NULL DEFAULT 'USDT-TRC20',
+      withdrawal_address TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'processing',
+      tx_hash TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      rejection_reason TEXT NOT NULL DEFAULT '',
+      reviewed_by_user_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMPTZ
+    );
+  `);
+  await query(`ALTER TABLE app_creator_withdrawals
+    ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS amount_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'USDT-TRC20',
+    ADD COLUMN IF NOT EXISTS withdrawal_address TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
+    ADD COLUMN IF NOT EXISTS tx_hash TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reviewed_by_user_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_creator_created_idx ON app_creator_withdrawals (creator_user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_status_created_idx ON app_creator_withdrawals (status, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_billing_plans (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Pro',
+      status TEXT NOT NULL DEFAULT 'active',
+      currency TEXT NOT NULL DEFAULT 'USD',
+      amount NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      interval_unit TEXT NOT NULL DEFAULT 'month',
+      interval_count INT NOT NULL DEFAULT 1,
+      included_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_billing_plans_tenant_status_idx ON app_billing_plans (tenant_id, status, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_subscriptions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      current_period_start TIMESTAMPTZ,
+      current_period_end TIMESTAMPTZ,
+      cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+      provider TEXT NOT NULL DEFAULT '',
+      provider_customer_id TEXT NOT NULL DEFAULT '',
+      provider_subscription_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_subscriptions_user_idx ON app_user_subscriptions (tenant_id, user_id, updated_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_user_subscriptions_tenant_user_uidx
+      ON app_user_subscriptions (tenant_id, user_id);
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_membership_activation_codes (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      code_hash TEXT NOT NULL,
+      code_value TEXT NOT NULL DEFAULT '',
+      code_prefix TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      expires_at TIMESTAMPTZ,
+      max_redemptions INT NOT NULL DEFAULT 1,
+      redemption_count INT NOT NULL DEFAULT 0,
+      notes TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_membership_activation_codes ADD COLUMN IF NOT EXISTS code_value TEXT NOT NULL DEFAULT '';`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_codes_hash_uidx
+      ON app_membership_activation_codes (tenant_id, code_hash);
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_codes_created_idx ON app_membership_activation_codes (tenant_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_membership_activation_redemptions (
+      id TEXT PRIMARY KEY,
+      code_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      user_id TEXT NOT NULL,
+      redeemed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_redemptions_code_user_uidx
+      ON app_membership_activation_redemptions (code_id, user_id);
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_redemptions_user_idx ON app_membership_activation_redemptions (tenant_id, user_id, redeemed_at DESC);`);
+  await query(`
+    INSERT INTO app_billing_plans (
+      id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
+    ) VALUES (
+      'plan-main-creator',
+      'main',
+      'Creator Membership',
+      'active',
+      'USD',
+      99,
+      'lifetime',
+      1,
+      0,
+      jsonb_build_object(
+        'membershipProgram', true,
+        'benefits', jsonb_build_array('explore', 'referrals', 'topup-bonus')
+      )
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      status = EXCLUDED.status,
+      currency = EXCLUDED.currency,
+      amount = EXCLUDED.amount,
+      interval_unit = EXCLUDED.interval_unit,
+      interval_count = EXCLUDED.interval_count,
+      included_credits = EXCLUDED.included_credits,
+      payload = app_billing_plans.payload || EXCLUDED.payload,
+      updated_at = NOW();
+  `);
+  await query(`
+    INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
+    VALUES
+      ('plan-tool-chat-monthly', 'tool-chat-5vips', '月度会员', 'active', 'USD', 29.9, 'month', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources'))),
+      ('plan-tool-chat-quarterly', 'tool-chat-5vips', '季度会员', 'active', 'USD', 59.9, 'month', 3, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources'))),
+      ('plan-tool-chat-yearly', 'tool-chat-5vips', '年度会员', 'active', 'USD', 99.9, 'year', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
+  `);
+  await query(`
+    INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
+    VALUES ('plan-tool-chat-weekly', 'tool-chat-5vips', '周卡', 'active', 'USD', 9.9, 'week', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = 'active', currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
+  `);
+  await query(`UPDATE app_billing_plans SET status = 'inactive', updated_at = NOW() WHERE id = 'plan-tool-chat-quarterly' AND tenant_id = 'tool-chat-5vips';`);
+
+  await query(`
+    INSERT INTO app_billing_plans (
+      id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
+    )
+    SELECT
+      'plan-' || tenant_id || '-pro',
+      tenant_id,
+      'Pro',
+      'active',
+      'USD',
+      20,
+      'month',
+      1,
+      2200,
+      jsonb_build_object(
+        'topupCreditsPerUsd', 100,
+        'topupQuickAmounts', jsonb_build_array(10, 20, 50)
+      )
+    FROM unnest(ARRAY[
+      'tool-video-123tops',
+      'tool-undress-14vips',
+      'tool-image',
+      'tool-anime',
+      'tool-characters',
+      'tool-advanced',
+      'tool-chat-5vips'
+    ]) AS tenant_id
+    ON CONFLICT (id) DO NOTHING;
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_credit_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      delta NUMERIC(24, 6) NOT NULL,
+      balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      type TEXT NOT NULL DEFAULT '',
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_credit_ledger
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS delta NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_order_event_uidx
+      ON app_credit_ledger (type, (meta->>'orderId'))
+      WHERE COALESCE(meta->>'orderId', '') <> '';
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_task_event_uidx
+      ON app_credit_ledger (type, (meta->>'taskId'))
+      WHERE COALESCE(meta->>'taskId', '') <> '';
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_assets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      mime TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_user_assets
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_characters (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_user_characters
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_conversations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_conversations_user_updated_idx ON app_chat_conversations (user_id, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES app_chat_conversations(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_conversation_created_id_idx ON app_chat_messages (user_id, conversation_id, created_at ASC, id ASC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_characters (
+      id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_chat_live_characters
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS looks JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_chat_live_characters_creator_created_idx
+      ON app_chat_live_characters ((payload->>'createdByUserId'), created_at)
+      WHERE deleted_at IS NULL;
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      character_id TEXT NOT NULL DEFAULT '',
+      live_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_chat_live_sessions
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS live_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_updated_idx ON app_chat_live_sessions (user_id, updated_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_chat_live_sessions_unsettled_idx
+      ON app_chat_live_sessions (updated_at ASC)
+      WHERE live_id <> '' AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1');
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_free_usage (
+      tenant_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      consumed_seconds INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, user_id)
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_free_allocations (
+      session_id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      configured_seconds INTEGER NOT NULL DEFAULT 0,
+      allocated_seconds INTEGER NOT NULL DEFAULT 0,
+      finalized BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_free_allocations_user_idx ON app_chat_live_free_allocations (tenant_id, user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_character_memories (
+      user_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, character_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_character_relationships (
+      user_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      stage TEXT NOT NULL DEFAULT '初识',
+      effective_days INT NOT NULL DEFAULT 0,
+      last_effective_day DATE,
+      first_chat_at TIMESTAMPTZ,
+      last_chat_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, character_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_character_relationships_user_updated_idx ON app_character_relationships (user_id, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_guides (
+      user_id TEXT NOT NULL,
+      guide_key TEXT NOT NULL,
+      seen_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, guide_key)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_guides_user_updated_idx ON app_user_guides (user_id, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_rooms (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_chat_live_rooms
+    ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+    ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_character_idx ON app_chat_live_rooms (character_id, enabled, status);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_updated_idx ON app_chat_live_rooms (updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_room_members (
+      room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (room_id, user_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_user_seen_idx ON app_chat_live_room_members (user_id, joined_at, last_seen_at);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_chat_live_room_messages (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT 'user',
+      content TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_messages_room_idx ON app_chat_live_room_messages (room_id, created_at ASC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_unlocks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_user_unlocks
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_unlocks_user_created_idx ON app_user_unlocks (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_admin_home_items (
+      id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_admin_home_items
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_workflow_presets (
+      id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_workflow_presets
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_workflow_canvases (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_workflow_canvases
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_support_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_support_messages
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_live_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'system',
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      read_at TIMESTAMPTZ,
+      pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_live_notifications
+      ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'system',
+      ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_live_checkins (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      checkin_date DATE NOT NULL,
+      credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, checkin_date)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_live_daily_task_claims (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      task_date DATE NOT NULL,
+      task_key TEXT NOT NULL DEFAULT '',
+      credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, task_date, task_key)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_live_daily_task_claims_user_created_idx ON app_live_daily_task_claims (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_generation_records (
+      task_id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_generation_records
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_created_at_idx
+      ON app_generation_records (created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_user_created_idx
+      ON app_generation_records ((payload->>'userId'), created_at DESC);
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_web_vitals (
+      event_id TEXT PRIMARY KEY,
+      hostname TEXT NOT NULL,
+      page_path TEXT NOT NULL,
+      device TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      value DOUBLE PRECISION NOT NULL,
+      rating TEXT NOT NULL DEFAULT '',
+      navigation_type TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (metric IN ('LCP', 'INP', 'CLS')),
+      CHECK (device IN ('mobile', 'desktop', 'tablet', 'unknown'))
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_web_vitals_created_idx
+      ON app_web_vitals (created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_web_vitals_dimensions_idx
+      ON app_web_vitals (hostname, page_path, device, metric, created_at DESC);
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_ips (
+      ip_hash TEXT PRIMARY KEY,
+      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      visit_count BIGINT NOT NULL DEFAULT 0
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_paths (
+      page_path TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_countries (
+      country TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_visitor_recent (
+      id BIGSERIAL PRIMARY KEY,
+      page_path TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT '',
+      ip_masked TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_visitor_recent_created_idx ON app_geo_visitor_recent (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_bots (
+      bot TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_path TEXT NOT NULL DEFAULT '',
+      last_user_agent TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_paths (
+      page_path TEXT PRIMARY KEY,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_path_bots (
+      page_path TEXT NOT NULL,
+      bot TEXT NOT NULL,
+      visit_count BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (page_path, bot)
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_crawler_recent (
+      id BIGSERIAL PRIMARY KEY,
+      bot TEXT NOT NULL DEFAULT '',
+      page_path TEXT NOT NULL DEFAULT '',
+      ip TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_crawler_recent_created_idx ON app_geo_crawler_recent (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_daily (
+      character_id TEXT NOT NULL,
+      visit_date DATE NOT NULL,
+      pv BIGINT NOT NULL DEFAULT 0,
+      home BIGINT NOT NULL DEFAULT 0,
+      direct BIGINT NOT NULL DEFAULT 0,
+      external BIGINT NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (character_id, visit_date)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_date_idx ON app_geo_character_daily (visit_date DESC, pv DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_daily_ips (
+      character_id TEXT NOT NULL,
+      visit_date DATE NOT NULL,
+      ip_hash TEXT NOT NULL,
+      PRIMARY KEY (character_id, visit_date, ip_hash)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_ips_date_idx ON app_geo_character_daily_ips (visit_date DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_meta (
+      character_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      poster_url TEXT NOT NULL DEFAULT '',
+      page_path TEXT NOT NULL DEFAULT '',
+      uv_legacy INTEGER NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`ALTER TABLE app_geo_character_meta ADD COLUMN IF NOT EXISTS uv_legacy INTEGER NOT NULL DEFAULT 0;`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_character_recent (
+      id BIGSERIAL PRIMARY KEY,
+      character_id TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT '',
+      page_path TEXT NOT NULL DEFAULT '',
+      ip_masked TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_recent_created_idx ON app_geo_character_recent (created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_geo_migration_state (
+      migration_key TEXT PRIMARY KEY,
+      migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_api_subtokens (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      parent_user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      quota_type TEXT NOT NULL CHECK (quota_type IN ('amount', 'count')),
+      quota_limit NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      used_amount NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      last_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_api_subtoken_usage (
+      id BIGSERIAL PRIMARY KEY,
+      token_id TEXT NOT NULL REFERENCES app_api_subtokens(id) ON DELETE CASCADE,
+      event_key TEXT NOT NULL,
+      parent_user_id TEXT NOT NULL,
+      delta_amount NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      delta_count INTEGER NOT NULL DEFAULT 0,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (token_id, event_key)
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_api_subtokens_parent_created_idx
+      ON app_api_subtokens (parent_user_id, created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_api_subtokens_created_idx
+      ON app_api_subtokens (created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_api_subtoken_usage_token_created_idx
+      ON app_api_subtoken_usage (token_id, created_at DESC);
+  `);
+}
+
+function generationRecordCreatedAt(record = {}) {
+  const parsed = Date.parse(record.createdAt || record.updatedAt || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
+function generationRecordUpdatedAt(record = {}) {
+  const parsed = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
+function payloadCreatedAt(record = {}) {
+  const parsed = Date.parse(record.createdAt || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
+function payloadUpdatedAt(record = {}) {
+  const parsed = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : payloadCreatedAt(record);
+}
+
+function deletedAtOrNull(record = {}) {
+  const value = record.deletedAt || record.deleted_at || "";
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function creditNumber(value, fallback = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return fallback;
+  return Math.round(next * 1000000) / 1000000;
+}
+
+function rowPayload(row = {}) {
+  return row.payload && typeof row.payload === "object" ? row.payload : {};
+}
+
+function userFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || payload.tenant_id || DEFAULT_TENANT_ID),
+    username: String(row.username || payload.username || ""),
+    apiToken: String(row.api_token || payload.apiToken || ""),
+    role: String(row.role || payload.role || "user"),
+    passwordHash: String(row.password_hash || payload.passwordHash || ""),
+    credits: creditNumber(row.credits ?? payload.credits ?? 0),
+    pricingMultiplier: creditNumber(row.pricing_multiplier ?? payload.pricingMultiplier ?? 1, 1),
+    apiPricingMultiplier: creditNumber(row.api_pricing_multiplier ?? payload.apiPricingMultiplier ?? payload.apiPriceMultiplier ?? payload.apiDiscount ?? 1, 1),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : (payload.deletedAt || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function recordFromPayloadRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : (payload.deletedAt || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function walletOrderFromRow(row = {}) {
+  const payload = recordFromPayloadRow(row);
+  return {
+    ...payload,
+    status: String(row.status || payload.status || "pending"),
+    chain: String(row.chain || payload.chain || payload.network || ""),
+    transactionHash: String(row.transaction_hash || payload.transactionHash || payload.txHash || ""),
+    paypalOrderId: String(row.paypal_order_id || payload.paypalOrderId || ""),
+  };
+}
+
+function sessionFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    token: String(row.token || payload.token || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || payload.tenant_id || DEFAULT_TENANT_ID),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function billingPlanFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || DEFAULT_TENANT_ID),
+    name: String(row.name || payload.name || "Pro"),
+    status: String(row.status || payload.status || "active"),
+    currency: String(row.currency || payload.currency || "USD").toUpperCase(),
+    amount: creditNumber(row.amount ?? payload.amount ?? 0),
+    intervalUnit: String(row.interval_unit || payload.intervalUnit || "month"),
+    intervalCount: Math.max(1, Math.trunc(Number(row.interval_count ?? payload.intervalCount ?? 1) || 1)),
+    includedCredits: creditNumber(row.included_credits ?? payload.includedCredits ?? 0),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function userSubscriptionFromRow(row = {}) {
+  const payload = rowPayload(row);
+  const periodStart = row.current_period_start || payload.currentPeriodStart;
+  const periodEnd = row.current_period_end || payload.currentPeriodEnd;
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || DEFAULT_TENANT_ID),
+    userId: String(row.user_id || payload.userId || ""),
+    planId: String(row.plan_id || payload.planId || ""),
+    status: String(row.status || payload.status || "active"),
+    currentPeriodStart: periodStart ? new Date(periodStart).toISOString() : "",
+    currentPeriodEnd: periodEnd ? new Date(periodEnd).toISOString() : "",
+    cancelAtPeriodEnd: Boolean(row.cancel_at_period_end ?? payload.cancelAtPeriodEnd),
+    provider: String(row.provider || payload.provider || ""),
+    providerCustomerId: String(row.provider_customer_id || payload.providerCustomerId || ""),
+    providerSubscriptionId: String(row.provider_subscription_id || payload.providerSubscriptionId || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function membershipActivationCodeFromRow(row = {}) {
+  const expiresAt = row.expires_at || "";
+  const redemptionUsers = Array.isArray(row.redemption_users)
+    ? row.redemption_users.map((user) => ({
+      id: String(user?.id || ""),
+      username: String(user?.username || user?.id || ""),
+      redeemedAt: user?.redeemedAt ? new Date(user.redeemedAt).toISOString() : "",
+    }))
+    : [];
+  return {
+    id: String(row.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || DEFAULT_TENANT_ID),
+    code: String(row.code_value || ""),
+    codePrefix: String(row.code_prefix || ""),
+    status: String(row.status || "active"),
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "",
+    maxRedemptions: Math.max(1, Math.trunc(Number(row.max_redemptions || 1) || 1)),
+    redemptionCount: Math.max(0, Math.trunc(Number(row.redemption_count || 0) || 0)),
+    redemptionUsers,
+    notes: String(row.notes || ""),
+    createdByUserId: String(row.created_by_user_id || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function ledgerFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    delta: creditNumber(row.delta ?? payload.delta ?? 0),
+    balanceAfter: creditNumber(row.balance_after ?? payload.balanceAfter ?? 0),
+    type: String(row.type || payload.type || ""),
+    meta: row.meta && typeof row.meta === "object" ? row.meta : (payload.meta || {}),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+  };
+}
+
+async function getKv(key, fallback) {
+  await ensureSchema();
+  const { rows } = await query(`SELECT value FROM app_kv WHERE key = $1`, [key]);
+  if (!rows.length) return clone(fallback);
+  return rows[0].value ?? clone(fallback);
+}
+
+async function setKv(key, value) {
+  await ensureSchema();
+  await query(
+    `
+      INSERT INTO app_kv(key, value, updated_at)
+      VALUES ($1, $2::jsonb, NOW())
+      ON CONFLICT (key)
+      DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+    `,
+    [key, JSON.stringify(value)],
+  );
+}
+
+async function tableCounts() {
+  if (!dbEnabled()) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT 'users' AS name, COUNT(*)::int AS count FROM app_users
+    UNION ALL SELECT 'sessions', COUNT(*)::int FROM app_sessions
+    UNION ALL SELECT 'wallet_orders', COUNT(*)::int FROM app_wallet_orders
+    UNION ALL SELECT 'referral_withdrawals', COUNT(*)::int FROM app_referral_withdrawals
+    UNION ALL SELECT 'credit_ledger', COUNT(*)::int FROM app_credit_ledger
+    UNION ALL SELECT 'user_assets', COUNT(*)::int FROM app_user_assets
+    UNION ALL SELECT 'user_characters', COUNT(*)::int FROM app_user_characters
+    UNION ALL SELECT 'user_unlocks', COUNT(*)::int FROM app_user_unlocks
+    UNION ALL SELECT 'admin_home_items', COUNT(*)::int FROM app_admin_home_items
+    UNION ALL SELECT 'support_messages', COUNT(*)::int FROM app_support_messages
+  `);
+  return Object.fromEntries(rows.map((row) => [row.name, row.count]));
+}
+
+async function replaceCatalogEntriesInDb(catalog, entries = [], { replace = true } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCatalog = String(catalog || "").trim();
+  if (!cleanCatalog) throw new Error("catalog is required");
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    if (replace) await client.query(`DELETE FROM app_catalog_entries WHERE catalog = $1`, [cleanCatalog]);
+    let imported = 0;
+    for (const [index, entry] of (Array.isArray(entries) ? entries : []).entries()) {
+      const payload = entry?.payload && typeof entry.payload === "object" ? entry.payload : entry;
+      const id = String(entry?.id || payload?.id || "").trim();
+      if (!id) continue;
+      await client.query(`
+        INSERT INTO app_catalog_entries(id, catalog, scope, provider, category, payload, sort_order, deleted_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NULL, NOW())
+        ON CONFLICT (catalog, id) DO UPDATE SET
+          catalog = EXCLUDED.catalog,
+          scope = EXCLUDED.scope,
+          provider = EXCLUDED.provider,
+          category = EXCLUDED.category,
+          payload = EXCLUDED.payload,
+          sort_order = EXCLUDED.sort_order,
+          deleted_at = NULL,
+          updated_at = NOW()
+      `, [
+        id,
+        cleanCatalog,
+        String(entry?.scope || ""),
+        String(entry?.provider || payload?.provider || ""),
+        String(entry?.category || payload?.category || payload?.section || ""),
+        JSON.stringify(payload),
+        Number.isFinite(Number(entry?.sortOrder)) ? Number(entry.sortOrder) : index,
+      ]);
+      imported += 1;
+    }
+    await client.query("COMMIT");
+    return imported;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function countCatalogEntriesInDb(catalog, { scope = "" } = {}) {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const cleanCatalog = String(catalog || "").trim();
+  if (!cleanCatalog) return 0;
+  const cleanScope = String(scope || "").trim();
+  const { rows } = await query(`
+    SELECT COUNT(*)::int AS count FROM app_catalog_entries
+    WHERE catalog = $1 AND deleted_at IS NULL AND ($2 = '' OR scope = $2)
+  `, [cleanCatalog, cleanScope]);
+  return Number(rows[0]?.count || 0);
+}
+
+async function listCatalogEntriesFromDb(catalog, { scope = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanCatalog = String(catalog || "").trim();
+  if (!cleanCatalog) return [];
+  const cleanScope = String(scope || "").trim();
+  const { rows } = await query(`
+    SELECT payload FROM app_catalog_entries
+    WHERE catalog = $1 AND deleted_at IS NULL AND ($2 = '' OR scope = $2)
+    ORDER BY sort_order ASC, created_at ASC, id ASC
+  `, [cleanCatalog, cleanScope]);
+  return rows.map((row) => row.payload);
+}
+
+async function getCatalogMigrationStateInDb(key = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_catalog_migration_state WHERE migration_key = $1`, [String(key || "")]);
+  return rows[0] || null;
+}
+
+async function markCatalogMigrationInDb(key = "", importedCount = 0) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (migration_key) DO UPDATE SET imported_count = EXCLUDED.imported_count, migrated_at = NOW()
+  `, [String(key || ""), Math.max(0, Math.trunc(Number(importedCount || 0) || 0))]);
+  return getCatalogMigrationStateInDb(key);
+}
+
+async function getRuntimeSettingFromDb(key = "", fallback = null) {
+  if (!dbEnabled()) return clone(fallback);
+  await ensureSchema();
+  const { rows } = await query(`SELECT value FROM app_runtime_settings WHERE key = $1`, [String(key || "")]);
+  return rows.length ? rows[0].value : clone(fallback);
+}
+
+async function setRuntimeSettingInDb(key = "", value = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for runtime settings");
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_runtime_settings(key, value, updated_at)
+    VALUES ($1, $2::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `, [String(key || ""), JSON.stringify(value)]);
+  return value;
+}
+
+async function readAppDbFromTables(defaultDb = {}, options = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const includeUserAssets = options.includeUserAssets !== false;
+  const [
+    users,
+    sessions,
+    walletOrders,
+    referralWithdrawals,
+    creditLedger,
+    userAssets,
+    userCharacters,
+    userUnlocks,
+    adminHomeItems,
+    supportMessages,
+  ] = await Promise.all([
+    query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
+    query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
+    query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
+    includeUserAssets ? query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`) : Promise.resolve({ rows: [] }),
+    query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_admin_home_items ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_support_messages ORDER BY created_at DESC`),
+  ]);
+  return {
+    users: users.rows.map(userFromRow),
+    sessions: sessions.rows.map(sessionFromRow),
+    walletOrders: walletOrders.rows.map(walletOrderFromRow),
+    referralWithdrawals: referralWithdrawals.rows.map(referralWithdrawalFromRow),
+    creditLedger: creditLedger.rows.map(ledgerFromRow),
+    userAssets: userAssets.rows.map(recordFromPayloadRow),
+    userCharacters: userCharacters.rows.map(recordFromPayloadRow),
+    userUnlocks: userUnlocks.rows.map(recordFromPayloadRow),
+    adminHomeItems: adminHomeItems.rows.map(recordFromPayloadRow),
+    supportMessages: supportMessages.rows.map(recordFromPayloadRow),
+    apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
+  };
+}
+
+async function replaceAppDbTables(db = {}, options = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (options.replaceAll === true) {
+      await client.query("DELETE FROM app_support_messages");
+      await client.query("DELETE FROM app_admin_home_items");
+      await client.query("DELETE FROM app_user_unlocks");
+      await client.query("DELETE FROM app_user_characters");
+      await client.query("DELETE FROM app_user_assets");
+      await client.query("DELETE FROM app_credit_ledger");
+      await client.query("DELETE FROM app_wallet_orders");
+      await client.query("DELETE FROM app_referral_withdrawals");
+      await client.query("DELETE FROM app_sessions");
+      await client.query("DELETE FROM app_users");
+    }
+
+    for (const message of Array.isArray(db.supportMessages) ? db.supportMessages : []) {
+      const id = String(message?.id || "").trim();
+      if (!id) continue;
+      await client.query(
+        `
+          INSERT INTO app_support_messages(id, user_id, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            payload = EXCLUDED.payload,
+            deleted_at = EXCLUDED.deleted_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [
+          id,
+          String(message.userId || ""),
+          JSON.stringify(message),
+          message.deletedAt || null,
+          message.createdAt || new Date().toISOString(),
+          message.updatedAt || message.createdAt || new Date().toISOString(),
+        ],
+      );
+    }
+
+    for (const user of Array.isArray(db.users) ? db.users : []) {
+      const tenantId = normalizeTenantId(user.tenantId || user.tenant_id || DEFAULT_TENANT_ID);
+      const payload = { ...user, tenantId };
+      await client.query(
+        `
+          INSERT INTO app_users(id, tenant_id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            tenant_id = EXCLUDED.tenant_id,
+            username = EXCLUDED.username,
+            api_token = EXCLUDED.api_token,
+            role = EXCLUDED.role,
+            password_hash = EXCLUDED.password_hash,
+            pricing_multiplier = EXCLUDED.pricing_multiplier,
+            api_pricing_multiplier = EXCLUDED.api_pricing_multiplier,
+            payload = EXCLUDED.payload,
+            deleted_at = EXCLUDED.deleted_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [
+          String(user.id || ""),
+          tenantId,
+          String(user.username || ""),
+          String(user.apiToken || ""),
+          String(user.role || "user"),
+          String(user.passwordHash || ""),
+          creditNumber(user.credits || 0),
+          creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
+          creditNumber(user.apiPricingMultiplier ?? user.apiPriceMultiplier ?? user.apiDiscount ?? 1, 1),
+          JSON.stringify(payload),
+          deletedAtOrNull(payload),
+          payloadCreatedAt(payload),
+          payloadUpdatedAt(payload),
+        ],
+      );
+    }
+    for (const session of Array.isArray(db.sessions) ? db.sessions : []) {
+      const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
+      const payload = { ...session, tenantId };
+      await client.query(
+        `
+          INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
+          VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)
+          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, tenant_id = EXCLUDED.tenant_id, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+        `,
+        [String(session.token || ""), String(session.userId || ""), tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+      );
+    }
+    for (const order of Array.isArray(db.walletOrders) ? db.walletOrders : []) {
+      await client.query(
+        `
+          INSERT INTO app_wallet_orders(id, user_id, status, chain, transaction_hash, paypal_order_id, payload, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            status = EXCLUDED.status,
+            chain = EXCLUDED.chain,
+            transaction_hash = EXCLUDED.transaction_hash,
+            paypal_order_id = EXCLUDED.paypal_order_id,
+            payload = EXCLUDED.payload,
+            updated_at = EXCLUDED.updated_at
+          WHERE app_wallet_orders.status <> 'paid' OR EXCLUDED.status = 'paid'
+        `,
+        [
+          String(order.id || ""),
+          String(order.userId || ""),
+          String(order.status || "pending"),
+          String(order.chain || order.network || ""),
+          String(order.transactionHash || order.txHash || ""),
+          String(order.paypalOrderId || ""),
+          JSON.stringify(order),
+          payloadCreatedAt(order),
+          payloadUpdatedAt(order),
+        ],
+      );
+    }
+    for (const withdrawal of Array.isArray(db.referralWithdrawals) ? db.referralWithdrawals : []) {
+      await client.query(
+        `INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, status = EXCLUDED.status,
+           amount_usd = EXCLUDED.amount_usd, wallet_address = EXCLUDED.wallet_address,
+           payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+        [String(withdrawal.id || ""), String(withdrawal.userId || ""), String(withdrawal.status || "processing"), Number(withdrawal.amountUsd || 0), String(withdrawal.walletAddress || ""), JSON.stringify(withdrawal), payloadCreatedAt(withdrawal), payloadUpdatedAt(withdrawal)],
+      );
+    }
+    for (const entry of Array.isArray(db.creditLedger) ? db.creditLedger : []) {
+      await client.query(
+        `
+          INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+          VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+          ON CONFLICT DO NOTHING
+        `,
+        [
+          String(entry.id || ""),
+          String(entry.userId || ""),
+          creditNumber(entry.delta || 0),
+          creditNumber(entry.balanceAfter || 0),
+          String(entry.type || ""),
+          JSON.stringify(entry.meta || {}),
+          JSON.stringify(entry),
+          payloadCreatedAt(entry),
+        ],
+      );
+    }
+    const insertPayloadTable = async (table, record) => {
+      await client.query(
+        `
+          INSERT INTO ${table}(id, user_id, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            payload = EXCLUDED.payload,
+            deleted_at = EXCLUDED.deleted_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [String(record.id || ""), String(record.userId || ""), JSON.stringify(record), deletedAtOrNull(record), payloadCreatedAt(record), payloadUpdatedAt(record)],
+      );
+    };
+    for (const record of Array.isArray(db.userAssets) ? db.userAssets : []) await insertPayloadTable("app_user_assets", record);
+    for (const record of Array.isArray(db.userCharacters) ? db.userCharacters : []) await insertPayloadTable("app_user_characters", record);
+    for (const record of Array.isArray(db.userUnlocks) ? db.userUnlocks : []) await insertPayloadTable("app_user_unlocks", record);
+    for (const record of Array.isArray(db.adminHomeItems) ? db.adminHomeItems : []) {
+      await client.query(
+        `
+          INSERT INTO app_admin_home_items(id, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz, $5::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, deleted_at = EXCLUDED.deleted_at, updated_at = EXCLUDED.updated_at
+        `,
+        [String(record.id || ""), JSON.stringify(record), deletedAtOrNull(record), payloadCreatedAt(record), payloadUpdatedAt(record)],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return db;
+}
+
+async function deleteUserSessionsInDb(userId = "", exceptToken = "") {
+  if (!dbEnabled()) return { rowCount: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { rowCount: 0 };
+  await ensureSchema();
+  return await query(
+    `
+      DELETE FROM app_sessions
+      WHERE user_id = $1
+        AND ($2 = '' OR token <> $2)
+    `,
+    [cleanUserId, String(exceptToken || "")],
+  );
+}
+
+/* Replace every browser login for a user atomically. The advisory lock makes
+   simultaneous logins deterministic: the last transaction wins. */
+async function replaceUserSessionInDb(session = {}) {
+  if (!dbEnabled()) return session;
+  const userId = String(session.userId || "").trim();
+  const token = String(session.token || "").trim();
+  if (!userId || !token) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const accountKey = String(session.accountKey || "").trim();
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`raising-login:${accountKey || userId}`]);
+    if (accountKey.startsWith("username:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR lower(u.username) = $2)", [userId, accountKey.slice(9)]);
+    } else if (accountKey.startsWith("email:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR lower(u.payload->>'email') = $2)", [userId, accountKey.slice(6)]);
+    } else if (accountKey.startsWith("google:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR u.payload->>'googleId' = $2)", [userId, accountKey.slice(7)]);
+    } else if (accountKey.startsWith("telegram:")) {
+      await client.query("DELETE FROM app_sessions s USING app_users u WHERE s.user_id = u.id AND (s.user_id = $1 OR u.payload->>'telegramUserId' = $2)", [userId, accountKey.slice(9)]);
+    } else {
+      await client.query("DELETE FROM app_sessions WHERE user_id = $1", [userId]);
+    }
+    const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
+    const payload = { ...session, tenantId };
+    await client.query(
+      `INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)`,
+      [token, userId, tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+    );
+    await client.query("COMMIT");
+    return session;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteSessionByTokenInDb(token = "") {
+  if (!dbEnabled()) return { rowCount: 0 };
+  const cleanToken = String(token || "").trim();
+  if (!cleanToken) return { rowCount: 0 };
+  await ensureSchema();
+  return query("DELETE FROM app_sessions WHERE token = $1", [cleanToken]);
+}
+
+async function deleteUserWalletOrdersInDb(userId = "") {
+  if (!dbEnabled()) return { rowCount: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { rowCount: 0 };
+  await ensureSchema();
+  return await query(`DELETE FROM app_wallet_orders WHERE user_id = $1`, [cleanUserId]);
+}
+
+async function createWalletOrderInDb(order = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(order.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...order };
+  const result = await query(
+    `
+      INSERT INTO app_wallet_orders(id, user_id, status, chain, transaction_hash, paypal_order_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `,
+    [
+      id,
+      String(order.userId || ""),
+      String(order.status || "pending"),
+      String(order.chain || order.network || ""),
+      String(order.transactionHash || order.txHash || ""),
+      String(order.paypalOrderId || ""),
+      JSON.stringify(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return result.rows.length ? order : null;
+}
+
+async function createManualWalletOrderInDb({ order = {}, suffixDigits = 6, maxAttempts = 25 } = {}) {
+  if (!dbEnabled()) return order;
+  let lastOrder = order;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const suffixNumber = Math.floor(Math.random() * 9999) + 1;
+    const suffix = `00${String(suffixNumber).padStart(4, "0")}`;
+    const baseAmount = Math.max(1, Math.round(Number(order.baseAmount || 0)));
+    const payableAmountText = `${baseAmount}.${suffix}`;
+    const next = {
+      ...order,
+      baseAmount,
+      suffix,
+      payableAmount: Number(payableAmountText),
+      payableAmountText,
+    };
+    try {
+      const created = await createWalletOrderInDb(next);
+      if (created) return created;
+      lastOrder = next;
+    } catch (error) {
+      if (String(error.code || "") !== "23505") throw error;
+      lastOrder = next;
+    }
+  }
+  const error = new Error("Unable to allocate a unique wallet payment amount.");
+  error.statusCode = 409;
+  error.lastOrder = lastOrder;
+  throw error;
+}
+
+async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanUsername = String(username || "").trim().toLowerCase();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanUsername) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_users WHERE tenant_id = $1 AND username = $2 AND deleted_at IS NULL`,
+    [cleanTenantId, cleanUsername],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getUserByTelegramIdInDb(telegramUserId = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanTelegramUserId = String(telegramUserId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanTelegramUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_users
+      WHERE tenant_id = $1
+        AND deleted_at IS NULL
+        AND payload->>'telegramUserId' = $2
+      ORDER BY created_at ASC
+      LIMIT 1
+    `,
+    [cleanTenantId, cleanTelegramUserId],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getUserByGoogleIdInDb(googleId = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanGoogleId = String(googleId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanGoogleId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_users
+      WHERE tenant_id = $1
+        AND deleted_at IS NULL
+        AND payload->>'googleId' = $2
+      ORDER BY created_at ASC
+      LIMIT 1
+    `,
+    [cleanTenantId, cleanGoogleId],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getKvUpdatedAt(key) {
+  if (!dbEnabled()) return "";
+  await ensureSchema();
+  const { rows } = await query(`SELECT updated_at FROM app_kv WHERE key = $1`, [String(key || "")]);
+  return rows[0]?.updated_at ? new Date(rows[0].updated_at).toISOString() : "";
+}
+
+async function getUserByIdInDb(userId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL`, [cleanUserId]);
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function createSessionInDb(session = {}) {
+  if (!dbEnabled()) return null;
+  const token = String(session.token || "").trim();
+  if (!token) return null;
+  await ensureSchema();
+  const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
+  const payload = { ...session, tenantId };
+  await query(
+    `
+      INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)
+      ON CONFLICT (token) DO NOTHING
+    `,
+    [token, String(session.userId || ""), tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+  );
+  return session;
+}
+
+async function getUserByApiTokenInDb(apiToken = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const token = String(apiToken || "").trim();
+  if (!token) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_users WHERE api_token = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
+    [token, normalizeTenantId(tenantId)],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getUsersByIdsInDb(userIds = []) {
+  if (!dbEnabled()) return [];
+  const ids = [...new Set((Array.isArray(userIds) ? userIds : []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return [];
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_users WHERE id = ANY($1::text[])`, [ids]);
+  return rows.map(userFromRow);
+}
+
+async function getSessionByTokenInDb(token = "") {
+  if (!dbEnabled()) return null;
+  const cleanToken = String(token || "").trim();
+  if (!cleanToken) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_sessions WHERE token = $1`, [cleanToken]);
+  return rows[0] ? sessionFromRow(rows[0]) : null;
+}
+
+async function getWalletOrderByIdInDb(orderId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+  return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
+async function getWalletOrderByPaypalIdInDb(paypalOrderId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(paypalOrderId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_wallet_orders WHERE paypal_order_id = $1`, [id]);
+  return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
+function referralWithdrawalFromRow(row = {}) {
+  const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    status: String(row.status || payload.status || "processing"),
+    amountUsd: Number(row.amount_usd ?? payload.amountUsd ?? 0),
+    walletAddress: String(row.wallet_address || payload.walletAddress || ""),
+    createdAt: toIsoString(row.created_at || payload.createdAt || ""),
+    updatedAt: toIsoString(row.updated_at || payload.updatedAt || ""),
+  };
+}
+
+async function createReferralWithdrawalInDb(record = {}) {
+  if (!dbEnabled()) return record;
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO NOTHING
+  `, [String(record.id || ""), String(record.userId || ""), String(record.status || "processing"), Number(record.amountUsd || 0), String(record.walletAddress || ""), JSON.stringify(record), record.createdAt || new Date().toISOString(), record.updatedAt || record.createdAt || new Date().toISOString()]);
+  return record;
+}
+
+async function updateReferralWithdrawalInDb(record = {}) {
+  if (!dbEnabled()) return record;
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_referral_withdrawals(id, user_id, status, amount_usd, wallet_address, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4::numeric, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, status = EXCLUDED.status,
+      amount_usd = EXCLUDED.amount_usd, wallet_address = EXCLUDED.wallet_address,
+      payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+  `, [String(record.id || ""), String(record.userId || ""), String(record.status || "processing"), Number(record.amountUsd || 0), String(record.walletAddress || ""), JSON.stringify(record), record.createdAt || new Date().toISOString(), record.updatedAt || new Date().toISOString()]);
+  return record;
+}
+
+async function getReferralWithdrawalByIdInDb(id = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_referral_withdrawals WHERE id = $1`, [String(id || "")]);
+  return rows[0] ? referralWithdrawalFromRow(rows[0]) : null;
+}
+
+async function getReferralWithdrawalsPageFromDb({ userId = "", page = 1, limit = 20, status = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 100);
+  const cleanUserId = String(userId || "").trim();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const { rows } = await query(`SELECT *, COUNT(*) OVER()::int AS total_count FROM app_referral_withdrawals WHERE ($1 = '' OR user_id = $1) AND ($2 = '' OR LOWER(status) = $2) ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [cleanUserId, cleanStatus, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  return { items: rows.map(referralWithdrawalFromRow), total, page: safePage, limit: safeLimit, totalPages: Math.max(1, Math.ceil(total / safeLimit)) };
+}
+
+async function listBillingPlansInDb(tenantId = DEFAULT_TENANT_ID, { includeInactive = false } = {}) {
+  if (!dbEnabled()) return [];
+  const cleanTenantId = normalizeTenantId(tenantId);
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_billing_plans
+      WHERE tenant_id = $1
+        AND ($2::boolean OR status = 'active')
+      ORDER BY amount ASC, updated_at DESC
+    `,
+    [cleanTenantId, Boolean(includeInactive)],
+  );
+  return rows.map(billingPlanFromRow);
+}
+
+async function getBillingPlanInDb(tenantId = DEFAULT_TENANT_ID, planId = "") {
+  if (!dbEnabled()) return null;
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanPlanId = String(planId || "").trim();
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_billing_plans
+      WHERE tenant_id = $1
+        AND ($2 = '' OR id = $2)
+        AND status = 'active'
+      ORDER BY amount ASC, updated_at DESC
+      LIMIT 1
+    `,
+    [cleanTenantId, cleanPlanId],
+  );
+  return rows[0] ? billingPlanFromRow(rows[0]) : null;
+}
+
+async function updateBillingPlansInDb(tenantId = DEFAULT_TENANT_ID, plans = []) {
+  if (!dbEnabled()) return [];
+  const cleanTenantId = normalizeTenantId(tenantId);
+  await ensureSchema();
+  const updated = [];
+  for (const item of Array.isArray(plans) ? plans : []) {
+    const id = String(item?.id || "").trim();
+    if (!id) continue;
+    const amount = Number(item.amount);
+    if (!Number.isFinite(amount) || amount < 0) throw new Error("Invalid billing plan amount");
+    const { rows } = await query(`
+      UPDATE app_billing_plans
+      SET name = $3, currency = $4, amount = $5::numeric, interval_unit = $6,
+          interval_count = $7::int, payload = payload || $8::jsonb, updated_at = NOW()
+      WHERE tenant_id = $1 AND id = $2
+      RETURNING *
+    `, [cleanTenantId, id, String(item.name || "会员"), String(item.currency || "USD").toUpperCase(), amount, String(item.intervalUnit || "month"), Math.max(1, Math.trunc(Number(item.intervalCount || 1))), JSON.stringify({ benefits: Array.isArray(item.benefits) ? item.benefits : [] })]);
+    if (rows[0]) updated.push(billingPlanFromRow(rows[0]));
+  }
+  return updated;
+}
+
+async function getUserSubscriptionInDb(userId = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_user_subscriptions WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,
+    [cleanTenantId, cleanUserId],
+  );
+  return rows[0] ? userSubscriptionFromRow(rows[0]) : null;
+}
+
+async function upsertUserSubscriptionInDb(subscription = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(subscription.id || "").trim();
+  const userId = String(subscription.userId || "").trim();
+  const tenantId = normalizeTenantId(subscription.tenantId || DEFAULT_TENANT_ID);
+  const planId = String(subscription.planId || "").trim();
+  if (!id || !userId || !planId) return null;
+  await ensureSchema();
+  const payload = { ...subscription, id, userId, tenantId, planId };
+  const { rows } = await query(
+    `
+      INSERT INTO app_user_subscriptions (
+        id, tenant_id, user_id, plan_id, status, current_period_start, current_period_end,
+        cancel_at_period_end, provider, provider_customer_id, provider_subscription_id,
+        payload, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::boolean, $9, $10, $11, $12::jsonb, $13::timestamptz, $14::timestamptz)
+      ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+        plan_id = EXCLUDED.plan_id,
+        status = EXCLUDED.status,
+        current_period_start = EXCLUDED.current_period_start,
+        current_period_end = EXCLUDED.current_period_end,
+        cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+        provider = EXCLUDED.provider,
+        provider_customer_id = EXCLUDED.provider_customer_id,
+        provider_subscription_id = EXCLUDED.provider_subscription_id,
+        payload = EXCLUDED.payload,
+        updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      id,
+      tenantId,
+      userId,
+      planId,
+      String(subscription.status || "active"),
+      subscription.currentPeriodStart || new Date().toISOString(),
+      subscription.currentPeriodEnd || null,
+      Boolean(subscription.cancelAtPeriodEnd),
+      String(subscription.provider || ""),
+      String(subscription.providerCustomerId || ""),
+      String(subscription.providerSubscriptionId || ""),
+      JSON.stringify(payload),
+      subscription.createdAt || new Date().toISOString(),
+      subscription.updatedAt || new Date().toISOString(),
+    ],
+  );
+  return rows[0] ? userSubscriptionFromRow(rows[0]) : null;
+}
+
+async function createMembershipActivationCodesInDb(codes = []) {
+  if (!dbEnabled()) return [];
+  const records = Array.isArray(codes) ? codes.filter((item) => item?.id && item?.codeHash) : [];
+  if (!records.length) return [];
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const created = [];
+    for (const record of records) {
+      const tenantId = normalizeTenantId(record.tenantId || DEFAULT_TENANT_ID);
+      const now = record.createdAt || new Date().toISOString();
+      const { rows } = await client.query(
+        `
+          INSERT INTO app_membership_activation_codes (
+            id, tenant_id, code_hash, code_value, code_prefix, status, expires_at, max_redemptions,
+            redemption_count, notes, created_by_user_id, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, 'active', $6::timestamptz, $7, 0, $8, $9, $10::timestamptz, $10::timestamptz)
+          RETURNING *
+        `,
+        [
+          String(record.id),
+          tenantId,
+          String(record.codeHash),
+          String(record.code || ""),
+          String(record.codePrefix || ""),
+          record.expiresAt || null,
+          Math.max(1, Math.min(10000, Math.trunc(Number(record.maxRedemptions || 1) || 1))),
+          String(record.notes || "").slice(0, 500),
+          String(record.createdByUserId || ""),
+          now,
+        ],
+      );
+      if (rows[0]) created.push(membershipActivationCodeFromRow(rows[0]));
+    }
+    await client.query("COMMIT");
+    return created;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listMembershipActivationCodesInDb(tenantId = DEFAULT_TENANT_ID, { limit = 100, offset = 0, status = "", search = "" } = {}) {
+  if (!dbEnabled()) return { items: [], total: 0 };
+  await ensureSchema();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(Number(limit || 100) || 100)));
+  const safeOffset = Math.max(0, Math.trunc(Number(offset || 0) || 0));
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const cleanSearch = String(search || "").trim().toLowerCase();
+  const { rows } = await query(
+    `
+      SELECT
+        codes.*,
+        COUNT(*) OVER()::int AS total_count,
+        COALESCE(redeemed.users, '[]'::jsonb) AS redemption_users
+      FROM app_membership_activation_codes codes
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', COALESCE(NULLIF(users.id, ''), redemptions.user_id),
+            'username', COALESCE(NULLIF(users.username, ''), redemptions.user_id),
+            'redeemedAt', redemptions.redeemed_at
+          ) ORDER BY redemptions.redeemed_at DESC
+        ) AS users
+        FROM app_membership_activation_redemptions redemptions
+        LEFT JOIN app_users users
+          ON users.id = redemptions.user_id
+         AND users.tenant_id = redemptions.tenant_id
+        WHERE redemptions.code_id = codes.id
+          AND redemptions.tenant_id = codes.tenant_id
+      ) redeemed ON TRUE
+      WHERE codes.tenant_id = $1
+        AND ($2 = '' OR codes.status = $2)
+        AND (
+          $3 = ''
+          OR LOWER(CONCAT_WS(' ', codes.code_value, codes.code_prefix, codes.notes, codes.id)) LIKE '%' || $3 || '%'
+          OR EXISTS (
+            SELECT 1
+            FROM app_membership_activation_redemptions search_redemptions
+            LEFT JOIN app_users search_users
+              ON search_users.id = search_redemptions.user_id
+             AND search_users.tenant_id = search_redemptions.tenant_id
+            WHERE search_redemptions.code_id = codes.id
+              AND search_redemptions.tenant_id = codes.tenant_id
+              AND LOWER(CONCAT_WS(' ', search_redemptions.user_id, search_users.username)) LIKE '%' || $3 || '%'
+          )
+        )
+      ORDER BY codes.created_at DESC
+      LIMIT $4 OFFSET $5
+    `,
+    [cleanTenantId, cleanStatus, cleanSearch, safeLimit, safeOffset],
+  );
+  return {
+    items: rows.map(membershipActivationCodeFromRow),
+    total: Number(rows[0]?.total_count || 0),
+  };
+}
+
+async function getAdminRechargeLedgerPageFromDb({ page = 1, limit = 20, source = "", queryText = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(Number(limit || 20) || 20)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  const safeOffset = (safePage - 1) * safeLimit;
+  const cleanSource = String(source || "").trim().toLowerCase();
+  const cleanQuery = String(queryText || "").trim().toLowerCase();
+  const params = [cleanSource, cleanQuery, fromDate ? new Date(fromDate).toISOString() : null, toDate ? new Date(toDate).toISOString() : null, safeLimit, safeOffset];
+  const { rows } = await query(
+    `
+      WITH all_rows AS (
+        SELECT
+          o.id,
+          o.user_id,
+          COALESCE(u.username, o.payload->>'username', '') AS username,
+          'user_topup' AS source,
+          'User top-up' AS source_label,
+          o.payload,
+          o.created_at,
+          COALESCE(
+            NULLIF(o.payload->>'paidAt', '')::timestamptz,
+            NULLIF(o.payload->>'matchedAt', '')::timestamptz,
+            o.updated_at,
+            o.created_at
+          ) AS event_at
+        FROM app_wallet_orders o
+        LEFT JOIN app_users u ON u.id = o.user_id
+        WHERE LOWER(o.status) = 'paid'
+        UNION ALL
+        SELECT
+          l.id,
+          l.user_id,
+          COALESCE(l.payload->>'username', u.username, '') AS username,
+          'manual_admin' AS source,
+          'Admin credit adjustment' AS source_label,
+          l.payload,
+          l.created_at,
+          l.created_at AS event_at
+        FROM app_credit_ledger l
+        LEFT JOIN app_users u ON u.id = l.user_id
+        WHERE l.type IN ('admin_credit_add', 'admin_credit_subtract', 'admin_credit_adjustment', 'manual_credit_add', 'manual_credit_adjustment')
+      ),
+      with_values AS (
+        SELECT
+          all_rows.*,
+          CASE WHEN source = 'manual_admin'
+            THEN COALESCE(NULLIF(payload->>'delta', '')::numeric, 0)
+            ELSE COALESCE(NULLIF(payload->>'creditAmount', '')::numeric, NULLIF(payload->>'packageCredits', '')::numeric, COALESCE(NULLIF(payload->>'baseAmount', '')::numeric, 0) * COALESCE(NULLIF(payload->>'creditsPerUsd', '')::numeric, 120))
+          END AS credits,
+          COALESCE(NULLIF(payload->>'baseAmount', '')::numeric, 0) AS amount_usd
+        FROM all_rows
+      ),
+      filtered AS (
+        SELECT *
+        FROM with_values
+        WHERE ($1 = '' OR source = $1)
+          AND ($3::timestamptz IS NULL OR event_at >= $3::timestamptz)
+          AND ($4::timestamptz IS NULL OR event_at <= $4::timestamptz)
+          AND ($2 = '' OR LOWER(CONCAT_WS(' ', id, username, user_id, source_label, payload->>'paymentProvider', payload->>'network', payload->>'asset', payload->>'transactionHash', payload->>'paypalOrderId', payload->>'adminUsername', payload->>'note')) LIKE '%' || $2 || '%')
+      )
+      SELECT
+        filtered.*,
+        COUNT(*) OVER()::int AS total_count,
+        COUNT(*) FILTER (WHERE source = 'user_topup') OVER()::int AS user_topup_count,
+        COALESCE(SUM(credits) FILTER (WHERE source = 'user_topup') OVER(), 0) AS user_topup_credits,
+        COALESCE(SUM(amount_usd) FILTER (WHERE source = 'user_topup') OVER(), 0) AS user_topup_usd,
+        COUNT(*) FILTER (WHERE source = 'manual_admin') OVER()::int AS manual_count,
+        COALESCE(SUM(credits) FILTER (WHERE source = 'manual_admin' AND credits > 0) OVER(), 0) AS manual_added_credits,
+        COALESCE(SUM(ABS(credits)) FILTER (WHERE source = 'manual_admin' AND credits < 0) OVER(), 0) AS manual_reduced_credits,
+        COALESCE(SUM(credits) OVER(), 0) AS total_credits
+      FROM filtered
+      ORDER BY event_at DESC, id DESC
+      LIMIT $5 OFFSET LEAST($6, GREATEST(0, (SELECT COUNT(*) FROM filtered) - $5))
+    `,
+    params,
+  );
+  const first = rows[0] || {};
+  return {
+    items: rows.map((row) => ({
+      ...(row.payload && typeof row.payload === "object" ? row.payload : {}),
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      source: row.source,
+      sourceLabel: row.source_label,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+      paidAt: row.event_at ? new Date(row.event_at).toISOString() : "",
+      delta: Number(row.credits || 0),
+      credits: Number(row.credits || 0),
+      amountUsd: Number(row.amount_usd || 0),
+    })),
+    total: Number(first.total_count || 0),
+    summary: {
+      totalCount: Number(first.total_count || 0),
+      totalCredits: Number(first.total_credits || 0),
+      userTopupCount: Number(first.user_topup_count || 0),
+      userTopupCredits: Number(first.user_topup_credits || 0),
+      userTopupUsd: Number(first.user_topup_usd || 0),
+      manualCount: Number(first.manual_count || 0),
+      manualAddedCredits: Number(first.manual_added_credits || 0),
+      manualReducedCredits: Number(first.manual_reduced_credits || 0),
+    },
+  };
+}
+
+function adminPageArgs({ page = 1, limit = 20 } = {}, maxLimit = 100) {
+  const safeLimit = Math.max(1, Math.min(maxLimit, Math.trunc(Number(limit || 20) || 20)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  return { safeLimit, safePage, safeOffset: (safePage - 1) * safeLimit };
+}
+
+async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", role = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanRole = String(role || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT u.*, COUNT(*) OVER()::int AS total_count,
+      (SELECT COUNT(*) FROM app_user_characters c WHERE c.user_id = u.id AND c.deleted_at IS NULL)::int AS custom_characters,
+      (SELECT COUNT(*) FROM app_wallet_orders o WHERE o.user_id = u.id)::int AS wallet_orders
+    FROM app_users u
+    WHERE u.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(u.role) = $1)
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', u.username, u.id, u.tenant_id, u.api_token, u.role, u.payload->>'registrationChannel', u.payload->'registrationAttribution'->>'host')) LIKE '%' || $2 || '%')
+    ORDER BY u.created_at DESC
+    LIMIT $3 OFFSET $4
+  `, [cleanRole, q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...userFromRow(row), customCharacters: Number(row.custom_characters || 0), walletOrders: Number(row.wallet_orders || 0) })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getAdminWalletOrdersPageFromDb({ page = 1, limit = 20, queryText = "", status = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT o.*, COALESCE(u.username, o.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_wallet_orders o LEFT JOIN app_users u ON u.id = o.user_id
+    WHERE ($1 = '' OR LOWER(o.status) = $1)
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', o.id, o.user_id, COALESCE(u.username, o.payload->>'username', ''), o.chain, o.payload->>'network', o.payload->>'address', o.transaction_hash, o.paypal_order_id, o.payload->>'stripeChargeId', o.payload->>'stripeCustomerEmail', o.payload->>'stripeCustomerName', o.payload->>'stripeFailureMessage')) LIKE '%' || $2 || '%')
+    ORDER BY o.created_at DESC
+    LIMIT $3 OFFSET $4
+  `, [cleanStatus, q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...walletOrderFromRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getAdminUserAssetsPageFromDb({ page = 1, limit = 20, queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT a.*, COALESCE(u.username, a.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_user_assets a LEFT JOIN app_users u ON u.id = a.user_id
+    WHERE a.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(CONCAT_WS(' ', a.id, a.user_id, COALESCE(u.username, a.payload->>'username', ''), a.mime, a.payload->>'localUrl', a.payload->>'publicUrl', a.payload->>'cdnUrl')) LIKE '%' || $1 || '%')
+    ORDER BY a.created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...recordFromPayloadRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getUserAssetsPageFromDb({ userId = "", page = 1, limit = 8, queryText = "", type = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 8) || 8)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanType = String(type || "").trim().toLowerCase();
+  const offset = (safePage - 1) * safeLimit;
+  const { rows } = await query(`
+    SELECT payload, id, user_id, mime, created_at, updated_at, deleted_at, COUNT(*) OVER()::int AS total_count
+    FROM app_user_assets
+    WHERE user_id = $1 AND deleted_at IS NULL
+      AND COALESCE(payload->>'hidden', 'false') <> 'true'
+      AND COALESCE(payload->'meta'->>'fromPreset', 'false') <> 'true'
+      AND COALESCE(payload->>'name', '') !~* '^(character|action|outfit|scene)-[a-z0-9_-]+\.(jpg|jpeg|png|webp)$'
+      AND ($2 = '' OR ($2 = 'image' AND mime LIKE 'image/%') OR ($2 = 'video' AND mime LIKE 'video/%') OR ($2 = 'audio' AND mime LIKE 'audio/%') OR ($2 = 'document' AND (mime IN ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/plain') OR LOWER(COALESCE(payload->>'name', '')) ~ '\\.(pdf|doc|docx|xls|xlsx|txt)$')))
+      AND ($3 = '' OR LOWER(CONCAT_WS(' ', id, mime, payload->>'name')) LIKE '%' || $3 || '%')
+    ORDER BY created_at DESC
+    LIMIT $4 OFFSET $5
+  `, [cleanUserId, cleanType, q, safeLimit, offset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return { assets: rows.map(recordFromPayloadRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages };
+}
+
+async function getUserWalletOrdersPageFromDb({ userId = "", page = 1, limit = 12, queryText = "", status = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 200);
+  const cleanUserId = String(userId || "").trim();
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const from = fromDate ? new Date(fromDate).toISOString() : null;
+  const to = toDate ? new Date(toDate).toISOString() : null;
+  const { rows } = await query(`
+    SELECT *, COUNT(*) OVER()::int AS total_count
+    FROM app_wallet_orders
+    WHERE user_id = $1
+      AND ($2 = '' OR LOWER(status) = $2)
+      AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+      AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+      AND ($5 = '' OR LOWER(CONCAT_WS(' ', id, chain, payload->>'network', payload->>'address', transaction_hash, paypal_order_id, payload->>'paymentProvider', payload->>'note')) LIKE '%' || $5 || '%')
+    ORDER BY created_at DESC
+    LIMIT $6 OFFSET $7
+  `, [cleanUserId, cleanStatus, from, to, q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return { items: rows.map(walletOrderFromRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages };
+}
+
+async function getUserSpendingRecordsPageFromDb({ userId = "", page = 1, limit = 12, queryText = "", type = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 200);
+  const cleanUserId = String(userId || "").trim();
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanType = String(type || "").trim().toLowerCase();
+  const from = fromDate ? new Date(fromDate).toISOString() : null;
+  const to = toDate ? new Date(toDate).toISOString() : null;
+  const groupLive = !cleanType || cleanType === "chat_live";
+  const { rows } = await query(`
+    WITH live_rows AS (
+      SELECT
+        COALESCE(NULLIF(meta->>'sessionId', ''), NULLIF(regexp_replace(COALESCE(meta->>'taskId', ''), ':(hold|hold-refund):.*$', ''), ''), id) AS session_key,
+        delta,
+        balance_after,
+        created_at,
+        meta
+      FROM app_credit_ledger
+      WHERE $8::boolean
+        AND user_id = $1
+        AND type LIKE 'chat_live%' AND type NOT LIKE '%gift%'
+        AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+        AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+    ),
+    live_grouped AS (
+      SELECT
+        l.session_key AS id,
+        $1::text AS user_id,
+        SUM(l.delta) AS delta,
+        (ARRAY_AGG(l.balance_after ORDER BY l.created_at DESC))[1] AS balance_after,
+        'chat_live'::text AS type,
+        jsonb_build_object(
+          'taskId', l.session_key,
+          'sessionId', l.session_key,
+          'label', '视频聊天',
+          'characterName', COALESCE(s.payload->>'characterName', ''),
+          'duration', GREATEST(
+            COALESCE((s.payload->>'billedSeconds')::numeric, 0),
+            FLOOR(EXTRACT(EPOCH FROM (MAX(l.created_at) - MIN(l.created_at))))
+          ),
+          'endedAt', COALESCE(s.payload->>'endedAt', MAX(l.created_at)::text),
+          'startedAt', COALESCE(s.payload->>'createdAt', MIN(l.created_at)::text)
+        ) AS meta,
+        '{}'::jsonb AS payload,
+        COALESCE(NULLIF(s.payload->>'createdAt', '')::timestamptz, MIN(l.created_at)) AS created_at
+      FROM live_rows l
+      LEFT JOIN app_chat_live_sessions s ON s.id = l.session_key
+      GROUP BY l.session_key, s.payload
+      HAVING SUM(l.delta) < -0.0001
+    ),
+    others AS (
+      SELECT id, user_id, delta, balance_after, type, meta, COALESCE(payload, '{}'::jsonb) AS payload, created_at
+      FROM app_credit_ledger
+      WHERE user_id = $1
+        AND delta < 0
+        AND NOT ($8::boolean AND type LIKE 'chat_live%' AND type NOT LIKE '%gift%')
+        AND ($2 = '' OR LOWER(type) = $2)
+        AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+        AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+    ),
+    merged AS (
+      SELECT * FROM live_grouped
+      UNION ALL
+      SELECT * FROM others
+    )
+    SELECT *, COUNT(*) OVER()::int AS total_count
+    FROM merged
+    WHERE ($5 = '' OR LOWER(CONCAT_WS(' ', id, type, meta->>'taskId', meta->>'sessionId', meta->>'characterName', meta->>'label', meta->>'templateId', meta->>'provider')) LIKE '%' || $5 || '%')
+      AND ($2 = '' OR LOWER(type) = $2 OR ($2 = 'chat_live' AND type = 'chat_live'))
+    ORDER BY created_at DESC
+    LIMIT $6 OFFSET $7
+  `, [cleanUserId, cleanType, from, to, q, safeLimit, safeOffset, groupLive]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const typeRows = await query(`SELECT DISTINCT type FROM app_credit_ledger WHERE user_id = $1 AND delta < 0 AND type <> '' ORDER BY type`, [cleanUserId]);
+  return { items: rows.map(ledgerFromRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages, types: typeRows.rows.map((row) => String(row.type || "")).filter(Boolean) };
+}
+
+async function getSpendingMonthlySummaryFromDb({ userId = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId || !fromDate || !toDate) return { chatCredits: 0, giftCredits: 0 };
+  const { rows } = await query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type LIKE '%gift%' THEN -delta ELSE 0 END), 0) AS gift_credits,
+      COALESCE(SUM(CASE
+        WHEN (type LIKE 'character_chat%' OR type LIKE 'chat_live%')
+          AND type NOT LIKE '%gift%'
+        THEN -delta ELSE 0 END), 0) AS chat_credits
+    FROM app_credit_ledger
+    WHERE user_id = $1
+      AND created_at >= $2::timestamptz
+      AND created_at < $3::timestamptz
+      AND (type LIKE '%gift%' OR type LIKE 'character_chat%' OR type LIKE 'chat_live%')
+  `, [cleanUserId, new Date(fromDate).toISOString(), new Date(toDate).toISOString()]);
+  const row = rows[0] || {};
+  return {
+    chatCredits: creditNumber(Math.max(0, Number(row.chat_credits || 0))),
+    giftCredits: creditNumber(Math.max(0, Number(row.gift_credits || 0))),
+  };
+}
+
+async function getAdminUserCharactersPageFromDb({ page = 1, limit = 20, queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT c.*, COALESCE(u.username, c.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_user_characters c LEFT JOIN app_users u ON u.id = c.user_id
+    WHERE c.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(CONCAT_WS(' ', c.id, c.user_id, COALESCE(u.username, c.payload->>'username', ''), c.payload->>'name', c.payload->>'title', c.payload->>'description', c.payload->>'prompt', c.payload->>'status', c.payload->>'taskId', c.payload->>'upstreamTaskId')) LIKE '%' || $1 || '%')
+    ORDER BY c.created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...recordFromPayloadRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function getUserCharactersPageFromDb({ userId = "", page = 1, limit = 50 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 100);
+  const { rows } = await query(`
+    SELECT payload, id, user_id, deleted_at, created_at, updated_at, COUNT(*) OVER()::int AS total_count
+    FROM app_user_characters
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [String(userId || "").trim(), safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return { characters: rows.map(recordFromPayloadRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages };
+}
+
+async function getAdminSupportMessagesPageFromDb({ page = 1, limit = 20, queryText = "", status = "", source = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const cleanSource = String(source || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT m.*, COALESCE(u.username, m.payload->>'username', '') AS joined_username, COUNT(*) OVER()::int AS total_count
+    FROM app_support_messages m LEFT JOIN app_users u ON u.id = m.user_id
+    WHERE m.deleted_at IS NULL
+      AND ($1 = '' OR LOWER(COALESCE(m.payload->>'status', 'open')) = $1)
+      AND ($2 = '' OR LOWER(COALESCE(m.payload->>'source', '')) = $2)
+      AND ($3 = '' OR LOWER(CONCAT_WS(' ', m.id, m.user_id, COALESCE(u.username, m.payload->>'username', ''), m.payload->>'email', m.payload->>'subject', m.payload->>'message', m.payload->>'reply', m.payload->>'status', m.payload->>'source')) LIKE '%' || $3 || '%')
+    ORDER BY m.created_at DESC
+    LIMIT $4 OFFSET $5
+  `, [cleanStatus, cleanSource, q, safeLimit, safeOffset]);
+  return { items: rows.map((row) => ({ ...recordFromPayloadRow(row), username: row.joined_username || "" })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
+}
+
+async function hasReferralRewardInDb(referrerUserId = "", referredUserId = "") {
+  if (!dbEnabled()) return false;
+  const cleanReferrerUserId = String(referrerUserId || "").trim();
+  const cleanReferredUserId = String(referredUserId || "").trim();
+  if (!cleanReferrerUserId || !cleanReferredUserId) return false;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT 1
+      FROM app_credit_ledger
+      WHERE type = 'referral_reward'
+        AND user_id = $1
+        AND meta->>'referredUserId' = $2
+      LIMIT 1
+    `,
+    [cleanReferrerUserId, cleanReferredUserId],
+  );
+  return Boolean(rows[0]);
+}
+
+async function setMembershipActivationCodeStatusInDb(codeId = "", tenantId = DEFAULT_TENANT_ID, status = "disabled") {
+  if (!dbEnabled()) return null;
+  const cleanId = String(codeId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanStatus = String(status || "disabled").trim().toLowerCase();
+  if (!cleanId || !["active", "disabled"].includes(cleanStatus)) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_membership_activation_codes
+      SET status = $3, updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $2
+      RETURNING *
+    `,
+    [cleanId, cleanTenantId, cleanStatus],
+  );
+  return rows[0] ? membershipActivationCodeFromRow(rows[0]) : null;
+}
+
+async function redeemMembershipActivationCodeInDb({ tenantId = DEFAULT_TENANT_ID, codeHash = "", userId = "", redemptionId = "" } = {}) {
+  if (!dbEnabled()) {
+    const error = new Error("Activation codes require database storage.");
+    error.code = "DATABASE_REQUIRED";
+    throw error;
+  }
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanCodeHash = String(codeHash || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanRedemptionId = String(redemptionId || "").trim();
+  if (!cleanCodeHash || !cleanUserId || !cleanRedemptionId) {
+    const error = new Error("Activation code and user are required.");
+    error.code = "INVALID_ACTIVATION_CODE";
+    throw error;
+  }
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const codeResult = await client.query(
+      `SELECT * FROM app_membership_activation_codes WHERE tenant_id = $1 AND code_hash = $2 FOR UPDATE`,
+      [cleanTenantId, cleanCodeHash],
+    );
+    const row = codeResult.rows[0];
+    if (!row) {
+      const error = new Error("Activation code is invalid.");
+      error.code = "ACTIVATION_CODE_INVALID";
+      error.statusCode = 404;
+      throw error;
+    }
+    const existing = await client.query(
+      `SELECT id, redeemed_at FROM app_membership_activation_redemptions WHERE code_id = $1 AND user_id = $2 LIMIT 1`,
+      [row.id, cleanUserId],
+    );
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return { code: membershipActivationCodeFromRow(row), alreadyRedeemed: true };
+    }
+    if (String(row.status || "active") !== "active") {
+      const error = new Error("Activation code is no longer active.");
+      error.code = "ACTIVATION_CODE_INACTIVE";
+      error.statusCode = 409;
+      throw error;
+    }
+    if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
+      const error = new Error("Activation code has expired.");
+      error.code = "ACTIVATION_CODE_EXPIRED";
+      error.statusCode = 409;
+      throw error;
+    }
+    const maxRedemptions = Math.max(1, Number(row.max_redemptions || 1));
+    const redemptionCount = Math.max(0, Number(row.redemption_count || 0));
+    if (redemptionCount >= maxRedemptions) {
+      const error = new Error("Activation code has already been fully redeemed.");
+      error.code = "ACTIVATION_CODE_EXHAUSTED";
+      error.statusCode = 409;
+      throw error;
+    }
+    const now = new Date().toISOString();
+    await client.query(
+      `
+        INSERT INTO app_membership_activation_redemptions (id, code_id, tenant_id, user_id, redeemed_at, payload)
+        VALUES ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)
+      `,
+      [cleanRedemptionId, row.id, cleanTenantId, cleanUserId, now, JSON.stringify({ codeId: row.id, userId: cleanUserId, redeemedAt: now })],
+    );
+    const nextCount = redemptionCount + 1;
+    const updated = await client.query(
+      `
+        UPDATE app_membership_activation_codes
+        SET redemption_count = $2,
+            status = CASE WHEN $2 >= max_redemptions THEN 'exhausted' ELSE status END,
+            updated_at = $3::timestamptz
+        WHERE id = $1
+        RETURNING *
+      `,
+      [row.id, nextCount, now],
+    );
+    await client.query("COMMIT");
+    return { code: membershipActivationCodeFromRow(updated.rows[0]), alreadyRedeemed: false };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function updateWalletOrderInDb(order = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(order.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...order };
+  await query(
+    `
+      INSERT INTO app_wallet_orders(id, user_id, status, chain, transaction_hash, paypal_order_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        status = EXCLUDED.status,
+        chain = EXCLUDED.chain,
+        transaction_hash = EXCLUDED.transaction_hash,
+        paypal_order_id = EXCLUDED.paypal_order_id,
+        payload = EXCLUDED.payload,
+        updated_at = EXCLUDED.updated_at
+      WHERE app_wallet_orders.status <> 'paid' OR EXCLUDED.status = 'paid'
+    `,
+    [
+      id,
+      String(order.userId || ""),
+      String(order.status || "pending"),
+      String(order.chain || order.network || ""),
+      String(order.transactionHash || order.txHash || ""),
+      String(order.paypalOrderId || ""),
+      JSON.stringify(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return order;
+}
+
+async function updateUserInDb(user = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(user.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const tenantId = normalizeTenantId(user.tenantId || user.tenant_id || DEFAULT_TENANT_ID);
+  const payload = { ...user, tenantId };
+  await query(
+    `
+      INSERT INTO app_users(id, tenant_id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id,
+        username = EXCLUDED.username,
+        api_token = EXCLUDED.api_token,
+        role = EXCLUDED.role,
+        password_hash = EXCLUDED.password_hash,
+        credits = EXCLUDED.credits,
+        pricing_multiplier = EXCLUDED.pricing_multiplier,
+        api_pricing_multiplier = EXCLUDED.api_pricing_multiplier,
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      tenantId,
+      String(user.username || ""),
+      String(user.apiToken || ""),
+      String(user.role || "user"),
+      String(user.passwordHash || ""),
+      creditNumber(user.credits || 0),
+      creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
+      creditNumber(user.apiPricingMultiplier ?? user.apiPriceMultiplier ?? user.apiDiscount ?? 1, 1),
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return user;
+}
+
+async function upsertUserAssetInDb(asset = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(asset.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...asset };
+  await query(
+    `
+      INSERT INTO app_user_assets(id, user_id, mime, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz, $7::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        mime = EXCLUDED.mime,
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(asset.userId || ""),
+      String(asset.mime || ""),
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return asset;
+}
+
+async function getUserAssetFromDb(assetId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(assetId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_user_assets WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function upsertUserCharacterInDb(character = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(character.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...character };
+  await query(
+    `
+      INSERT INTO app_user_characters(id, user_id, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(character.userId || ""),
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return character;
+}
+
+async function upsertUserUnlockInDb(unlock = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(unlock.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...unlock };
+  await query(
+    `
+      INSERT INTO app_user_unlocks(id, user_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        payload = EXCLUDED.payload,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(unlock.userId || ""),
+      JSON.stringify(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return unlock;
+}
+
+async function listChatConversationsInDb(userId = "", limit = 80) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_conversations
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY updated_at DESC LIMIT $2
+  `, [String(userId || ""), Math.max(1, Math.min(200, Number(limit || 80) || 80))]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function findChatConversationByCharacterInDb(userId = "", characterId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_conversations
+    WHERE user_id = $1 AND character_id = $2 AND deleted_at IS NULL
+    ORDER BY updated_at DESC LIMIT 1
+  `, [cleanUserId, cleanCharacterId]);
+  return rows[0]?.payload || null;
+}
+
+async function getChatConversationInDb(id = "", userId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [String(id || ""), String(userId || "")]);
+  return rows[0]?.payload || null;
+}
+
+async function upsertChatConversationInDb(conversation = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...conversation };
+  await query(`
+    INSERT INTO app_chat_conversations(id, user_id, character_id, payload, deleted_at, created_at, updated_at)
+    VALUES ($1, $2, $3, $4::jsonb, NULLIF($5, '')::timestamptz, $6::timestamptz, $7::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, deleted_at = EXCLUDED.deleted_at, updated_at = EXCLUDED.updated_at
+  `, [payload.id, payload.userId, payload.characterId, JSON.stringify(payload), payload.deletedAt || "", payload.createdAt, payload.updatedAt]);
+  return payload;
+}
+
+async function listChatMessagesInDb(conversationId = "", userId = "", limit = 200) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM (
+      SELECT payload, created_at FROM app_chat_messages
+      WHERE conversation_id = $1 AND user_id = $2
+      ORDER BY created_at DESC
+      LIMIT $3
+    ) recent_messages
+    ORDER BY created_at ASC
+  `, [String(conversationId || ""), String(userId || ""), Math.max(1, Math.min(500, Number(limit || 200) || 200))]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function listChatMessagesAfterInDb(conversationId = "", userId = "", afterCreatedAt = "", afterId = "", limit = 200) {
+  if (!dbEnabled()) return [];
+  const cleanAfter = String(afterCreatedAt || "").trim();
+  if (!cleanAfter) return listChatMessagesInDb(conversationId, userId, limit);
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_messages
+    WHERE user_id = $2 AND conversation_id = $1
+      AND (
+        created_at > $3::timestamptz
+        OR (created_at = $3::timestamptz AND id > $4)
+      )
+    ORDER BY created_at ASC, id ASC
+    LIMIT $5
+  `, [
+    String(conversationId || ""),
+    String(userId || ""),
+    cleanAfter,
+    String(afterId || ""),
+    Math.max(1, Math.min(500, Number(limit || 200) || 200)),
+  ]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function insertChatMessageInDb(message = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...message };
+  await query(`
+    INSERT INTO app_chat_messages(id, conversation_id, user_id, role, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, $7::timestamptz)
+  `, [payload.id, payload.conversationId, payload.userId, payload.role, JSON.stringify(payload), payload.createdAt, payload.updatedAt]);
+  return payload;
+}
+
+/* Gift retries must not create a second bubble, a partial reaction, or a
+   second royalty event. Both messages and the conversation preview are
+   committed together; the credit ledger remains idempotent by taskId. */
+async function insertChatMessagesIfAbsentInDb(messages = [], conversation = null) {
+  if (!dbEnabled()) return { messages: [], insertedCount: 0, inserted: false };
+  await ensureSchema();
+  const payloads = (Array.isArray(messages) ? messages : [])
+    .filter((message) => message && message.id && message.conversationId && message.userId)
+    .map((message) => ({ ...message }));
+  if (!payloads.length) return { messages: [], insertedCount: 0, inserted: false };
+
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const lockKey = String(payloads[0].taskId || payloads[0].id || "").trim();
+    if (lockKey) await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`chat-gift:${lockKey}`]);
+
+    const stored = [];
+    let insertedCount = 0;
+    for (const payload of payloads) {
+      const result = await client.query(`
+        INSERT INTO app_chat_messages(id, conversation_id, user_id, role, payload, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, $7::timestamptz)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING payload
+      `, [payload.id, payload.conversationId, payload.userId, payload.role, JSON.stringify(payload), payload.createdAt, payload.updatedAt]);
+      if (result.rows[0]?.payload) {
+        insertedCount += 1;
+        stored.push(result.rows[0].payload);
+        continue;
+      }
+      const existing = await client.query(`
+        SELECT payload FROM app_chat_messages WHERE id = $1 AND conversation_id = $2 AND user_id = $3
+      `, [payload.id, payload.conversationId, payload.userId]);
+      stored.push(existing.rows[0]?.payload || payload);
+    }
+
+    if (conversation && insertedCount > 0) {
+      const nextConversation = { ...conversation };
+      await client.query(`
+        INSERT INTO app_chat_conversations(id, user_id, character_id, payload, deleted_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, NULLIF($5, '')::timestamptz, $6::timestamptz, $7::timestamptz)
+        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, deleted_at = EXCLUDED.deleted_at, updated_at = EXCLUDED.updated_at
+      `, [nextConversation.id, nextConversation.userId, nextConversation.characterId, JSON.stringify(nextConversation), nextConversation.deletedAt || "", nextConversation.createdAt, nextConversation.updatedAt]);
+    }
+    await client.query("COMMIT");
+    return { messages: stored, insertedCount, inserted: insertedCount > 0 };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function updateChatMessageInDb(message = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...message, updatedAt: message.updatedAt || new Date().toISOString() };
+  const { rows } = await query(`
+    UPDATE app_chat_messages
+    SET role = $4, payload = $5::jsonb, updated_at = $6::timestamptz
+    WHERE id = $1 AND conversation_id = $2 AND user_id = $3
+    RETURNING payload
+  `, [payload.id, payload.conversationId, payload.userId, payload.role, JSON.stringify(payload), payload.updatedAt]);
+  return rows[0]?.payload || null;
+}
+
+async function deleteChatMessageInDb(conversationId = "", userId = "", messageId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    DELETE FROM app_chat_messages WHERE id = $1 AND conversation_id = $2 AND user_id = $3
+  `, [String(messageId || ""), String(conversationId || ""), String(userId || "")]);
+  return rowCount || 0;
+}
+
+async function deleteChatMessagesAfterInDb(conversationId = "", userId = "", messageId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    DELETE FROM app_chat_messages WHERE conversation_id = $1 AND user_id = $2
+      AND created_at >= (SELECT created_at FROM app_chat_messages WHERE id = $3 AND conversation_id = $1 AND user_id = $2)
+  `, [String(conversationId || ""), String(userId || ""), String(messageId || "")]);
+  return rowCount || 0;
+}
+
+async function getCharacterRelationshipInDb(userId = "", characterId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT user_id, character_id, stage, effective_days, last_effective_day, first_chat_at, last_chat_at, payload, updated_at
+    FROM app_character_relationships WHERE user_id = $1 AND character_id = $2
+  `, [String(userId || ""), String(characterId || "")]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...(row.payload || {}),
+    userId: row.user_id,
+    characterId: row.character_id,
+    stage: row.stage,
+    effectiveDays: Number(row.effective_days || 0),
+    lastEffectiveDay: row.last_effective_day ? new Date(row.last_effective_day).toISOString().slice(0, 10) : "",
+    firstChatAt: row.first_chat_at ? new Date(row.first_chat_at).toISOString() : "",
+    lastChatAt: row.last_chat_at ? new Date(row.last_chat_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function upsertCharacterRelationshipInDb(relationship = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...relationship };
+  await query(`
+    INSERT INTO app_character_relationships(user_id, character_id, stage, effective_days, last_effective_day, first_chat_at, last_chat_at, payload, updated_at)
+    VALUES ($1, $2, $3, $4, NULLIF($5, '')::date, NULLIF($6, '')::timestamptz, NULLIF($7, '')::timestamptz, $8::jsonb, $9::timestamptz)
+    ON CONFLICT (user_id, character_id) DO UPDATE SET
+      stage = EXCLUDED.stage,
+      effective_days = GREATEST(app_character_relationships.effective_days, EXCLUDED.effective_days),
+      last_effective_day = EXCLUDED.last_effective_day,
+      first_chat_at = COALESCE(app_character_relationships.first_chat_at, EXCLUDED.first_chat_at),
+      last_chat_at = EXCLUDED.last_chat_at,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [String(relationship.userId || ""), String(relationship.characterId || ""), String(relationship.stage || "初识"), Math.max(0, Number(relationship.effectiveDays || 0)), String(relationship.lastEffectiveDay || ""), String(relationship.firstChatAt || ""), String(relationship.lastChatAt || ""), JSON.stringify(payload), relationship.updatedAt || new Date().toISOString()]);
+  return payload;
+}
+
+async function getGuideStateInDb(userId = "", guideKey = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT user_id, guide_key, seen_at, completed_at, payload, updated_at FROM app_user_guides WHERE user_id = $1 AND guide_key = $2`, [String(userId || ""), String(guideKey || "")]);
+  const row = rows[0];
+  if (!row) return null;
+  return { ...(row.payload || {}), userId: row.user_id, guideKey: row.guide_key, seenAt: row.seen_at ? new Date(row.seen_at).toISOString() : "", completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : "", updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "" };
+}
+
+async function upsertGuideStateInDb(state = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...state };
+  await query(`
+    INSERT INTO app_user_guides(user_id, guide_key, seen_at, completed_at, payload, updated_at)
+    VALUES ($1, $2, NULLIF($3, '')::timestamptz, NULLIF($4, '')::timestamptz, $5::jsonb, $6::timestamptz)
+    ON CONFLICT (user_id, guide_key) DO UPDATE SET
+      seen_at = COALESCE(app_user_guides.seen_at, EXCLUDED.seen_at),
+      completed_at = COALESCE(app_user_guides.completed_at, EXCLUDED.completed_at),
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [String(state.userId || ""), String(state.guideKey || ""), String(state.seenAt || ""), String(state.completedAt || ""), JSON.stringify(payload), state.updatedAt || new Date().toISOString()]);
+  return payload;
+}
+
+/* ------------------------------------------------------------------ *
+ * Chat live (Vidu S2-Avatar realtime video chat)                      *
+ * ------------------------------------------------------------------ */
+
+async function listChatLiveCharactersInDb({ includeDisabled = false } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload, looks FROM app_chat_live_characters
+    WHERE deleted_at IS NULL ${includeDisabled ? "" : "AND enabled = TRUE"}
+    ORDER BY sort_order ASC, created_at ASC
+  `);
+  return rows.map((row) => ({ ...(row.payload || {}), looks: row.looks || [] }));
+}
+
+async function getChatLiveCharacterInDb(id = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload, looks FROM app_chat_live_characters WHERE id = $1 AND deleted_at IS NULL`, [String(id || "")]);
+  return rows[0] ? { ...(rows[0].payload || {}), looks: rows[0].looks || [] } : null;
+}
+
+async function upsertChatLiveCharacterInDb(character = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...character };
+  await query(`
+    INSERT INTO app_chat_live_characters(id, payload, looks, enabled, sort_order, deleted_at, created_at, updated_at)
+    VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, NULLIF($6, '')::timestamptz, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      payload = EXCLUDED.payload,
+      looks = EXCLUDED.looks,
+      enabled = EXCLUDED.enabled,
+      sort_order = EXCLUDED.sort_order,
+      deleted_at = EXCLUDED.deleted_at,
+      updated_at = EXCLUDED.updated_at
+  `, [
+    payload.id,
+    JSON.stringify(payload),
+    JSON.stringify(Array.isArray(payload.looks) ? payload.looks : []),
+    payload.enabled !== false,
+    Number(payload.sortOrder || 0) || 0,
+    payload.deletedAt || "",
+    payload.createdAt,
+    payload.updatedAt,
+  ]);
+  return payload;
+}
+
+async function softDeleteChatLiveCharacterInDb(id = "", deletedAt = new Date().toISOString()) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_chat_live_characters
+    SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz
+    WHERE id = $1
+    RETURNING payload
+  `, [String(id || ""), deletedAt]);
+  return rows[0]?.payload || null;
+}
+
+async function createChatLiveSessionInDb(session = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...session };
+  await query(`
+    INSERT INTO app_chat_live_sessions(id, user_id, character_id, live_id, status, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, $8::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      live_id = EXCLUDED.live_id,
+      status = EXCLUDED.status,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [
+    payload.id,
+    String(payload.userId || ""),
+    String(payload.characterId || ""),
+    String(payload.liveId || ""),
+    String(payload.status || "pending"),
+    JSON.stringify(payload),
+    payload.createdAt,
+    payload.updatedAt,
+  ]);
+  return payload;
+}
+
+async function getChatLiveSessionInDb(id = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_sessions WHERE id = $1`, [String(id || "")]);
+  return rows[0]?.payload || null;
+}
+
+async function getChatLiveSessionByLiveIdInDb(liveId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(liveId || "");
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_sessions WHERE live_id = $1 ORDER BY created_at DESC LIMIT 1`, [id]);
+  return rows[0]?.payload || null;
+}
+
+async function updateChatLiveSessionInDb(session = {}) {
+  if (!dbEnabled()) return null;
+  if (!session?.id) return null;
+  await ensureSchema();
+  const payload = { ...session };
+  await query(`
+    UPDATE app_chat_live_sessions
+    SET live_id = $2, status = $3, payload = $4::jsonb, updated_at = $5::timestamptz
+    WHERE id = $1
+  `, [
+    payload.id,
+    String(payload.liveId || ""),
+    String(payload.status || "pending"),
+    JSON.stringify(payload),
+    payload.updatedAt || new Date().toISOString(),
+  ]);
+  return payload;
+}
+
+/* Serialize a whole read/settle/write transaction for one chat-live session.
+   Ledger rows are idempotent, but session snapshots are not: without this lock
+   a slower retry can overwrite a newer settled state with stale hold fields. */
+async function withChatLiveSessionSettlementLockInDb(sessionId = "", handler = null) {
+  if (!dbEnabled()) return null;
+  const id = String(sessionId || "").trim();
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`chat-live-settlement:${id}`]);
+    const { rows } = await client.query(`SELECT payload FROM app_chat_live_sessions WHERE id = $1 FOR UPDATE`, [id]);
+    const current = rows[0]?.payload || null;
+    const result = await handler(current, client);
+    const next = result?.session || null;
+    if (next?.id) {
+      await client.query(`
+        UPDATE app_chat_live_sessions
+        SET live_id = $2, status = $3, payload = $4::jsonb, updated_at = $5::timestamptz
+        WHERE id = $1
+      `, [
+        next.id,
+        String(next.liveId || ""),
+        String(next.status || "pending"),
+        JSON.stringify(next),
+        next.updatedAt || new Date().toISOString(),
+      ]);
+    }
+    await client.query("COMMIT");
+    return result?.value === undefined ? next : result.value;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function chatLiveFreeAdvisoryKey(tenantId = DEFAULT_TENANT_ID, userId = "") {
+  return `chat-live-free:${normalizeTenantId(tenantId)}:${String(userId || "").trim()}`;
+}
+
+/*
+ * Chat-live free time belongs to the user, not to a single connection. The
+ * allocation row makes each session idempotent; the usage row is the durable
+ * cumulative ledger. Every mutating path takes the same per-user advisory lock
+ * before touching either table, so allocation, settlement, rollback, and orphan
+ * cleanup cannot consume or release the same seconds concurrently.
+ */
+async function allocateChatLiveFreeSecondsInDb({
+  tenantId = DEFAULT_TENANT_ID,
+  userId = "",
+  sessionId = "",
+  configuredSeconds = 0,
+  requestedSeconds = 0,
+} = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanUserId = String(userId || "").trim();
+  const cleanSessionId = String(sessionId || "").trim();
+  const configured = Math.max(0, Math.round(Number(configuredSeconds || 0) || 0));
+  const requested = Math.max(0, Math.round(Number(requestedSeconds || 0) || 0));
+  if (!cleanUserId || !cleanSessionId) throw new Error("Chat-live free allocation requires user and session ids");
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(cleanTenantId, cleanUserId)]);
+    await client.query(`
+      INSERT INTO app_chat_live_free_usage(tenant_id, user_id, consumed_seconds)
+      VALUES ($1, $2, 0)
+      ON CONFLICT (tenant_id, user_id) DO NOTHING
+    `, [cleanTenantId, cleanUserId]);
+    const usage = await client.query(`
+      SELECT consumed_seconds FROM app_chat_live_free_usage
+      WHERE tenant_id = $1 AND user_id = $2
+      FOR UPDATE
+    `, [cleanTenantId, cleanUserId]);
+    const existing = await client.query(`
+      SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+    `, [cleanSessionId]);
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      if (normalizeTenantId(row.tenant_id) !== cleanTenantId || String(row.user_id || "") !== cleanUserId) {
+        const conflict = new Error("Chat-live free allocation belongs to a different user");
+        conflict.code = "CHAT_LIVE_FREE_ALLOCATION_CONFLICT";
+        conflict.statusCode = 409;
+        throw conflict;
+      }
+      const savedConfigured = Math.max(0, Number(row.configured_seconds || 0) || 0);
+      const allocated = Math.max(0, Number(row.allocated_seconds || 0) || 0);
+      const consumed = Math.max(0, Number(usage.rows[0]?.consumed_seconds || 0) || 0);
+      await client.query("COMMIT");
+      return {
+        found: true,
+        existing: true,
+        finalized: row.finalized === true,
+        allocatedSeconds: allocated,
+        remainingSeconds: Math.max(0, savedConfigured - consumed),
+        consumedSeconds: consumed,
+        exhausted: consumed >= savedConfigured,
+        configuredSeconds: savedConfigured,
+      };
+    }
+    const consumed = Math.max(0, Number(usage.rows[0]?.consumed_seconds || 0) || 0);
+    const remaining = Math.max(0, configured - consumed);
+    const allocated = Math.min(requested, remaining);
+    await client.query(`
+      INSERT INTO app_chat_live_free_allocations(
+        session_id, tenant_id, user_id, configured_seconds, allocated_seconds
+      ) VALUES ($1, $2, $3, $4, $5)
+    `, [cleanSessionId, cleanTenantId, cleanUserId, configured, allocated]);
+    if (allocated > 0) {
+      await client.query(`
+        UPDATE app_chat_live_free_usage
+        SET consumed_seconds = consumed_seconds + $3, updated_at = NOW()
+        WHERE tenant_id = $1 AND user_id = $2
+      `, [cleanTenantId, cleanUserId, allocated]);
+    }
+    const consumedAfter = consumed + allocated;
+    await client.query("COMMIT");
+    return {
+      found: true,
+      existing: false,
+      finalized: false,
+      allocatedSeconds: allocated,
+      remainingSeconds: Math.max(0, configured - consumedAfter),
+      consumedSeconds: consumedAfter,
+      exhausted: consumedAfter >= configured,
+      configuredSeconds: configured,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function finalizeChatLiveFreeAllocationInDb(sessionId = "", usedSeconds = 0, client = null) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  const cleanSessionId = String(sessionId || "").trim();
+  if (!cleanSessionId) return { found: false, allocatedSeconds: 0, remainingSeconds: 0, consumedSeconds: 0, configuredSeconds: 0, exhausted: false };
+  await ensureSchema();
+  const ownClient = client ? null : await getPool().connect();
+  const tx = client || ownClient;
+  try {
+    if (ownClient) await tx.query("BEGIN");
+    const discovered = await tx.query(`
+      SELECT tenant_id, user_id FROM app_chat_live_free_allocations WHERE session_id = $1
+    `, [cleanSessionId]);
+    const owner = discovered.rows[0];
+    if (!owner) {
+      if (ownClient) await tx.query("COMMIT");
+      return { found: false, allocatedSeconds: 0, remainingSeconds: 0, consumedSeconds: 0, configuredSeconds: 0, exhausted: false };
+    }
+    const tenantId = normalizeTenantId(owner.tenant_id);
+    const userId = String(owner.user_id || "");
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(tenantId, userId)]);
+    const allocation = await tx.query(`
+      SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+    `, [cleanSessionId]);
+    const row = allocation.rows[0];
+    if (!row) {
+      if (ownClient) await tx.query("COMMIT");
+      return { found: false, allocatedSeconds: 0, remainingSeconds: 0, consumedSeconds: 0, configuredSeconds: 0, exhausted: false };
+    }
+    if (normalizeTenantId(row.tenant_id) !== tenantId || String(row.user_id || "") !== userId) {
+      const conflict = new Error("Chat-live free allocation ownership changed during settlement");
+      conflict.code = "CHAT_LIVE_FREE_ALLOCATION_CONFLICT";
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    const usage = await tx.query(`
+      SELECT consumed_seconds FROM app_chat_live_free_usage
+      WHERE tenant_id = $1 AND user_id = $2
+      FOR UPDATE
+    `, [tenantId, userId]);
+    const configured = Math.max(0, Number(row.configured_seconds || 0) || 0);
+    let allocated = Math.max(0, Number(row.allocated_seconds || 0) || 0);
+    let consumed = Math.max(0, Number(usage.rows[0]?.consumed_seconds || 0) || 0);
+    if (row.finalized !== true) {
+      const used = Math.max(0, Math.round(Number(usedSeconds || 0) || 0));
+      const finalAllocated = Math.min(allocated, used);
+      const release = allocated - finalAllocated;
+      if (release > 0) {
+        await tx.query(`
+          UPDATE app_chat_live_free_usage
+          SET consumed_seconds = GREATEST(0, consumed_seconds - $3), updated_at = NOW()
+          WHERE tenant_id = $1 AND user_id = $2
+        `, [tenantId, userId, release]);
+      }
+      await tx.query(`
+        UPDATE app_chat_live_free_allocations
+        SET allocated_seconds = $2, finalized = TRUE, updated_at = NOW()
+        WHERE session_id = $1
+      `, [cleanSessionId, finalAllocated]);
+      allocated = finalAllocated;
+      consumed = Math.max(0, consumed - release);
+    }
+    const latest = await tx.query(`
+      SELECT consumed_seconds FROM app_chat_live_free_usage
+      WHERE tenant_id = $1 AND user_id = $2
+    `, [tenantId, userId]);
+    consumed = Math.max(0, Number(latest.rows[0]?.consumed_seconds || 0) || 0);
+    const result = {
+      found: true,
+      finalized: true,
+      allocatedSeconds: allocated,
+      remainingSeconds: Math.max(0, configured - consumed),
+      consumedSeconds: consumed,
+      configuredSeconds: configured,
+      exhausted: consumed >= configured,
+    };
+    if (ownClient) await tx.query("COMMIT");
+    return result;
+  } catch (error) {
+    if (ownClient) await tx.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    ownClient?.release();
+  }
+}
+
+async function cancelChatLiveFreeAllocationInDb(sessionId = "") {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  const cleanSessionId = String(sessionId || "").trim();
+  if (!cleanSessionId) return false;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const discovered = await client.query(`
+      SELECT tenant_id, user_id FROM app_chat_live_free_allocations WHERE session_id = $1
+    `, [cleanSessionId]);
+    const owner = discovered.rows[0];
+    if (!owner) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const tenantId = normalizeTenantId(owner.tenant_id);
+    const userId = String(owner.user_id || "");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(tenantId, userId)]);
+    const allocation = await client.query(`
+      SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+    `, [cleanSessionId]);
+    const row = allocation.rows[0];
+    if (!row) {
+      await client.query("COMMIT");
+      return false;
+    }
+    if (normalizeTenantId(row.tenant_id) !== tenantId || String(row.user_id || "") !== userId) {
+      const conflict = new Error("Chat-live free allocation ownership changed during rollback");
+      conflict.code = "CHAT_LIVE_FREE_ALLOCATION_CONFLICT";
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    // Once finalized, the allocation is settlement evidence and must remain immutable.
+    if (row.finalized === true) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const allocated = Math.max(0, Number(row.allocated_seconds || 0) || 0);
+    if (allocated > 0) {
+      await client.query(`
+        UPDATE app_chat_live_free_usage
+        SET consumed_seconds = GREATEST(0, consumed_seconds - $3), updated_at = NOW()
+        WHERE tenant_id = $1 AND user_id = $2
+      `, [tenantId, userId, allocated]);
+    }
+    await client.query(`DELETE FROM app_chat_live_free_allocations WHERE session_id = $1`, [cleanSessionId]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/*
+ * An allocation is reserved before the Vidu request and the session row is
+ * written only after Vidu accepts the live. A process crash in that window can
+ * leave reserved free seconds without a session. This sweep releases only old
+ * allocations with no session row; it is deliberately not run on request paths
+ * because a legitimate Vidu create can take up to 45 seconds.
+ */
+async function cleanupOrphanedChatLiveFreeAllocationsInDb({ minAgeSeconds = 600, limit = 100 } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for chat-live free usage");
+  await ensureSchema();
+  const safeMinAgeSeconds = Math.max(300, Math.min(86400, Number(minAgeSeconds || 0) || 600));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit || 100) || 100));
+  const { rows: candidates } = await query(`
+    SELECT a.session_id, a.tenant_id, a.user_id
+    FROM app_chat_live_free_allocations a
+    LEFT JOIN app_chat_live_sessions s ON s.id = a.session_id
+    WHERE a.finalized = FALSE
+      AND s.id IS NULL
+      AND a.created_at <= NOW() - ($1 * INTERVAL '1 second')
+    ORDER BY a.created_at ASC
+    LIMIT $2
+  `, [safeMinAgeSeconds, safeLimit]);
+  const released = [];
+  const pool = getPool();
+  for (const candidate of candidates) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const tenantId = normalizeTenantId(candidate.tenant_id);
+      const userId = String(candidate.user_id || "");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatLiveFreeAdvisoryKey(tenantId, userId)]);
+      const { rows } = await client.query(`
+        SELECT * FROM app_chat_live_free_allocations WHERE session_id = $1 FOR UPDATE
+      `, [candidate.session_id]);
+      const allocation = rows[0];
+      if (!allocation || allocation.finalized === true) {
+        await client.query("COMMIT");
+        continue;
+      }
+      const session = await client.query(`SELECT 1 FROM app_chat_live_sessions WHERE id = $1`, [candidate.session_id]);
+      if (session.rows[0]) {
+        await client.query("COMMIT");
+        continue;
+      }
+      const allocated = Math.max(0, Number(allocation.allocated_seconds || 0) || 0);
+      if (allocated > 0) {
+        await client.query(`
+          UPDATE app_chat_live_free_usage
+          SET consumed_seconds = GREATEST(0, consumed_seconds - $3), updated_at = NOW()
+          WHERE tenant_id = $1 AND user_id = $2
+        `, [tenantId, userId, allocated]);
+      }
+      await client.query(`DELETE FROM app_chat_live_free_allocations WHERE session_id = $1`, [candidate.session_id]);
+      await client.query("COMMIT");
+      released.push(String(candidate.session_id || ""));
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  return released;
+}
+
+async function listChatLiveSessionsInDb({ userId = "", limit = 50, offset = 0, withTotal = false } = {}) {
+  if (!dbEnabled()) return withTotal ? { items: [], total: 0 } : [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
+  const safeOffset = Math.max(0, Math.min(1000000, Number(offset || 0) || 0));
+  const cleanUserId = String(userId || "");
+  const { rows } = cleanUserId
+    ? await query(
+      `SELECT payload FROM app_chat_live_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [cleanUserId, safeLimit, safeOffset],
+    )
+    : await query(
+      `SELECT payload FROM app_chat_live_sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [safeLimit, safeOffset],
+    );
+  const items = rows.map((row) => row.payload || {});
+  if (!withTotal) return items;
+  const counted = cleanUserId
+    ? await query(`SELECT COUNT(*)::int AS total FROM app_chat_live_sessions WHERE user_id = $1`, [cleanUserId])
+    : await query(`SELECT COUNT(*)::int AS total FROM app_chat_live_sessions`);
+  return { items, total: Number(counted.rows[0]?.total || 0) || 0 };
+}
+
+async function listUnsettledChatLiveSessionsInDb({ limit = 50, minAgeSeconds = 60 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
+  const safeMinAgeSeconds = Math.max(0, Math.min(86400, Number(minAgeSeconds || 0) || 0));
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_chat_live_sessions
+    WHERE live_id <> ''
+      AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1')
+      AND created_at <= NOW() - ($1 * INTERVAL '1 second')
+    ORDER BY updated_at ASC, created_at ASC
+    LIMIT $2
+  `, [safeMinAgeSeconds, safeLimit]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function listTerminalChatLiveSessionsMissingHistoryInDb({ limit = 25, minAgeSeconds = 30 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit || 25) || 25));
+  const safeMinAgeSeconds = Math.max(0, Math.min(86400, Number(minAgeSeconds || 0) || 0));
+  const { rows } = await query(`
+    SELECT s.payload
+    FROM app_chat_live_sessions s
+    WHERE s.created_at <= NOW() - ($1 * INTERVAL '1 second')
+      AND (
+        LOWER(COALESCE(s.payload->>'status', '')) IN ('ended', 'closed', 'failed')
+        OR LOWER(COALESCE(s.payload->>'upstreamStatus', '')) IN ('ended', 'closed', 'failed')
+        OR COALESCE(s.payload->>'endedAt', '') <> ''
+        OR COALESCE(s.payload->>'ended_at', '') <> ''
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM app_chat_messages m
+        WHERE m.id = 'video-call-' || s.id
+          AND m.user_id = s.user_id
+      )
+    ORDER BY s.updated_at ASC, s.created_at ASC
+    LIMIT $2
+  `, [safeMinAgeSeconds, safeLimit]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function upsertChatLiveRoomInDb(room = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const payload = { ...room };
+  const now = payload.updatedAt || new Date().toISOString();
+  await query(`
+    INSERT INTO app_chat_live_rooms(id, character_id, status, enabled, payload, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, COALESCE(NULLIF($6, '')::timestamptz, NOW()), $7::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      character_id = EXCLUDED.character_id,
+      status = EXCLUDED.status,
+      enabled = EXCLUDED.enabled,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+  `, [String(payload.id || ''), String(payload.characterId || ''), String(payload.status || 'active'), payload.enabled !== false, JSON.stringify(payload), payload.createdAt || now, now]);
+  return payload;
+}
+
+async function getChatLiveRoomInDb(id = '') {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_chat_live_rooms WHERE id = $1`, [String(id || '')]);
+  return rows[0]?.payload || null;
+}
+
+async function listChatLiveRoomsInDb({ enabledOnly = true, limit = 50 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50) || 50));
+  const clauses = enabledOnly ? `WHERE r.enabled = TRUE AND r.status = 'active'` : '';
+  const { rows } = await query(`
+    SELECT r.payload,
+      COALESCE(COUNT(m.user_id) FILTER (WHERE m.last_seen_at > NOW() - INTERVAL '90 seconds'), 0)::int AS viewer_count
+    FROM app_chat_live_rooms r
+    LEFT JOIN app_chat_live_room_members m ON m.room_id = r.id
+    ${clauses}
+    GROUP BY r.id
+    ORDER BY COALESCE((r.payload->>'activeCount')::int, 0) DESC, r.updated_at DESC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => ({ ...(row.payload || {}), viewerCount: Number(row.viewer_count || 0) || 0 }));
+}
+
+async function upsertChatLiveRoomMemberInDb({ roomId = '', userId = '', role = 'viewer' } = {}) {
+  if (!dbEnabled() || !roomId || !userId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_chat_live_room_members(room_id, user_id, role, joined_at, last_seen_at)
+    VALUES ($1, $2, $3, NOW(), NOW())
+    ON CONFLICT (room_id, user_id) DO UPDATE SET role = EXCLUDED.role, last_seen_at = NOW()
+    RETURNING room_id, user_id, role, joined_at, last_seen_at
+  `, [String(roomId), String(userId), String(role || 'viewer')]);
+  return rows[0] || null;
+}
+
+async function insertChatLiveRoomMessageInDb({ id = '', roomId = '', userId = '', role = 'user', content = '', payload = {} } = {}) {
+  if (!dbEnabled() || !roomId || !content) return null;
+  await ensureSchema();
+  const messageId = String(id || `roommsg-${Date.now().toString(36)}`);
+  const { rows } = await query(`
+    INSERT INTO app_chat_live_room_messages(id, room_id, user_id, role, content, payload)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+    RETURNING id, room_id AS "roomId", user_id AS "userId", role, content, payload, created_at AS "createdAt"
+  `, [messageId, String(roomId), String(userId || ''), String(role || 'user'), String(content).slice(0, 2000), JSON.stringify(payload || {})]);
+  return rows[0] || null;
+}
+
+async function listChatLiveRoomMessagesInDb(roomId = '', limit = 100) {
+  if (!dbEnabled() || !roomId) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 100) || 100));
+  const { rows } = await query(`SELECT id, room_id AS "roomId", user_id AS "userId", role, content, payload, created_at AS "createdAt" FROM app_chat_live_room_messages WHERE room_id = $1 ORDER BY created_at DESC LIMIT $2`, [String(roomId), safeLimit]);
+  return rows.reverse();
+}
+
+async function claimToolFreeGenerationInDb({ id = "", userId = "", tenantId = "", taskId = "", kind = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId || DEFAULT_TENANT_ID);
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = {
+    id: cleanId,
+    userId: cleanUserId,
+    tenantId: cleanTenantId,
+    taskId: cleanTaskId,
+    kind: String(kind || "").trim(),
+    status: "claimed",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { rows } = await query(
+    `
+      INSERT INTO app_user_unlocks(id, user_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $4::timestamptz)
+      ON CONFLICT (id) DO NOTHING
+      RETURNING *
+    `,
+    [cleanId, cleanUserId, JSON.stringify(payload), now],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function getToolFreeGenerationClaimInDb({ id = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanId || !cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_user_unlocks WHERE id = $1 AND user_id = $2 LIMIT 1`,
+    [cleanId, cleanUserId],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function hasUserRechargeInDb(userId = "") {
+  if (!dbEnabled()) return false;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return false;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT (
+        EXISTS (
+          SELECT 1
+          FROM app_wallet_orders
+          WHERE user_id = $1
+            AND LOWER(status) = 'paid'
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM app_credit_ledger
+          WHERE user_id = $1
+            AND delta > 0
+            AND type IN ('wallet_topup', 'subscription_credit_grant')
+        )
+      ) AS has_recharge
+    `,
+    [cleanUserId],
+  );
+  return rows[0]?.has_recharge === true;
+}
+
+async function completeToolFreeGenerationInDb({ id = "", userId = "", taskId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_user_unlocks
+      SET payload = payload || jsonb_build_object(
+            'status', 'generated',
+            'completedAt', $4::text,
+            'updatedAt', $4::text
+          ),
+          updated_at = $4::timestamptz
+      WHERE id = $1
+        AND user_id = $2
+        AND payload->>'taskId' = $3
+      RETURNING *
+    `,
+    [cleanId, cleanUserId, cleanTaskId, now],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function markToolFreeGenerationUnlockedInDb({ id = "", userId = "", taskId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_user_unlocks
+      SET payload = payload || jsonb_build_object(
+            'status', 'unlocked',
+            'unlockedAt', $4::text,
+            'updatedAt', $4::text
+          ),
+          updated_at = $4::timestamptz
+      WHERE id = $1
+        AND user_id = $2
+        AND payload->>'taskId' = $3
+      RETURNING *
+    `,
+    [cleanId, cleanUserId, cleanTaskId, now],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function releaseToolFreeGenerationClaimInDb({ id = "", userId = "", taskId = "" } = {}) {
+  if (!dbEnabled()) return false;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return false;
+  await ensureSchema();
+  const result = await query(
+    `
+      DELETE FROM app_user_unlocks
+      WHERE id = $1
+        AND user_id = $2
+        AND payload->>'taskId' = $3
+        AND COALESCE(payload->>'status', 'claimed') = 'claimed'
+    `,
+    [cleanId, cleanUserId, cleanTaskId],
+  );
+  return Number(result.rowCount || 0) > 0;
+}
+
+async function listAdminHomeItemsFromDb({ includeDeleted = false } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_admin_home_items
+      ${includeDeleted ? "" : "WHERE deleted_at IS NULL"}
+      ORDER BY updated_at DESC, created_at DESC
+    `,
+  );
+  return rows.map(recordFromPayloadRow);
+}
+
+async function upsertAdminHomeItemInDb(item = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(item.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...item };
+  await query(
+    `
+      INSERT INTO app_admin_home_items(id, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz, $5::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return item;
+}
+
+async function replaceAdminHomeItemsInDb(items = []) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const normalized = (Array.isArray(items) ? items : [])
+    .filter((item) => item && String(item.id || "").trim())
+    .map((item) => ({ ...item }));
+  for (const item of normalized) {
+    await upsertAdminHomeItemInDb(item);
+  }
+  const activeIds = normalized.map((item) => String(item.id || "").trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  await query(
+    `
+      UPDATE app_admin_home_items
+      SET deleted_at = COALESCE(deleted_at, $2::timestamptz),
+          payload = payload || jsonb_build_object('deletedAt', COALESCE(payload->>'deletedAt', $2::text), 'updatedAt', $2::text),
+          updated_at = $2::timestamptz
+      WHERE NOT (id = ANY($1::text[]))
+        AND deleted_at IS NULL
+    `,
+    [activeIds, now],
+  );
+  return normalized;
+}
+
+async function softDeleteAdminHomeItemInDb(itemId = "", deletedAt = new Date().toISOString()) {
+  if (!dbEnabled()) return null;
+  const id = String(itemId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_admin_home_items WHERE id = $1`, [id]);
+  const current = rows[0] ? recordFromPayloadRow(rows[0]) : null;
+  if (!current) return null;
+  const payload = { ...current, deletedAt, updatedAt: deletedAt };
+  await query(
+    `
+      UPDATE app_admin_home_items
+      SET payload = $2::jsonb,
+          deleted_at = $3::timestamptz,
+          updated_at = $3::timestamptz
+      WHERE id = $1
+    `,
+    [id, JSON.stringify(payload), deletedAt],
+  );
+  return payload;
+}
+
+async function listWorkflowPresetsFromDb({ includeDeleted = false } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_workflow_presets
+      ${includeDeleted ? "" : "WHERE deleted_at IS NULL"}
+      ORDER BY sort_order ASC, updated_at DESC, created_at DESC
+    `,
+  );
+  return rows.map(recordFromPayloadRow);
+}
+
+async function upsertWorkflowPresetInDb(preset = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(preset.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = {
+    ...preset,
+    id,
+    createdAt: preset.createdAt || now,
+    updatedAt: preset.updatedAt || now,
+  };
+  await query(
+    `
+      INSERT INTO app_workflow_presets(id, payload, deleted_at, sort_order, created_at, updated_at)
+      VALUES ($1, $2::jsonb, $3::timestamptz, $4::int, $5::timestamptz, $6::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        sort_order = EXCLUDED.sort_order,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      Number(payload.sortOrder || 0) || 0,
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return payload;
+}
+
+async function replaceWorkflowPresetsInDb(presets = []) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const normalized = (Array.isArray(presets) ? presets : [])
+    .filter((preset) => preset && String(preset.id || "").trim())
+    .map((preset, index) => ({ ...preset, sortOrder: Number(preset.sortOrder ?? index) || 0 }));
+  for (const preset of normalized) await upsertWorkflowPresetInDb(preset);
+  const activeIds = normalized.map((preset) => String(preset.id || "").trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  await query(
+    `
+      UPDATE app_workflow_presets
+      SET deleted_at = COALESCE(deleted_at, $2::timestamptz),
+          payload = payload || jsonb_build_object('deletedAt', COALESCE(payload->>'deletedAt', $2::text), 'updatedAt', $2::text),
+          updated_at = $2::timestamptz
+      WHERE NOT (id = ANY($1::text[]))
+        AND deleted_at IS NULL
+    `,
+    [activeIds, now],
+  );
+  return normalized;
+}
+
+function workflowCanvasFromRow(row = {}) {
+  const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+  return {
+    id: String(row.id || payload.id || "").trim(),
+    userId: String(row.user_id || payload.userId || "").trim(),
+    name: String(row.name || payload.name || "").trim(),
+    workflow: payload.workflow && typeof payload.workflow === "object" ? payload.workflow : {},
+    createdAt: toIsoString(row.created_at || payload.createdAt),
+    updatedAt: toIsoString(row.updated_at || payload.updatedAt),
+  };
+}
+
+async function listWorkflowCanvasesFromDb(userId = "") {
+  if (!dbEnabled()) return null;
+  const ownerId = String(userId || "").trim();
+  if (!ownerId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT id, user_id, name, created_at, updated_at FROM app_workflow_canvases
+      WHERE user_id = $1
+      ORDER BY updated_at DESC, created_at DESC
+    `,
+    [ownerId],
+  );
+  return rows.map(workflowCanvasFromRow);
+}
+
+async function getWorkflowCanvasFromDb({ id = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_workflow_canvases WHERE id = $1 AND user_id = $2 LIMIT 1`,
+    [canvasId, ownerId],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function createWorkflowCanvasInDb({ id = "", userId = "", name = "", workflow = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = { id: canvasId, userId: ownerId, name, workflow, createdAt: now, updatedAt: now };
+  const { rows } = await query(
+    `
+      INSERT INTO app_workflow_canvases(id, user_id, name, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $5::timestamptz)
+      RETURNING *
+    `,
+    [canvasId, ownerId, name, JSON.stringify(payload), now],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function updateWorkflowCanvasInDb({ id = "", userId = "", name = "", workflow = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_workflow_canvases
+      SET name = $3,
+          payload = payload || $4::jsonb,
+          updated_at = $5::timestamptz
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [canvasId, ownerId, name, JSON.stringify({ name, workflow, updatedAt: now }), now],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function deleteWorkflowCanvasInDb({ id = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      DELETE FROM app_workflow_canvases
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [canvasId, ownerId],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", sceneEntryId = "default" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanItemId = String(itemId || "").trim();
+  const cleanSceneId = String(sceneId || "").trim();
+  const cleanSceneEntryId = String(sceneEntryId || "default").trim() || "default";
+  if (!cleanUserId || !cleanItemId || !cleanSceneId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_user_unlocks
+      WHERE user_id = $1
+        AND payload->>'itemId' = $2
+        AND payload->>'sceneId' = $3
+        AND COALESCE(NULLIF(payload->>'sceneEntryId', ''), 'default') = $4
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [cleanUserId, cleanItemId, cleanSceneId, cleanSceneEntryId],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+function liveNotificationFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    kind: String(row.kind || "system"),
+    title: String(row.title || ""),
+    body: String(row.body || ""),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    readAt: row.read_at ? new Date(row.read_at).toISOString() : "",
+    pinned: row.pinned === true,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function createLiveNotificationInDb(notification = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(notification.id || "").trim();
+  const userId = String(notification.userId || "").trim();
+  if (!id || !userId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = {
+    ...notification,
+    id,
+    userId,
+    kind: String(notification.kind || "system"),
+    title: String(notification.title || ""),
+    body: String(notification.body || ""),
+    payload: notification.payload && typeof notification.payload === "object" ? notification.payload : {},
+    pinned: notification.pinned === true,
+    createdAt: notification.createdAt || now,
+    updatedAt: notification.updatedAt || now,
+  };
+  const { rows } = await query(`
+    INSERT INTO app_live_notifications(id, user_id, kind, title, body, payload, read_at, pinned, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULL, $7, $8::timestamptz, $9::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      user_id = EXCLUDED.user_id,
+      kind = EXCLUDED.kind,
+      title = EXCLUDED.title,
+      body = EXCLUDED.body,
+      payload = EXCLUDED.payload,
+      read_at = CASE
+        WHEN app_live_notifications.body IS DISTINCT FROM EXCLUDED.body THEN NULL
+        ELSE app_live_notifications.read_at
+      END,
+      pinned = EXCLUDED.pinned,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `, [id, userId, payload.kind, payload.title, payload.body, JSON.stringify(payload.payload), payload.pinned, payload.createdAt, payload.updatedAt]);
+  return rows[0] ? liveNotificationFromRow(rows[0]) : null;
+}
+
+async function listLiveNotificationsInDb(userId = "") {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  await ensureSchema();
+  await query(`
+    INSERT INTO app_live_notifications(id, user_id, kind, title, body, payload, pinned, created_at, updated_at)
+    VALUES ($1, $2, 'system', '欢迎来到 Vipeak Live', '在这里，角色会记得你们聊过的事。每日签到可领取 20 积分，问题反馈会直接进入站内信。', '{"welcome":true}'::jsonb, TRUE, NOW(), NOW())
+    ON CONFLICT (id) DO UPDATE
+    SET body = EXCLUDED.body
+    WHERE app_live_notifications.payload->>'welcome' = 'true'
+      AND app_live_notifications.body IS DISTINCT FROM EXCLUDED.body
+  `, [`live-welcome-${cleanUserId}`, cleanUserId]);
+  const { rows } = await query(`
+    SELECT * FROM app_live_notifications
+    WHERE user_id = $1
+    ORDER BY pinned DESC, created_at DESC
+    LIMIT 100
+  `, [cleanUserId]);
+  return rows.map(liveNotificationFromRow);
+}
+
+async function markLiveNotificationReadInDb(userId = "", notificationId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_live_notifications
+    SET read_at = COALESCE(read_at, NOW()), updated_at = NOW()
+    WHERE user_id = $1 AND id = $2
+    RETURNING *
+  `, [String(userId || ""), String(notificationId || "")]);
+  return rows[0] ? liveNotificationFromRow(rows[0]) : null;
+}
+
+async function markAllLiveNotificationsReadInDb(userId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    UPDATE app_live_notifications
+    SET read_at = COALESCE(read_at, NOW()), updated_at = NOW()
+    WHERE user_id = $1 AND read_at IS NULL
+  `, [String(userId || "")]);
+  return Number(rowCount || 0);
+}
+
+async function getLiveCheckinInDb(userId = "", checkinDate = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_live_checkins
+    WHERE user_id = $1 AND checkin_date = $2::date
+    LIMIT 1
+  `, [String(userId || ""), String(checkinDate || "")]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    checkinDate: row.checkin_date ? new Date(row.checkin_date).toISOString().slice(0, 10) : "",
+    credits: creditNumber(row.credits || 0),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  };
+}
+
+async function createLiveCheckinInDb({ id = "", userId = "", checkinDate = "", credits = 0 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_live_checkins(id, user_id, checkin_date, credits)
+    VALUES ($1, $2, $3::date, $4::numeric)
+    ON CONFLICT (user_id, checkin_date) DO NOTHING
+    RETURNING *
+  `, [String(id || ""), String(userId || ""), String(checkinDate || ""), creditNumber(credits || 0)]);
+  return rows[0] ? getLiveCheckinInDb(userId, checkinDate) : null;
+}
+
+async function createLiveCheckinWithCreditInDb({
+  id = "",
+  userId = "",
+  checkinDate = "",
+  credits = 0,
+  ledgerId = "",
+  ledgerType = "live_daily_checkin",
+  ledgerMeta = {},
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanId = String(id || "").trim();
+  const cleanLedgerId = String(ledgerId || "").trim();
+  const amount = creditNumber(credits || 0);
+  if (!cleanUserId || !cleanId || !cleanLedgerId || amount <= 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query(`
+      INSERT INTO app_live_checkins(id, user_id, checkin_date, credits)
+      VALUES ($1, $2, $3::date, $4::numeric)
+      ON CONFLICT (user_id, checkin_date) DO NOTHING
+      RETURNING *
+    `, [cleanId, cleanUserId, String(checkinDate || ""), amount]);
+    if (!inserted.rows.length) {
+      await client.query("COMMIT");
+      return { checkin: await getLiveCheckinInDb(cleanUserId, checkinDate), user: null, inserted: false };
+    }
+    const userRows = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
+    const row = userRows.rows[0];
+    if (!row) {
+      const error = new Error("User not found for check-in.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const current = creditNumber(row.credits || 0);
+    const nextCredits = creditNumber(current + amount);
+    const now = new Date().toISOString();
+    const meta = { ...(ledgerMeta || {}), checkinDate: String(checkinDate || ""), credits: amount };
+    const ledger = {
+      id: cleanLedgerId,
+      userId: cleanUserId,
+      delta: amount,
+      balanceAfter: nextCredits,
+      type: String(ledgerType || "live_daily_checkin"),
+      meta,
+      createdAt: now,
+    };
+    await client.query(`
+      UPDATE app_users
+      SET credits = $2::numeric,
+          payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+          updated_at = $3::timestamptz
+      WHERE id = $1
+    `, [cleanUserId, nextCredits, now]);
+    await client.query(`
+      INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+      VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+      ON CONFLICT (id) DO NOTHING
+    `, [cleanLedgerId, cleanUserId, amount, nextCredits, ledger.type, JSON.stringify(meta), JSON.stringify(ledger), now]);
+    const updated = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
+    await client.query("COMMIT");
+    return {
+      checkin: {
+        id: String(inserted.rows[0].id || ""),
+        userId: cleanUserId,
+        checkinDate: String(checkinDate || ""),
+        credits: amount,
+        createdAt: inserted.rows[0].created_at ? new Date(inserted.rows[0].created_at).toISOString() : now,
+      },
+      user: userFromRow(updated.rows[0]),
+      ledger,
+      inserted: true,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getLiveDailyTaskClaimsInDb(userId = "", taskDate = "") {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_live_daily_task_claims
+    WHERE user_id = $1 AND task_date = $2::date
+    ORDER BY created_at ASC
+  `, [String(userId || ""), String(taskDate || "")]);
+  return rows.map((row) => ({
+    ...(row.payload && typeof row.payload === "object" ? row.payload : {}),
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    taskDate: row.task_date ? new Date(row.task_date).toISOString().slice(0, 10) : "",
+    taskKey: String(row.task_key || ""),
+    credits: creditNumber(row.credits || 0),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  }));
+}
+
+async function getLiveDailyTaskCompletionInDb({ userId = "", startAt = "", endAt = "" } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId || !startAt || !endAt) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT
+      EXISTS(
+        SELECT 1 FROM app_chat_messages
+        WHERE user_id = $1 AND role = 'user'
+          AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+      ) AS text_completed,
+      EXISTS(
+        SELECT 1 FROM app_chat_live_sessions
+        WHERE user_id = $1
+          AND updated_at >= $2::timestamptz AND updated_at < $3::timestamptz
+          AND COALESCE(payload->>'settled', 'false') IN ('true', '1')
+          AND COALESCE(payload->>'sharedRoomViewer', 'false') NOT IN ('true', '1')
+          AND GREATEST(
+            COALESCE(NULLIF(payload->>'billedSeconds', '')::numeric, 0),
+            COALESCE(NULLIF(payload->>'upstreamBilledSeconds', '')::numeric, 0)
+          ) >= 60
+      ) AS video_completed,
+      (
+        EXISTS(
+          SELECT 1 FROM app_chat_live_sessions
+          WHERE user_id = $1
+            AND updated_at >= $2::timestamptz AND updated_at < $3::timestamptz
+            AND COALESCE(payload->>'sharedRoomViewer', 'false') IN ('true', '1')
+            AND GREATEST(
+              COALESCE(NULLIF(payload->>'billedSeconds', '')::numeric, 0),
+              COALESCE(NULLIF(payload->>'upstreamBilledSeconds', '')::numeric, 0)
+            ) >= 60
+        )
+        OR EXISTS(
+          SELECT 1 FROM app_chat_live_room_members
+          WHERE user_id = $1
+            AND joined_at >= $2::timestamptz AND joined_at < $3::timestamptz
+            AND last_seen_at >= $2::timestamptz AND last_seen_at < $3::timestamptz
+            AND last_seen_at - joined_at >= INTERVAL '60 seconds'
+        )
+      ) AS live_completed,
+      EXISTS(
+        SELECT 1 FROM app_chat_live_characters
+        WHERE COALESCE(payload->>'createdByUserId', '') = $1
+          AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+          AND deleted_at IS NULL
+      ) AS create_completed
+  `, [cleanUserId, startAt, endAt]);
+  const row = rows[0] || {};
+  return {
+    text: row.text_completed === true,
+    video: row.video_completed === true,
+    live: row.live_completed === true,
+    create: row.create_completed === true,
+  };
+}
+async function createLiveDailyTaskClaimWithCreditInDb({
+  id = "",
+  userId = "",
+  taskDate = "",
+  taskKey = "",
+  credits = 0,
+  ledgerId = "",
+  ledgerType = "live_daily_task",
+  ledgerMeta = {},
+  payload = {},
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanId = String(id || "").trim();
+  const cleanTaskKey = String(taskKey || "").trim();
+  const cleanTaskDate = String(taskDate || "").trim();
+  const cleanLedgerId = String(ledgerId || "").trim();
+  const amount = creditNumber(credits || 0);
+  if (!cleanUserId || !cleanId || !cleanTaskKey || !cleanTaskDate || !cleanLedgerId || amount <= 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query(`
+      INSERT INTO app_live_daily_task_claims(id, user_id, task_date, task_key, credits, payload)
+      VALUES ($1, $2, $3::date, $4, $5::numeric, $6::jsonb)
+      ON CONFLICT (user_id, task_date, task_key) DO NOTHING
+      RETURNING *
+    `, [cleanId, cleanUserId, cleanTaskDate, cleanTaskKey, amount, JSON.stringify({ ...(payload || {}), taskKey: cleanTaskKey, taskDate: cleanTaskDate, credits: amount })]);
+    if (!inserted.rows.length) {
+      await client.query("COMMIT");
+      return { claim: null, user: null, inserted: false };
+    }
+    const now = new Date().toISOString();
+    const updated = await client.query(`
+      UPDATE app_users
+      SET credits = credits + $2::numeric,
+          payload = payload || jsonb_build_object('credits', credits + $2::numeric, 'updatedAt', $3::text),
+          updated_at = $3::timestamptz
+      WHERE id = $1
+      RETURNING *
+    `, [cleanUserId, amount, now]);
+    const row = updated.rows[0];
+    if (!row) {
+      const error = new Error("User not found for daily task claim.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const nextCredits = creditNumber(row.credits || 0);
+    const meta = { ...(ledgerMeta || {}), taskId: `live-daily-task:${cleanUserId}:${cleanTaskDate}:${cleanTaskKey}`, taskKey: cleanTaskKey, taskDate: cleanTaskDate, credits: amount };
+    const ledger = {
+      id: cleanLedgerId,
+      userId: cleanUserId,
+      delta: amount,
+      balanceAfter: nextCredits,
+      type: String(ledgerType || "live_daily_task"),
+      meta,
+      createdAt: now,
+    };
+    await client.query(`
+      INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+      VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+      ON CONFLICT (id) DO NOTHING
+    `, [cleanLedgerId, cleanUserId, amount, nextCredits, ledger.type, JSON.stringify(meta), JSON.stringify(ledger), now]);
+    await client.query("COMMIT");
+    return {
+      claim: {
+        id: String(inserted.rows[0].id || ""),
+        userId: cleanUserId,
+        taskDate: cleanTaskDate,
+        taskKey: cleanTaskKey,
+        credits: amount,
+        createdAt: inserted.rows[0].created_at ? new Date(inserted.rows[0].created_at).toISOString() : now,
+      },
+      user: userFromRow(updated.rows[0]),
+      ledger,
+      inserted: true,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getLiveCheckinHistoryPageFromDb({ userId = "", page = 1, limit = 10 } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { items: [], total: 0, page: 1, limit: 10, totalPages: 1 };
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit }, 100);
+  const { rows } = await query(`
+    WITH claim_rows AS (
+      SELECT
+        id,
+        task_date::text AS task_date,
+        task_key,
+        credits,
+        payload,
+        created_at
+      FROM app_live_daily_task_claims
+      WHERE user_id = $1
+    ),
+    legacy_checkin_rows AS (
+      SELECT
+        c.id,
+        c.checkin_date::text AS task_date,
+        'checkin'::text AS task_key,
+        c.credits,
+        jsonb_build_object('taskTitle', '每日签到', 'reward', c.credits) AS payload,
+        c.created_at
+      FROM app_live_checkins c
+      WHERE c.user_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM app_live_daily_task_claims d
+          WHERE d.user_id = c.user_id
+            AND d.task_date = c.checkin_date
+            AND d.task_key = 'checkin'
+        )
+    ),
+    merged AS (
+      SELECT * FROM claim_rows
+      UNION ALL
+      SELECT * FROM legacy_checkin_rows
+    )
+    SELECT *, COUNT(*) OVER()::int AS total_count
+    FROM merged
+    ORDER BY created_at DESC, id DESC
+    LIMIT $2 OFFSET $3
+  `, [cleanUserId, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  return {
+    items: rows.map((row) => ({
+      id: String(row.id || ""),
+      userId: cleanUserId,
+      taskDate: String(row.task_date || ""),
+      taskKey: String(row.task_key || ""),
+      taskTitle: String(row.payload?.taskTitle || row.payload?.task_title || ""),
+      credits: creditNumber(row.credits || 0),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    })),
+    total,
+    page: Math.min(safePage, totalPages),
+    limit: safeLimit,
+    totalPages,
+  };
+}
+
+async function getLiveCheckinSummaryInDb(userId = "", checkinDate = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const today = await getLiveCheckinInDb(userId, checkinDate);
+  const { rows } = await query(`
+    SELECT checkin_date::text AS checkin_date
+    FROM app_live_checkins
+    WHERE user_id = $1
+    ORDER BY checkin_date DESC
+    LIMIT 90
+  `, [String(userId || "")]);
+  const dates = new Set(rows.map((row) => String(row.checkin_date || "")));
+  let streak = 0;
+  const cursor = new Date(`${String(checkinDate || new Date().toISOString().slice(0, 10))}T00:00:00Z`);
+  while (dates.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return { checkedIn: Boolean(today), today, streak, recentDates: [...dates].slice(0, 30) };
+}
+
+function creatorLedgerId(prefix = "creator") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function creatorEarningFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    creatorUserId: String(row.creator_user_id || payload.creatorUserId || ""),
+    viewerUserId: String(row.viewer_user_id || payload.viewerUserId || ""),
+    characterId: String(row.character_id || payload.characterId || ""),
+    sessionId: String(row.session_id || payload.sessionId || ""),
+    type: String(row.type || payload.type || ""),
+    sourceCredits: creditNumber(row.source_credits ?? payload.sourceCredits ?? 0),
+    earningRate: Number(row.earning_rate ?? payload.earningRate ?? 0),
+    deltaCredits: creditNumber(row.delta_credits ?? payload.deltaCredits ?? 0),
+    balanceAfter: creditNumber(row.balance_after ?? payload.balanceAfter ?? 0),
+    meta: row.meta && typeof row.meta === "object" ? row.meta : (payload.meta || {}),
+    createdAt: toIsoString(row.created_at || payload.createdAt || ""),
+  };
+}
+
+function creatorWithdrawalFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    creatorUserId: String(row.creator_user_id || payload.creatorUserId || ""),
+    amountCredits: creditNumber(row.amount_credits ?? payload.amountCredits ?? 0),
+    network: String(row.network || payload.network || "USDT-TRC20"),
+    withdrawalAddress: String(row.withdrawal_address || payload.withdrawalAddress || ""),
+    status: String(row.status || payload.status || "processing"),
+    txHash: String(row.tx_hash || payload.txHash || ""),
+    note: String(row.note || payload.note || ""),
+    rejectionReason: String(row.rejection_reason || payload.rejectionReason || ""),
+    reviewedByUserId: String(row.reviewed_by_user_id || payload.reviewedByUserId || ""),
+    createdAt: toIsoString(row.created_at || payload.createdAt || ""),
+    updatedAt: toIsoString(row.updated_at || payload.updatedAt || ""),
+    processedAt: toIsoString(row.processed_at || payload.processedAt || ""),
+  };
+}
+
+async function createCreatorEarningEntry(client, { creatorUserId, viewerUserId = "", characterId = "", sessionId = "", type, sourceCredits = 0, earningRate = 0, deltaCredits = 0, meta = {}, payload = {} }) {
+  const cleanCreatorUserId = String(creatorUserId || "").trim();
+  const amount = creditNumber(deltaCredits || 0);
+  if (!cleanCreatorUserId || !type || amount === 0) return null;
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`creator-ledger:${cleanCreatorUserId}`]);
+  const balanceResult = await client.query(`SELECT COALESCE(SUM(delta_credits), 0)::numeric AS balance FROM app_creator_earning_ledger WHERE creator_user_id = $1`, [cleanCreatorUserId]);
+  const balanceAfter = creditNumber(Number(balanceResult.rows[0]?.balance || 0) + amount);
+  const id = creatorLedgerId(type.replace(/[^a-z0-9]+/gi, "-"));
+  const now = new Date().toISOString();
+  const recordPayload = { id, creatorUserId: cleanCreatorUserId, viewerUserId, characterId, sessionId, type, sourceCredits, earningRate, deltaCredits: amount, balanceAfter, meta, createdAt: now };
+  const { rows } = await client.query(`
+    INSERT INTO app_creator_earning_ledger(
+      id, creator_user_id, viewer_user_id, character_id, session_id, type,
+      source_credits, earning_rate, delta_credits, balance_after, meta, payload, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::numeric, $11::jsonb, $12::jsonb, $13::timestamptz)
+    RETURNING *
+  `, [id, cleanCreatorUserId, String(viewerUserId || ""), String(characterId || ""), String(sessionId || ""), String(type), Number(sourceCredits || 0), Number(earningRate || 0), amount, balanceAfter, JSON.stringify(meta || {}), JSON.stringify(recordPayload), now]);
+  return rows[0] ? {
+    ...recordPayload,
+    id: String(rows[0].id),
+    sourceCredits: creditNumber(rows[0].source_credits),
+    earningRate: Number(rows[0].earning_rate || 0),
+    deltaCredits: creditNumber(rows[0].delta_credits),
+    balanceAfter: creditNumber(rows[0].balance_after),
+  } : recordPayload;
+}
+
+async function recordCreatorUsageEarningInDb({
+  eventKey = "",
+  earningType = "",
+  viewerUserId = "",
+  characterId = "",
+  sourceCredits = 0,
+  earningRate = 0.3,
+  meta = {},
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanEventKey = String(eventKey || "").trim();
+  const cleanEarningType = String(earningType || "").trim();
+  const cleanViewerUserId = String(viewerUserId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  const source = creditNumber(sourceCredits || 0);
+  const rate = Math.max(0, Math.min(1, Number(earningRate || 0.3) || 0.3));
+  if (!cleanEventKey || !/^[a-z0-9_]+_earning$/.test(cleanEarningType) || !cleanViewerUserId || !cleanCharacterId || source <= 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const characterResult = await client.query(`SELECT payload FROM app_chat_live_characters WHERE id = $1`, [cleanCharacterId]);
+    const character = characterResult.rows[0]?.payload || null;
+    const creatorUserId = String(character?.createdByUserId || "").trim();
+    /* Only characters explicitly shared from the user-facing Create tab are
+       eligible. Internal creator-center/system characters must never earn. */
+    if (character?.source !== "community"
+      || character?.communityShareEnabled !== true
+      || character?.communityVisibility !== "public"
+      || character?.enabled === false
+      || character?.embedMerchantId
+      || !creatorUserId
+      || creatorUserId === cleanViewerUserId) {
+      await client.query("COMMIT");
+      return null;
+    }
+    const existing = await client.query(`SELECT * FROM app_creator_earning_ledger WHERE type = $1 AND session_id = $2 LIMIT 1`, [cleanEarningType, cleanEventKey]);
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return creatorEarningFromRow(existing.rows[0]);
+    }
+    const earning = creditNumber(source * rate);
+    if (earning <= 0) {
+      await client.query("COMMIT");
+      return null;
+    }
+    const record = await createCreatorEarningEntry(client, {
+      creatorUserId,
+      viewerUserId: cleanViewerUserId,
+      characterId: cleanCharacterId,
+      sessionId: cleanEventKey,
+      type: cleanEarningType,
+      sourceCredits: source,
+      earningRate: rate,
+      deltaCredits: earning,
+      meta: {
+        ...meta,
+        eventKey: cleanEventKey,
+        earningType: cleanEarningType,
+        characterId: cleanCharacterId,
+        characterName: character?.name || "",
+        viewerUserId: cleanViewerUserId,
+        sourceCredits: source,
+        earningRate: rate,
+      },
+    });
+    await client.query("COMMIT");
+    return record;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (String(error.code || "") === "23505") return null;
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function recordCreatorVideoViewEarningInDb({ sessionId = "", viewerUserId = "", characterId = "", sourceCredits = 0, earningRate = 0.3 } = {}) {
+  return recordCreatorUsageEarningInDb({
+    eventKey: sessionId,
+    earningType: "video_view_earning",
+    viewerUserId,
+    characterId,
+    sourceCredits,
+    earningRate,
+    meta: { sessionId: String(sessionId || "").trim() },
+  });
+}
+
+async function getCreatorIncomeInDb(userId = "", limit = 50) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const [ledgerResult, withdrawalResult, summaryResult] = await Promise.all([
+    query(`
+      SELECT l.*, COALESCE(c.payload->>'name', l.meta->>'characterName', '') AS character_name
+      FROM app_creator_earning_ledger l
+      LEFT JOIN app_chat_live_characters c ON c.id = l.character_id
+      WHERE l.creator_user_id = $1
+      ORDER BY l.created_at DESC
+      LIMIT $2
+    `, [cleanUserId, safeLimit]),
+    query(`SELECT * FROM app_creator_withdrawals WHERE creator_user_id = $1 ORDER BY created_at DESC LIMIT $2`, [cleanUserId, safeLimit]),
+    query(`
+      SELECT
+        COALESCE(SUM(delta_credits), 0)::numeric AS available_credits,
+        COALESCE(SUM(CASE WHEN type LIKE '%_earning' THEN delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
+        COUNT(*) FILTER (WHERE type LIKE '%_earning')::int AS earning_count
+      FROM app_creator_earning_ledger
+      WHERE creator_user_id = $1
+    `, [cleanUserId]),
+  ]);
+  const withdrawalTotals = await query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_credits ELSE 0 END), 0)::numeric AS withdrawn_credits,
+      COALESCE(SUM(CASE WHEN status = 'processing' THEN amount_credits ELSE 0 END), 0)::numeric AS locked_credits
+    FROM app_creator_withdrawals WHERE creator_user_id = $1
+  `, [cleanUserId]);
+  const records = ledgerResult.rows.map((row) => ({
+    id: String(row.id || ""),
+    type: String(row.type || ""),
+    credits: creditNumber(row.delta_credits || 0),
+    sourceCredits: creditNumber(row.source_credits || 0),
+    earningRate: Number(row.earning_rate || 0),
+    balanceAfter: creditNumber(row.balance_after || 0),
+    characterId: String(row.character_id || ""),
+    characterName: String(row.character_name || row.meta?.characterName || ""),
+    sessionId: String(row.session_id || ""),
+    createdAt: toIsoString(row.created_at || ""),
+  }));
+  const summary = summaryResult.rows[0] || {};
+  const totals = withdrawalTotals.rows[0] || {};
+  return {
+    availableCredits: creditNumber(summary.available_credits || 0),
+    totalEarnedCredits: creditNumber(summary.total_earned_credits || 0),
+    withdrawnCredits: creditNumber(totals.withdrawn_credits || 0),
+    lockedCredits: creditNumber(totals.locked_credits || 0),
+    earningCount: Number(summary.earning_count || 0),
+    earningRate: 0.3,
+    records,
+    withdrawals: withdrawalResult.rows.map(creatorWithdrawalFromRow),
+  };
+}
+
+async function createCreatorWithdrawalInDb({ userId = "", amountCredits = 0, network = "USDT-TRC20", address = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const amount = creditNumber(amountCredits || 0);
+  const cleanNetwork = String(network || "USDT-TRC20").trim().toUpperCase();
+  const cleanAddress = String(address || "").trim();
+  const allowedNetworks = new Set(["USDT-TRC20", "USDT-ERC20", "USDT-BEP20"]);
+  if (!cleanUserId) throw Object.assign(new Error("用户信息缺失。"), { statusCode: 401 });
+  if (!(amount >= CREATOR_WITHDRAWAL_MIN_CREDITS)) throw Object.assign(new Error("最低提现 2000 积分（20 USDT）。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_AMOUNT" });
+  if (!allowedNetworks.has(cleanNetwork)) throw Object.assign(new Error("仅支持 USDT 提现网络。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_NETWORK" });
+  if (!/^[A-Za-z0-9]{20,128}$/.test(cleanAddress)) throw Object.assign(new Error("请填写有效的 USDT 收款地址。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_ADDRESS" });
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`creator-ledger:${cleanUserId}`]);
+    const balanceResult = await client.query(`SELECT COALESCE(SUM(delta_credits), 0)::numeric AS balance FROM app_creator_earning_ledger WHERE creator_user_id = $1`, [cleanUserId]);
+    const available = creditNumber(balanceResult.rows[0]?.balance || 0);
+    if (available < amount) throw Object.assign(new Error("可提现积分不足。"), { statusCode: 409, code: "INSUFFICIENT_CREATOR_CREDITS" });
+    const id = creatorLedgerId("creator-withdrawal");
+    const now = new Date().toISOString();
+    const withdrawal = {
+      id,
+      creatorUserId: cleanUserId,
+      amountCredits: amount,
+      network: cleanNetwork,
+      withdrawalAddress: cleanAddress,
+      status: "processing",
+      txHash: "",
+      note: "",
+      rejectionReason: "",
+      reviewedByUserId: "",
+      createdAt: now,
+      updatedAt: now,
+      processedAt: "",
+    };
+    await client.query(`
+      INSERT INTO app_creator_withdrawals(
+        id, creator_user_id, amount_credits, network, withdrawal_address, status, tx_hash, note,
+        rejection_reason, reviewed_by_user_id, payload, created_at, updated_at, processed_at
+      ) VALUES ($1, $2, $3::numeric, $4, $5, 'processing', '', '', '', '', $6::jsonb, $7::timestamptz, $7::timestamptz, NULL)
+    `, [id, cleanUserId, amount, cleanNetwork, cleanAddress, JSON.stringify(withdrawal), now]);
+    await createCreatorEarningEntry(client, {
+      creatorUserId: cleanUserId,
+      type: "withdrawal_hold",
+      deltaCredits: -amount,
+      meta: { withdrawalId: id, network: cleanNetwork, address: cleanAddress },
+    });
+    await client.query("COMMIT");
+    return withdrawal;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listCreatorWithdrawalsInDb(userId = "", limit = 20) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  const { rows } = await query(`SELECT * FROM app_creator_withdrawals WHERE creator_user_id = $1 ORDER BY created_at DESC LIMIT $2`, [String(userId || ""), safeLimit]);
+  return rows.map(creatorWithdrawalFromRow);
+}
+
+async function getAdminCreatorDataInDb({ page = 1, limit = 20, queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT
+      l.creator_user_id,
+      COALESCE(u.username, l.creator_user_id) AS username,
+      COALESCE(SUM(CASE WHEN l.type LIKE '%_earning' THEN l.delta_credits ELSE 0 END), 0)::numeric AS total_earned_credits,
+      COALESCE(SUM(l.delta_credits), 0)::numeric AS available_credits,
+      COUNT(*) FILTER (WHERE l.type LIKE '%_earning')::int AS earning_count,
+      COUNT(DISTINCT l.character_id) FILTER (WHERE l.type LIKE '%_earning' AND l.character_id <> '')::int AS character_count,
+      MAX(l.created_at) AS last_earning_at,
+      COUNT(*) OVER()::int AS total_count
+    FROM app_creator_earning_ledger l
+    LEFT JOIN app_users u ON u.id = l.creator_user_id
+    WHERE ($1 = '' OR LOWER(CONCAT_WS(' ', l.creator_user_id, u.username, l.character_id)) LIKE '%' || $1 || '%')
+    GROUP BY l.creator_user_id, u.username
+    ORDER BY total_earned_credits DESC, last_earning_at DESC
+    LIMIT $2 OFFSET $3
+  `, [q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  return {
+    creators: rows.map((row) => ({
+      creatorUserId: String(row.creator_user_id || ""),
+      username: String(row.username || row.creator_user_id || ""),
+      totalEarnedCredits: creditNumber(row.total_earned_credits || 0),
+      availableCredits: creditNumber(row.available_credits || 0),
+      earningCount: Number(row.earning_count || 0),
+      characterCount: Number(row.character_count || 0),
+      lastEarningAt: toIsoString(row.last_earning_at || ""),
+    })),
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+}
+
+async function getAdminCreatorWithdrawalsPageFromDb({ page = 1, limit = 20, status = "", queryText = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
+  const cleanStatus = String(status || "").trim().toLowerCase();
+  const q = String(queryText || "").trim().toLowerCase();
+  const { rows } = await query(`
+    SELECT w.*, COALESCE(u.username, w.creator_user_id) AS username, COUNT(*) OVER()::int AS total_count
+    FROM app_creator_withdrawals w
+    LEFT JOIN app_users u ON u.id = w.creator_user_id
+    WHERE ($1 = '' OR LOWER(w.status) = $1)
+      AND ($2 = '' OR LOWER(CONCAT_WS(' ', w.id, w.creator_user_id, u.username, w.withdrawal_address, w.tx_hash, w.status)) LIKE '%' || $2 || '%')
+    ORDER BY w.created_at DESC
+    LIMIT $3 OFFSET $4
+  `, [cleanStatus, q, safeLimit, safeOffset]);
+  const total = Number(rows[0]?.total_count || 0);
+  return {
+    withdrawals: rows.map((row) => ({ ...creatorWithdrawalFromRow(row), username: String(row.username || "") })),
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+}
+
+async function updateCreatorWithdrawalInDb({ id = "", status = "", txHash = "", note = "", rejectionReason = "", adminUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const nextStatus = String(status || "").trim().toLowerCase();
+  if (!cleanId || !["paid", "rejected"].includes(nextStatus)) throw Object.assign(new Error("提现审核状态无效。"), { statusCode: 400, code: "INVALID_WITHDRAWAL_STATUS" });
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const withdrawalResult = await client.query(`SELECT * FROM app_creator_withdrawals WHERE id = $1 FOR UPDATE`, [cleanId]);
+    const row = withdrawalResult.rows[0];
+    if (!row) throw Object.assign(new Error("提现申请不存在。"), { statusCode: 404, code: "CREATOR_WITHDRAWAL_NOT_FOUND" });
+    const current = creatorWithdrawalFromRow(row);
+    if (current.status === "paid") throw Object.assign(new Error("已打款的提现不能重复审核。"), { statusCode: 409, code: "CREATOR_WITHDRAWAL_ALREADY_PAID" });
+    if (current.status !== "processing") throw Object.assign(new Error("该提现申请已处理。"), { statusCode: 409, code: "CREATOR_WITHDRAWAL_ALREADY_REVIEWED" });
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`creator-ledger:${current.creatorUserId}`]);
+    const now = new Date().toISOString();
+    const cleanTxHash = String(txHash || "").trim().slice(0, 200);
+    const cleanNote = String(note || "").trim().slice(0, 500);
+    const cleanReason = String(rejectionReason || note || "").trim().slice(0, 500);
+    if (nextStatus === "paid" && !cleanTxHash) throw Object.assign(new Error("打款后必须填写 USDT 交易哈希。"), { statusCode: 400, code: "WITHDRAWAL_TX_HASH_REQUIRED" });
+    if (nextStatus === "rejected" && !cleanReason) throw Object.assign(new Error("拒绝提现必须填写原因。"), { statusCode: 400, code: "WITHDRAWAL_REJECTION_REASON_REQUIRED" });
+    const updatedResult = await client.query(`
+      UPDATE app_creator_withdrawals
+      SET status = $2,
+          tx_hash = $3,
+          note = $4,
+          rejection_reason = $5,
+          reviewed_by_user_id = $6,
+          processed_at = $7::timestamptz,
+          updated_at = $7::timestamptz,
+          payload = payload || jsonb_build_object(
+            'status', $2::text,
+            'txHash', $3::text,
+            'note', $4::text,
+            'rejectionReason', $5::text,
+            'reviewedByUserId', $6::text,
+            'processedAt', $7::text,
+            'updatedAt', $7::text
+          )
+      WHERE id = $1
+      RETURNING *
+    `, [cleanId, nextStatus, cleanTxHash, cleanNote, cleanReason, String(adminUserId || ""), now]);
+    if (nextStatus === "rejected") {
+      await createCreatorEarningEntry(client, {
+        creatorUserId: current.creatorUserId,
+        type: "withdrawal_refund",
+        deltaCredits: current.amountCredits,
+        meta: { withdrawalId: cleanId, rejectionReason: cleanReason, adminUserId: String(adminUserId || "") },
+      });
+    }
+    await client.query("COMMIT");
+    return creatorWithdrawalFromRow(updatedResult.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listUserSupportMessagesInDb(userId = "", limit = 30) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
+  const { rows } = await query(`
+    SELECT * FROM app_support_messages
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT $2
+  `, [String(userId || ""), safeLimit]);
+  return rows.map(recordFromPayloadRow);
+}
+
+async function createUserSupportMessageInDb(record = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(record.id || "").trim();
+  const userId = String(record.userId || "").trim();
+  if (!id || !userId) return null;
+  await ensureSchema();
+  const payload = { ...record, id, userId };
+  const createdAt = record.createdAt || new Date().toISOString();
+  const updatedAt = record.updatedAt || createdAt;
+  const { rows } = await query(`
+    INSERT INTO app_support_messages(id, user_id, payload, created_at, updated_at)
+    VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+    ON CONFLICT (id) DO UPDATE SET
+      user_id = EXCLUDED.user_id,
+      payload = EXCLUDED.payload,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `, [id, userId, JSON.stringify(payload), createdAt, updatedAt]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function updateUserSupportMessageInDb(messageId = "", patch = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(messageId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const updatedAt = patch.updatedAt || new Date().toISOString();
+  const cleanPatch = { ...(patch || {}), updatedAt };
+  const { rows } = await query(`
+    UPDATE app_support_messages
+    SET payload = payload || $2::jsonb,
+        updated_at = $3::timestamptz
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING *
+  `, [id, JSON.stringify(cleanPatch), updatedAt]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = "", meta = {}, payload = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanType = String(type || "").trim();
+  const cleanId = String(id || "").trim();
+  const eventOrderId = String(meta?.orderId || "").trim();
+  const eventTaskId = String(meta?.taskId || "").trim();
+  const amount = creditNumber(delta || 0);
+  if (!cleanUserId || !cleanId || !cleanType || amount === 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const findExistingLedger = async () => client.query(
+      `
+        SELECT payload, user_id
+        FROM app_credit_ledger
+        WHERE id = $1
+           OR (
+             type = $2
+             AND (
+               ($3 <> '' AND meta->>'orderId' = $3)
+               OR ($4 <> '' AND meta->>'taskId' = $4)
+             )
+           )
+        LIMIT 1
+      `,
+      [cleanId, cleanType, eventOrderId, eventTaskId],
+    );
+    const userById = async (id) => {
+      const targetId = String(id || cleanUserId || "").trim();
+      const { rows } = await client.query(`SELECT * FROM app_users WHERE id = $1`, [targetId]);
+      return rows[0] ? userFromRow(rows[0]) : null;
+    };
+    const existing = await findExistingLedger();
+    if (existing.rows.length) {
+      const existingUserId = existing.rows[0].user_id || cleanUserId;
+      const existingUser = await userById(existingUserId);
+      await client.query("COMMIT");
+      return { user: existingUser, ledger: existing.rows[0].payload, inserted: false };
+    }
+    const userRows = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
+    const row = userRows.rows[0];
+    if (!row) {
+      const error = new Error("User not found for billing.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const existingAfterLock = await findExistingLedger();
+    if (existingAfterLock.rows.length) {
+      await client.query("COMMIT");
+      const existingUser = await userById(existingAfterLock.rows[0].user_id || cleanUserId);
+      return { user: existingUser || userFromRow(row), ledger: existingAfterLock.rows[0].payload, inserted: false };
+    }
+    const current = creditNumber(row.credits || 0);
+    const nextCredits = creditNumber(current + amount);
+    if (nextCredits < -0.000001) {
+      const error = new Error(`Not enough credits. This generation needs ${creditNumber(-amount)} credits; your balance is ${current}. Please top up and try again.`);
+      error.statusCode = 402;
+      error.code = "INSUFFICIENT_CREDITS";
+      error.credits = current;
+      error.cost = creditNumber(-amount);
+      throw error;
+    }
+    const now = new Date().toISOString();
+    const ledger = {
+      ...payload,
+      id: cleanId,
+      userId: cleanUserId,
+      delta: amount,
+      balanceAfter: nextCredits,
+      type: cleanType,
+      meta,
+      createdAt: payload.createdAt || now,
+    };
+    await client.query(
+      `
+        UPDATE app_users
+        SET credits = $2::numeric,
+            payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+            updated_at = $3::timestamptz
+        WHERE id = $1
+      `,
+      [cleanUserId, nextCredits, now],
+    );
+    const inserted = await client.query(
+      `
+        INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+        VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      `,
+      [cleanId, cleanUserId, amount, nextCredits, cleanType, JSON.stringify(meta || {}), JSON.stringify(ledger), ledger.createdAt],
+    );
+    if (!inserted.rows.length) {
+      await client.query("ROLLBACK");
+      return await applyCreditDeltaInDb({ id: cleanId, userId: cleanUserId, delta: amount, type: cleanType, meta, payload });
+    }
+    const updatedRows = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
+    await client.query("COMMIT");
+    return { user: userFromRow(updatedRows.rows[0]), ledger, inserted: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function generationRecordsTableCount() {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rows } = await query(`SELECT COUNT(*)::int AS count FROM app_generation_records`);
+  return rows[0]?.count || 0;
+}
+
+async function migrateGenerationRecordsKvToTable() {
+  if (!dbEnabled()) return { migrated: 0, skipped: true };
+  await ensureSchema();
+  const existing = await generationRecordsTableCount();
+  let records = await getKv("generation_records", []);
+  if (!Array.isArray(records) || !records.length) return { migrated: 0, existing };
+  let migrated = 0;
+  for (const record of records) {
+    const taskId = String(record?.taskId || "").trim();
+    if (!taskId) continue;
+    const result = await query(
+      `
+        INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+        VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+        ON CONFLICT (task_id)
+        DO UPDATE SET
+          payload = EXCLUDED.payload,
+          created_at = LEAST(app_generation_records.created_at, EXCLUDED.created_at),
+          updated_at = EXCLUDED.updated_at
+        WHERE EXCLUDED.updated_at > app_generation_records.updated_at
+        RETURNING task_id
+      `,
+      [
+        taskId,
+        JSON.stringify(record),
+        generationRecordCreatedAt(record),
+        generationRecordUpdatedAt(record),
+      ],
+    );
+    migrated += result.rowCount || 0;
+  }
+  return { migrated, existing };
+}
+
+async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDeleted = true } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.min(500, Math.max(1, Number(limit || 500)));
+  const params = [];
+  const where = [];
+  if (userId) {
+    params.push(String(userId));
+    where.push(`payload->>'userId' = $${params.length}`);
+  }
+  if (!includeDeleted) {
+    where.push(`COALESCE(payload->>'deletedAt', '') = ''`);
+  }
+  params.push(safeLimit);
+  const { rows } = await query(
+    `
+      SELECT payload
+      FROM app_generation_records
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY created_at DESC, updated_at DESC
+      LIMIT $${params.length}
+    `,
+    params,
+  );
+  return rows.map((row) => row.payload);
+}
+
+async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit = 10, providers = [] } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 10) || 10)));
+  const safeOlderThanMs = Math.max(0, Number(olderThanMs || 0));
+  const cleanProviders = [...new Set((Array.isArray(providers) ? providers : [])
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean))];
+  if (!cleanProviders.length) return [];
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'userId', '') <> ''
+      AND COALESCE(payload->>'awaitingUpstreamTask', 'false') = 'true'
+      AND COALESCE(payload->>'upstreamTaskId', '') = ''
+      AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('preparing', 'submitting', 'submitted', 'running', 'processing', 'queued', 'pending')
+      AND created_at <= NOW() - ($2::bigint * INTERVAL '1 millisecond')
+    ORDER BY created_at ASC
+    LIMIT $3
+  `, [cleanProviders, safeOlderThanMs, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function getGenerationRecordsForScheduledMaintenanceFromDb({ maxAgeMs = 24 * 60 * 60 * 1000, limit = 100 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(Number(limit || 100) || 100)));
+  const safeMaxAgeMs = Math.max(0, Number(maxAgeMs || 0));
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND created_at > NOW() - ($1::bigint * INTERVAL '1 millisecond')
+      AND (
+        LOWER(COALESCE(payload->>'status', '')) IN ('submitting', 'preparing', 'submitted', 'queued', 'pending', 'running', 'processing', 'generating')
+        OR (
+          LOWER(COALESCE(payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown')
+          AND LOWER(COALESCE(payload->>'billingStatus', '')) <> 'refunded'
+          AND COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0) > 0
+          AND COALESCE(NULLIF(payload->>'finalCredits', '')::numeric, COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0)) > 0
+        )
+      )
+    ORDER BY created_at ASC, updated_at ASC
+    LIMIT $2
+  `, [safeMaxAgeMs, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.min(500, Math.max(1, Math.trunc(Number(limit || 100) || 100)));
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'r2PurgedAt', '') = ''
+      AND updated_at > NOW() - INTERVAL '48 hours'
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND (
+        (COALESCE(payload->>'cdnVideoUrl', '') = '' AND (COALESCE(payload->>'localVideoUrl', '') <> '' OR COALESCE(payload->>'remoteVideoUrl', '') <> ''))
+        OR (COALESCE(payload->>'cdnImageUrl', '') = '' AND (
+          COALESCE(payload->>'localImageUrl', '') <> ''
+          OR COALESCE(payload->>'localImagePath', '') <> ''
+          OR COALESCE(payload->>'remoteImageUrl', '') <> ''
+        ))
+      )
+    ORDER BY updated_at DESC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => row.payload);
+}
+
+async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { records: [], total: 0, page: 1, limit: Math.max(1, Math.min(50, Number(limit || 8))) };
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 8) || 8)));
+  const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
+  const offset = (safePage - 1) * safeLimit;
+  const { rows } = await query(`
+    SELECT payload, COUNT(*) OVER()::int AS total_count
+    FROM app_generation_records
+    WHERE payload->>'userId' = $1
+      AND COALESCE(payload->>'deletedAt', '') = ''
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $2 OFFSET $3
+  `, [cleanUserId, safeLimit, offset]);
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const actualPage = Math.min(safePage, totalPages);
+  if (actualPage !== safePage) {
+    const retry = await query(`
+      SELECT payload, COUNT(*) OVER()::int AS total_count
+      FROM app_generation_records
+      WHERE payload->>'userId' = $1 AND COALESCE(payload->>'deletedAt', '') = ''
+      ORDER BY created_at DESC, updated_at DESC
+      LIMIT $2 OFFSET $3
+    `, [cleanUserId, safeLimit, (actualPage - 1) * safeLimit]);
+    return { records: retry.rows.map((row) => row.payload), total: Number(retry.rows[0]?.total_count || total), page: actualPage, limit: safeLimit, totalPages };
+  }
+  return { records: rows.map((row) => row.payload), total, page: actualPage, limit: safeLimit, totalPages };
+}
+
+async function getAdminGenerationRecordsPageFromDb({
+  page = 1,
+  limit = 20,
+  search = "",
+  provider = "",
+  status = "",
+  kind = "",
+} = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.min(100, Math.max(1, Number(limit || 20)));
+  const params = [];
+  const where = [];
+  const addParam = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const providerExpression = `COALESCE(
+    NULLIF(records.payload->>'provider', ''),
+    CASE WHEN COALESCE(records.payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
+  )`;
+  const cleanSearch = String(search || "").trim().toLowerCase();
+  if (cleanSearch) {
+    const placeholder = addParam(`%${cleanSearch}%`);
+    where.push(`LOWER(CONCAT_WS(' ',
+      records.task_id,
+      records.payload->>'upstreamTaskId',
+      records.payload->>'userId',
+      records.payload->>'username',
+      users.username,
+      records.payload->>'source',
+      records.payload->>'kind',
+      records.payload->>'provider',
+      records.payload->>'status',
+      records.payload->>'templateId',
+      records.payload->>'templateTitle',
+      records.payload->>'sceneId',
+      records.payload->>'sceneName',
+      records.payload->>'sceneEntryId',
+      records.payload->>'sceneEntryName',
+      records.payload->>'companionId',
+      records.payload->>'companionName',
+      records.payload->>'prompt',
+      records.payload->>'finalPrompt',
+      records.payload->>'model',
+      records.payload->>'error'
+    )) LIKE ${placeholder}`);
+  }
+  if (provider) where.push(`${providerExpression} = ${addParam(String(provider))}`);
+  if (status) where.push(`LOWER(COALESCE(records.payload->>'status', '')) = ${addParam(String(status).toLowerCase())}`);
+  if (kind) where.push(`COALESCE(records.payload->>'kind', '') = ${addParam(String(kind))}`);
+  const fromSql = `
+    FROM app_generation_records records
+    LEFT JOIN app_users users ON users.id = records.payload->>'userId'
+  `;
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [totalResult, filteredResult] = await Promise.all([
+    query(`SELECT COUNT(*)::int AS count FROM app_generation_records`),
+    query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params),
+  ]);
+  const total = totalResult.rows[0]?.count || 0;
+  const filtered = filteredResult.rows[0]?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+  const safePage = Math.min(totalPages, Math.max(1, Number(page || 1)));
+  const pageParams = [...params, safeLimit, (safePage - 1) * safeLimit];
+  const rows = await query(
+    `
+      SELECT records.payload
+      ${fromSql}
+      ${whereSql}
+      ORDER BY records.created_at DESC, records.updated_at DESC
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2}
+    `,
+    pageParams,
+  );
+  return {
+    records: rows.rows.map((row) => row.payload),
+    page: safePage,
+    limit: safeLimit,
+    total,
+    filtered,
+    totalPages,
+  };
+}
+
+async function getGenerationRecordFromDb(taskId) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+  return rows[0]?.payload || null;
+}
+
+async function upsertGenerationRecordInDb(nextRecord) {
+  if (!dbEnabled()) return null;
+  const taskId = String(nextRecord?.taskId || "").trim();
+  if (!taskId) throw new Error("Generation record taskId is required");
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+      VALUES (
+        $1::text,
+        ($2::jsonb || jsonb_build_object('taskId', $1::text, 'createdAt', COALESCE($2::jsonb->>'createdAt', $3::text), 'updatedAt', $3::text)),
+        COALESCE(NULLIF($2::jsonb->>'createdAt', '')::timestamptz, $3::timestamptz),
+        $3::timestamptz
+      )
+      ON CONFLICT (task_id)
+      DO UPDATE SET
+        payload = (
+          SELECT jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
+                    'taskId', EXCLUDED.task_id,
+                    'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
+                    'updatedAt', $3::text,
+                    'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
+                  ),
+                  '{cdnVideoUrl}',
+                  CASE WHEN NULLIF(EXCLUDED.payload->>'cdnVideoUrl', '') IS NOT NULL
+                    THEN EXCLUDED.payload->'cdnVideoUrl'
+                    ELSE COALESCE(app_generation_records.payload->'cdnVideoUrl', to_jsonb(''::text)) END,
+                  true
+                ),
+                '{cdnPosterUrl}',
+                CASE WHEN NULLIF(EXCLUDED.payload->>'cdnPosterUrl', '') IS NOT NULL
+                  THEN EXCLUDED.payload->'cdnPosterUrl'
+                  ELSE COALESCE(app_generation_records.payload->'cdnPosterUrl', to_jsonb(''::text)) END,
+                true
+              ),
+              '{cdnImageUrl}',
+              CASE WHEN NULLIF(EXCLUDED.payload->>'cdnImageUrl', '') IS NOT NULL
+                THEN EXCLUDED.payload->'cdnImageUrl'
+                ELSE COALESCE(app_generation_records.payload->'cdnImageUrl', to_jsonb(''::text)) END,
+              true
+            ),
+            '{cdnImageUrls}',
+            CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageUrls') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageUrls') > 0
+              THEN EXCLUDED.payload->'cdnImageUrls'
+              ELSE COALESCE(app_generation_records.payload->'cdnImageUrls', '[]'::jsonb) END,
+            true
+          )
+        ),
+        updated_at = $3::timestamptz
+      RETURNING payload
+    `,
+    [taskId, JSON.stringify(nextRecord), now],
+  );
+  return rows[0]?.payload || null;
+}
+
+async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) throw new Error("Generation record taskId is required");
+  const allowedKeys = [
+    "localVideoUrl",
+    "localVideoPath",
+    "localPosterUrl",
+    "localPosterPath",
+    "playbackOptimizedAt",
+    "cdnVideoUrl",
+    "cdnPosterUrl",
+    "cdnImageUrl",
+    "cdnImageUrls",
+    "localImageUrl",
+    "localImagePath",
+    "imageResultUrl",
+    "cdnError",
+    "advancedDownloadPreparedAt",
+    "advancedDownloadStatus",
+    "advancedDownloadError",
+  ];
+  const patch = Object.fromEntries(
+    allowedKeys
+      .filter((key) => Object.prototype.hasOwnProperty.call(updates || {}, key))
+      .map((key) => [key, updates[key]]),
+  );
+  if (!Object.keys(patch).length) return getGenerationRecordFromDb(id);
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_generation_records
+      SET payload = payload || $2::jsonb
+      WHERE task_id = $1
+      RETURNING payload
+    `,
+    [id, JSON.stringify(patch)],
+  );
+  return rows[0]?.payload || null;
+}
+
+async function replaceGenerationRecordsInDb(records) {
+  if (!dbEnabled()) return null;
+  if (!Array.isArray(records)) return [];
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const record of records) {
+      const taskId = String(record?.taskId || "").trim();
+      if (!taskId) continue;
+      await client.query(
+        `
+          INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+          VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+          ON CONFLICT (task_id)
+          DO UPDATE SET
+            payload = EXCLUDED.payload,
+            created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [
+          taskId,
+          JSON.stringify(record),
+          generationRecordCreatedAt(record),
+          generationRecordUpdatedAt(record),
+        ],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return records;
+}
+
+async function patchGenerationRecordsInDb(predicate, updates) {
+  if (!dbEnabled()) return null;
+  if (!predicate || typeof predicate !== "object") return [];
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const params = [JSON.stringify({ ...updates, updatedAt: now })];
+  const where = [];
+  if (predicate.userId) {
+    params.push(String(predicate.userId));
+    where.push(`payload->>'userId' = $${params.length}`);
+  }
+  if (predicate.companionId) {
+    params.push(String(predicate.companionId));
+    where.push(`payload->>'companionId' = $${params.length}`);
+  }
+  if (predicate.notDeleted) {
+    where.push(`COALESCE(payload->>'deletedAt', '') = ''`);
+  }
+  if (!where.length) return [];
+  const { rows } = await query(
+    `
+      UPDATE app_generation_records
+      SET payload = payload || $1::jsonb,
+          updated_at = $${params.length + 1}::timestamptz
+      WHERE ${where.join(" AND ")}
+      RETURNING payload
+    `,
+    [...params, now],
+  );
+  return rows.map((row) => row.payload);
+}
+
+function webVitalRow(row = {}) {
+  return {
+    hostname: String(row.hostname || ""),
+    pagePath: String(row.page_path || row.pagePath || ""),
+    device: String(row.device || "unknown"),
+    metric: String(row.metric || ""),
+    count: Number(row.sample_count || row.count || 0),
+    p75: Number(row.p75 || 0),
+    goodPercent: Number(row.good_percent || row.goodPercent || 0),
+    lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+  };
+}
+
+async function insertWebVitalSamplesInDb(samples = []) {
+  if (!dbEnabled()) return 0;
+  const entries = (Array.isArray(samples) ? samples : []).filter((sample) => sample?.eventId);
+  if (!entries.length) return 0;
+  await ensureSchema();
+  let inserted = 0;
+  for (const sample of entries) {
+    const result = await query(
+      `
+        INSERT INTO app_web_vitals(event_id, hostname, page_path, device, metric, value, rating, navigation_type, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::double precision, $7, $8, NOW())
+        ON CONFLICT (event_id) DO NOTHING
+      `,
+      [
+        String(sample.eventId || ""),
+        String(sample.hostname || ""),
+        String(sample.pagePath || "/"),
+        String(sample.device || "unknown"),
+        String(sample.metric || ""),
+        Number(sample.value || 0),
+        String(sample.rating || ""),
+        String(sample.navigationType || ""),
+      ],
+    );
+    inserted += Number(result.rowCount || 0);
+  }
+  return inserted;
+}
+
+async function getWebVitalsSummaryFromDb({ days = 28 } = {}) {
+  if (!dbEnabled()) return { days: 28, sampleCount: 0, overall: [], byHost: [], byRoute: [] };
+  await ensureSchema();
+  const periodDays = Math.max(1, Math.min(90, Math.trunc(Number(days || 28)) || 28));
+  const baseWhere = `created_at >= NOW() - ($1::int * INTERVAL '1 day')`;
+  const metricColumns = `
+    metric,
+    COUNT(*)::int AS sample_count,
+    percentile_cont(0.75) WITHIN GROUP (ORDER BY value) AS p75,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE rating = 'good') / NULLIF(COUNT(*), 0), 1) AS good_percent,
+    MAX(created_at) AS last_seen
+  `;
+  const [overallResult, hostResult, routeResult, countResult] = await Promise.all([
+    query(`SELECT ${metricColumns} FROM app_web_vitals WHERE ${baseWhere} GROUP BY metric ORDER BY metric`, [periodDays]),
+    query(`SELECT hostname, ${metricColumns} FROM app_web_vitals WHERE ${baseWhere} GROUP BY hostname, metric ORDER BY hostname, metric`, [periodDays]),
+    query(`
+      SELECT hostname, page_path, device, ${metricColumns}
+      FROM app_web_vitals
+      WHERE ${baseWhere}
+      GROUP BY hostname, page_path, device, metric
+      ORDER BY sample_count DESC, hostname, page_path, device, metric
+      LIMIT 300
+    `, [periodDays]),
+    query(`SELECT COUNT(*)::int AS sample_count FROM app_web_vitals WHERE ${baseWhere}`, [periodDays]),
+  ]);
+  return {
+    days: periodDays,
+    sampleCount: Number(countResult.rows[0]?.sample_count || 0),
+    overall: overallResult.rows.map(webVitalRow),
+    byHost: hostResult.rows.map(webVitalRow),
+    byRoute: routeResult.rows.map(webVitalRow),
+  };
+}
+
+function geoStatDate(value = "") {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
+async function migrateGeoStatsKvToTables() {
+  if (!dbEnabled()) return { migrated: false, skipped: true };
+  await ensureSchema();
+  const migrationKey = "geo_stats_kv_v1";
+  const keys = ["geo_visitor_stats", "geo_crawler_stats", "geo_character_visit_stats"];
+  const { rows } = await query(`SELECT key, value FROM app_kv WHERE key = ANY($1::text[])`, [keys]);
+  if (!rows.length) {
+    await query(`INSERT INTO app_geo_migration_state(migration_key) VALUES ($1) ON CONFLICT DO NOTHING`, [migrationKey]);
+    return { migrated: false, skipped: true };
+  }
+  const records = Object.fromEntries(rows.map((row) => [String(row.key || ""), row.value || {}]));
+  const visitor = records.geo_visitor_stats && typeof records.geo_visitor_stats === "object" ? records.geo_visitor_stats : {};
+  const crawler = records.geo_crawler_stats && typeof records.geo_crawler_stats === "object" ? records.geo_crawler_stats : {};
+  const character = records.geo_character_visit_stats && typeof records.geo_character_visit_stats === "object" ? records.geo_character_visit_stats : {};
+  const pool = getPool();
+  const client = await pool.connect();
+  const batchSize = 500;
+  const insertBatch = async (sql, entries) => {
+    for (let offset = 0; offset < entries.length; offset += batchSize) {
+      await client.query(sql, [JSON.stringify(entries.slice(offset, offset + batchSize))]);
+    }
+  };
+
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [migrationKey]);
+    const existing = await client.query(`SELECT 1 FROM app_geo_migration_state WHERE migration_key = $1`, [migrationKey]);
+    if (existing.rows.length) {
+      await client.query("COMMIT");
+      return { migrated: false, skipped: true };
+    }
+
+    await client.query("DELETE FROM app_geo_visitor_recent");
+    await client.query("DELETE FROM app_geo_crawler_recent");
+    await client.query("DELETE FROM app_geo_character_recent");
+
+    const visitorPaths = Object.entries(visitor.byPath || {}).map(([pagePath, entry]) => ({
+      page_path: String(pagePath || "/"),
+      visit_count: Math.max(0, Number(entry?.count || 0)),
+      last_seen: geoStatDate(entry?.lastSeen),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_paths(page_path, visit_count, last_seen)
+      SELECT page_path, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = GREATEST(app_geo_visitor_paths.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_visitor_paths.last_seen, EXCLUDED.last_seen)
+    `, visitorPaths);
+
+    const visitorCountries = Object.entries(visitor.byCountry || {}).map(([country, entry]) => ({
+      country: String(country || "UNKNOWN"),
+      visit_count: Math.max(0, Number(entry?.count || 0)),
+      last_seen: geoStatDate(entry?.lastSeen),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_countries(country, visit_count, last_seen)
+      SELECT country, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(country TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (country) DO UPDATE SET visit_count = GREATEST(app_geo_visitor_countries.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_visitor_countries.last_seen, EXCLUDED.last_seen)
+    `, visitorCountries);
+
+    const visitorIps = Object.entries(visitor.ipHashes || {})
+      .filter(([ipHash]) => Boolean(ipHash))
+      .map(([ipHash, entry]) => ({
+        ip_hash: String(ipHash),
+        first_seen: geoStatDate(entry?.firstSeen),
+        last_seen: geoStatDate(entry?.lastSeen),
+        visit_count: Math.max(0, Number(entry?.count || 0)),
+      }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_ips(ip_hash, first_seen, last_seen, visit_count)
+      SELECT ip_hash, first_seen, last_seen, visit_count
+      FROM jsonb_to_recordset($1::jsonb) AS x(ip_hash TEXT, first_seen TIMESTAMPTZ, last_seen TIMESTAMPTZ, visit_count BIGINT)
+      ON CONFLICT (ip_hash) DO UPDATE SET first_seen = LEAST(app_geo_visitor_ips.first_seen, EXCLUDED.first_seen), last_seen = GREATEST(app_geo_visitor_ips.last_seen, EXCLUDED.last_seen), visit_count = GREATEST(app_geo_visitor_ips.visit_count, EXCLUDED.visit_count)
+    `, visitorIps);
+
+    const visitorRecent = (Array.isArray(visitor.recent) ? visitor.recent : []).map((entry) => ({
+      page_path: String(entry?.path || "/"),
+      country: String(entry?.country || "UNKNOWN"),
+      ip_masked: String(entry?.ip || ""),
+      user_agent: String(entry?.userAgent || ""),
+      created_at: geoStatDate(entry?.at),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_visitor_recent(page_path, country, ip_masked, user_agent, created_at)
+      SELECT page_path, country, ip_masked, user_agent, created_at
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, country TEXT, ip_masked TEXT, user_agent TEXT, created_at TIMESTAMPTZ)
+    `, visitorRecent);
+
+    const crawlerBots = Object.entries(crawler.byBot || {}).map(([bot, entry]) => ({
+      bot: String(bot || ""),
+      visit_count: Math.max(0, Number(entry?.count || 0)),
+      last_seen: geoStatDate(entry?.lastSeen),
+      last_path: String(entry?.lastPath || ""),
+      last_user_agent: String(entry?.lastUserAgent || ""),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_bots(bot, visit_count, last_seen, last_path, last_user_agent)
+      SELECT bot, visit_count, last_seen, last_path, last_user_agent
+      FROM jsonb_to_recordset($1::jsonb) AS x(bot TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ, last_path TEXT, last_user_agent TEXT)
+      ON CONFLICT (bot) DO UPDATE SET visit_count = GREATEST(app_geo_crawler_bots.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_crawler_bots.last_seen, EXCLUDED.last_seen), last_path = EXCLUDED.last_path, last_user_agent = EXCLUDED.last_user_agent
+    `, crawlerBots);
+
+    const crawlerPaths = [];
+    const crawlerPathBots = [];
+    for (const [pagePath, entry] of Object.entries(crawler.byPath || {})) {
+      const lastSeen = geoStatDate(entry?.lastSeen);
+      crawlerPaths.push({
+        page_path: String(pagePath || "/"),
+        visit_count: Math.max(0, Number(entry?.count || 0)),
+        last_seen: lastSeen,
+      });
+      for (const [bot, count] of Object.entries(entry?.bots || {})) {
+        crawlerPathBots.push({
+          page_path: String(pagePath || "/"),
+          bot: String(bot || ""),
+          visit_count: Math.max(0, Number(count || 0)),
+          last_seen: lastSeen,
+        });
+      }
+    }
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_paths(page_path, visit_count, last_seen)
+      SELECT page_path, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = GREATEST(app_geo_crawler_paths.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_crawler_paths.last_seen, EXCLUDED.last_seen)
+    `, crawlerPaths);
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_path_bots(page_path, bot, visit_count, last_seen)
+      SELECT page_path, bot, visit_count, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(page_path TEXT, bot TEXT, visit_count BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (page_path, bot) DO UPDATE SET visit_count = GREATEST(app_geo_crawler_path_bots.visit_count, EXCLUDED.visit_count), last_seen = GREATEST(app_geo_crawler_path_bots.last_seen, EXCLUDED.last_seen)
+    `, crawlerPathBots);
+
+    const crawlerRecent = (Array.isArray(crawler.recent) ? crawler.recent : []).map((entry) => ({
+      bot: String(entry?.bot || ""),
+      page_path: String(entry?.path || "/"),
+      ip: String(entry?.ip || ""),
+      user_agent: String(entry?.userAgent || ""),
+      created_at: geoStatDate(entry?.at),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_crawler_recent(bot, page_path, ip, user_agent, created_at)
+      SELECT bot, page_path, ip, user_agent, created_at
+      FROM jsonb_to_recordset($1::jsonb) AS x(bot TEXT, page_path TEXT, ip TEXT, user_agent TEXT, created_at TIMESTAMPTZ)
+    `, crawlerRecent);
+
+    const characterMeta = [];
+    const characterDaily = [];
+    for (const [characterId, entry] of Object.entries(character.byCharacter || {})) {
+      const id = String(characterId || entry?.id || "");
+      if (!id) continue;
+      const lastSeen = geoStatDate(entry?.lastSeen || character.updatedAt);
+      characterMeta.push({
+        character_id: id,
+        name: String(entry?.name || id),
+        poster_url: String(entry?.posterUrl || ""),
+        page_path: String(entry?.path || ""),
+        uv_legacy: Math.max(0, Number(entry?.uv || 0)),
+        last_seen: lastSeen,
+      });
+      const days = entry?.days && typeof entry.days === "object" ? entry.days : {};
+      for (const [day, row] of Object.entries(days)) {
+        characterDaily.push({
+          character_id: id,
+          visit_date: String(day || "").slice(0, 10),
+          pv: Math.max(0, Number(row?.pv ?? row?.total ?? 0)),
+          home: Math.max(0, Number(row?.home || 0)),
+          direct: Math.max(0, Number(row?.direct || 0)),
+          external: Math.max(0, Number(row?.external || 0)),
+          last_seen: lastSeen,
+        });
+      }
+    }
+    await insertBatch(`
+      INSERT INTO app_geo_character_meta(character_id, name, poster_url, page_path, uv_legacy, last_seen)
+      SELECT character_id, name, poster_url, page_path, uv_legacy, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(character_id TEXT, name TEXT, poster_url TEXT, page_path TEXT, uv_legacy INTEGER, last_seen TIMESTAMPTZ)
+      ON CONFLICT (character_id) DO UPDATE SET name = EXCLUDED.name, poster_url = EXCLUDED.poster_url, page_path = EXCLUDED.page_path, uv_legacy = GREATEST(app_geo_character_meta.uv_legacy, EXCLUDED.uv_legacy), last_seen = GREATEST(app_geo_character_meta.last_seen, EXCLUDED.last_seen)
+    `, characterMeta);
+    await insertBatch(`
+      INSERT INTO app_geo_character_daily(character_id, visit_date, pv, home, direct, external, last_seen)
+      SELECT character_id, visit_date, pv, home, direct, external, last_seen
+      FROM jsonb_to_recordset($1::jsonb) AS x(character_id TEXT, visit_date DATE, pv BIGINT, home BIGINT, direct BIGINT, external BIGINT, last_seen TIMESTAMPTZ)
+      ON CONFLICT (character_id, visit_date) DO UPDATE SET pv = GREATEST(app_geo_character_daily.pv, EXCLUDED.pv), home = GREATEST(app_geo_character_daily.home, EXCLUDED.home), direct = GREATEST(app_geo_character_daily.direct, EXCLUDED.direct), external = GREATEST(app_geo_character_daily.external, EXCLUDED.external), last_seen = GREATEST(app_geo_character_daily.last_seen, EXCLUDED.last_seen)
+    `, characterDaily);
+
+    const characterRecent = (Array.isArray(character.recent) ? character.recent : []).map((entry) => ({
+      character_id: String(entry?.characterId || ""),
+      name: String(entry?.name || ""),
+      source: String(entry?.source || ""),
+      page_path: String(entry?.path || ""),
+      ip_masked: String(entry?.ip || ""),
+      created_at: geoStatDate(entry?.at),
+    }));
+    await insertBatch(`
+      INSERT INTO app_geo_character_recent(character_id, name, source, page_path, ip_masked, created_at)
+      SELECT character_id, name, source, page_path, ip_masked, created_at
+      FROM jsonb_to_recordset($1::jsonb) AS x(character_id TEXT, name TEXT, source TEXT, page_path TEXT, ip_masked TEXT, created_at TIMESTAMPTZ)
+    `, characterRecent);
+
+    await client.query(`DELETE FROM app_kv WHERE key = ANY($1::text[])`, [keys]);
+    await client.query(`INSERT INTO app_geo_migration_state(migration_key) VALUES ($1) ON CONFLICT DO NOTHING`, [migrationKey]);
+    await client.query("COMMIT");
+    return { migrated: true, migratedKeys: rows.map((row) => String(row.key || "")).filter(Boolean) };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function geoVisitorStatsFromTables({ pathRows = [], countryRows = [], recentRows = [], uniqueIpCount = 0 } = {}) {
+  const byPath = {};
+  pathRows.forEach((row) => {
+    byPath[String(row.page_path || "/")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+    };
+  });
+  const byCountry = {};
+  countryRows.forEach((row) => {
+    byCountry[String(row.country || "UNKNOWN")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+    };
+  });
+  const recent = recentRows.map((row) => ({
+    path: String(row.page_path || "/"),
+    at: row.created_at ? new Date(row.created_at).toISOString() : "",
+    country: String(row.country || "UNKNOWN"),
+    ip: String(row.ip_masked || ""),
+    userAgent: String(row.user_agent || ""),
+  }));
+  const total = pathRows.reduce((sum, row) => sum + Number(row.visit_count || 0), 0);
+  const lastSeen = [...pathRows.map((row) => row.last_seen), ...recentRows.map((row) => row.created_at)]
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  return {
+    total,
+    uniqueIpCount: Number(uniqueIpCount || 0),
+    byPath,
+    byCountry,
+    recent,
+    lastSeen: lastSeen ? new Date(lastSeen).toISOString() : "",
+  };
+}
+
+async function readGeoVisitorStatsFromDb({ recentLimit = 80 } = {}) {
+  if (!dbEnabled()) return geoVisitorStatsFromTables();
+  await ensureSchema();
+  const limit = Math.max(1, Math.min(200, Number(recentLimit) || 80));
+  const [pathResult, countryResult, recentResult, ipCountResult] = await Promise.all([
+    query(`SELECT page_path, visit_count, last_seen FROM app_geo_visitor_paths ORDER BY visit_count DESC, last_seen DESC LIMIT 500`),
+    query(`SELECT country, visit_count, last_seen FROM app_geo_visitor_countries ORDER BY visit_count DESC, last_seen DESC LIMIT 200`),
+    query(`SELECT page_path, country, ip_masked, user_agent, created_at FROM app_geo_visitor_recent ORDER BY created_at DESC LIMIT $1`, [limit]),
+    query(`SELECT COUNT(*)::int AS count FROM app_geo_visitor_ips`),
+  ]);
+  return geoVisitorStatsFromTables({
+    pathRows: pathResult.rows,
+    countryRows: countryResult.rows,
+    recentRows: recentResult.rows,
+    uniqueIpCount: Number(ipCountResult.rows[0]?.count || 0),
+  });
+}
+
+async function recordGeoVisitorVisitInDb({ pagePath = "/", country = "UNKNOWN", ipHash = "", ipMasked = "", userAgent = "", createdAt = new Date().toISOString() } = {}) {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const cleanPath = String(pagePath || "/");
+  const cleanCountry = String(country || "UNKNOWN");
+  const cleanHash = String(ipHash || "");
+  const at = createdAt || new Date().toISOString();
+  await Promise.all([
+    query(`
+      INSERT INTO app_geo_visitor_paths(page_path, visit_count, last_seen)
+      VALUES ($1, 1, $2::timestamptz)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = app_geo_visitor_paths.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanPath, at]),
+    query(`
+      INSERT INTO app_geo_visitor_countries(country, visit_count, last_seen)
+      VALUES ($1, 1, $2::timestamptz)
+      ON CONFLICT (country) DO UPDATE SET visit_count = app_geo_visitor_countries.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanCountry, at]),
+    query(`INSERT INTO app_geo_visitor_recent(page_path, country, ip_masked, user_agent, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)`, [cleanPath, cleanCountry, String(ipMasked || ""), String(userAgent || ""), at]),
+    cleanHash ? query(`
+      INSERT INTO app_geo_visitor_ips(ip_hash, first_seen, last_seen, visit_count)
+      VALUES ($1, $2::timestamptz, $2::timestamptz, 1)
+      ON CONFLICT (ip_hash) DO UPDATE SET last_seen = EXCLUDED.last_seen, visit_count = app_geo_visitor_ips.visit_count + 1
+    `, [cleanHash, at]) : Promise.resolve(),
+    query(`DELETE FROM app_geo_visitor_recent WHERE created_at < NOW() - INTERVAL '90 days'`),
+  ]);
+  return true;
+}
+
+function geoCrawlerStatsFromTables({ botRows = [], pathRows = [], pathBotRows = [], recentRows = [] } = {}) {
+  const byBot = {};
+  botRows.forEach((row) => {
+    byBot[String(row.bot || "")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+      lastPath: String(row.last_path || ""),
+      lastUserAgent: String(row.last_user_agent || ""),
+    };
+  });
+  const byPath = {};
+  pathRows.forEach((row) => {
+    byPath[String(row.page_path || "/")] = {
+      count: Number(row.visit_count || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+      bots: {},
+    };
+  });
+  pathBotRows.forEach((row) => {
+    const key = String(row.page_path || "/");
+    if (!byPath[key]) byPath[key] = { count: 0, lastSeen: "", bots: {} };
+    byPath[key].bots[String(row.bot || "")] = Number(row.visit_count || 0);
+  });
+  const recent = recentRows.map((row) => ({
+    bot: String(row.bot || ""),
+    path: String(row.page_path || "/"),
+    at: row.created_at ? new Date(row.created_at).toISOString() : "",
+    ip: String(row.ip || ""),
+    userAgent: String(row.user_agent || ""),
+  }));
+  return {
+    total: botRows.reduce((sum, row) => sum + Number(row.visit_count || 0), 0),
+    byBot,
+    byPath,
+    recent,
+  };
+}
+
+async function readGeoCrawlerStatsFromDb({ recentLimit = 80 } = {}) {
+  if (!dbEnabled()) return geoCrawlerStatsFromTables();
+  await ensureSchema();
+  const limit = Math.max(1, Math.min(200, Number(recentLimit) || 80));
+  const [botResult, pathResult, pathBotResult, recentResult] = await Promise.all([
+    query(`SELECT bot, visit_count, last_seen, last_path, last_user_agent FROM app_geo_crawler_bots ORDER BY visit_count DESC, last_seen DESC LIMIT 200`),
+    query(`SELECT page_path, visit_count, last_seen FROM app_geo_crawler_paths ORDER BY visit_count DESC, last_seen DESC LIMIT 500`),
+    query(`SELECT page_path, bot, visit_count FROM app_geo_crawler_path_bots ORDER BY page_path ASC, visit_count DESC LIMIT 3000`),
+    query(`SELECT bot, page_path, ip, user_agent, created_at FROM app_geo_crawler_recent ORDER BY created_at DESC LIMIT $1`, [limit]),
+  ]);
+  return geoCrawlerStatsFromTables({
+    botRows: botResult.rows,
+    pathRows: pathResult.rows,
+    pathBotRows: pathBotResult.rows,
+    recentRows: recentResult.rows,
+  });
+}
+
+async function recordGeoCrawlerVisitInDb({ bot = "", pagePath = "/", ip = "", userAgent = "", createdAt = new Date().toISOString() } = {}) {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const cleanBot = String(bot || "");
+  if (!cleanBot) return false;
+  const cleanPath = String(pagePath || "/");
+  const at = createdAt || new Date().toISOString();
+  await Promise.all([
+    query(`
+      INSERT INTO app_geo_crawler_bots(bot, visit_count, last_seen, last_path, last_user_agent)
+      VALUES ($1, 1, $2::timestamptz, $3, $4)
+      ON CONFLICT (bot) DO UPDATE SET visit_count = app_geo_crawler_bots.visit_count + 1, last_seen = EXCLUDED.last_seen, last_path = EXCLUDED.last_path, last_user_agent = EXCLUDED.last_user_agent
+    `, [cleanBot, at, cleanPath, String(userAgent || "").slice(0, 180)]),
+    query(`
+      INSERT INTO app_geo_crawler_paths(page_path, visit_count, last_seen)
+      VALUES ($1, 1, $2::timestamptz)
+      ON CONFLICT (page_path) DO UPDATE SET visit_count = app_geo_crawler_paths.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanPath, at]),
+    query(`
+      INSERT INTO app_geo_crawler_path_bots(page_path, bot, visit_count, last_seen)
+      VALUES ($1, $2, 1, $3::timestamptz)
+      ON CONFLICT (page_path, bot) DO UPDATE SET visit_count = app_geo_crawler_path_bots.visit_count + 1, last_seen = EXCLUDED.last_seen
+    `, [cleanPath, cleanBot, at]),
+    query(`INSERT INTO app_geo_crawler_recent(bot, page_path, ip, user_agent, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)`, [cleanBot, cleanPath, String(ip || ""), String(userAgent || "").slice(0, 180), at]),
+    query(`DELETE FROM app_geo_crawler_recent WHERE created_at < NOW() - INTERVAL '90 days'`),
+  ]);
+  return true;
+}
+
+function geoCharacterStatsFromTables({ rows = [], recentRows = [] } = {}) {
+  const byCharacter = {};
+  rows.forEach((row) => {
+    const id = String(row.character_id || "");
+    if (!id) return;
+    byCharacter[id] = {
+      id,
+      name: String(row.name || id),
+      posterUrl: String(row.poster_url || ""),
+      path: String(row.page_path || ""),
+      pv: Number(row.pv || 0),
+      total: Number(row.pv || 0),
+      uv: Number(row.uv || 0),
+      home: Number(row.home || 0),
+      direct: Number(row.direct || 0),
+      external: Number(row.external || 0),
+      lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+      days: {},
+    };
+  });
+  const recent = recentRows.map((row) => ({
+    characterId: String(row.character_id || ""),
+    name: String(row.name || ""),
+    source: String(row.source || ""),
+    path: String(row.page_path || ""),
+    at: row.created_at ? new Date(row.created_at).toISOString() : "",
+    ip: String(row.ip_masked || ""),
+  }));
+  const total = rows.reduce((sum, row) => sum + Number(row.pv || 0), 0);
+  return { version: 1, updatedAt: recent[0]?.at || "", total, byCharacter, recent };
+}
+
+async function readGeoCharacterVisitStatsFromDb({ days = 90, recentLimit = 80 } = {}) {
+  if (!dbEnabled()) return geoCharacterStatsFromTables();
+  await ensureSchema();
+  const periodDays = Math.max(1, Math.min(365, Number(days) || 90));
+  const limit = Math.max(1, Math.min(200, Number(recentLimit) || 80));
+  const [summaryResult, recentResult] = await Promise.all([
+    query(`
+      SELECT
+        m.character_id,
+        m.name,
+        m.poster_url,
+        m.page_path,
+        COALESCE(SUM(d.pv), 0)::bigint AS pv,
+        COALESCE(SUM(d.home), 0)::bigint AS home,
+        COALESCE(SUM(d.direct), 0)::bigint AS direct,
+        COALESCE(SUM(d.external), 0)::bigint AS external,
+        MAX(d.last_seen) AS last_seen,
+        GREATEST(COUNT(DISTINCT i.ip_hash)::int, m.uv_legacy) AS uv
+      FROM app_geo_character_meta m
+      LEFT JOIN app_geo_character_daily d
+        ON d.character_id = m.character_id
+       AND d.visit_date >= CURRENT_DATE - ($1::int * INTERVAL '1 day')
+      LEFT JOIN app_geo_character_daily_ips i
+        ON i.character_id = d.character_id
+       AND i.visit_date = d.visit_date
+      GROUP BY m.character_id, m.name, m.poster_url, m.page_path, m.uv_legacy
+      HAVING COALESCE(SUM(d.pv), 0) > 0
+      ORDER BY pv DESC, last_seen DESC
+      LIMIT 2000
+    `, [periodDays]),
+    query(`SELECT character_id, name, source, page_path, ip_masked, created_at FROM app_geo_character_recent ORDER BY created_at DESC LIMIT $1`, [limit]),
+  ]);
+  return geoCharacterStatsFromTables({ rows: summaryResult.rows, recentRows: recentResult.rows });
+}
+
+async function recordGeoCharacterVisitInDb({ characterId = "", name = "", posterUrl = "", pagePath = "", source = "direct", ipHash = "", ipMasked = "", createdAt = new Date().toISOString(), retentionDays = 90 } = {}) {
+  if (!dbEnabled()) return false;
+  const cleanId = String(characterId || "");
+  if (!cleanId) return false;
+  await ensureSchema();
+  const at = createdAt || new Date().toISOString();
+  const day = String(at).slice(0, 10);
+  const normalizedSource = ["home", "direct", "external"].includes(source) ? source : "direct";
+  const cleanHash = String(ipHash || "");
+  const periodDays = Math.max(1, Math.min(365, Number(retentionDays) || 90));
+  await Promise.all([
+    query(`
+      INSERT INTO app_geo_character_meta(character_id, name, poster_url, page_path, last_seen)
+      VALUES ($1, $2, $3, $4, $5::timestamptz)
+      ON CONFLICT (character_id) DO UPDATE SET name = EXCLUDED.name, poster_url = EXCLUDED.poster_url, page_path = EXCLUDED.page_path, last_seen = EXCLUDED.last_seen
+    `, [cleanId, String(name || cleanId), String(posterUrl || ""), String(pagePath || ""), at]),
+    query(`
+      INSERT INTO app_geo_character_daily(character_id, visit_date, pv, home, direct, external, last_seen)
+      VALUES ($1, $2::date, 1, $3, $4, $5, $6::timestamptz)
+      ON CONFLICT (character_id, visit_date) DO UPDATE SET
+        pv = app_geo_character_daily.pv + 1,
+        home = app_geo_character_daily.home + EXCLUDED.home,
+        direct = app_geo_character_daily.direct + EXCLUDED.direct,
+        external = app_geo_character_daily.external + EXCLUDED.external,
+        last_seen = EXCLUDED.last_seen
+    `, [cleanId, day, normalizedSource === "home" ? 1 : 0, normalizedSource === "direct" ? 1 : 0, normalizedSource === "external" ? 1 : 0, at]),
+    cleanHash ? query(`
+      INSERT INTO app_geo_character_daily_ips(character_id, visit_date, ip_hash)
+      VALUES ($1, $2::date, $3)
+      ON CONFLICT DO NOTHING
+    `, [cleanId, day, cleanHash]) : Promise.resolve(),
+    query(`INSERT INTO app_geo_character_recent(character_id, name, source, page_path, ip_masked, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`, [cleanId, String(name || cleanId), normalizedSource, String(pagePath || ""), String(ipMasked || ""), at]),
+    query(`DELETE FROM app_geo_character_daily WHERE visit_date < CURRENT_DATE - ($1::int * INTERVAL '1 day')`, [periodDays]),
+    query(`DELETE FROM app_geo_character_daily_ips WHERE visit_date < CURRENT_DATE - ($1::int * INTERVAL '1 day')`, [periodDays]),
+    query(`DELETE FROM app_geo_character_recent WHERE created_at < NOW() - ($1::int * INTERVAL '1 day')`, [periodDays]),
+  ]);
+  return true;
+}
+
+async function listApiSubtokensFromDb(parentUserId = "") {
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    return (Array.isArray(records) ? records : [])
+      .map(normalizeApiSubtokenRecord)
+      .filter((record) => !parentUserId || record.parentUserId === String(parentUserId))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  }
+  await ensureSchema();
+  const params = [];
+  let where = "";
+  if (parentUserId) {
+    params.push(String(parentUserId));
+    where = `WHERE parent_user_id = $1`;
+  }
+  const { rows } = await query(`
+    SELECT *
+    FROM app_api_subtokens
+    ${where}
+    ORDER BY created_at DESC
+  `, params);
+  return rows.map((row) => normalizeApiSubtokenRecord(row));
+}
+
+async function getApiSubtokenFromDbByToken(token = "") {
+  const clean = String(token || "").trim();
+  if (!clean) return null;
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const found = (Array.isArray(records) ? records : []).find((record) => String(record.token || "") === clean);
+    return found ? normalizeApiSubtokenRecord(found) : null;
+  }
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_api_subtokens WHERE token = $1`, [clean]);
+  return rows[0] ? normalizeApiSubtokenRecord(rows[0]) : null;
+}
+
+async function getApiSubtokenFromDbById(id = "", parentUserId = "") {
+  const clean = String(id || "").trim();
+  if (!clean) return null;
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const found = (Array.isArray(records) ? records : []).find((record) => (
+      String(record.id || "") === clean &&
+      (!parentUserId || String(record.parentUserId || record.parent_user_id || "") === String(parentUserId))
+    ));
+    return found ? normalizeApiSubtokenRecord(found) : null;
+  }
+  await ensureSchema();
+  const params = [clean];
+  let where = `WHERE id = $1`;
+  if (parentUserId) {
+    params.push(String(parentUserId));
+    where += ` AND parent_user_id = $2`;
+  }
+  const { rows } = await query(`SELECT * FROM app_api_subtokens ${where}`, params);
+  return rows[0] ? normalizeApiSubtokenRecord(rows[0]) : null;
+}
+
+async function createApiSubtokenInDb(record) {
+  const next = normalizeApiSubtokenRecord(record);
+  if (!next.id || !next.token || !next.parentUserId) {
+    throw new Error("Invalid subtoken record");
+  }
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const list = Array.isArray(records) ? records : [];
+    list.unshift(next);
+    await setKv("api_subtokens", list);
+    return next;
+  }
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_api_subtokens (
+      id, token, parent_user_id, name, quota_type, quota_limit,
+      used_amount, used_count, expires_at, revoked_at, last_used_at,
+      created_at, updated_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::int,
+      NULLIF($9, '')::timestamptz, NULLIF($10, '')::timestamptz, NULLIF($11, '')::timestamptz,
+      NULLIF($12, '')::timestamptz, NULLIF($13, '')::timestamptz
+    )
+    RETURNING *
+  `, [
+    next.id,
+    next.token,
+    next.parentUserId,
+    next.name,
+    next.quotaType,
+    next.quotaLimit,
+    next.usedAmount,
+    next.usedCount,
+    next.expiresAt,
+    next.revokedAt,
+    next.lastUsedAt,
+    next.createdAt,
+    next.updatedAt,
+  ]);
+  return normalizeApiSubtokenRecord(rows[0]);
+}
+
+async function updateApiSubtokenInDb(id, parentUserId, updates = {}) {
+  const cleanId = String(id || "").trim();
+  if (!cleanId) return null;
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const list = Array.isArray(records) ? records : [];
+    const index = list.findIndex((record) => (
+      String(record.id || "") === cleanId &&
+      (!parentUserId || String(record.parentUserId || record.parent_user_id || "") === String(parentUserId))
+    ));
+    if (index < 0) return null;
+    const current = normalizeApiSubtokenRecord(list[index]);
+    const merged = normalizeApiSubtokenRecord({
+      ...current,
+      ...updates,
+      id: current.id,
+      token: current.token,
+      parentUserId: current.parentUserId,
+      createdAt: current.createdAt,
+      usedAmount: updates.usedAmount ?? current.usedAmount,
+      usedCount: updates.usedCount ?? current.usedCount,
+    });
+    list[index] = merged;
+    await setKv("api_subtokens", list);
+    return merged;
+  }
+  await ensureSchema();
+  const sets = [];
+  const params = [cleanId];
+  if (parentUserId) params.push(String(parentUserId));
+  const push = (column, value) => {
+    params.push(value);
+    sets.push(`${column} = $${params.length}`);
+  };
+  if (Object.prototype.hasOwnProperty.call(updates, "name")) push("name", String(updates.name || "").trim());
+  if (Object.prototype.hasOwnProperty.call(updates, "quotaType")) push("quota_type", normalizeApiSubtokenQuotaType(updates.quotaType));
+  if (Object.prototype.hasOwnProperty.call(updates, "quotaLimit")) push("quota_limit", roundCredits(updates.quotaLimit));
+  if (Object.prototype.hasOwnProperty.call(updates, "usedAmount")) push("used_amount", roundCredits(updates.usedAmount));
+  if (Object.prototype.hasOwnProperty.call(updates, "usedCount")) push("used_count", Math.max(0, Math.round(Number(updates.usedCount || 0) || 0)));
+  if (Object.prototype.hasOwnProperty.call(updates, "expiresAt")) push("expires_at", updates.expiresAt ? toIsoString(updates.expiresAt) : null);
+  if (Object.prototype.hasOwnProperty.call(updates, "revokedAt")) push("revoked_at", updates.revokedAt ? toIsoString(updates.revokedAt) : null);
+  if (Object.prototype.hasOwnProperty.call(updates, "lastUsedAt")) push("last_used_at", updates.lastUsedAt ? toIsoString(updates.lastUsedAt) : null);
+  if (!sets.length) return await getApiSubtokenFromDbById(cleanId, parentUserId);
+  const where = parentUserId ? `WHERE id = $1 AND parent_user_id = $2` : `WHERE id = $1`;
+  const { rows } = await query(`
+    UPDATE app_api_subtokens
+    SET ${sets.join(", ")},
+        updated_at = NOW()
+    ${where}
+    RETURNING *
+  `, params);
+  return rows[0] ? normalizeApiSubtokenRecord(rows[0]) : null;
+}
+
+async function revokeApiSubtokenInDb(id, parentUserId, revokedAt = new Date().toISOString()) {
+  return await updateApiSubtokenInDb(id, parentUserId, { revokedAt });
+}
+
+async function recordApiSubtokenUsageInDb({
+  tokenId = "",
+  parentUserId = "",
+  eventKey = "",
+  deltaAmount = 0,
+  deltaCount = 0,
+  meta = {},
+} = {}) {
+  const cleanTokenId = String(tokenId || "").trim();
+  const cleanEventKey = String(eventKey || "").trim();
+  if (!cleanTokenId || !cleanEventKey) return null;
+  const amountDelta = roundCredits(deltaAmount);
+  const countDelta = Math.trunc(Number(deltaCount || 0) || 0);
+  if (!dbEnabled()) {
+    const subtokens = await getKv("api_subtokens", []);
+    const usage = await getKv("api_subtoken_usage", []);
+    const list = Array.isArray(subtokens) ? subtokens : [];
+    const tokenIndex = list.findIndex((record) => (
+      String(record.id || "") === cleanTokenId &&
+      (!parentUserId || String(record.parentUserId || record.parent_user_id || "") === String(parentUserId))
+    ));
+    if (tokenIndex < 0) return null;
+    const current = normalizeApiSubtokenRecord(list[tokenIndex]);
+    const existing = Array.isArray(usage) ? usage.find((entry) => (
+      String(entry.tokenId || entry.token_id || "") === cleanTokenId &&
+      String(entry.eventKey || entry.event_key || "") === cleanEventKey
+    )) : null;
+    if (existing) return { token: current, inserted: false };
+    const nextAmount = Math.max(0, roundCredits(current.usedAmount + amountDelta));
+    const nextCount = Math.max(0, Math.round(current.usedCount + countDelta));
+    if (current.quotaType === "amount" && nextAmount - current.quotaLimit > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    if (current.quotaType === "count" && nextCount - current.quotaLimit > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    const now = new Date().toISOString();
+    usage.unshift({
+      id: `usage-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      tokenId: current.id,
+      eventKey: cleanEventKey,
+      parentUserId: current.parentUserId,
+      deltaAmount: amountDelta,
+      deltaCount: countDelta,
+      meta,
+      createdAt: now,
+      updatedAt: now,
+    });
+    list[tokenIndex] = normalizeApiSubtokenRecord({
+      ...current,
+      usedAmount: nextAmount,
+      usedCount: nextCount,
+      lastUsedAt: now,
+      updatedAt: now,
+    });
+    await setKv("api_subtoken_usage", usage.slice(0, 5000));
+    await setKv("api_subtokens", list);
+    return { token: list[tokenIndex], inserted: true };
+  }
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: tokenRows } = await client.query(
+      `SELECT * FROM app_api_subtokens WHERE id = $1${parentUserId ? " AND parent_user_id = $2" : ""} FOR UPDATE`,
+      parentUserId ? [cleanTokenId, String(parentUserId)] : [cleanTokenId],
+    );
+    const tokenRow = tokenRows[0];
+    if (!tokenRow) {
+      const error = new Error("Subtoken not found.");
+      error.statusCode = 404;
+      error.code = "SUBTOKEN_NOT_FOUND";
+      throw error;
+    }
+    const token = normalizeApiSubtokenRecord(tokenRow);
+    const { rows: existingRows } = await client.query(
+      `SELECT 1 FROM app_api_subtoken_usage WHERE token_id = $1 AND event_key = $2`,
+      [token.id, cleanEventKey],
+    );
+    if (existingRows.length) {
+      await client.query("COMMIT");
+      return { token, inserted: false };
+    }
+    const nextAmount = Math.max(0, roundCredits(Number(token.usedAmount || 0) + amountDelta));
+    const nextCount = Math.max(0, Math.round(Number(token.usedCount || 0) + countDelta));
+    if (token.quotaType === "amount" && nextAmount - Number(token.quotaLimit || 0) > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    if (token.quotaType === "count" && nextCount - Number(token.quotaLimit || 0) > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    await client.query(
+      `
+        INSERT INTO app_api_subtoken_usage (
+          token_id, event_key, parent_user_id, delta_amount, delta_count, meta, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4::numeric, $5::int, $6::jsonb, NOW(), NOW())
+      `,
+      [token.id, cleanEventKey, token.parentUserId || String(parentUserId || ""), amountDelta, countDelta, JSON.stringify(meta || {})],
+    );
+    const { rows: updatedRows } = await client.query(
+      `
+        UPDATE app_api_subtokens
+        SET used_amount = $2::numeric,
+            used_count = $3::int,
+            last_used_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [token.id, nextAmount, nextCount],
+    );
+    await client.query("COMMIT");
+    return { token: normalizeApiSubtokenRecord(updatedRows[0] || tokenRow), inserted: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function toIsoString(value) {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString();
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return String(value).trim();
+}
+
+function roundCredits(value, digits = 6) {
+  const scale = 10 ** Math.max(0, Math.min(8, Math.floor(Number(digits) || 6)));
+  const next = Number(value);
+  if (!Number.isFinite(next)) return 0;
+  return Math.round(next * scale) / scale;
+}
+
+function normalizeApiSubtokenQuotaType(value = "") {
+  return String(value || "").trim().toLowerCase() === "count" ? "count" : "amount";
+}
+
+function maskApiSubtokenToken(token = "") {
+  const value = String(token || "");
+  if (!value) return "";
+  if (value.length <= 12) return `${value.slice(0, 3)}...${value.slice(-3)}`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function normalizeApiSubtokenRecord(record = {}) {
+  const quotaType = normalizeApiSubtokenQuotaType(record.quotaType ?? record.quota_type);
+  const quotaLimit = roundCredits(record.quotaLimit ?? record.quota_limit ?? 0);
+  const usedAmount = roundCredits(record.usedAmount ?? record.used_amount ?? 0);
+  const usedCount = Math.max(0, Math.round(Number(record.usedCount ?? record.used_count ?? 0) || 0));
+  const expiresAt = toIsoString(record.expiresAt ?? record.expires_at ?? "");
+  const revokedAt = toIsoString(record.revokedAt ?? record.revoked_at ?? "");
+  const lastUsedAt = toIsoString(record.lastUsedAt ?? record.last_used_at ?? "");
+  const createdAt = toIsoString(record.createdAt ?? record.created_at ?? "");
+  const updatedAt = toIsoString(record.updatedAt ?? record.updated_at ?? "");
+  const token = String(record.token ?? "").trim();
+  const expired = expiresAt && Date.parse(expiresAt) <= Date.now();
+  const status = revokedAt ? "revoked" : (expired ? "expired" : "active");
+  const remaining = quotaType === "count"
+    ? Math.max(0, roundCredits(quotaLimit - usedCount, 6))
+    : Math.max(0, roundCredits(quotaLimit - usedAmount, 6));
+  return {
+    id: String(record.id ?? "").trim(),
+    token,
+    tokenPreview: maskApiSubtokenToken(token),
+    parentUserId: String(record.parentUserId ?? record.parent_user_id ?? "").trim(),
+    name: String(record.name ?? "").trim(),
+    quotaType,
+    quotaLimit,
+    usedAmount,
+    usedCount,
+    quotaUsed: quotaType === "count" ? usedCount : usedAmount,
+    remaining,
+    expiresAt,
+    revokedAt,
+    lastUsedAt,
+    createdAt,
+    updatedAt,
+    status,
+    active: !revokedAt && !expired,
+  };
+}
+
+function normalizeApiSubtokenUsageRecord(record = {}) {
+  return {
+    id: Number(record.id ?? 0),
+    tokenId: String(record.tokenId ?? record.token_id ?? "").trim(),
+    eventKey: String(record.eventKey ?? record.event_key ?? "").trim(),
+    parentUserId: String(record.parentUserId ?? record.parent_user_id ?? "").trim(),
+    deltaAmount: roundCredits(record.deltaAmount ?? record.delta_amount ?? 0),
+    deltaCount: Math.trunc(Number(record.deltaCount ?? record.delta_count ?? 0) || 0),
+    meta: record.meta && typeof record.meta === "object" ? record.meta : {},
+    createdAt: toIsoString(record.createdAt ?? record.created_at ?? ""),
+    updatedAt: toIsoString(record.updatedAt ?? record.updated_at ?? ""),
+  };
+}
+
+async function getChatCharacterMemoryInDb(userId = "", characterId = "") {
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return null;
+  const { rows } = await query(
+    `SELECT payload FROM app_chat_character_memories WHERE user_id = $1 AND character_id = $2`,
+    [cleanUserId, cleanCharacterId],
+  );
+  return rows[0]?.payload || null;
+}
+
+async function upsertChatCharacterMemoryInDb(userId = "", characterId = "", payload = {}) {
+  const cleanUserId = String(userId || "").trim();
+  const cleanCharacterId = String(characterId || "").trim();
+  if (!cleanUserId || !cleanCharacterId) return null;
+  await query(
+    `INSERT INTO app_chat_character_memories(user_id, character_id, payload, updated_at)
+     VALUES ($1, $2, $3::jsonb, NOW())
+     ON CONFLICT (user_id, character_id)
+     DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+    [cleanUserId, cleanCharacterId, JSON.stringify(payload || {})],
+  );
+  return payload;
+}
+
+
+module.exports = {
+  DEFAULT_TENANT_ID,
+  normalizeTenantId,
+  dbEnabled,
+  ensureSchema,
+  query,
+  readAppDbFromTables,
+  replaceAppDbTables,
+  replaceCatalogEntriesInDb,
+  countCatalogEntriesInDb,
+  listCatalogEntriesFromDb,
+  getCatalogMigrationStateInDb,
+  markCatalogMigrationInDb,
+  getRuntimeSettingFromDb,
+  setRuntimeSettingInDb,
+  applyCreditDeltaInDb,
+  deleteUserSessionsInDb,
+  replaceUserSessionInDb,
+  deleteSessionByTokenInDb,
+  deleteUserWalletOrdersInDb,
+  createWalletOrderInDb,
+  createManualWalletOrderInDb,
+  getUserByUsernameInDb,
+  getUserByTelegramIdInDb,
+  getUserByGoogleIdInDb,
+  getUserByIdInDb,
+  getUserByApiTokenInDb,
+  getUsersByIdsInDb,
+  createSessionInDb,
+  getSessionByTokenInDb,
+  getWalletOrderByIdInDb,
+  getWalletOrderByPaypalIdInDb,
+  createReferralWithdrawalInDb,
+  updateReferralWithdrawalInDb,
+  getReferralWithdrawalByIdInDb,
+  getReferralWithdrawalsPageFromDb,
+  listBillingPlansInDb,
+  getBillingPlanInDb,
+  updateBillingPlansInDb,
+  getUserSubscriptionInDb,
+  upsertUserSubscriptionInDb,
+  createMembershipActivationCodesInDb,
+  listMembershipActivationCodesInDb,
+  getAdminRechargeLedgerPageFromDb,
+  getAdminUsersPageFromDb,
+  getAdminWalletOrdersPageFromDb,
+  getAdminUserAssetsPageFromDb,
+  getUserAssetsPageFromDb,
+  getUserWalletOrdersPageFromDb,
+  getUserSpendingRecordsPageFromDb,
+  getSpendingMonthlySummaryFromDb,
+  getAdminUserCharactersPageFromDb,
+  getUserCharactersPageFromDb,
+  getAdminSupportMessagesPageFromDb,
+  listUserSupportMessagesInDb,
+  listLiveNotificationsInDb,
+  createLiveNotificationInDb,
+  markLiveNotificationReadInDb,
+  markAllLiveNotificationsReadInDb,
+  getLiveCheckinInDb,
+  createLiveCheckinInDb,
+  createLiveCheckinWithCreditInDb,
+  getLiveCheckinSummaryInDb,
+  getLiveCheckinHistoryPageFromDb,
+  getLiveDailyTaskClaimsInDb,
+  getLiveDailyTaskCompletionInDb,
+  createLiveDailyTaskClaimWithCreditInDb,
+  recordCreatorUsageEarningInDb,
+  recordCreatorVideoViewEarningInDb,
+  getCreatorIncomeInDb,
+  createCreatorWithdrawalInDb,
+  listCreatorWithdrawalsInDb,
+  getAdminCreatorDataInDb,
+  getAdminCreatorWithdrawalsPageFromDb,
+  updateCreatorWithdrawalInDb,
+  createUserSupportMessageInDb,
+  updateUserSupportMessageInDb,
+  hasReferralRewardInDb,
+  setMembershipActivationCodeStatusInDb,
+  redeemMembershipActivationCodeInDb,
+  updateWalletOrderInDb,
+  updateUserInDb,
+  upsertUserAssetInDb,
+  getUserAssetFromDb,
+  upsertUserCharacterInDb,
+  listChatConversationsInDb,
+  findChatConversationByCharacterInDb,
+  getChatConversationInDb,
+  upsertChatConversationInDb,
+  getCharacterRelationshipInDb,
+  upsertCharacterRelationshipInDb,
+  getGuideStateInDb,
+  upsertGuideStateInDb,
+  listChatMessagesInDb,
+  listChatMessagesAfterInDb,
+  insertChatMessageInDb,
+  insertChatMessagesIfAbsentInDb,
+  updateChatMessageInDb,
+  deleteChatMessageInDb,
+  deleteChatMessagesAfterInDb,
+  listChatLiveCharactersInDb,
+  getChatLiveCharacterInDb,
+  upsertChatLiveCharacterInDb,
+  softDeleteChatLiveCharacterInDb,
+  createChatLiveSessionInDb,
+  getChatLiveSessionInDb,
+  getChatLiveSessionByLiveIdInDb,
+  getChatCharacterMemoryInDb,
+  upsertChatCharacterMemoryInDb,
+  updateChatLiveSessionInDb,
+  withChatLiveSessionSettlementLockInDb,
+  allocateChatLiveFreeSecondsInDb,
+  finalizeChatLiveFreeAllocationInDb,
+  cancelChatLiveFreeAllocationInDb,
+  cleanupOrphanedChatLiveFreeAllocationsInDb,
+  listChatLiveSessionsInDb,
+  listUnsettledChatLiveSessionsInDb,
+  listTerminalChatLiveSessionsMissingHistoryInDb,
+  upsertChatLiveRoomInDb,
+  getChatLiveRoomInDb,
+  listChatLiveRoomsInDb,
+  upsertChatLiveRoomMemberInDb,
+  insertChatLiveRoomMessageInDb,
+  listChatLiveRoomMessagesInDb,
+  upsertUserUnlockInDb,
+  claimToolFreeGenerationInDb,
+  getToolFreeGenerationClaimInDb,
+  hasUserRechargeInDb,
+  completeToolFreeGenerationInDb,
+  markToolFreeGenerationUnlockedInDb,
+  releaseToolFreeGenerationClaimInDb,
+  listAdminHomeItemsFromDb,
+  upsertAdminHomeItemInDb,
+  replaceAdminHomeItemsInDb,
+  softDeleteAdminHomeItemInDb,
+  listWorkflowPresetsFromDb,
+  upsertWorkflowPresetInDb,
+  replaceWorkflowPresetsInDb,
+  listWorkflowCanvasesFromDb,
+  getWorkflowCanvasFromDb,
+  createWorkflowCanvasInDb,
+  updateWorkflowCanvasInDb,
+  deleteWorkflowCanvasInDb,
+  findUserUnlockInDb,
+  normalizeApiSubtokenRecord,
+  listApiSubtokensFromDb,
+  getApiSubtokenFromDbByToken,
+  getApiSubtokenFromDbById,
+  createApiSubtokenInDb,
+  updateApiSubtokenInDb,
+  revokeApiSubtokenInDb,
+  recordApiSubtokenUsageInDb,
+  migrateGeoStatsKvToTables,
+  readGeoVisitorStatsFromDb,
+  recordGeoVisitorVisitInDb,
+  readGeoCrawlerStatsFromDb,
+  recordGeoCrawlerVisitInDb,
+  readGeoCharacterVisitStatsFromDb,
+  recordGeoCharacterVisitInDb,
+  getKv,
+  setKv,
+  getKvUpdatedAt,
+  migrateGenerationRecordsKvToTable,
+  getGenerationRecordsFromDb,
+  getStalePreSubmitGenerationRecordsFromDb,
+  getGenerationRecordsForScheduledMaintenanceFromDb,
+  getGenerationRecordsNeedingR2RecoveryFromDb,
+  getUserGenerationRecordsPageFromDb,
+  getAdminGenerationRecordsPageFromDb,
+  getGenerationRecordFromDb,
+  upsertGenerationRecordInDb,
+  updateGenerationRecordAdvancedDownloadInDb,
+  replaceGenerationRecordsInDb,
+  patchGenerationRecordsInDb,
+  insertWebVitalSamplesInDb,
+  getWebVitalsSummaryFromDb,
+};

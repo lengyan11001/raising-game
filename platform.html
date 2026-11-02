@@ -1,0 +1,1427 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Vipeak AI</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
+    <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
+    <link rel="stylesheet" href="./platform.css?v=chat-inline-20261026-1" />
+    <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
+    <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
+  </head>
+  <body class="age-gate-locked">
+    <div id="generationCompletionNotices" class="generation-completion-notices" aria-live="polite" aria-atomic="false"></div>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("raisingGameAgeGateAccepted") === "1") {
+            document.body.classList.add("age-gate-accepted");
+            document.body.classList.remove("age-gate-locked");
+          }
+        } catch (error) {}
+      })();
+    </script>
+    <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
+      <div class="age-gate-card">
+        <span class="age-gate-pill">18+</span>
+        <h2 id="ageGateTitle" data-i18n="age.title">Adults only</h2>
+        <p data-i18n="age.description">Confirm you are 18 or older before entering. If you are under 18, please exit.</p>
+        <div class="age-gate-actions">
+          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button" data-i18n="age.decline">Under 18, exit</button>
+          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button" data-i18n="age.confirm">I am 18 or older</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="ageForbidden" class="age-forbidden" hidden aria-live="polite">
+      <div class="age-forbidden-card">
+        <span class="age-forbidden-code">403</span>
+        <strong data-i18n="age.deniedTitle">Access denied</strong>
+        <p data-i18n="age.deniedDescription">Only users aged 18 or older may enter.</p>
+        <small data-i18n="age.deniedRefresh">Refresh the page to show age confirmation again.</small>
+      </div>
+    </section>
+
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+    <button class="mobile-drawer-toggle" id="mobileDrawerToggle" type="button" aria-label="Open menu" aria-expanded="false">
+      <i data-lucide="menu"></i>
+    </button>
+    <button class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" type="button" aria-label="Close menu" hidden></button>
+    <div class="mobile-header-actions">
+      <details class="history-expiry-info history-expiry-info-mobile" data-history-expiry-info hidden>
+        <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+        <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+      </details>
+      <button class="topup-trigger tool-download-trigger mobile-tool-download-trigger" id="mobileToolDownloadBtn" type="button" hidden aria-label="Download" data-i18n-aria="install.download">
+        <i data-lucide="download"></i>
+        <span data-i18n="install.download">Download</span>
+      </button>
+      <button class="topup-trigger mobile-topup-trigger" id="mobileDrawerTopupBtn" type="button">
+        <i data-lucide="coins"></i>
+        <span data-i18n="topup.compact">Top Up</span>
+      </button>
+    </div>
+
+    <aside class="side-rail" aria-label="Workspace navigation">
+      <a class="brand" href="/">
+        <span class="brand-mark"><img src="/assets/brand/logo-mark.svg?v=old-brand-1" alt="" /></span>
+        <h1 id="brandName">Vipeak AI</h1>
+      </a>
+      <nav class="top-tabs" aria-label="Main sections">
+        <button class="top-tab" data-tab="home" type="button" hidden>
+          <i data-lucide="house"></i>
+          <span data-i18n="nav.home">Home</span>
+        </button>
+        <button class="top-tab is-active" data-tab="gallery" type="button">
+          <i data-lucide="compass"></i>
+          <span data-i18n="nav.gallery">Explore</span>
+        </button>
+        <button class="top-tab" data-tab="characters" type="button">
+          <i data-lucide="user-round-plus"></i>
+          <span data-i18n="nav.characters">Characters</span>
+        </button>
+        <button class="top-tab" data-tab="chat" type="button">
+          <i data-lucide="message-circle-heart"></i>
+          <span>Chat</span>
+        </button>
+        <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
+          <i data-lucide="film"></i>
+          <span data-i18n="playflux.videoTab">Video</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
+        <button class="top-tab" data-gallery-shortcut="playflux-anime" type="button">
+          <i data-lucide="sparkles"></i>
+          <span data-i18n="playflux.animeTab">Anime</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
+        <button class="top-tab" data-gallery-shortcut="playflux-image" type="button">
+          <i data-lucide="image"></i>
+          <span data-i18n="playflux.imageTab">Image</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
+        <button class="top-tab" data-tab="advanced" type="button">
+          <i data-lucide="wand-sparkles"></i>
+          <span data-i18n="nav.advanced">Advanced</span>
+        </button>
+        <button class="top-tab" data-tab="custom" type="button">
+          <i data-lucide="sliders-horizontal"></i>
+          <span data-i18n="advanced.modeCustom">Generate</span>
+        </button>
+        <button class="top-tab" data-tab="cases" type="button">
+          <i data-lucide="layout-grid"></i>
+          <span data-i18n="nav.cases">Cases</span>
+        </button>
+        <button class="top-tab" data-tab="workflow" type="button" hidden>
+          <i data-lucide="workflow"></i>
+          <span data-i18n="nav.workflow">Workflow</span>
+        </button>
+        <button class="top-tab" data-tab="referral" type="button">
+          <i data-lucide="share-2"></i>
+          <span data-i18n="nav.referral">Referral</span>
+        </button>
+        <button class="top-tab" data-tab="access" type="button">
+          <i data-lucide="key-round"></i>
+          <span data-i18n="nav.access">API Access</span>
+        </button>
+        <button class="top-tab" data-tab="history" type="button">
+          <i data-lucide="history"></i>
+          <span data-i18n="nav.history">History</span>
+        </button>
+        <button class="top-tab top-tab-more" id="sideNavMoreBtn" type="button" aria-expanded="false">
+          <i data-lucide="ellipsis"></i>
+          <span data-i18n="nav.more">More</span>
+        </button>
+      </nav>
+      <div class="side-nav-more-menu" id="sideNavMoreMenu" hidden></div>
+      <nav class="side-utility-nav" aria-label="Community and support">
+        <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
+          <i data-lucide="send"></i>
+          <span>Telegram</span>
+        </a>
+        <a class="side-utility-link" href="https://x.com/VipeakAI" target="_blank" rel="noopener noreferrer" data-direct-url="https://x.com/VipeakAI" data-analytics-event="x_click" data-analytics-location="side_nav">
+          <i data-lucide="at-sign"></i>
+          <span>X</span>
+        </a>
+        <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="Support" data-analytics-event="support_open" data-analytics-location="side_nav">
+          <i data-lucide="messages-square"></i>
+          <span>Support</span>
+        </button>
+      </nav>
+      <div class="mobile-drawer-account">
+        <div class="mobile-drawer-user" id="mobileDrawerUser" hidden>
+          <span id="mobileDrawerUserName">Login / Sign up</span>
+          <strong id="mobileDrawerCredits" hidden>0</strong>
+        </div>
+        <button class="ghost-button mobile-drawer-login" id="mobileDrawerLoginBtn" type="button" data-i18n="nav.login">Login / Sign up</button>
+        <button class="menu-item mobile-drawer-logout" id="mobileDrawerLogoutBtn" type="button" hidden>
+          <i data-lucide="log-out"></i>
+          <span data-i18n="account.logout">Log out</span>
+        </button>
+        <details class="account-legal-menu mobile-drawer-legal">
+          <summary class="menu-item">
+            <i data-lucide="shield-check"></i>
+            <span data-i18n="legal.kicker">Legal</span>
+            <i class="account-legal-chevron" data-lucide="chevron-down"></i>
+          </summary>
+          <div class="account-legal-links">
+            <button class="menu-item" data-legal-doc="privacy" data-i18n="legal.privacy" type="button">Privacy Policy</button>
+            <button class="menu-item" data-legal-doc="registration" data-i18n="legal.registration" type="button">User Registration Agreement</button>
+            <button class="menu-item" data-legal-doc="disclaimer" data-i18n="legal.disclaimer" type="button">Disclaimer</button>
+          </div>
+        </details>
+      </div>
+    </aside>
+
+    <header class="site-head">
+      <button id="doubleTopupBanner" class="double-topup-banner" type="button" hidden>
+        <span class="double-topup-banner-copy">活动期间，指定充值，多赠送50%，仅限一次！</span>
+        <span id="doubleTopupCountdown" class="double-topup-countdown">3天 00:00:00</span>
+      </button>
+        <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
+        <details class="history-expiry-info history-expiry-info-desktop" data-history-expiry-info hidden>
+          <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+          <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+        </details>
+        <button class="topup-trigger tool-download-trigger" id="toolDownloadBtn" type="button" hidden>
+          <i data-lucide="download"></i>
+          <span data-i18n="install.download">Download</span>
+        </button>
+        <button class="topup-trigger topup-head-trigger" id="topupHeadBtn" type="button" hidden>
+          <i data-lucide="coins"></i>
+          <span data-i18n="topup.buyCoins">Buy credits</span>
+        </button>
+        <button class="primary-pill account-menu-trigger" id="accountMenuBtn" type="button">
+          <i data-lucide="user-round"></i>
+          <span id="accountMenuLabel">Login / Sign up</span>
+          <i data-lucide="chevron-down"></i>
+        </button>
+        <div class="account-menu" id="accountMenu" hidden>
+          <label class="language-switch" aria-label="Language">
+            <i data-lucide="languages"></i>
+            <select id="languageSelect" aria-label="Language">
+              <option value="en">English</option>
+              <option value="zh">&#20013;&#25991;</option>
+              <option value="vi">Vietnamese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="id">Bahasa Indonesia</option>
+            </select>
+          </label>
+          <div class="menu-balance" id="menuBalance" hidden>
+            <span data-i18n="account.credits">Credits</span>
+            <strong id="menuBalanceValue">0</strong>
+          </div>
+          <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
+          <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
+          <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
+          <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
+          <button class="menu-item" id="menuCopyTokenBtn" data-i18n="common.copyToken" type="button">Copy token</button>
+          <details class="account-legal-menu">
+            <summary class="menu-item">
+              <i data-lucide="shield-check"></i>
+              <span data-i18n="legal.kicker">Legal</span>
+              <i class="account-legal-chevron" data-lucide="chevron-down"></i>
+            </summary>
+            <div class="account-legal-links">
+              <button class="menu-item" data-legal-doc="privacy" data-i18n="legal.privacy" type="button">Privacy Policy</button>
+              <button class="menu-item" data-legal-doc="registration" data-i18n="legal.registration" type="button">User Registration Agreement</button>
+              <button class="menu-item" data-legal-doc="disclaimer" data-i18n="legal.disclaimer" type="button">Disclaimer</button>
+            </div>
+          </details>
+          <button class="menu-item" id="menuLogoutBtn" data-i18n="account.logout" type="button">Log out</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+
+      
+      <dialog id="doubleTopupDialog" class="double-topup-dialog">
+        <form method="dialog">
+          <button class="double-topup-close" value="cancel" type="submit" aria-label="关闭">×</button>
+          <span class="double-topup-kicker">限时一次</span>
+          <h2>指定充值</h2>
+          <p>活动期间，指定充值，多赠送50%，仅限一次！充值 $30，面额 3000 积分，加赠 1500，本次到账 4500 积分。</p>
+          <div class="double-topup-offer">
+            <div><span>支付</span><strong>$30</strong></div>
+            <div><span>面额</span><strong>3000</strong></div>
+            <div><span>到账</span><strong>4500</strong></div>
+          </div>
+          <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>WeChat Pay</span></span>
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-alipay" src="./assets/brand/alipay-logo.svg?v=1" alt="" aria-hidden="true" /><span>Alipay</span></span>
+            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
+          </p>
+          <div class="double-topup-timer"><span>剩余时间</span><strong id="doubleTopupDialogCountdown">--</strong></div>
+          <button id="doubleTopupPayBtn" class="double-topup-pay" type="button">去充值</button>
+          <small>重复下单不会再次赠送，多出的订单按原来的充值比例到账。</small>
+        </form>
+      </dialog>
+      <section class="home-panel" data-panel="home" hidden>
+        <div class="w-bg" aria-hidden="true">
+          <span class="w-page-glow"></span>
+        </div>
+        <div class="w-hero-bg" aria-hidden="true">
+          <video class="w-hero-video" data-src="./assets/brand/123vipfans-hero-loop-v2.mp4"
+                 poster="./assets/brand/123vipfans-hero-poster-v2.jpg"
+                 autoplay muted loop playsinline preload="none"></video>
+          <span class="w-hero-scrim"></span>
+          <span class="w-aurora w-aurora-1"></span>
+          <span class="w-aurora w-aurora-2"></span>
+          <span class="w-aurora w-aurora-3"></span>
+          <span class="w-stars"></span>
+        </div>
+
+        <header class="w-nav" id="welcomeNav">
+          <div class="w-nav-brand">
+            <img src="./assets/brand/123vipfans-logo.png" alt="" />
+            <strong>123vip.fans</strong>
+          </div>
+          <nav class="w-nav-links" aria-label="Landing sections">
+            <a href="#wFeatures" data-w-anchor="wFeatures" data-i18n="welcome.navFeatures">功能</a>
+            <a href="#wShowcase" data-w-anchor="wShowcase" data-i18n="welcome.navShowcase">示例</a>
+            <a href="#wWorkflow" data-w-anchor="wWorkflow" data-i18n="welcome.navWorkflow">工作流</a>
+            <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
+          </nav>
+          <div class="w-nav-actions">
+            <button class="double-topup-banner double-topup-banner-home" type="button" hidden>
+              <span class="double-topup-banner-copy">活动期间，指定充值，多赠送50%，仅限一次！</span>
+              <span class="double-topup-countdown">3天 00:00:00</span>
+            </button>
+            <button class="w-btn ghost sm" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+            <button class="w-btn primary sm" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+            <button class="w-btn primary sm" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+          </div>
+        </header>
+
+        <section class="w-hero" id="wHero">
+          <div class="w-hero-glow" aria-hidden="true"></div>
+          <div class="w-hero-copy">
+            <span class="w-eyebrow" data-i18n="home.eyebrow">AI Animation Studio</span>
+            <h2 class="w-title">
+              <span data-i18n="welcome.title1">Make Animation</span>
+              <em data-i18n="welcome.title2">Great Again</em>
+            </h2>
+            <p class="w-sub" data-i18n="home.subtitle">导演，我们是您的专业 AI 动画代理团队</p>
+            <div class="w-actions">
+              <button class="w-btn primary" type="button" data-home-action="create" data-i18n="welcome.startCreate" hidden>进入创作台</button>
+              <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+              <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+              <button class="w-btn ghost" type="button" data-w-scroll="wShowcase" data-i18n="welcome.seeShowcase">看示例</button>
+            </div>
+            <ul class="w-stats">
+              <li><strong>&lt;3<span>min</span></strong><span data-i18n="welcome.stat1">从参考图到成片</span></li>
+              <li><strong>12<span>+</span></strong><span data-i18n="welcome.stat2">模型与管线可切换</span></li>
+              <li><strong>1<span>click</span></strong><span data-i18n="welcome.stat3">工作流复用与共享</span></li>
+            </ul>
+          </div>
+          <div class="w-hero-stage">
+            <div class="w-frame">
+              <div class="w-frame-bar">
+                <span class="w-dot"></span><span class="w-dot"></span><span class="w-dot"></span>
+                <em>storyboard.wf</em>
+                <i class="w-typing" data-i18n="welcome.frameHint">prompt · reference · motion</i>
+              </div>
+              <div class="w-frame-body" id="wFrameBody">
+                <div class="w-frame-reel">
+                  <video class="w-frame-video is-active" src="./assets/brand/hero-clips/urban-rise.mp4" data-src="./assets/brand/hero-clips/urban-rise.mp4" poster="./assets/brand/hero-clips/urban-rise.jpg" width="1200" height="820" muted playsinline preload="auto" autoplay></video>
+                  <video class="w-frame-video" data-src="./assets/brand/hero-clips/cyber-scifi.mp4" poster="./assets/brand/hero-clips/cyber-scifi.jpg" width="1200" height="820" muted playsinline preload="none"></video>
+                  <video class="w-frame-video" data-src="./assets/brand/hero-clips/campus-sweet.mp4" poster="./assets/brand/hero-clips/campus-sweet.jpg" width="1200" height="820" muted playsinline preload="none"></video>
+                  <video class="w-frame-video" data-src="./assets/brand/hero-clips/wuxia.mp4" poster="./assets/brand/hero-clips/wuxia.jpg" width="1200" height="820" muted playsinline preload="none"></video>
+                </div>
+                <span class="w-scan" aria-hidden="true"></span>
+                <div class="w-frame-controls">
+                  <button class="w-reel-play" type="button" data-w-reel="toggle" aria-label="Play / pause" aria-pressed="false"><span class="w-reel-ico"><i data-lucide="pause"></i></span><span class="w-reel-ico"><i data-lucide="play"></i></span></button>
+                  <div class="w-reel-segs" role="tablist" aria-label="Shots"></div>
+                </div>
+              </div>
+              <div class="w-frame-foot">
+                <span class="w-chip" data-i18n="welcome.chip1">首尾帧</span>
+                <span class="w-chip" data-i18n="welcome.chip2">角色一致</span>
+                <span class="w-chip" data-i18n="welcome.chip3">4K</span>
+                <span class="w-progress"><i></i></span>
+              </div>
+            </div>
+            <div class="w-float w-float-a"><span data-i18n="welcome.floatA">队列 3/5</span></div>
+            <div class="w-float w-float-b"><span data-i18n="welcome.floatB">生成完成</span></div>
+          </div>
+        </section>
+
+        <div class="w-marquee" aria-hidden="true">
+          <div class="w-marquee-track">
+            <span>STORYBOARD</span><span>·</span><span>REFERENCE</span><span>·</span><span>FIRST / LAST FRAME</span><span>·</span>
+            <span>MOTION</span><span>·</span><span>4K</span><span>·</span><span>AUDIO</span><span>·</span><span>QUEUE</span><span>·</span>
+            <span>WORKFLOW</span><span>·</span><span>API</span><span>·</span>
+            <span>STORYBOARD</span><span>·</span><span>REFERENCE</span><span>·</span><span>FIRST / LAST FRAME</span><span>·</span>
+            <span>MOTION</span><span>·</span><span>4K</span><span>·</span><span>AUDIO</span><span>·</span><span>QUEUE</span><span>·</span>
+            <span>WORKFLOW</span><span>·</span><span>API</span><span>·</span>
+          </div>
+        </div>
+
+        <section class="w-section" id="wFeatures">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.featTitle">一条管线，从想法跑到成片</h3>
+            <p data-i18n="welcome.featSub">参考图、运镜、角色一致性和队列都在同一个工作台里完成。</p>
+          </header>
+          <div class="w-grid">
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">01</span><h4 data-i18n="welcome.f1t">分镜与提示词</h4></div>
+              <p data-i18n="welcome.f1d">把想法拆成镜头，提示词自动补全到可执行的参数。</p>
+              <div class="w-mock w-mock-prompt"><span data-i18n="welcome.mock1">深夜天台，霓虹反光，镜头缓慢推进</span><i></i></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">02</span><h4 data-i18n="welcome.f2t">角色一致性</h4></div>
+              <p data-i18n="welcome.f2d">上传一张参考图，跨镜头锁定同一个人物与服装。</p>
+              <div class="w-mock w-mock-ref"><span></span><span></span><span></span></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">03</span><h4 data-i18n="welcome.f3t">运镜与节奏</h4></div>
+              <p data-i18n="welcome.f3d">首尾帧、参考视频与运镜描述叠加，命中你想要的节奏。</p>
+              <div class="w-mock w-mock-timeline"><span class="w-playhead"></span><i></i><i></i><i></i></div>
+            </article>
+            <article class="w-card w-reveal">
+              <div class="w-card-head"><span class="w-badge">04</span><h4 data-i18n="welcome.f4t">工作流与 API</h4></div>
+              <p data-i18n="welcome.f4d">把调好的流程存成画布，复用、分享，或直接走接口调。</p>
+              <div class="w-mock w-mock-nodes"><span></span><span></span><span></span><span></span></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="w-section" id="wShowcase">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.showTitle">挑一个风格，直接开跑</h3>
+            <p data-i18n="welcome.showSub">这些是站点里现成的模板方向，点开就是可编辑的工程。</p>
+          </header>
+          <div class="w-carousel" id="wCarousel">
+            <button class="w-car-arrow" type="button" data-w-car="prev" aria-label="Previous"><i data-lucide="chevron-left"></i></button>
+            <div class="w-car-stage">
+              <article class="w-slide is-active"><span class="w-slide-tag" data-i18n="welcome.s1t">都市逆袭</span><div class="w-slide-art w-art-a"><picture><source type="image/webp" srcset="./assets/brand/showcase/urban-rise.webp" /><img src="./assets/brand/showcase/urban-rise.jpg" alt="" width="1080" height="1350" loading="eager" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s2t">校园甜宠</span><div class="w-slide-art w-art-b"><picture><source type="image/webp" srcset="./assets/brand/showcase/campus-sweet.webp" /><img src="./assets/brand/showcase/campus-sweet.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s3t">悬疑推理</span><div class="w-slide-art w-art-c"><picture><source type="image/webp" srcset="./assets/brand/showcase/mystery.webp" /><img src="./assets/brand/showcase/mystery.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s4t">科幻赛博</span><div class="w-slide-art w-art-d"><picture><source type="image/webp" srcset="./assets/brand/showcase/cyber-scifi.webp" /><img src="./assets/brand/showcase/cyber-scifi.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+              <article class="w-slide"><span class="w-slide-tag" data-i18n="welcome.s5t">古风武侠</span><div class="w-slide-art w-art-e"><picture><source type="image/webp" srcset="./assets/brand/showcase/wuxia.webp" /><img src="./assets/brand/showcase/wuxia.jpg" alt="" width="1080" height="1350" loading="lazy" decoding="async" /></picture></div></article>
+            </div>
+            <button class="w-car-arrow" type="button" data-w-car="next" aria-label="Next"><i data-lucide="chevron-right"></i></button>
+            <div class="w-car-dots" role="tablist" aria-label="Slides"></div>
+          </div>
+        </section>
+
+        <section class="w-section" id="wWorkflow">
+          <header class="w-section-head w-reveal">
+            <h3 data-i18n="welcome.stepTitle">三步进入创作台</h3>
+          </header>
+          <ol class="w-steps">
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st1">登录或注册</strong><p data-i18n="welcome.st1d">和 123vips 共用同一套账号与余额。</p></li>
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st2">进创建台</strong><p data-i18n="welcome.st2d">自定义面板里选模型、传参考、调参数。</p></li>
+            <li class="w-reveal"><span class="w-step-line" aria-hidden="true"></span><strong data-i18n="welcome.st3">跑工作流</strong><p data-i18n="welcome.st3d">把流程存成画布，下次一键复用。</p></li>
+          </ol>
+        </section>
+
+        <section class="w-cta w-reveal">
+          <h3 data-i18n="welcome.ctaTitle">现在就把第一支片子跑出来</h3>
+          <p data-i18n="welcome.ctaSub">登录后按钮会变成「创建」，直接进创作台。</p>
+          <div class="w-actions center">
+            <button class="w-btn primary" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
+            <button class="w-btn primary" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
+            <button class="w-btn ghost" type="button" data-home-action="login" data-i18n="home.login">登录</button>
+          </div>
+        </section>
+
+        <footer class="w-foot">
+          <span>123vip.fans</span>
+          <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
+          <span class="w-foot-sep">·</span>
+          <span>© <span id="welcomeYear">2026</span></span>
+        </footer>
+      </section>
+
+      <section class="workspace" data-panel="gallery">
+        <section class="gallery-panel">
+          <div class="gallery-mode-tabs" id="galleryModeTabs"></div>
+          <div class="template-grid" id="templateGrid"></div>
+        </section>
+      </section>
+
+      <section class="cases-panel" data-panel="cases" hidden>
+        <div class="section-head compact case-page-head">
+          <div>
+            <p class="eyebrow" data-i18n="case.eyebrow">CASE LIBRARY</p>
+            <h2 data-i18n="case.title">Case library</h2>
+            <p data-i18n="case.subtitle">Browse real creations, inspect references and outputs, and copy the full prompt.</p>
+          </div>
+          <p class="case-page-note" data-i18n="case.note">Cases are grouped by creation type and searchable by prompt, model or tag.</p>
+        </div>
+        <div class="case-library-toolbar">
+          <div class="case-category-tabs" id="caseCategoryTabs" role="tablist" aria-label="Case categories"></div>
+          <label class="case-library-search">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <input id="caseLibrarySearch" type="search" autocomplete="off" placeholder="Search prompts, models or tags" data-i18n-placeholder="case.search" />
+          </label>
+        </div>
+        <div class="case-library-meta"><span id="caseLibraryCount"></span><span id="caseLibraryStatus" role="status"></span></div>
+        <div class="case-library-grid" id="caseLibraryGrid" aria-live="polite"></div>
+        <div class="case-library-more-wrap"><button class="ghost-button" id="caseLibraryMore" type="button" hidden data-i18n="case.more">Load more</button></div>
+      </section>
+
+      <section class="characters-panel" data-panel="characters" hidden>
+        <div class="characters-page">
+          <div class="section-head compact">
+            <div>
+              <h2 data-i18n="characters.title">Characters</h2>
+            </div>
+          </div>
+          <div class="gallery-mode-tabs character-page-tabs" id="characterPageTabs"></div>
+          <section class="character-create-card" id="characterCreatorCard" data-character-page-panel="create">
+            <div id="characterCreatorRoot"></div>
+          </section>
+          <section class="character-list-panel" id="characterListPanel" data-character-page-panel="list" hidden>
+            <div class="template-grid character-grid character-grid-main" id="characterGrid"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="advanced-panel" data-panel="advanced" hidden>
+        <div class="advanced-gate" id="advancedGate"></div>
+        <div class="advanced-workspace" id="advancedWorkspace" hidden>
+          <div class="advanced-mobile-tabs" id="advancedMobileTabs" role="tablist" aria-label="Advanced sections">
+            <button class="advanced-mobile-tab is-active" type="button" data-advanced-mobile-tab="create" role="tab" aria-selected="true">
+              <i data-lucide="sparkles"></i><span data-i18n="characters.createTab">Create</span>
+            </button>
+            <button class="advanced-mobile-tab" type="button" data-advanced-mobile-tab="assets" role="tab" aria-selected="false">
+              <i data-lucide="folder"></i><span data-i18n="advanced.assets">Assets</span>
+            </button>
+            <button class="advanced-mobile-tab" type="button" data-advanced-mobile-tab="result" role="tab" aria-selected="false">
+              <i data-lucide="play-circle"></i><span data-i18n="history.result">Result</span>
+            </button>
+          </div>
+          <section class="advanced-form-card">
+            <div class="advanced-create-switch">
+              <div class="advanced-create-kind-tabs" id="advancedCreateKindTabs" role="tablist" aria-label="Create type"></div>
+              <div class="advanced-create-mode-tabs" id="advancedCreateModeTabs" role="tablist" aria-label="Create mode"></div>
+            </div>
+            <div class="advanced-preset-builder" id="advancedPresetBuilder" aria-label="Generation presets"></div>
+            <label class="field advanced-prompt-field">
+              <span data-i18n="field.prompt">Prompt</span>
+              <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
+              <div class="advanced-prompt-mentions" id="advancedPromptMentions" role="listbox" aria-label="Prompt references" hidden></div>
+            </label>
+            <details class="advanced-video-settings" id="advancedVideoSettings">
+              <summary><i data-lucide="sliders-horizontal"></i><span data-i18n="advanced.videoSettings">Advanced options</span></summary>
+              <div class="advanced-video-settings-grid">
+                <div class="advanced-video-setting">
+                  <span data-i18n="field.resolution">Resolution</span>
+                  <div class="advanced-video-choice-row" id="advancedVideoResolutionChoices">
+                    <button class="advanced-video-choice is-active" type="button" data-advanced-video-resolution="480p">480p</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-resolution="720p">720p</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-resolution="1080p">1080p</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-resolution="4k">4K</button>
+                  </div>
+                </div>
+                <div class="advanced-video-setting">
+                  <span data-i18n="field.duration">Duration</span>
+                  <div class="advanced-video-choice-row" id="advancedVideoDurationChoices">
+                    <button class="advanced-video-choice is-active" type="button" data-advanced-video-duration="5">5s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="8">8s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="10">10s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="15">15s</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+            <label class="upload-box advanced-upload-box" id="advancedUploadBox" hidden>
+              <input id="advancedImage" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
+              <div class="advanced-upload-previews" id="advancedUploadPreview"></div>
+              <span data-i18n="advanced.uploadReference"><i data-lucide="plus"></i>Upload reference content</span>
+            </label>
+            <p class="job-note advanced-reference-summary" id="advancedReferenceSummary"></p>
+            <div class="wan-media-panel advanced-seedance-option" id="advancedSeedanceMediaPanel" hidden>
+              <div class="wan-media-panel-head">
+                <div>
+                  <p class="wan-media-kicker" id="advancedFrameEngineLabel">Seedance 2.0</p>
+                  <h3>Frame input</h3>
+                </div>
+              </div>
+              <div class="wan-media-grid">
+                <label class="field seedance-extra seedance-first-frame">
+                  <span data-i18n="advanced.firstFrame">First frame</span>
+                  <div class="wan-frame-upload">
+                    <input id="advancedSeedanceFirstFrame" type="file" accept="image/*" />
+                    <img class="wan-frame-preview" id="advancedSeedanceFirstFramePreview" alt="Vipeak 2 first frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.firstFrame">First frame</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="seedanceFirstFrame" aria-label="Remove">&times;</button>
+                  </div>
+                </label>
+                <label class="field seedance-extra seedance-last-frame">
+                  <span data-i18n="advanced.lastFrame">Last frame image</span>
+                  <div class="wan-frame-upload">
+                    <input id="advancedSeedanceLastFrame" type="file" accept="image/*" />
+                    <img class="wan-frame-preview" id="advancedSeedanceLastFramePreview" alt="Vipeak 2 last frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.lastFrame">Last frame image</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="seedanceLastFrame" aria-label="Remove">&times;</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
+              <div class="wan-media-panel-head">
+                <div>
+                  <p class="wan-media-kicker">Wan</p>
+                  <h3>Media input</h3>
+                </div>
+              </div>
+              <div class="wan-media-grid">
+                <label class="field wan-first-frame">
+                  <span data-i18n="advanced.firstFrame">First frame</span>
+                  <div class="wan-frame-upload">
+                    <input id="advancedWanFirstFrame" type="file" accept="image/*" />
+                    <img class="wan-frame-preview" id="advancedWanFirstFramePreview" alt="Vipeak 1 first frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.firstFrame">First frame</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanFirstFrame" aria-label="Remove">&times;</button>
+                  </div>
+                </label>
+                <label class="field wan-extra wan-last-frame">
+                  <span data-i18n="advanced.lastFrame">Last frame image</span>
+                  <div class="wan-frame-upload">
+                    <input id="advancedWanLastFrame" type="file" accept="image/*" />
+                    <img class="wan-frame-preview" id="advancedWanLastFramePreview" alt="Vipeak 1 last frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.lastFrame">Last frame image</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanLastFrame" aria-label="Remove">&times;</button>
+                  </div>
+                </label>
+                <label class="field wan-extra wan-clip">
+                  <span data-i18n="advanced.clipUpload">Source video file</span>
+                  <div class="wan-frame-upload wan-video-upload">
+                    <input id="advancedWanClipFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/*" />
+                    <video class="wan-frame-preview" id="advancedWanClipPreview" muted playsinline preload="metadata"></video>
+                    <span><i data-lucide="upload"></i><span data-i18n="advanced.clipUpload">Source video file</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanClip" aria-label="Remove">&times;</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="advanced-fields">
+              <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
+                <optgroup label="Video">
+                  <option value="seedance-nsfw" selected>Seedance 2.5</option>
+                  <option value="wan30">W3.0</option>
+                  <option value="wan30-prime">W3.0-Prime</option>
+                  <option value="wan27">Wan 2.7</option>
+                  <option value="happyhorse">HappyHorse</option>
+                  <option value="seedance">Seedance 2.0</option>
+                </optgroup>
+                <optgroup label="Image">
+                  <option value="z-image-spicy-pro">Z-Image Spicy Pro</option>
+                  <option value="qwen-image-edit-spicy">Qwen Image Edit Spicy</option>
+                  <option value="seedream5-image">Seedream 5.0 Image</option>
+                  <option value="qwen-image3">Qwen Image 3.0</option>
+                </optgroup>
+                <optgroup label="Language">
+                  <option value="byteplus-language">BytePlus Language</option>
+                  <option value="papaya">Papaya 1.0</option>
+                </optgroup>
+              </select></label>
+              <label class="field advanced-video-capability-field" hidden><span>Mode</span><select id="advancedVideoCapability"></select></label>
+              <label class="field advanced-seedance-option advanced-seedance-mode-field" hidden><span>Mode</span><select id="advancedSeedanceMediaMode">
+                <option value="reference_video" data-i18n="advanced.seedanceModeMultimodal">Multimodal References</option>
+                <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + Last Frame</option>
+              </select></label>
+              <input id="advancedWanMediaMode" type="hidden" value="multimodal" />
+              <label class="field advanced-animate-mode-field" hidden><span>Quality</span><select id="advancedWanAnimateMode"><option value="wan-std">Standard</option><option value="wan-pro">Pro</option></select></label>
+              <label class="field advanced-seedance-option advanced-tier-field" hidden><span>Tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
+              <select id="advancedSeedreamTier" hidden aria-hidden="true"><option value="pro" selected>Pro</option></select>
+              <label class="field advanced-qwen-option" hidden><span>Tier</span><select id="advancedQwenTier"><option value="pro" selected>Pro</option><option value="standard">Standard</option></select></label>
+              <label class="field advanced-qwen-option" hidden><span>Images</span><select id="advancedQwenOutputCount"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+              <label class="field advanced-qwen-option" hidden><span>Extend</span><select id="advancedQwenPromptExtend"><option value="true" selected>On</option><option value="false">Off</option></select></label>
+              <label class="field advanced-qwen-option" hidden><span>Mark</span><select id="advancedQwenWatermark"><option value="false" selected>Off</option><option value="true">On</option></select></label>
+              <label class="field advanced-wan-prompt-extend-option" hidden><span>Prompt extend</span><div class="advanced-checkbox-control"><input id="advancedWanPromptExtend" type="checkbox" /><span>On</span></div></label>
+              <label class="field advanced-wan-prompt-optimize-option" hidden><span data-i18n="advanced.wanPromptOptimize">Wan3 prompt optimization</span><div class="advanced-checkbox-control"><input id="advancedWanPromptOptimize" type="checkbox" /><span data-i18n="common.on">On</span></div></label>
+              <label class="field advanced-qwen37-option" hidden><span>Thinking</span><select id="advancedQwen37Thinking"><option value="false" selected>Off</option><option value="true">On</option></select></label>
+              <label class="field advanced-qwen37-option"><span>Max output</span><select id="advancedQwen37MaxTokens"><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option><option value="8192" selected>8192</option></select></label>
+              <label class="field advanced-qwen37-option" hidden><span>Temperature</span><select id="advancedQwen37Temperature"><option value="0">0</option><option value="0.3">0.3</option><option value="0.7" selected>0.7</option><option value="1">1</option></select></label>
+              <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
+              <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+              <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><select id="advancedDuration"><option value="5" selected>5s</option></select></label>
+              <label class="field advanced-setting-field advanced-seedance-audio-field" hidden><span data-i18n="advanced.seedanceGenerateAudio">Audio</span><select id="advancedSeedanceGenerateAudio"><option value="true" selected>On</option><option value="false">Off</option></select></label>
+              <label class="field advanced-seedance-preprocess-field" hidden>
+                <span>Preprocess</span>
+                <div class="advanced-checkbox-control">
+                  <input id="advancedPreprocessReference" type="checkbox" />
+                  <span>On</span>
+                </div>
+              </label>
+              <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="1" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
+            </div>
+            <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>
+            <p class="job-note" id="advancedNote"></p>
+          </section>
+          <section class="advanced-case-panel advanced-side-panel">
+            <div class="advanced-side-tabs" id="advancedSideTabs" role="tablist" aria-label="Create side panel">
+              <button class="advanced-side-tab is-active" type="button" data-advanced-side-tab="assets"><i data-lucide="folder"></i><span>Assets</span></button>
+              <button class="advanced-side-tab" type="button" data-advanced-side-tab="result"><i data-lucide="sparkles"></i><span>Result</span></button>
+            </div>
+            <div class="advanced-side-view" id="advancedAssetsView" data-advanced-side-view="assets">
+              <div class="section-head compact advanced-asset-head">
+                <div>
+                  <p class="eyebrow" data-i18n="advanced.assets">Assets</p>
+                  <h2 data-i18n="advanced.assetTitle">Add from assets</h2>
+                </div>
+                <div class="advanced-asset-head-actions">
+                  <label class="asset-upload-control advanced-asset-upload-control">
+                    <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
+                    <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
+                  </label>
+                  <button class="ghost-button" id="refreshAdvancedAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+                </div>
+              </div>
+              <div class="advanced-asset-toolbar">
+                <input id="advancedAssetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" aria-label="Search assets" />
+                <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option><option value="document">Documents</option></select>
+              </div>
+              <div class="advanced-asset-targets" id="advancedAssetTargets"></div>
+              <p class="job-note" id="advancedAssetNote"></p>
+              <div class="advanced-asset-grid" id="advancedAssetGrid">
+                <div class="advanced-asset-empty"><strong data-i18n="assets.loading">Loading assets...</strong></div>
+              </div>
+              <div class="ledger-pager advanced-asset-pager" id="advancedAssetPager"></div>
+            </div>
+            <div class="advanced-side-view" id="advancedResultView" data-advanced-side-view="result" hidden>
+              <div class="section-head compact advanced-result-head">
+                <div>
+                  <p class="eyebrow">Result</p>
+                  <h2>Generation result</h2>
+                </div>
+                <div class="advanced-result-head-actions">
+                  <details class="history-expiry-info" data-custom-result-expiry>
+                    <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+                    <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+                  </details>
+                  <button class="ghost-button" id="refreshAdvancedResultBtn" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+                </div>
+              </div>
+              <div class="advanced-result-kind-tabs" id="advancedResultKindTabs" role="tablist" aria-label="Filter results by type">
+                <button class="advanced-create-kind is-active" type="button" data-advanced-result-kind="video" role="tab" aria-selected="true"><i data-lucide="clapperboard"></i><span data-i18n="advanced.createKindVideo">视频生成</span></button>
+                <button class="advanced-create-kind" type="button" data-advanced-result-kind="image" role="tab" aria-selected="false"><i data-lucide="image"></i><span data-i18n="advanced.createKindImage">图片生成</span></button>
+                <button class="advanced-create-kind" type="button" data-advanced-result-kind="conversation" role="tab" aria-selected="false"><i data-lucide="message-circle"></i><span data-i18n="advanced.createKindConversation">对话生成</span></button>
+              </div>
+              <div class="advanced-result-list" id="advancedResultList">
+                <div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="workflow-panel" data-panel="workflow" hidden>
+        <div class="workflow-shell" id="workflowRoot"></div>
+      </section>
+
+      <section class="asset-panel" data-panel="assets" hidden>
+        <div class="asset-toolbar">
+          <label><span data-i18n="ledger.search">Search</span><input id="assetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
+          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option><option value="document">Documents</option></select></label>
+          <label class="asset-upload-control">
+            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" multiple />
+            <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
+            <small class="file-picker-name" data-file-name-for="assetUploadInput" data-i18n="file.none">No file selected</small>
+          </label>
+          <button class="ghost-button" id="refreshAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+        </div>
+        <p class="job-note" id="assetNote"></p>
+        <div class="asset-grid" id="assetGrid"></div>
+        <div class="ledger-pager asset-pager" id="assetPager"></div>
+      </section>
+
+      <section class="access-panel" data-panel="access" hidden>
+        <section class="entitlement-card api-docs-entitlement" id="apiDocsPurchaseCard">
+          <div class="entitlement-icon"><i data-lucide="book-key"></i></div>
+          <div class="entitlement-copy">
+            <span>API Documentation Access</span>
+            <strong>Unlock the complete integration guide</strong>
+            <p>One-time purchase. Includes 20,000 test credits after payment.</p>
+          </div>
+          <div class="entitlement-action">
+            <strong>$1,000</strong>
+            <button class="copy-btn" id="buyApiDocsBtn" type="button"><i data-lucide="lock-keyhole-open"></i>Unlock docs</button>
+          </div>
+          <p class="job-note entitlement-status" id="apiDocsPurchaseStatus"></p>
+        </section>
+        <div id="apiDocsUnlockedContent" hidden>
+        <div class="token-card" id="accessTokenCard">
+          <div>
+            <span data-i18n="access.currentToken">Current API token</span>
+            <strong id="accessTokenDisplay">Login to auto-fill your token</strong>
+            <small id="accessTokenHint">The copied examples use the full token. The page masks it by default.</small>
+          </div>
+          <div class="token-actions">
+            <button class="ghost-button" id="toggleAccessTokenBtn" type="button">Show full</button>
+            <button class="copy-btn" id="copyTokenBtn" data-i18n="access.copyTokenDocs" type="button"><i data-lucide="key-round"></i>Copy token + docs</button>
+          </div>
+        </div>
+        <section class="api-doc-center" id="apiDocsCenter" aria-live="polite">
+          <div class="api-doc-center-loading">Loading API documentation...</div>
+        </section>
+        <div class="access-subtokens" id="accessSubtokens"></div>
+        </div>
+      </section>
+
+      <section class="chat-panel" data-panel="chat" hidden>
+        <div class="chat-shell" id="chatShell">
+          <aside class="chat-list-pane">
+            <div class="chat-pane-head">
+              <strong>Chats</strong>
+              <span><button class="icon-btn" id="chatBrowseBtn" type="button" aria-label="Browse characters" title="Browse characters"><i data-lucide="message-square-plus"></i></button><button class="icon-btn chat-mobile-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button></span>
+            </div>
+            <label class="chat-search"><i data-lucide="search"></i><input id="chatSearch" type="search" placeholder="Search chats..." /></label>
+            <div class="chat-conversation-list" id="chatConversationList"></div>
+          </aside>
+          <section class="chat-main-pane">
+            <header class="chat-main-head" id="chatMainHead"></header>
+            <div class="chat-empty" id="chatEmpty">
+              <i data-lucide="messages-square"></i>
+              <strong>Start a character chat</strong>
+              <button class="primary-button" id="chatEmptyBrowseBtn" type="button">Browse characters</button>
+            </div>
+            <div class="chat-thread" id="chatThread" hidden></div>
+            <div class="chat-suggestion" id="chatSuggestion" hidden>
+              <span>Suggested reply</span>
+              <button type="button" id="chatSuggestionBtn"></button>
+            </div>
+            <form class="chat-composer" id="chatComposer" hidden>
+              <div class="chat-mode-control">
+                <button class="icon-btn" id="chatModeBtn" type="button" aria-label="Generation mode" title="Generation mode"><i data-lucide="message-circle"></i></button>
+                <div class="chat-mode-menu" id="chatModeMenu" role="menu" hidden>
+                  <button type="button" data-chat-mode="chat" role="menuitem"><i data-lucide="message-circle"></i><span>Chat</span></button>
+                  <button type="button" data-chat-mode="image" role="menuitem"><i data-lucide="image"></i><span>Image</span></button>
+                  <button type="button" data-chat-scene role="menuitem"><i data-lucide="scan-eye"></i><span>Generate scene</span></button>
+                  <button type="button" data-chat-tracker role="menuitem"><i data-lucide="list-tree"></i><span>State tracker</span></button>
+                </div>
+              </div>
+              <textarea id="chatInput" rows="2" maxlength="12000" placeholder="Send a message"></textarea>
+              <div class="chat-composer-actions">
+                <button class="icon-btn" id="chatVoiceBtn" type="button" aria-label="Voice input" title="Voice input"><i data-lucide="mic"></i></button>
+                <button class="icon-btn" id="chatContinueBtn" type="button" aria-label="Continue response" title="Continue"><i data-lucide="fast-forward"></i></button>
+                <button class="generate-btn chat-send-btn" id="chatSendBtn" type="submit"><i data-lucide="send"></i><span>Send</span></button>
+              </div>
+            </form>
+          </section>
+          <aside class="chat-detail-pane" id="chatDetailPane">
+            <button class="icon-btn chat-mobile-close chat-detail-close" type="button" data-chat-close-panels aria-label="Close"><i data-lucide="x"></i></button>
+            <div class="chat-character-card" id="chatCharacterCard"></div>
+            <section class="chat-tracker" id="chatTracker"></section>
+            <div class="chat-settings-tabs" role="tablist">
+              <button class="is-active" type="button" data-chat-setting="style">Style</button>
+              <button type="button" data-chat-setting="memory">Memory</button>
+              <button type="button" data-chat-setting="preferences">Preferences</button>
+            </div>
+            <div class="chat-settings-body" id="chatSettingsBody"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="history-panel" data-panel="history" hidden>
+        <div class="history-list compact-history" id="historyList"></div>
+        <div class="ledger-pager history-pager" id="historyPager"></div>
+      </section>
+
+      <section class="referral-panel" data-panel="referral" hidden>
+        <section class="membership-card" id="membershipCard">
+          <div class="membership-card-head">
+            <div class="membership-card-icon"><i data-lucide="crown"></i></div>
+            <div>
+              <span data-i18n="membership.eyebrow">Creator Membership</span>
+              <strong data-i18n="membership.lifetime">$99 lifetime benefits</strong>
+            </div>
+            <span class="membership-state" id="membershipState" data-i18n="membership.notActive">Not active</span>
+          </div>
+          <div class="membership-benefits">
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Free</em>
+              <i data-lucide="play"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitExplore">Watch and download Explore videos</span>
+            </span>
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
+              <i data-lucide="layout-grid"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span>
+            </span>
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
+              <i data-lucide="users-round"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span>
+            </span>
+            <span class="membership-benefit">
+              <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
+              <i data-lucide="gift"></i>
+              <span class="membership-benefit-copy" data-i18n="membership.benefitTopup">Receive top-up package bonuses</span>
+            </span>
+          </div>
+          <div class="membership-actions">
+            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Unlock benefits</span></button>
+            <form class="membership-code-form" id="membershipCodeForm">
+              <input id="membershipCodeInput" type="text" placeholder="Activation code" data-i18n-placeholder="membership.activationCode" autocomplete="off" />
+              <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit" data-i18n="membership.redeem">Redeem</button>
+            </form>
+          </div>
+          <p class="job-note" id="membershipNote"></p>
+        </section>
+        <div class="referral-card" id="referralCard">
+          <div class="referral-copy">
+            <span class="copy-kicker" data-i18n="referral.eyebrow">Referral</span>
+            <h2 data-i18n="membership.referralTitle">Invite paying users, earn credits</h2>
+            <p data-i18n="membership.referralSubtitle">Members earn 100 credits for each invited user who registers and completes a payment.</p>
+          </div>
+          <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
+          <div class="referral-link-row">
+            <button class="referral-link" id="referralLink" type="button">Login to get your invite link.</button>
+            <button class="ghost-button referral-link-copy-btn" id="copyReferralLinkBtn" type="button" aria-label="Copy referral message"><i data-lucide="copy"></i><span data-i18n="referral.copyLink">Copy link</span></button>
+            <span class="referral-copy-feedback" id="referralCopyFeedback" role="status" aria-live="polite"></span>
+          </div>
+          <div class="referral-offer-cards">
+            <section class="referral-offer-card referral-commission-card">
+              <div class="referral-offer-heading"><span data-i18n="referral.commissionCardEyebrow">Cash commission</span><h3 data-i18n="referral.commissionCardTitle">Earn withdrawable commission</h3><p data-i18n="referral.commissionCardSubtitle">Earn 20% when an invited user buys membership or API documentation access.</p></div>
+              <div class="referral-commission-earnings">
+                <div class="referral-commission-earning"><span data-i18n="referral.membershipCommissionLabel">$99 membership</span><strong data-i18n="referral.membershipCommissionValue">Earn $19.80 (20%)</strong></div>
+                <div class="referral-commission-earning"><span data-i18n="referral.apiDocsCommissionLabel">$1000 API docs</span><strong data-i18n="referral.apiDocsCommissionValue">Earn $200.00 (20%)</strong></div>
+              </div>
+              <div class="referral-finance" id="referralFinance">
+                <div class="referral-finance-stats">
+                  <div><span data-i18n="referral.invitedUsers">Invited users</span><strong id="referralInvitedUsers">0</strong></div>
+                  <div><span data-i18n="referral.withdrawable">Withdrawable</span><strong id="referralWithdrawable">$0.00</strong></div>
+                  <div><span data-i18n="referral.totalEarned">Total earned</span><strong id="referralTotalEarned">$0.00</strong></div>
+                </div>
+                <form class="referral-withdraw-form" id="referralWithdrawForm">
+                  <label><span data-i18n="referral.walletAddress">USDT wallet address</span><input id="referralWalletAddress" type="text" inputmode="text" autocomplete="off" placeholder="Enter TRC20/ERC20 address" data-i18n-placeholder="referral.walletPlaceholder" /></label>
+                  <div class="referral-withdraw-actions"><button class="ghost-button" id="saveReferralWalletBtn" type="button" data-i18n="referral.saveWallet">Save address</button><button class="copy-btn" id="requestReferralWithdrawBtn" type="submit" data-i18n="referral.requestWithdraw">Request withdrawal</button></div>
+                </form>
+                <div class="referral-withdrawals" id="referralWithdrawals"></div>
+              </div>
+            </section>
+            <section class="referral-offer-card referral-reward-card">
+              <div class="referral-offer-heading"><span data-i18n="referral.rewardCardEyebrow">Credit rewards</span><h3 data-i18n="referral.rewardCardTitle">Earn credits from regular top-ups</h3><p data-i18n="referral.rewardCardSubtitle">Invite users to register and complete a regular top-up to earn credit rewards.</p></div>
+              <div class="referral-stats">
+                <strong id="referralInvitedCount">0 invited</strong>
+                <strong id="referralRewardStatus">Membership required for rewards</strong>
+              </div>
+              <div class="referral-membership-progress">
+                <div><span data-i18n="membership.freeProgress">Free membership progress</span><strong id="referralMembershipProgressText">0 / 100 registrations</strong></div>
+                <div class="referral-progress"><span id="referralMembershipProgressFill"></span></div>
+              </div>
+            </section>
+          </div>
+          <p class="job-note" id="referralNote"></p>
+        </div>
+      </section>
+
+      <section class="pricing-panel" data-panel="pricing" hidden>
+        <div class="pricing-head">
+          <p class="eyebrow" data-i18n="pricing.eyebrow">Pricing</p>
+          <h2 data-i18n="pricing.title">Price list</h2>
+          <p data-i18n="pricing.subtitle">Check the final credit cost for common generation parameters.</p>
+        </div>
+        <div class="pricing-rules" id="pricingRules"></div>
+      </section>
+
+      <section class="ledger-panel" data-panel="topups" hidden>
+        <div class="panel-actions">
+          <button class="ghost-button" id="exportTopupsBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
+        </div>
+        <form class="ledger-toolbar" id="topupFilters">
+          <label><span data-i18n="ledger.search">Search</span><input id="topupSearch" type="search" placeholder="Order ID / status" data-i18n-placeholder="topups.searchPlaceholder" /></label>
+          <label><span data-i18n="ledger.status">Status</span><select id="topupStatus"><option value="" data-i18n="ledger.allStatuses">All statuses</option><option value="pending" data-i18n="ledger.status.pending">Pending</option><option value="paid" data-i18n="ledger.status.paid">Paid</option><option value="cancelled" data-i18n="ledger.status.cancelled">Cancelled</option></select></label>
+          <label><span data-i18n="ledger.from">From</span><input id="topupFrom" type="date" /></label>
+          <label><span data-i18n="ledger.to">To</span><input id="topupTo" type="date" /></label>
+          <button class="copy-btn" data-i18n="ledger.query" type="submit"><i data-lucide="search"></i>Query</button>
+        </form>
+        <div class="ledger-table-wrap" id="topupTable"></div>
+        <div class="ledger-pager" id="topupPager"></div>
+      </section>
+
+      <section class="ledger-panel" data-panel="spending" hidden>
+        <div class="panel-actions">
+          <button class="ghost-button" id="exportSpendingBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
+        </div>
+        <form class="ledger-toolbar" id="spendingFilters">
+          <label><span data-i18n="ledger.search">Search</span><input id="spendingSearch" type="search" placeholder="Task / type / title" data-i18n-placeholder="spending.searchPlaceholder" /></label>
+          <label><span data-i18n="ledger.type">Type</span><select id="spendingType"><option value="" data-i18n="ledger.allTypes">All types</option></select></label>
+          <label><span data-i18n="ledger.from">From</span><input id="spendingFrom" type="date" /></label>
+          <label><span data-i18n="ledger.to">To</span><input id="spendingTo" type="date" /></label>
+          <button class="copy-btn" data-i18n="ledger.query" type="submit"><i data-lucide="search"></i>Query</button>
+        </form>
+        <div class="ledger-table-wrap" id="spendingTable"></div>
+        <div class="ledger-pager" id="spendingPager"></div>
+      </section>
+    </main>
+
+    <footer class="site-foot">
+      <div>
+        <strong>Vipeak AI</strong>
+        <span data-i18n="footer.note">Responsible AI video generation for creative workflows.</span>
+      </div>
+      <nav aria-label="Legal links">
+        <a class="footer-link" href="/privacy" data-direct-url="/privacy" data-i18n="legal.privacy">Privacy Policy</a>
+        <a class="footer-link" href="/terms" data-direct-url="/terms" data-i18n="legal.registration">Terms of Service</a>
+        <button class="footer-link" data-legal-doc="disclaimer" data-i18n="legal.disclaimer" type="button">Disclaimer</button>
+      </nav>
+    </footer>
+
+    <button class="support-fab" id="supportFab" type="button" aria-label="Support">
+      <i data-lucide="messages-square"></i>
+      <span>Support</span>
+    </button>
+
+    <div class="video-tool-fabs" id="videoToolFabs" hidden>
+      <button class="video-tool-fab is-undress" type="button" data-video-tool-action="undress">
+        <i data-lucide="sparkles"></i>
+        <span data-video-tool-label="undress">Undress</span>
+      </button>
+      <button class="video-tool-fab is-face-swap" type="button" data-video-tool-action="face-swap">
+        <i data-lucide="scan-face"></i>
+        <span data-video-tool-label="face-swap">Face Swap</span>
+      </button>
+      <button class="video-tool-fab is-image-face-swap" type="button" data-video-tool-action="image-face-swap">
+        <i data-lucide="images"></i>
+        <span data-video-tool-label="image-face-swap">Image Face Swap</span>
+      </button>
+    </div>
+
+    <dialog id="templateDialog" class="modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="modalType">Image to Video</span>
+            <strong id="modalTitle">Create video</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <label class="upload-box" id="uploadBox">
+            <input id="templateImage" type="file" accept="image/*" />
+            <img id="uploadPreview" alt="Upload preview" />
+            <span data-i18n="modal.uploadReference"><i data-lucide="image-up"></i>Upload reference image</span>
+          </label>
+          <label class="field">
+            <span data-i18n="field.prompt">Prompt</span>
+            <textarea id="templatePrompt" rows="7"></textarea>
+          </label>
+          <button class="generate-btn" id="submitTemplateBtn" type="button"><i data-lucide="wand-sparkles"></i>Generate</button>
+          <p class="job-note" id="jobNote"></p>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="loginDialog" class="modal auth-modal">
+      <form method="dialog" id="loginForm">
+        <header>
+          <strong id="loginTitle">Login / Sign up</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <button class="telegram-login-button" id="telegramLoginBtn" type="button" hidden>
+            <i data-lucide="send"></i>
+            <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
+          </button>
+          <div class="google-login-mount" id="googleLoginBtn" aria-live="polite" hidden></div>
+          <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
+          <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email login" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
+          <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Email verification code" maxlength="6" /><button class="ghost-button" id="verifyEmailLoginBtn" type="button">Email login</button></div>
+          <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
+          <p class="auth-register-hint">
+            <i data-lucide="info"></i>
+            <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
+          </p>
+          <div class="auth-actions">
+            <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
+          </div>
+          <p class="job-note" id="telegramLoginStatus" hidden></p>
+          <p class="job-note" id="googleLoginStatus" hidden></p>
+          <p class="job-note" id="loginMessage"></p>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="accountDialog" class="modal account-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="account.title">Account</span>
+            <strong id="accountName">Account</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="account-grid">
+            <div>
+              <span data-i18n="account.credits">Credits</span>
+              <strong id="accountCredits">0</strong>
+            </div>
+            <div>
+              <span data-i18n="account.role">Role</span>
+              <strong id="accountRole">user</strong>
+            </div>
+          </div>
+          <div class="token-box">
+            <span data-i18n="account.apiToken">API token</span>
+            <code id="accountToken">Login to view token</code>
+            <div class="token-actions">
+              <button class="ghost-button" id="toggleAccountTokenBtn" type="button">Show full</button>
+              <button class="copy-btn" id="copyAccountTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="copy"></i>Copy token</button>
+            </div>
+          </div>
+          <div class="account-security-box">
+            <strong>Account security</strong>
+            <p class="adm-muted">Bind an email to sign in with a code or reset your password.</p>
+            <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
+            <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
+            <input id="accountCurrentPassword" type="password" autocomplete="current-password" placeholder="Current password" />
+            <p class="job-note" id="accountSecurityMessage"></p>
+          </div>
+          <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="topupDialog" class="modal topup-modal">
+      <form method="dialog">
+        <header class="topup-dialog-header">
+          <button class="modal-back-btn topup-back-btn is-hidden" id="topupBackBtn" type="button" aria-label="Back" aria-hidden="true" tabindex="-1">
+            <i data-lucide="arrow-left"></i>
+            <span data-i18n="topup.changePackage">Packages</span>
+          </button>
+          <div>
+            <span data-i18n="topup.title">Top Up</span>
+            <strong data-i18n="topup.dialogTitle">Top up credits</strong>
+          </div>
+          <button class="topup-membership-link" id="topupMembershipLink" type="button">
+            <i data-lucide="crown"></i>
+            <span class="topup-membership-label">
+              <strong data-i18n="topup.membershipGuide">$99 benefits</strong>
+              <small data-i18n="topup.membershipGuideHint">Unlock benefits and get up to 20% top-up bonuses</small>
+            </span>
+            <span class="topup-membership-label-compact" aria-hidden="true">$99</span>
+          </button>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <section class="topup-strip topup-modal-panel" id="topupPanel">
+            <div class="topup-headline">
+              <div>
+                <span data-i18n="topup.title">Top Up</span>
+                <strong id="topupCredits">0 credits</strong>
+                <small id="topupRate">Login to create a payment order.</small>
+                <small class="topup-expiry-note">积分永不过期 · Credits never expire.</small>
+              </div>
+            </div>
+            <div class="topup-stage topup-package-stage" id="topupPackageStage">
+              <section class="tool-subscription-panel" id="toolSubscriptionPanel" hidden>
+                <div class="tool-subscription-card">
+                  <div class="tool-subscription-copy">
+                    <span id="toolSubscriptionName">Pro</span>
+                    <strong id="toolSubscriptionPrice">$20 / month</strong>
+                    <small id="toolSubscriptionCredits">2,200 credits</small>
+                  </div>
+                  <button class="copy-btn tool-subscription-action" id="toolSubscriptionBtn" type="button">Subscribe</button>
+                </div>
+                <p class="tool-subscription-status" id="toolSubscriptionStatus"></p>
+              </section>
+              <div class="tool-topup-label" id="toolTopupLabel" hidden>Credits</div>
+              <div class="topup-package-grid" id="topupPackageGrid"></div>
+            </div>
+            <div class="topup-stage topup-payment-stage" id="topupPaymentStage" hidden>
+              <div class="topup-selected-package">
+                <span data-i18n="topup.selectedPackage">Selected package</span>
+                <div class="topup-selected-amount">
+                  <strong id="topupSelectedPackage">0 credits</strong>
+                  <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-wechat" src="./assets/brand/wechat-logo.png?v=2" alt="" aria-hidden="true" /><span>WeChat Pay</span></span>
+            <span class="stripe-payment-method-item"><img class="stripe-method-brand stripe-method-alipay" src="./assets/brand/alipay-logo.svg?v=1" alt="" aria-hidden="true" /><span>Alipay</span></span>
+            <span class="stripe-payment-method-item"><i data-lucide="credit-card"></i><span>Credit card</span></span>
+          </p>
+                </div>
+              </div>
+              <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
+                <button class="topup-method-tab is-active" type="button" data-topup-method="stripe" role="tab" aria-selected="true">
+                  <i data-lucide="credit-card"></i>
+                  <span data-i18n="topup.stripeTab">Stripe</span>
+                </button>
+                <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
+                  <i data-lucide="wallet"></i>
+                  <span data-i18n="topup.usdtTab">USDT</span>
+                </button>
+              </div>
+              <div class="topup-method-panel" id="topupStripePanel" data-topup-panel="stripe">
+                <div class="paypal-checkout stripe-checkout" id="stripeBox" hidden>
+                  <div>
+                    <span data-i18n="topup.stripeTitle">Stripe Checkout</span>
+                    <small id="stripeStatus" data-i18n="topup.stripeLoading">Loading Stripe...</small>
+                  </div>
+                  <div class="paypal-buttons" id="stripeButtons"></div>
+                </div>
+              </div>
+              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
+                <div class="topup-wallet-options" id="topupWalletOptions"></div>
+                <div class="topup-actions topup-usdt-actions">
+                  <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="topupQrDialog" class="modal topup-qr-modal">
+      <form method="dialog">
+        <header class="topup-dialog-header">
+          <button class="modal-back-btn" id="topupQrBackBtn" type="button" aria-label="Back" data-i18n-aria="common.back">
+            <i data-lucide="arrow-left"></i>
+            <span data-i18n="common.back">Back</span>
+          </button>
+          <div>
+            <span data-i18n="topup.paymentTitle">USDT Payment</span>
+            <strong id="topupQrAmount">0 USDT</strong>
+            <small id="topupQrSubtitle">Use TRC20 network</small>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="topup-pay-steps" aria-label="USDT payment steps">
+            <button class="topup-pay-step is-active" id="topupStepTransfer" type="button" data-topup-pay-step="transfer">
+              <span>1</span><strong data-i18n="topup.stepTransfer">Transfer</strong>
+            </button>
+            <i data-lucide="chevron-right"></i>
+            <button class="topup-pay-step" id="topupStepConfirm" type="button" data-topup-pay-step="confirm">
+              <span>2</span><strong data-i18n="topup.stepConfirm">Confirm</strong>
+            </button>
+          </div>
+          <section class="topup-transfer-step" id="topupTransferStep">
+            <div class="topup-exact-amount">
+              <span data-i18n="topup.payExactly">Pay exactly</span>
+              <button class="topup-copy-value" id="topupQrCopyAmountBtn" type="button">
+                <strong id="topupQrAmountValue">0</strong>
+                <i data-lucide="copy"></i>
+              </button>
+              <small data-i18n="topup.exactAmountHint">Use the exact amount including the decimal suffix.</small>
+            </div>
+            <div class="topup-qr-panel">
+            <img id="topupWalletQr" alt="USDT TRC20 payment QR" loading="lazy" />
+            <div class="topup-qr-details">
+              <span id="topupWalletNetwork">USDT · TRC20</span>
+              <code id="topupWalletAddress"></code>
+              <div class="topup-qr-actions">
+                <button class="ghost-button" id="topupQrCopyBtn" type="button"><i data-lucide="copy"></i><span data-i18n="topup.copyAddress">Copy address</span></button>
+                <a class="ghost-button topup-wallet-explorer" id="topupWalletExplorer" href="#" target="_blank" rel="noopener" hidden><i data-lucide="external-link"></i><span>Tronscan</span></a>
+              </div>
+            </div>
+          </div>
+          <button class="topup-tronlink-btn" id="topupTronLinkBtn" type="button">
+            <i data-lucide="send"></i>
+            <span data-i18n="topup.tronlink">Pay with TronLink</span>
+          </button>
+          <p class="topup-transfer-note" data-i18n="topup.transferNote">After sending the transfer, click the button below and paste the transaction hash.</p>
+          <div class="topup-transfer-actions">
+            <button class="copy-btn topup-transfer-done" id="topupTransferDoneBtn" type="button" data-i18n="topup.transferred">I have transferred</button>
+          </div>
+          </section>
+          <section class="topup-confirm-step" id="topupConfirmStep" hidden>
+            <div class="topup-confirm-copy">
+              <strong data-i18n="topup.confirmTitle">Confirm transfer result</strong>
+              <span data-i18n="topup.confirmDesc">Paste the transaction hash after your wallet broadcast succeeds. Credits are added after the chain payment is verified.</span>
+            </div>
+            <label class="topup-hash-field">
+              <span data-i18n="topup.transactionHash">Transaction HASH</span>
+              <input id="topupTxHashInput" type="text" autocomplete="off" placeholder="Enter blockchain transaction hash" data-i18n-placeholder="topup.hashPlaceholder" />
+            </label>
+            <p class="topup-confirm-status" id="topupConfirmStatus" aria-live="polite"></p>
+            <div class="topup-confirm-actions">
+              <button class="copy-btn" id="topupSubmitHashBtn" type="button"><i data-lucide="badge-check"></i><span data-i18n="topup.submitConfirmation">Submit confirmation</span></button>
+            </div>
+          </section>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="advancedPresetDialog" class="modal advanced-preset-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="advancedPresetDialogKicker">Preset</span>
+            <strong id="advancedPresetDialogTitle">Choose</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="advanced-preset-toolbar">
+            <div class="advanced-preset-categories" id="advancedPresetCategories"></div>
+            <label class="advanced-preset-search">
+              <i data-lucide="search"></i>
+              <input id="advancedPresetSearch" type="search" placeholder="Search..." />
+            </label>
+          </div>
+          <div class="advanced-preset-grid" id="advancedPresetGrid"></div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="caseDetailDialog" class="modal case-detail-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="caseDetailKicker"></span>
+            <strong id="caseDetailTitle">Case</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body case-detail-body">
+          <div class="case-detail-media" id="caseDetailMedia"></div>
+          <div class="case-detail-copy">
+            <div class="case-detail-model" id="caseDetailModel"></div>
+            <div class="case-detail-upstream" id="caseDetailUpstream" hidden></div>
+            <section class="case-detail-section">
+              <header><strong data-i18n="case.prompt">Prompt</strong><button class="copy-btn" id="caseDetailCopy" type="button" data-i18n="case.copy">Copy prompt</button></header>
+              <pre id="caseDetailPrompt"></pre>
+            </section>
+            <section class="case-detail-section" id="caseDetailParamsSection">
+              <header><strong data-i18n="case.parameters">Parameters</strong></header>
+              <div class="case-detail-chips" id="caseDetailParams"></div>
+            </section>
+            <section class="case-detail-section" id="caseDetailTagsSection">
+              <header><strong data-i18n="case.tags">Tags</strong></header>
+              <div class="case-detail-chips" id="caseDetailTags"></div>
+            </section>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="previewDialog" class="modal preview-modal">
+      <form method="dialog">
+        <header>
+          <strong id="previewTitle">Preview</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <img id="previewImage" alt="Preview" hidden />
+          <video id="previewVideo" controls playsinline preload="metadata"></video>
+        </div>
+        <footer class="preview-actions" id="previewActions" hidden>
+          <a class="copy-btn" id="previewDownloadBtn" href="#" download><i data-lucide="download"></i>Download</a>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="supportDialog" class="modal">
+      <form method="dialog">
+        <header>
+          <strong>Support</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>Email</span>
+            <input id="supportEmail" type="email" placeholder="name@example.com" />
+          </label>
+          <label class="field">
+            <span>Subject</span>
+            <input id="supportSubject" type="text" placeholder="Optional" />
+          </label>
+          <label class="field">
+            <span>Message</span>
+            <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
+          </label>
+          <a class="copy-btn" href="https://t.me/VipeakSupportBot" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakSupportBot" data-analytics-event="telegram_support_click">
+            <i data-lucide="send"></i>Open Telegram support
+          </a>
+          <p class="job-note" id="supportStatus"></p>
+          <button class="copy-btn" id="supportSubmitBtn" type="button"><i data-lucide="send"></i>Send</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="historyDetailDialog" class="modal history-detail-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="history.eyebrow">History</span>
+            <strong id="historyDetailTitle">Generation detail</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body history-detail-body" id="historyDetailBody"></div>
+      </form>
+    </dialog>
+
+    <dialog id="inlineDialog" class="modal inline-modal">
+      <form method="dialog" id="inlineDialogForm">
+        <header>
+          <div>
+            <span id="inlineDialogKicker">Assets</span>
+            <strong id="inlineDialogTitle">Action</strong>
+          </div>
+          <button class="icon-btn" type="button" id="inlineDialogClose" aria-label="Close" data-i18n-aria="common.close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <div class="modal-body" id="inlineDialogBody"></div>
+        <div class="modal-actions inline-actions">
+          <button class="generate-btn" type="submit" id="inlineDialogConfirm" value="confirm">
+            <i data-lucide="sparkles"></i>
+            Generate
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="toolDownloadDialog" class="modal tool-download-modal">
+      <form method="dialog">
+        <header>
+          <strong data-i18n="install.title">Install app</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body tool-download-options">
+          <a class="tool-download-option" href="/downloads/123tops-video.apk" download data-analytics-event="tool_android_download" data-analytics-location="install_dialog">
+            <i data-lucide="smartphone"></i>
+            <span>Android APK</span>
+            <i data-lucide="download"></i>
+          </a>
+          <a class="tool-download-option" href="/downloads/123tops-video.mobileconfig" data-analytics-event="tool_ios_profile_download" data-analytics-location="install_dialog">
+            <i data-lucide="tablet-smartphone"></i>
+            <span>iPhone / iPad</span>
+            <i data-lucide="chevron-right"></i>
+          </a>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="videoToolDialog" class="modal video-tool-dialog">
+      <form method="dialog" id="videoToolForm">
+        <header>
+          <div>
+            <span id="videoToolDialogKicker">Video tool</span>
+            <strong id="videoToolDialogTitle">Create</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body" id="videoToolDialogBody"></div>
+      </form>
+    </dialog>
+
+    <dialog id="legalDialog" class="modal legal-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="legalKicker" data-i18n="legal.kicker">Legal</span>
+            <strong id="legalTitle">Privacy Policy</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body legal-body" id="legalBody"></div>
+      </form>
+    </dialog>
+
+    <script src="./platform.js?v=chat-inline-20261026-2"></script>
+  </body>
+</html>

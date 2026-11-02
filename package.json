@@ -1,0 +1,12 @@
+{
+  "name": "raising-game-demo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.20.0"
+  }
+}
