@@ -5,7 +5,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createUploading: false, createUploadStage: "", createUploadMessage: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function syncAppHeight() {
     const viewport = window.visualViewport;
@@ -805,7 +805,7 @@
         return `<div class="create-voice-card ${selected ? "selected" : ""}" data-create-${key}-card="${esc(id)}"><button type="button" class="create-voice-select" data-create-${key}="${esc(id)}" aria-pressed="${selected ? "true" : "false"}"><b>${esc(name)}</b><span>${esc(desc)}</span></button><button type="button" class="create-voice-preview" data-voice-preview data-voice-scope="${scope}" data-voice-type="${esc(id)}" data-voice-card="${esc(id)}" aria-label="试听${esc(name)}">▶ 试听</button></div>`;
       }).join("")
       : `<span class="create-muted">${fallback}正在准备中</span>`;
-    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>＋</span>`}<div><b>${d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象"}</b><small>建议上传清晰的正方形或竖版照片</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>按风格选择，可试听</small></div><p class="create-voice-hint">点选你喜欢的说话感觉，再试听确认。</p><div class="create-voice-group"><b>角色声音</b><small>进入聊天时使用</small><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "角色声音")}</div></div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
+    app.innerHTML = `<main class="live-page create-edit-page"><header class="create-edit-head"><div><h2>${state.createEditingId ? "编辑角色卡" : "创建角色卡"}</h2><p>写下一个 Ta，从一句开场白开始</p></div><button type="button" data-action="create-close" aria-label="关闭">×</button></header><form data-create-form>${state.createLoading ? '<div class="create-loading">加载中…</div>' : ""}${state.createError ? `<p class="create-error">${esc(state.createError)}</p>` : ""}<section class="create-block"><div class="create-block-head"><b>设定形象</b><small>*</small></div><label class="create-avatar-upload ${state.createUploading ? "uploading" : ""}" aria-busy="${state.createUploading ? "true" : "false"}">${d.avatarUrl ? `<img src="${esc(d.avatarUrl)}" alt="">` : `<span>${state.createUploading ? "…" : "＋"}</span>`}<div><b>${state.createUploading ? esc(state.createUploadStage || "正在处理图片…") : (d.avatarUrl ? "已设定形象，点击更换" : "点击设定 Ta 的容貌、形象")}</b><small>${state.createUploading ? "请稍候，不要关闭页面" : (state.createUploadMessage || "会自动压缩后上传，支持 PNG、JPG、WEBP")}</small></div><input type="file" accept="image/png,image/jpeg,image/webp" data-create-upload hidden ${state.createUploading ? "disabled" : ""} /></label></section><section class="create-block"><div class="create-block-head"><b>名字与称呼</b><small>*</small></div><label>Ta 的名字<input name="name" maxlength="12" value="${esc(d.name)}" placeholder="给 Ta 起个名字" required /></label><div class="create-count"><span>第一印象，从这里开始</span><small data-create-name-count>${String(d.name).length} / 12</small></div><label>性别</label><input type="hidden" name="gender" value="${esc(gender)}" /><div class="create-gender"><button type="button" data-create-gender="female" class="${gender === "female" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>女</button><button type="button" data-create-gender="male" class="${gender === "male" ? "selected" : ""}" ${lockedGender ? "disabled" : ""}>男</button></div>${lockedGender ? '<span class="create-gender-lock">性别创建后不可修改</span>' : '<span class="create-gender-lock">性别创建后不可修改，请确认后选择</span>'}</section><section class="create-block"><div class="create-block-head"><b>角色设定（决定角色的对话效果）</b><small>*</small><button type="button" class="create-auto-persona" data-action="create-auto-persona" ${state.createAutoProfileBusy ? "disabled" : ""}>${state.createAutoProfileBusy ? "正在理解图片…" : "自动生成"}</button></div><textarea name="personaMd" maxlength="240" rows="5" placeholder="Ta 是谁，和你是什么关系，怎么说话">${esc((d.personaMd || "").slice(0, 240))}</textarea><div class="create-count"><span>自动生成会同时填写角色设定、简介和开场白</span><small data-create-persona-count>${String(d.personaMd || "").length} / 240</small></div></section><section class="create-block"><label>角色简介 *<textarea name="intro" maxlength="60" rows="3" placeholder="让 Ta 的第一句话有画面">${esc(d.intro)}</textarea></label><div class="create-count"><span>让 Ta 的第一句话有画面</span><small data-create-intro-count>${String(d.intro).length} / 60</small></div><label>开场白 *<textarea name="greeting" maxlength="60" rows="3" placeholder="写下 Ta 开口说的第一句话">${esc(d.greeting || "")}</textarea></label></section><section class="create-block"><div class="create-block-head"><b>声音</b><small>按风格选择，可试听</small></div><p class="create-voice-hint">点选你喜欢的说话感觉，再试听确认。</p><div class="create-voice-group"><b>角色声音</b><small>进入聊天时使用</small><div class="create-options voice">${voiceButtons(componentVoices, "component-voice", "角色声音")}</div></div></section><section class="create-block"><div class="create-block-head"><b>人物标签</b><small>最多选 3 个</small></div><div class="create-options">${tags.map((tag) => `<button type="button" data-create-tag="${tag}" class="${d.tags.includes(tag) ? "selected" : ""}">${tag}</button>`).join("")}</div></section><section class="create-block" id="create-visibility-block"><div class="create-block-head"><b>公开</b><small>公开后其他用户可以看到并使用这张卡</small></div><div class="create-options two">${[["public", "公开"], ["private", "仅自己"]].map(([value, text]) => `<button type="button" data-create-visibility="${value}" class="${d.visibility === value ? "selected" : ""}">${text}</button>`).join("")}</div>${state.createFocusVisibility ? '<p class="create-visibility-tip">当前为仅自己。选择「公开」并保存后，即可分享给其他用户。</p>' : ""}</section><p class="create-foot-note">角色卡的可见范围随时可以再调整。</p><button type="submit" class="create-submit" ${state.createBusy ? "disabled" : ""}>${state.createBusy ? "保存中…" : (state.createEditingId ? "保存角色卡" : "创建角色卡")}</button></form></main>`;
     if (preserveScroll) app.querySelector(".create-edit-page")?.scrollTo(0, scrollTop);
   }
   function rerenderCreateEditor() {
@@ -1112,14 +1112,51 @@
     ctx.fillText("和Ta来一场AI实时互动的视频聊天", 42, bottomTop + 222);
     const qrImage = await loadPosterQr(state.posterQr || qrDataUrl(shareLink()));
     if (qrImage) ctx.drawImage(qrImage, 512, bottomTop + 15, 166, 166);
-    const a = document.createElement("a");
-    let href = "";
-    try { href = canvas.toDataURL("image/png"); }
-    catch { referralToast("照片跨域，保存失败。请刷新后再试。"); return; }
-    a.href = href;
-    a.download = `${role.name || "vipeak"}-poster.png`;
-    a.click();
-    referralToast(img && img.width ? "图片已保存" : "照片没有加载成功，请刷新后再保存");
+    const filename = `${String(role.name || "vipeak").replace(/[\\/:*?"<>|]+/g, "-")}-poster.png`;
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((value) => value ? resolve(value) : reject(new Error("poster blob")), "image/png", 1);
+      });
+      if (await savePosterBlob(blob, filename)) {
+        referralToast(img && img.width ? "图片已保存到相册" : "海报已保存（形象图未加载）");
+      }
+    } catch {
+      referralToast("海报保存失败，请检查相册权限后重试");
+    }
+  }
+  async function savePosterBlob(blob, filename) {
+    const native = window.VipeakNative;
+    if (native && typeof native.savePoster === "function") {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("read poster"));
+        reader.readAsDataURL(blob);
+      });
+      const result = native.savePoster(dataUrl, filename);
+      let parsed = null;
+      try { parsed = JSON.parse(String(result || "{}")); } catch {}
+      if (parsed?.ok === true) return true;
+      throw new Error(parsed?.message || "native save failed");
+    }
+    const file = new File([blob], filename, { type: "image/png" });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        return true;
+      } catch (error) {
+        if (error?.name === "AbortError") return false;
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return true;
   }
 
   function loadPosterQr(src) {
@@ -1465,7 +1502,7 @@
   
   function subpage(title, body, back = state.subpageBack || "profile") {
     const navKey = ["home", "messages", "profile"].includes(back) ? back : "profile";
-    app.innerHTML = `<main class="live-page vip-page"><header class="detail-header"><button class="icon-button" data-action="back-subpage">‹</button><h1>${esc(title)}</h1></header>${body}</main>${nav(navKey)}`;
+    app.innerHTML = `<main class="live-page vip-page"><header class="detail-header"><button class="icon-button" data-action="back-subpage">‹</button><h1>${esc(title)}</h1></header>${body}</main>`;
   }
   function checkinTaskFallback() {
     return [
@@ -2206,7 +2243,7 @@
     const list = tab === "single"
       ? `<section class="date-panel"><div class="date-head"><p>♡ 1V1 私密互动，双向选择</p><span><i></i>${single.length} 人在线</span></div>${single.length ? `<div class="date-list">${single.map(dateCard).join("")}</div>` : `<div class="empty-state"><h2>没有可约会的角色</h2><p>换个筛选，或者先看看直播间。</p></div>`}<p class="room-end">没有更多可约会的角色了</p></section>`
       : `<section class="plaza-panel"><p class="plaza-note">◉ 正在直播 · 点开即刻进入</p>${multi.length ? `<div class="plaza-grid">${multi.map(plazaCard).join("")}</div>` : `<div class="empty-state"><h2>还没有直播间</h2><p>有人开了共享房间后会出现在这里。</p></div>`}<p class="room-end">没有更多房间了</p></section>`;
-    app.innerHTML = `<main class="live-page rooms-page"><header class="rooms-top"><button class="icon-button" data-action="back-rooms" aria-label="返回">${uiIcon("back")}</button><h1>私密房间</h1><div class="rooms-head-actions"><button type="button" class="rooms-create" data-action="open-room-create">＋ 开房</button><button type="button" class="rooms-filter" data-action="filter">${filterText()}</button></div></header><nav class="room-segment"><button type="button" class="${tab === "multi" ? "selected" : ""}" data-room-tab="multi">直播间</button><button type="button" class="${tab === "single" ? "selected" : ""}" data-room-tab="single">视频约会</button></nav>${list}</main>${nav(state.roomsFrom === "profile" ? "profile" : (state.roomsFrom === "home" ? "home" : "messages"))}`;
+    app.innerHTML = `<main class="live-page rooms-page"><header class="rooms-top"><button class="icon-button" data-action="back-rooms" aria-label="返回">${uiIcon("back")}</button><h1>私密房间</h1><div class="rooms-head-actions"><button type="button" class="rooms-create" data-action="open-room-create">＋ 开房</button><button type="button" class="rooms-filter" data-action="filter">${filterText()}</button></div></header><nav class="room-segment"><button type="button" class="${tab === "multi" ? "selected" : ""}" data-room-tab="multi">直播间</button><button type="button" class="${tab === "single" ? "selected" : ""}" data-room-tab="single">视频约会</button></nav>${list}</main>`;
   }
   function showPrivacy() {
     state.page = "privacy";
@@ -2332,14 +2369,74 @@
       })).filter((item) => item.url),
     };
   }
-  async function uploadCreatorAsset(file, kind) {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("读取文件失败"));
-      reader.readAsDataURL(file);
+  function creatorImageKind(file) {
+    const type = String(file?.type || "").toLowerCase();
+    if (/^image\/(png|jpeg|webp)$/.test(type)) return type;
+    const name = String(file?.name || "").toLowerCase();
+    if (/\.png$/.test(name)) return "image/png";
+    if (/\.jpe?g$/.test(name)) return "image/jpeg";
+    if (/\.webp$/.test(name)) return "image/webp";
+    return "";
+  }
+  function compressCreatorImage(file, onStage = () => {}) {
+    if (!creatorImageKind(file)) return Promise.reject(new Error("请上传 PNG、JPG 或 WEBP 图片。"));
+    onStage("正在压缩图片…");
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      image.onload = () => {
+        try {
+          const maxSide = 1600;
+          const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+          const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
+          const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d", { alpha: false });
+          ctx.fillStyle = "#111116";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(image, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+          if (!dataUrl || dataUrl.length < 128) throw new Error("图片处理失败");
+          resolve(dataUrl);
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("无法读取这张图片，请换一张重试。"));
+      };
+      image.src = objectUrl;
     });
-    return api("/api/chat-live/creator/assets", { method: "POST", body: JSON.stringify({ dataUrl, kind }) });
+  }
+  async function uploadCreatorAsset(file, kind, onStage = () => {}) {
+    const isImage = Boolean(creatorImageKind(file)) && kind !== "private-video";
+    if (kind !== "private-video" && file.size > 20 * 1024 * 1024) throw new Error("图片不能超过 20MB。");
+    let dataUrl;
+    if (isImage) {
+      dataUrl = await compressCreatorImage(file, onStage);
+    } else {
+      onStage("正在读取视频…");
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("读取文件失败"));
+        reader.readAsDataURL(file);
+      });
+    }
+    onStage(isImage ? "正在上传图片…" : "正在上传文件…");
+    try {
+      return await api("/api/chat-live/creator/assets", { method: "POST", body: JSON.stringify({ dataUrl, kind }) });
+    } catch (error) {
+      if (error.status === 413 || /too large|413/i.test(error.message || "")) {
+        throw new Error("图片过大，服务器未接收。请换一张较小的图片后重试。");
+      }
+      throw error;
+    }
   }
   async function saveCreator() {
     const body = readCreatorForm();
@@ -2488,16 +2585,37 @@
     if (createUpload?.files?.[0]) {
       const file = createUpload.files[0];
       createUpload.value = "";
-      if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 8 * 1024 * 1024) { state.createError = "请上传 8MB 以内的 PNG、JPG 或 WEBP 图片。"; createEditor(); return; }
+      if (!creatorImageKind(file)) {
+        state.createError = "请上传 PNG、JPG 或 WEBP 图片。";
+        createEditor();
+        return;
+      }
       readCreateDraftFromForm();
       cancelCreateAutoProfile();
-      createEditor();
+      state.createError = "";
+      state.createUploadMessage = "";
+      state.createUploading = true;
+      state.createUploadStage = "正在准备图片…";
+      rerenderCreateEditor();
       try {
-        const result = await uploadCreatorAsset(file, "avatar");
+        const result = await uploadCreatorAsset(file, "avatar", (stage) => {
+          state.createUploadStage = stage;
+          const label = app.querySelector(".create-avatar-upload");
+          const title = label?.querySelector("b");
+          if (title) title.textContent = stage;
+        });
         readCreateDraftFromForm();
         createDraft().avatarUrl = result.url || "";
-        createEditor();
-      } catch (error) { state.createError = error.message || "上传失败"; createEditor(); }
+        state.createUploading = false;
+        state.createUploadStage = "";
+        state.createUploadMessage = "图片已上传，可以继续填写";
+        createEditor({ preserveScroll: true });
+      } catch (error) {
+        state.createUploading = false;
+        state.createUploadStage = "";
+        state.createError = error.message || "上传失败，请稍后重试";
+        createEditor({ preserveScroll: true });
+      }
       return;
     }
     const upload = e.target.closest("[data-creator-upload]");

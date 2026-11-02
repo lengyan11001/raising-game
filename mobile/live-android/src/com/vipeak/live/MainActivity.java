@@ -4,16 +4,21 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
@@ -24,6 +29,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -63,6 +71,7 @@ public final class MainActivity extends Activity {
         webView.setBackgroundColor(Color.rgb(11, 11, 16));
         setContentView(webView);
         configureWebView();
+        webView.addJavascriptInterface(new PosterBridge(), "VipeakNative");
         requestRuntimePermissions();
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
@@ -158,6 +167,77 @@ public final class MainActivity extends Activity {
                 downloadFile(url, userAgent, contentDisposition, mimeType);
             }
         });
+    }
+
+    private final class PosterBridge {
+        @JavascriptInterface
+        public String savePoster(String dataUrl, String requestedName) {
+            Uri page = webView == null ? null : webView.getUrl() == null ? null : Uri.parse(webView.getUrl());
+            String rawHost = page == null ? "" : page.getHost();
+            String host = rawHost == null ? "" : rawHost.toLowerCase(Locale.ROOT);
+            if (!APP_HOSTS.contains(host)) {
+                return "{\"ok\":false,\"message\":\"unsupported page\"}";
+            }
+            try {
+                String text = dataUrl == null ? "" : dataUrl;
+                int comma = text.indexOf(',');
+                if (comma < 0 || !text.substring(0, comma).contains(";base64")) {
+                    return "{\"ok\":false,\"message\":\"invalid image data\"}";
+                }
+                byte[] bytes = Base64.decode(text.substring(comma + 1), Base64.DEFAULT);
+                if (bytes.length < 32) {
+                    return "{\"ok\":false,\"message\":\"empty image\"}";
+                }
+                String rawName = requestedName == null || requestedName.trim().isEmpty() ? "vipeak-poster.png" : requestedName;
+                String safeName = rawName.replaceAll("[\\\\/:*?\"<>|]+", "-");
+                if (!safeName.toLowerCase(Locale.ROOT).endsWith(".png")) safeName += ".png";
+                String savedName;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Images.Media.DISPLAY_NAME, safeName);
+                    values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Vipeak");
+                    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                    Uri item = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                    if (item == null) return "{\"ok\":false,\"message\":\"media insert failed\"}";
+                    try (OutputStream stream = getContentResolver().openOutputStream(item, "w")) {
+                        if (stream == null) throw new IllegalStateException("media stream unavailable");
+                        stream.write(bytes);
+                        stream.flush();
+                    }
+                    values.clear();
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                    getContentResolver().update(item, values, null, null);
+                    savedName = item.toString();
+                } else {
+                    File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Vipeak");
+                    if (!folder.exists() && !folder.mkdirs()) throw new IllegalStateException("cannot create picture folder");
+                    File output = new File(folder, safeName);
+                    try (FileOutputStream stream = new FileOutputStream(output)) {
+                        stream.write(bytes);
+                        stream.flush();
+                    }
+                    MediaScannerConnection.scanFile(MainActivity.this, new String[]{output.getAbsolutePath()}, new String[]{"image/png"}, null);
+                    savedName = output.getAbsolutePath();
+                }
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, "图片已保存到相册", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return "{\"ok\":true,\"path\":\"" + savedName.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}";
+            } catch (Exception error) {
+                final String message = error.getMessage() == null || error.getMessage().isEmpty() ? "save failed" : error.getMessage();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, "保存失败，请检查相册权限", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return "{\"ok\":false,\"message\":\"" + message.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}";
+            }
+        }
     }
 
     private boolean openExternalIfNeeded(Uri uri) {
