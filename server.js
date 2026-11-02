@@ -23736,24 +23736,123 @@ async function resolveWan27Media({ db, user, body, requestParams, fallbackAsset 
   return { mediaMode, media };
 }
 
+function aliyunBodyLayers(body = {}) {
+  const layers = [];
+  const seen = new Set();
+  const add = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value) || seen.has(value)) return;
+    seen.add(value);
+    layers.push(value);
+    for (const key of ["input", "params", "parameters", "data", "payload"]) add(value[key]);
+  };
+  add(body);
+  return layers;
+}
+
+function aliyunBodyField(body = {}, ...keys) {
+  for (const layer of aliyunBodyLayers(body)) {
+    for (const key of keys) {
+      const value = layer?.[key];
+      if (value !== undefined && value !== null && value !== "") return value;
+    }
+  }
+  return undefined;
+}
+
+function aliyunBodyArrayField(body = {}, ...keys) {
+  const values = [];
+  for (const layer of aliyunBodyLayers(body)) {
+    for (const key of keys) {
+      const value = layer?.[key];
+      if (value === undefined || value === null || value === "") continue;
+      values.push(...arrayFromBody(value));
+    }
+  }
+  return values;
+}
+
+function aliyunBodyMediaItems(body = {}) {
+  const items = [];
+  for (const layer of aliyunBodyLayers(body)) {
+    for (const key of ["media", "mediaItems", "media_items", "content"]) {
+      items.push(...arrayFromBody(layer?.[key]));
+    }
+  }
+  return items.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+}
+
+function aliyunMediaEntryRole(value = {}) {
+  return String(firstPresent(
+    value.role,
+    value.type,
+    value.mediaRole,
+    value.media_role,
+    value.kind,
+    "",
+  ) || "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function aliyunMediaEntryKind(value = {}) {
+  const role = aliyunMediaEntryRole(value);
+  if (/(^|_)(first|last|start|end|reference)?_?(frame|image)(_|$)/.test(role) || role === "image_url" || role === "reference") {
+    if (/(^|_)(first|last|start|end)_(frame|image)(_|$)/.test(role) || role.includes("reference")) {
+      if (role.includes("video")) return "video";
+      if (role.includes("audio")) return "audio";
+      if (role.includes("file") || role.includes("document")) return "document";
+      return "image";
+    }
+  }
+  if (role.includes("video")) return "video";
+  if (role.includes("audio")) return "audio";
+  if (role.includes("file") || role.includes("document") || role.includes("attachment")) return "document";
+  if (role.includes("image") || role.includes("frame") || role.includes("picture") || role.includes("photo")) return "image";
+  if (firstPresent(value.image_url, value.imageUrl, value.image)) return "image";
+  if (firstPresent(value.video_url, value.videoUrl, value.video)) return "video";
+  if (firstPresent(value.audio_url, value.audioUrl, value.audio)) return "audio";
+  return "";
+}
+
+function aliyunMediaLocator(value) {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const locator = aliyunMediaLocator(item);
+      if (locator) return locator;
+    }
+    return "";
+  }
+  if (!value || typeof value !== "object") return "";
+  for (const key of [
+    "url", "uri", "image_url", "imageUrl", "video_url", "videoUrl", "audio_url", "audioUrl",
+    "file_url", "fileUrl", "source_url", "sourceUrl", "public_url", "publicUrl",
+    "dataUrl", "data_url", "assetUri", "asset_uri", "image", "video", "audio", "file",
+  ]) {
+    const locator = aliyunMediaLocator(value[key]);
+    if (locator) return locator;
+  }
+  return nestedMediaUrl(value);
+}
+
 function aliyunMediaInput(value, defaults = {}) {
   if (!value) return null;
+  const base = { ...defaults };
   if (typeof value === "string") {
     const text = value.trim();
     if (!text) return null;
-    if (text.startsWith("asset://")) return { ...defaults, assetId: text.slice("asset://".length) };
-    if (text.startsWith("data:")) return { ...defaults, dataUrl: text };
-    return { ...defaults, url: text };
+    if (text.startsWith("asset://")) return { ...base, assetId: text.slice("asset://".length) };
+    if (text.startsWith("data:")) return { ...base, dataUrl: text };
+    return { ...base, url: text };
   }
-  if (typeof value !== "object") return null;
-  return {
-    ...defaults,
-    assetId: String(firstPresent(value.assetId, value.asset_id, value.userAssetId, "") || "").trim(),
-    dataUrl: String(firstPresent(value.dataUrl, value.data_url, "") || ""),
-    url: String(firstPresent(value.url, value.imageUrl, value.videoUrl, value.audioUrl, "") || "").trim(),
-    fileName: String(firstPresent(value.fileName, value.file_name, value.name, "") || ""),
-    referenceVoice: String(firstPresent(value.referenceVoice, value.reference_voice, "") || "").trim(),
-  };
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const assetId = String(firstPresent(value.assetId, value.asset_id, value.userAssetId, value.user_asset_id, "") || "").trim();
+  let dataUrl = String(firstPresent(value.dataUrl, value.data_url, "") || "");
+  const locator = aliyunMediaLocator(value);
+  if (!dataUrl && locator.startsWith("data:")) dataUrl = locator;
+  const url = dataUrl ? "" : locator;
+  const fileName = String(firstPresent(value.fileName, value.file_name, value.name, "") || "");
+  const referenceVoice = String(firstPresent(value.referenceVoice, value.reference_voice, "") || "").trim();
+  if (!assetId && !dataUrl && !url) return null;
+  return { ...base, assetId, dataUrl, url, fileName, referenceVoice };
 }
 
 function aliyunMediaInputs(values = [], defaults = {}) {
@@ -23786,69 +23885,138 @@ function uniqueResolvedAliyunMedia(media = []) {
 
 function aliyunReferenceImageInputs(body = {}) {
   const values = [
-    ...arrayFromBody(body.referenceImages),
-    ...arrayFromBody(body.reference_images),
-    ...arrayFromBody(body.referenceImageDataUrls),
-    ...arrayFromBody(body.referenceImageUrls),
-    ...arrayFromBody(body.referenceImageAssetIds).map((assetId) => ({ assetId })),
+    ...aliyunBodyArrayField(body, "referenceImages", "reference_images", "referenceImage", "reference_image", "imageReferences", "image_references"),
+    ...aliyunBodyArrayField(body, "referenceImageDataUrls", "reference_image_data_urls", "referenceImageUrls", "reference_image_urls"),
+    ...aliyunBodyArrayField(body, "referenceImageAssetIds", "reference_image_asset_ids").map((assetId) => ({ assetId })),
+    ...aliyunBodyMediaItems(body).filter((item) => {
+      const role = aliyunMediaEntryRole(item);
+      return aliyunMediaEntryKind(item) === "image" && !/(^|_)(first|last|start|end)_(frame|image)(_|$)/.test(role);
+    }),
   ];
   return aliyunMediaInputs(values, { mediaKind: "image", type: "reference_image" });
 }
 
 function aliyunReferenceVideoInputs(body = {}) {
   const values = [
-    ...arrayFromBody(body.referenceVideos),
-    ...arrayFromBody(body.reference_videos),
-    ...arrayFromBody(body.referenceVideoUrls),
-    ...arrayFromBody(body.referenceVideoAssetIds).map((assetId) => ({ assetId })),
+    ...aliyunBodyArrayField(body, "referenceVideos", "reference_videos", "referenceVideo", "reference_video"),
+    ...aliyunBodyArrayField(body, "referenceVideoUrls", "reference_video_urls"),
+    ...aliyunBodyArrayField(body, "referenceVideoAssetIds", "reference_video_asset_ids").map((assetId) => ({ assetId })),
+    ...aliyunBodyMediaItems(body).filter((item) => aliyunMediaEntryKind(item) === "video"),
   ];
   return aliyunMediaInputs(values, { mediaKind: "video", type: "reference_video" });
 }
 
 function aliyunReferenceAudioInputs(body = {}) {
   const values = [
-    ...arrayFromBody(body.referenceAudios),
-    ...arrayFromBody(body.reference_audios),
-    ...arrayFromBody(body.referenceAudioUrls),
-    ...arrayFromBody(body.referenceAudioAssetIds).map((assetId) => ({ assetId })),
+    ...aliyunBodyArrayField(body, "referenceAudios", "reference_audios", "referenceAudio", "reference_audio"),
+    ...aliyunBodyArrayField(body, "referenceAudioUrls", "reference_audio_urls"),
+    ...aliyunBodyArrayField(body, "referenceAudioAssetIds", "reference_audio_asset_ids").map((assetId) => ({ assetId })),
+    ...aliyunBodyMediaItems(body).filter((item) => aliyunMediaEntryKind(item) === "audio"),
   ];
   return aliyunMediaInputs(values, { mediaKind: "audio", type: "reference_audio" });
 }
 
 function aliyunReferenceFileInput(body = {}) {
-  return aliyunMediaInput(
-    firstPresent(body.referenceFile, body.reference_file, body.referenceFileAssetId ? { assetId: body.referenceFileAssetId } : null),
-    { mediaKind: "document", type: "file" },
+  const value = firstPresent(
+    aliyunBodyField(body, "referenceFile", "reference_file"),
+    aliyunBodyField(body, "referenceFileAssetId", "reference_file_asset_id") ? { assetId: aliyunBodyField(body, "referenceFileAssetId", "reference_file_asset_id") } : null,
+    ...aliyunBodyMediaItems(body).filter((item) => aliyunMediaEntryKind(item) === "document"),
   );
+  return aliyunMediaInput(value, { mediaKind: "document", type: "file" });
 }
 
 function aliyunFirstFrameInput(body = {}, fallbackAsset = null) {
-  const input = aliyunMediaInput({
-    assetId: firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, body.userAssetId),
-    dataUrl: firstPresent(body.firstFrameDataUrl, body.first_frame_data_url, body.imageDataUrl, body.image_data_url, body.dataUrl),
-    url: firstPresent(body.firstFrameUrl, body.first_frame_url, body.imageUrl, body.image_url),
-    fileName: firstPresent(body.firstFrameFileName, body.imageFileName, body.fileName),
-  }, { mediaKind: "image", type: "first_frame" });
-  if (!input?.assetId && !input?.dataUrl && !input?.url && fallbackAsset?.id) input.assetId = fallbackAsset.id;
+  const defaults = { mediaKind: "image", type: "first_frame" };
+  let input = aliyunMediaInput(
+    firstPresent(
+      aliyunBodyField(body, "firstFrame", "first_frame", "firstImage", "first_image", "startFrame", "start_frame", "startImage", "start_image"),
+      {
+        assetId: aliyunBodyField(body, "firstFrameAssetId", "first_frame_asset_id", "imageAssetId", "image_asset_id", "userAssetId", "user_asset_id"),
+        dataUrl: aliyunBodyField(body, "firstFrameDataUrl", "first_frame_data_url", "imageDataUrl", "image_data_url", "dataUrl", "data_url"),
+        url: aliyunBodyField(body, "firstFrameUrl", "first_frame_url", "imageUrl", "image_url", "image_url_public"),
+        fileName: aliyunBodyField(body, "firstFrameFileName", "first_frame_file_name", "imageFileName", "image_file_name", "fileName", "file_name"),
+      },
+    ),
+    defaults,
+  );
+  if (!input) {
+    const item = aliyunBodyMediaItems(body).find((entry) => {
+      const role = aliyunMediaEntryRole(entry);
+      return aliyunMediaEntryKind(entry) === "image" && ["first_frame", "first_image", "start_frame", "start_image", "first"].includes(role);
+    });
+    input = aliyunMediaInput(item, defaults);
+  }
+  if (!input && fallbackAsset?.id) input = aliyunMediaInput({ assetId: fallbackAsset.id }, defaults);
   return input;
 }
 
 function aliyunLastFrameInput(body = {}) {
-  return aliyunMediaInput({
-    assetId: firstPresent(body.lastFrameAssetId, body.last_frame_asset_id, body.endImageAssetId, body.end_image_asset_id),
-    dataUrl: firstPresent(body.lastFrameDataUrl, body.last_frame_data_url, body.endImageDataUrl, body.end_image_data_url),
-    url: firstPresent(body.lastFrameUrl, body.last_frame_url, body.endImageUrl, body.end_image_url),
-    fileName: firstPresent(body.lastFrameFileName, body.endImageFileName),
-  }, { mediaKind: "image", type: "last_frame" });
+  const defaults = { mediaKind: "image", type: "last_frame" };
+  let input = aliyunMediaInput(
+    firstPresent(
+      aliyunBodyField(body, "lastFrame", "last_frame", "lastImage", "last_image", "endFrame", "end_frame", "endImage", "end_image"),
+      {
+        assetId: aliyunBodyField(body, "lastFrameAssetId", "last_frame_asset_id", "endImageAssetId", "end_image_asset_id", "endFrameAssetId", "end_frame_asset_id"),
+        dataUrl: aliyunBodyField(body, "lastFrameDataUrl", "last_frame_data_url", "endImageDataUrl", "end_image_data_url", "endFrameDataUrl", "end_frame_data_url"),
+        url: aliyunBodyField(body, "lastFrameUrl", "last_frame_url", "endImageUrl", "end_image_url", "end_image_public_url", "endFrameUrl", "end_frame_url"),
+        fileName: aliyunBodyField(body, "lastFrameFileName", "last_frame_file_name", "endImageFileName", "end_image_file_name", "endFrameFileName", "end_frame_file_name"),
+      },
+    ),
+    defaults,
+  );
+  if (!input) {
+    const item = aliyunBodyMediaItems(body).find((entry) => {
+      const role = aliyunMediaEntryRole(entry);
+      return aliyunMediaEntryKind(entry) === "image" && ["last_frame", "last_image", "end_frame", "end_image", "last"].includes(role);
+    });
+    input = aliyunMediaInput(item, defaults);
+  }
+  return input;
 }
 
 function aliyunPrimaryVideoInput(body = {}) {
-  return aliyunMediaInput({
-    assetId: firstPresent(body.videoAssetId, body.inputVideoAssetId, body.referenceVideoAssetId, arrayFromBody(body.referenceVideoAssetIds)[0]),
-    dataUrl: firstPresent(body.videoDataUrl, body.inputVideoDataUrl, body.referenceVideoDataUrl),
-    url: firstPresent(body.videoUrl, body.inputVideoUrl, body.referenceVideoUrl, arrayFromBody(body.referenceVideoUrls)[0]),
-    fileName: firstPresent(body.videoFileName, body.inputVideoFileName, body.referenceVideoFileName),
-  }, { mediaKind: "video", type: "video" });
+  const defaults = { mediaKind: "video", type: "video" };
+  let input = aliyunMediaInput(
+    firstPresent(
+      aliyunBodyField(body, "video", "inputVideo", "input_video", "referenceVideo", "reference_video"),
+      {
+        assetId: aliyunBodyField(body, "videoAssetId", "video_asset_id", "inputVideoAssetId", "input_video_asset_id", "referenceVideoAssetId", "reference_video_asset_id"),
+        dataUrl: aliyunBodyField(body, "videoDataUrl", "video_data_url", "inputVideoDataUrl", "input_video_data_url", "referenceVideoDataUrl", "reference_video_data_url"),
+        url: aliyunBodyField(body, "videoUrl", "video_url", "inputVideoUrl", "input_video_url", "referenceVideoUrl", "reference_video_url"),
+        fileName: aliyunBodyField(body, "videoFileName", "video_file_name", "inputVideoFileName", "input_video_file_name", "referenceVideoFileName", "reference_video_file_name"),
+      },
+    ),
+    defaults,
+  );
+  if (!input) {
+    const item = aliyunBodyMediaItems(body).find((entry) => aliyunMediaEntryKind(entry) === "video");
+    input = aliyunMediaInput(item, defaults);
+  }
+  return input;
+}
+
+function aliyunWan30ReferenceInputsPresent(body = {}) {
+  return Boolean(
+    aliyunReferenceImageInputs(body).length
+    || aliyunReferenceVideoInputs(body).length
+    || aliyunReferenceAudioInputs(body).length
+    || aliyunReferenceFileInput(body)
+  );
+}
+
+function aliyunWan30MediaMode(body = {}, requestedMode = "", fallbackAsset = null) {
+  const hasFrames = Boolean(aliyunFirstFrameInput(body, fallbackAsset) || aliyunLastFrameInput(body));
+  const hasReferences = aliyunWan30ReferenceInputsPresent(body);
+  if (hasFrames && hasReferences) {
+    throw advancedValidationError(
+      "WAN30_MEDIA_COMBINATION_INVALID",
+      "Wan 3.0 first/last frame images cannot be combined with reference media.",
+    );
+  }
+  if (hasFrames) return "first_last_frame";
+  const rawMode = String(requestedMode || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["first_frame", "first_last_frame", "frames", "first_image", "start_end"].includes(rawMode)) return "first_last_frame";
+  return "multimodal";
 }
 
 // A reference can also arrive as a bare public URL - preset art, a link the studio
@@ -24067,8 +24235,12 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
   const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
   const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
   if (["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(capability)) {
-    const rawMode = String(firstPresent(requestParams.mediaMode, body.mediaMode, body.wan30Mode, "multimodal") || "").trim().toLowerCase();
-    const frameMode = ["first_frame", "first_last_frame", "frames"].includes(rawMode);
+    const mediaMode = aliyunWan30MediaMode(
+      body,
+      firstPresent(requestParams.mediaMode, body.mediaMode, body.wan30Mode, "multimodal"),
+      fallbackAsset,
+    );
+    const frameMode = mediaMode === "first_last_frame";
     let inputs = frameMode
       ? [aliyunFirstFrameInput(body, fallbackAsset), aliyunLastFrameInput(body)].filter(Boolean)
       : [...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body), ...aliyunReferenceAudioInputs(body), ...[aliyunReferenceFileInput(body)].filter(Boolean)];
@@ -24095,7 +24267,7 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
     // authority for media limits; locally probing every URL would reject valid
     // signed links that do not expose dimensions to us.
     if (!skipWan30Validation) await validateWan30ResolvedMedia(media, requestParams);
-    return { capability, mediaMode: frameMode ? "first_last_frame" : "multimodal", media };
+    return { capability, mediaMode, media };
   }
   if (["wan27-t2v", "happyhorse-t2v"].includes(capability)) return { capability, mediaMode: capability, media: [] };
   if (capability === "wan27-i2v") {
@@ -35892,7 +36064,7 @@ async function handleAdvancedGenerate(req, res) {
       requestParams.videoCapability === "wan27-i2v" ? "first_frame" : requestParams.videoCapability,
     );
     requestParams.mediaMode = provider === "wan30"
-      ? (["first_frame", "first_last_frame", "frames"].includes(String(requestedWanMediaMode || "").trim().toLowerCase()) ? "first_last_frame" : "multimodal")
+      ? aliyunWan30MediaMode(mergedBody, requestedWanMediaMode, userAsset)
       : requestParams.videoCapability === "wan27-r2v"
         ? "wan27-r2v"
         : normalizeWan27MediaMode(requestedWanMediaMode);
