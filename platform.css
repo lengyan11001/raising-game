@@ -8746,6 +8746,28 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   background: rgba(22,22,25,.9);
 }
 
+/* Keep the API access area on the same dark glass surface as the docs. */
+.access-panel .token-card,
+.access-panel .subtoken-create,
+.access-panel .subtoken-created,
+.access-panel .subtoken-row,
+.access-panel .advanced-asset-empty,
+.access-panel .advanced-result-empty {
+  border-color: rgba(255,255,255,.09);
+  background: linear-gradient(145deg, rgba(255,79,163,.055), #141418 42%, #101013);
+  box-shadow: 0 12px 30px rgba(0,0,0,.18);
+}
+.access-panel .token-card strong,
+.access-panel .subtoken-main code,
+.access-panel .subtoken-created code {
+  color: #ff9dce;
+}
+.access-panel .subtoken-main code,
+.access-panel .subtoken-created code {
+  border-color: rgba(255,79,163,.18);
+  background: #09090c;
+}
+
 .gallery-mode-tab {
   border-radius: 999px;
   background: rgba(255,255,255,.06);
