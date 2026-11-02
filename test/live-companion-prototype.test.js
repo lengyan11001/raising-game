@@ -201,7 +201,7 @@ test("live Android WebView keeps the bottom navigation inside the visual viewpor
   assert.match(live, /window\.visualViewport\?\.addEventListener\("resize", syncAppHeight/);
   assert.match(live, /app\.style\.setProperty\("--live-app-height", `\$\{height\}px`\)/);
   assert.match(html, /live\.css\?v=2026110201/);
-  assert.match(html, /live\.js\?v=2026110201/);
+  assert.match(html, /live\.js\?v=2026110202/);
 });
 
 test("live prototype styles and cache keys ship together", () => {
@@ -226,7 +226,7 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=2026110201/);
-  assert.match(html, /live\.js\?v=2026110201/);
+  assert.match(html, /live\.js\?v=2026110202/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 
@@ -405,6 +405,9 @@ test("the main domain serves an independent one-screen landing page", () => {
   assert.match(serverSource, /"\/platform\.html"/);
   assert.match(landingHtml, /class="site-header"/);
   assert.match(landingHtml, /href="\/live\.html"/);
+  assert.match(landingHtml, /<a href="\/downloads\/vipeak-live\.apk" download>下载<\/a>/);
+  assert.match(landingHtml, /<a href="\/downloads\/vipeak-live\.apk" download>下载 App<\/a>/);
+  assert.ok(fs.existsSync(path.join(root, "downloads", "vipeak-live.apk")));
   assert.match(landingCss, /\.header-cta \{ display: none; \}/);
   assert.match(landingCss, /\.menu-button \{ display: block; \}/);
   assert.match(landingCss, /\.hero h1 \{ font-size: clamp\(35px, 9\.8vw, 41px\); \}/);
