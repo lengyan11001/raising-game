@@ -66,44 +66,58 @@ Only then disable `raising-game-new-proxy` and Nginx on the former host. Do not
 remove its backup or database until the new origin has been observed serving all
 domains successfully.
 
-## Production topology (do not confuse these domains)
+## Production topology (release surfaces are isolated)
 
-`123vips.com` and `live.123vipeak.com` are **not separate production deployments**.
-Both Nginx server blocks proxy to the same `raising-game-demo` process on
-`47.84.76.131:4174`; the hostname selects the tenant/page (`platform.html` versus
-`live.html`). A code release therefore ships to the shared process, even when the
-visible change belongs to only one domain.
+`123vips.com` and `live.123vipeak.com` share one `raising-game-demo` process on
+`47.84.76.131:4174`, but they do **not** share a release checkout:
+
+- `123vips.com` runs from `platform-release` at `/opt/raising-game-demo`.
+- Vipeak Live runs from `live-release` at `/opt/raising-game-live-src`.
+- The Live release is materialized as static files into
+  `/opt/raising-game-live-static`, which the shared process reads only for Live
+  hosts. A Live release does not restart the process.
+- The platform process returns `404` for Live-owned static paths.
+
+Release history is audited from immutable clean boundaries:
+
+- platform: `release-base/platform`
+- Live: `release-base/live`
+
+The audit covers every commit in `AUDIT_BASE..origin/BRANCH`. A release may
+delete a path owned by another surface while constructing its clean tree, but it
+may never add, modify, copy, or rename that path back in. This means a Live-only
+commit cannot enter a platform release even if a later commit deletes the Live
+files again.
 
 Use the target that names the surface you intend to verify:
 
-- `old`: shared platform surface, verified at `https://123vips.com`
-- `live`: Vipeak Live tenant on the same host/process, verified at `https://live.123vipeak.com`
+- `old`: platform surface, verified at `https://123vips.com`
+- `live`: Vipeak Live, verified at `https://live.123vipeak.com`
 
-Do not call `old` a "live-only" deployment. Do not treat a successful
-`123vips.com/api/health` check as proof that a live change was verified. The deploy
-helper rejects path overlap between these two targets: `old` refuses changes to
-`live.html`, `live.css`, or `live.js`; `live` refuses platform/admin/landing
-frontend changes. Shared backend changes must still be reviewed for tenant-specific
-effects and tested on both domains.
+Do not call `old` a "Live-only" deployment. Do not treat a successful
+`123vips.com/api/health` check as proof that a Live change was verified. Platform
+deployment verifies that Live-owned paths return `404` on `123vips.com`; Live
+deployment verifies the Live site, the standalone landing site, and that the
+platform home page still serves `platform.css` and `Vipeak AI`.
 
 ## Fixed deploy commands
 
-Shared platform surface (`123vips.com`):
+Platform (`123vips.com`):
 
 ```powershell
 $env:OLD_SITE_SSH_PASSWORD="..."
 python .\scripts\deploy_site.py --site old
 ```
 
-Vipeak Live tenant (`live.123vipeak.com`, same host/process):
+Vipeak Live (`live.123vipeak.com`):
 
 ```powershell
 $env:LIVE_SITE_SSH_PASSWORD="..."
 python .\scripts\deploy_site.py --site live
 ```
 
-The deploy helper requires the replacement server password through the environment;
-it does not read passwords from legacy files.
+The deploy helper requires the server password through the environment; it does
+not read passwords from legacy files.
 
 New2:
 
@@ -123,24 +137,19 @@ runtime configuration must not point at the old site's R2 bucket or CDN.
 
 ## Server pull deploy
 
-## Public access controls
-
-Production sets `BLOCK_MAINLAND_CHINA=1` so public pages, login, and API requests carrying Cloudflare country code `CN` return `451`. CMS/admin traffic remains available on the configured CMS host.
-
-`PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED=0` keeps legacy Alibaba models hidden while the family-specific switches control public exposure. `PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED=1` exposes Wan3.0 only. `PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED=1` exposes Wan2.7, Wan Animate, and Wan2.7 image editing. `PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED=1` exposes HappyHorse. `PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED=1` exposes Qwen Image 3.0. These values are runtime switches; restart the service after changing them.
-
-Qwen uses `ALIYUN_QWEN_IMAGE3_BASE_URL` and `ALIYUN_QWEN_IMAGE3_API_KEY` when set, otherwise it falls back to `ALIYUN_DASHSCOPE_BASE_URL` and `ALIYUN_DASHSCOPE_API_KEY`. This permits one Singapore Maas credential set for Wan2.7, HappyHorse, and Qwen while preserving an explicit override for a future Qwen-only account.
+Do not deploy `old-site` or `main` directly. Push integration work first, then
+create a release snapshot on `platform-release` or `live-release`. The deploy
+helper refuses integration branches before opening an SSH connection.
 
 Recommended flow:
 
-1. Commit and push code to `old-site` on GitHub. Reconcile any tracked server changes first; the deploy helper refuses a dirty worktree.
-2. On the server, inside `/opt/raising-game-demo`:
-
-```bash
-git checkout old-site
-git pull --ff-only origin old-site
-systemctl restart raising-game-demo
-```
+1. Commit and push integration work to `old-site` on GitHub.
+2. Build the intended release snapshot and push `platform-release` or
+   `live-release`.
+3. Run `python scripts/deploy_site.py --site old` or `--site live` from the local
+   checkout. The helper fetches the release branch, audits its complete release
+   history, pulls the exact expected commit on the server, and verifies the
+   surface-specific pages.
 
 Runtime data must live in PostgreSQL through `DATABASE_URL`; do not use JSON files
 as an alternate data store or deployment target.
@@ -153,6 +162,14 @@ Production systemd must load runtime secrets and per-site settings from:
 
 `raising-game-demo.service` must include `EnvironmentFile=/etc/raising-game-demo.env`.
 The local deploy helper checks this before restarting.
+
+## Public access controls
+
+Production sets `BLOCK_MAINLAND_CHINA=1` so public pages, login, and API requests carrying Cloudflare country code `CN` return `451`. CMS/admin traffic remains available on the configured CMS host.
+
+`PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED=0` keeps legacy Alibaba models hidden while the family-specific switches control public exposure. `PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED=1` exposes Wan3.0 only. `PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED=1` exposes Wan2.7, Wan Animate, and Wan2.7 image editing. `PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED=1` exposes HappyHorse. `PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED=1` exposes Qwen Image 3.0. These values are runtime switches; restart the service after changing them.
+
+Qwen uses `ALIYUN_QWEN_IMAGE3_BASE_URL` and `ALIYUN_QWEN_IMAGE3_API_KEY` when set, otherwise it falls back to `ALIYUN_DASHSCOPE_BASE_URL` and `ALIYUN_DASHSCOPE_API_KEY`. This permits one Singapore Maas credential set for Wan2.7, HappyHorse, and Qwen while preserving an explicit override for a future Qwen-only account.
 
 ## Object storage
 
@@ -178,25 +195,27 @@ python .\scripts\deploy_site.py --site old
 Fixed production targets:
 
 - site: `old`
-  - verifies: `https://123vips.com`
+  - branch: `platform-release`
+  - remote root: `/opt/raising-game-demo`
   - health URL: `https://123vips.com/api/health`
 - site: `live`
-  - verifies: `https://live.123vipeak.com`
+  - branch: `live-release`
+  - remote root: `/opt/raising-game-live-src`
+  - static root: `/opt/raising-game-live-static`
   - health URL: `https://live.123vipeak.com/api/health`
-- both shared targets use host `47.84.76.131`, SSH port `22`, branch `old-site`,
-  remote root `/opt/raising-game-demo`, service `raising-game-demo`, and env file
-  `/etc/raising-game-demo.env`
+- both targets use host `47.84.76.131`, SSH port `22`, and service
+  `raising-game-demo`; only the platform release restarts the service.
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
 files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
 
-Before restarting, the helper rejects commits that touch another target's owned
-frontend files. After restarting, it requires the exact local commit, an HTTP 200
-health response, and the expected domain-specific page markers. A live release
-must also leave `https://123vips.com/` serving `platform.css` and `Vipeak AI`.
-The platform target additionally rejects `live.css` and `Vipeak Live` on
-`https://123vips.com/`, so a live UI release cannot silently replace the platform
-page with the wrong tenant.
+Before pulling, both the local and remote helpers audit the complete release
+history. After deployment, the helper requires the exact expected commit, an HTTP
+200 health response, and the expected domain-specific page markers. Platform
+deployment additionally requires Live-owned paths to return `404` on
+`https://123vips.com`. Live deployment requires the Live surface and standalone
+landing page while confirming the platform home still serves `platform.css` and
+`Vipeak AI`.
 
 ## Wan2.7 production env
 

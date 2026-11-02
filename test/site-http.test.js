@@ -14,7 +14,8 @@ const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.cre
 
 test("admin entry and assets bypass CDN caching while previews roll out", () => {
   assert.match(serverSource, /const frontendNames = \[\"\/admin\.html\", \"\/admin\.css\", \"\/admin\.js\"/);
-  assert.match(serverSource, /isFrontendAsset \|\| isHtml[\s\S]*?no-store, no-cache, must-revalidate, max-age=0/);
+  assert.match(serverSource, /const isFrontendNoStore = isFrontendAsset && !isVersionedAsset/);
+  assert.match(serverSource, /isFrontendNoStore \|\| isHtml[\s\S]*?no-store, no-cache, must-revalidate, max-age=0/);
 });
 
 test("public security headers cover browser-facing responses", () => {
@@ -69,7 +70,7 @@ test("large public catalogs use edge caching while authenticated config stays pr
   assert.match(fs.readFileSync(path.resolve(__dirname, "..", "lib-http.js"), "utf8"), /function sendJson\(res, statusCode, payload, \{ cacheControl = "no-store" \} = \{\}\)/);
   assert.match(serverSource, /public, max-age=30, s-maxage=30, stale-while-revalidate=120/);
   assert.match(serverSource, /private, no-store/);
-  assert.match(serverSource, /public, max-age=300, s-maxage=300, stale-while-revalidate=3600/);
+  assert.match(serverSource, /public, max-age=300, s-maxage=3600, stale-while-revalidate=86400/);
   assert.match(serverSource, /cloudflare-cdn-cache-control/);
 });
 

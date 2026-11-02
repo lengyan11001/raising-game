@@ -301,6 +301,10 @@ const {
   httpsRedirectLocation,
 } = require("./site-http");
 const {
+  resolveLiveStaticRoot,
+  shouldBlockLiveOwnedStatic,
+} = require("./lib-live-surface");
+const {
   createTelegramLoginNonce,
   createTelegramBotClient,
   parseTelegramLoginNonce,
@@ -349,6 +353,7 @@ const {
   requestOriginFromHeaders,
 } = require("./lib-http");
 const ROOT = __dirname;
+const LIVE_STATIC_ROOT = resolveLiveStaticRoot(ROOT, process.env.LIVE_STATIC_ROOT);
 const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.html",
   "platform.css",
@@ -51924,13 +51929,27 @@ async function sendAdminHtml(req, res, filePath) {
 }
 
 async function serveStatic(req, res, url) {
-  const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
-  const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
+  const requestHost = requestHostname(req);
+  const tenant = requestTenantDescriptor(req);
+  const chatTenantRequest = tenant.toolId === "chat";
+  const liveTenantRequest = tenant.toolId === "live";
+  const standaloneLandingRequest = standaloneLandingHostname(requestHost);
+  const liveStaticSurfaceRequest = liveTenantRequest || standaloneLandingRequest;
   let pathname = decodeURIComponent(url.pathname === "/"
-    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : defaultPageForHostname(requestHostname(req)))
+    ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : defaultPageForHostname(requestHost))
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
+  if (shouldBlockLiveOwnedStatic({
+    pathname,
+    toolId: tenant.toolId,
+    hostname: requestHost,
+    isPaymentHost: isPaymentHostRequest(req),
+    isCmsHost: isCmsHostRequest(req),
+    isStandaloneLandingHost: standaloneLandingRequest,
+  })) {
+    return sendText(res, 404, "Not Found");
+  }
   if (isPaymentHostRequest(req)) {
     const allowedPaymentPath = pathname === "/pay.html"
       || pathname === "/pay.css"
@@ -51965,7 +51984,9 @@ async function serveStatic(req, res, url) {
       || pathname === "/favicon.svg"
       || pathname === "/downloads/vipeak-live.apk"
       || pathname.startsWith("/assets/brand/")
-      || pathname.startsWith("/assets/chat-live/gifts/");
+      || pathname.startsWith("/assets/chat-live/gifts/")
+      || pathname.startsWith("/assets/chat-live/moans/")
+      || pathname.startsWith("/assets/chat-live/welcome-newcomer");
     if (!allowedLivePath) return sendText(res, 404, "Not Found");
   }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
@@ -51989,9 +52010,10 @@ async function serveStatic(req, res, url) {
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
   }
-  const filePath = path.normalize(path.join(ROOT, pathname));
-
-  if (!filePath.startsWith(ROOT)) {
+  const staticRoot = liveStaticSurfaceRequest ? LIVE_STATIC_ROOT : ROOT;
+  const filePath = path.normalize(path.join(staticRoot, pathname));
+  const relativePath = path.relative(staticRoot, filePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     return sendText(res, 403, "Forbidden");
   }
 
