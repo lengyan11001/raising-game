@@ -2475,6 +2475,31 @@ async function getUserSpendingRecordsPageFromDb({ userId = "", page = 1, limit =
   return { items: rows.map(ledgerFromRow), total, page: Math.min(safePage, totalPages), limit: safeLimit, totalPages, types: typeRows.rows.map((row) => String(row.type || "")).filter(Boolean) };
 }
 
+async function getSpendingMonthlySummaryFromDb({ userId = "", fromDate = null, toDate = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId || !fromDate || !toDate) return { chatCredits: 0, giftCredits: 0 };
+  const { rows } = await query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type LIKE '%gift%' THEN -delta ELSE 0 END), 0) AS gift_credits,
+      COALESCE(SUM(CASE
+        WHEN (type LIKE 'character_chat%' OR type LIKE 'chat_live%')
+          AND type NOT LIKE '%gift%'
+        THEN -delta ELSE 0 END), 0) AS chat_credits
+    FROM app_credit_ledger
+    WHERE user_id = $1
+      AND created_at >= $2::timestamptz
+      AND created_at < $3::timestamptz
+      AND (type LIKE '%gift%' OR type LIKE 'character_chat%' OR type LIKE 'chat_live%')
+  `, [cleanUserId, new Date(fromDate).toISOString(), new Date(toDate).toISOString()]);
+  const row = rows[0] || {};
+  return {
+    chatCredits: creditNumber(Math.max(0, Number(row.chat_credits || 0))),
+    giftCredits: creditNumber(Math.max(0, Number(row.gift_credits || 0))),
+  };
+}
+
 async function getAdminUserCharactersPageFromDb({ page = 1, limit = 20, queryText = "" } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -6606,6 +6631,7 @@ module.exports = {
   getUserAssetsPageFromDb,
   getUserWalletOrdersPageFromDb,
   getUserSpendingRecordsPageFromDb,
+  getSpendingMonthlySummaryFromDb,
   getAdminUserCharactersPageFromDb,
   getUserCharactersPageFromDb,
   getAdminSupportMessagesPageFromDb,

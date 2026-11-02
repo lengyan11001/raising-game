@@ -171,6 +171,7 @@ const {
   getUserAssetsPageFromDb,
   getUserWalletOrdersPageFromDb,
   getUserSpendingRecordsPageFromDb,
+  getSpendingMonthlySummaryFromDb,
   getAdminUserCharactersPageFromDb,
   getUserCharactersPageFromDb,
   getAdminSupportMessagesPageFromDb,
@@ -43512,6 +43513,37 @@ function dateFromQuery(value, endOfDay = false) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function shanghaiCurrentMonthRange(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now).map((part) => [part.type, part.value]));
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const start = new Date(Date.UTC(year, month - 1, 1) - 8 * 60 * 60 * 1000);
+  const end = new Date(Date.UTC(year, month, 1) - 8 * 60 * 60 * 1000);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+function spendingMonthlySummaryFromEntries(entries = [], range = {}) {
+  const from = Date.parse(range.from || "") || 0;
+  const to = Date.parse(range.to || "") || Number.POSITIVE_INFINITY;
+  let chatCredits = 0;
+  let giftCredits = 0;
+  for (const entry of entries) {
+    const type = String(entry.type || "");
+    if (!type.startsWith("character_chat") && !type.startsWith("chat_live")) continue;
+    const at = Date.parse(entry.createdAt || "");
+    if (Number.isFinite(at) && (at < from || at >= to)) continue;
+    const amount = -Number(entry.delta || 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (/gift/i.test(type)) giftCredits += amount;
+    else chatCredits += amount;
+  }
+  return { chatCredits: creditsAmount(Math.max(0, chatCredits)), giftCredits: creditsAmount(Math.max(0, giftCredits)) };
+}
+
 function recordInDateRange(createdAt, fromDate, toDate) {
   const date = new Date(createdAt || "");
   if (Number.isNaN(date.getTime())) return true;
@@ -43750,11 +43782,15 @@ async function handleListSpendingRecords(req, res, url) {
   if (!auth) return;
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, type, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  const monthRange = shanghaiCurrentMonthRange();
   if (dbEnabled() && !exportCsv) {
     const result = await getUserSpendingRecordsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type, fromDate, toDate });
-    if (result) return sendJson(res, 200, { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, user: userView(auth.user) });
+    const monthlySummary = await getSpendingMonthlySummaryFromDb({ userId: auth.user.id, fromDate: monthRange.from, toDate: monthRange.to });
+    if (result) return sendJson(res, 200, { ok: true, records: result.items.map(publicSpendingLedger), total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages, types: result.types, monthlySummary, user: userView(auth.user) });
   }
-  const records = groupChatLiveSpendingEntries((auth.db.creditLedger || []).filter((entry) => entry.userId === auth.user.id))
+  const rawRecords = (auth.db.creditLedger || []).filter((entry) => entry.userId === auth.user.id);
+  const monthlySummary = spendingMonthlySummaryFromEntries(rawRecords, monthRange);
+  const records = groupChatLiveSpendingEntries(rawRecords)
     .map(publicSpendingLedger)
     .filter((entry) => {
       if (type && String(entry.type || "").toLowerCase() !== type) return false;
@@ -43804,6 +43840,7 @@ async function handleListSpendingRecords(req, res, url) {
     limit,
     totalPages: Math.max(1, Math.ceil(records.length / limit)),
     types,
+    monthlySummary,
     user: userView(auth.user),
   });
 }

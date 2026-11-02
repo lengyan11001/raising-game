@@ -177,6 +177,32 @@ test("wallet history uses one outer card with a stable three-column row layout",
   assert.match(live, /function ledgerRows\(items, empty\)[\s\S]*?<section class="ledger-card ledger-card-basic">/);
 });
 
+test("wallet balance card copies the design labels and renders real monthly stats", () => {
+  assert.match(live, /<section class="pay-hero wallet-hero">/);
+  assert.match(live, /<span>我的积分<\/span>/);
+  assert.match(live, /<small>本月聊天消费<\/small>/);
+  assert.match(live, /<small>本月礼物打赏<\/small>/);
+  assert.match(live, /<small>会员剩余<\/small>/);
+  assert.doesNotMatch(live, /<small>积分\/分钟<\/small>/);
+  assert.doesNotMatch(live, /<small>累计免费<\/small>/);
+  assert.doesNotMatch(live, /<small>扣一次<\/small>/);
+  assert.match(live, /updateWalletMonthlySummary\(data\.monthlySummary\)/);
+  assert.match(css, /\.wallet-hero\{[^}]*padding:16px;border-radius:8px;background:linear-gradient\(90deg,#3a1224,#26162a 55%,#1a1a24\)/);
+  assert.match(css, /\.wallet-stats\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\);gap:10px;margin-top:14px/);
+  assert.match(css, /\.wallet-stats small\{[^}]*font-size:9px/);
+});
+
+test("spending API returns a real current-month summary for the wallet card", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
+  assert.match(server, /function shanghaiCurrentMonthRange\(now = new Date\(\)\)/);
+  assert.match(server, /monthlySummary = await getSpendingMonthlySummaryFromDb/);
+  assert.match(server, /monthlySummary,\n    user: userView\(auth\.user\)/);
+  assert.match(db, /async function getSpendingMonthlySummaryFromDb/);
+  assert.match(db, /type LIKE 'character_chat%' OR type LIKE 'chat_live%'/);
+  assert.match(db, /type LIKE '%gift%'/);
+});
+
 test("wallet history includes paginated spending and check-in records in the same card", () => {
   assert.match(live, /data-action="wallet-history-tab"/);
   assert.match(live, /data-wallet-history-tab="spend"/);
@@ -200,8 +226,8 @@ test("live Android WebView keeps the bottom navigation inside the visual viewpor
   assert.match(live, /function syncAppHeight\(\)/);
   assert.match(live, /window\.visualViewport\?\.addEventListener\("resize", syncAppHeight/);
   assert.match(live, /app\.style\.setProperty\("--live-app-height", `\$\{height\}px`\)/);
-  assert.match(html, /live\.css\?v=2026110202/);
-  assert.match(html, /live\.js\?v=2026110204/);
+  assert.match(html, /live\.css\?v=2026110205/);
+  assert.match(html, /live\.js\?v=2026110205/);
 });
 
 test("live prototype styles and cache keys ship together", () => {
@@ -225,8 +251,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026110202/);
-  assert.match(html, /live\.js\?v=2026110204/);
+  assert.match(html, /live\.css\?v=2026110205/);
+  assert.match(html, /live\.js\?v=2026110205/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 

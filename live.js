@@ -5,7 +5,7 @@
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
-  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createUploading: false, createUploadStage: "", createUploadMessage: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
+  const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createUploading: false, createUploadStage: "", createUploadMessage: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletMonthlySummary: null, walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function syncAppHeight() {
     const viewport = window.visualViewport;
@@ -1922,7 +1922,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b>${rate>0?creditText(rate):"-"}</b><small>积分/分钟</small></div><div><b>${freeSeconds>0?`${freeSeconds} 秒`:"-"}</b><small>累计免费</small></div><div><b>10 秒</b><small>扣一次</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><section class="ledger-card wallet-history-card" data-wallet-history><header class="wallet-history-head"><div><b>历史记录</b><small>积分收支与签到奖励</small></div><div class="wallet-history-tabs" role="tablist" aria-label="历史记录类型"><button type="button" role="tab" aria-selected="true" class="selected" data-action="wallet-history-tab" data-wallet-history-tab="spend">消费</button><button type="button" role="tab" aria-selected="false" data-action="wallet-history-tab" data-wallet-history-tab="checkin">签到</button></div></header><div class="wallet-history-body" data-wallet-history-body data-recent-spend aria-live="polite"><div class="ledger-row"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取消费记录</b><small>每页 10 条</small></div></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero wallet-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b data-wallet-month-chat>${walletCreditText(state.walletMonthlySummary?.chatCredits)}</b><small>本月聊天消费</small></div><div><b data-wallet-month-gift>${walletCreditText(state.walletMonthlySummary?.giftCredits)}</b><small>本月礼物打赏</small></div><div><b data-wallet-member-days>${walletMembershipDaysText()}</b><small>会员剩余</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><section class="ledger-card wallet-history-card" data-wallet-history><header class="wallet-history-head"><div><b>历史记录</b><small>积分收支与签到奖励</small></div><div class="wallet-history-tabs" role="tablist" aria-label="历史记录类型"><button type="button" role="tab" aria-selected="true" class="selected" data-action="wallet-history-tab" data-wallet-history-tab="spend">消费</button><button type="button" role="tab" aria-selected="false" data-action="wallet-history-tab" data-wallet-history-tab="checkin">签到</button></div></header><div class="wallet-history-body" data-wallet-history-body data-recent-spend aria-live="polite"><div class="ledger-row"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取消费记录</b><small>每页 10 条</small></div></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
     loadRecentSpend();
   }
 
@@ -1931,6 +1931,29 @@
   function creditText(value) {
     const rounded = Math.round(Number(value || 0) * 10) / 10;
     return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  }
+  function walletCreditText(value) {
+    if (value === null || value === undefined || value === "") return "-";
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return "-";
+    return Math.max(0, amount).toLocaleString("zh-CN", { maximumFractionDigits: 1 });
+  }
+  function walletMembershipDaysText() {
+    const subscription = state.billing?.subscription;
+    const end = Date.parse(subscription?.currentPeriodEnd || "");
+    if (String(subscription?.status || "").toLowerCase() !== "active" || !Number.isFinite(end)) return "0 天";
+    const remaining = Math.max(0, Math.ceil((end - Date.now()) / 86400000));
+    return `${remaining} 天`;
+  }
+  function updateWalletMonthlySummary(summary = null) {
+    if (!summary || typeof summary !== "object") return;
+    state.walletMonthlySummary = summary;
+    const chat = document.querySelector("[data-wallet-month-chat]");
+    const gift = document.querySelector("[data-wallet-month-gift]");
+    const member = document.querySelector("[data-wallet-member-days]");
+    if (chat) chat.textContent = walletCreditText(summary.chatCredits);
+    if (gift) gift.textContent = walletCreditText(summary.giftCredits);
+    if (member) member.textContent = walletMembershipDaysText();
   }
   function textMessageCredits() {
     if (isLiveMember()) return 0;
@@ -2038,6 +2061,7 @@
       const data = await api(`/api/billing/spending?page=${state.walletSpendPage}&limit=10`);
       state.walletSpendPage = Math.max(1, Number(data.page || 1) || 1);
       state.walletSpendTotalPages = Math.max(1, Number(data.totalPages || 1) || 1);
+      updateWalletMonthlySummary(data.monthlySummary);
       const rows = groupSpend(data.records || []);
       box.innerHTML = ledgerInner(rows, "还没有消费记录", "通话和礼物会记在这里") + spendPager(state.walletSpendPage, state.walletSpendTotalPages);
       if (scrollToLedger) box.closest("[data-wallet-history]")?.scrollIntoView({ behavior: "smooth", block: "start" });
