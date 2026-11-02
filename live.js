@@ -6,6 +6,17 @@
   const loginDialog = document.querySelector("#loginDialog");
   const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function syncAppHeight() {
+    const viewport = window.visualViewport;
+    const height = Math.max(1, Math.round(viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0));
+    if (height) app.style.setProperty("--live-app-height", `${height}px`);
+    document.documentElement.style.setProperty("--live-app-height", `${height || 1}px`);
+  }
+  syncAppHeight();
+  window.addEventListener("resize", syncAppHeight, { passive: true });
+  window.addEventListener("orientationchange", syncAppHeight, { passive: true });
+  window.visualViewport?.addEventListener("resize", syncAppHeight, { passive: true });
+  window.visualViewport?.addEventListener("scroll", syncAppHeight, { passive: true });
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 
   function cleanLanding(value, maxLength = 160) {

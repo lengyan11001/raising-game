@@ -193,6 +193,17 @@ test("wallet history includes paginated spending and check-in records in the sam
   assert.match(css, /\.ledger-pager\{display:flex/);
 });
 
+test("live Android WebView keeps the bottom navigation inside the visual viewport", () => {
+  assert.match(css, /html,body\{[^}]*width:100%;height:100%;[^}]*overflow:hidden/);
+  assert.match(css, /\.live-device\{[^}]*height:var\(--live-app-height,100vh\)[^}]*height:var\(--live-app-height,100dvh\)[^}]*min-height:0/);
+  assert.doesNotMatch(css, /\.live-device\{[^}]*min-height:640px/);
+  assert.match(live, /function syncAppHeight\(\)/);
+  assert.match(live, /window\.visualViewport\?\.addEventListener\("resize", syncAppHeight/);
+  assert.match(live, /app\.style\.setProperty\("--live-app-height", `\$\{height\}px`\)/);
+  assert.match(html, /live\.css\?v=2026110201/);
+  assert.match(html, /live\.js\?v=2026110201/);
+});
+
 test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.companion-guide-card/);
   assert.match(
@@ -214,8 +225,8 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-card-grid/);
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
-  assert.match(html, /live\.css\?v=2026110101/);
-  assert.match(html, /live\.js\?v=2026110101/);
+  assert.match(html, /live\.css\?v=2026110201/);
+  assert.match(html, /live\.js\?v=2026110201/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 
