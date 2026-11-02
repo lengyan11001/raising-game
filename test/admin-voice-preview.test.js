@@ -17,6 +17,8 @@ const currentPreviewFiles = [
   "joanna-scene-23s-a-bfa45922.m4a",
   "joanna-scene-23s-b-5c58fa85.m4a",
   "qwen3-serena-scene-once-cc25477e.m4a",
+  "qwen3-serena-more-moans-a-488ec19b.m4a",
+  "qwen3-serena-more-moans-b-b3ec15c9.m4a",
 ];
 const legacyPreviewFiles = ["joanna-user-rule-e.wav", "joanna-user-rule-f.wav"];
 const referencePreviewFiles = ["joanna-moan-breath-c.wav"];
@@ -61,8 +63,14 @@ test("voice preview lists the complete A/B and Qwen3 recommended candidates", ()
   assert.match(admin, /id: "user-rule-e"/);
   assert.match(admin, /id: "user-rule-f"/);
   assert.match(admin, /id: "qwen3-serena-once"/);
+  assert.match(admin, /id: "qwen3-serena-more-moans-a"/);
+  assert.match(admin, /id: "qwen3-serena-more-moans-b"/);
   assert.match(admin, /qwen3-serena-scene-once-cc25477e\.m4a\?v=20261031-qwen3-serena-once/);
+  assert.match(admin, /qwen3-serena-more-moans-a-488ec19b\.m4a\?v=20261102-qwen3-serena-more-moans-a/);
+  assert.match(admin, /qwen3-serena-more-moans-b-b3ec15c9\.m4a\?v=20261102-qwen3-serena-more-moans-b/);
   assert.match(admin, /Qwen3-TTS Flash 的 Serena 温柔女声/);
+  assert.match(admin, /Qwen3-TTS 多叫声 A/);
+  assert.match(admin, /Qwen3-TTS 多叫声 B/);
   assert.match(admin, /seekMarkers: \[23\.0, 32\.0\]/);
   assert.match(admin, /seekMarkers: \[32\.0, 48\.0\]/);
   assert.match(admin, /joanna-scene-23s-a-bfa45922\.m4a\?v=20261030-voice-preview-12/);
@@ -71,10 +79,14 @@ test("voice preview lists the complete A/B and Qwen3 recommended candidates", ()
   assert.match(admin, /duration: "41\.5 秒"/);
   assert.match(admin, /duration: "46\.8 秒"/);
   assert.match(admin, /duration: "64\.2 秒"/);
+  assert.match(admin, /duration: "51\.8 秒"/);
+  assert.match(admin, /duration: "93\.5 秒"/);
   assert.match(admin, /expectedDuration: 41\.5/);
   assert.match(admin, /expectedDuration: 46\.8/);
   assert.match(admin, /expectedDuration: 64\.16/);
-  assert.match(admin, /保留上一轮两条 Qwen-Audio 连续场景候选，并新增一条 Qwen3-TTS 推荐方案/);
+  assert.match(admin, /expectedDuration: 51\.84/);
+  assert.match(admin, /expectedDuration: 93\.52/);
+  assert.match(admin, /保留上一轮 Qwen-Audio 候选和 Qwen3-TTS Serena 基线，并新增两条多叫声 Qwen3-TTS 候选/);
   assert.match(admin, /data-voice-seek="0"/);
   assert.match(admin, /item\.seekMarkers \|\| \[23\.0, 32\.0\]/);
   assert.match(admin, /data-voice-seek="\$\{escapeHtml\(seekTo\)\}"/);
@@ -106,6 +118,10 @@ test("current audition M4A files and the protected breath reference are valid", 
   for (const fileName of currentPreviewFiles) assertM4a(fileName, 100_000);
   assert.equal(fs.statSync(path.join(previewRoot, "qwen3-serena-scene-once-cc25477e.m4a")).size, 263453);
   assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "qwen3-serena-scene-once-cc25477e.m4a"))).digest("hex"), "cc25477eca45334694af23db0b9e5150c5c08b96eb72b04789295c116712ba4e");
+  assert.equal(fs.statSync(path.join(previewRoot, "qwen3-serena-more-moans-a-488ec19b.m4a")).size, 218631);
+  assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "qwen3-serena-more-moans-a-488ec19b.m4a"))).digest("hex"), "488ec19be1f7e5c5831471984a43f2ef7166775a28cc07ae9da4a71e83ef5895");
+  assert.equal(fs.statSync(path.join(previewRoot, "qwen3-serena-more-moans-b-b3ec15c9.m4a")).size, 385030);
+  assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "qwen3-serena-more-moans-b-b3ec15c9.m4a"))).digest("hex"), "b3ec15c918e9af2c72836bbd23e75270df9bd08f0da13d80ec82b02dfde26f07");
   assertWav("joanna-moan-breath-c.wav", 500_000);
   const digest = crypto.createHash("sha256").update(fs.readFileSync(path.join(previewRoot, "joanna-moan-breath-c.wav"))).digest("hex");
   assert.equal(digest, "a6ea5970aa1e0ebf3e1ffa4dda52d58bec87daec95e1ee78004fffd10888d26e", "approved Joanna breath reference must remain byte-identical");

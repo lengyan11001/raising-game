@@ -54,13 +54,33 @@ const VOICE_PREVIEW_ITEMS = [
   },
   {
     id: "qwen3-serena-once",
-    title: "Qwen3-TTS 推荐方案 · Serena 系统音整段生成",
-    badge: "推荐试听",
-    description: "推荐方案实测：Qwen3-TTS Flash 的 Serena 温柔女声，完整长场景一次连续生成；没有使用旧 Qwen-Audio 克隆音色，也没有逐段剪辑或拼接。对照重点：音色是否稳定、换气和短叫是否自然、句间停顿是否连贯。",
+    title: "Qwen3-TTS 推荐基线 · Serena 系统音整段生成",
+    badge: "基线",
+    description: "上一轮基线：Qwen3-TTS Flash 的 Serena 温柔女声，完整长场景一次连续生成；没有使用旧 Qwen-Audio 克隆音色，也没有逐段剪辑或拼接。用于对照下面两条“多叫声”版本。",
     duration: "64.2 秒",
     expectedDuration: 64.16,
     seekMarkers: [32.0, 48.0],
     src: "/assets/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
+  },
+  {
+    id: "qwen3-serena-more-moans-a",
+    title: "Qwen3-TTS 多叫声 A · Serena 系统音整段生成",
+    badge: "多叫声 A",
+    description: "同一模型、同一 Serena 音色、同样整段一次生成。保留上一版自然的独白，只提高长叫与句中短叫密度；没有剪辑、拼接或手动加音效。时长 51.84 秒。",
+    duration: "51.8 秒",
+    expectedDuration: 51.84,
+    seekMarkers: [16.0, 32.0],
+    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
+  },
+  {
+    id: "qwen3-serena-more-moans-b",
+    title: "Qwen3-TTS 多叫声 B · Serena 系统音整段生成",
+    badge: "多叫声 B",
+    description: "与 A 相同的整段生成方式，进一步增加连续短叫和呼吸停顿。时长 93.52 秒，节奏明显更慢，专门用于对照叫声密度与停顿感；没有剪辑、拼接或补录。",
+    duration: "93.5 秒",
+    expectedDuration: 93.52,
+    seekMarkers: [31.0, 62.0],
+    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
   },
 ];
 
@@ -7011,14 +7031,14 @@ function renderVoicePreview() {
       <div class="adm-page-head">
         <div>
           <h2>亲密语音试听</h2>
-          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。保留上一轮两条 Qwen-Audio 连续场景候选，并新增一条 Qwen3-TTS 推荐方案；全部由完整提示词直接生成，没有逐段剪辑。历史音频已从后台试听页移除。</p>
+          <p class="adm-muted">乔安瑜 · Joanna 亲密语音试听。保留上一轮 Qwen-Audio 候选和 Qwen3-TTS Serena 基线，并新增两条多叫声 Qwen3-TTS 候选；全部由完整提示词直接生成，没有逐段剪辑。历史音频已从后台试听页移除。</p>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-head">
           <div>
             <h3>本轮重点</h3>
-            <p class="adm-muted">上轮两条沿用长场景中 23 秒“啊……别看我”那版提示词结构整段生成；新增的 Qwen3-TTS 推荐方案换用 Serena 系统音做同一类连续场景。先完整听 Qwen3 这条，再对照旧候选判断音色、呼吸和句间连贯性。</p>
+            <p class="adm-muted">先听上轮 Qwen3-TTS Serena 基线，再对照新的多叫声 A/B。三条使用同一模型和音色、均为整段生成；A 保持较短节奏，B 有意放慢并增加连续短叫，重点判断叫声是否自然、独白是否仍然顺滑。</p>
           </div>
         </div>
       </div>
