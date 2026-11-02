@@ -9,6 +9,7 @@ const vm = require("node:vm");
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "..", "admin.css"), "utf8");
 const html = fs.readFileSync(path.join(__dirname, "..", "admin.html"), "utf8");
+const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 
 function extractFunction(name) {
   const start = admin.indexOf(`function ${name}(`);
@@ -120,9 +121,17 @@ test("media lightbox supports full-size image and playable video previews", () =
   assert.match(css, /\.adm-geo-sample-card > \.adm-media-preview-trigger\s*\{[\s\S]*?aspect-ratio:\s*9\s*\/\s*13/);
 });
 
-test("admin entry busts cached preview assets and disables edge caching", () => {
-  assert.match(html, /admin\.css\?v=20261031-membership-users-1/);
-  assert.match(html, /admin\.js\?v=20261031-membership-users-1/);
+test("admin HTML derives asset versions from admin.css and admin.js content", () => {
+  assert.match(html, /admin\.css\?v=/);
+  assert.match(html, /admin\.js\?v=/);
+  assert.match(server, /const ADMIN_ASSET_VERSION = crypto[\s\S]*?admin\.css[\s\S]*?admin\.js[\s\S]*?slice\(0, 12\)/);
+  const renderStart = server.indexOf("function renderAdminHtml(");
+  const renderEnd = server.indexOf("async function serveStatic(", renderStart);
+  assert.ok(renderStart >= 0 && renderEnd > renderStart);
+  const renderSource = server.slice(renderStart, renderEnd);
+  assert.match(renderSource, /admin[\s\S]*?ADMIN_ASSET_VERSION/);
+  assert.match(server, /function sendAdminHtml[\s\S]*?cache-control": "no-store, no-cache, must-revalidate, max-age=0"/);
+  assert.match(server, /path\.join\(ROOT, "admin\.html"\)[\s\S]*?sendAdminHtml/);
   assert.match(admin, /function adminMediaPreviewTrigger/);
   assert.match(css, /\.adm-media-lightbox/);
 });

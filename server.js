@@ -368,6 +368,13 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "chat.js",
   "chat-live.js",
 ]);
+const ADMIN_ASSET_VERSION = crypto
+  .createHash("sha256")
+  .update(fsSync.readFileSync(path.join(ROOT, "admin.css")))
+  .update("\0")
+  .update(fsSync.readFileSync(path.join(ROOT, "admin.js")))
+  .digest("hex")
+  .slice(0, 12);
 let platformAssetVersionPromise = null;
 const TOOL_VIDEO_STYLE_VERSION = crypto
   .createHash("sha256")
@@ -51489,6 +51496,28 @@ function privateStaticPath(pathname = "") {
     || ["/.git/", "/data/", "/mobile/", "/scripts/", "/test/", "/tmp/"].some((prefix) => normalized.startsWith(prefix));
 }
 
+function renderAdminHtml(html = "") {
+  return String(html).replace(
+    /(\.\/admin\.(?:css|js))\?v=[^"'\s>]*/g,
+    (_match, assetPath) => `${assetPath}?v=${ADMIN_ASSET_VERSION}`,
+  );
+}
+
+async function sendAdminHtml(req, res, filePath) {
+  const html = renderAdminHtml(await fs.readFile(filePath, "utf8"));
+  const body = Buffer.from(html);
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "content-length": body.length,
+    "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+    pragma: "no-cache",
+    expires: "0",
+    "cdn-cache-control": "no-store",
+    "cloudflare-cdn-cache-control": "no-store",
+  });
+  res.end(req.method === "HEAD" ? undefined : body);
+}
+
 async function serveStatic(req, res, url) {
   const chatTenantRequest = requestTenantDescriptor(req).toolId === "chat";
   const liveTenantRequest = requestTenantDescriptor(req).toolId === "live";
@@ -51578,6 +51607,9 @@ async function serveStatic(req, res, url) {
 
   if (req.method === "GET" && path.normalize(filePath) === path.normalize(path.join(ROOT, "platform.html"))) {
     return await servePlatformHtmlWithGeo(req, res);
+  }
+  if (path.normalize(filePath) === path.normalize(path.join(ROOT, "admin.html"))) {
+    return await sendAdminHtml(req, res, filePath);
   }
 
   try {
