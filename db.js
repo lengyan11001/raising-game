@@ -572,6 +572,7 @@ async function ensureSchemaInner() {
     );
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_conversation_created_id_idx ON app_chat_messages (user_id, conversation_id, created_at ASC, id ASC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_chat_live_characters (
@@ -2880,6 +2881,30 @@ async function listChatMessagesInDb(conversationId = "", userId = "", limit = 20
     ) recent_messages
     ORDER BY created_at ASC
   `, [String(conversationId || ""), String(userId || ""), Math.max(1, Math.min(500, Number(limit || 200) || 200))]);
+  return rows.map((row) => row.payload || {});
+}
+
+async function listChatMessagesAfterInDb(conversationId = "", userId = "", afterCreatedAt = "", afterId = "", limit = 200) {
+  if (!dbEnabled()) return [];
+  const cleanAfter = String(afterCreatedAt || "").trim();
+  if (!cleanAfter) return listChatMessagesInDb(conversationId, userId, limit);
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_messages
+    WHERE user_id = $2 AND conversation_id = $1
+      AND (
+        created_at > $3::timestamptz
+        OR (created_at = $3::timestamptz AND id > $4)
+      )
+    ORDER BY created_at ASC, id ASC
+    LIMIT $5
+  `, [
+    String(conversationId || ""),
+    String(userId || ""),
+    cleanAfter,
+    String(afterId || ""),
+    Math.max(1, Math.min(500, Number(limit || 200) || 200)),
+  ]);
   return rows.map((row) => row.payload || {});
 }
 
@@ -6624,6 +6649,7 @@ module.exports = {
   getGuideStateInDb,
   upsertGuideStateInDb,
   listChatMessagesInDb,
+  listChatMessagesAfterInDb,
   insertChatMessageInDb,
   insertChatMessagesIfAbsentInDb,
   updateChatMessageInDb,

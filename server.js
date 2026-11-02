@@ -212,6 +212,7 @@ const {
   getGuideStateInDb,
   upsertGuideStateInDb,
   listChatMessagesInDb,
+  listChatMessagesAfterInDb,
   insertChatMessageInDb,
   insertChatMessagesIfAbsentInDb,
   updateChatMessageInDb,
@@ -21282,6 +21283,31 @@ async function handleGetChatConversation(req, res, conversationId) {
   const messages = await listChatMessagesInDb(conversation.id, auth.user.id, 300);
   const relationship = await getCharacterRelationshipInDb(auth.user.id, conversation.characterId || conversation.character?.id || "");
   return sendJson(res, 200, { ok: true, conversation: publicChatConversation({ ...conversation, relationship: publicCharacterRelationship(relationship, conversation.characterId) }), messages: messages.map(publicChatMessage) });
+}
+
+async function handleGetChatConversationMessages(req, res, conversationId, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conversation = await getChatConversationInDb(conversationId, auth.user.id);
+  if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
+  const after = String(url.searchParams.get("after") || "").trim();
+  const afterId = String(url.searchParams.get("afterId") || "").trim();
+  const requestedLimit = Number(url.searchParams.get("limit") || 200) || 200;
+  const limit = Math.max(1, Math.min(200, requestedLimit));
+  if (after && Number.isNaN(new Date(after).getTime())) {
+    return sendJson(res, 400, { ok: false, code: "CHAT_CURSOR_INVALID", message: "Invalid message cursor." });
+  }
+  const messages = await listChatMessagesAfterInDb(conversation.id, auth.user.id, after, afterId, limit + 1);
+  const hasMore = messages.length > limit;
+  const page = (hasMore ? messages.slice(0, limit) : messages).map(publicChatMessage);
+  const last = page[page.length - 1];
+  return sendJson(res, 200, {
+    ok: true,
+    conversation: publicChatConversation(conversation),
+    messages: page,
+    hasMore,
+    latestCursor: last ? { createdAt: last.createdAt || "", id: last.id || "" } : null,
+  });
 }
 
 async function handleUpdateChatConversation(req, res, conversationId) {
@@ -51972,6 +51998,9 @@ async function handleRequest(req, res) {
       return await handleDeleteChatMessage(req, res, decodeURIComponent(chatSingleMessageMatch[1]), decodeURIComponent(chatSingleMessageMatch[2]));
     }
     const chatMessageMatch = url.pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages\/?$/);
+    if (req.method === "GET" && chatMessageMatch) {
+      return await handleGetChatConversationMessages(req, res, decodeURIComponent(chatMessageMatch[1]), url);
+    }
     if (req.method === "POST" && chatMessageMatch) {
       return await handleSendChatMessage(req, res, decodeURIComponent(chatMessageMatch[1]));
     }

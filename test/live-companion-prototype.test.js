@@ -201,7 +201,7 @@ test("live Android WebView keeps the bottom navigation inside the visual viewpor
   assert.match(live, /window\.visualViewport\?\.addEventListener\("resize", syncAppHeight/);
   assert.match(live, /app\.style\.setProperty\("--live-app-height", `\$\{height\}px`\)/);
   assert.match(html, /live\.css\?v=2026110201/);
-  assert.match(html, /live\.js\?v=2026110202/);
+  assert.match(html, /live\.js\?v=2026110203/);
 });
 
 test("live prototype styles and cache keys ship together", () => {
@@ -226,7 +226,7 @@ test("live prototype styles and cache keys ship together", () => {
   assert.match(css, /\.create-visibility-tip/);
   assert.match(css, /\.companion-stage-row/);
   assert.match(html, /live\.css\?v=2026110201/);
-  assert.match(html, /live\.js\?v=2026110202/);
+  assert.match(html, /live\.js\?v=2026110203/);
   assert.match(html, /chat-live\.js\?v=chat-inline-20261030-4/);
 });
 

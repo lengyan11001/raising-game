@@ -1,5 +1,6 @@
 (() => {
   const TOKEN_KEY = "raisingGameToken";
+  const MESSAGE_CACHE_USER_KEY = "vipeakMessageCacheUserV1";
   const REFERRAL_KEY = "vipeakReferralCode";
   const LANDING_KEY = "vipeakLanding";
   const app = document.querySelector("#liveApp");
@@ -18,6 +19,82 @@
   window.visualViewport?.addEventListener("resize", syncAppHeight, { passive: true });
   window.visualViewport?.addEventListener("scroll", syncAppHeight, { passive: true });
   const token = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
+  const MESSAGE_CACHE_VERSION = 1;
+  const MESSAGE_CACHE_PREFIX = "vipeakMessageCacheV1";
+  const MESSAGE_CACHE_MAX_THREADS = 100;
+  const MESSAGE_CACHE_MAX_MESSAGES = 300;
+
+  function messageCacheUserId() {
+    const current = String(state.user?.id || "").trim();
+    if (current) {
+      try { localStorage.setItem(MESSAGE_CACHE_USER_KEY, current); } catch {}
+      return current;
+    }
+    try { return String(localStorage.getItem(MESSAGE_CACHE_USER_KEY) || "").trim(); } catch { return ""; }
+  }
+  function rememberMessageCacheUser(user = {}) {
+    const id = String(user?.id || "").trim();
+    if (!id) return;
+    try { localStorage.setItem(MESSAGE_CACHE_USER_KEY, id); } catch {}
+  }
+  function messageCacheKey(kind, conversationId = "") {
+    const userId = messageCacheUserId();
+    if (!userId) return "";
+    return `${MESSAGE_CACHE_PREFIX}:${userId}:${kind}${conversationId ? `:${conversationId}` : ""}`;
+  }
+  function readMessageCache(key, fallback = null) {
+    if (!key) return fallback;
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || "null");
+      return value && value.version === MESSAGE_CACHE_VERSION ? value.data : fallback;
+    } catch { return fallback; }
+  }
+  function writeMessageCache(key, data) {
+    if (!key || !data) return;
+    try { localStorage.setItem(key, JSON.stringify({ version: MESSAGE_CACHE_VERSION, data })); } catch {}
+  }
+  function clearMessageCache() {
+    try {
+      for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+        const key = localStorage.key(index);
+        if (key?.startsWith(`${MESSAGE_CACHE_PREFIX}:`)) localStorage.removeItem(key);
+      }
+      localStorage.removeItem(MESSAGE_CACHE_USER_KEY);
+    } catch {}
+  }
+  function mergeChatMessages(...lists) {
+    const merged = new Map();
+    for (const list of lists) {
+      for (const message of Array.isArray(list) ? list : []) {
+        if (!message?.id) continue;
+        merged.set(String(message.id), message);
+      }
+    }
+    return [...merged.values()]
+      .sort((a, b) => {
+        const at = new Date(a.createdAt || 0).getTime() || 0;
+        const bt = new Date(b.createdAt || 0).getTime() || 0;
+        return at - bt || String(a.id).localeCompare(String(b.id));
+      })
+      .slice(-MESSAGE_CACHE_MAX_MESSAGES);
+  }
+  function readThreadCache() {
+    const cached = readMessageCache(messageCacheKey("threads"), null);
+    return Array.isArray(cached?.conversations) ? cached.conversations : [];
+  }
+  function writeThreadCache(conversations = []) {
+    writeMessageCache(messageCacheKey("threads"), { conversations: conversations.slice(0, MESSAGE_CACHE_MAX_THREADS) });
+  }
+  function readConversationCache(conversationId = "") {
+    return readMessageCache(messageCacheKey("conversation", String(conversationId || "")), null);
+  }
+  function writeConversationCache(conversationId = "", conversation = {}, messages = []) {
+    if (!conversationId) return;
+    writeMessageCache(messageCacheKey("conversation", String(conversationId)), {
+      conversation: conversation || {},
+      messages: mergeChatMessages(messages),
+    });
+  }
 
   function cleanLanding(value, maxLength = 160) {
     return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -64,6 +141,7 @@
   function handleSessionReplaced(payload = {}) {
     const message = String(payload?.message || "这个账号已在另一台设备登录，请重新登录。");
     try { localStorage.removeItem(TOKEN_KEY); } catch {}
+    clearMessageCache();
     state.user = null;
     state.billing = null;
     state.companionLevel = null;
@@ -376,12 +454,18 @@
   async function refreshThreads() {
     const seq = ++threadRefreshSeq;
     if (!token()) return;
+    const cached = readThreadCache();
+    if (cached.length && !state.conversations.length) {
+      state.conversations = cached;
+      if (state.page === "messages") messages({ quiet: true });
+    }
     try {
       const listed = (await api("/api/chat/conversations")).conversations || [];
       let contacts = [];
       try { contacts = (await api("/api/chat-live/contacts")).contacts || []; } catch {}
       if (seq !== threadRefreshSeq) return;
       state.conversations = groupCharacterThreads(listed, contacts);
+      writeThreadCache(state.conversations);
       if (state.page === "messages") messages({ quiet: true });
     } catch {}
   }
@@ -403,6 +487,10 @@
   });
 
   function messages(options = {}) {
+    if (!options.quiet && !state.conversations.length) {
+      const cached = readThreadCache();
+      if (cached.length) state.conversations = cached;
+    }
     if (!options.quiet) refreshThreads();
     const rows = state.conversations.map((c) => {
       const name = c.character?.name || c.title || "未命名对话";
@@ -1247,57 +1335,109 @@
       if (!burst.blocked && burst.pending.length) scheduleTextChatBurst(conversationId);
     }
   }
-  function renderTextChatThread(messages, avatar, name) {
+  function applyTextChatMetadata(conversation = {}, fallback = {}) {
+    const character = conversation.character || fallback.character || state.role || {};
+    const name = character.name || conversation.title || fallback.name || "对话";
+    const photo = rolePhoto(character) || character.posterUrl || character.characterImageUrl || fallback.photo || "";
+    const id = conversation.characterId || character.id || fallback.characterId || "";
+    const peer = document.querySelector(".chat-peer");
+    const video = document.querySelector(".chat-video");
+    const relationship = document.querySelector(".chat-relationship-strip");
+    if (peer) { peer.dataset.characterId = id || ""; peer.querySelector("b").textContent = name; peer.querySelector(".chat-avatar").innerHTML = media(photo, name); }
+    if (video) video.dataset.callId = id || "";
+    if (relationship) relationship.dataset.characterId = id || "";
+    const thread = document.querySelector("[data-text-thread]");
+    if (photo && thread) thread.style.backgroundImage = `linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${photo}')`;
+    return { id, name, photo, avatar: media(photo, name) };
+  }
+  function renderTextChatThread(messages, avatar, name, options = {}) {
     const thread = document.querySelector("[data-text-thread]");
     if (!thread) return;
+    const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 96;
     const pending = textChatBurstState(state.textChatId).pending.map((item) => renderChatItem({ role: "user", content: item }, avatar, name)).join("");
     const next = messages.map((item) => renderChatItem(item, avatar, name)).join("") + pending || `<p class="detail-empty">开始和 TA 聊聊。</p>`;
     if (thread.innerHTML !== next) thread.innerHTML = next;
-    thread.scrollTo(0, thread.scrollHeight);
+    if (options.forceBottom === true || (options.autoScroll !== false && nearBottom)) thread.scrollTo(0, thread.scrollHeight);
+  }
+  let textChatRefreshSeq = 0;
+  async function fetchTextChatNewMessages(conversationId, cachedMessages = []) {
+    const latest = cachedMessages[cachedMessages.length - 1];
+    if (!cachedMessages.length || !latest?.createdAt) {
+      return { full: true, payload: await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}`) };
+    }
+    const fetched = [];
+    let conversation = null;
+    let cursor = latest;
+    let hasMore = false;
+    for (let page = 0; page < 10; page += 1) {
+      const query = new URLSearchParams({ after: cursor.createdAt || "", afterId: cursor.id || "", limit: "200" });
+      const payload = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`);
+      if (payload.conversation) conversation = payload.conversation;
+      const rows = Array.isArray(payload.messages) ? payload.messages : [];
+      fetched.push(...rows);
+      hasMore = payload.hasMore === true;
+      const nextCursor = rows[rows.length - 1];
+      if (!hasMore || !nextCursor) break;
+      cursor = nextCursor;
+    }
+    return { full: false, conversation, messages: fetched, hasMore, latestCursor: fetched[fetched.length - 1] || null };
   }
   async function refreshTextChatMessages(conversationId, avatar = "", name = "") {
     if (state.page !== "text-chat" || state.textChatId !== conversationId) return;
-    const payload = await api(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
-    if (state.page !== "text-chat" || state.textChatId !== conversationId) return;
-    const messages = payload.messages || [];
-    const conversation = payload.conversation || {};
-    const character = conversation.character || state.role || {};
-    const peerName = name || character.name || conversation.title || document.querySelector(".chat-peer b")?.textContent || "对话";
-    const peerAvatar = avatar || media(rolePhoto(character) || conversationAvatar(conversation) || rolePhoto(state.role), peerName);
-    renderTextChatThread(messages, peerAvatar, peerName);
+    const requestSeq = ++textChatRefreshSeq;
+    const cached = readConversationCache(conversationId) || {};
+    const cachedMessages = Array.isArray(cached.messages) ? cached.messages : [];
+    try {
+      const result = await fetchTextChatNewMessages(conversationId, cachedMessages);
+      if (requestSeq !== textChatRefreshSeq || state.page !== "text-chat" || state.textChatId !== conversationId) return;
+      const payload = result.full ? result.payload : result;
+      const conversation = payload.conversation || cached.conversation || {};
+      const incoming = Array.isArray(payload.messages) ? payload.messages : [];
+      const merged = result.full ? incoming : mergeChatMessages(cachedMessages, incoming);
+      if (!result.full && payload.latestCursor && !incoming.some((item) => String(item.id) === String(payload.latestCursor.id))) {
+        const previous = cachedMessages.find((item) => String(item.id) === String(payload.latestCursor.id));
+        if (previous) merged.push(previous);
+      }
+      const character = conversation.character || state.role || {};
+      const peerName = name || character.name || conversation.title || document.querySelector(".chat-peer b")?.textContent || "对话";
+      const peerPhoto = avatar || media(rolePhoto(character) || conversationAvatar(conversation) || rolePhoto(state.role), peerName);
+      applyTextChatMetadata(conversation, { name: peerName, photo: rolePhoto(character), characterId: character.id || "" });
+      writeConversationCache(conversationId, conversation, merged);
+      if (result.full || incoming.length || !cachedMessages.length) {
+        renderTextChatThread(merged, peerPhoto, peerName, { autoScroll: true, forceBottom: !cachedMessages.length });
+      }
+    } catch (error) {
+      if (requestSeq !== textChatRefreshSeq || state.page !== "text-chat" || state.textChatId !== conversationId) return;
+      if (!cachedMessages.length) {
+        const thread = document.querySelector("[data-text-thread]");
+        if (thread) thread.innerHTML = `<p class="detail-empty">${esc(error.message)}</p>`;
+      }
+    }
   }
   async function showTextChat(options = {}) {
     if (!state.textChatId) { state.page = "messages"; render(); return; }
-    const known = state.conversations.find((item) => String(item.id) === String(state.textChatId));
-    const knownName = known?.character?.name || known?.title || state.role?.name || "对话";
-    const knownPhoto = conversationAvatar(known || { character: state.role, characterId: state.role?.id }) || rolePhoto(state.role);
-    const characterId = known?.characterId || known?.character?.id || state.role?.id || "";
-    app.innerHTML = `<main class="live-page text-chat-page"><header class="chat-head"><button type="button" data-action="back-messages" aria-label="返回">${uiIcon("back")}</button><button type="button" class="chat-peer" data-character-id="${esc(characterId)}"><span class="chat-avatar">${media(knownPhoto, knownName)}</span><span><b>${esc(knownName)}</b><small>在线 · AI 陪伴</small></span></button><button type="button" class="chat-video" data-call-id="${esc(characterId)}">${uiIcon("video")}<span>视频</span></button></header><button type="button" class="chat-relationship-strip" data-action="relationship" data-character-id="${esc(characterId)}"><span>${uiIcon("heart")}</span><b>亲密度</b><small data-relationship-summary>每天来聊一会儿，关系会慢慢变化</small>${uiIcon("chev")}</button><div class="text-thread" data-text-thread style="${knownPhoto ? `background-image:linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${esc(knownPhoto)}')` : ""}"><p class="detail-empty">正在读取对话…</p></div><button type="button" class="gift-fab" data-action="open-text-gifts"><span class="gift-badge">礼</span>${uiIcon("gift")}<span>送礼物</span></button><form class="text-composer" data-text-form><button type="button" class="mic-btn" data-action="text-mic" aria-label="语音">${uiIcon("mic")}</button><input name="content" maxlength="4000" placeholder="说点什么…" autocomplete="off" required /><button type="submit">发送</button><p data-text-error></p></form></main>`;
-    try {
-      const payload = await api(`/api/chat/conversations/${encodeURIComponent(state.textChatId)}`);
-      const messages = payload.messages || [];
-      const character = payload.conversation?.character || known?.character || state.role || {};
-      const name = character.name || payload.conversation?.title || knownName;
-      const photo = rolePhoto(character) || character.posterUrl || character.characterImageUrl || knownPhoto;
-      const id = payload.conversation?.characterId || character.id || characterId;
-      const peer = document.querySelector(".chat-peer");
-      const video = document.querySelector(".chat-video");
-      const relationship = document.querySelector(".chat-relationship-strip");
-      if (peer) { peer.dataset.characterId = id || ""; peer.querySelector("b").textContent = name; peer.querySelector(".chat-avatar").innerHTML = media(photo, name); }
-      if (video) video.dataset.callId = id || "";
-      if (relationship) relationship.dataset.characterId = id || "";
+    const conversationId = String(state.textChatId);
+    const known = state.conversations.find((item) => String(item.id) === conversationId);
+    const cached = readConversationCache(conversationId) || {};
+    const cachedConversation = cached.conversation || known || {};
+    const cachedMessages = Array.isArray(cached.messages) ? cached.messages : [];
+    const metadataCharacter = cachedConversation.character || known?.character || state.role || {};
+    const knownName = metadataCharacter.name || cachedConversation.title || known?.title || state.role?.name || "对话";
+    const knownPhoto = rolePhoto(metadataCharacter) || conversationAvatar(cachedConversation) || conversationAvatar(known || { character: state.role, characterId: state.role?.id }) || rolePhoto(state.role);
+    const characterId = cachedConversation.characterId || metadataCharacter.id || known?.characterId || known?.character?.id || state.role?.id || "";
+    app.innerHTML = `<main class="live-page text-chat-page"><header class="chat-head"><button type="button" data-action="back-messages" aria-label="返回">${uiIcon("back")}</button><button type="button" class="chat-peer" data-character-id="${esc(characterId)}"><span class="chat-avatar">${media(knownPhoto, knownName)}</span><span><b>${esc(knownName)}</b><small>在线 · AI 陪伴</small></span></button><button type="button" class="chat-video" data-call-id="${esc(characterId)}">${uiIcon("video")}<span>视频</span></button></header><button type="button" class="chat-relationship-strip" data-action="relationship" data-character-id="${esc(characterId)}"><span>${uiIcon("heart")}</span><b>亲密度</b><small data-relationship-summary>每天来聊一会儿，关系会慢慢变化</small>${uiIcon("chev")}</button><div class="text-thread" data-text-thread style="${knownPhoto ? `background-image:linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${esc(knownPhoto)}')` : ""}">${cachedMessages.length ? "" : '<p class="detail-empty">正在读取对话…</p>'}</div><button type="button" class="gift-fab" data-action="open-text-gifts"><span class="gift-badge">礼</span>${uiIcon("gift")}<span>送礼物</span></button><form class="text-composer" data-text-form><button type="button" class="mic-btn" data-action="text-mic" aria-label="语音">${uiIcon("mic")}</button><input name="content" maxlength="4000" placeholder="说点什么…" autocomplete="off" required /><button type="submit">发送</button><p data-text-error></p></form></main>`;
+    if (cachedMessages.length) {
+      const avatar = media(knownPhoto, knownName);
+      renderTextChatThread(cachedMessages, avatar, knownName, { forceBottom: true });
+    }
+    refreshTextChatMessages(conversationId, "", knownName).catch(() => {});
+    if (characterId) {
       try {
-        const status = (await api(`/api/companion/relationship/${encodeURIComponent(id)}`)).relationship || {};
+        const status = (await api(`/api/companion/relationship/${encodeURIComponent(characterId)}`)).relationship || {};
+        if (state.page !== "text-chat" || state.textChatId !== conversationId) return;
         const summary = document.querySelector("[data-relationship-summary]");
         if (summary && status.stage) summary.textContent = `当前 ${status.stage} · ${status.stageDescription || "关系会随着相处慢慢变化"}`;
       } catch {}
-      const thread = document.querySelector("[data-text-thread]");
-      if (photo && thread) thread.style.backgroundImage = `linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${photo}')`;
-      const avatar = media(photo, name);
-      renderTextChatThread(messages, avatar, name);
-    } catch (error) {
-      const thread = document.querySelector("[data-text-thread]");
-      if (thread) thread.innerHTML = `<p class="detail-empty">${esc(error.message)}</p>`;
     }
   }
 
@@ -1483,7 +1623,7 @@
   }
   async function finishLogin(nextToken, user) {
     localStorage.setItem(TOKEN_KEY, nextToken);
-    if (user) state.user = user;
+    if (user) { state.user = user; rememberMessageCacheUser(user); }
     const locked = loginDialog?.dataset.locked === "1";
     const id = loginDialog?.dataset.pending || "";
     const roomId = loginDialog?.dataset.pendingRoom || "";
@@ -2283,8 +2423,11 @@
       try {
         const session = await api("/api/auth/me");
         state.user = session.user || null;
+        if (state.user) rememberMessageCacheUser(state.user);
         if (!state.user) {
           localStorage.removeItem(TOKEN_KEY);
+          clearMessageCache();
+          state.conversations = [];
           state.companionLevel = null;
           state.billing = null;
           render();
@@ -2310,10 +2453,13 @@
         let contacts = [];
         try { contacts = (await api("/api/chat-live/contacts")).contacts || []; } catch {}
         state.conversations = groupCharacterThreads(listed, contacts);
+        writeThreadCache(state.conversations);
       } catch (error) {
         if (error.status === 401) {
           localStorage.removeItem(TOKEN_KEY);
+          clearMessageCache();
           state.user = null;
+          state.conversations = [];
           state.companionLevel = null;
           state.billing = null;
           render();
@@ -2641,7 +2787,7 @@ document.addEventListener("click", async (e) => {
       return;
     }
     if (a === "login") return askLogin();
-    if (a === "account") { if (!token()) return askLogin(); api("/api/auth/logout", { method: "POST" }).catch(() => {}); localStorage.removeItem(TOKEN_KEY); state.user = null; state.billing = null; state.page = "profile"; resetLoginDialog(); render(); }
+    if (a === "account") { if (!token()) return askLogin(); api("/api/auth/logout", { method: "POST" }).catch(() => {}); localStorage.removeItem(TOKEN_KEY); clearMessageCache(); state.user = null; state.conversations = []; state.billing = null; state.page = "profile"; resetLoginDialog(); render(); }
     if (a === "submit-profile") document.querySelector("#profileEditForm")?.requestSubmit();
     if (a === "shuffle-interests") { render(); }
   });
