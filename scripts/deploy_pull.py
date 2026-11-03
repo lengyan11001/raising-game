@@ -429,12 +429,12 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 git fetch origin {args.branch}{(" " + shlex.quote(args.audit_base)) if args.audit_base else ""}
 {forbidden_path_check}
-if git show-ref --verify --quiet refs/heads/{args.branch}; then
-  git checkout {args.branch}
-else
-  git checkout -b {args.branch} "origin/{args.branch}"
-fi
-git pull --ff-only origin {args.branch}
+# Release branches are generated snapshots, not conventional histories. After
+# a force-updated snapshot, the server's old local branch intentionally diverges
+# from the pushed branch. Check out the exact fetched release commit instead of
+# trying to merge or fast-forward the stale local branch.
+release_target=$(git rev-parse "origin/{args.branch}")
+git checkout --detach "$release_target"
 {pre_restart_check}
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
