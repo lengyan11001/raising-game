@@ -26,7 +26,8 @@ test("fresh server detail overrides stale local task status", () => {
   const merge = create.match(/function mergeAdvancedResultRecord\(record = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(merge, "mergeAdvancedResultRecord should exist");
   assert.match(merge, /const merged = previous \? \{ \.\.\.previous, \.\.\.record \} : record;/);
-  assert.match(merge, /\[merged, \.\.\.existing\.filter/);
+  assert.match(merge, /sortAdvancedResultRecords\(/);
+  assert.doesNotMatch(merge, /slice\(0, 6\)/);
 });
 
 test("advanced result entry has no duplicate detail request", () => {

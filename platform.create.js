@@ -415,6 +415,25 @@ function renderAdvancedAssets(assets) {
   refreshIcons();
 }
 
+function advancedResultRecordTimestamp(record = {}) {
+  const parseTime = (value) => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    const parsed = Date.parse(String(value || ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  return parseTime(record.createdAt || record.created_at)
+    || parseTime(record.updatedAt || record.updated_at)
+    || 0;
+}
+
+function sortAdvancedResultRecords(records = []) {
+  return [...records].sort((left, right) => {
+    const timeDifference = advancedResultRecordTimestamp(right) - advancedResultRecordTimestamp(left);
+    if (timeDifference) return timeDifference;
+    return String(right?.taskId || "").localeCompare(String(left?.taskId || ""));
+  });
+}
+
 function mergeAdvancedResultRecord(record = {}) {
   if (!record?.taskId) return;
   const existing = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
@@ -422,7 +441,12 @@ function mergeAdvancedResultRecord(record = {}) {
   // Detail responses are authoritative. Preserve fields omitted by a partial
   // update, but always take the latest server status and download readiness.
   const merged = previous ? { ...previous, ...record } : record;
-  state.advancedResultRecords = [merged, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
+  // A detail refresh must never change chronological order. Otherwise an old
+  // task that happens to finish last jumps ahead of newly submitted tasks.
+  state.advancedResultRecords = sortAdvancedResultRecords([
+    merged,
+    ...existing.filter((item) => item.taskId !== record.taskId),
+  ]);
 }
 
 function advancedResultRefreshTaskIds() {
@@ -439,7 +463,7 @@ function advancedResultRefreshTaskIds() {
   // Refresh that row once from its detail endpoint instead of trusting stale
   // status stored in the browser.
   advancedResultHistoryFallbackRecords().forEach((record) => pushTaskId(record.taskId));
-  return taskIds.slice(0, 6);
+  return taskIds;
 }
 
 function syncAdvancedResultTaskId() {
@@ -457,8 +481,7 @@ function advancedResultHistoryFallbackRecords() {
       || record?.downloadUrl
       || record?.textResult
       || record?.responseText
-    ))
-    .slice(0, 1);
+    ));
 }
 
 function advancedResultKind(record = {}) {
@@ -490,10 +513,21 @@ function advancedResultKind(record = {}) {
   return "video";
 }
 
-function advancedResultVisibleRecords() {
+function advancedResultDisplayRecords() {
   const current = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
-  const records = current.length ? current : advancedResultHistoryFallbackRecords();
-  return records.filter((record) => advancedResultKind(record) === (state.advancedResultMediaKind || "video"));
+  const history = advancedResultHistoryFallbackRecords();
+  const byTaskId = new Map();
+  [...current, ...history].forEach((record) => {
+    const taskId = String(record?.taskId || "");
+    if (!taskId) return;
+    byTaskId.set(taskId, { ...(byTaskId.get(taskId) || {}), ...record });
+  });
+  return sortAdvancedResultRecords([...byTaskId.values()]);
+}
+
+function advancedResultVisibleRecords() {
+  return advancedResultDisplayRecords()
+    .filter((record) => advancedResultKind(record) === (state.advancedResultMediaKind || "video"));
 }
 
 function renderAdvancedResultPanel() {
@@ -617,13 +651,9 @@ function renderAdvancedResultPanel() {
 const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 * 1000;
 
 function advancedResultPendingRecords() {
-  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
-  const fallback = advancedResultHistoryFallbackRecords();
-  const seen = new Set();
-  return [...records, ...fallback].filter((record) => {
+  return advancedResultDisplayRecords().filter((record) => {
     const taskId = String(record?.taskId || "").trim();
-    if (!taskId || taskId.startsWith("pending-") || seen.has(taskId)) return false;
-    seen.add(taskId);
+    if (!taskId || taskId.startsWith("pending-")) return false;
     return isPendingGenerationRecord(record);
   });
 }

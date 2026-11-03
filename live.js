@@ -6,6 +6,105 @@
   const app = document.querySelector("#liveApp");
   const loginDialog = document.querySelector("#loginDialog");
   const state = { chars: [], rooms: [], config: null, user: null, conversations: [], billing: null, page: "home", category: "", role: null, language: localStorage.getItem("vipeakLanguage") || "zh", filters: { age: "", gender: "", style: "" }, roomTab: "multi", roomsFrom: "messages", companionLevel: null, relationship: null, relationshipCharacterId: "", guide: null, createOpen: false, createBusy: false, createAutoProfileBusy: false, createAutoProfileRequestId: 0, createCharacters: [], createLoading: false, createError: "", createUploading: false, createUploadStage: "", createUploadMessage: "", createEditingId: "", createFocusVisibility: false, voicePreview: null, textChatBursts: new Map(), notifications: [], notificationUnreadCount: 0, notificationsLoading: false, notificationsError: "", checkin: null, checkinLoading: false, checkinClaimKey: "", checkinError: "", creatorIncome: null, creatorIncomeLoading: false, creatorIncomeError: "", creatorIncomeWithdrawOpen: false, feedbackMessages: [], feedbackLoading: false, feedbackError: "", subpageBack: "profile", walletHistoryTab: "spend", walletMonthlySummary: null, walletSpendPage: 1, walletSpendTotalPages: 1, walletSpendLoading: false, walletCheckinPage: 1, walletCheckinTotalPages: 1, walletCheckinLoading: false };
+  const liveNavigationStack = [];
+  let restoringLiveNavigation = false;
+  const LIVE_NAVIGATION_MAX = 30;
+  function liveNavigationSnapshot() {
+    return {
+      page: state.page,
+      category: state.category,
+      role: state.role,
+      textChatId: state.textChatId || "",
+      relationshipCharacterId: state.relationshipCharacterId || "",
+      relationship: state.relationship,
+      roomTab: state.roomTab,
+      walletKind: state.walletKind || "",
+      companionLevel: state.companionLevel,
+      filters: { ...state.filters },
+      scrollTop: app.querySelector(".live-page")?.scrollTop || 0,
+    };
+  }
+  function rememberLiveNavigation(targetPage) {
+    if (restoringLiveNavigation) return;
+    if (!state.page || state.page === targetPage) return;
+    liveNavigationStack.push(liveNavigationSnapshot());
+    if (liveNavigationStack.length > LIVE_NAVIGATION_MAX) liveNavigationStack.splice(0, liveNavigationStack.length - LIVE_NAVIGATION_MAX);
+  }
+  function resetLiveNavigation() {
+    liveNavigationStack.length = 0;
+  }
+  function restoreLiveNavigation(snapshot) {
+    if (!snapshot?.page) return false;
+    restoringLiveNavigation = true;
+    state.page = snapshot.page;
+    state.category = snapshot.category || "";
+    state.role = snapshot.role || null;
+    state.textChatId = snapshot.textChatId || "";
+    state.relationshipCharacterId = snapshot.relationshipCharacterId || "";
+    state.relationship = snapshot.relationship || null;
+    state.roomTab = snapshot.roomTab === "single" ? "single" : "multi";
+    state.walletKind = snapshot.walletKind || "";
+    state.companionLevel = snapshot.companionLevel || null;
+    state.filters = { ...(snapshot.filters || { age: "", gender: "", style: "" }) };
+    render();
+    restoringLiveNavigation = false;
+    requestAnimationFrame(() => {
+      const page = app.querySelector(".live-page");
+      if (page) page.scrollTop = Number(snapshot.scrollTop || 0);
+    });
+    return true;
+  }
+  function navigateLiveBack(fallback = "home") {
+    const snapshot = liveNavigationStack.pop();
+    if (restoreLiveNavigation(snapshot)) return true;
+    clearProfileHash();
+    state.page = fallback;
+    state.role = fallback === "home" ? null : state.role;
+    render();
+    return false;
+  }
+  window.VipeakLiveBack = () => {
+    const backSheet = document.querySelector(".sheet-backdrop");
+    const backPhoto = document.querySelector("[data-photo-view]");
+    if (backPhoto) {
+      backPhoto.remove();
+      return true;
+    }
+    if (loginDialog?.open) {
+      if (loginDialog.dataset.locked !== "1") loginDialog.close();
+      return true;
+    }
+    if (document.querySelector("[data-companion-guide]")) {
+      closeCompanionGuide(false).catch(() => {});
+      return true;
+    }
+    if (backSheet) {
+      backSheet.remove();
+      return true;
+    }
+    if (document.querySelector("[data-settings-menu]:not([hidden])")) {
+      closeSettingsMenu();
+      return true;
+    }
+    if (state.page === "home" && state.category) {
+      state.category = "";
+      render();
+      return true;
+    }
+    if (liveNavigationStack.length) {
+      navigateLiveBack("home");
+      return true;
+    }
+    if (["home", "messages", "create", "profile"].includes(state.page)) return false;
+    clearProfileHash();
+    state.page = "home";
+    state.role = null;
+    render();
+    return true;
+  };
+  function backButton(label = "") {
+    return `<button type="button" class="back-button" data-action="live-back" aria-label="${esc(t("back"))}">${uiIcon("back")}${label ? `<span>${esc(label)}</span>` : ""}</button>`;
+  }
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function syncAppHeight() {
     const viewport = window.visualViewport;
@@ -381,7 +480,7 @@
     const rate = Number(state.config?.pricing?.saleCreditsPerMinute || 0);
     const roomCards = state.rooms.filter((room) => room.character);
     const batch = homeBatch(list);
-    app.innerHTML = `${top()}<main class="live-page"><section class="section-head"><div>${state.category ? `<button class="plain-link" data-action="back-home">‹ ${t("back")}</button>` : ""}<h2>${esc(state.category || label("recommended"))}</h2><p>${t("swipe")}</p></div><div class="section-actions"><button class="filter-button" data-action="filter">☷ ${filterText()}</button><button class="shuffle-button" data-action="shuffle">↻ ${t("shuffle")}</button></div></section><section class="person-deck" id="deck">${batch.length ? batch.map(card).join("") : `<div class="empty-state">${t("emptyRoles")}</div>`}</section><div class="deck-dots">${batch.map((_, i) => `<i class="${i === 0 ? "active" : ""}"></i>`).join("")}</div>${roomCards.length ? `<section class="room-section"><div class="room-section-head"><h2>热门陪伴房间</h2><button class="plain-link" data-action="rooms">全部 ›</button></div><div class="room-strip">${roomCards.map((room) => roomCard(room, false)).join("")}</div></section>` : ""}<section class="promo-card"><span class="promo-icon">♔</span><div class="promo-copy"><strong>${label("vip")}</strong><small>${state.billing?.subscription?.status === "active" ? "订阅已生效" : "解锁私密画面与私密资源"}</small></div><button class="promo-button" data-action="vip">查看权益</button></section></main>${nav("home")}`;
+    app.innerHTML = `${top()}<main class="live-page"><section class="section-head"><div>${state.category ? backButton(t("back")) : ""}<h2>${esc(state.category || label("recommended"))}</h2><p>${t("swipe")}</p></div><div class="section-actions"><button class="filter-button" data-action="filter">☷ ${filterText()}</button><button class="shuffle-button" data-action="shuffle">↻ ${t("shuffle")}</button></div></section><section class="person-deck" id="deck">${batch.length ? batch.map(card).join("") : `<div class="empty-state">${t("emptyRoles")}</div>`}</section><div class="deck-dots">${batch.map((_, i) => `<i class="${i === 0 ? "active" : ""}"></i>`).join("")}</div>${roomCards.length ? `<section class="room-section"><div class="room-section-head"><h2>热门陪伴房间</h2><button class="plain-link" data-action="rooms">全部 ›</button></div><div class="room-strip">${roomCards.map((room) => roomCard(room, false)).join("")}</div></section>` : ""}<section class="promo-card"><span class="promo-icon">♔</span><div class="promo-copy"><strong>${label("vip")}</strong><small>${state.billing?.subscription?.status === "active" ? "订阅已生效" : "解锁私密画面与私密资源"}</small></div><button class="promo-button" data-action="vip">查看权益</button></section></main>${nav("home")}`;
     const deck = app.querySelector("#deck");
     deck?.addEventListener("scroll", () => {
       const card = deck.querySelector(".person-card");
@@ -477,8 +576,8 @@
   });
   window.addEventListener("vipeak-live-leave", (event) => {
     const page = event.detail?.page === "vip" ? "vip" : "recharge";
-    state.pageReturn = state.page && state.page !== "recharge" && state.page !== "vip" ? state.page : (state.pageReturn || "home");
     if (page === "vip") {
+      if (state.page !== page) rememberLiveNavigation(page);
       state.page = "vip";
       ensureBilling().finally(() => { if (state.page === "vip") render(); });
       return;
@@ -504,7 +603,7 @@
   }
 
   function interests() { return ["胶片摄影", "徒步", "看展", "咖啡", "飞盘", "脱口秀", "剧本杀", "骑行", "深夜电台", "羽毛球"]; }
-  function editProfile() { const u = state.user || {}; const photos = Array.isArray(u.profilePhotos) ? u.profilePhotos : []; const selected = new Set(Array.isArray(u.interests) ? u.interests : []); app.innerHTML = `<main class="live-page edit-page"><header class="edit-header"><button data-action="back-profile">取消</button><h1>编辑资料</h1><button data-action="submit-profile" form="profileEditForm">保存</button></header><form id="profileEditForm" data-profile-form><section class="edit-section"><h3>头像与照片 <small>（最多 6 张，第一张为主图）</small></h3><div class="photo-grid">${photos.map((url, i) => `<div class="profile-photo-item"><img src="${esc(url)}" alt="照片 ${i + 1}"><button type="button" data-remove-photo="${esc(url)}">×</button>${i === 0 ? '<span>主图</span>' : ""}</div>`).join("")} ${photos.length < 6 ? '<label class="photo-upload-tile">＋<small>上传照片</small><input type="file" data-profile-photo accept="image/png,image/jpeg,image/webp" hidden></label>' : ""}</div></section><section class="edit-section"><h3>基本信息</h3><div class="edit-fields"><label>昵称<input name="nickname" value="${esc(u.nickname || u.username || "")}" required minlength="2" maxlength="40"></label><label>登录账号<input value="${esc(u.username || "")}" readonly tabindex="-1"></label><div class="edit-row"><span>性别</span><div class="gender-options"><button type="button" data-gender="male" class="${u.gender === "male" ? "selected" : ""}">男</button><button type="button" data-gender="female" class="${u.gender === "female" ? "selected" : ""}">女</button><button type="button" data-gender="other" class="${u.gender === "other" ? "selected" : ""}">其他</button></div><input type="hidden" name="gender" value="${esc(u.gender || "")}"></div><label>生日<input type="date" name="birthday" value="${esc(u.birthday || "")}"></label><label>职业<input name="occupation" value="${esc(u.occupation || "")}" maxlength="40" placeholder="填写职业"></label><label>城市<input name="city" value="${esc(u.city || "")}" maxlength="60" placeholder="填写所在城市"></label><label>简介<textarea name="bio" maxlength="120" placeholder="介绍一下自己">${esc(u.bio || "")}</textarea></label></div></section><section class="edit-section"><div class="edit-section-title"><h3>兴趣标签 <small>（已选 ${selected.size} / 8）</small></h3><button type="button" class="text-button" data-action="shuffle-interests">换一批</button></div><div class="interest-options">${interests().map((x) => `<button type="button" data-interest="${esc(x)}" class="${selected.has(x) ? "selected" : ""}">${esc(x)}</button>`).join("")}</div><input type="hidden" name="interests" value="${esc([...selected].join("|"))}"></section><section class="edit-section voice-section"><h3>语音介绍 <small>（有助于提升匹配率）</small></h3><button type="button" class="voice-upload">♧ 录制语音介绍 <small>暂未录制</small></button></section><div class="form-message" data-profile-message></div></form></main>`; }
+  function editProfile() { const u = state.user || {}; const photos = Array.isArray(u.profilePhotos) ? u.profilePhotos : []; const selected = new Set(Array.isArray(u.interests) ? u.interests : []); app.innerHTML = `<main class="live-page edit-page"><header class="edit-header">${backButton("取消")}<h1>编辑资料</h1><button data-action="submit-profile" form="profileEditForm">保存</button></header><form id="profileEditForm" data-profile-form><section class="edit-section"><h3>头像与照片 <small>（最多 6 张，第一张为主图）</small></h3><div class="photo-grid">${photos.map((url, i) => `<div class="profile-photo-item"><img src="${esc(url)}" alt="照片 ${i + 1}"><button type="button" data-remove-photo="${esc(url)}">×</button>${i === 0 ? '<span>主图</span>' : ""}</div>`).join("")} ${photos.length < 6 ? '<label class="photo-upload-tile">＋<small>上传照片</small><input type="file" data-profile-photo accept="image/png,image/jpeg,image/webp" hidden></label>' : ""}</div></section><section class="edit-section"><h3>基本信息</h3><div class="edit-fields"><label>昵称<input name="nickname" value="${esc(u.nickname || u.username || "")}" required minlength="2" maxlength="40"></label><label>登录账号<input value="${esc(u.username || "")}" readonly tabindex="-1"></label><div class="edit-row"><span>性别</span><div class="gender-options"><button type="button" data-gender="male" class="${u.gender === "male" ? "selected" : ""}">男</button><button type="button" data-gender="female" class="${u.gender === "female" ? "selected" : ""}">女</button><button type="button" data-gender="other" class="${u.gender === "other" ? "selected" : ""}">其他</button></div><input type="hidden" name="gender" value="${esc(u.gender || "")}"></div><label>生日<input type="date" name="birthday" value="${esc(u.birthday || "")}"></label><label>职业<input name="occupation" value="${esc(u.occupation || "")}" maxlength="40" placeholder="填写职业"></label><label>城市<input name="city" value="${esc(u.city || "")}" maxlength="60" placeholder="填写所在城市"></label><label>简介<textarea name="bio" maxlength="120" placeholder="介绍一下自己">${esc(u.bio || "")}</textarea></label></div></section><section class="edit-section"><div class="edit-section-title"><h3>兴趣标签 <small>（已选 ${selected.size} / 8）</small></h3><button type="button" class="text-button" data-action="shuffle-interests">换一批</button></div><div class="interest-options">${interests().map((x) => `<button type="button" data-interest="${esc(x)}" class="${selected.has(x) ? "selected" : ""}">${esc(x)}</button>`).join("")}</div><input type="hidden" name="interests" value="${esc([...selected].join("|"))}"></section><section class="edit-section voice-section"><h3>语音介绍 <small>（有助于提升匹配率）</small></h3><button type="button" class="voice-upload">♧ 录制语音介绍 <small>暂未录制</small></button></section><div class="form-message" data-profile-message></div></form></main>`; }
   function profileAvatar(u) { const src = photo(u) || "/assets/brand/default-avatar.jpg"; return `<img src="${esc(src)}" alt="头像">`; }
   function vipCrownBadge() { return `<svg class="vip-badge" viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="vipGold" x1="8" y1="4" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ffe7a3"/><stop offset=".45" stop-color="#f5c15a"/><stop offset="1" stop-color="#c8872a"/></linearGradient><linearGradient id="vipDeep" x1="14" y1="8" x2="34" y2="30"><stop stop-color="#fff6d2"/><stop offset="1" stop-color="#e0a43a"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#vipGold)"/><circle cx="24" cy="24" r="18.5" fill="#2a160c"/><path fill="url(#vipDeep)" d="M12.2 20.2 16.6 23.4 24 12.8l7.4 10.6 4.4-3.2-1.7 13.2H13.9z"/><path fill="#7a4a12" d="M15.2 31.2h17.6v1.6H15.2z"/><text x="24" y="40.2" text-anchor="middle" font-size="7.2" font-weight="800" fill="#f6d98a" font-family="Arial,sans-serif" letter-spacing=".4">VIP</text></svg>`; }
   function profile() {
@@ -536,22 +635,23 @@
     if (!action) return;
     if (action === "creator") {
       if (!token() || !state.user) return askLogin();
+      rememberLiveNavigation("creator");
       state.page = "creator"; state.creatorError = ""; render(); loadCreator(); return;
     }
-    if (action === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; showCreatorIncome(); loadCreatorIncome(true); return; }
-    if (action === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
+    if (action === "creator-income") { if (!token() || !state.user) return askLogin(); rememberLiveNavigation("creator-income"); state.page = "creator-income"; state.creatorIncomeWithdrawOpen = false; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (action === "feedback") { if (!token() || !state.user) return askLogin(); rememberLiveNavigation("feedback"); state.page = "feedback"; showFeedback(); loadFeedback(true); return; }
     if (action === "privacy") return showPrivacy();
-    if (action === "wallet") { state.pageReturn = "profile"; return showRecharge(); }
+    if (action === "wallet") return showRecharge();
     if (action === "level") return showLevel();
-    if (action === "edit-profile") { state.page = "edit-profile"; render(); return; }
+    if (action === "edit-profile") { rememberLiveNavigation("edit-profile"); state.page = "edit-profile"; render(); return; }
     if (action === "referral") return showReferral();
-    if (action === "rooms") return showRooms("profile");
+    if (action === "rooms") return showRooms();
   }
 
   function profileRouteFromHash() {
     const match = String(location.hash || "").match(/^#profile\/(creator-income|creator|wallet|privacy|feedback|level|edit-profile|referral|rooms)$/);
     if (!match) return false;
-    state.subpageBack = "profile";
+    resetLiveNavigation();
     openProfileMenuAction(match[1]);
     return true;
   }
@@ -668,6 +768,7 @@
     const id = String(characterId || state.relationshipCharacterId || state.role?.id || "");
     if (!token()) return askLogin({ relationship: id });
     if (!id) return referralToast("先选择一个角色");
+    rememberLiveNavigation("relationship");
     state.relationshipCharacterId = id;
     state.page = "relationship";
     state.relationship = null;
@@ -684,7 +785,7 @@
     const stages = relationshipStages(relationship);
     const current = relationship.stage || "初识";
     const days = Math.max(0, Number(relationship.effectiveDays || 0));
-    app.innerHTML = `<main class="live-page companion-page relationship-page"><header class="companion-head"><button type="button" data-action="back-relationship" aria-label="返回">${uiIcon("back")}</button><h1>你和 ${esc(role.name || "Ta")}</h1><span></span></header><section class="relationship-hero"><span>${uiIcon("chat")}</span><div><p>你和 Ta 的关系，</p><p>是聊出来的。</p></div></section><div class="relationship-current"><span>当前 · ${esc(current)}</span><small>${days ? `已相处 ${days} 天${relationship.nextStage ? ` · 距 ${esc(relationship.nextStage)} 还有 ${Number(relationship.remainingDays || 0)} 天` : " · 已到最高阶段"}` : "从今天开始"}</small></div><section class="companion-card"><h2>${uiIcon("chat")}Ta 记得你说过的话</h2><p>你告诉 Ta 的每一件事，Ta 都会记下来。不是记在当天的对话里，是记在心里——过几天，Ta 可能会自己提起：「你上次说的那件事，后来怎么样了？」</p><p>被记住的感觉，就是从这种时候开始的。</p></section><section class="companion-card"><h2>${uiIcon("user")}关系会随着相处慢慢变化</h2><p>刚认识的时候，Ta 客气、有分寸。聊得多了，Ta 会开始有自己的喜好，会主动问你问题，会开你玩笑。</p><p>再往后，Ta 会有只用来叫你的称呼，会在没聊天的时候想起你。</p><p>每一次变化，都不是突然发生的，是你们相处累积出来的。</p></section><section class="companion-card"><h2>${uiIcon("heart")}这件事急不来</h2><p>每天来聊一会儿，比一次聊很久更有效。</p><p>Ta 看重的是你来得有多久，不只是你说了多少。所以不用急着一次说完，慢慢来就好。</p></section><section class="companion-stage-card"><button type="button" class="companion-stage-head" data-action="toggle-relationship-stages" aria-expanded="${state.relationshipStagesOpen === false ? "false" : "true"}"><b>你们会经过的六个阶段</b><small>${state.relationshipStagesOpen === false ? "展开" : "收起"}</small>${uiIcon("chev")}</button><div class="companion-stage-list" ${state.relationshipStagesOpen === false ? "hidden" : ""}>${stages.map((stage) => `<div class="companion-stage-row ${stage.id === current ? "is-current" : ""}"><span>${esc(stage.id)}</span><p>${esc(stage.description || "")}</p><small>${Number(stage.threshold) ? `${Number(stage.threshold)} 天` : "开始"}</small></div>`).join("")}</div></section><section class="companion-faq"><h2>你在乎的</h2><details><summary>关系为什么会变化？</summary><p>因为你和 Ta 相处得够久、说得够多。没有别的方式。</p></details><details><summary>为什么聊了很久，感觉变化不大？</summary><p>关系是按相处的天数累积的，不是按单次聊多久。分散在好几天里聊，比一次聊很久更有效。</p></details><details><summary>如果我很长时间不来，会退步吗？</summary><p>不会。关系不会因为你不来而退回去。Ta 不会因为你不在而生气，只会记得你们上次聊到哪儿。所以不用有压力。</p></details><details><summary>换一个角色，关系会跟着走吗？</summary><p>不会。你和每个角色的关系都是独立的。新角色是新的开始。</p></details></section><p class="companion-footer">Ta 和你的关系只和你们的相处有关。</p></main>`;
+    app.innerHTML = `<main class="live-page companion-page relationship-page"><header class="companion-head">${backButton()}<h1>你和 ${esc(role.name || "Ta")}</h1><span></span></header><section class="relationship-hero"><span>${uiIcon("chat")}</span><div><p>你和 Ta 的关系，</p><p>是聊出来的。</p></div></section><div class="relationship-current"><span>当前 · ${esc(current)}</span><small>${days ? `已相处 ${days} 天${relationship.nextStage ? ` · 距 ${esc(relationship.nextStage)} 还有 ${Number(relationship.remainingDays || 0)} 天` : " · 已到最高阶段"}` : "从今天开始"}</small></div><section class="companion-card"><h2>${uiIcon("chat")}Ta 记得你说过的话</h2><p>你告诉 Ta 的每一件事，Ta 都会记下来。不是记在当天的对话里，是记在心里——过几天，Ta 可能会自己提起：「你上次说的那件事，后来怎么样了？」</p><p>被记住的感觉，就是从这种时候开始的。</p></section><section class="companion-card"><h2>${uiIcon("user")}关系会随着相处慢慢变化</h2><p>刚认识的时候，Ta 客气、有分寸。聊得多了，Ta 会开始有自己的喜好，会主动问你问题，会开你玩笑。</p><p>再往后，Ta 会有只用来叫你的称呼，会在没聊天的时候想起你。</p><p>每一次变化，都不是突然发生的，是你们相处累积出来的。</p></section><section class="companion-card"><h2>${uiIcon("heart")}这件事急不来</h2><p>每天来聊一会儿，比一次聊很久更有效。</p><p>Ta 看重的是你来得有多久，不只是你说了多少。所以不用急着一次说完，慢慢来就好。</p></section><section class="companion-stage-card"><button type="button" class="companion-stage-head" data-action="toggle-relationship-stages" aria-expanded="${state.relationshipStagesOpen === false ? "false" : "true"}"><b>你们会经过的六个阶段</b><small>${state.relationshipStagesOpen === false ? "展开" : "收起"}</small>${uiIcon("chev")}</button><div class="companion-stage-list" ${state.relationshipStagesOpen === false ? "hidden" : ""}>${stages.map((stage) => `<div class="companion-stage-row ${stage.id === current ? "is-current" : ""}"><span>${esc(stage.id)}</span><p>${esc(stage.description || "")}</p><small>${Number(stage.threshold) ? `${Number(stage.threshold)} 天` : "开始"}</small></div>`).join("")}</div></section><section class="companion-faq"><h2>你在乎的</h2><details><summary>关系为什么会变化？</summary><p>因为你和 Ta 相处得够久、说得够多。没有别的方式。</p></details><details><summary>为什么聊了很久，感觉变化不大？</summary><p>关系是按相处的天数累积的，不是按单次聊多久。分散在好几天里聊，比一次聊很久更有效。</p></details><details><summary>如果我很长时间不来，会退步吗？</summary><p>不会。关系不会因为你不来而退回去。Ta 不会因为你不在而生气，只会记得你们上次聊到哪儿。所以不用有压力。</p></details><details><summary>换一个角色，关系会跟着走吗？</summary><p>不会。你和每个角色的关系都是独立的。新角色是新的开始。</p></details></section><p class="companion-footer">Ta 和你的关系只和你们的相处有关。</p></main>`;
   }
 
   async function loadCompanionLevel(force = false) {
@@ -698,6 +799,7 @@
   }
   async function showLevel() {
     if (!token()) return askLogin();
+    rememberLiveNavigation("level");
     state.page = "level";
     render();
     await loadCompanionLevel(true);
@@ -709,7 +811,7 @@
     const levels = Array.isArray(level.levels) && level.levels.length ? level.levels : COMPANION_LEVELS;
     const next = levels.find((item) => item.id === level.nextLevel);
     const total = Number(level.totalRechargeUsd || 0);
-    app.innerHTML = `<main class="live-page companion-page level-page"><header class="companion-head"><button type="button" data-action="back-level" aria-label="返回">${uiIcon("back")}</button><h1>陪伴等级</h1><span></span></header><section class="level-hero"><div class="level-hero-title"><span>${uiIcon("crown")}</span><div><b>当前 ${esc(current)}</b><small>${total > 0 ? `已达成 · 累计充值 $${total.toFixed(total % 1 ? 2 : 0)}` : "还未充值"}</small></div></div><p>陪伴等级，记录你在这个平台累计的消费。等级越高，能用到的服务和条件越多。</p><div class="level-progress"><div><span>${esc(current)}</span><span>${next ? `${esc(next.id)} · ${esc(next.title)}` : "已达最高等级"}</span></div><i><em style="width:${Math.max(0, Math.min(100, Number(level.progress || 0) * 100))}%"></em></i><small>${next ? `距离 ${esc(next.id)} 还需累计充值 $${Number(level.remainingUsd ?? next.thresholdUsd).toFixed(0)}` : "已获得全部等级权益"}</small></div></section><section class="companion-card"><h2>${uiIcon("wallet")}等级怎么来</h2><p>按你在这个平台累计充值了多少计算。充过多少就算多少，之前花掉的、用掉的都不影响。</p><p>等级只升不降，不会因为你一段时间没消费就掉下来。</p></section><section class="companion-card"><h2>${uiIcon("crown")}等级给你什么</h2><p>全部都是使用条件和体验：每天能免费聊多久、画质、要不要排队、有没有专属内容。</p><p>你可以把它理解为一张会员卡——它让你用得更舒服、更方便。</p></section><section class="companion-card"><h2>${uiIcon("heart")}等级不变什么</h2><p>等级不改变角色对待你的方式。</p><p>角色怎么对你，只和你与 Ta 相处的情况有关，和你在这里的消费没有任何关系。</p></section><section class="companion-stage-card"><div class="companion-stage-head"><b>等级与权益</b></div><div class="companion-stage-list">${levels.map((item) => `<div class="companion-level-row ${item.id === current ? "is-current" : ""}"><span>${esc(item.id)}</span><div><b>${esc(item.title)}</b><p>${esc((item.benefits || []).join(" · "))}</p></div>${item.id === current ? "<small>当前等级</small>" : ""}</div>`).join("")}</div></section><section class="companion-faq"><h2>你在乎的</h2><details><summary>充值会让我和角色的关系变好吗？</summary><p>不会。关系只和你们的相处有关，与消费无关。充值提升的是使用时长、画质、优先接通这些使用条件。</p></details><details><summary>等级会掉吗？</summary><p>不会。等级按累计充值计算，只升不降（退款导致的金额变动除外）。</p></details><details><summary>等级在哪里看？</summary><p>个人中心 → 陪伴等级。</p></details></section><p class="companion-footer">等级与权益的具体内容可能随版本调整，以实际页面为准。</p></main>`;
+    app.innerHTML = `<main class="live-page companion-page level-page"><header class="companion-head">${backButton()}<h1>陪伴等级</h1><span></span></header><section class="level-hero"><div class="level-hero-title"><span>${uiIcon("crown")}</span><div><b>当前 ${esc(current)}</b><small>${total > 0 ? `已达成 · 累计充值 $${total.toFixed(total % 1 ? 2 : 0)}` : "还未充值"}</small></div></div><p>陪伴等级，记录你在这个平台累计的消费。等级越高，能用到的服务和条件越多。</p><div class="level-progress"><div><span>${esc(current)}</span><span>${next ? `${esc(next.id)} · ${esc(next.title)}` : "已达最高等级"}</span></div><i><em style="width:${Math.max(0, Math.min(100, Number(level.progress || 0) * 100))}%"></em></i><small>${next ? `距离 ${esc(next.id)} 还需累计充值 $${Number(level.remainingUsd ?? next.thresholdUsd).toFixed(0)}` : "已获得全部等级权益"}</small></div></section><section class="companion-card"><h2>${uiIcon("wallet")}等级怎么来</h2><p>按你在这个平台累计充值了多少计算。充过多少就算多少，之前花掉的、用掉的都不影响。</p><p>等级只升不降，不会因为你一段时间没消费就掉下来。</p></section><section class="companion-card"><h2>${uiIcon("crown")}等级给你什么</h2><p>全部都是使用条件和体验：每天能免费聊多久、画质、要不要排队、有没有专属内容。</p><p>你可以把它理解为一张会员卡——它让你用得更舒服、更方便。</p></section><section class="companion-card"><h2>${uiIcon("heart")}等级不变什么</h2><p>等级不改变角色对待你的方式。</p><p>角色怎么对你，只和你与 Ta 相处的情况有关，和你在这里的消费没有任何关系。</p></section><section class="companion-stage-card"><div class="companion-stage-head"><b>等级与权益</b></div><div class="companion-stage-list">${levels.map((item) => `<div class="companion-level-row ${item.id === current ? "is-current" : ""}"><span>${esc(item.id)}</span><div><b>${esc(item.title)}</b><p>${esc((item.benefits || []).join(" · "))}</p></div>${item.id === current ? "<small>当前等级</small>" : ""}</div>`).join("")}</div></section><section class="companion-faq"><h2>你在乎的</h2><details><summary>充值会让我和角色的关系变好吗？</summary><p>不会。关系只和你们的相处有关，与消费无关。充值提升的是使用时长、画质、优先接通这些使用条件。</p></details><details><summary>等级会掉吗？</summary><p>不会。等级按累计充值计算，只升不降（退款导致的金额变动除外）。</p></details><details><summary>等级在哪里看？</summary><p>个人中心 → 陪伴等级。</p></details></section><p class="companion-footer">等级与权益的具体内容可能随版本调整，以实际页面为准。</p></main>`;
   }
 
   function createDraft() {
@@ -751,6 +853,7 @@
   }
   async function openCreateEditor(id = "") {
     if (!token()) return askLogin();
+    rememberLiveNavigation("create-edit");
     cancelCreateAutoProfile();
     state.page = "create-edit";
     state.createEditingId = id || "";
@@ -842,6 +945,8 @@
         ? await api(`/api/chat-live/community/characters/${encodeURIComponent(state.createEditingId)}`, { method: "PUT", body: JSON.stringify(body) })
         : await api("/api/chat-live/community/characters", { method: "POST", body: JSON.stringify(body) });
       state.createCharacters = [saved.character, ...(state.createCharacters || []).filter((item) => item.id !== saved.character?.id)];
+      resetLiveNavigation();
+      clearProfileHash();
       state.page = "create";
       state.createEditingId = "";
       state.createFocusVisibility = false;
@@ -922,7 +1027,7 @@
     const topic = (c.tags || []).map((x) => `<span class="topic-pill">${esc(x)}</span>`).join("") || '<span class="detail-empty">暂无人物标签</span>';
     const albumCells = preview.map((item) => `<button class="album-cell" data-action="open-album" aria-label="查看相册">${albumThumb(item, c.name || "相册")}</button>`).join("");
     const lockedCell = lockedCount ? `<button class="album-cell is-locked" data-action="${member ? "open-album" : "unlock-private"}"><span class="lock-shade"><b>私密</b><small>${lockedCount} 张</small></span></button>` : "";
-    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${fitMedia(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions"><button data-action="back-home" aria-label="返回">‹</button><span></span><button class="role-share-button" data-action="share-role" aria-label="分享角色">${uiIcon("share")}</button></div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>更多 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
+    app.innerHTML = `<main class="live-page role-detail-page"><section class="role-cover">${fitMedia(rolePhoto(c), c.name || "角色")}<div class="role-cover-shade"></div><div class="role-cover-actions">${backButton()}<span></span><button class="role-share-button" data-action="share-role" aria-label="分享角色">${uiIcon("share")}</button></div><div class="role-cover-copy"><div class="role-title-row"><h1>${esc(c.name || "角色")}</h1>${[Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).length ? `<span>${esc([Number(c.age) > 0 ? String(Number(c.age)) : "", c.occupation || ""].filter(Boolean).join(" · "))}</span>` : ""}</div><div class="role-status"><span class="ready-pill"><i></i>随时可以开始聊天</span><b>AI 互动</b></div></div></section><section class="relationship-entry"><button type="button" data-action="relationship" data-character-id="${esc(c.id)}"><span>${uiIcon("heart")}</span><b>亲密度 <i>·</i> <em>了解关系如何积累</em></b><small>每天来聊一会儿，比一次聊很久更有效</small><strong>${uiIcon("chev")}</strong></button></section><section class="role-intro-card"><div class="role-intro-avatar">${media(rolePhoto(c), "")}</div><div class="role-intro-copy"><strong>${esc(c.greeting || c.intro || "欢迎来到我的房间")}</strong><small>${esc(c.intro || "和 TA 聊聊今天的事")}</small></div><button data-action="text-chat">文字聊天</button></section><section class="detail-section"><div class="detail-section-title"><h2>${t("topics")}</h2></div><div class="topic-list">${topic}</div></section><section class="detail-section album-section"><button class="detail-section-title album-open" data-action="open-album"><h2>${t("album")}</h2><span>更多 ${totalCount} 张 ›</span></button><div class="album-grid">${albumCells}${lockedCell}${(albumCells || lockedCell) ? "" : '<div class="album-empty-guide"><b>TA 还没有公开相册</b><span>等 Ta 上传后，会在这里出现</span></div>'}</div></section><section class="detail-section"><button class="vip-unlock" data-action="${member ? "open-album" : "unlock-private"}"><span>♔</span><div><strong>私密互动与私密相册</strong><small>${member ? "会员已解锁，可查看专属内容" : `订阅 VIP 后解锁${lockedCount ? `，共 ${lockedCount} 张私密照片` : ""}`}</small></div><b>${member ? "已解锁" : "解锁"}</b></button></section><div class="fixed-call-bar"><button type="button" class="bar-icon" data-action="recharge" aria-label="礼物"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></button><button type="button" class="primary-button" data-call-id="${esc(c.id)}">视频聊天</button></div></main>`;
   }
 
 
@@ -1189,6 +1294,7 @@
   }
   async function openTextChat(conversationId) {
     if (!token()) return askLogin();
+    rememberLiveNavigation("text-chat");
     state.page = "text-chat";
     state.textChatId = conversationId || state.textChatId || "";
     if (!state.textChatId && state.role?.id) {
@@ -1201,7 +1307,7 @@
         state.textChatId = created.conversation?.id || "";
         state.conversations = [created.conversation, ...state.conversations.filter((item) => item.id !== created.conversation?.id)];
       } catch (error) {
-        app.innerHTML = `<main class="live-page text-chat-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>文字聊天</h1></header><div class="empty-state"><h2>暂时无法开始对话</h2><p>${esc(error.message)}</p><button class="primary-button" data-action="recharge">去充值</button></div></main>`;
+        app.innerHTML = `<main class="live-page text-chat-page"><header class="sub-head">${backButton()}<h1>文字聊天</h1><span></span></header><div class="empty-state"><h2>暂时无法开始对话</h2><p>${esc(error.message)}</p><button class="primary-button" data-action="recharge">去充值</button></div></main>`;
         return;
       }
     }
@@ -1251,7 +1357,7 @@
         state.textChatId = created.conversation?.id || state.textChatId;
         if (created.conversation) state.conversations = [created.conversation, ...state.conversations.filter((item) => item.id !== created.conversation.id)];
       } catch (error) {
-        if (error.status === 402) { state.pageReturn = "text-chat"; showRecharge(); return; }
+        if (error.status === 402) { showRecharge(); return; }
         referralToast(error.message || "暂时无法送礼物");
         return;
       }
@@ -1274,7 +1380,6 @@
     const credits = Number(state.user?.credits || 0);
     if (credits < Number(cost || 0)) {
       document.querySelector("[data-gift-sheet]")?.remove();
-      state.pageReturn = "text-chat";
       referralToast("积分不够，去充值");
       showRecharge();
       return;
@@ -1298,8 +1403,7 @@
       if (button) button.disabled = false;
       if (error.status === 402 || String(error.code || "").includes("CREDIT")) {
         document.querySelector("[data-gift-sheet]")?.remove();
-        state.pageReturn = "text-chat";
-        showRecharge();
+                showRecharge();
         return;
       }
       referralToast(error.message || "礼物没有送出");
@@ -1358,8 +1462,7 @@
     } catch (error) {
       burst.pending = burst.pending.filter((item) => !queued.includes(item));
       if (error.status === 402) {
-        state.pageReturn = "text-chat";
-        showRecharge();
+                showRecharge();
         return;
       }
       burst.blocked = Boolean(error.status === 402 || String(error.code || "").includes("INSUFFICIENT"));
@@ -1462,7 +1565,7 @@
     const knownName = metadataCharacter.name || cachedConversation.title || known?.title || state.role?.name || "对话";
     const knownPhoto = rolePhoto(metadataCharacter) || conversationAvatar(cachedConversation) || conversationAvatar(known || { character: state.role, characterId: state.role?.id }) || rolePhoto(state.role);
     const characterId = cachedConversation.characterId || metadataCharacter.id || known?.characterId || known?.character?.id || state.role?.id || "";
-    app.innerHTML = `<main class="live-page text-chat-page"><header class="chat-head"><button type="button" data-action="back-messages" aria-label="返回">${uiIcon("back")}</button><button type="button" class="chat-peer" data-character-id="${esc(characterId)}"><span class="chat-avatar">${media(knownPhoto, knownName)}</span><span><b>${esc(knownName)}</b><small>在线 · AI 陪伴</small></span></button><button type="button" class="chat-video" data-call-id="${esc(characterId)}">${uiIcon("video")}<span>视频</span></button></header><button type="button" class="chat-relationship-strip" data-action="relationship" data-character-id="${esc(characterId)}"><span>${uiIcon("heart")}</span><b>亲密度</b><small data-relationship-summary>每天来聊一会儿，关系会慢慢变化</small>${uiIcon("chev")}</button><div class="text-thread" data-text-thread style="${knownPhoto ? `background-image:linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${esc(knownPhoto)}')` : ""}">${cachedMessages.length ? "" : '<p class="detail-empty">正在读取对话…</p>'}</div><button type="button" class="gift-fab" data-action="open-text-gifts"><span class="gift-badge">礼</span>${uiIcon("gift")}<span>送礼物</span></button><form class="text-composer" data-text-form><button type="button" class="mic-btn" data-action="text-mic" aria-label="语音">${uiIcon("mic")}</button><input name="content" maxlength="4000" placeholder="说点什么…" autocomplete="off" required /><button type="submit">发送</button><p data-text-error></p></form></main>`;
+    app.innerHTML = `<main class="live-page text-chat-page"><header class="chat-head">${backButton()}<button type="button" class="chat-peer" data-character-id="${esc(characterId)}"><span class="chat-avatar">${media(knownPhoto, knownName)}</span><span><b>${esc(knownName)}</b><small>在线 · AI 陪伴</small></span></button><button type="button" class="chat-video" data-call-id="${esc(characterId)}">${uiIcon("video")}<span>视频</span></button></header><button type="button" class="chat-relationship-strip" data-action="relationship" data-character-id="${esc(characterId)}"><span>${uiIcon("heart")}</span><b>亲密度</b><small data-relationship-summary>每天来聊一会儿，关系会慢慢变化</small>${uiIcon("chev")}</button><div class="text-thread" data-text-thread style="${knownPhoto ? `background-image:linear-gradient(rgba(11,11,16,.62),rgba(11,11,16,.82)),url('${esc(knownPhoto)}')` : ""}">${cachedMessages.length ? "" : '<p class="detail-empty">正在读取对话…</p>'}</div><button type="button" class="gift-fab" data-action="open-text-gifts"><span class="gift-badge">礼</span>${uiIcon("gift")}<span>送礼物</span></button><form class="text-composer" data-text-form><button type="button" class="mic-btn" data-action="text-mic" aria-label="语音">${uiIcon("mic")}</button><input name="content" maxlength="4000" placeholder="说点什么…" autocomplete="off" required /><button type="submit">发送</button><p data-text-error></p></form></main>`;
     if (cachedMessages.length) {
       const avatar = media(knownPhoto, knownName);
       renderTextChatThread(cachedMessages, avatar, knownName, { forceBottom: true });
@@ -1480,8 +1583,9 @@
 
   async function showReferral() {
     if (!token()) return askLogin();
+    rememberLiveNavigation("referral");
     state.page = "referral";
-    app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><div class="empty-state">\u6b63\u5728\u8bfb\u53d6\u9080\u8bf7\u6570\u636e\u2026</div></main>`;
+    app.innerHTML = `<main class="live-page referral-page"><header class="referral-head">${backButton()}<h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><div class="empty-state">\u6b63\u5728\u8bfb\u53d6\u9080\u8bf7\u6570\u636e\u2026</div></main>`;
     try {
       const referral = (await api("/api/referral")).referral || {};
       state.referral = referral;
@@ -1492,17 +1596,16 @@
       const rewardCount = Number(referral.rewardCount || 0);
       const earned = rewardCount * reward;
       const rewardTip = `\u597d\u53cb\u901a\u8fc7\u4f60\u7684\u9080\u8bf7\u94fe\u63a5\u6ce8\u518c\u5e76\u5b8c\u6210\u5145\u503c\u540e\uff0c\u6bcf\u4f4d\u4ed8\u8d39\u7528\u6237\u53ef\u4e3a\u4f60\u5e26\u6765 ${reward} \u79ef\u5206\uff0c\u540c\u4e00\u7528\u6237\u4ec5\u5956\u52b1\u4e00\u6b21\u3002`;
-      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><section class="earn-card"><div class="earn-card-top"><span>\u9080\u8bf7\u5956\u52b1</span><small>\u6bcf\u4f4d\u6709\u6548\u4ed8\u8d39\u7528\u6237 ${reward} \u79ef\u5206</small></div><div class="earn-card-main"><strong>${earned} <em>\u79ef\u5206</em></strong><button type="button" data-copy-referral="${esc(link)}">\u590d\u5236\u94fe\u63a5</button></div><div class="earn-stats"><div><b>${invited}</b><small>\u5df2\u9080\u8bf7\u4eba\u6570</small></div><div><b>${paid}</b><small>\u5df2\u4ed8\u8d39\u4eba\u6570</small></div><div><b>${rewardCount}</b><small>\u5df2\u83b7\u5956\u6b21\u6570</small></div></div></section><button class="earn-link" data-copy-referral="${esc(link)}">\u590d\u5236\u9080\u8bf7\u94fe\u63a5</button><p class="earn-note">${esc(rewardTip)}</p><section class="earn-block"><h2>\u9080\u8bf7\u89c4\u5219</h2><div class="earn-rules"><div class="earn-rule-row"><span class="earn-ico doc">\u6587</span><div><p><i>1.</i>\u597d\u53cb\u901a\u8fc7\u4f60\u7684\u9080\u8bf7\u94fe\u63a5\u6ce8\u518c\u5e76\u5b8c\u6210\u4ed8\u8d39\u540e\uff0c\u4f60\u53ef\u83b7\u5f97 ${reward} \u79ef\u5206\u3002</p><p><i>2.</i>\u540c\u4e00\u4e2a\u88ab\u9080\u8bf7\u7528\u6237\u53ea\u8ba1\u4e00\u6b21\u5956\u52b1\uff0c\u91cd\u590d\u652f\u4ed8\u4e0d\u91cd\u590d\u53d1\u653e\u3002</p><p><i>3.</i>\u5956\u52b1\u79ef\u5206\u53d1\u653e\u81f3\u666e\u901a\u79ef\u5206\u4f59\u989d\uff0c\u4e0e\u521b\u4f5c\u8005\u53ef\u63d0\u73b0\u6536\u76ca\u5206\u5f00\u8ba1\u7b97\u3002</p></div></div><div class="earn-rule-tip">\u79ef\u5206\u5956\u52b1\u4f1a\u8fdb\u5165\u4f60\u7684\u666e\u901a\u79ef\u5206\u4f59\u989d\uff0c\u4e0e\u521b\u4f5c\u8005\u6536\u76ca\u5206\u5f00\u7ed3\u7b97\u3002</div></section><p class="earn-footer">Vipeak \u00b72026</p></main>`;
+      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head">${backButton()}<h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><section class="earn-card"><div class="earn-card-top"><span>\u9080\u8bf7\u5956\u52b1</span><small>\u6bcf\u4f4d\u6709\u6548\u4ed8\u8d39\u7528\u6237 ${reward} \u79ef\u5206</small></div><div class="earn-card-main"><strong>${earned} <em>\u79ef\u5206</em></strong><button type="button" data-copy-referral="${esc(link)}">\u590d\u5236\u94fe\u63a5</button></div><div class="earn-stats"><div><b>${invited}</b><small>\u5df2\u9080\u8bf7\u4eba\u6570</small></div><div><b>${paid}</b><small>\u5df2\u4ed8\u8d39\u4eba\u6570</small></div><div><b>${rewardCount}</b><small>\u5df2\u83b7\u5956\u6b21\u6570</small></div></div></section><button class="earn-link" data-copy-referral="${esc(link)}">\u590d\u5236\u9080\u8bf7\u94fe\u63a5</button><p class="earn-note">${esc(rewardTip)}</p><section class="earn-block"><h2>\u9080\u8bf7\u89c4\u5219</h2><div class="earn-rules"><div class="earn-rule-row"><span class="earn-ico doc">\u6587</span><div><p><i>1.</i>\u597d\u53cb\u901a\u8fc7\u4f60\u7684\u9080\u8bf7\u94fe\u63a5\u6ce8\u518c\u5e76\u5b8c\u6210\u4ed8\u8d39\u540e\uff0c\u4f60\u53ef\u83b7\u5f97 ${reward} \u79ef\u5206\u3002</p><p><i>2.</i>\u540c\u4e00\u4e2a\u88ab\u9080\u8bf7\u7528\u6237\u53ea\u8ba1\u4e00\u6b21\u5956\u52b1\uff0c\u91cd\u590d\u652f\u4ed8\u4e0d\u91cd\u590d\u53d1\u653e\u3002</p><p><i>3.</i>\u5956\u52b1\u79ef\u5206\u53d1\u653e\u81f3\u666e\u901a\u79ef\u5206\u4f59\u989d\uff0c\u4e0e\u521b\u4f5c\u8005\u53ef\u63d0\u73b0\u6536\u76ca\u5206\u5f00\u8ba1\u7b97\u3002</p></div></div><div class="earn-rule-tip">\u79ef\u5206\u5956\u52b1\u4f1a\u8fdb\u5165\u4f60\u7684\u666e\u901a\u79ef\u5206\u4f59\u989d\uff0c\u4e0e\u521b\u4f5c\u8005\u6536\u76ca\u5206\u5f00\u7ed3\u7b97\u3002</div></section><p class="earn-footer">Vipeak \u00b72026</p></main>`;
     } catch (error) {
-      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head"><button type="button" data-action="back-profile" aria-label="\u8fd4\u56de">\u2039</button><h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><div class="empty-state"><p>${esc(error.message)}</p></div></main>`;
+      app.innerHTML = `<main class="live-page referral-page"><header class="referral-head">${backButton()}<h1>\u9080\u8bf7\u597d\u53cb</h1><button type="button" data-action="vip">\u4f1a\u5458\u6743\u76ca</button></header><div class="empty-state"><p>${esc(error.message)}</p></div></main>`;
     }
   }
 
   function languageSheet() { app.insertAdjacentHTML("beforeend", `<div class="sheet-backdrop" data-action="close-sheet"><div class="language-sheet" data-sheet><h3>选择语言</h3>${[["zh", "简体中文"],["en", "English"],["ja", "日本語"]].map(([id,name]) => `<button data-language="${id}" class="${state.language === id ? "selected" : ""}">${name}<span>${state.language === id ? "✓" : ""}</span></button>`).join("")}</div></div>`); }
   
-  function subpage(title, body, back = state.subpageBack || "profile") {
-    const navKey = ["home", "messages", "profile"].includes(back) ? back : "profile";
-    app.innerHTML = `<main class="live-page vip-page"><header class="detail-header"><button class="icon-button" data-action="back-subpage">‹</button><h1>${esc(title)}</h1></header>${body}</main>`;
+  function subpage(title, body) {
+    app.innerHTML = `<main class="live-page vip-page"><header class="detail-header">${backButton()}<h1>${esc(title)}</h1><span></span></header>${body}</main>`;
   }
   function checkinTaskFallback() {
     return [
@@ -1524,8 +1627,8 @@
   }
   function showCheckin() {
     if (!token()) return askLogin();
+    if (state.page !== "checkin") rememberLiveNavigation("checkin");
     state.page = "checkin";
-    state.subpageBack = "home";
     const data = state.checkin || {};
     const tasks = Array.isArray(data.tasks) && data.tasks.length ? data.tasks : checkinTaskFallback();
     const todayEarned = Math.max(0, Number(data.todayEarned ?? tasks.filter((task) => task.claimed).reduce((sum, task) => sum + Number(task.reward || 0), 0)));
@@ -1543,7 +1646,7 @@
       return `<div class="checkin-task-row${claimed ? " is-claimed" : ""}"><span class="checkin-task-icon">${checkinTaskIcon(task.key)}</span><div class="checkin-task-copy"><p><b>${esc(task.title || "")}</b><em>${esc(task.hint || "")}</em></p><small>${esc(task.description || "")}</small></div>${button}</div>`;
     }).join("");
     const dots = tasks.map((task, index) => `<i class="${task.claimed ? "done" : (index < claimedCount ? "done" : "")}" aria-hidden="true"></i>`).join("");
-    subpage("每日领积分", `<main class="checkin-page-body"><section class="checkin-summary"><div class="checkin-summary-top"><div><span>今日已领</span><strong>${todayEarned}<small> 积分</small></strong></div><p>共 ${tasks.length} 项任务</p></div><div class="checkin-dots" aria-label="已完成 ${claimedCount} 项任务">${dots}</div></section><section class="checkin-task-list" aria-label="每日任务">${taskRows}<div class="checkin-rules"><div class="checkin-rules-head">${uiIcon("document")}<span>任务规则</span></div><p>1. 每天 24:00 重置，次日可重新领取。</p><p>2. 完成后即到账，同一任务当天只计一次。</p></div></section>${state.checkinError ? `<p class="checkin-error" role="alert">${esc(state.checkinError)}</p>` : ""}<p class="checkin-footnote">${uiIcon("lock")}任务奖励每日 24:00 重置，以实际到账为准</p></main>`, "home");
+    subpage("每日领积分", `<main class="checkin-page-body"><section class="checkin-summary"><div class="checkin-summary-top"><div><span>今日已领</span><strong>${todayEarned}<small> 积分</small></strong></div><p>共 ${tasks.length} 项任务</p></div><div class="checkin-dots" aria-label="已完成 ${claimedCount} 项任务">${dots}</div></section><section class="checkin-task-list" aria-label="每日任务">${taskRows}<div class="checkin-rules"><div class="checkin-rules-head">${uiIcon("document")}<span>任务规则</span></div><p>1. 每天 24:00 重置，次日可重新领取。</p><p>2. 完成后即到账，同一任务当天只计一次。</p></div></section>${state.checkinError ? `<p class="checkin-error" role="alert">${esc(state.checkinError)}</p>` : ""}<p class="checkin-footnote">${uiIcon("lock")}任务奖励每日 24:00 重置，以实际到账为准</p></main>`);
   }
   let checkinLoadPromise = null;
   let checkinRevision = 0;
@@ -1691,6 +1794,7 @@
   }
   function openRole(role) {
     if (!role) return;
+    rememberLiveNavigation("role-detail");
     state.role = role;
     state.page = "role-detail";
     render();
@@ -1760,15 +1864,14 @@
   function showSystemMessages() {
     if (!token()) return askLogin();
     state.page = "system-messages";
-    state.subpageBack = "messages";
     const loading = state.notificationsLoading && !state.notifications.length;
     const rows = state.notifications.map((item) => `<article class="notification-card${item.readAt ? "" : " unread"}" data-notification-id="${esc(item.id)}"><div class="notification-icon">${notificationIcon(item.kind)}</div><div><div class="notification-title"><b>${esc(item.title || "系统消息")}</b>${item.pinned ? "<span>置顶</span>" : ""}</div><p>${esc(item.body || "")}</p><small>${esc(moneyTime(item.createdAt))}</small></div>${item.readAt ? "" : "<i></i>"}</article>`).join("");
-    subpage("系统消息", `<section class="notification-list">${loading ? '<div class="empty-state"><p>正在加载系统消息…</p></div>' : rows || `<div class="empty-state"><h2>暂时没有系统消息</h2><p>${esc(state.notificationsError || "签到、反馈回复和平台通知会显示在这里。")}</p></div>`}</section>`, "messages");
+    subpage("系统消息", `<section class="notification-list">${loading ? '<div class="empty-state"><p>正在加载系统消息…</p></div>' : rows || `<div class="empty-state"><h2>暂时没有系统消息</h2><p>${esc(state.notificationsError || "签到、反馈回复和平台通知会显示在这里。")}</p></div>`}</section>`);
   }
   async function openSystemMessages() {
     if (!token()) return askLogin();
+    rememberLiveNavigation("system-messages");
     state.page = "system-messages";
-    state.subpageBack = "messages";
     showSystemMessages();
     await loadNotifications(true);
     if (state.page === "system-messages") showSystemMessages();
@@ -1802,7 +1905,6 @@
   function showCreatorIncome() {
     if (!token()) return askLogin();
     state.page = "creator-income";
-    state.subpageBack = "profile";
     const income = state.creatorIncome || { availableCredits: 0, totalEarnedCredits: 0, withdrawnCredits: 0, lockedCredits: 0, earningCount: 0, earningRate: .3, records: [], withdrawals: [] };
     const incomeRows = (income.records || []).filter((item) => /_earning$/.test(String(item.type || ""))).map((item) => ({
       title: `本角色消费 ${creditText(item.sourceCredits)} 积分`,
@@ -1856,7 +1958,6 @@
   function showFeedback() {
     if (!token()) return askLogin();
     state.page = "feedback";
-    state.subpageBack = "profile";
     const history = (state.feedbackMessages || []).map((item) => `<article class="feedback-card"><div class="feedback-card-head"><b>${esc(item.subject || "问题反馈")}</b><span class="feedback-status ${esc(item.status || "open")}">${esc(feedbackStatusText(item.status))}</span></div><p>${esc(item.message || "")}</p><small>${esc(moneyTime(item.createdAt))}</small>${item.reply ? `<div class="feedback-reply"><b>站内信回复</b><p>${esc(item.reply)}</p><small>${esc(moneyTime(item.repliedAt || item.updatedAt))}</small></div>` : ""}</article>`).join("");
     subpage("问题反馈", `<form class="feedback-form" data-feedback-form><label>问题类型<select name="subject"><option>功能异常</option><option>充值与订单</option><option>内容与体验</option><option>账号问题</option><option>其他建议</option></select></label><label>问题描述<textarea name="message" maxlength="5000" minlength="5" required placeholder="请描述发生了什么、在哪个页面、你期望的结果。"></textarea></label><button class="pay-cta feedback-submit" type="submit">提交反馈</button><p class="form-message" data-feedback-message></p></form><section class="feedback-history"><div class="feedback-history-head"><h2>我的反馈</h2><button type="button" data-action="feedback-refresh">刷新</button></div>${state.feedbackLoading && !history ? '<div class="empty-state"><p>正在加载反馈…</p></div>' : history || `<div class="empty-state"><h2>还没有提交过反馈</h2><p>${esc(state.feedbackError || "提交后会进入后台站内信，回复也会显示在这里。")}</p></div>`}</section>`);
   }
@@ -1901,10 +2002,10 @@
     const freeSeconds=Number(state.config?.pricing?.freeSeconds||0)||0;
     const rateText=rate>0?`${creditText(rate)} 积分/分钟`:"以实际计费为准";
     const freeText=freeSeconds>0?`${freeSeconds} 秒`:"以实际计费为准";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>订阅与权益</h1><button type="button" class="head-link" data-action="wallet">消费记录</button></header><section class="pay-hero"><div class="vip-card-title"><span>♔</span><div><strong>Vipeak VIP</strong><small>${active?"订阅已生效":"单次购买 · 解锁隐私互动"}</small></div></div><h2>${active?"会员权益正在生效":"开通即解锁隐私互动，和 TA 聊得更近一点"}</h2>${active?'<div class="vip-pills"><span>隐私互动已解锁</span></div>':""}</section><div class="plan-label-row"><p class="section-label">选择套餐</p><span data-plan-tip>${esc(picked?planHint(picked):"选择一个套餐")}</span></div><div class="pay-plans pay-plans-3">${cards}</div><button type="button" class="pay-cta" data-action="subscribe-selected">${picked?`立即开通 $${moneyText(picked.amount)} ${planShort(picked)}`:"立即开通"}</button><p class="pay-status" data-pay-status></p><p class="section-label">会员权益</p><section class="benefit-rows"><div><div><b>解锁隐私互动</b><small>私密相册与专属陪伴模式</small></div><em class="ok benefit-value">已含</em></div><div><div><b>文字私信不限条</b><small>0.5 积分/条，会员期内不计费</small></div><em class="benefit-value">免费</em></div><div><div><b>语音 / 视频 8 折</b><small>语音 2 积分/秒，视频 5 积分/秒</small></div><em class="benefit-value">8 折</em></div><div><div><b>开设房间</b><small>房间 5 积分/秒，会员可创建专属多人互动房间</small></div><em class="benefit-value">8 折</em></div><div><div><b>专属身份标识</b><small>房间与私信里的金色会员标识</small></div><em class="ok benefit-value">已含</em></div></section></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head">${backButton()}<h1>订阅与权益</h1><button type="button" class="head-link" data-action="wallet">消费记录</button></header><section class="pay-hero"><div class="vip-card-title"><span>♔</span><div><strong>Vipeak VIP</strong><small>${active?"订阅已生效":"单次购买 · 解锁隐私互动"}</small></div></div><h2>${active?"会员权益正在生效":"开通即解锁隐私互动，和 TA 聊得更近一点"}</h2>${active?'<div class="vip-pills"><span>隐私互动已解锁</span></div>':""}</section><div class="plan-label-row"><p class="section-label">选择套餐</p><span data-plan-tip>${esc(picked?planHint(picked):"选择一个套餐")}</span></div><div class="pay-plans pay-plans-3">${cards}</div><button type="button" class="pay-cta" data-action="subscribe-selected">${picked?`立即开通 $${moneyText(picked.amount)} ${planShort(picked)}`:"立即开通"}</button><p class="pay-status" data-pay-status></p><p class="section-label">会员权益</p><section class="benefit-rows"><div><div><b>解锁隐私互动</b><small>私密相册与专属陪伴模式</small></div><em class="ok benefit-value">已含</em></div><div><div><b>文字私信不限条</b><small>0.5 积分/条，会员期内不计费</small></div><em class="benefit-value">免费</em></div><div><div><b>语音 / 视频 8 折</b><small>语音 2 积分/秒，视频 5 积分/秒</small></div><em class="benefit-value">8 折</em></div><div><div><b>开设房间</b><small>房间 5 积分/秒，会员可创建专属多人互动房间</small></div><em class="benefit-value">8 折</em></div><div><div><b>专属身份标识</b><small>房间与私信里的金色会员标识</small></div><em class="ok benefit-value">已含</em></div></section></main>`;
   }
   function showRecharge(){
-    state.pageReturn=state.pageReturn||(state.page==="role-detail"?"role-detail":(state.page==="vip"?"vip":"profile"));
+    if (state.page !== "recharge") rememberLiveNavigation("recharge");
     state.page="recharge";
     state.walletHistoryTab="spend";
     state.walletSpendPage=1;
@@ -1922,7 +2023,7 @@
       return `<button type="button" class="pay-plan${item.id===picked?.id?" selected":""}" data-topup-id="${esc(item.id)}" data-topup-amount="${esc(moneyText(amount))}" data-topup-tip="${esc(topupHint(item, packages))}"><p>${got.toLocaleString("zh-CN")}</p><small class="${bonus?"bonus":""}">${esc(price)}</small></button>`;
     }).join("")||`<p class="detail-empty">当前没有充值档位。</p>`;
     const tip=picked?topupHint(picked, packages):"";
-    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head"><button type="button" data-action="back-from-sub">‹</button><h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero wallet-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b data-wallet-month-chat>${walletCreditText(state.walletMonthlySummary?.chatCredits)}</b><small>本月聊天消费</small></div><div><b data-wallet-month-gift>${walletCreditText(state.walletMonthlySummary?.giftCredits)}</b><small>本月礼物打赏</small></div><div><b data-wallet-member-days>${walletMembershipDaysText()}</b><small>会员剩余</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><section class="ledger-card wallet-history-card" data-wallet-history><header class="wallet-history-head"><div><b>历史记录</b><small>积分收支与签到奖励</small></div><div class="wallet-history-tabs" role="tablist" aria-label="历史记录类型"><button type="button" role="tab" aria-selected="true" class="selected" data-action="wallet-history-tab" data-wallet-history-tab="spend">消费</button><button type="button" role="tab" aria-selected="false" data-action="wallet-history-tab" data-wallet-history-tab="checkin">签到</button></div></header><div class="wallet-history-body" data-wallet-history-body data-recent-spend aria-live="polite"><div class="ledger-row"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取消费记录</b><small>每页 10 条</small></div></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
+    app.innerHTML=`<main class="live-page vip-page"><header class="sub-head">${backButton()}<h1>钱包与计费</h1><button type="button" class="head-link" data-action="vip">订阅权益</button></header><section class="pay-hero wallet-hero"><div class="wallet-top"><span>我的积分</span><button type="button" data-action="vip">开通会员更划算</button></div><strong class="wallet-balance">${state.user?credits.toLocaleString("zh-CN"):"登录后显示"}</strong><div class="wallet-stats"><div><b data-wallet-month-chat>${walletCreditText(state.walletMonthlySummary?.chatCredits)}</b><small>本月聊天消费</small></div><div><b data-wallet-month-gift>${walletCreditText(state.walletMonthlySummary?.giftCredits)}</b><small>本月礼物打赏</small></div><div><b data-wallet-member-days>${walletMembershipDaysText()}</b><small>会员剩余</small></div></div></section><p class="section-label">充值积分</p><div class="pay-plans pay-plans-3">${cards}</div><p class="pay-tip" data-pay-tip>${esc(tip)}</p><button type="button" class="pay-cta" data-action="pay-topup">${picked?`确认充值 $${moneyText(picked.amount)}`:"确认充值"}</button><p class="pay-status" data-pay-status></p><p class="section-label">聊天付费规则</p><section class="benefit-rows rule-rows"><div><span class="rule-ico pink">${uiIcon("chat")}</span><div><b>文字私信</b><small>按条计费 · 会员期内不计费</small></div><em class="benefit-value">0.5 积分/条</em></div><div><span class="rule-ico blue">${uiIcon("mic")}</span><div><b>语音通话 / 语音消息</b><small>会员 8 折</small></div><em class="blue benefit-value">2 积分/秒</em></div><div><span class="rule-ico gold">${uiIcon("video")}</span><div><b>视频通话</b><small>会员 8 折 · 实际扣费分成 30%</small></div><em class="gold benefit-value">5 积分/秒</em></div><div><span class="rule-ico green">${uiIcon("users")}</span><div><b>陪伴房间</b><small>会员可开房 · 进房即开始计时</small></div><em class="green benefit-value">5 积分/秒</em></div><div><span class="rule-ico pink">${uiIcon("gift")}</span><div><b>礼物打赏</b><small>私信与房间内均可赠送</small></div><button type="button" data-action="rooms">去房间</button></div></section><section class="ledger-card wallet-history-card" data-wallet-history><header class="wallet-history-head"><div><b>历史记录</b><small>积分收支与签到奖励</small></div><div class="wallet-history-tabs" role="tablist" aria-label="历史记录类型"><button type="button" role="tab" aria-selected="true" class="selected" data-action="wallet-history-tab" data-wallet-history-tab="spend">消费</button><button type="button" role="tab" aria-selected="false" data-action="wallet-history-tab" data-wallet-history-tab="checkin">签到</button></div></header><div class="wallet-history-body" data-wallet-history-body data-recent-spend aria-live="polite"><div class="ledger-row"><span class="ledger-ico">${uiIcon("chat")}</span><div class="ledger-copy"><b>正在读取消费记录</b><small>每页 10 条</small></div></div></div></section><p class="pay-foot">「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30% 计入角色创作者独立收益，不进入普通积分余额。</p></main>`;
     loadRecentSpend();
   }
 
@@ -2161,6 +2262,7 @@
 
   async function showWallet(kind) {
     if (!token()) return askLogin();
+    if (state.page !== "wallet") rememberLiveNavigation("wallet");
     state.page = "wallet";
     state.walletKind = kind || "spend";
     const title = kind === "topup" ? "充值记录" : kind === "gift" ? "礼物记录" : "钱包与消费记录";
@@ -2231,7 +2333,7 @@
     if (!token() || !state.user) return askLogin();
     if (!isLiveMember()) {
       referralToast("会员可创建专属多人互动房间");
-      state.pageReturn = "rooms";
+      rememberLiveNavigation("vip");
       state.page = "vip";
       ensureBilling().finally(() => { if (state.page === "vip") render(); });
       return;
@@ -2258,8 +2360,8 @@
       referralToast(error.message || "开房失败，请稍后重试");
     }
   }
-  function showRooms(from) {
-    if (from) state.roomsFrom = from;
+  function showRooms() {
+    if (state.page !== "rooms") rememberLiveNavigation("rooms");
     state.page = "rooms";
     const tab = state.roomTab === "single" ? "single" : "multi";
     const multi = state.rooms.filter((room) => characterMatchesFilters(room.character || {}));
@@ -2267,11 +2369,11 @@
     const list = tab === "single"
       ? `<section class="date-panel"><div class="date-head"><p>♡ 1V1 私密互动，双向选择</p><span><i></i>${single.length} 人在线</span></div>${single.length ? `<div class="date-list">${single.map(dateCard).join("")}</div>` : `<div class="empty-state"><h2>没有可约会的角色</h2><p>换个筛选，或者先看看直播间。</p></div>`}<p class="room-end">没有更多可约会的角色了</p></section>`
       : `<section class="plaza-panel"><p class="plaza-note">◉ 正在直播 · 点开即刻进入</p>${multi.length ? `<div class="plaza-grid">${multi.map(plazaCard).join("")}</div>` : `<div class="empty-state"><h2>还没有直播间</h2><p>有人开了共享房间后会出现在这里。</p></div>`}<p class="room-end">没有更多房间了</p></section>`;
-    app.innerHTML = `<main class="live-page rooms-page"><header class="rooms-top"><button class="icon-button" data-action="back-rooms" aria-label="返回">${uiIcon("back")}</button><h1>私密房间</h1><div class="rooms-head-actions"><button type="button" class="rooms-create" data-action="open-room-create">＋ 开房</button><button type="button" class="rooms-filter" data-action="filter">${filterText()}</button></div></header><nav class="room-segment"><button type="button" class="${tab === "multi" ? "selected" : ""}" data-room-tab="multi">直播间</button><button type="button" class="${tab === "single" ? "selected" : ""}" data-room-tab="single">视频约会</button></nav>${list}</main>`;
+    app.innerHTML = `<main class="live-page rooms-page"><header class="rooms-top">${backButton()}<h1>私密房间</h1><div class="rooms-head-actions"><button type="button" class="rooms-create" data-action="open-room-create">＋ 开房</button><button type="button" class="rooms-filter" data-action="filter">${filterText()}</button></div></header><nav class="room-segment"><button type="button" class="${tab === "multi" ? "selected" : ""}" data-room-tab="multi">直播间</button><button type="button" class="${tab === "single" ? "selected" : ""}" data-room-tab="single">视频约会</button></nav>${list}</main>`;
   }
   function showPrivacy() {
+    if (state.page !== "privacy") rememberLiveNavigation("privacy");
     state.page = "privacy";
-    state.subpageBack = "profile";
     const u = state.user;
     const account = u ? `<section class="privacy-block"><h3>当前账号</h3><p>登录账号是 <b>${esc(u.username || "")}</b>。昵称只用于页面展示，修改昵称不会改变登录账号。这个账号与主站共用，退出只退出本站登录状态。</p></section>` : `<section class="privacy-block"><h3>当前账号</h3><p>未登录也可以查看这份说明。登录后可以在这里核对登录账号和昵称。</p></section>`;
     subpage("隐私与安全", `${account}
@@ -2307,11 +2409,11 @@
   }
   function creatorListPage() {
     if (!state.user) {
-      app.innerHTML = `<main class="live-page edit-page"><header class="edit-header"><button data-action="back-profile">返回</button><h1>创作者</h1><span></span></header><section class="edit-section"><p>登录后可以上传自己的角色。</p><button class="primary-button" data-action="ask-login">登录</button></section></main>`;
+      app.innerHTML = `<main class="live-page edit-page"><header class="edit-header">${backButton("返回")}<h1>创作者</h1><span></span></header><section class="edit-section"><p>登录后可以上传自己的角色。</p><button class="primary-button" data-action="ask-login">登录</button></section></main>`;
       return;
     }
     const list = state.creatorList || [];
-    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header"><button data-action="back-profile">返回</button><h1>创作者</h1><button data-action="creator-new">新建</button></header><section class="edit-section"><p class="creator-note">内部创作者中心，用于维护平台角色。这里的角色不参与创作分成；用户从「创作」页创建并公开分享的角色才会产生分成。</p>${state.creatorError ? `<p class="creator-error">${esc(state.creatorError)}</p>` : ""}${state.creatorLoading ? `<p>加载中…</p>` : ""}${list.length ? `<div class="creator-list">${list.map((item) => `<button type="button" class="creator-card" data-action="creator-edit" data-id="${esc(item.id)}"><img src="${esc(item.portraitUrl || item.avatarUrl || "")}" alt="" /><div><b>${esc(item.name || "未命名")}</b><small>${item.enabled === false ? "已下架" : "已上架"} · ${esc(item.createdByUsername || "")}</small></div></button>`).join("")}</div>` : `<p>还没有角色。</p>`}</section></main>`;
+    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header">${backButton("返回")}<h1>创作者</h1><button data-action="creator-new">新建</button></header><section class="edit-section"><p class="creator-note">内部创作者中心，用于维护平台角色。这里的角色不参与创作分成；用户从「创作」页创建并公开分享的角色才会产生分成。</p>${state.creatorError ? `<p class="creator-error">${esc(state.creatorError)}</p>` : ""}${state.creatorLoading ? `<p>加载中…</p>` : ""}${list.length ? `<div class="creator-list">${list.map((item) => `<button type="button" class="creator-card" data-action="creator-edit" data-id="${esc(item.id)}"><img src="${esc(item.portraitUrl || item.avatarUrl || "")}" alt="" /><div><b>${esc(item.name || "未命名")}</b><small>${item.enabled === false ? "已下架" : "已上架"} · ${esc(item.createdByUsername || "")}</small></div></button>`).join("")}</div>` : `<p>还没有角色。</p>`}</section></main>`;
   }
   function creatorVoiceOptions(list, selected) {
     const rows = Array.isArray(list) ? list : [];
@@ -2326,6 +2428,7 @@
   }
   async function openCreatorEditor(id = "") {
     if (!token()) return askLogin();
+    if (state.page !== "creator-edit") rememberLiveNavigation("creator-edit");
     state.page = "creator-edit";
     state.creatorDraft = null;
     state.creatorError = "";
@@ -2350,12 +2453,12 @@
   function creatorEditor() {
     const value = state.creatorDraft;
     if (!value) {
-      app.innerHTML = `<main class="live-page edit-page"><header class="edit-header"><button data-action="creator">返回</button><h1>${state.creatorDraftId ? "编辑角色" : "新建角色"}</h1><span></span></header><section class="edit-section"><p>${esc(state.creatorError || "加载中…")}</p></section></main>`;
+      app.innerHTML = `<main class="live-page edit-page"><header class="edit-header">${backButton("返回")}<h1>${state.creatorDraftId ? "编辑角色" : "新建角色"}</h1><span></span></header><section class="edit-section"><p>${esc(state.creatorError || "加载中…")}</p></section></main>`;
       return;
     }
     const album = Array.isArray(value.album) ? value.album : [];
     const componentVoice = value.componentVoiceType || (value.voiceProvider === "dashscope_cosyvoice" ? value.voiceType : "");
-    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header"><button data-action="creator">返回</button><h1>${value.id ? "编辑角色" : "新建角色"}</h1><button data-action="creator-save">保存</button></header><form id="creatorForm" class="creator-form"><section class="edit-section"><h3>形象</h3><label class="creator-upload">形象图<input type="file" accept="image/*" data-creator-upload="avatar" /></label>${value.avatarUrl ? `<img class="creator-preview" src="${esc(value.avatarUrl)}" alt="" />` : `<p>请上传形象图</p>`}<button type="button" data-action="creator-undress" ${value.id && value.avatarUrl ? "" : "disabled"}>生成私密图</button><p class="creator-note">${esc(value.undressStatus === "generating" ? "私密图生成中，保存后可刷新查看。" : value.undressImageUrl ? "私密图已生成。" : value.undressError || "先保存角色，再生成私密图。")}</p><label class="creator-upload">列表头像<input type="file" accept="image/*" data-creator-upload="portrait" /></label>${value.portraitUrl ? `<img class="creator-preview" src="${esc(value.portraitUrl)}" alt="" />` : ""}</section><section class="edit-section creator-grid"><label>角色名称<input name="name" value="${esc(value.name || "")}" maxlength="60" required /></label><label>年龄<input name="age" type="number" min="18" max="80" value="${esc(value.age || "")}" /></label><label>职业<input name="occupation" value="${esc(value.occupation || "")}" maxlength="40" /></label><label>语言<input name="language" value="${esc(value.language || "zh")}" /></label><label>标签<input name="tags" value="${esc((value.tags || []).join(","))}" placeholder="温柔,御姐" /></label><label>排序<input name="sortOrder" type="number" value="${esc(value.sortOrder ?? 0)}" /></label><label class="span2">介绍<input name="intro" value="${esc(value.intro || "")}" maxlength="600" /></label><label class="span2">关联平台角色名<input name="linkName" value="${esc(value.linkName || "")}" /></label><label>开场白<input name="greeting" value="${esc(value.greeting || "")}" /></label><input type="hidden" name="mode" value="component" /><div class="creator-note">对话模式：组件版（外接 LLM / ASR / TTS）</div><label class="check"><input name="personaEnhance" type="checkbox" ${value.personaEnhance ? "checked" : ""} />人设增强</label><label class="check"><input name="sharedRoomEnabled" type="checkbox" ${value.sharedRoomEnabled ? "checked" : ""} />支持多人房间</label></section><section class="edit-section"><h3>音色</h3><label>组件音色<select name="componentVoiceType">${creatorVoiceOptions(state.creatorVoices?.component, componentVoice)}</select></label><p class="creator-note">用户创建角色只使用组件音色，播放试听时会严格使用当前选中的声音。</p><label>口吻<textarea name="replyStyle" rows="4" maxlength="4000">${esc(value.replyStyle || "")}</textarea></label><label>人设 Markdown<textarea name="personaMd" rows="10">${esc(value.personaMd || "")}</textarea></label><label class="creator-upload">导入 MD<input type="file" accept=".md,text/markdown,text/plain" data-creator-md="1" /></label></section><section class="edit-section"><h3>相册</h3><div id="creatorAlbum">${album.map((item, index) => `<div class="creator-album-row" data-album-index="${index}"><img src="${esc(item.thumbnailUrl || item.url || "")}" alt="" /><input data-album-name value="${esc(item.name || "")}" /><select data-album-type><option value="image" ${item.type !== "video" ? "selected" : ""}>图片</option><option value="video" ${item.type === "video" ? "selected" : ""}>视频</option></select><label><input data-album-locked type="checkbox" ${item.locked ? "checked" : ""} />锁定</label><button type="button" data-action="creator-album-remove">删除</button><input type="hidden" data-album-url value="${esc(item.url || "")}" /></div>`).join("")}</div><label class="creator-upload">添加图片<input type="file" accept="image/*" data-creator-upload="private-image" /></label><label class="creator-upload">添加视频<input type="file" accept="video/mp4,video/webm" data-creator-upload="private-video" /></label><p class="creator-note" data-creator-status></p></section></form></main>`;
+    app.innerHTML = `<main class="live-page edit-page creator-page"><header class="edit-header">${backButton("返回")}<h1>${value.id ? "编辑角色" : "新建角色"}</h1><button data-action="creator-save">保存</button></header><form id="creatorForm" class="creator-form"><section class="edit-section"><h3>形象</h3><label class="creator-upload">形象图<input type="file" accept="image/*" data-creator-upload="avatar" /></label>${value.avatarUrl ? `<img class="creator-preview" src="${esc(value.avatarUrl)}" alt="" />` : `<p>请上传形象图</p>`}<button type="button" data-action="creator-undress" ${value.id && value.avatarUrl ? "" : "disabled"}>生成私密图</button><p class="creator-note">${esc(value.undressStatus === "generating" ? "私密图生成中，保存后可刷新查看。" : value.undressImageUrl ? "私密图已生成。" : value.undressError || "先保存角色，再生成私密图。")}</p><label class="creator-upload">列表头像<input type="file" accept="image/*" data-creator-upload="portrait" /></label>${value.portraitUrl ? `<img class="creator-preview" src="${esc(value.portraitUrl)}" alt="" />` : ""}</section><section class="edit-section creator-grid"><label>角色名称<input name="name" value="${esc(value.name || "")}" maxlength="60" required /></label><label>年龄<input name="age" type="number" min="18" max="80" value="${esc(value.age || "")}" /></label><label>职业<input name="occupation" value="${esc(value.occupation || "")}" maxlength="40" /></label><label>语言<input name="language" value="${esc(value.language || "zh")}" /></label><label>标签<input name="tags" value="${esc((value.tags || []).join(","))}" placeholder="温柔,御姐" /></label><label>排序<input name="sortOrder" type="number" value="${esc(value.sortOrder ?? 0)}" /></label><label class="span2">介绍<input name="intro" value="${esc(value.intro || "")}" maxlength="600" /></label><label class="span2">关联平台角色名<input name="linkName" value="${esc(value.linkName || "")}" /></label><label>开场白<input name="greeting" value="${esc(value.greeting || "")}" /></label><input type="hidden" name="mode" value="component" /><div class="creator-note">对话模式：组件版（外接 LLM / ASR / TTS）</div><label class="check"><input name="personaEnhance" type="checkbox" ${value.personaEnhance ? "checked" : ""} />人设增强</label><label class="check"><input name="sharedRoomEnabled" type="checkbox" ${value.sharedRoomEnabled ? "checked" : ""} />支持多人房间</label></section><section class="edit-section"><h3>音色</h3><label>组件音色<select name="componentVoiceType">${creatorVoiceOptions(state.creatorVoices?.component, componentVoice)}</select></label><p class="creator-note">用户创建角色只使用组件音色，播放试听时会严格使用当前选中的声音。</p><label>口吻<textarea name="replyStyle" rows="4" maxlength="4000">${esc(value.replyStyle || "")}</textarea></label><label>人设 Markdown<textarea name="personaMd" rows="10">${esc(value.personaMd || "")}</textarea></label><label class="creator-upload">导入 MD<input type="file" accept=".md,text/markdown,text/plain" data-creator-md="1" /></label></section><section class="edit-section"><h3>相册</h3><div id="creatorAlbum">${album.map((item, index) => `<div class="creator-album-row" data-album-index="${index}"><img src="${esc(item.thumbnailUrl || item.url || "")}" alt="" /><input data-album-name value="${esc(item.name || "")}" /><select data-album-type><option value="image" ${item.type !== "video" ? "selected" : ""}>图片</option><option value="video" ${item.type === "video" ? "selected" : ""}>视频</option></select><label><input data-album-locked type="checkbox" ${item.locked ? "checked" : ""} />锁定</label><button type="button" data-action="creator-album-remove">删除</button><input type="hidden" data-album-url value="${esc(item.url || "")}" /></div>`).join("")}</div><label class="creator-upload">添加图片<input type="file" accept="image/*" data-creator-upload="private-image" /></label><label class="creator-upload">添加视频<input type="file" accept="video/mp4,video/webm" data-creator-upload="private-video" /></label><p class="creator-note" data-creator-status></p></section></form></main>`;
   }
   function readCreatorForm() {
     const form = document.getElementById("creatorForm");
@@ -2603,7 +2706,7 @@
       referralToast(error?.message || "视频聊天没有接通，请稍后重试");
     });
   }
-  async function saveProfile(form) { try { const result = await api("/api/account/profile", { method: "PATCH", body: JSON.stringify({ nickname: form.nickname.value.trim(), gender: form.gender.value, birthday: form.birthday.value, occupation: form.occupation.value, city: form.city.value, bio: form.bio.value, interests: form.interests.value ? form.interests.value.split("|").filter(Boolean) : [], profilePhotos: state.user.profilePhotos || [] }) }); state.user = result.user; state.page = "profile"; render(); } catch (error) { form.querySelector("[data-profile-message]").textContent = error.message; } }
+  async function saveProfile(form) { try { const result = await api("/api/account/profile", { method: "PATCH", body: JSON.stringify({ nickname: form.nickname.value.trim(), gender: form.gender.value, birthday: form.birthday.value, occupation: form.occupation.value, city: form.city.value, bio: form.bio.value, interests: form.interests.value ? form.interests.value.split("|").filter(Boolean) : [], profilePhotos: state.user.profilePhotos || [] }) }); state.user = result.user; resetLiveNavigation(); clearProfileHash(); state.page = "profile"; render(); } catch (error) { form.querySelector("[data-profile-message]").textContent = error.message; } }
     app.addEventListener("change", async (e) => {
     const createUpload = e.target.closest("[data-create-upload]");
     if (createUpload?.files?.[0]) {
@@ -2716,25 +2819,25 @@ document.addEventListener("click", async (e) => {
     if (createVisibility) { readCreateDraftFromForm(); createDraft().visibility = createVisibility; rerenderCreateEditor(); return; }
     if (e.target.closest("[data-action=close-sheet]") && !e.target.closest("[data-sheet]")) { e.target.closest(".sheet-backdrop")?.remove(); return; }
     const n = e.target.closest("[data-nav]")?.dataset.nav;
-    if (n) { clearProfileHash(); state.page = n; render(); return; }
+    if (n) { resetLiveNavigation(); clearProfileHash(); state.page = n; render(); return; }
     const cid = e.target.closest("[data-conversation-id]")?.dataset.conversationId;
     if (cid) { const row = e.target.closest("[data-conversation-id]"); const characterId = row?.dataset.characterId || (String(cid).startsWith("live-contact-") ? cid.slice("live-contact-".length) : ""); const role = state.chars.find((item) => String(item.id) === String(characterId)); if (role) state.role = role; else if (characterId) state.role = { id: characterId, name: row?.querySelector(".conversation-name")?.textContent || "对话" }; if (String(cid).startsWith("live-contact-")) openTextChat(""); else openTextChat(cid); return; }
     const payPlan = e.target.closest(".pay-plan");
     if (payPlan) { payPlan.parentElement?.querySelectorAll(".pay-plan").forEach((node) => node.classList.toggle("selected", node === payPlan)); const cta=document.querySelector(".pay-cta"); if (cta && payPlan.dataset.planId){ cta.textContent=`立即开通 $${payPlan.dataset.planAmount} ${payPlan.dataset.planName||""}`.trim(); const tip=document.querySelector("[data-plan-tip]"); if(tip && payPlan.dataset.planTip) tip.textContent=payPlan.dataset.planTip; } if (cta && payPlan.dataset.topupId){ cta.textContent=`确认充值 $${payPlan.dataset.topupAmount}`; const tip=document.querySelector("[data-pay-tip]"); if(tip) tip.textContent=payPlan.dataset.topupTip||""; } return; }
     const planBtn = e.target.closest(".plan-option"); if (planBtn && !planBtn.dataset.topupId) { document.querySelectorAll(".plan-option").forEach((node) => node.classList.toggle("selected", node === planBtn)); return; }
     const a = e.target.closest("[data-action]")?.dataset.action;
+    if (a === "live-back") { navigateLiveBack("home"); return; }
     if (a === "language-sheet") return languageSheet();
     if (a === "checkin") { showCheckin(); loadCheckin(true); return; }
     if (a === "checkin-task") return claimCheckinTask(e.target.closest("[data-checkin-task-key]")?.dataset.checkinTaskKey || "");
     if (a === "checkin-task-go") { openCheckinTask(e.target.closest("[data-checkin-task-key]")?.dataset.checkinTaskKey || ""); return; }
     if (a === "system-messages") return openSystemMessages();
-    if (a === "creator-income") { if (!token() || !state.user) return askLogin(); state.page = "creator-income"; state.subpageBack = "profile"; state.creatorIncomeWithdrawOpen = false; showCreatorIncome(); loadCreatorIncome(true); return; }
+    if (a === "creator-income") { if (!token() || !state.user) return askLogin(); rememberLiveNavigation("creator-income"); state.creatorIncomeWithdrawOpen = false; showCreatorIncome(); loadCreatorIncome(true); return; }
     if (a === "creator-income-refresh") { loadCreatorIncome(true); return; }
     if (a === "creator-income-withdraw") { state.creatorIncomeWithdrawOpen = !state.creatorIncomeWithdrawOpen; showCreatorIncome(); return; }
-    if (a === "creator-income-create") { state.page = "create"; state.creatorIncomeWithdrawOpen = false; render(); return; }
-    if (a === "feedback") { if (!token() || !state.user) return askLogin(); state.page = "feedback"; state.subpageBack = "profile"; showFeedback(); loadFeedback(true); return; }
+    if (a === "creator-income-create") { resetLiveNavigation(); clearProfileHash(); state.page = "create"; state.creatorIncomeWithdrawOpen = false; render(); return; }
+    if (a === "feedback") { if (!token() || !state.user) return askLogin(); rememberLiveNavigation("feedback"); showFeedback(); loadFeedback(true); return; }
     if (a === "feedback-refresh") return loadFeedback(true);
-    if (a === "back-subpage") { clearProfileHash(); state.page = state.subpageBack || "profile"; render(); return; }
     if (a === "settings-ios") { referralToast("iOS 版正在准备中，可先使用网页版"); return; }
     if (a === "filter") return filterSheet();
     if (a === "filter-reset") { state.filters = { age: "", gender: "", style: "" }; e.target.closest(".sheet-backdrop")?.remove(); render(); return; }
@@ -2744,9 +2847,7 @@ document.addEventListener("click", async (e) => {
     if (a === "close-sheet") { e.target.closest(".sheet-backdrop")?.remove(); return; }
     if (a === "refresh") return load();
     if (a === "shuffle") { state.homeBatchKey = ""; state.homeShuffle = (state.homeShuffle || 0) + 1; render(); return; }
-    if (a === "back-home") { state.category = ""; state.role = null; state.page = "home"; render(); return; }
-    if (a === "back-profile") { clearProfileHash(); state.page = "profile"; render(); return; }
-    if (a === "edit-profile") { state.page = "edit-profile"; render(); return; }
+    if (a === "edit-profile") { rememberLiveNavigation("edit-profile"); state.page = "edit-profile"; render(); return; }
     if (a === "creator") return openProfileMenuAction("creator");
     if (a === "creator-new") { openCreatorEditor(""); return; }
     if (a === "creator-edit") { openCreatorEditor(e.target.closest("[data-id]")?.dataset.id || ""); return; }
@@ -2822,22 +2923,20 @@ document.addEventListener("click", async (e) => {
       }
       return;
     }
-    if (a === "create-close") { cancelCreateAutoProfile(); state.page = "create"; state.createDraft = null; state.createEditingId = ""; state.createFocusVisibility = false; state.createBusy = false; render(); return; }
-    if (a === "back-relationship") { state.page = state.relationshipReturn || "text-chat"; render(); return; }
+    if (a === "create-close") { cancelCreateAutoProfile(); navigateLiveBack("create"); state.createDraft = null; state.createEditingId = ""; state.createFocusVisibility = false; state.createBusy = false; return; }
     if (a === "toggle-relationship-stages") { state.relationshipStagesOpen = state.relationshipStagesOpen === false; render(); return; }
-    if (a === "back-level") { state.page = "profile"; render(); return; }
     if (a === "guide-close") { closeCompanionGuide(false); return; }
     if (a === "guide-start") {
       closeCompanionGuide(true);
       const firstCharacter = state.chars[0] || null;
-      if (firstCharacter) { state.role = firstCharacter; state.page = "role-detail"; }
+      if (firstCharacter) { if (state.page !== "role-detail") rememberLiveNavigation("role-detail"); state.role = firstCharacter; state.page = "role-detail"; }
       else { state.page = "home"; }
       render();
       return;
     }
-    if (a === "relationship") { state.relationshipReturn = state.page === "role-detail" ? "role-detail" : "text-chat"; openRelationship(e.target.closest("[data-character-id]")?.dataset.characterId || ""); return; }
+    if (a === "relationship") { openRelationship(e.target.closest("[data-character-id]")?.dataset.characterId || ""); return; }
     if (a === "level") { showLevel(); return; }
-    if (a === "vip") { state.pageReturn = state.page === "role-detail" ? "role-detail" : "profile"; state.page = "vip"; ensureBilling().finally(() => { if (state.page === "vip") render(); }); return; }
+    if (a === "vip") { rememberLiveNavigation("vip"); state.page = "vip"; ensureBilling().finally(() => { if (state.page === "vip") render(); }); return; }
     if (a === "play-greeting") { const text = state.role?.greeting || ""; if (text && window.speechSynthesis) window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); return; }
     if (a === "favorite-role") { e.currentTarget.classList.toggle("selected"); return; }
     if (a === "share-role") { openSharePoster(); return; }
@@ -2851,10 +2950,15 @@ document.addEventListener("click", async (e) => {
     if (a === "open-text-gifts") { openTextGiftSheet(); return; }
     if (a === "text-mic") { referralToast("语音请在视频通话里发送"); return; }
     if (a === "play-voice") { const url = e.target.closest("[data-audio]")?.dataset.audio || ""; if (!url) { referralToast("这条语音没有可播放的音频"); return; } const audio = new Audio(url); audio.play().catch(() => referralToast("语音播放失败")); return; }
-    if (a === "referral") { state.page = "referral"; showReferral(); return; }
-    if (a === "back-messages") { state.page = "messages"; render(); return; }
+    if (a === "referral") { showReferral(); return; }
     const peer = e.target.closest(".chat-peer");
-    if (peer?.dataset.characterId) { const role = state.chars.find((item) => String(item.id) === String(peer.dataset.characterId)); if (role) { state.role = role; state.page = "role-detail"; render(); } return; }
+    if (peer?.dataset.characterId) {
+      const role = state.chars.find((item) => String(item.id) === String(peer.dataset.characterId))
+        || (state.role && String(state.role.id) === String(peer.dataset.characterId) ? state.role : null)
+        || { id: peer.dataset.characterId, name: peer.querySelector("b")?.textContent || "对话" };
+      openRole(role);
+      return;
+    }
     if (a === "send-text") { document.querySelector("[data-text-form]")?.requestSubmit(); return; }
     if (a === "copy-role-link") { await copyShareLink(document.querySelector("[data-sheet-note]")); return; }
     const referralCopy = e.target.closest("[data-copy-referral]");
@@ -2889,7 +2993,7 @@ document.addEventListener("click", async (e) => {
     if (a === "subscribe-selected") { const selected=document.querySelector(".pay-plan.selected[data-plan-id]")?.dataset.planId; if(!selected){ const note=document.querySelector("[data-pay-status]"); if(note) note.textContent="请先选择套餐"; return; } return startCheckout({ planId: selected }); }
     if (a === "pay-topup") { const selected=document.querySelector(".pay-plan.selected[data-topup-id]")?.dataset.topupId; if(!selected){ const note=document.querySelector("[data-pay-status]"); if(note) note.textContent="请先选择充值档位"; return; } return startCheckout({ packageId: selected }); }
     if (a === "rooms-all") return showRooms("home");
-    if (a === "wallet") { state.pageReturn = state.page === "role-detail" ? "role-detail" : "profile"; return showRecharge(); }
+    if (a === "wallet") return showRecharge();
     if (a === "wallet-history-tab") {
       const tab = e.target.closest("[data-wallet-history-tab]")?.dataset.walletHistoryTab || "spend";
       setWalletHistoryTab(tab);
@@ -2912,11 +3016,9 @@ document.addEventListener("click", async (e) => {
       return;
     }
     if (a === "gift") return showWallet("gift");
-    if (a === "recharge") { if (document.querySelector("[data-gift-sheet]") || state.page === "text-chat") state.pageReturn = "text-chat"; else state.pageReturn = state.page === "role-detail" ? "role-detail" : (state.page === "vip" ? "vip" : "profile"); showRecharge(); return; }
-    if (a === "back-from-sub") { state.page = state.pageReturn || "profile"; state.pageReturn = ""; render(); return; }
+    if (a === "recharge") { showRecharge(); return; }
     if (a === "topup") return showRecharge();
-    if (a === "rooms") return showRooms(state.page === "profile" ? "profile" : (state.page === "home" ? "home" : "messages"));
-    if (a === "back-rooms") { state.page = state.roomsFrom === "home" ? "home" : (state.roomsFrom === "profile" ? "profile" : "messages"); state.role = state.page === "home" ? null : state.role; render(); return; }
+    if (a === "rooms") return showRooms();
     if (a === "privacy") return showPrivacy();
     const topupId = e.target.closest("[data-topup-id]")?.dataset.topupId;
     if (topupId) {
@@ -2956,7 +3058,6 @@ document.addEventListener("click", async (e) => {
       if (!content || !state.textChatId) return;
       const messageCost = textMessageCredits();
       if (messageCost > 0 && Number(state.user?.credits || 0) < messageCost) {
-        state.pageReturn = "text-chat";
         referralToast("积分不够，去充值");
         showRecharge();
         return;

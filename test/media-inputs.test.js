@@ -239,6 +239,12 @@ test("BytePlus CreateAsset relays source URLs upstream and V3 reuses the returne
   assert.match(server, /byteplusActionEnvelope\("CreateAsset", \{ Id: assetId \}\)/);
 });
 
+test("BytePlus CreateAsset retries transient media download timeouts", () => {
+  assert.match(server, /const transientAssetDownload = \/DownloadFailed\[\\s\\S\]\*\(\?:context deadline exceeded|timed\?\\s\*out|read body err\)/);
+  assert.match(server, /action === "CreateAsset" && \(transientAssetDownload\.test/);
+  assert.match(server, /if \(isTransient && attempt < 3\)/);
+});
+
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
   assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
   assert.match(server, /if \(direct && !ARK_API_KEY\)/);

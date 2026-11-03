@@ -24505,6 +24505,7 @@ async function arkOpenApiAction(action, payload) {
 
   const body = JSON.stringify(payload);
   const transientCodes = /InternalServiceTimeout|InternalServiceError|RequestTimeout|ServerBusy|TooManyRequests/i;
+  const transientAssetDownload = /DownloadFailed[\s\S]*(?:context deadline exceeded|timed?\s*out|read body err)|(?:context deadline exceeded|read body err)[\s\S]*DownloadFailed/i;
   let lastError = null;
   // Each iteration freshly signs the request because the signed timestamp
   // would otherwise drift between attempts.
@@ -24521,6 +24522,7 @@ async function arkOpenApiAction(action, payload) {
           (detail?.Code && transientCodes.test(detail.Code)) ||
           (detail?.Message && transientCodes.test(detail.Message)) ||
           (text && transientCodes.test(text)) ||
+          (action === "CreateAsset" && (transientAssetDownload.test(`${detail?.Code || ""} ${detail?.Message || text}`))) ||
           response.status === 503 ||
           response.status === 504 ||
           response.status === 429;
