@@ -15,19 +15,20 @@ This file is the durable handoff for this task. After compaction, read this file
 
 ## Active request
 
-- Vega 1.5 Lite (`h3-vega`) integration is complete for the current phase.
-- Sale-price rows are available in Backoffice; prices default to `0` and generation remains fail-closed until the user sets positive values.
+- Vega 1.5 Lite (`h3-vega`) international pricing is configured and deployed.
+- Sale prices are upstream international USD per second × 1.5, converted at 1 USD = 100 credits.
+- Both output-video seconds and reference input-video seconds are billed separately.
 - Vega Pro remains disabled/fail-closed.
 
 ## Decisions
 
-- Lite has five editable output-second sale-price rows: `480p`, `720p`, `1080p`, `2k`, `4k`.
-- All five default to `0` and persist from PostgreSQL-backed `app_config`.
-- Admin purchase price is intentionally unconfigured and displayed as unavailable; no fallback to Pro or another model.
-- Lite generation uses `configured sale credits/second × billing duration`; smart duration (`-1`) pre-deducts 30 seconds.
-- Zero/missing Lite price throws `MODEL_PRICING_UNAVAILABLE` (HTTP 422) before charging or calling upstream.
+- Lite output sale prices (credits/second): `480p=6.75`, `720p=13.5`, `1080p=27`, `2k=32.4`, `4k=38.88`.
+- Lite reference input-video sale prices (credits/second): `480p=6.75`, `720p=13.5`, `1080p=27`, `2k=27`, `4k=27`.
+- Backoffice exposes five output rows and five `+ Video` input rows.
+- Pricing is evaluated before credentials, media transport, charging, or upstream submission.
+- Missing input-video pricing fails closed with HTTP 422 if a reference video is present.
 - Vega Pro remains fail-closed behind its existing pricing-unavailable guard.
-- Tencent VOD integration targets the **international site only**:
+- Tencent VOD integration targets the international site only:
   - Host: `vod.intl.tencentcloudapi.com`
   - Default region: `ap-singapore`
   - Mainland host `vod.tencentcloudapi.com` and default region `ap-guangzhou` must not be used.
@@ -38,20 +39,43 @@ This file is the durable handoff for this task. After compaction, read this file
 server.parts/part-01.js
 server.parts/part-02.js
 server.parts/part-11.js
+server.parts/part-26.js
+server.parts/part-30.js
 server.parts/part-38.js
 server.parts/part-39.js
-tencent-vod-vega.js
+platform.create.parts/part-03.js
+platform.ui.parts/part-03.js
+platform.ui.parts/part-04.js
 test/advanced-pricing.test.js
-test/tencent-vod-vega.test.js
 CODEX_TASK_STATE.md
 ```
 
 ## Verification
 
-- `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/tencent-vod-vega.test.js test/source-split.test.js`: 49 pass, 0 fail.
-- `node --check server.js`, `node --check tencent-vod-vega.js`, and `git diff --check`: passed.
-- Pricing tests cover row presence/save mappings, zero-safe defaults/persistence, runtime rate calculation, zero-price fail-closed behavior, and Pro fail-closed behavior.
-- International VOD test asserts calls use `vod.intl.tencentcloudapi.com`, header region `ap-singapore`, and never the mainland VOD host.
+- `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/tencent-vod-vega.test.js test/source-split.test.js`: 51 pass, 0 fail.
+- `node --check server.js`, `node --check platform.config.js`, `node --check platform.ui.js`, `node --check platform.create.js`, and `git diff --check`: passed.
+- Production PostgreSQL `app_kv.app_config` now explicitly contains all 10 Lite output/input price rows.
+- Production estimate without references: 720P × 6s = 81 credits.
+- Production estimate with 3 reference-video seconds: output 81 + input 40.5 = 121.5 credits.
+- Production `/api/health`: `200 {"ok":true}`.
+
+## Deployment
+
+- `old-site`: `e0c9ca9` (`Configure Vega Lite international input and output pricing`), pushed to origin.
+- `platform-release`: `7466740`, built from `e0c9ca9`; pushed to origin with a lease-protected update because release snapshots are sibling commits over the immutable release base.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`.
+- Production checkout: `/opt/raising-game-demo` at `74667407697380abb45ce51f487cf25f6b4c504d`.
+- Production service: `raising-game-demo` is `active`.
+- Live release was not deployed.
+
+## Deployment rule
+
+- Commit this phase to `old-site`, then:
+  - `python3 scripts/build_release_snapshot.py --source old-site`
+  - `scripts/deploy_local.sh --site old`
+- Never deploy `old-site` directly. Do not deploy Live for this task.
+- Do not print or commit `LOCAL_CREDENTIALS.md`.
+- Business/runtime data remains PostgreSQL-only.
 
 ## Prior completed work in this task
 
