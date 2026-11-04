@@ -3,6 +3,8 @@
 const crypto = require("node:crypto");
 
 const VEGA_MODEL_NAME = "wand-vega-video";
+const TENCENT_VOD_INTERNATIONAL_HOST = "vod.intl.tencentcloudapi.com";
+const TENCENT_VOD_INTERNATIONAL_REGION = "ap-singapore";
 const VEGA_PROVIDERS = Object.freeze({
   "seedance25-vega": Object.freeze({
     id: "seedance25-vega",
@@ -500,7 +502,10 @@ async function callTencentVod({ action, payload, env = process.env, fetchImpl = 
       code: "TENCENT_VOD_NOT_CONFIGURED",
     });
   }
-  const host = "vod.tencentcloudapi.com";
+  // This integration is for Tencent Cloud International VOD only. Do not use
+  // the mainland host (vod.tencentcloudapi.com), whose credentials and
+  // sub-applications are not interchangeable with the international site.
+  const host = TENCENT_VOD_INTERNATIONAL_HOST;
   const body = JSON.stringify(payload || {});
   const signed = tencentTc3Authorization({ secretId, secretKey, host, action, payload: body, timestamp });
   const response = await fetchImpl(`https://${host}`, {
@@ -512,7 +517,7 @@ async function callTencentVod({ action, payload, env = process.env, fetchImpl = 
       "x-tc-action": action,
       "x-tc-timestamp": String(signed.timestamp),
       "x-tc-version": "2018-07-17",
-      "x-tc-region": String(env.TENCENT_VOD_REGION || "ap-guangzhou"),
+      "x-tc-region": String(env.TENCENT_VOD_REGION || TENCENT_VOD_INTERNATIONAL_REGION),
     },
     body,
   });
@@ -587,6 +592,8 @@ function vegaTaskFailureMessage(task = {}) {
 
 module.exports = {
   VEGA_MODEL_NAME,
+  TENCENT_VOD_INTERNATIONAL_HOST,
+  TENCENT_VOD_INTERNATIONAL_REGION,
   VEGA_PROVIDERS,
   VEGA_PROVIDER_IDS,
   VEGA_CAPABILITIES,

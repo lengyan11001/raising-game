@@ -46,6 +46,37 @@ test("Vega provider identities are exact and preserve the provider id", () => {
   }
 });
 
+test("Tencent VOD calls use the international endpoint and region", async () => {
+  assert.equal(vega.TENCENT_VOD_INTERNATIONAL_HOST, "vod.intl.tencentcloudapi.com");
+  assert.equal(vega.TENCENT_VOD_INTERNATIONAL_REGION, "ap-singapore");
+  const requests = [];
+  const fetchImpl = async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ Response: { TaskId: "task-1" } }),
+    };
+  };
+  const payload = { SubAppId: 123, TaskId: "task-1" };
+  const raw = await vega.callTencentVod({
+    action: "DescribeTaskDetail",
+    payload,
+    env: { TENCENTCLOUD_SECRET_ID: "secret-id", TENCENTCLOUD_SECRET_KEY: "secret-key" },
+    fetchImpl,
+    timestamp: 1_700_000_000,
+  });
+  assert.equal(raw.Response.TaskId, "task-1");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://vod.intl.tencentcloudapi.com");
+  assert.equal(requests[0].options.headers.host, "vod.intl.tencentcloudapi.com");
+  assert.equal(requests[0].options.headers["x-tc-region"], "ap-singapore");
+  assert.equal(requests[0].options.headers["x-tc-action"], "DescribeTaskDetail");
+  assert.equal(requests[0].options.body, JSON.stringify(payload));
+  assert.match(requests[0].options.headers.authorization, /Credential=secret-id\//);
+  assert.doesNotMatch(requests[0].url, /^https:\/\/vod\.tencentcloudapi\.com/);
+});
+
 test("Vega duration validates boundaries, defaults, and integer seconds", () => {
     assert.equal(vega.normalizeVegaDuration("seedance25-vega", 4), 4);
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1), -1);
