@@ -315,6 +315,25 @@ const {
 } = require("./telegram-bot");
 
 const {
+  VEGA_RATIOS,
+  VEGA_RESOLUTIONS,
+  assertVegaPricingConfigured,
+  buildVegaCreatePayload,
+  callTencentVod,
+  isVegaProvider,
+  normalizeVegaDuration,
+  normalizeVegaRatio,
+  normalizeVegaResolution,
+  normalizeVegaStatus,
+  vegaCreateTaskId,
+  vegaOutputVideoUrl,
+  vegaPricingUnavailableError,
+  vegaProviderDefinition,
+  vegaProviderLabel,
+  vegaTaskDetail,
+  vegaTaskFailureMessage,
+} = require("./tencent-vod-vega");
+const {
   isSeedream5ImageProvider,
   isQwenImage3Provider,
   isQwen37FlashProvider,
@@ -12968,6 +12987,7 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isVegaProvider(value)) return true;
   if (isPapayaProvider(value)) return true;
   if (isByteplusLanguageProvider(value)) return true;
   if (isQwen37FlashProvider(value)) return true;
@@ -12987,12 +13007,16 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedance20-vega, seedance25-vega, h3-vega, seedream5-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
   }
 }
 
 function assertAdvancedDurationInput(provider = "seedance", value) {
   if (value === undefined || value === null || value === "") return;
+  if (isVegaProvider(provider)) {
+    normalizeVegaDuration(provider, value);
+    return;
+  }
   const bounds = advancedDurationBounds(provider);
   const duration = Number(value);
   if (normalizeAdvancedProvider(provider) === "wan30" && duration === -1) return;
@@ -13007,6 +13031,10 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
 
 function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard", videoCapability = "" } = {}) {
   if (value === undefined || value === null || value === "") return;
+  if (isVegaProvider(provider)) {
+    normalizeVegaResolution(value);
+    return;
+  }
   const raw = String(value || "").trim().toLowerCase();
   const capability = normalizeAliyunVideoCapability(videoCapability, { provider });
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider))) {
@@ -13044,6 +13072,10 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
 
 function assertAdvancedRatioInput(value, provider = "seedance") {
   if (value === undefined || value === null || value === "") return;
+  if (isVegaProvider(provider)) {
+    normalizeVegaRatio(value);
+    return;
+  }
   if (["wan30", "seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider)) && String(value || "").trim().toLowerCase() === "adaptive") return;
   const normalized = String(value || "").trim().replace(/[锛歺X]/g, ":");
   if (!/^\d+\s*:\s*\d+$/.test(normalized)) {
@@ -13404,6 +13436,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (isVegaProvider(normalizedProvider)) return { fallback: normalizedProvider === "h3-vega" ? 6 : 5, min: 1, max: 15 };
   if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
@@ -13450,6 +13483,7 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   if (normalizedProvider === "papaya") return papayaPricingEstimate(advancedPricing, options);
   if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
@@ -25662,7 +25696,8 @@ function isImageGenerationRecord(record = {}) {
     provider === "wan27" ||
     provider === "aliyun-wan30" ||
     provider === "aliyun-wan27" ||
-    provider === "aliyun-happyhorse"
+    provider === "aliyun-happyhorse" ||
+    isVegaProvider(provider)
   ) return false;
   if (provider.includes("image") || kind.includes("image") || source.includes("image")) return true;
   return Boolean(generationRecordImageUrl(record)) && !Boolean(generationRecordVideoUrl(record));
@@ -25701,7 +25736,7 @@ function generationRecordIsVideoOutput(record = {}) {
     || record.cdnVideoUrl
     || record.videoUrl
     || kind.includes("video")
-    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex"].includes(provider),
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider),
   );
 }
 
@@ -26120,7 +26155,7 @@ function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBM
   if (!record.awaitingUpstreamTask || record.upstreamTaskId) return false;
   if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "seedance-nsfw", "seedance25", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"].includes(provider)) return false;
+  if (!["seedance", "seedance-nsfw", "seedance25", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"].includes(provider) && !isVegaProvider(provider)) return false;
   const status = String(record.status || "").toLowerCase();
   if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
   const time = generationRecordCreatedTime(record);
@@ -26742,6 +26777,70 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
   }, reason);
 }
 
+async function refreshVegaGenerationRecord(record = {}, reason = "vega-query") {
+  const subAppId = Number(process.env.TENCENT_VOD_SUB_APP_ID || 0);
+  if (!record.upstreamTaskId || !Number.isInteger(subAppId) || subAppId <= 0) return record;
+  const queryPayload = { SubAppId: subAppId, TaskId: record.upstreamTaskId };
+  const raw = await callTencentVod({ action: "DescribeTaskDetail", payload: queryPayload });
+  const task = vegaTaskDetail(raw);
+  if (!task) {
+    throw Object.assign(new Error("Tencent VOD returned no AigcVideoTask detail."), {
+      statusCode: 502,
+      code: "TENCENT_VOD_TASK_DETAIL_MISSING",
+      payload: raw,
+    });
+  }
+  const status = normalizeVegaStatus(task.Status);
+  const succeeded = isSucceededStatus(status);
+  const remoteVideoUrl = succeeded ? (vegaOutputVideoUrl(task) || record.remoteVideoUrl || "") : record.remoteVideoUrl || "";
+  const failed = isFailedStatus(status) || (succeeded && !remoteVideoUrl);
+  let media = {};
+  let downloadError = "";
+  if (succeeded && remoteVideoUrl && (!record.localVideoUrl || !record.cdnVideoUrl)) {
+    try {
+      media = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+  const failureMessage = failed
+    ? (vegaTaskFailureMessage(task) || (succeeded ? "Tencent VOD returned no output video." : record.error || "Tencent VOD generation failed."))
+    : "";
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  return upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    upstreamTaskId: record.upstreamTaskId,
+    status: succeeded && remoteVideoUrl ? "succeeded" : failed ? "failed" : status,
+    awaitingUpstreamTask: !succeeded && !failed,
+    remoteVideoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (media.localVideoUrl || media.cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
+      : (media.cdnVideoUrl || media.localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
+    localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
+    localVideoPath: media.localVideoPath || record.localVideoPath || "",
+    localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
+    localPosterPath: media.localPosterPath || record.localPosterPath || "",
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+      : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
+    cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
+    cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+    cdnError: media.cdnError || record.cdnError || "",
+    error: failureMessage || downloadError,
+    queryResponse: raw,
+    ...(succeeded && remoteVideoUrl ? {
+      finalCredits: preDeducted,
+      originalFinalCredits: creditsAmount(record.originalPreDeductedCredits ?? record.originalFinalCredits ?? preDeducted),
+      billingStatus: preDeducted > 0 ? "settled" : "free",
+      billingSettledAt: record.billingSettledAt || new Date().toISOString(),
+      completedAt: record.completedAt || new Date().toISOString(),
+    } : failed ? {
+      finalCredits: 0,
+      originalFinalCredits: 0,
+    } : {}),
+  }, reason);
+}
+
 async function refreshGenerationRecordStatus(record = {}) {
   if (isChatCompletionGenerationRecord(record)) return record;
   if (needsApizFailureRefund(record)) {
@@ -26758,6 +26857,32 @@ async function refreshGenerationRecordStatus(record = {}) {
     String(record.source || "").toLowerCase() === "my-character-image-generate"
   ) {
     return refreshMyCharacterImageGenerationRecord(record, "generation-record-refresh");
+  }
+  if (record.upstreamSource === "tencent-vod") {
+    if (!shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshVegaGenerationRecord(record, "vega-query");
+    } catch (error) {
+      console.warn("[vega-generation-record-refresh-failed]", record.taskId, error.message || error);
+      if (upstreamResourceMissing(error)) {
+        return await upsertAndSettleGenerationRecord({
+          taskId: record.taskId,
+          status: "failed",
+          error: error.message || "Tencent VOD task resource not found.",
+          queryResponse: error.payload || record.queryResponse || null,
+          finalCredits: 0,
+          originalFinalCredits: 0,
+        }, "vega-missing-resource");
+      }
+      return upsertGenerationRecord({
+        taskId: record.taskId,
+        statusQueryError: error.message || "Failed to query Tencent VOD task status.",
+        statusQueryStatusCode: error.statusCode || 0,
+        statusQueryPayload: error.payload || null,
+        statusQueryCheckedAt: new Date().toISOString(),
+        lastUpdateReason: "vega-status-query-failed",
+      });
+    }
   }
   if (record.provider === "apiz") {
     if ((!APIZ_API_KEY && record.upstreamSource !== "gateway") || !shouldRefreshGenerationRecord(record)) return record;
@@ -30784,7 +30909,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider) && !isVegaProvider(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
@@ -32213,7 +32338,293 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   }
 }
 
+function vegaMediaUrls(value, keys = ["url"]) {
+  return arrayFromBody(value)
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+      return String(firstPresent(...keys.map((key) => item[key]), "") || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function vegaRequestMedia(merged = {}) {
+  const firstFrameUrl = String(firstPresent(
+    merged.firstFrameUrl,
+    merged.first_frame_url,
+    merged.imageUrl,
+    merged.image_url,
+  ) || "").trim();
+  const lastFrameUrl = String(firstPresent(
+    merged.lastFrameUrl,
+    merged.last_frame_url,
+    merged.endImageUrl,
+    merged.end_image_url,
+  ) || "").trim();
+  const referenceImages = [...new Set([
+    ...vegaMediaUrls(merged.referenceImages, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.reference_images, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.referenceImageUrls, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.reference_image_urls, ["url", "imageUrl", "image_url"]),
+  ].map((url) => String(url || "").trim()).filter((url) => url && url !== firstFrameUrl && url !== lastFrameUrl))];
+  const referenceVideos = [...new Set([
+    ...vegaMediaUrls(merged.referenceVideos, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.reference_videos, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.referenceVideoUrls, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.reference_video_urls, ["url", "videoUrl", "video_url"]),
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  const referenceAudios = [...new Set([
+    ...vegaMediaUrls(merged.referenceAudios, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.reference_audios, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.referenceAudioUrls, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.reference_audio_urls, ["url", "audioUrl", "audio_url"]),
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  return { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
+}
+
+async function handleAdvancedVegaGenerate(req, res, context = {}) {
+  const provider = normalizeAdvancedProvider(context.provider);
+  const definition = vegaProviderDefinition(provider);
+  if (!definition) return sendJson(res, 400, { ok: false, code: "INVALID_PROVIDER", message: "Unknown Vega provider." });
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  const config = context.config || await readAppConfig();
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const selectedCase = context.selectedCase || null;
+  const merged = mergedRequestForMedia(body, caseParams);
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  const media = vegaRequestMedia(merged);
+  const duration = normalizeVegaDuration(provider, firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, caseParams.duration));
+  const resolution = normalizeVegaResolution(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "1080P"));
+  const ratio = normalizeVegaRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, "16:9"));
+  const seedValue = firstPresent(body.seed, bodyParams.seed, caseParams.seed);
+  const seed = seedValue === undefined || seedValue === null || seedValue === "" ? undefined : Number(seedValue);
+  if (seed !== undefined && (!Number.isInteger(seed) || seed < 0)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEED", message: "seed must be a non-negative integer." });
+  }
+  // Pricing is intentionally evaluated before credentials, media transport, charging, or upstream calls.
+  let pricing;
+  try {
+    const rawPricing = advancedModelPricing(provider, {
+      ...merged,
+      duration,
+      resolution,
+      ratio,
+      advancedPricing: config.platform?.advancedPricing,
+    });
+    pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+    assertVegaPricingConfigured(provider, pricing);
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, "Model pricing is unavailable.");
+  }
+  const cost = creditsAmount(pricing.credits || 0);
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || {
+      ok: false,
+      code: error.code || "SUBTOKEN_QUOTA_UNAVAILABLE",
+      message: error.message || "Sub token quota is not enough.",
+    });
+  }
+
+  const subAppId = Number(process.env.TENCENT_VOD_SUB_APP_ID || 0);
+  if (!String(process.env.TENCENTCLOUD_SECRET_ID || "").trim() || !String(process.env.TENCENTCLOUD_SECRET_KEY || "").trim() || !Number.isInteger(subAppId) || subAppId <= 0) {
+    return sendJson(res, 503, {
+      ok: false,
+      code: "TENCENT_VOD_NOT_CONFIGURED",
+      message: "Tencent VOD is not configured. Generation was not started.",
+    });
+  }
+  let payload;
+  try {
+    payload = buildVegaCreatePayload({
+      provider,
+      prompt,
+      ...media,
+      duration,
+      resolution,
+      ratio,
+      seed,
+    }, { subAppId });
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
+  }
+
+  const taskId = localGenerationTaskId("cgt");
+  const requestParams = {
+    ...caseParams,
+    ...bodyParams,
+    ...body,
+    provider,
+    duration,
+    resolution,
+    ratio,
+    seed,
+    firstFrameUrl: media.firstFrameUrl,
+    lastFrameUrl: media.lastFrameUrl,
+    referenceImages: media.referenceImages,
+    referenceVideos: media.referenceVideos,
+    referenceAudios: media.referenceAudios,
+  };
+  const requestTrace = requestTraceForGeneration(req);
+  let charged = false;
+  try {
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: "advanced_generation",
+        taskId,
+        meta: {
+          taskId,
+          provider,
+          model: definition.modelName,
+          modelVersion: definition.modelVersion,
+          duration,
+          resolution,
+          ratio,
+          pricingSource: pricing.source || "vega_not_configured",
+          baseCredits: pricing.baseCredits,
+          originalCost: pricing.originalCredits,
+          pricingMultiplier: pricing.userPricingMultiplier,
+          markup: pricing.markup,
+        },
+      });
+      charged = true;
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+    const initialRecord = await upsertGenerationRecord({
+      taskId,
+      status: "submitting",
+      model: `${definition.modelName}:${definition.modelVersion}`,
+      provider,
+      source: `advanced-${provider}`,
+      kind: "advanced-video",
+      upstreamSource: "tencent-vod",
+      templateId: selectedCase?.id || "",
+      templateTitle: selectedCase?.title || definition.label,
+      userId: auth.user.id,
+      prompt,
+      finalPrompt: prompt,
+      params: requestParams,
+      mediaMode: firstPresent(body.functionMode, body.seedanceMode, body.mediaMode, bodyParams.functionMode, bodyParams.seedanceMode, caseParams.functionMode, caseParams.seedanceMode, "reference_video"),
+      mediaAssets: [
+        ...(media.firstFrameUrl ? [{ type: "first_frame", url: media.firstFrameUrl }] : []),
+        ...(media.lastFrameUrl ? [{ type: "last_frame", url: media.lastFrameUrl }] : []),
+        ...media.referenceImages.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, url })),
+        ...media.referenceVideos.map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, videoUrl: url })),
+        ...media.referenceAudios.map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, audioUrl: url })),
+      ],
+      ratio,
+      resolution,
+      duration,
+      quality: resolution,
+      upstreamPayload: payload,
+      createResponse: null,
+      awaitingUpstreamTask: true,
+      error: "",
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits ?? cost,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+      billingStatus: cost > 0 ? "pre_deducted" : "free",
+      billingSettledAt: "",
+      pricingEstimate: pricing,
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+      ...requestTrace,
+    });
+    const raw = await callTencentVod({ action: "CreateAigcVideoTask", payload });
+    const upstreamTaskId = vegaCreateTaskId(raw);
+    if (!upstreamTaskId) {
+      throw Object.assign(new Error("Tencent VOD did not return a task id."), { statusCode: 502, code: "TENCENT_VOD_TASK_ID_MISSING", payload: raw });
+    }
+    const record = await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId,
+      status: "submitted",
+      awaitingUpstreamTask: true,
+      upstreamPayload: payload,
+      createResponse: raw,
+      error: "",
+    });
+    const latestDb = await readDb();
+    const latestUser = (latestDb.users || []).find((user) => user.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      async: true,
+      task: { taskId: record.taskId, status: record.status },
+      taskId: record.taskId,
+      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
+      user: userView(latestUser),
+      pricing,
+      cost,
+      params: initialRecord.params,
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    if (charged) {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, auth.user.id, cost, "advanced_vega_refund", { taskId, provider, error: errorInfo.message });
+        await recordSubtokenAdjustment({ taskId, userId: auth.user.id, provider }, {
+          taskId,
+          type: "advanced_vega_refund",
+          amount: -cost,
+          meta: { provider, error: errorInfo.message },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[vega-generation-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      provider,
+      source: `advanced-${provider}`,
+      kind: "advanced-video",
+      upstreamSource: "tencent-vod",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || `${definition.label} failed.`,
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload: payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+    const current = await getGenerationRecord(taskId).catch(() => null);
+    return sendJson(res, errorInfo.statusCode || 502, {
+      ok: false,
+      message: errorInfo.message || `${definition.label} failed.`,
+      code: errorInfo.code || "",
+      taskId,
+      record: publicGenerationRecord(current || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      payload: errorInfo.payload || null,
+    });
+  }
+}
+
 function advancedRuntimeForProvider(provider, requestParams = {}) {
+  if (isVegaProvider(provider)) {
+    const definition = vegaProviderDefinition(provider);
+    return {
+      providerName: definition.id,
+      recordSource: `advanced-${definition.id}`,
+      model: `${definition.modelName}:${definition.modelVersion}`,
+      quality: normalizeVegaResolution(requestParams.resolution),
+    };
+  }
   if (normalizeAdvancedProvider(provider) === "seedance25") {
     return {
       providerName: "seedance25",
@@ -32273,6 +32684,9 @@ async function runAdvancedGenerationJob(job = {}) {
     referenceAudioAssetIds = [],
     referenceImageAssetUris = [],
   } = job;
+  if (isVegaProvider(provider)) {
+    throw new Error("Vega generation must use handleAdvancedVegaGenerate.");
+  }
   let referenceVideoAssetUris = Array.isArray(initialReferenceVideoAssetUris) ? [...initialReferenceVideoAssetUris] : [];
   let referenceAudioAssetUris = Array.isArray(initialReferenceAudioAssetUris) ? [...initialReferenceAudioAssetUris] : [];
   const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
@@ -35604,6 +36018,26 @@ async function handleAdvancedGenerate(req, res) {
   } catch (error) {
     return sendAdvancedValidationError(res, error);
   }
+  let prompt = String(firstPresent(
+    body.prompt,
+    bodyParams.prompt,
+    selectedCase?.prompt,
+    caseParams.prompt,
+    provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
+    "",
+  )).trim();
+  if (isVegaProvider(provider)) {
+    return await handleAdvancedVegaGenerate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+      provider,
+    });
+  }
   const canUseIgnexSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceIgnexEnabledForUser(auth.user);
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
@@ -35628,14 +36062,6 @@ async function handleAdvancedGenerate(req, res) {
       return sendAdvancedValidationError(res, error, "Seedance content is invalid.");
     }
   }
-  let prompt = String(firstPresent(
-    body.prompt,
-    bodyParams.prompt,
-    selectedCase?.prompt,
-    caseParams.prompt,
-    provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
-    "",
-  )).trim();
   if (isVideoReplacementRequest && provider !== "z-image-spicy-pro") prompt = VIDEO_REPLACE_PROMPT;
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   if (["qwen37-flash", "byteplus-language", "papaya"].includes(provider)) {
@@ -36481,7 +36907,38 @@ function advancedRegenerateBody(record = {}) {
     resolution: record.resolution || params.resolution || "720p",
     duration: record.duration || params.duration || 5,
   };
-  if (isAliyunVideoProvider(provider)) {
+  if (isVegaProvider(provider)) {
+    const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+    const assetUrl = (asset, keys = []) => String(keys.map((key) => asset?.[key]).find(Boolean) || "").trim();
+    const urlsByType = (type, keys) => mediaAssets
+      .filter((asset) => asset?.type === type)
+      .map((asset) => assetUrl(asset, keys))
+      .filter(Boolean);
+    const uniqueUrls = (values) => [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))];
+    const firstFrameUrl = String(firstPresent(params.firstFrameUrl, params.first_frame_url, urlsByType("first_frame", ["url", "imageUrl", "image_url"])) || "").trim();
+    const lastFrameUrl = String(firstPresent(params.lastFrameUrl, params.last_frame_url, urlsByType("last_frame", ["url", "imageUrl", "image_url"])) || "").trim();
+    const referenceImages = uniqueUrls([
+      ...urlsByType("reference_image", ["url", "imageUrl", "image_url"]),
+      ...(Array.isArray(params.referenceImages) ? params.referenceImages.map((item) => typeof item === "string" ? item : item?.url || item?.imageUrl || item?.image_url) : []),
+      ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
+    ]).filter((url) => url !== firstFrameUrl && url !== lastFrameUrl);
+    const referenceVideos = uniqueUrls([
+      ...urlsByType("reference_video", ["url", "videoUrl", "video_url"]),
+      ...(Array.isArray(params.referenceVideos) ? params.referenceVideos.map((item) => typeof item === "string" ? item : item?.url || item?.videoUrl || item?.video_url) : []),
+      ...(Array.isArray(params.referenceVideoUrls) ? params.referenceVideoUrls : []),
+    ]);
+    const referenceAudios = uniqueUrls([
+      ...urlsByType("reference_audio", ["url", "audioUrl", "audio_url"]),
+      ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url) : []),
+      ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
+    ]);
+    if (firstFrameUrl) body.firstFrameUrl = firstFrameUrl;
+    if (lastFrameUrl) body.lastFrameUrl = lastFrameUrl;
+    if (referenceImages.length) body.referenceImages = referenceImages.map((url) => ({ url }));
+    if (referenceVideos.length) body.referenceVideos = referenceVideos.map((url) => ({ url }));
+    if (referenceAudios.length) body.referenceAudios = referenceAudios.map((url) => ({ url }));
+    if (params.seed !== undefined && params.seed !== null && params.seed !== "") body.seed = params.seed;
+  } else if (isAliyunVideoProvider(provider)) {
     const capability = normalizeAliyunVideoCapability(params.videoCapability || record.mediaMode || "", {
       provider,
       model: params.model || record.model,
@@ -37229,6 +37686,43 @@ function seedanceNsfwVideoParameterFields() {
   ];
 }
 
+function vegaVideoParameterFields(provider = "seedance20-vega") {
+  const definition = vegaProviderDefinition(provider) || vegaProviderDefinition("seedance20-vega");
+  const bounds = advancedDurationBounds(definition.id);
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: `Create an asynchronous ${definition.label} video task through Tencent VOD.`, default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: `Use \`${definition.id}\`.`, default: definition.id },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt. Prompt enhancement is disabled.", default: "-" },
+    { name: "firstFrameUrl", type: "string", required: "No", description: "Public HTTP(S) first-frame image URL. Asset IDs and data URLs are not accepted.", default: "-" },
+    { name: "lastFrameUrl", type: "string", required: "No", description: "Public HTTP(S) last-frame image URL. A first frame is required when this field is used.", default: "-" },
+    { name: "referenceImages", type: "array", required: "No", description: "Public HTTP(S) image reference URLs.", default: "[]" },
+    { name: "referenceVideos", type: "array", required: "No", description: "Public HTTP(S) video reference URLs.", default: "[]" },
+    { name: "referenceAudios", type: "array", required: "No", description: "Public HTTP(S) audio reference URLs.", default: "[]" },
+    { name: "resolution", type: "enum", required: "No", description: "`768P`, `1080P`, `2K`, or `4K`.", default: "1080P" },
+    { name: "ratio", type: "enum", required: "No", description: "`21:9`, `16:9`, `4:3`, `1:1`, `3:4`, or `9:16`.", default: "16:9" },
+    { name: "duration", type: "integer", required: "No", description: `Integer ${bounds.min}-${bounds.max} seconds.`, default: String(bounds.fallback) },
+    { name: "seed", type: "integer", required: "No", description: "Optional non-negative integer seed.", default: "-" },
+    { name: "pricing", type: "rule", required: "Yes", description: "Vega pricing is not configured. Requests fail with HTTP 422 `MODEL_PRICING_UNAVAILABLE` before charging or calling upstream.", default: "-" },
+    { name: "media transport", type: "rule", required: "Yes", description: "Inputs are sent as `FileInfos` with `Usage` values `FirstFrame`, `LastFrame`, or `Reference`. Use public URLs only; never send asset IDs or data URLs.", default: "-" },
+  ];
+}
+
+function vegaProviderExample(provider = "seedance20-vega") {
+  const definition = vegaProviderDefinition(provider) || vegaProviderDefinition("seedance20-vega");
+  return {
+    provider: definition.id,
+    prompt: definition.id === "h3-vega"
+      ? "Create a premium cinematic product reveal with precise motion."
+      : "Use the supplied references to create a cinematic shot.",
+    ...(definition.id === "h3-vega"
+      ? { referenceVideos: ["https://example.com/reference.mp4"] }
+      : { referenceImages: ["https://example.com/reference.png"] }),
+    ratio: definition.id === "h3-vega" ? "21:9" : "16:9",
+    resolution: definition.id === "seedance25-vega" ? "2K" : "1080P",
+    duration: advancedDurationBounds(definition.id).fallback,
+  };
+}
+
 function happyhorseVideoParameterFields() {
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous HappyHorse video task.", default: "-" },
@@ -37454,6 +37948,22 @@ function advancedGenerateConstraintsDoc() {
         extend: "Requires exactly one source video; duration is the number of seconds to extend.",
       },
     },
+    vega: {
+      providers: [
+        { id: "seedance20-vega", label: "Seedance 2.0（Vega）", modelName: "wand-vega-video", modelVersion: "1.0-pro" },
+        { id: "seedance25-vega", label: "Seedance 2.5（Vega）", modelName: "wand-vega-video", modelVersion: "1.5-pro" },
+        { id: "h3-vega", label: "H3（Vega）", modelName: "wand-vega-video", modelVersion: "1.5-lite" },
+      ],
+      route: "/api/advanced/generate",
+      durationSeconds: { integer: true, min: 1, max: 15, defaults: { "seedance20-vega": 5, "seedance25-vega": 5, "h3-vega": 6 } },
+      resolution: ["768P", "1080P", "2K", "4K"],
+      ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+      fileInfoUsage: ["FirstFrame", "LastFrame", "Reference"],
+      lastFrameRule: "A last frame requires a first frame.",
+      promptEnhancement: "disable",
+      mediaUrl: "Use public HTTP(S) URLs only. Asset IDs and data URLs are not accepted.",
+      pricing: "Not configured; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream.",
+    },
     wan27: {
       provider: "wan27",
       route: "/api/advanced/generate",
@@ -37540,7 +38050,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5 use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and the three Vega video models use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -37552,6 +38062,9 @@ function externalAdvancedApiDoc(origin) {
       { name: "W3.0-VSR-Prime", provider: "wan30", capability: "w3.0-video-prime-pro", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Seedance 2.0（Vega）", provider: "seedance20-vega", model: "wand-vega-video / 1.0-pro", capability: "Vega video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Seedance 2.5（Vega）", provider: "seedance25-vega", model: "wand-vega-video / 1.5-pro", capability: "Vega video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "H3（Vega）", provider: "h3-vega", model: "wand-vega-video / 1.5-lite", capability: "Vega video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Z-Image Spicy Pro", model: "z-image-spicy-pro", capability: "text-to-image", create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
@@ -37722,6 +38235,46 @@ function externalAdvancedApiDoc(origin) {
         resolution: "720p",
         duration: 8,
         generateAudio: true,
+      },
+    },
+    seedance20VegaExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "seedance20-vega",
+        prompt: "Use Image 1 as the character and create a cinematic five-second shot.",
+        referenceImages: ["https://example.com/reference.png"],
+        ratio: "16:9",
+        resolution: "1080P",
+        duration: 5,
+      },
+    },
+    seedance25VegaExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "seedance25-vega",
+        prompt: "Use the first and last frames to create a smooth cinematic transition.",
+        firstFrameUrl: "https://example.com/first-frame.png",
+        lastFrameUrl: "https://example.com/last-frame.png",
+        ratio: "9:16",
+        resolution: "2K",
+        duration: 5,
+      },
+    },
+    h3VegaExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "h3-vega",
+        prompt: "Create a premium cinematic product reveal with precise motion.",
+        referenceVideos: ["https://example.com/reference.mp4"],
+        ratio: "21:9",
+        resolution: "4K",
+        duration: 6,
       },
     },
     wan27Example: {
@@ -38027,29 +38580,50 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   const durationSeconds = durationSecondsFromParams(params) || 5;
   const provider = normalizeAdvancedProvider(item.provider || params.provider);
   const docModel = params.model || (provider === "wan27" ? ALIYUN_WAN27_MODEL : MODEL_QUALITY);
-  const pricing = applyUserPricingToEstimate(advancedModelPricing(provider, {
-    model: docModel,
-    duration: durationSeconds,
-    resolution: params.resolution,
-    ratio: params.ratio || params.aspect_ratio,
-    videoCapability: params.videoCapability,
-    advancedPricing: options.advancedPricing,
-  }), user || 1, { channel: "api" });
-  const pricingView = {
-    available: true,
-    credits: pricing.credits,
-    baseCredits: pricing.baseCredits,
-    originalCredits: pricing.originalCredits ?? null,
-    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
-    markup: pricing.markup ?? 1,
-    source: pricing.source || "duration_rate",
-    durationSeconds,
-    creditsPerSecond: pricing.creditsPerSecond,
-    resolution: pricing.resolution || params.resolution || "",
-    ratio: pricing.ratio || params.ratio || params.aspect_ratio || "",
-    outputTokens: pricing.outputTokens || null,
-    yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
-  };
+  let pricing = null;
+  let pricingView;
+  try {
+    pricing = applyUserPricingToEstimate(advancedModelPricing(provider, {
+      model: docModel,
+      duration: durationSeconds,
+      resolution: params.resolution,
+      ratio: params.ratio || params.aspect_ratio,
+      videoCapability: params.videoCapability,
+      advancedPricing: options.advancedPricing,
+    }), user || 1, { channel: "api" });
+    pricingView = {
+      available: true,
+      credits: pricing.credits,
+      baseCredits: pricing.baseCredits,
+      originalCredits: pricing.originalCredits ?? null,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+      markup: pricing.markup ?? 1,
+      source: pricing.source || "duration_rate",
+      durationSeconds,
+      creditsPerSecond: pricing.creditsPerSecond,
+      resolution: pricing.resolution || params.resolution || "",
+      ratio: pricing.ratio || params.ratio || params.aspect_ratio || "",
+      outputTokens: pricing.outputTokens || null,
+      yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
+    };
+  } catch (error) {
+    pricingView = {
+      available: false,
+      credits: null,
+      baseCredits: null,
+      originalCredits: null,
+      userPricingMultiplier: 1,
+      markup: 1,
+      source: error.code || "model_pricing_unavailable",
+      message: error.message || "Pricing is unavailable.",
+      durationSeconds,
+      creditsPerSecond: null,
+      resolution: params.resolution || "",
+      ratio: params.ratio || params.aspect_ratio || "",
+      outputTokens: null,
+      yuanPerMillionTokens: null,
+    };
+  }
   const exampleBody = {
     model: params.model || "dreamina-seedance-2-0-260128",
     content: [
@@ -38066,7 +38640,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     title: item.title,
     category: item.category,
     provider,
-    model: publicModelText(docModel || pricing.model),
+    model: publicModelText(docModel || pricing?.model || ""),
     description: item.description || "",
     pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
@@ -38151,6 +38725,7 @@ function publicModelDocsView(docs = {}) {
   const publicModelFamilies = [
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
+    "Seedance 2.0（Vega）, Seedance 2.5（Vega）, and H3（Vega） use the Advanced route.",
     ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
   ];
@@ -38304,6 +38879,9 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     { title: "W3.0-VSR-Prime (w3.0-video-prime-pro)", example: external.wan30PrimeProExample, fields: () => wan30VideoParameterFields("w3.0-video-prime-pro") },
     { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
     { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
+    { title: "Seedance 2.0（Vega）", example: external.seedance20VegaExample, fields: () => vegaVideoParameterFields("seedance20-vega") },
+    { title: "Seedance 2.5（Vega）", example: external.seedance25VegaExample, fields: () => vegaVideoParameterFields("seedance25-vega") },
+    { title: "H3（Vega）", example: external.h3VegaExample, fields: () => vegaVideoParameterFields("h3-vega") },
   ];
   for (const section of advancedSections) {
     if (!section.example) continue;
@@ -38420,6 +38998,7 @@ function advancedConstraintsMarkdown(doc = {}) {
   const wan30 = constraints.wan30 || {};
   const seedance25 = constraints.seedance25 || {};
   const seedanceNsfw = constraints.seedanceNsfw || {};
+  const vega = constraints.vega || {};
   const wan27 = constraints.wan27 || {};
   const wan27Image = constraints.wan27Image || {};
   const seedream5Image = constraints.seedream5Image || {};
@@ -38442,6 +39021,16 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
     "- `first_frame` and `last_frame` cannot be mixed with `reference_image`, `reference_video`, or `reference_audio` blocks.",
     `- Audio references: max ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios; supported uploaded/data URL audio types are MP3, WAV, M4A/MP4 audio, AAC, OGG, WebM; upload max ${Math.round((seedance.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio references must be combined with image or video references; audio-only generation is rejected.`,
+    "",
+    "Tencent VOD Vega video:",
+    "",
+    `- Endpoint: \`${vega.route || "/api/advanced/generate"}\` with \`provider\`: ${(vega.providers || []).map((item) => `\`${item.id}\``).join(", ")}.`,
+    `- \`duration\`: integer ${vega.durationSeconds?.min ?? 1}-${vega.durationSeconds?.max ?? 15} seconds; defaults are ${Object.entries(vega.durationSeconds?.defaults || { "seedance20-vega": 5, "seedance25-vega": 5, "h3-vega": 6 }).map(([id, value]) => `\`${id}\` ${value}s`).join(", ")}.`,
+    `- \`resolution\`: ${(vega.resolution || ["768P", "1080P", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`ratio\`: ${(vega.ratio || ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Media: public HTTP(S) URLs only. FileInfos use \`Usage\`: ${(vega.fileInfoUsage || ["FirstFrame", "LastFrame", "Reference"]).map((item) => `\`${item}\``).join(", ")}. Asset IDs and data URLs are rejected.`,
+    `- ${vega.lastFrameRule || "A last frame requires a first frame."}`,
+    `- ${vega.pricing || "Vega pricing is not configured; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE."}`,
     "",
     "Seedream 5.0 image:",
     "",
@@ -38685,9 +39274,29 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
     "",
+    "**Vega video models**",
+    "",
+    "`Seedance 2.0（Vega）`, `Seedance 2.5（Vega）`, and `H3（Vega）` use Tencent VOD through the same Advanced route. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Vega pricing is not configured, so requests fail before charging or calling upstream.",
+    "",
+    ...["seedance20-vega", "seedance25-vega", "h3-vega"].flatMap((provider) => [
+      `**${vegaProviderLabel(provider)} (provider \`${provider}\`)**`,
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(vegaProviderExample(provider), null, 2),
+      ].join("\n")),
+      "",
+      `**${vegaProviderLabel(provider)} fields**`,
+      "",
+      docsParameterMarkdown(vegaVideoParameterFields(provider)),
+      "",
+    ]),
     "**Advanced task polling**",
     "",
-    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, and Seedance 2.5 return `taskId`. Poll the generation record until its status is terminal.",
+    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and the Vega models return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -51009,6 +51618,8 @@ async function handleGetGenerationRecord(req, res, taskId) {
     // browser detail request wait for an upstream download or R2 upload.
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.provider === "seedance25" && SEEDANCE25_API_KEY && shouldRefreshGenerationRecord(record)) {
+    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
+  } else if (record.upstreamSource === "tencent-vod" && shouldRefreshGenerationRecord(record)) {
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });

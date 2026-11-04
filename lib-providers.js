@@ -9,6 +9,10 @@ const {
   SEEDANCE25_DIRECT_LABEL,
   SEEDANCE25_DIRECT_PROVIDER,
 } = require("./seedance25-direct");
+const {
+  isVegaProvider,
+  vegaProviderDefinition,
+} = require("./tencent-vod-vega");
 
 function isSeedream5ImageProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
@@ -51,6 +55,7 @@ function isPapayaProvider(value = "") {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isVegaProvider(value)) return vegaProviderDefinition(value).id;
   if (isPapayaProvider(value)) return "papaya";
   if (isByteplusLanguageProvider(value)) return "byteplus-language";
   if (isQwen37FlashProvider(value)) return "qwen37-flash";
@@ -76,6 +81,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isVegaProvider(raw)) return vegaProviderDefinition(raw).id;
   if (isPapayaProvider(raw)) return "papaya";
   if (isByteplusLanguageProvider(raw)) return "byteplus-language";
   if (isQwen37FlashProvider(raw)) return "qwen37-flash";
@@ -95,6 +101,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (isVegaProvider(id)) return vegaProviderDefinition(id).label;
   if (id === "papaya") return "Papaya 1.0";
   if (id === "byteplus-language") return "BytePlus Language";
   if (id === "qwen37-flash") return "Qwen3.7 Flash";

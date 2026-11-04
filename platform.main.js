@@ -80,6 +80,10 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  if (isVegaAdvancedProvider(provider)) {
+    await handleAdvancedVegaLocalFiles(files);
+    return;
+  }
   const localPresetUpload = state.advancedLocalUploadSlot === "character"
     && state.advancedCreateKind !== "custom"
     && advancedCreateModeActivePresetSlots().includes("character");

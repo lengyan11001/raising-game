@@ -106,7 +106,7 @@ function advancedAliyunUsesSharedReferenceUpload(capability = currentAdvancedVid
 
 function advancedUsesSharedReferenceUpload(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  return ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
+  return ["seedance", "seedance25", "seedance-nsfw", "wan30", "seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
 }
 
 function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
@@ -152,6 +152,10 @@ function isAdvancedImageProvider(provider = "") {
   return normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy";
 }
 
+function isVegaAdvancedProvider(provider = currentAdvancedProvider()) {
+  return ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizeAdvancedProvider(provider));
+}
+
 function advancedAssetTargetItems() {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return [];
   const provider = currentAdvancedProvider();
@@ -161,7 +165,13 @@ function advancedAssetTargetItems() {
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const targets = [];
-  if (isAdvancedImageProvider(provider)) {
+  if (isVegaAdvancedProvider(provider)) {
+    targets.push({ id: "primary", label: "First frame image", type: "image" });
+    targets.push({ id: "lastFrame", label: "Last frame image", type: "image" });
+    targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
+    targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+    targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+  } else if (isAdvancedImageProvider(provider)) {
     targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
   } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
@@ -1383,7 +1393,22 @@ async function addAssetToAdvancedTarget(assetId = "") {
     if (target.id === "sourceImage" || target.id === "sourceImages") state.advancedSourceImageAssetId = asset.id;
     else state.advancedFirstFrameAssetId = asset.id;
     state.advancedUploadDataUrl = url;
-    if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
+    if (isVegaAdvancedProvider(provider)) {
+      const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
+      if (target.id === "primary") {
+        state.advancedSeedanceFirstFrameAssetId = asset.id;
+        state.advancedSeedanceFirstFrameDataUrl = url;
+        state.advancedUploadDataUrl = url;
+      } else if (target.id === "referenceImages") {
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]);
+        state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || state.advancedReferenceImages[0]?.url || "";
+        state.advancedFirstFrameAssetId = "";
+      } else {
+        state.advancedReferenceImages = [ref];
+        state.advancedFirstFrameAssetId = asset.id;
+        state.advancedUploadDataUrl = url;
+      }
+    } else if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
       const referenceLimit = provider === "wan30"
         ? ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT
         : ["seedance25", "seedance-nsfw"].includes(provider)
@@ -1441,7 +1466,10 @@ async function addAssetToAdvancedTarget(assetId = "") {
     if (els.advancedImage) els.advancedImage.value = "";
   } else if (target.id === "lastFrame") {
     if (!isImageAsset(asset)) return;
-    if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
+    if (isVegaAdvancedProvider(provider)) {
+      state.advancedSeedanceLastFrameAssetId = asset.id;
+      state.advancedSeedanceLastFrameDataUrl = url;
+    } else if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
       state.advancedSeedanceLastFrameAssetId = asset.id;
       state.advancedSeedanceLastFrameDataUrl = url;
       if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
@@ -1468,7 +1496,7 @@ async function addAssetToAdvancedTarget(assetId = "") {
       if (els.advancedNote) els.advancedNote.textContent = durationMessage;
       return;
     }
-    if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
+    if (isVegaAdvancedProvider(provider) || ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
       addAdvancedSeedanceMediaReference(asset, "video");
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
     } else if (advancedAliyunUsesSharedReferenceUpload(currentAdvancedVideoCapability())) {
@@ -1490,7 +1518,7 @@ async function addAssetToAdvancedTarget(assetId = "") {
     }
   } else if (target.id === "audio") {
     if (!isAudioAsset(asset)) return;
-    if (advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability())) {
+    if (isVegaAdvancedProvider(provider) || advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability())) {
       addAdvancedSeedanceMediaReference(asset, "audio");
     } else if (els.advancedWanAudioUrl) {
       state.advancedAudioAssetId = asset.id;
@@ -1598,7 +1626,7 @@ function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCust
   const provider = String(value || "").trim().toLowerCase();
   if (kind === "image") return ["wan27-image-edit", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
   if (kind === "conversation") return ["byteplus-language", "papaya", "qwen37-flash"].includes(provider);
-  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance25"].includes(provider);
+  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance25", "seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider);
 }
 
 function syncAdvancedProviderExposure() {
@@ -1739,16 +1767,19 @@ function updateAdvancedModelControls() {
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
     const seedanceNsfwReferenceMode = provider === "seedance-nsfw" && seedanceMode === "omini";
-    const videoRatios = provider === "seedance25"
+    const vegaProvider = isVegaAdvancedProvider(provider);
+    const videoRatios = vegaProvider
+      ? ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      : provider === "seedance25"
       ? ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : provider === "wan30" || provider === "seedance-nsfw"
       ? ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : ["9:16", "16:9", "1:1"];
     const options = isImageEdit || isQwenImage ? imageRatios : videoRatios;
     if (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) els.advancedRatio.value = "adaptive";
-    const fallbackRatio = provider === "seedance25" ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
-    const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim().toLowerCase();
-    const current = ["wan30", "seedance-nsfw"].includes(provider) && rawRatio === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
+    const fallbackRatio = vegaProvider || provider === "seedance25" ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
+    const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim();
+    const current = ["wan30", "seedance-nsfw"].includes(provider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
     els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode));
@@ -1775,7 +1806,7 @@ function updateAdvancedModelControls() {
   if (els.advancedSeedanceMediaPanel) {
     els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode);
   }
-  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
+  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = isVegaAdvancedProvider(provider) ? advancedProviderLabel(provider) : provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });
@@ -1815,10 +1846,12 @@ function updateAdvancedModelControls() {
     item.hidden = !capabilityNeedsVideo && !((capability === "wan27-i2v" || capability === "wan-legacy") && wanModeNeedsClip(wanMode));
   });
   document.querySelectorAll(".seedance-last-frame").forEach((item) => {
-    item.hidden = !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsLastFrame(seedanceMode);
+    item.hidden = (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !isVegaAdvancedProvider(provider))
+      || (!isVegaAdvancedProvider(provider) && !seedanceModeNeedsLastFrame(seedanceMode));
   });
   document.querySelectorAll(".seedance-first-frame").forEach((item) => {
-    item.hidden = !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode);
+    item.hidden = (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !isVegaAdvancedProvider(provider))
+      || (!isVegaAdvancedProvider(provider) && !seedanceModeNeedsFirstFrame(seedanceMode));
   });
   document.querySelectorAll(".seedance-video-field").forEach((item) => {
     item.hidden = true;
@@ -1883,7 +1916,10 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
   const characterPresetUpload = presetSlot === "character" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
   if (!advancedCreateModeAllowsManualReferenceUpload() && !characterPresetUpload) return;
   state.advancedLocalUploadSlot = characterPresetUpload ? "character" : "";
-  if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && els.advancedSeedanceMediaMode) {
+  if (isVegaAdvancedProvider(provider)) {
+    const target = state.advancedAssetTarget;
+    state.advancedAssetTarget = ["primary", "lastFrame", "referenceImages"].includes(target) ? target : "primary";
+  } else if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && els.advancedSeedanceMediaMode) {
     let mode = normalizeSeedanceMediaMode(sourceMode || els.advancedSeedanceMediaMode.value || "reference_video");
     if (["seedance", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(mode)) mode = "reference_video";
     els.advancedSeedanceMediaMode.value = mode;
@@ -1912,7 +1948,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
   els.advancedImage.multiple = !characterPresetUpload && (
     ["seedream5-image", "qwen-image3"].includes(provider)
     || (sharedUpload
-      ? (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""))
+      ? (isVegaAdvancedProvider(provider) || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""))
       : !advancedCreateModeUsesSingleUpload())
   );
   els.advancedImage.click();
@@ -2399,6 +2435,111 @@ async function submitAdvancedGenerate() {
       if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
       renderAdvancedResultPanel();
       if (els.advancedNote) els.advancedNote.textContent = "";
+    } finally {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
+    }
+    return;
+  }
+  if (isVegaAdvancedProvider(provider)) {
+    const vegaBounds = advancedDurationBounds(provider);
+    const rawVegaDuration = Number(els.advancedDuration?.value || vegaBounds.fallback);
+    const vegaDuration = Math.min(vegaBounds.max, Math.max(vegaBounds.min, Number.isFinite(rawVegaDuration) ? rawVegaDuration : vegaBounds.fallback));
+    const vegaFirstFrameSource = String(state.advancedSeedanceFirstFrameDataUrl || "").trim();
+    const vegaLastFrameSource = String(state.advancedSeedanceLastFrameDataUrl || "").trim();
+    const vegaReferenceImageItems = selectedAdvancedReferenceImages(provider);
+    const vegaVideoItems = advancedSeedanceVideoReferences();
+    const vegaAudioItems = advancedSeedanceAudioReferences();
+    const vegaFirstFrameUrl = vegaFirstFrameSource ? vegaPublicHttpUrl(vegaFirstFrameSource) : "";
+    const vegaLastFrameUrl = vegaLastFrameSource ? vegaPublicHttpUrl(vegaLastFrameSource) : "";
+    const vegaReferenceImages = vegaReferenceImageItems.map(vegaMediaSource);
+    const vegaReferenceVideos = vegaVideoItems.map(vegaMediaSource);
+    const vegaReferenceAudios = vegaAudioItems.map(vegaMediaSource);
+    const invalidVegaMedia = (vegaFirstFrameSource && !vegaFirstFrameUrl)
+      || (vegaLastFrameSource && !vegaLastFrameUrl)
+      || vegaReferenceImages.some((url) => !url)
+      || vegaReferenceVideos.some((url) => !url)
+      || vegaReferenceAudios.some((url) => !url);
+    if (invalidVegaMedia) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Vega requires a public HTTP(S) URL.";
+      return;
+    }
+    if (vegaLastFrameUrl && !vegaFirstFrameUrl) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "A Vega last frame requires a first frame image.";
+      return;
+    }
+    const vegaPayload = {
+      provider,
+      prompt,
+      duration: vegaDuration,
+      resolution: currentAdvancedResolution(),
+      ratio: String(els.advancedRatio?.value || "16:9").trim(),
+      seed: vegaCurrentSeed(),
+      firstFrameUrl: vegaFirstFrameUrl,
+      lastFrameUrl: vegaLastFrameUrl,
+      referenceImages: vegaReferenceImages,
+      referenceVideos: vegaReferenceVideos,
+      referenceAudios: vegaReferenceAudios,
+    };
+    const vegaPendingTaskId = `pending-video-${Date.now().toString(36)}`;
+    const vegaPendingRecord = {
+      taskId: vegaPendingTaskId,
+      status: "submitting",
+      model: advancedProviderLabel(provider),
+      provider,
+      source: `advanced-${provider}`,
+      kind: "advanced-video",
+      prompt,
+      params: { ...vegaPayload, advancedProviderId: provider },
+      ratio: vegaPayload.ratio,
+      resolution: vegaPayload.resolution,
+      duration: vegaPayload.duration,
+      seed: vegaPayload.seed,
+      mediaAssets: [
+        ...(vegaPayload.firstFrameUrl ? [{ type: "first_frame", url: vegaPayload.firstFrameUrl }] : []),
+        ...(vegaPayload.lastFrameUrl ? [{ type: "last_frame", url: vegaPayload.lastFrameUrl }] : []),
+        ...vegaPayload.referenceImages.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, url })),
+        ...vegaPayload.referenceVideos.map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, videoUrl: url })),
+        ...vegaPayload.referenceAudios.map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, audioUrl: url })),
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    state.advancedResultMediaKind = "video";
+    mergeAdvancedResultRecord(vegaPendingRecord);
+    setAdvancedSideTab("result", { syncMobile: true });
+    renderAdvancedResultPanel();
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    try {
+      const payload = await requestJson("/api/advanced/generate", { method: "POST", body: vegaPayload });
+      if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== vegaPendingTaskId);
+      const submittedRecord = payload.record || payload.generation || {
+        ...vegaPendingRecord,
+        taskId: payload.taskId || payload.task?.taskId || vegaPendingTaskId,
+        status: payload.task?.status || "submitted",
+      };
+      if (submittedRecord.taskId) {
+        state.advancedResultTaskId = submittedRecord.taskId;
+        mergeAdvancedResultRecord(submittedRecord);
+      }
+      clearAdvancedCreationInputs();
+      if (els.advancedNote) els.advancedNote.textContent = "";
+      setAdvancedSideTab("result", { syncMobile: true });
+      renderAdvancedResultPanel();
+      await loadHistory({ silent: true }).catch(() => {});
+    } catch (error) {
+      if (handleAdvancedReferenceMissingError(error, vegaPendingTaskId)) return;
+      state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
+        record.taskId === vegaPendingTaskId
+          ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
+          : record
+      ));
+      if (state.advancedResultTaskId === vegaPendingTaskId) state.advancedResultTaskId = "";
+      renderAdvancedResultPanel();
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     } finally {
       els.advancedSubmitBtn.disabled = false;
       updateAdvancedButtonCost();
@@ -3172,6 +3313,92 @@ function absoluteHttpUrl(value = "") {
   }
 }
 
+function vegaPublicHttpUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (_error) {
+    return "";
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return "";
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) return "";
+  const mappedIpv4 = hostname.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1] || "";
+  const ipv4 = mappedIpv4 || (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) ? hostname : "");
+  if (ipv4) {
+    const parts = ipv4.split(".").map(Number);
+    if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return "";
+    if (parts[0] === 0 || parts[0] === 10 || parts[0] === 127 || parts[0] === 169 && parts[1] === 254
+      || parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31
+      || parts[0] === 192 && parts[1] === 168
+      || parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return "";
+  }
+  if (hostname.includes(":") && (hostname === "::1" || hostname === "::" || hostname.startsWith("fc") || hostname.startsWith("fd") || /^fe[89ab]/.test(hostname))) return "";
+  return raw;
+}
+
+function vegaMediaSource(item = {}) {
+  return vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || "");
+}
+
+function vegaCurrentSeed() {
+  const value = String(els.advancedWanSeed?.value || "").trim();
+  if (!value) return undefined;
+  const seed = Number(value);
+  return Number.isInteger(seed) && seed >= 0 ? seed : undefined;
+}
+
+async function handleAdvancedVegaLocalFiles(files = []) {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+  const provider = currentAdvancedProvider();
+  let skippedWrongType = false;
+  let skippedTooLarge = false;
+  try {
+    for (const file of list) {
+      const mime = uploadedFileMime(file);
+      if (mime.startsWith("image/")) {
+        if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+          skippedTooLarge = true;
+          continue;
+        }
+        const ref = await uploadAdvancedImageReference(file, { provider });
+        if (!ref) continue;
+        const source = vegaPublicHttpUrl(ref.dataUrl || ref.url || ref.previewUrl || "");
+        const stamped = stampAdvancedReferenceOrder({ ...ref, dataUrl: source || ref.dataUrl || "", url: source || ref.url || "" });
+        const target = state.advancedAssetTarget || "primary";
+        if (target === "lastFrame") {
+          state.advancedSeedanceLastFrameAssetId = "";
+          state.advancedSeedanceLastFrameDataUrl = source || ref.dataUrl || "";
+        } else if (target === "referenceImages") {
+          state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), stamped]);
+          state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || state.advancedReferenceImages[0]?.url || "";
+        } else {
+          state.advancedSeedanceFirstFrameAssetId = "";
+          state.advancedSeedanceFirstFrameDataUrl = source || ref.dataUrl || "";
+          state.advancedFirstFrameAssetId = "";
+          state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl;
+        }
+      } else if (mime.startsWith("video/")) {
+        await uploadAdvancedMediaReference(file, "video");
+      } else if (mime.startsWith("audio/")) {
+        await uploadAdvancedMediaReference(file, "audio");
+      } else {
+        skippedWrongType = true;
+      }
+    }
+    if (skippedWrongType && els.advancedNote) els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
+    if (skippedTooLarge && els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+    state.activeAdvancedCaseId = "";
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+  } finally {
+    if (els.advancedImage) els.advancedImage.value = "";
+  }
+}
+
 function dataUrlValue(value = "") {
   const raw = String(value || "").trim();
   return raw.startsWith("data:") ? raw : "";
@@ -3290,11 +3517,23 @@ function restoreRecordImageLimit(record = {}) {
 
 function restoreRecordMedia(record = {}) {
   const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-  const imageAssets = mediaAssets.filter((item) => {
+  const frameTypes = new Set(["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe"]);
+  const imageEntries = mediaAssets.map((item, index) => ({ item, index })).filter(({ item }) => {
     const type = String(item.type || item.key || "").toLowerCase();
     return !type.includes("audio") && !type.includes("video") && !type.includes("clip") && (restoreMediaUrl(item) || restoreMediaAssetUri(item));
   });
+  const imageAssets = imageEntries.map(({ item }) => item);
   const references = imageAssets.map(restoreReferenceFromMedia).filter(Boolean);
+  const firstFrame = imageEntries
+    .filter(({ item }) => ["first_frame", "firstframe", "first-frame"].includes(String(item.type || item.key || "").toLowerCase()))
+    .map(({ item, index }) => restoreReferenceFromMedia(item, index))[0] || null;
+  const lastFrame = imageEntries
+    .filter(({ item }) => ["last_frame", "lastframe", "last-frame", "end_frame", "endframe"].includes(String(item.type || item.key || "").toLowerCase()))
+    .map(({ item, index }) => restoreReferenceFromMedia(item, index))[0] || null;
+  const referenceImages = imageEntries
+    .filter(({ item }) => !frameTypes.has(String(item.type || item.key || "").toLowerCase()))
+    .map(({ item, index }) => restoreReferenceFromMedia(item, index))
+    .filter(Boolean);
   const videos = mediaAssets
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("video") && restoreMediaUrl(item))
@@ -3309,7 +3548,52 @@ function restoreRecordMedia(record = {}) {
       if (ref) references.push(ref);
     });
   }
-  return { references: dedupeAdvancedReferenceImages(references).slice(0, restoreRecordImageLimit(record)), videos, audios };
+  return {
+    references: dedupeAdvancedReferenceImages(references).slice(0, restoreRecordImageLimit(record)),
+    firstFrame,
+    lastFrame,
+    referenceImages: dedupeAdvancedReferenceImages(referenceImages).slice(0, restoreRecordImageLimit(record)),
+    videos,
+    audios,
+  };
+}
+
+function restoreVegaRecordMedia(record = {}, params = {}) {
+  const media = restoreRecordMedia(record);
+  const firstNonEmpty = (...values) => values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") || "";
+  const urlsFrom = (value, keys = ["url", "imageUrl", "image_url", "videoUrl", "video_url", "audioUrl", "audio_url"]) => [
+    ...arrayFrom(value).map((item) => (typeof item === "string" ? item : keys.map((key) => item?.[key]).find(Boolean))),
+    ...arrayFrom(value).map((item) => (typeof item === "string" ? "" : item?.publicUrl || item?.cdnUrl || item?.previewUrl || item?.dataUrl)),
+  ].map((url) => vegaPublicHttpUrl(url)).filter(Boolean);
+  const firstFrameUrl = vegaPublicHttpUrl(firstNonEmpty(
+    params.firstFrameUrl,
+    params.first_frame_url,
+    record.firstFrameUrl,
+    record.first_frame_url,
+    media.firstFrame?.url,
+    media.firstFrame?.dataUrl,
+  ));
+  const lastFrameUrl = vegaPublicHttpUrl(firstNonEmpty(
+    params.lastFrameUrl,
+    params.last_frame_url,
+    record.lastFrameUrl,
+    record.last_frame_url,
+    media.lastFrame?.url,
+    media.lastFrame?.dataUrl,
+  ));
+  const referenceImages = [...new Set([
+    ...urlsFrom(firstNonEmpty(params.referenceImages, params.reference_images, record.referenceImages)),
+    ...media.referenceImages.map((item) => vegaPublicHttpUrl(item.url || item.dataUrl)).filter(Boolean),
+  ])];
+  const referenceVideos = [...new Set([
+    ...urlsFrom(firstNonEmpty(params.referenceVideos, params.reference_videos, record.referenceVideos), ["url", "videoUrl", "video_url"]),
+    ...media.videos.map((item) => vegaPublicHttpUrl(item.url || item.videoUrl)).filter(Boolean),
+  ])];
+  const referenceAudios = [...new Set([
+    ...urlsFrom(firstNonEmpty(params.referenceAudios, params.reference_audios, record.referenceAudios), ["url", "audioUrl", "audio_url"]),
+    ...media.audios.map((item) => vegaPublicHttpUrl(item.url || item.audioUrl)).filter(Boolean),
+  ])];
+  return { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
 }
 
 function restoreRecordToAdvancedCreate(record = {}, button = null) {
@@ -3374,6 +3658,59 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = wanMode;
   state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? record.generateAudio ?? record.generate_audio, true);
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
+  if (isVegaAdvancedProvider(provider)) {
+    const media = restoreVegaRecordMedia(record, params);
+    const vegaRatio = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"].includes(String(record.ratio || params.ratio || params.aspect_ratio || "").trim())
+      ? String(record.ratio || params.ratio || params.aspect_ratio).trim()
+      : "16:9";
+    const vegaDurationBounds = advancedDurationBounds(provider);
+    const rawVegaDuration = Number(record.duration || params.duration || params.durationSeconds || vegaDurationBounds.fallback);
+    const vegaDuration = String(Math.min(vegaDurationBounds.max, Math.max(vegaDurationBounds.min, Number.isFinite(rawVegaDuration) ? rawVegaDuration : vegaDurationBounds.fallback)));
+    if (els.advancedRatio) els.advancedRatio.value = vegaRatio;
+    if (els.advancedResolution) els.advancedResolution.value = normalizeAdvancedResolution(record.resolution || params.resolution, provider);
+    if (els.advancedDuration) els.advancedDuration.value = vegaDuration;
+    if (els.advancedWanSeed) els.advancedWanSeed.value = record.seed ?? params.seed ?? params.parameters?.seed ?? "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = media.firstFrameUrl;
+    state.advancedSeedanceLastFrameAssetId = "";
+    state.advancedSeedanceLastFrameDataUrl = media.lastFrameUrl;
+    state.advancedFirstFrameAssetId = "";
+    state.advancedReferenceImages = media.referenceImages.map((url, index) => stampAdvancedReferenceOrder({
+      assetId: "",
+      dataUrl: url,
+      url,
+      fileName: `reference-${index + 1}`,
+      name: `Reference ${index + 1}`,
+      fromLibrary: false,
+    }));
+    state.advancedUploadDataUrl = media.firstFrameUrl || state.advancedReferenceImages[0]?.url || "";
+    setAdvancedSeedanceVideoReferences(media.referenceVideos.map((url, index) => ({
+      assetId: "",
+      url,
+      previewUrl: url,
+      name: `Video ${index + 1}`,
+      fileName: `video-${index + 1}`,
+    })));
+    setAdvancedSeedanceAudioReferences(media.referenceAudios.map((url, index) => ({
+      assetId: "",
+      url,
+      previewUrl: url,
+      name: `Audio ${index + 1}`,
+      fileName: `audio-${index + 1}`,
+    })));
+    renderAdvancedPresetBuilder();
+    renderAdvancedReferencePreviews();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+    setAdvancedSideTab("assets");
+    if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
+    if (button) {
+      button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
+      button.disabled = false;
+      refreshIcons();
+    }
+    return;
+  }
   const restoredSeedanceFirstFrame = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) ? (references[0] || null) : null;
   state.advancedReferenceImages = restoredSeedanceFirstFrame
     ? references.slice(1)
@@ -3984,6 +4321,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   if (normalizedProvider === "wan30") return images.slice(0, ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT);
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return images.slice(0, advancedAliyunReferenceImageLimit());
   if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) return images.slice(0, ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT);
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) return images;
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
   return images;
 }

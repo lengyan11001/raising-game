@@ -1064,6 +1064,8 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (previousMultiplier !== nextMultiplier) {
     state.advancedEstimate = null;
     state.advancedEstimateKey = "";
+    state.advancedEstimateFailureKey = "";
+    state.advancedEstimateFailureAt = 0;
     loadPlatformEstimates();
     updateAdvancedButtonCost();
     renderPricing();
@@ -2088,6 +2090,9 @@ function normalizeAdvancedProvider(value = "") {
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
+  if (["seedance20vega", "seedance2.0vega"].includes(normalized) || (normalized.includes("seedance20") && normalized.includes("vega")) || (normalized.includes("seedance2.0") && normalized.includes("vega"))) return "seedance20-vega";
+  if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
+  if (["h3vega", "h3"].includes(normalized) || normalized.includes("h3vega")) return "h3-vega";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["zimagespicypro", "zimagespicy", "zimage", "zimagepro", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicypro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";
@@ -2121,6 +2126,9 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
     return labels[capability] || "W3.0";
   }
   if (normalized === "seedance-nsfw") return "Seedance 2.5";
+  if (normalized === "seedance20-vega") return "Seedance 2.0（Vega）";
+  if (normalized === "seedance25-vega") return "Seedance 2.5（Vega）";
+  if (normalized === "h3-vega") return "H3（Vega）";
   if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",
@@ -2334,6 +2342,13 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizeAdvancedProvider(provider))) {
+    if (raw === "768p") return "768P";
+    if (raw === "1080p") return "1080P";
+    if (raw === "2k") return "2K";
+    if (raw === "4k") return "4K";
+    return "1080P";
+  }
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
@@ -2355,6 +2370,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit" || normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalized)) return { min: 1, max: 15, fallback: normalized === "h3-vega" ? 6 : 5 };
   if (["seedance25", "seedance-nsfw"].includes(normalized)) return { min: 4, max: 30, fallback: 4 };
   const resolvedCapability = capability || (
     typeof currentAdvancedVideoCapability === "function"
@@ -2466,6 +2482,11 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) {
+    const error = new Error(advancedProviderLabel(normalizedProvider) + " pricing is not configured. Generation was not started.");
+    error.code = "MODEL_PRICING_UNAVAILABLE";
+    throw error;
+  }
   if (normalizedProvider === "papaya") {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
@@ -2858,6 +2879,7 @@ function advancedVideoSettingsVisible() {
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizeAdvancedProvider(provider))) return ["768P", "1080P", "2K", "4K"];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
   if (["seedance25", "seedance-nsfw"].includes(normalizeAdvancedProvider(provider))) return ["480p", "720p"];
@@ -3868,7 +3890,25 @@ function wanModeNeedsClip(mode) {
   return ["multimodal", "first_clip", "first_clip_last_frame"].includes(normalizeWanMediaMode(mode));
 }
 
+function advancedPricingUnavailableLabel(pricing = {}) {
+  const message = String(pricing?.message || "").trim();
+  return message && !/^null$/i.test(message) ? message : "Pricing unavailable. Generation was not started.";
+}
+
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) {
+    const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
+    const pricing = state.advancedEstimate && state.advancedEstimateKey === key
+      ? state.advancedEstimate
+      : {
+          available: false,
+          credits: null,
+          code: "MODEL_PRICING_UNAVAILABLE",
+          message: `${advancedProviderLabel(normalizedProvider)} pricing is not configured. Generation was not started.`,
+        };
+    return advancedPricingUnavailableLabel(pricing);
+  }
   if (normalizeAdvancedProvider(provider) === "qwen-image3") {
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
@@ -4168,9 +4208,12 @@ function renderPricing() {
 }
 
 function advancedButtonCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) {
+    return advancedCostLabel(duration, provider, resolution, ratio, options);
+  }
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
-  const normalizedProvider = normalizeAdvancedProvider(provider);
   if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return fullLabel;
   if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizedProvider)) return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
@@ -4249,8 +4292,17 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
   if (tenantFeature("toolOnly", false)) return;
   if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) return;
   const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
-  if (!state.user || state.advancedEstimateKey === key) return;
+  if (!state.user) return;
+  const currentEstimate = state.advancedEstimate;
+  const currentEstimateKey = state.advancedEstimateKey;
+  const estimatePending = state.advancedEstimatePendingKey === key;
+  const estimateFailedRecently = state.advancedEstimateFailureKey === key
+    && Date.now() - Number(state.advancedEstimateFailureAt || 0) < 3000;
+  if (estimatePending || (currentEstimateKey === key && currentEstimate?.available === true) || estimateFailedRecently) return;
   window.clearTimeout(state.advancedEstimateTimer);
+  state.advancedEstimate = null;
+  state.advancedEstimateKey = "";
+  state.advancedEstimatePendingKey = key;
   state.advancedEstimateTimer = window.setTimeout(async () => {
     try {
       const payload = await requestJson("/api/advanced/estimate", {
@@ -4282,11 +4334,26 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
         error.code = "MODEL_PRICING_UNAVAILABLE";
         throw error;
       }
-      state.advancedEstimate = estimatedPricing;
+      state.advancedEstimate = { ...(estimatedPricing || {}), available: true };
       state.advancedEstimateKey = key;
+      state.advancedEstimateFailureKey = "";
+      state.advancedEstimateFailureAt = 0;
+      state.advancedEstimatePendingKey = "";
       updateAdvancedButtonCost();
       renderAdvancedAssetTargets();
     } catch (error) {
+      state.advancedEstimate = {
+        available: false,
+        credits: null,
+        code: error?.code || "MODEL_PRICING_UNAVAILABLE",
+        message: error?.message || "Pricing is unavailable.",
+      };
+      state.advancedEstimateKey = "";
+      state.advancedEstimateFailureKey = key;
+      state.advancedEstimateFailureAt = Date.now();
+      state.advancedEstimatePendingKey = "";
+      updateAdvancedButtonCost();
+      renderAdvancedAssetTargets();
       console.warn("advanced estimate failed", error);
     }
   }, 180);
