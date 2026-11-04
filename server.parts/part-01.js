@@ -327,6 +327,7 @@ const {
   normalizeVegaMediaMode,
   normalizeVegaRatio,
   normalizeVegaResolution,
+  resolveVegaDraftSelection,
   normalizeVegaStatus,
   vegaCreateTaskId,
   vegaDurationBounds,

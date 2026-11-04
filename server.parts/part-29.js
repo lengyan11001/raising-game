@@ -956,9 +956,6 @@ function advancedRegenerateBody(record = {}) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
     const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
     const requestedDraftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
-    // Do not let a stale draft id from an old record silently turn a normal
-    // regeneration into Draft to Final.
-    const draftTaskId = normalizeVegaMediaMode(explicitMediaMode) === "draft_followup" ? requestedDraftTaskId : "";
     const assetUrl = (asset, keys = []) => String(keys.map((key) => asset?.[key]).find(Boolean) || "").trim();
     const urlsByType = (type, keys) => mediaAssets
       .filter((asset) => asset?.type === type)
@@ -982,9 +979,29 @@ function advancedRegenerateBody(record = {}) {
       ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url) : []),
       ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
     ]);
+    const reconstructedMedia = { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
+    let draftSelection;
+    try {
+      draftSelection = resolveVegaDraftSelection({
+        provider,
+        mediaMode: explicitMediaMode,
+        media: reconstructedMedia,
+        prompt: body.prompt,
+        draftTaskId: requestedDraftTaskId,
+      });
+    } catch (error) {
+      // Preserve explicit draft intent so the normal request handler returns a
+      // clear validation error; stale Lite draft state is normalized above.
+      draftSelection = {
+        draftTaskId: requestedDraftTaskId,
+        explicitDraftMode: normalizeVegaMediaMode(explicitMediaMode) === "draft_followup",
+        mediaMode: normalizeVegaMediaMode(explicitMediaMode, reconstructedMedia),
+      };
+    }
+    const draftTaskId = draftSelection.draftTaskId;
     const requestedMedia = draftTaskId
       ? { firstFrameUrl: "", lastFrameUrl: "", referenceImages: [], referenceVideos: [], referenceAudios: [] }
-      : { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
+      : reconstructedMedia;
     const inferredMediaMode = firstFrameUrl && lastFrameUrl
       ? "first_last_frame"
       : firstFrameUrl
@@ -996,7 +1013,7 @@ function advancedRegenerateBody(record = {}) {
       : "text_to_video";
     const mediaMode = draftTaskId
       ? "draft_followup"
-      : normalizeVegaMediaMode(explicitMediaMode || inferredMediaMode, requestedMedia);
+      : draftSelection.mediaMode || normalizeVegaMediaMode(explicitMediaMode || inferredMediaMode, requestedMedia);
     const taskType = draftTaskId
       ? "auto"
       : String(firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto").trim().toLowerCase();
@@ -1025,7 +1042,7 @@ function advancedRegenerateBody(record = {}) {
       body.duration = -1;
     }
     body.taskType = taskType;
-    body.draft = draftTaskId ? false : params.draft === true || params.draft === "true";
+    body.draft = draftTaskId || !vegaProviderCapabilities(provider)?.draft ? false : params.draft === true || params.draft === "true";
     body.draftTaskId = draftTaskId;
     body.assetGroupId = String(firstPresent(params.assetGroupId, params.asset_group_id, "") || "").trim();
     body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);

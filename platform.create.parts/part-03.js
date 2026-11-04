@@ -280,7 +280,7 @@ async function submitAdvancedGenerate() {
     const vegaOptions = advancedVegaPayloadOptions(provider);
     const vegaTaskType = String(vegaOptions.taskType || "auto").trim().toLowerCase();
     const vegaSourceMediaMode = advancedVegaMediaMode();
-    const vegaDraftFollowup = vegaSourceMediaMode === "draft_followup";
+    const vegaDraftFollowup = advancedVegaDraftFollowup();
     const vegaMediaMode = ["edit", "extend"].includes(vegaTaskType) ? "reference_video" : vegaSourceMediaMode;
     const vegaUsesFirstFrame = vegaModeNeedsFirstFrame(vegaMediaMode);
     const vegaUsesLastFrame = vegaModeNeedsLastFrame(vegaMediaMode);

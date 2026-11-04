@@ -434,6 +434,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  handleAdvancedVegaGenerate,
   repairStalledGenerationRecords,
   listStalledGenerationRecordsForRepair,
   isStalledGenerationRecordCandidate,

@@ -353,7 +353,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
       ? "reference_video"
       : "text_to_video";
     const restoredDraftTaskId = firstPresent(params.draftTaskId, params.draft_task_id, record.draftTaskId, "") || "";
-    const restoredDraftFollowup = normalizeVegaUiMediaMode(explicitMediaMode) === "draft_followup" && Boolean(restoredDraftTaskId);
+    const restoredDraftFollowup = Boolean(vegaCapabilities(provider)?.draft) && normalizeVegaUiMediaMode(explicitMediaMode) === "draft_followup" && Boolean(restoredDraftTaskId);
     const vegaMediaMode = normalizeVegaUiMediaMode(restoredDraftFollowup ? "draft_followup" : explicitMediaMode || inferredMediaMode);
     const rawVegaRatio = String(record.ratio || params.ratio || params.aspect_ratio || "16:9").trim();
     const vegaRatio = VEGA_ALL_RATIOS.includes(rawVegaRatio) ? rawVegaRatio : "16:9";

@@ -10,6 +10,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const vega = require("../tencent-vod-vega");
 const vegaMedia = require("../platform.vega-media");
 const providers = require("../lib-providers");
+const application = require("../server");
 const server = read("server.js");
 const html = read("platform.html");
 const ui = read("platform.ui.js");
@@ -238,22 +239,119 @@ test("Vega draft follow-up ignores stale media and keeps only draft output setti
   }, { subAppId: 123 }), "DRAFT_UNSUPPORTED");
 });
 
+test("Vega 1.5 Lite stale draft state is normalized into a normal generation", () => {
+  const staleInput = {
+    provider: "h3-vega",
+    prompt: "make a normal lite video",
+    draftTaskId: "draft-task-from-template",
+    mediaMode: "draft_followup",
+    resolution: "720P",
+    duration: 6,
+    referenceImages: ["https://cdn.example.com/ref.png"],
+  };
+  const selection = vega.resolveVegaDraftSelection({
+    provider: staleInput.provider,
+    mediaMode: staleInput.mediaMode,
+    prompt: staleInput.prompt,
+    draftTaskId: staleInput.draftTaskId,
+    media: { referenceImages: staleInput.referenceImages },
+  });
+  assert.equal(selection.draftTaskId, "");
+  assert.equal(selection.ignoredStaleDraft, true);
+  assert.equal(selection.mediaMode, "reference_video");
+
+  const payload = vega.buildVegaCreatePayload(staleInput, { subAppId: 123 });
+  assert.equal(payload.Prompt, staleInput.prompt);
+  assert.equal(payload.FileInfos.length, 1);
+  assert.equal(payload.OutputConfig.Duration, 6);
+  assert.equal(payload.OutputConfig.Resolution, "720P");
+  assert.doesNotMatch(payload.ExtInfo, /draft_task_id/);
+});
+
+test("Vega 1.5 Lite draft-only intent fails closed before upstream submission", () => {
+  assertCode(() => vega.resolveVegaDraftSelection({
+    provider: "h3-vega",
+    mediaMode: "draft_followup",
+    draftTaskId: "draft-only",
+  }), "DRAFT_UNSUPPORTED");
+  assertCode(() => vega.buildVegaCreatePayload({
+    provider: "h3-vega",
+    draftTaskId: "draft-only",
+    mediaMode: "draft_followup",
+  }, { subAppId: 123 }), "DRAFT_UNSUPPORTED");
+});
+
+test("Vega Lite request handler ignores stale draft state before validation and charging", async () => {
+  const responses = [];
+  const res = {
+    statusCode: 0,
+    headers: {},
+    setHeader(name, value) { this.headers[name] = value; },
+    writeHead(statusCode, headers = {}) { this.statusCode = statusCode; Object.assign(this.headers, headers); },
+    end(body) { responses.push({ status: this.statusCode, body: JSON.parse(body) }); },
+  };
+  const originalSecretId = process.env.TENCENTCLOUD_SECRET_ID;
+  const originalSecretKey = process.env.TENCENTCLOUD_SECRET_KEY;
+  const originalSubAppId = process.env.TENCENT_VOD_SUB_APP_ID;
+  delete process.env.TENCENTCLOUD_SECRET_ID;
+  delete process.env.TENCENTCLOUD_SECRET_KEY;
+  process.env.TENCENT_VOD_SUB_APP_ID = "123";
+  try {
+    await application.handleAdvancedVegaGenerate({ method: "POST", headers: {} }, res, {
+      auth: { user: { id: "test-user", credits: 10000 }, tokenSource: "session" },
+      config: {
+        platform: {
+          advancedPricing: {
+            h3VegaCreditsPerSecondByResolution: { "720p": 13.5 },
+            h3VegaInputVideoCreditsPerSecondByResolution: {},
+          },
+        },
+      },
+      body: {
+        provider: "h3-vega",
+        prompt: "normal lite generation",
+        mediaMode: "draft_followup",
+        draftTaskId: "stale-template-draft",
+        resolution: "720P",
+        duration: 6,
+      },
+      bodyParams: {},
+      caseParams: { draftTaskId: "stale-template-draft", mediaMode: "draft_followup" },
+      prompt: "normal lite generation",
+      provider: "h3-vega",
+      selectedCase: null,
+    });
+  } finally {
+    if (originalSecretId === undefined) delete process.env.TENCENTCLOUD_SECRET_ID;
+    else process.env.TENCENTCLOUD_SECRET_ID = originalSecretId;
+    if (originalSecretKey === undefined) delete process.env.TENCENTCLOUD_SECRET_KEY;
+    else process.env.TENCENTCLOUD_SECRET_KEY = originalSecretKey;
+    if (originalSubAppId === undefined) delete process.env.TENCENT_VOD_SUB_APP_ID;
+    else process.env.TENCENT_VOD_SUB_APP_ID = originalSubAppId;
+  }
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].status, 503);
+  assert.equal(responses[0].body.code, "TENCENT_VOD_NOT_CONFIGURED");
+  assert.notEqual(responses[0].body.code, "DRAFT_UNSUPPORTED");
+});
+
 test("Vega regenerated draft bodies discard reconstructed prompt and media before validation", () => {
   const regenerate = sourceBetween(server, "function advancedRegenerateBody(record = {})", "async function handleRegenerateGenerationRecord(");
   assert.match(regenerate, /const explicitMediaMode = firstPresent\(record\.mediaMode, params\.mediaMode/);
   assert.match(regenerate, /const requestedDraftTaskId = String\(firstPresent\(params\.draftTaskId, params\.draft_task_id, ""\)/);
-  assert.match(regenerate, /const draftTaskId = normalizeVegaMediaMode\(explicitMediaMode\) === "draft_followup" \? requestedDraftTaskId : ""/);
+  assert.match(regenerate, /draftSelection = resolveVegaDraftSelection\(\{[\s\S]*?draftTaskId: requestedDraftTaskId/);
+  assert.match(regenerate, /const draftTaskId = draftSelection\.draftTaskId/);
   assert.match(regenerate, /const requestedMedia = draftTaskId[\s\S]*?firstFrameUrl: ""[\s\S]*?referenceImages: \[\]/);
   assert.match(regenerate, /mediaMode: effectiveMediaMode,[\s\S]*?\.\.\.requestedMedia/);
   assert.match(regenerate, /body\.prompt = ""/);
-  assert.match(regenerate, /body\.draft = draftTaskId \? false/);
+  assert.match(regenerate, /body\.draft = draftTaskId \|\| !vegaProviderCapabilities\(provider\)\?\.draft \? false/);
   const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "function advancedRuntimeForProvider(");
   assert.match(handler, /body\.draftTaskId,[\s\S]*?bodyParams\.draft_task_id,[\s\S]*?"",/);
-  const requestedMode = sourceBetween(handler, "const requestedMediaMode = firstPresent(", "const explicitDraftMode");
+  const requestedMode = sourceBetween(handler, "const requestedMediaMode = firstPresent(", "const directDraftTaskId");
   assert.doesNotMatch(requestedMode, /caseParams\./);
-  assert.match(handler, /const draftTaskId = String\(firstPresent\([\s\S]*?explicitDraftMode \? caseParams\.draftTaskId/);
-  assert.match(handler, /const requestedMedia = draftTaskId[\s\S]*?firstFrameUrl: ""[\s\S]*?referenceImages: \[\]/);
-  assert.match(handler, /const mediaMode = draftTaskId[\s\S]*?"draft_followup"/);
+  assert.match(handler, /resolveVegaDraftSelection\(\{[\s\S]*?templateDraftTaskId: firstPresent\(caseParams\.draftTaskId/);
+  assert.match(handler, /const effectiveMedia = draftTaskId[\s\S]*?firstFrameUrl: ""[\s\S]*?referenceImages: \[\]/);
+  assert.match(handler, /const mediaMode = draftSelection\.mediaMode/);
   assert.match(create, /restoredDraftFollowup \? "draft_followup"/);
 });
 

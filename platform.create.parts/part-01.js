@@ -222,7 +222,7 @@ function advancedVegaModeNeedsFrames(mode = advancedVegaMediaMode()) {
 }
 
 function advancedVegaDraftFollowup() {
-  return advancedVegaMediaMode() === "draft_followup";
+  return Boolean(vegaCapabilities(currentAdvancedProvider())?.draft) && advancedVegaMediaMode() === "draft_followup";
 }
 
 function advancedVegaCurrentTaskType(provider = currentAdvancedProvider()) {
@@ -233,11 +233,12 @@ function advancedVegaCurrentTaskType(provider = currentAdvancedProvider()) {
 
 function advancedVegaPayloadOptions(provider = currentAdvancedProvider()) {
   if (!isVegaAdvancedProvider(provider)) return {};
+  const caps = vegaCapabilities(provider);
   const draftTaskId = String(els.advancedVegaDraftTaskId?.value || "").trim();
-  const draftFollowup = advancedVegaMediaMode() === "draft_followup";
+  const draftFollowup = Boolean(caps?.draft) && advancedVegaMediaMode() === "draft_followup";
   return {
     taskType: draftFollowup ? "auto" : advancedVegaCurrentTaskType(provider),
-    draft: !draftFollowup && Boolean(els.advancedVegaDraft?.checked),
+    draft: Boolean(caps?.draft) && !draftFollowup && Boolean(els.advancedVegaDraft?.checked),
     draftTaskId: draftFollowup ? draftTaskId : "",
     assetGroupId: String(els.advancedVegaAssetGroupId?.value || "").trim(),
     generateAudio: String(els.advancedSeedanceGenerateAudio?.value || "true") !== "false",

@@ -162,6 +162,57 @@ function vegaMediaSelection(input = {}) {
   return { mode, firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
 }
 
+function vegaMediaHasContent(media = {}) {
+  return Boolean(
+    String(media.firstFrameUrl || "").trim()
+    || String(media.lastFrameUrl || "").trim()
+    || (Array.isArray(media.referenceImages) && media.referenceImages.length)
+    || (Array.isArray(media.referenceVideos) && media.referenceVideos.length)
+    || (Array.isArray(media.referenceAudios) && media.referenceAudios.length)
+  );
+}
+
+// Draft state can survive in browser/template/record state after a user switches
+// models. Resolve it against the selected model before pricing or submission.
+// For Lite, a prompt or any media proves this is an ordinary generation request;
+// only a draft-only request is treated as explicit Draft-to-Final intent.
+function resolveVegaDraftSelection(input = {}) {
+  const provider = vegaProviderDefinition(input.provider)?.id || String(input.provider || "").trim();
+  const caps = vegaProviderCapabilities(provider);
+  if (!caps) throw new Error("Unknown Vega provider.");
+  const requestedMediaMode = normalizeVegaMediaMode(input.mediaMode || "", input.media);
+  const requestedDraftTaskId = String(input.draftTaskId || "").trim();
+  const templateDraftTaskId = String(input.templateDraftTaskId || "").trim();
+  const hasPrompt = Boolean(String(input.prompt || "").trim());
+  const hasMedia = vegaMediaHasContent(input.media);
+  const explicitDraftMode = requestedMediaMode === "draft_followup";
+  const draftRequested = explicitDraftMode || Boolean(requestedDraftTaskId);
+  if (!caps.draft) {
+    if (draftRequested && !hasPrompt && !hasMedia) {
+      throw vegaValidationError(`${vegaProviderLabel(provider)} does not support draft-to-final generation.`, "DRAFT_UNSUPPORTED");
+    }
+    return {
+      draftTaskId: "",
+      explicitDraftMode: false,
+      ignoredStaleDraft: draftRequested,
+      mediaMode: draftRequested ? normalizeVegaMediaMode("", input.media) : requestedMediaMode,
+    };
+  }
+  const draftTaskId = requestedDraftTaskId || (explicitDraftMode ? templateDraftTaskId : "");
+  if ((explicitDraftMode || requestedDraftTaskId) && !draftTaskId) {
+    throw Object.assign(new Error("Draft to Final requires the upstream draft task ID."), {
+      statusCode: 400,
+      code: "DRAFT_TASK_ID_REQUIRED",
+    });
+  }
+  return {
+    draftTaskId,
+    explicitDraftMode,
+    ignoredStaleDraft: false,
+    mediaMode: draftTaskId ? "draft_followup" : requestedMediaMode,
+  };
+}
+
 function normalizeVegaUsage(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (normalized === "firstframe") return "FirstFrame";
@@ -410,15 +461,29 @@ function buildVegaCreatePayload(input = {}, { subAppId } = {}) {
   if (!provider) throw new Error("Unknown Vega provider.");
   const caps = vegaProviderCapabilities(provider.id);
   if (!Number.isInteger(Number(subAppId)) || Number(subAppId) <= 0) throw new Error("TENCENT_VOD_SUB_APP_ID must be a positive integer.");
-  const draftTaskId = String(input.draftTaskId || "").trim();
-  if (draftTaskId && !caps.draft) throw vegaValidationError(`${provider.label} does not support draft-to-final generation.`, "DRAFT_UNSUPPORTED");
+  const prompt = String(input.prompt || "").trim();
+  const requestedMedia = {
+    firstFrameUrl: input.firstFrameUrl,
+    lastFrameUrl: input.lastFrameUrl,
+    referenceImages: input.referenceImages,
+    referenceVideos: input.referenceVideos,
+    referenceAudios: input.referenceAudios,
+  };
+  const draftSelection = resolveVegaDraftSelection({
+    provider: provider.id,
+    mediaMode: input.mediaMode,
+    media: requestedMedia,
+    prompt,
+    draftTaskId: input.draftTaskId,
+  });
+  const draftTaskId = draftSelection.draftTaskId;
+  const draft = Boolean(caps.draft) && (input.draft === true || input.draft === "true");
   // A platform regeneration can retain the previous generation's media in the
   // record. Draft-to-final only accepts the draft id and output settings, so
   // those stale fields must never reach media validation or the upstream body.
   const media = draftTaskId
     ? { mode: "draft_followup", firstFrameUrl: "", lastFrameUrl: "", referenceImages: [], referenceVideos: [], referenceAudios: [] }
-    : vegaMediaSelection({ ...input, mediaMode: input.mediaMode });
-  const prompt = String(input.prompt || "").trim();
+    : vegaMediaSelection({ ...input, mediaMode: draftSelection.mediaMode });
   if (!draftTaskId && !prompt) throw Object.assign(new Error("Prompt is required."), { statusCode: 400, code: "PROMPT_REQUIRED" });
   if (prompt.length > 7000) throw vegaValidationError("Vega prompt must not exceed 7000 characters.", "PROMPT_TOO_LONG");
   const taskType = normalizeVegaTaskType(input.taskType, provider.id);
@@ -431,7 +496,7 @@ function buildVegaCreatePayload(input = {}, { subAppId } = {}) {
   const fileInfos = draftTaskId ? [] : buildVegaFileInfos({ ...input, provider: provider.id, mediaMode: media.mode });
   const duration = normalizeVegaDuration(provider.id, input.duration, { taskType });
   const resolution = normalizeVegaResolution(input.resolution, provider.id);
-  if (input.draft === true || input.draft === "true") {
+  if (draft) {
     if (resolution !== "480P") throw vegaValidationError("Vega draft generation requires 480P resolution.", "INVALID_DRAFT_RESOLUTION");
   }
   const ratio = normalizeVegaRatio(input.ratio, provider.id, { taskType, frameRatioFromInput: caps.frameRatioFromInput && media.mode !== "reference_video" && media.mode !== "text_to_video" });
@@ -449,7 +514,7 @@ function buildVegaCreatePayload(input = {}, { subAppId } = {}) {
     ModelName: provider.modelName,
     ModelVersion: provider.modelVersion,
     OutputConfig: outputConfig,
-    ExtInfo: buildVegaExtInfo({ ...input, provider: provider.id }, { taskType, draftTaskId }),
+    ExtInfo: buildVegaExtInfo({ ...input, provider: provider.id, draft }, { taskType, draftTaskId }),
   };
   if (!draftTaskId) {
     payload.FileInfos = fileInfos;
@@ -624,6 +689,7 @@ module.exports = {
   normalizeVegaQualityMode,
   normalizeVegaRatio,
   normalizeVegaResolution,
+  resolveVegaDraftSelection,
   normalizeVegaSeed,
   normalizeVegaStatus,
   normalizeVegaTaskType,

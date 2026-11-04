@@ -4,6 +4,12 @@ This file is the durable handoff for this task. After compaction, read this file
 
 ## Current live verification
 
+- Draft-to-Final bug fixed locally: stale `draftTaskId` / `draft_followup` from browser, template, or record state is normalized before pricing or upstream submission.
+- Lite requests with prompt or media are always treated as ordinary generation; stale draft state is discarded and `draft_task_id` is never sent.
+- Draft-only Lite intent is rejected explicitly with `DRAFT_UNSUPPORTED` before credentials, charging, or upstream submission.
+- Regression suite: 54 pass, 0 fail. Syntax checks and `git diff --check` pass.
+- Production deployment for this Draft-to-Final fix is pending.
+
 - Production `/etc/raising-game-demo.env` now has the Tencent VOD international credentials supplied by the user. Values are intentionally not recorded here.
 - VOD credentials were verified against `DescribeSubAppIds` on the international host; the account returned one application.
 - Real Vega 1.5 Lite 720P / 4-second text-to-video tasks completed successfully.
@@ -36,17 +42,16 @@ This file is the durable handoff for this task. After compaction, read this file
 ## Changed files
 
 ```text
+tencent-vod-vega.js
 server.parts/part-01.js
-server.parts/part-02.js
-server.parts/part-11.js
 server.parts/part-26.js
-server.parts/part-30.js
-server.parts/part-38.js
-server.parts/part-39.js
+server.parts/part-29.js
+server.parts/part-43.js
+platform.create.parts/part-01.js
 platform.create.parts/part-03.js
-platform.ui.parts/part-03.js
-platform.ui.parts/part-04.js
+platform.create.parts/part-04.js
 test/advanced-pricing.test.js
+test/tencent-vod-vega.test.js
 CODEX_TASK_STATE.md
 ```
 
