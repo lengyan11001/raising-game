@@ -78,7 +78,7 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) {
+  if (isVegaProviderId(normalizedProvider)) {
     const error = new Error(advancedProviderLabel(normalizedProvider) + " pricing is not configured. Generation was not started.");
     error.code = "MODEL_PRICING_UNAVAILABLE";
     throw error;
@@ -475,7 +475,7 @@ function advancedVideoSettingsVisible() {
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizeAdvancedProvider(provider))) return ["768P", "1080P", "2K", "4K"];
+  if (isVegaProviderId(normalizeAdvancedProvider(provider))) return [...(vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions || VEGA_ALL_RESOLUTIONS)];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
   if (["seedance25", "seedance-nsfw"].includes(normalizeAdvancedProvider(provider))) return ["480p", "720p"];

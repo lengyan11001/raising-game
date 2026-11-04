@@ -873,6 +873,9 @@ function normalizeAdvancedProvider(value = "") {
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
+  if (normalized.includes("seedance20fast") && normalized.includes("vega")) return "seedance20-fast-vega";
+  if (normalized.includes("seedance20mini") && normalized.includes("vega")) return "seedance20-mini-vega";
+  if (normalized.includes("seedance20lite") && normalized.includes("vega")) return "seedance20-lite-vega";
   if (["seedance20vega", "seedance2.0vega"].includes(normalized) || (normalized.includes("seedance20") && normalized.includes("vega")) || (normalized.includes("seedance2.0") && normalized.includes("vega"))) return "seedance20-vega";
   if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
   if (["h3vega", "h3"].includes(normalized) || normalized.includes("h3vega")) return "h3-vega";
@@ -909,9 +912,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
     return labels[capability] || "W3.0";
   }
   if (normalized === "seedance-nsfw") return "Seedance 2.5";
-  if (normalized === "seedance20-vega") return "Seedance 2.0（Vega）";
-  if (normalized === "seedance25-vega") return "Seedance 2.5（Vega）";
-  if (normalized === "h3-vega") return "H3（Vega）";
+  if (VEGA_MODEL_LABELS[normalized]) return VEGA_MODEL_LABELS[normalized];
   if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",
@@ -1038,25 +1039,21 @@ const ADVANCED_SEEDANCE_MODE_OPTIONS = Object.freeze({
     Object.freeze({ value: "reference_video", label: "Multimodal References" }),
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
   ]),
-  "seedance20-vega": Object.freeze([
-    Object.freeze({ value: "reference_video", label: "Multimodal References" }),
+  ...Object.fromEntries(VEGA_PROVIDER_IDS.map((id) => [id, Object.freeze([
+    Object.freeze({ value: "text_to_video", label: "Text to Video" }),
+    Object.freeze({ value: "first_frame", label: "First Frame" }),
+    Object.freeze({ value: "last_frame", label: "Last Frame" }),
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
-  ]),
-  "seedance25-vega": Object.freeze([
     Object.freeze({ value: "reference_video", label: "Multimodal References" }),
-    Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
-  ]),
-  "h3-vega": Object.freeze([
-    Object.freeze({ value: "reference_video", label: "Multimodal References" }),
-    Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
-  ]),
+    ...(VEGA_MODEL_CAPABILITIES[id]?.draft ? [Object.freeze({ value: "draft_followup", label: "Draft to Final" })] : []),
+  ])])),
 });
 
 function syncAdvancedSeedanceModeOptions(provider = currentAdvancedProvider()) {
   if (!els.advancedSeedanceMediaMode) return;
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const options = ADVANCED_SEEDANCE_MODE_OPTIONS[normalizedProvider] || [];
-  const current = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode.value || "");
+  const current = isVegaProviderId(normalizedProvider) ? normalizeVegaUiMediaMode(els.advancedSeedanceMediaMode.value || "") : normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode.value || "");
   els.advancedSeedanceMediaMode.innerHTML = options
     .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
     .join("");
@@ -1137,12 +1134,9 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizeAdvancedProvider(provider))) {
-    if (raw === "768p") return "768P";
-    if (raw === "1080p") return "1080P";
-    if (raw === "2k") return "2K";
-    if (raw === "4k") return "4K";
-    return "1080P";
+  if (isVegaProviderId(normalizeAdvancedProvider(provider))) {
+    const normalized = String(raw || "").toUpperCase();
+    return vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions.includes(normalized) ? normalized : "1080P";
   }
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
@@ -1165,7 +1159,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit" || normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalized)) return { min: 1, max: 15, fallback: normalized === "h3-vega" ? 6 : 5 };
+  if (isVegaProviderId(normalized)) return { ...(VEGA_DURATION_BOUNDS[normalized] || VEGA_DURATION_BOUNDS["seedance20-vega"]) };
   if (["seedance25", "seedance-nsfw"].includes(normalized)) return { min: 4, max: 30, fallback: 4 };
   const resolvedCapability = capability || (
     typeof currentAdvancedVideoCapability === "function"

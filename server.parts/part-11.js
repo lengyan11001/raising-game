@@ -169,7 +169,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedance20-vega, seedance25-vega, h3-vega, seedream5-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, a Vega provider id, seedream5-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
   }
 }
 
@@ -598,7 +598,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (isVegaProvider(normalizedProvider)) return { fallback: normalizedProvider === "h3-vega" ? 6 : 5, min: 1, max: 15 };
+  if (isVegaProvider(normalizedProvider)) { const bounds = vegaDurationBounds(normalizedProvider); return { fallback: bounds.fallback, min: bounds.min, max: bounds.max }; }
   if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };

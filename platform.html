@@ -610,9 +610,12 @@
                   <option value="wan27">Wan 2.7</option>
                   <option value="happyhorse">HappyHorse</option>
                   <option value="seedance">Seedance 2.0</option>
-                  <option value="seedance20-vega">Seedance 2.0（Vega）</option>
-                  <option value="seedance25-vega">Seedance 2.5（Vega）</option>
-                  <option value="h3-vega">H3（Vega）</option>
+                  <option value="seedance20-vega">Vega 1.0 Pro</option>
+                  <option value="seedance20-fast-vega">Vega 1.0 Pro Fast</option>
+                  <option value="seedance20-mini-vega">Vega 1.0 Pro Mini</option>
+                  <option value="seedance25-vega">Vega 1.5 Pro</option>
+                  <option value="seedance20-lite-vega">Vega 1.0 Lite</option>
+                  <option value="h3-vega">Vega 1.5 Lite</option>
                 </optgroup>
                 <optgroup label="Image">
                   <option value="z-image-spicy-pro">Z-Image Spicy Pro</option>
@@ -654,6 +657,17 @@
                   <span>On</span>
                 </div>
               </label>
+              <label class="field advanced-vega-option" hidden><span>Vega task</span><select id="advancedVegaTaskType"><option value="auto" selected>Auto</option><option value="reference">Reference</option><option value="edit">Edit</option><option value="extend">Extend</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Generate mode</span><select id="advancedVegaGenerateMode"><option value="Standard" selected>Standard</option><option value="Fast">Fast</option><option value="StandardMovie">StandardMovie</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Quality mode</span><select id="advancedVegaQualityMode"><option value="Standard" selected>Standard</option><option value="Fast">Fast</option><option value="SuperFast">SuperFast</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Output format</span><select id="advancedVegaOutputFormat"><option value="mp4" selected>MP4</option><option value="mov">MOV</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Prompt enhance</span><select id="advancedVegaEnhancePromptMode"><option value="auto" selected>Auto</option><option value="enable">Enable</option><option value="disable">Disable</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Moderation</span><select id="advancedVegaModerationMode"><option value="Moderation_L1" selected>L1</option><option value="Moderation_L2">L2</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Return last frame</span><div class="advanced-checkbox-control"><input id="advancedVegaReturnLastFrame" type="checkbox" /><span>On</span></div></label>
+              <label class="field advanced-vega-option" hidden><span>Return usage</span><div class="advanced-checkbox-control"><input id="advancedVegaReturnUsage" type="checkbox" /><span>On</span></div></label>
+              <label class="field advanced-vega-option" hidden><span>Draft</span><div class="advanced-checkbox-control"><input id="advancedVegaDraft" type="checkbox" /><span>480P draft</span></div></label>
+              <label class="field advanced-vega-option advanced-vega-draft-task-field" hidden><span>Draft task ID</span><input id="advancedVegaDraftTaskId" type="text" autocomplete="off" placeholder="Upstream draft task ID" /></label>
+              <label class="field advanced-vega-option" hidden><span>Asset group ID</span><input id="advancedVegaAssetGroupId" type="text" autocomplete="off" placeholder="Optional" /></label>
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="1" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
             <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>

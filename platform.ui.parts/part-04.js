@@ -293,7 +293,7 @@ function advancedPricingUnavailableLabel(pricing = {}) {
 
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) {
+  if (isVegaProviderId(normalizedProvider)) {
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
       ? state.advancedEstimate
@@ -605,7 +605,7 @@ function renderPricing() {
 
 function advancedButtonCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) {
+  if (isVegaProviderId(normalizedProvider)) {
     return advancedCostLabel(duration, provider, resolution, ratio, options);
   }
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);

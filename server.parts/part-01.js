@@ -316,8 +316,9 @@ const {
 } = require("./telegram-bot");
 
 const {
-  VEGA_RATIOS,
-  VEGA_RESOLUTIONS,
+  VEGA_ALL_RATIOS,
+  VEGA_ALL_RESOLUTIONS,
+  VEGA_CAPABILITIES,
   assertVegaPricingConfigured,
   buildVegaCreatePayload,
   callTencentVod,
@@ -328,9 +329,13 @@ const {
   normalizeVegaResolution,
   normalizeVegaStatus,
   vegaCreateTaskId,
+  vegaDurationBounds,
   vegaMediaSelection,
+  vegaOutputLastFrameUrl,
+  vegaOutputUsage,
   vegaOutputVideoUrl,
   vegaPricingUnavailableError,
+  vegaProviderCapabilities,
   vegaProviderDefinition,
   vegaProviderLabel,
   vegaTaskDetail,

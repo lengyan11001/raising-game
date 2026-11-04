@@ -54,9 +54,10 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   const caseParams = context.caseParams || {};
   const selectedCase = context.selectedCase || null;
   const merged = mergedRequestForMedia(body, caseParams);
+  const draftTaskId = String(firstPresent(body.draftTaskId, body.draft_task_id, bodyParams.draftTaskId, bodyParams.draft_task_id, caseParams.draftTaskId, "")).trim();
   const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
   const requestedMedia = vegaRequestMedia(merged);
-  const mediaMode = normalizeVegaMediaMode(firstPresent(
+  const mediaMode = draftTaskId ? "draft_followup" : normalizeVegaMediaMode(firstPresent(
     body.mediaMode,
     body.seedanceMode,
     body.functionMode,
@@ -70,17 +71,25 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   ), requestedMedia);
   let media;
   try {
-    media = vegaMediaSelection({ ...requestedMedia, mediaMode });
+    media = vegaMediaSelection({ ...requestedMedia, mediaMode, draftTaskId });
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} media is invalid.`);
   }
-  const duration = normalizeVegaDuration(provider, firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, caseParams.duration));
-  const resolution = normalizeVegaResolution(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "1080P"));
-  const ratio = normalizeVegaRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, "16:9"));
-  const seedValue = firstPresent(body.seed, bodyParams.seed, caseParams.seed);
-  const seed = seedValue === undefined || seedValue === null || seedValue === "" ? undefined : Number(seedValue);
-  if (seed !== undefined && (!Number.isInteger(seed) || seed < 0)) {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEED", message: "seed must be a non-negative integer." });
+  const taskType = String(firstPresent(body.taskType, body.task_type, bodyParams.taskType, bodyParams.task_type, caseParams.taskType, "auto")).trim().toLowerCase();
+  let duration;
+  let resolution;
+  let ratio;
+  try {
+    duration = draftTaskId
+      ? Number(firstPresent(body.duration, bodyParams.duration, 5))
+      : normalizeVegaDuration(provider, firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, caseParams.duration), { taskType });
+    resolution = normalizeVegaResolution(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "1080P"), provider);
+    ratio = normalizeVegaRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, "16:9"), provider, {
+      taskType,
+      frameRatioFromInput: vegaProviderCapabilities(provider)?.frameRatioFromInput && media.mode !== "reference_video" && media.mode !== "text_to_video",
+    });
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
   }
   // Pricing is intentionally evaluated before credentials, media transport, charging, or upstream calls.
   let pricing;
@@ -117,6 +126,20 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       message: "Tencent VOD is not configured. Generation was not started.",
     });
   }
+  const advancedOptions = {
+    taskType,
+    draftTaskId,
+    draft: body.draft === true || body.draft === "true" || bodyParams.draft === true,
+    returnLastFrame: body.returnLastFrame === true || body.returnLastFrame === "true" || body.return_last_frame === true || bodyParams.returnLastFrame === true,
+    returnVegaUsage: body.returnVegaUsage === true || body.returnVegaUsage === "true" || bodyParams.returnVegaUsage === true,
+    enhancePromptMode: firstPresent(body.enhancePromptMode, body.enhance_prompt_mode, bodyParams.enhancePromptMode, bodyParams.enhance_prompt_mode),
+    moderationMode: firstPresent(body.moderationMode, body.moderation_mode, bodyParams.moderationMode, bodyParams.moderation_mode),
+    generateMode: firstPresent(body.generateMode, body.generate_mode, bodyParams.generateMode, bodyParams.generate_mode),
+    videoQualityMode: firstPresent(body.videoQualityMode, body.video_quality_mode, bodyParams.videoQualityMode, bodyParams.video_quality_mode),
+    outputFormat: firstPresent(body.outputFormat, body.output_format, bodyParams.outputFormat, bodyParams.output_format),
+    assetGroupId: firstPresent(body.assetGroupId, body.asset_group_id, bodyParams.assetGroupId, bodyParams.asset_group_id),
+    generateAudio: firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio, true),
+  };
   let payload;
   try {
     payload = buildVegaCreatePayload({
@@ -127,7 +150,10 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       duration,
       resolution,
       ratio,
-      seed,
+      seed: firstPresent(body.seed, bodyParams.seed, caseParams.seed),
+      referenceVideoDurations: (Array.isArray(body.referenceVideoDurations) ? body.referenceVideoDurations : (Array.isArray(bodyParams.referenceVideoDurations) ? bodyParams.referenceVideoDurations : [])),
+      referenceAudioDurations: (Array.isArray(body.referenceAudioDurations) ? body.referenceAudioDurations : (Array.isArray(bodyParams.referenceAudioDurations) ? bodyParams.referenceAudioDurations : [])),
+      ...advancedOptions,
     }, { subAppId });
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
@@ -138,28 +164,14 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
     ...caseParams,
     ...bodyParams,
     ...body,
+    ...advancedOptions,
     provider,
     mediaMode: media.mode,
     duration,
     resolution,
     ratio,
-    seed,
+    ...(payload.Seed !== undefined ? { seed: payload.Seed } : {}),
   };
-  for (const key of [
-    "firstFrameUrl", "first_frame_url", "imageUrl", "image_url",
-    "lastFrameUrl", "last_frame_url", "endImageUrl", "end_image_url",
-    "referenceImages", "reference_images", "referenceImageUrls", "reference_image_urls",
-    "referenceVideos", "reference_videos", "referenceVideoUrls", "reference_video_urls",
-    "referenceAudios", "reference_audios", "referenceAudioUrls", "reference_audio_urls",
-  ]) delete requestParams[key];
-  if (media.mode === "first_last_frame") {
-    requestParams.firstFrameUrl = media.firstFrameUrl;
-    requestParams.lastFrameUrl = media.lastFrameUrl;
-  } else {
-    requestParams.referenceImages = media.referenceImages;
-    requestParams.referenceVideos = media.referenceVideos;
-    requestParams.referenceAudios = media.referenceAudios;
-  }
   const requestTrace = requestTraceForGeneration(req);
   let charged = false;
   try {
@@ -201,7 +213,11 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       finalPrompt: prompt,
       params: requestParams,
       mediaMode: media.mode,
-      mediaAssets: media.mode === "first_last_frame"
+      mediaAssets: media.mode === "first_frame"
+        ? [{ type: "first_frame", url: media.firstFrameUrl }]
+        : media.mode === "last_frame"
+        ? [{ type: "last_frame", url: media.lastFrameUrl }]
+        : media.mode === "first_last_frame"
         ? [
           { type: "first_frame", url: media.firstFrameUrl },
           { type: "last_frame", url: media.lastFrameUrl },
@@ -219,6 +235,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       createResponse: null,
       awaitingUpstreamTask: true,
       error: "",
+      draftTaskId,
       preDeductedCredits: cost,
       originalPreDeductedCredits: pricing.originalCredits ?? cost,
       finalCredits: cost,
@@ -238,16 +255,16 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
     if (!upstreamTaskId) {
       throw Object.assign(new Error("Tencent VOD did not return a task id."), { statusCode: 502, code: "TENCENT_VOD_TASK_ID_MISSING", payload: raw });
     }
-    const record = await upsertGenerationRecord({
+    const record = await upsertAndSettleGenerationRecord({
       taskId,
+      status: "running",
       upstreamTaskId,
-      status: "submitted",
       awaitingUpstreamTask: true,
-      upstreamPayload: payload,
       createResponse: raw,
-      error: "",
-    });
-    const latestDb = await readDb();
+      upstreamPayload: payload,
+    }, `advanced-${provider}-submitted`);
+    const db = await readDb();
+    const latestDb = db || auth.db;
     const latestUser = (latestDb.users || []).find((user) => user.id === auth.user.id) || auth.user;
     return sendJson(res, 200, {
       ok: true,

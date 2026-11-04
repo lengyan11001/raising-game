@@ -274,15 +274,34 @@ async function submitAdvancedGenerate() {
   if (isVegaAdvancedProvider(provider)) {
     const vegaBounds = advancedDurationBounds(provider);
     const rawVegaDuration = Number(els.advancedDuration?.value || vegaBounds.fallback);
-    const vegaDuration = Math.min(vegaBounds.max, Math.max(vegaBounds.min, Number.isFinite(rawVegaDuration) ? rawVegaDuration : vegaBounds.fallback));
-    const vegaMediaMode = advancedVegaMediaMode();
-    const vegaFrameMode = seedanceModeNeedsFirstFrame(vegaMediaMode);
-    const vegaReferenceImageItems = vegaFrameMode ? [] : selectedAdvancedReferenceImages(provider);
-    const vegaVideoItems = vegaFrameMode ? [] : advancedSeedanceVideoReferences();
-    const vegaAudioItems = vegaFrameMode ? [] : advancedSeedanceAudioReferences();
+    const vegaDuration = vegaBounds.smart && rawVegaDuration === -1
+      ? -1
+      : Math.min(vegaBounds.max, Math.max(vegaBounds.min, Number.isFinite(rawVegaDuration) ? rawVegaDuration : vegaBounds.fallback));
+    const vegaOptions = advancedVegaPayloadOptions(provider);
+    const vegaTaskType = String(vegaOptions.taskType || "auto").trim().toLowerCase();
+    const vegaSourceMediaMode = advancedVegaMediaMode();
+    const vegaDraftFollowup = vegaSourceMediaMode === "draft_followup";
+    const vegaMediaMode = ["edit", "extend"].includes(vegaTaskType) ? "reference_video" : vegaSourceMediaMode;
+    const vegaUsesFirstFrame = vegaModeNeedsFirstFrame(vegaMediaMode);
+    const vegaUsesLastFrame = vegaModeNeedsLastFrame(vegaMediaMode);
+    const vegaUsesReferences = vegaModeUsesReferences(vegaMediaMode);
+    const vegaDraftTaskId = vegaDraftFollowup ? String(vegaOptions.draftTaskId || "").trim() : "";
+    if (vegaDraftFollowup && !vegaDraftTaskId) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Draft to Final requires the upstream draft task ID.";
+      return;
+    }
+    if (!vegaDraftFollowup && !prompt) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
+      return;
+    }
+    const vegaReferenceImageItems = vegaUsesReferences ? selectedAdvancedReferenceImages(provider) : [];
+    const vegaVideoItems = vegaUsesReferences ? advancedSeedanceVideoReferences() : [];
+    const vegaAudioItems = vegaUsesReferences ? advancedSeedanceAudioReferences() : [];
     const vegaAssetIds = uniqueAdvancedAssetIds([
-      vegaFrameMode ? state.advancedSeedanceFirstFrameAssetId : "",
-      vegaFrameMode ? state.advancedSeedanceLastFrameAssetId : "",
+      vegaUsesFirstFrame ? state.advancedSeedanceFirstFrameAssetId : "",
+      vegaUsesLastFrame ? state.advancedSeedanceLastFrameAssetId : "",
       ...vegaReferenceImageItems.map((item) => item.assetId),
       ...vegaVideoItems.map((item) => item.assetId),
       ...vegaAudioItems.map((item) => item.assetId),
@@ -294,20 +313,24 @@ async function submitAdvancedGenerate() {
           const resolved = resolvedVegaAssets.get(item.assetId);
           if (resolved) applyResolvedVegaMediaSource(item, resolved);
         }
-        const resolvedFirstFrame = resolvedVegaAssets.get(state.advancedSeedanceFirstFrameAssetId);
-        const resolvedLastFrame = resolvedVegaAssets.get(state.advancedSeedanceLastFrameAssetId);
-        const firstFrameUrl = resolvedFirstFrame ? applyResolvedVegaMediaSource({}, resolvedFirstFrame) : "";
-        const lastFrameUrl = resolvedLastFrame ? applyResolvedVegaMediaSource({}, resolvedLastFrame) : "";
-        if (firstFrameUrl) state.advancedSeedanceFirstFrameDataUrl = firstFrameUrl;
-        if (lastFrameUrl) state.advancedSeedanceLastFrameDataUrl = lastFrameUrl;
+        if (vegaUsesFirstFrame) {
+          const resolvedFirstFrame = resolvedVegaAssets.get(state.advancedSeedanceFirstFrameAssetId);
+          const firstFrameUrl = resolvedFirstFrame ? applyResolvedVegaMediaSource({}, resolvedFirstFrame) : "";
+          if (firstFrameUrl) state.advancedSeedanceFirstFrameDataUrl = firstFrameUrl;
+        }
+        if (vegaUsesLastFrame) {
+          const resolvedLastFrame = resolvedVegaAssets.get(state.advancedSeedanceLastFrameAssetId);
+          const lastFrameUrl = resolvedLastFrame ? applyResolvedVegaMediaSource({}, resolvedLastFrame) : "";
+          if (lastFrameUrl) state.advancedSeedanceLastFrameDataUrl = lastFrameUrl;
+        }
       } catch (error) {
         els.advancedSubmitBtn.disabled = false;
         if (els.advancedNote) els.advancedNote.textContent = error.message || "Vega asset public URL unavailable.";
         return;
       }
     }
-    const vegaFirstFrameSource = vegaFrameMode ? String(state.advancedSeedanceFirstFrameDataUrl || "").trim() : "";
-    const vegaLastFrameSource = vegaFrameMode ? String(state.advancedSeedanceLastFrameDataUrl || "").trim() : "";
+    const vegaFirstFrameSource = vegaUsesFirstFrame ? String(state.advancedSeedanceFirstFrameDataUrl || "").trim() : "";
+    const vegaLastFrameSource = vegaUsesLastFrame ? String(state.advancedSeedanceLastFrameDataUrl || "").trim() : "";
     const vegaFirstFrameUrl = vegaFirstFrameSource ? vegaPublicHttpUrl(vegaFirstFrameSource) : "";
     const vegaLastFrameUrl = vegaLastFrameSource ? vegaPublicHttpUrl(vegaLastFrameSource) : "";
     const vegaReferenceImages = vegaReferenceImageItems.map(vegaMediaSource);
@@ -323,30 +346,64 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = "Vega requires a public HTTP(S) URL.";
       return;
     }
-    if (vegaFrameMode && (!vegaFirstFrameUrl || !vegaLastFrameUrl)) {
+    if (vegaUsesFirstFrame && !vegaFirstFrameUrl) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "First + Last Frame requires both a first frame and a last frame.";
+      if (els.advancedNote) els.advancedNote.textContent = "First Frame requires a first-frame image.";
       return;
     }
-    if (!vegaFrameMode && !vegaReferenceImages.length && !vegaReferenceVideos.length && !vegaReferenceAudios.length) {
+    if (vegaUsesLastFrame && !vegaLastFrameUrl) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Last Frame requires a last-frame image.";
+      return;
+    }
+    if (vegaUsesReferences && !vegaReferenceImages.length && !vegaReferenceVideos.length && !vegaReferenceAudios.length) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Multimodal References requires at least one reference image, video, or audio.";
       return;
     }
+    if (vegaReferenceAudios.length && !vegaReferenceImages.length && !vegaReferenceVideos.length) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Vega audio references require at least one image or video reference.";
+      return;
+    }
+    if (["edit", "extend"].includes(vegaOptions.taskType)) {
+      if (!vegaUsesReferences || !vegaReferenceVideos.length) {
+        els.advancedSubmitBtn.disabled = false;
+        if (els.advancedNote) els.advancedNote.textContent = `Vega ${vegaOptions.taskType} requires Multimodal References with a source video.`;
+        return;
+      }
+      if (String(els.advancedRatio?.value || "").trim().toLowerCase() !== "adaptive") {
+        els.advancedSubmitBtn.disabled = false;
+        if (els.advancedNote) els.advancedNote.textContent = `Vega ${vegaOptions.taskType} requires adaptive aspect ratio.`;
+        return;
+      }
+    }
+    if (vegaOptions.draft && currentAdvancedResolution() !== "480P") {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Vega draft generation requires 480P resolution.";
+      return;
+    }
     const vegaPayload = {
       provider,
-      prompt,
-      duration: vegaDuration,
+      ...(vegaDraftFollowup ? {} : { prompt }),
+      duration: vegaDraftFollowup || ["edit", "extend"].includes(vegaTaskType) ? -1 : vegaDuration,
       resolution: currentAdvancedResolution(),
       ratio: String(els.advancedRatio?.value || "16:9").trim(),
       seed: vegaCurrentSeed(),
       mediaMode: vegaMediaMode,
-      ...(vegaFrameMode ? { firstFrameUrl: vegaFirstFrameUrl, lastFrameUrl: vegaLastFrameUrl } : {
+      ...vegaOptions,
+      ...(vegaUsesFirstFrame ? { firstFrameUrl: vegaFirstFrameUrl } : {}),
+      ...(vegaUsesLastFrame ? { lastFrameUrl: vegaLastFrameUrl } : {}),
+      ...(vegaUsesReferences ? {
         referenceImages: vegaReferenceImages,
         referenceVideos: vegaReferenceVideos,
         referenceAudios: vegaReferenceAudios,
-      }),
+      } : {}),
     };
+    if (vegaDraftFollowup) {
+      delete vegaPayload.draft;
+      vegaPayload.taskType = "auto";
+    }
     const vegaPendingTaskId = `pending-video-${Date.now().toString(36)}`;
     const vegaPendingRecord = {
       taskId: vegaPendingTaskId,
@@ -355,7 +412,7 @@ async function submitAdvancedGenerate() {
       provider,
       source: `advanced-${provider}`,
       kind: "advanced-video",
-      prompt,
+      prompt: vegaPayload.prompt || "",
       params: { ...vegaPayload, advancedProviderId: provider },
       ratio: vegaPayload.ratio,
       resolution: vegaPayload.resolution,

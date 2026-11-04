@@ -106,7 +106,7 @@ function advancedAliyunUsesSharedReferenceUpload(capability = currentAdvancedVid
 
 function advancedUsesSharedReferenceUpload(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  return ["seedance", "seedance25", "seedance-nsfw", "wan30", "seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
+  return ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(normalizedProvider) || isVegaProviderId(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
 }
 
 function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
@@ -122,6 +122,7 @@ function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
   }
   if (normalizedProvider === "wan30") return ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT;
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return 1;
+  if (isVegaProviderId(normalizedProvider)) return vegaReferenceLimits(normalizedProvider).videos;
   return ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT;
 }
 
@@ -134,6 +135,7 @@ function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
   }
   if (normalizedProvider === "wan30") return ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT;
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return 1;
+  if (isVegaProviderId(normalizedProvider)) return vegaReferenceLimits(normalizedProvider).audios;
   return ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT;
 }
 
@@ -153,7 +155,7 @@ function isAdvancedImageProvider(provider = "") {
 }
 
 function isVegaAdvancedProvider(provider = currentAdvancedProvider()) {
-  return ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizeAdvancedProvider(provider));
+  return isVegaProviderId(normalizeAdvancedProvider(provider));
 }
 
 function advancedVegaSelection(asset = {}, targetId = "primary") {
@@ -212,11 +214,41 @@ async function resolveAdvancedVegaAsset(asset = {}, targetId = "primary") {
 }
 
 function advancedVegaMediaMode() {
-  return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
+  return normalizeVegaUiMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
 }
 
 function advancedVegaModeNeedsFrames(mode = advancedVegaMediaMode()) {
-  return seedanceModeNeedsFirstFrame(mode);
+  return vegaModeNeedsFirstFrame(mode) || vegaModeNeedsLastFrame(mode);
+}
+
+function advancedVegaDraftFollowup() {
+  return advancedVegaMediaMode() === "draft_followup";
+}
+
+function advancedVegaCurrentTaskType(provider = currentAdvancedProvider()) {
+  const value = String(els.advancedVegaTaskType?.value || "auto").trim().toLowerCase();
+  const allowed = vegaCapabilities(provider)?.taskTypes || ["auto", "reference"];
+  return allowed.includes(value) ? value : "auto";
+}
+
+function advancedVegaPayloadOptions(provider = currentAdvancedProvider()) {
+  if (!isVegaAdvancedProvider(provider)) return {};
+  const draftTaskId = String(els.advancedVegaDraftTaskId?.value || "").trim();
+  const draftFollowup = advancedVegaMediaMode() === "draft_followup";
+  return {
+    taskType: draftFollowup ? "auto" : advancedVegaCurrentTaskType(provider),
+    draft: !draftFollowup && Boolean(els.advancedVegaDraft?.checked),
+    draftTaskId: draftFollowup ? draftTaskId : "",
+    assetGroupId: String(els.advancedVegaAssetGroupId?.value || "").trim(),
+    generateAudio: String(els.advancedSeedanceGenerateAudio?.value || "true") !== "false",
+    returnLastFrame: Boolean(els.advancedVegaReturnLastFrame?.checked),
+    returnVegaUsage: Boolean(els.advancedVegaReturnUsage?.checked),
+    enhancePromptMode: String(els.advancedVegaEnhancePromptMode?.value || "auto"),
+    moderationMode: String(els.advancedVegaModerationMode?.value || "Moderation_L1"),
+    generateMode: String(els.advancedVegaGenerateMode?.value || "Standard"),
+    videoQualityMode: String(els.advancedVegaQualityMode?.value || "Standard"),
+    outputFormat: String(els.advancedVegaOutputFormat?.value || "mp4"),
+  };
 }
 
 function advancedVegaUploadConfig(targetId = state.advancedAssetTarget || "referenceImages") {
@@ -273,16 +305,18 @@ function advancedAssetTargetItems() {
   const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
+  const vegaMode = normalizeVegaUiMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const targets = [];
   if (isVegaAdvancedProvider(provider)) {
-    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
-      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
-      targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
-    } else {
+    if (vegaMode === "text_to_video" || vegaMode === "draft_followup") return [];
+    if (vegaModeNeedsFirstFrame(vegaMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    if (vegaModeNeedsLastFrame(vegaMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
+    if (vegaModeUsesReferences(vegaMode)) {
       targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
       targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
       targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
     }
+    return targets;
   } else if (isAdvancedImageProvider(provider)) {
     targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
   } else if (["seedream5-image", "qwen-image3"].includes(provider)) {

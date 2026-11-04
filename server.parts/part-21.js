@@ -655,6 +655,8 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
     status: task.status || record.status || "unknown",
     upstreamSource: "pivoxapi",
     remoteVideoUrl,
+    lastFrameUrl,
+    ...(vegaUsage.totalTokens ? { upstreamUsage: vegaUsage } : {}),
     videoUrl: localPublicAssetStorageEnabled()
       ? (localVideoUrl || cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
       : (cdnVideoUrl || localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
@@ -796,6 +798,8 @@ async function refreshVegaGenerationRecord(record = {}, reason = "vega-query") {
   const status = normalizeVegaStatus(task.Status);
   const succeeded = isSucceededStatus(status);
   const remoteVideoUrl = succeeded ? (vegaOutputVideoUrl(task) || record.remoteVideoUrl || "") : record.remoteVideoUrl || "";
+  const lastFrameUrl = succeeded ? (vegaOutputLastFrameUrl(task) || record.lastFrameUrl || "") : record.lastFrameUrl || "";
+  const vegaUsage = vegaOutputUsage(task);
   const failed = isFailedStatus(status) || (succeeded && !remoteVideoUrl);
   let media = {};
   let downloadError = "";

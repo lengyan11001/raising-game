@@ -32,9 +32,12 @@ function assertCode(fn, code) {
 
 test("Vega provider identities are exact and preserve the provider id", () => {
   const expected = [
-    ["seedance20-vega", "Seedance 2.0（Vega）", "wand-vega-video", "1.0-pro"],
-    ["seedance25-vega", "Seedance 2.5（Vega）", "wand-vega-video", "1.5-pro"],
-    ["h3-vega", "H3（Vega）", "wand-vega-video", "1.5-lite"],
+    ["seedance20-vega", "Vega 1.0 Pro", "wand-vega-video", "1.0-pro"],
+    ["seedance20-fast-vega", "Vega 1.0 Pro Fast", "wand-vega-video", "1.0-pro-fast"],
+    ["seedance20-mini-vega", "Vega 1.0 Pro Mini", "wand-vega-video", "1.0-pro-mini"],
+    ["seedance25-vega", "Vega 1.5 Pro", "wand-vega-video", "1.5-pro"],
+    ["seedance20-lite-vega", "Vega 1.0 Lite", "wand-vega-video", "1.0-lite"],
+    ["h3-vega", "Vega 1.5 Lite", "wand-vega-video", "1.5-lite"],
   ];
   for (const [id, label, modelName, modelVersion] of expected) {
     assert.deepEqual(vega.vegaProviderDefinition(id), { id, label, modelName, modelVersion });
@@ -49,39 +52,59 @@ test("Vega provider identities are exact and preserve the provider id", () => {
 
 test("Vega duration validates boundaries, defaults, and integer seconds", () => {
   assert.equal(vega.normalizeVegaDuration("seedance20-vega"), 5);
-  assert.equal(vega.normalizeVegaDuration("seedance25-vega", 1), 1);
+  assert.equal(vega.normalizeVegaDuration("seedance25-vega", 4), 4);
+  assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1), -1);
   assert.equal(vega.normalizeVegaDuration("h3-vega"), 6);
   assert.equal(vega.normalizeVegaDuration("h3-vega", 15), 15);
+  assert.equal(vega.normalizeVegaDuration("h3-vega", -1), -1);
   assertCode(() => vega.normalizeVegaDuration("h3-vega", 0), "INVALID_DURATION");
-  assertCode(() => vega.normalizeVegaDuration("h3-vega", 16), "INVALID_DURATION");
+  assertCode(() => vega.normalizeVegaDuration("h3-vega", 31), "INVALID_DURATION");
   assertCode(() => vega.normalizeVegaDuration("h3-vega", 2.5), "INVALID_DURATION");
+  assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1, { taskType: "edit" }), -1);
+  assertCode(() => vega.normalizeVegaDuration("seedance25-vega", 8, { taskType: "edit" }), "INVALID_DURATION");
+  assert.equal(vega.normalizeVegaDuration("seedance25-vega", 8, { taskType: "extend" }), 8);
 });
 
 test("Vega resolution and ratio accept only documented values", () => {
-  for (const value of ["768P", "1080P", "2K", "4K", "2k", "4k"]) assert.equal(vega.normalizeVegaResolution(value), value.toUpperCase());
-  assertCode(() => vega.normalizeVegaResolution("720P"), "INVALID_RESOLUTION");
+  for (const value of ["480P", "720P", "768P", "1080P", "2K", "4K", "2k", "4k"]) assert.equal(vega.normalizeVegaResolution(value), value.toUpperCase());
+  assertCode(() => vega.normalizeVegaResolution("720P", "seedance20-lite-vega"), "INVALID_RESOLUTION");
   for (const value of ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]) assert.equal(vega.normalizeVegaRatio(value), value);
-  assertCode(() => vega.normalizeVegaRatio("adaptive"), "INVALID_RATIO");
+  assert.equal(vega.normalizeVegaRatio("adaptive"), "adaptive");
+  assert.equal(vega.normalizeVegaRatio("adaptive", "seedance25-vega", { taskType: "edit" }), "adaptive");
+  assert.equal(vega.normalizeVegaRatio("adaptive", "seedance25-vega", { taskType: "extend" }), "adaptive");
+  assertCode(() => vega.normalizeVegaRatio("16:9", "seedance25-vega", { taskType: "edit" }), "INVALID_RATIO");
+  assertCode(() => vega.normalizeVegaRatio("16:9", "seedance25-vega", { taskType: "extend" }), "INVALID_RATIO");
 });
 
 test("Vega FileInfos use Usage and never ReferenceType", () => {
-  const files = vega.buildVegaFileInfos({
+  const frameFiles = vega.buildVegaFileInfos({
+    provider: "seedance20-vega",
+    mediaMode: "first_last_frame",
     firstFrameUrl: "https://cdn.example.com/first.png",
     lastFrameUrl: "https://cdn.example.com/last.png",
+  });
+  assert.deepEqual(frameFiles.map((item) => item.Usage), ["FirstFrame", "LastFrame"]);
+  assert.deepEqual(frameFiles.map((item) => item.Category), ["Image", "Image"]);
+  const referenceFiles = vega.buildVegaFileInfos({
+    provider: "seedance20-vega",
+    mediaMode: "reference_video",
     referenceImages: ["https://cdn.example.com/ref.png"],
     referenceVideos: ["https://cdn.example.com/ref.mp4"],
     referenceAudios: ["https://cdn.example.com/ref.mp3"],
   });
-  assert.deepEqual(files.map((item) => item.Usage), ["FirstFrame", "LastFrame", "Reference", "Reference", "Reference"]);
-  assert.deepEqual(files.map((item) => item.Category), ["Image", "Image", "Image", "Video", "Audio"]);
-  assert.ok(files.every((item) => item.Type === "Url" && !Object.prototype.hasOwnProperty.call(item, "ReferenceType")));
+  assert.deepEqual(referenceFiles.map((item) => item.Usage), ["Reference", "Reference", "Reference"]);
+  assert.deepEqual(referenceFiles.map((item) => item.Category), ["Image", "Video", "Audio"]);
+  assert.ok([...frameFiles, ...referenceFiles].every((item) => item.Type === "Url" && !Object.prototype.hasOwnProperty.call(item, "ReferenceType")));
   const payload = vega.buildVegaCreatePayload({
     provider: "seedance20-vega",
     prompt: "test",
+    mediaMode: "first_last_frame",
     firstFrameUrl: "https://cdn.example.com/first.png",
     lastFrameUrl: "https://cdn.example.com/last.png",
   }, { subAppId: 123 });
-  assert.equal(payload.EnhancePromptMode, "disable");
+  const extInfo = JSON.parse(payload.ExtInfo);
+  const wandParameters = JSON.parse(extInfo.WandVegaParameters);
+  assert.equal(wandParameters.EnhancePromptMode, "disable");
   assert.ok(payload.FileInfos.every((item) => !Object.prototype.hasOwnProperty.call(item, "ReferenceType")));
 });
 
@@ -113,10 +136,17 @@ test("Vega media URL validation rejects local/private/credential URLs and preser
   for (const value of invalid) assertCode(() => vega.publicVegaUrl(value), "INVALID_MEDIA_URL");
 });
 
-test("Vega last frame requires a first frame", () => {
+test("Vega frame modes are mutually exclusive and complete", () => {
+  assert.doesNotThrow(() => vega.buildVegaCreatePayload({
+    provider: "h3-vega",
+    prompt: "test",
+    mediaMode: "last_frame",
+    lastFrameUrl: "https://cdn.example.com/last.png",
+  }, { subAppId: 1 }));
   assertCode(() => vega.buildVegaCreatePayload({
     provider: "h3-vega",
     prompt: "test",
+    mediaMode: "first_last_frame",
     lastFrameUrl: "https://cdn.example.com/last.png",
   }, { subAppId: 1 }), "INVALID_MEDIA_COMBINATION");
 });
@@ -166,42 +196,64 @@ test("Vega create failure and polling failure paths refund without double chargi
 test("Vega regeneration preserves exact provider and public media URLs", () => {
   const regenerate = sourceBetween(server, "function advancedRegenerateBody(record = {})", "async function handleRegenerateGenerationRecord(");
   assert.match(regenerate, /const provider = normalizeAdvancedProvider\(record\.provider \|\| params\.provider\)/);
-  assert.match(regenerate, /body\.firstFrameUrl = firstFrameUrl/);
-  assert.match(regenerate, /body\.lastFrameUrl = lastFrameUrl/);
-  assert.match(regenerate, /body\.referenceImages = referenceImages\.map\(\(url\) => \(\{ url \}\)\)/);
-  assert.match(regenerate, /body\.referenceVideos = referenceVideos\.map\(\(url\) => \(\{ url \}\)\)/);
-  assert.match(regenerate, /body\.referenceAudios = referenceAudios\.map\(\(url\) => \(\{ url \}\)\)/);
+  assert.match(regenerate, /if \(regeneratedMedia\.firstFrameUrl\) body\.firstFrameUrl = regeneratedMedia\.firstFrameUrl/);
+  assert.match(regenerate, /if \(regeneratedMedia\.lastFrameUrl\) body\.lastFrameUrl = regeneratedMedia\.lastFrameUrl/);
+  assert.match(regenerate, /body\.referenceImages = regeneratedMedia\.referenceImages\.map\(\(url\) => \(\{ url \}\)\)/);
+  assert.match(regenerate, /body\.referenceVideos = regeneratedMedia\.referenceVideos\.map\(\(url\) => \(\{ url \}\)\)/);
+  assert.match(regenerate, /body\.referenceAudios = regeneratedMedia\.referenceAudios\.map\(\(url\) => \(\{ url \}\)\)/);
+  for (const field of ["taskType", "draft", "draftTaskId", "assetGroupId", "generateAudio", "returnLastFrame", "returnVegaUsage", "enhancePromptMode", "moderationMode", "generateMode", "videoQualityMode", "outputFormat"]) {
+    assert.match(regenerate, new RegExp(`body\\.${field}\\s*=`));
+  }
   assert.doesNotMatch(regenerate, /reference_type|ReferenceType/);
 });
 
 test("Vega UI options are appended after existing video models with exact labels", () => {
   const videoGroup = html.match(/<optgroup label="Video">([\s\S]*?)<\/optgroup>/)?.[1] || "";
   const options = [...videoGroup.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)].map((match) => [match[1], match[2]]);
-  assert.deepEqual(options.slice(-3), [
-    ["seedance20-vega", "Seedance 2.0（Vega）"],
-    ["seedance25-vega", "Seedance 2.5（Vega）"],
-    ["h3-vega", "H3（Vega）"],
+  assert.deepEqual(options.slice(-6), [
+    ["seedance20-vega", "Vega 1.0 Pro"],
+    ["seedance20-fast-vega", "Vega 1.0 Pro Fast"],
+    ["seedance20-mini-vega", "Vega 1.0 Pro Mini"],
+    ["seedance25-vega", "Vega 1.5 Pro"],
+    ["seedance20-lite-vega", "Vega 1.0 Lite"],
+    ["h3-vega", "Vega 1.5 Lite"],
   ]);
   assert.deepEqual(options.slice(0, 6).map(([id]) => id), ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance"]);
-  assert.match(ui, /if \(normalized === "seedance20-vega"\) return "Seedance 2\.0（Vega）"/);
-  assert.match(ui, /if \(normalized === "seedance25-vega"\) return "Seedance 2\.5（Vega）"/);
-  assert.match(ui, /if \(normalized === "h3-vega"\) return "H3（Vega）"/);
+  assert.match(ui, /if \(VEGA_MODEL_LABELS\[normalized\]\) return VEGA_MODEL_LABELS\[normalized\]/);
+  for (const [id, label] of [
+    ["seedance20-vega", "Vega 1\.0 Pro"],
+    ["seedance20-fast-vega", "Vega 1\.0 Pro Fast"],
+    ["seedance20-mini-vega", "Vega 1\.0 Pro Mini"],
+    ["seedance25-vega", "Vega 1\.5 Pro"],
+    ["seedance20-lite-vega", "Vega 1\.0 Lite"],
+    ["h3-vega", "Vega 1\.5 Lite"],
+  ]) assert.match(config, new RegExp(`"${id}": "${label}"`));
 });
 
-test("Vega UI exposes only the documented resolution, ratio, and duration controls", () => {
-  assert.match(ui, /\["seedance20-vega", "seedance25-vega", "h3-vega"\]\.includes\(normalizeAdvancedProvider\(provider\)\)\) return \["768P", "1080P", "2K", "4K"\]/);
-  assert.match(ui, /return \{ min: 1, max: 15, fallback: normalized === "h3-vega" \? 6 : 5 \}/);
-  assert.match(ui, /normalized === "h3-vega" \? 6 : 5/);
-  assert.match(create, /vegaProvider[\s\S]*\["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"\]/);
+test("Vega UI exposes the full capability matrix and duration controls", () => {
+  for (const id of ["seedance20-vega", "seedance20-fast-vega", "seedance20-mini-vega", "seedance25-vega", "seedance20-lite-vega", "h3-vega"]) {
+    assert.match(config, new RegExp(`"${id}"`));
+  }
+  assert.match(config, /VEGA_ALL_RESOLUTIONS = Object\.freeze\(\["480P", "720P", "768P", "1080P", "2K", "4K"\]\)/);
+  assert.match(config, /VEGA_ALL_RATIOS = Object\.freeze\(\["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"\]\)/);
+  assert.match(config, /"seedance25-vega": Object\.freeze\(\{ min: 4, max: 30, fallback: 5, smart: true \}\)/);
+  assert.match(config, /"h3-vega": Object\.freeze\(\{ min: 2, max: 30, fallback: 6, smart: true \}\)/);
   assert.match(ui, /advancedPricingUnavailableLabel/);
   assert.match(ui, /MODEL_PRICING_UNAVAILABLE/);
 });
 
 test("Vega submit payload includes every required field", () => {
   const branch = sourceBetween(create, "const vegaPayload = {", "const vegaPendingTaskId =");
-  for (const field of ["provider", "prompt", "duration", "resolution", "ratio", "seed", "firstFrameUrl", "lastFrameUrl", "referenceImages", "referenceVideos", "referenceAudios"]) {
+  for (const field of ["provider", "duration", "resolution", "ratio", "seed", "mediaMode", "firstFrameUrl", "lastFrameUrl", "referenceImages", "referenceVideos", "referenceAudios"]) {
     assert.match(branch, new RegExp(`\\b${field}\\b(?=\\s*[:,])`));
   }
+  assert.match(branch, /\.\.\.\(vegaDraftFollowup \? \{\} : \{ prompt \}\)/);
+  assert.match(branch, /\.\.\.vegaOptions/);
+  const options = sourceBetween(create, "function advancedVegaPayloadOptions(", "function advancedVegaUploadConfig(");
+  for (const field of ["taskType", "draft", "draftTaskId", "assetGroupId", "generateAudio", "returnLastFrame", "returnVegaUsage", "enhancePromptMode", "moderationMode", "generateMode", "videoQualityMode", "outputFormat"]) {
+    assert.match(options, new RegExp(`\\b${field}\\b(?=\\s*[:,])`));
+  }
+  assert.match(branch, /duration: vegaDraftFollowup \|\| \["edit", "extend"\]\.includes\(vegaTaskType\) \? -1 : vegaDuration/);
   assert.match(create, /requestJson\("\/api\/advanced\/generate", \{ method: "POST", body: vegaPayload \}\)/);
 });
 
@@ -214,14 +266,21 @@ test("Vega local uploads use the dedicated public-URL upload path", () => {
   assert.match(create, /hostname === "localhost"[\s\S]*endsWith\("\.local"\)/);
 });
 
-test("Vega public API docs expose exact models and the required media contract", () => {
-  assert.match(server, /seedance20-vega", label: "Seedance 2\.0（Vega）", modelName: "wand-vega-video", modelVersion: "1\.0-pro"/);
-  assert.match(server, /seedance25-vega", label: "Seedance 2\.5（Vega）", modelName: "wand-vega-video", modelVersion: "1\.5-pro"/);
-  assert.match(server, /h3-vega", label: "H3（Vega）", modelName: "wand-vega-video", modelVersion: "1\.5-lite"/);
+test("Vega public API docs expose all six exact models and the full media contract", () => {
+  for (const [id, label, version] of [
+    ["seedance20-vega", "Vega 1\\.0 Pro", "1\\.0-pro"],
+    ["seedance20-fast-vega", "Vega 1\\.0 Pro Fast", "1\\.0-pro-fast"],
+    ["seedance20-mini-vega", "Vega 1\\.0 Pro Mini", "1\\.0-pro-mini"],
+    ["seedance25-vega", "Vega 1\\.5 Pro", "1\\.5-pro"],
+    ["seedance20-lite-vega", "Vega 1\\.0 Lite", "1\\.0-lite"],
+    ["h3-vega", "Vega 1\\.5 Lite", "1\\.5-lite"],
+  ]) {
+    assert.match(server, new RegExp(`${id}"[\\s\\S]{0,120}label: "${label}"[\\s\\S]{0,120}modelVersion: "${version}"`));
+  }
   assert.match(server, /Media: public HTTP\(S\) URLs only\. FileInfos use .*Usage/);
   assert.match(server, /Asset IDs and data URLs are rejected/);
   assert.match(server, /Vega pricing is not configured/);
-  assert.match(server, /Duration: 1-15|durationSeconds: \{ integer: true, min: 1, max: 15/);
+  assert.match(server, /durationSeconds: \{ integer: true, min: 2, max: 30, smart: -1/);
 });
 
 test("Vega dispatch is after prompt initialization to prevent a TDZ regression", () => {
@@ -284,10 +343,13 @@ test("Vega upload inputs use target-specific accept and multiple settings", () =
 
 test("Vega asset targets and Add stay enabled in legacy video modes", () => {
   const allowance = sourceBetween(config, "function advancedCreateModeAllowsManualReferenceUpload(", "function currentAdvancedSeedanceUploadMode");
-  assert.match(allowance, /seedance20-vega", "seedance25-vega", "h3-vega"\]\.includes\(normalizedProvider\)\) return true/);
+  assert.match(allowance, /if \(isVegaProviderId\(normalizedProvider\)\) return true;/);
   assert.match(create, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*resolveAdvancedVegaAsset\(asset, target\.id\)/);
   const targets = sourceBetween(create, "function advancedAssetTargetItems()", "function activeAdvancedAssetTarget()");
   for (const target of ["primary", "lastFrame", "referenceImages", "video", "audio"]) assert.match(targets, new RegExp(`id: "${target}"`));
+  assert.match(targets, /vegaModeNeedsFirstFrame\(vegaMode\)/);
+  assert.match(targets, /vegaModeNeedsLastFrame\(vegaMode\)/);
+  assert.match(targets, /vegaModeUsesReferences\(vegaMode\)/);
   assert.match(create, /const canAddAssetToGeneration = advancedCreateModeAllowsManualReferenceUpload\(\) && Boolean\(activeAdvancedAssetTarget\(\)\)/);
 });
 
@@ -356,7 +418,7 @@ test("Vega model refresh preserves selected provider and model settings", () => 
 test("Vega dedicated frame and shared upload paths preserve the selected target", () => {
   assert.match(main, /advancedSeedanceFirstFrame[\s\S]*isVegaAdvancedProvider\(\)[\s\S]*state\.advancedAssetTarget = "primary"[\s\S]*handleAdvancedVegaLocalFiles/);
   assert.match(main, /advancedSeedanceLastFrame[\s\S]*isVegaAdvancedProvider\(\)[\s\S]*state\.advancedAssetTarget = "lastFrame"[\s\S]*handleAdvancedVegaLocalFiles/);
-  assert.match(create, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*const target = state\.advancedAssetTarget;[\s\S]*state\.advancedAssetTarget = \["primary", "lastFrame", "referenceImages"\]\.includes\(target\)/);
+  assert.match(create, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*const targets = advancedAssetTargetItems\(\);[\s\S]*targets\.some\(\(item\) => item\.id === target\)/);
   const upload = sourceBetween(create, "async function uploadAdvancedMediaReference(", "function addAdvancedSeedanceMediaReference(");
   assert.match(upload, /advancedVideoInputDurationMessage\(durationSeconds, provider, currentAdvancedVideoCapability\(\)\)/);
   assert.match(upload, /addAdvancedPendingReference\(kind, file, \{ provider \}\)/);

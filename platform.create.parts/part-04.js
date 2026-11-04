@@ -336,8 +336,6 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
   if (isVegaAdvancedProvider(provider)) {
     const media = restoreVegaRecordMedia(record, params);
-    const hasFrames = Boolean(media.firstFrameUrl || media.lastFrameUrl);
-    const hasReferences = Boolean(media.referenceImages.length || media.referenceVideos.length || media.referenceAudios.length);
     const explicitMediaMode = firstPresent(
       record.mediaMode,
       params.mediaMode,
@@ -345,33 +343,57 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
       params.functionMode,
       "",
     );
-    const vegaMediaMode = normalizeSeedanceMediaMode(explicitMediaMode || (hasFrames && !hasReferences ? "first_last_frame" : "reference_video"));
-    const vegaRatio = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"].includes(String(record.ratio || params.ratio || params.aspect_ratio || "").trim())
-      ? String(record.ratio || params.ratio || params.aspect_ratio).trim()
-      : "16:9";
+    const inferredMediaMode = media.firstFrameUrl && media.lastFrameUrl
+      ? "first_last_frame"
+      : media.firstFrameUrl
+      ? "first_frame"
+      : media.lastFrameUrl
+      ? "last_frame"
+      : (media.referenceImages.length || media.referenceVideos.length || media.referenceAudios.length)
+      ? "reference_video"
+      : "text_to_video";
+    const vegaMediaMode = normalizeVegaUiMediaMode(explicitMediaMode || inferredMediaMode);
+    const rawVegaRatio = String(record.ratio || params.ratio || params.aspect_ratio || "16:9").trim();
+    const vegaRatio = VEGA_ALL_RATIOS.includes(rawVegaRatio) ? rawVegaRatio : "16:9";
     const vegaDurationBounds = advancedDurationBounds(provider);
-    const rawVegaDuration = Number(record.duration || params.duration || params.durationSeconds || vegaDurationBounds.fallback);
-    const vegaDuration = String(Math.min(vegaDurationBounds.max, Math.max(vegaDurationBounds.min, Number.isFinite(rawVegaDuration) ? rawVegaDuration : vegaDurationBounds.fallback)));
+    const rawVegaDuration = Number(record.duration ?? params.duration ?? params.durationSeconds ?? vegaDurationBounds.fallback);
+    const vegaDuration = rawVegaDuration === -1 && vegaDurationBounds.smart
+      ? "-1"
+      : String(Number.isFinite(rawVegaDuration)
+        ? Math.min(vegaDurationBounds.max, Math.max(vegaDurationBounds.min, rawVegaDuration))
+        : vegaDurationBounds.fallback);
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = vegaMediaMode;
     if (els.advancedRatio) els.advancedRatio.value = vegaRatio;
     if (els.advancedResolution) els.advancedResolution.value = normalizeAdvancedResolution(record.resolution || params.resolution, provider);
     if (els.advancedDuration) els.advancedDuration.value = vegaDuration;
     if (els.advancedWanSeed) els.advancedWanSeed.value = record.seed ?? params.seed ?? params.parameters?.seed ?? "";
+    if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto";
+    if (els.advancedVegaDraft) els.advancedVegaDraft.checked = advancedBoolFromValue(params.draft ?? record.draft, false);
+    if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = firstPresent(params.draftTaskId, params.draft_task_id, record.draftTaskId, "") || "";
+    if (els.advancedVegaAssetGroupId) els.advancedVegaAssetGroupId.value = firstPresent(params.assetGroupId, params.asset_group_id, "") || "";
+    if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = advancedBoolFromValue(firstPresent(params.returnLastFrame, params.return_last_frame), false);
+    if (els.advancedVegaReturnUsage) els.advancedVegaReturnUsage.checked = advancedBoolFromValue(firstPresent(params.returnVegaUsage, params.return_vega_usage), false);
+    if (els.advancedVegaEnhancePromptMode) els.advancedVegaEnhancePromptMode.value = String(firstPresent(params.enhancePromptMode, params.enhance_prompt_mode, "auto") || "auto");
+    if (els.advancedVegaModerationMode) els.advancedVegaModerationMode.value = String(firstPresent(params.moderationMode, params.moderation_mode, "Moderation_L1") || "Moderation_L1");
+    if (els.advancedVegaGenerateMode) els.advancedVegaGenerateMode.value = String(firstPresent(params.generateMode, params.generate_mode, "Standard") || "Standard");
+    if (els.advancedVegaQualityMode) els.advancedVegaQualityMode.value = String(firstPresent(params.videoQualityMode, params.video_quality_mode, "Standard") || "Standard");
+    if (els.advancedVegaOutputFormat) els.advancedVegaOutputFormat.value = String(firstPresent(params.outputFormat, params.output_format, "mp4") || "mp4");
     state.advancedFirstFrameAssetId = "";
-    if (vegaMediaMode === "first_last_frame") {
-      state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    state.advancedSeedanceLastFrameAssetId = "";
+    state.advancedSeedanceLastFrameDataUrl = "";
+    state.advancedReferenceImages = [];
+    setAdvancedSeedanceVideoReferences([]);
+    setAdvancedSeedanceAudioReferences([]);
+    state.advancedUploadDataUrl = "";
+    if (vegaMediaMode === "first_frame" || vegaMediaMode === "first_last_frame") {
       state.advancedSeedanceFirstFrameDataUrl = media.firstFrameUrl;
-      state.advancedSeedanceLastFrameAssetId = "";
+    }
+    if (vegaMediaMode === "last_frame" || vegaMediaMode === "first_last_frame") {
       state.advancedSeedanceLastFrameDataUrl = media.lastFrameUrl;
-      state.advancedReferenceImages = [];
-      setAdvancedSeedanceVideoReferences([]);
-      setAdvancedSeedanceAudioReferences([]);
-      state.advancedUploadDataUrl = media.firstFrameUrl;
-    } else {
-      state.advancedSeedanceFirstFrameAssetId = "";
-      state.advancedSeedanceFirstFrameDataUrl = "";
-      state.advancedSeedanceLastFrameAssetId = "";
-      state.advancedSeedanceLastFrameDataUrl = "";
+    }
+    if (vegaMediaMode === "reference_video") {
       state.advancedReferenceImages = media.referenceImages.map((url, index) => stampAdvancedReferenceOrder({
         assetId: "",
         dataUrl: url,
@@ -396,7 +418,11 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
         fileName: `audio-${index + 1}`,
       })));
     }
-    state.advancedAssetTarget = vegaMediaMode === "first_last_frame" ? "primary" : "referenceImages";
+    state.advancedAssetTarget = vegaModeNeedsFirstFrame(vegaMediaMode)
+      ? "primary"
+      : vegaModeNeedsLastFrame(vegaMediaMode)
+      ? "lastFrame"
+      : "referenceImages";
     renderAdvancedPresetBuilder();
     renderAdvancedReferencePreviews();
     updateAdvancedModelControls();
@@ -1020,7 +1046,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   if (normalizedProvider === "wan30") return images.slice(0, ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT);
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return images.slice(0, advancedAliyunReferenceImageLimit());
   if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) return images.slice(0, ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT);
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) return images;
+  if (isVegaProviderId(normalizedProvider)) return images.slice(0, vegaReferenceLimits(normalizedProvider).images);
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
   return images;
 }

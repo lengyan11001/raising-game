@@ -1002,14 +1002,25 @@ els.advancedDuration?.addEventListener("change", handleAdvancedDurationSelection
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   const provider = currentAdvancedProvider();
-  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider)) {
+  if (isVegaProviderId(provider)) {
     syncAdvancedSeedanceModeOptions(provider);
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "text_to_video";
     if (els.advancedRatio) els.advancedRatio.value = "16:9";
     if (els.advancedResolution) els.advancedResolution.value = "768P";
     if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : "5";
     if (els.advancedWanSeed) els.advancedWanSeed.value = "";
-    state.advancedAssetTarget = "referenceImages";
+    if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = "auto";
+    if (els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
+    if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = "";
+    if (els.advancedVegaAssetGroupId) els.advancedVegaAssetGroupId.value = "";
+    if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = false;
+    if (els.advancedVegaReturnUsage) els.advancedVegaReturnUsage.checked = false;
+    if (els.advancedVegaGenerateMode) els.advancedVegaGenerateMode.value = "Standard";
+    if (els.advancedVegaQualityMode) els.advancedVegaQualityMode.value = "Standard";
+    if (els.advancedVegaOutputFormat) els.advancedVegaOutputFormat.value = "mp4";
+    if (els.advancedVegaEnhancePromptMode) els.advancedVegaEnhancePromptMode.value = "auto";
+    if (els.advancedVegaModerationMode) els.advancedVegaModerationMode.value = "Moderation_L1";
+    state.advancedAssetTarget = "primary";
   }
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());
@@ -1072,15 +1083,59 @@ els.advancedLegacyWanModel?.addEventListener("change", () => {
 });
 els.advancedWanAnimateMode?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedSeedanceMediaMode?.addEventListener("change", () => {
-  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
   const provider = currentAdvancedProvider();
-  if (["seedance25", "seedance-nsfw"].includes(provider)) {
-    const previousPromptRefs = advancedPromptMentionSnapshot();
-    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+  const vega = isVegaAdvancedProvider(provider);
+  const mode = vega
+    ? normalizeVegaUiMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video")
+    : normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
+  const previousPromptRefs = advancedPromptMentionSnapshot();
+  if (vega) {
+    if (!vegaModeUsesReferences(mode)) {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences([]);
       setAdvancedSeedanceAudioReferences([]);
-    } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)) {
+      state.advancedUploadDataUrl = "";
+    }
+    if (!vegaModeNeedsFirstFrame(mode)) {
+      state.advancedSeedanceFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameDataUrl = "";
+      state.advancedFirstFrameAssetId = "";
+    }
+    if (!vegaModeNeedsLastFrame(mode)) {
+      state.advancedSeedanceLastFrameAssetId = "";
+      state.advancedSeedanceLastFrameDataUrl = "";
+    }
+    if (mode === "draft_followup") {
+      if (els.advancedPrompt) els.advancedPrompt.value = "";
+      state.advancedReferenceImages = [];
+      setAdvancedSeedanceVideoReferences([]);
+      setAdvancedSeedanceAudioReferences([]);
+      state.advancedUploadDataUrl = "";
+      state.advancedSeedanceFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameDataUrl = "";
+      state.advancedSeedanceLastFrameAssetId = "";
+      state.advancedSeedanceLastFrameDataUrl = "";
+      if (els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
+      if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = "auto";
+      if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = "";
+      if (els.advancedResolution) els.advancedResolution.value = "480P";
+    }
+    if (els.advancedImage) els.advancedImage.value = "";
+    if (els.advancedSeedanceFirstFrame) els.advancedSeedanceFirstFrame.value = "";
+    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+    state.advancedAssetTarget = mode === "last_frame"
+      ? "lastFrame"
+      : mode === "first_frame" || mode === "first_last_frame"
+      ? "primary"
+      : mode === "reference_video"
+      ? "referenceImages"
+      : "primary";
+  } else if (["seedance25", "seedance-nsfw"].includes(provider)) {
+    if (seedanceModeNeedsFirstFrame(mode)) {
+      state.advancedReferenceImages = [];
+      setAdvancedSeedanceVideoReferences([]);
+      setAdvancedSeedanceAudioReferences([]);
+    } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)) {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences(advancedSeedanceVideoReferences().slice(0, 1));
       setAdvancedSeedanceAudioReferences([]);
@@ -1094,40 +1149,37 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       state.advancedSeedanceLastFrameAssetId = "";
       state.advancedSeedanceLastFrameDataUrl = "";
     }
-    syncAdvancedPromptMentionLabels(previousPromptRefs);
     if (els.advancedRatio) {
       els.advancedRatio.value = provider === "seedance25"
         ? "16:9"
-        : seedanceMode === "omini" ? "1:1" : "adaptive";
+        : mode === "omini" ? "1:1" : "adaptive";
     }
+    state.advancedAssetTarget = seedanceModeNeedsFirstFrame(mode)
+      ? "primary"
+      : provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)
+      ? "video"
+      : "referenceImages";
   }
-  if (isVegaAdvancedProvider(provider)) {
-    const previousPromptRefs = advancedPromptMentionSnapshot();
-    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
-      state.advancedReferenceImages = [];
-      setAdvancedSeedanceVideoReferences([]);
-      setAdvancedSeedanceAudioReferences([]);
-      state.advancedUploadDataUrl = "";
-    } else {
-      state.advancedSeedanceFirstFrameAssetId = "";
-      state.advancedSeedanceFirstFrameDataUrl = "";
-      state.advancedSeedanceLastFrameAssetId = "";
-      state.advancedSeedanceLastFrameDataUrl = "";
-      state.advancedFirstFrameAssetId = "";
-      state.advancedUploadDataUrl = state.advancedReferenceImages?.[0]?.dataUrl || state.advancedReferenceImages?.[0]?.url || "";
-    }
-    if (els.advancedImage) els.advancedImage.value = "";
-    if (els.advancedSeedanceFirstFrame) els.advancedSeedanceFirstFrame.value = "";
-    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
-    syncAdvancedPromptMentionLabels(previousPromptRefs);
-  }
-  state.advancedAssetTarget = seedanceModeNeedsFirstFrame(seedanceMode)
-    ? "primary"
-    : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
-    ? "video"
-    : "referenceImages";
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
+});
+[els.advancedVegaTaskType, els.advancedVegaGenerateMode, els.advancedVegaQualityMode, els.advancedVegaOutputFormat,
+  els.advancedVegaEnhancePromptMode, els.advancedVegaModerationMode, els.advancedVegaDraft,
+  els.advancedVegaDraftTaskId, els.advancedVegaAssetGroupId, els.advancedVegaReturnLastFrame,
+  els.advancedVegaReturnUsage].forEach((control) => {
+  control?.addEventListener(control.type === "checkbox" || control.tagName === "SELECT" ? "change" : "input", () => {
+    if (control === els.advancedVegaTaskType && ["edit", "extend"].includes(String(control.value || ""))) {
+      if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      if (els.advancedRatio) els.advancedRatio.value = "adaptive";
+      state.advancedAssetTarget = "referenceImages";
+    }
+    if (control === els.advancedVegaDraft && control.checked && els.advancedResolution) {
+      els.advancedResolution.value = "480P";
+    }
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+  });
 });
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", () => {
@@ -1156,7 +1208,7 @@ els.advancedUploadBox?.addEventListener("click", () => {
     ? (advancedAssetTargetItems().find((target) => target.type === "image")?.id || advancedAssetTargetItems()[0]?.id || "primary")
     : "";
   const vegaTargets = advancedAssetTargetItems();
-  setAdvancedAssetTarget(["seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider)
+  setAdvancedAssetTarget(isVegaProviderId(provider)
     ? (vegaTargets.some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : (vegaTargets[0]?.id || "referenceImages"))
     : provider === "wan27-image-edit"
     ? "sourceImages"

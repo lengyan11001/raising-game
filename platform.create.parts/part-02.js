@@ -612,7 +612,7 @@ function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCust
   const provider = String(value || "").trim().toLowerCase();
   if (kind === "image") return ["wan27-image-edit", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
   if (kind === "conversation") return ["byteplus-language", "papaya", "qwen37-flash"].includes(provider);
-  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance25", "seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider);
+  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance25"].includes(provider) || isVegaProviderId(provider);
 }
 
 function syncAdvancedProviderExposure() {
@@ -678,6 +678,15 @@ function updateAdvancedModelControls() {
   const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const vegaProvider = isVegaAdvancedProvider(provider);
+  const vegaMode = vegaProvider ? normalizeVegaUiMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video") : "";
+  const vegaCaps = vegaProvider ? vegaCapabilities(provider) : null;
+  const vegaDraftFollowup = vegaProvider && vegaMode === "draft_followup";
+  const vegaUsesFirstFrame = vegaProvider && vegaModeNeedsFirstFrame(vegaMode);
+  const vegaUsesLastFrame = vegaProvider && vegaModeNeedsLastFrame(vegaMode);
+  const vegaUsesReferences = vegaProvider && vegaModeUsesReferences(vegaMode);
+  const vegaTaskType = vegaProvider ? advancedVegaCurrentTaskType(provider) : "";
+  const vegaEditLikeTask = vegaProvider && ["edit", "extend"].includes(vegaTaskType);
   const allowManualReferenceUpload = advancedCreateModeAllowsManualReferenceUpload();
   const bounds = advancedDurationBounds(provider, capability);
   const isImageEdit = isAdvancedImageProvider(provider);
@@ -701,15 +710,16 @@ function updateAdvancedModelControls() {
       ? 29
       : bounds.max;
     const rawDuration = Number(els.advancedDuration.value || bounds.fallback);
+    const smartDuration = provider === "wan30" || (vegaProvider && bounds.smart);
     const selectedDuration = isImageEdit || isStandaloneImage || isQwenText
       ? "1"
-      : provider === "wan30" && rawDuration === -1
+      : smartDuration && rawDuration === -1
         ? "-1"
-        : String(Math.min(durationMax, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.fallback)));
+        : String(Math.min(durationMax, Math.max(bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.fallback)));
     const durationValues = isImageEdit || isStandaloneImage || isQwenText
       ? [1]
-      : provider === "wan30"
-        ? [-1, ...Array.from({ length: 29 }, (_, index) => index + 2)]
+      : smartDuration
+        ? [-1, ...Array.from({ length: durationMax - bounds.min + 1 }, (_, index) => bounds.min + index)]
         : Array.from({ length: durationMax - bounds.min + 1 }, (_, index) => bounds.min + index);
     els.advancedDuration.innerHTML = durationValues
       .map((value) => `<option value="${value}"${String(value) === selectedDuration ? " selected" : ""}>${value === -1 ? "Auto" : `${value}s`}</option>`)
@@ -750,12 +760,32 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-qwen37-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenText;
   });
+  if (vegaProvider && els.advancedVegaTaskType) {
+    const allowedTaskTypes = vegaCaps?.taskTypes || ["auto", "reference"];
+    Array.from(els.advancedVegaTaskType.options).forEach((option) => {
+      option.hidden = !allowedTaskTypes.includes(option.value);
+      option.disabled = !allowedTaskTypes.includes(option.value);
+    });
+    if (!allowedTaskTypes.includes(els.advancedVegaTaskType.value)) els.advancedVegaTaskType.value = "auto";
+  }
+  document.querySelectorAll(".advanced-vega-option").forEach((item) => {
+    item.hidden = !vegaProvider;
+  });
+  const vegaDraftOption = els.advancedVegaDraft?.closest(".advanced-vega-option");
+  if (vegaDraftOption) vegaDraftOption.hidden = !vegaProvider || !vegaCaps?.draft;
+  if (!vegaCaps?.draft && els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
+  const vegaDraftTaskOption = els.advancedVegaDraftTaskId?.closest(".advanced-vega-option");
+  if (vegaDraftTaskOption) vegaDraftTaskOption.hidden = !vegaProvider || !vegaCaps?.draft || !vegaDraftFollowup;
+  if (!vegaDraftFollowup && els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = "";
+  if (vegaProvider && els.advancedSeedanceMediaMode) {
+    els.advancedSeedanceMediaMode.closest(".field")?.removeAttribute("hidden");
+  }
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
     const seedanceNsfwReferenceMode = provider === "seedance-nsfw" && seedanceMode === "omini";
     const vegaProvider = isVegaAdvancedProvider(provider);
     const videoRatios = vegaProvider
-      ? ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      ? [...(vegaCaps?.ratios || VEGA_ALL_RATIOS)]
       : provider === "seedance25"
       ? ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : provider === "wan30" || provider === "seedance-nsfw"
@@ -765,10 +795,10 @@ function updateAdvancedModelControls() {
     if (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) els.advancedRatio.value = "adaptive";
     const fallbackRatio = vegaProvider || provider === "seedance25" ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
     const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim();
-    const current = ["wan30", "seedance-nsfw"].includes(provider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
+    const current = (["wan30", "seedance-nsfw"].includes(provider) || vegaProvider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode));
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
@@ -785,15 +815,15 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-animate-mode-field").forEach((item) => {
     item.hidden = !["wan-animate-move", "wan-animate-mix"].includes(capability);
   });
-  const vegaProvider = isVegaAdvancedProvider(provider);
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !vegaProvider);
   });
   els.advancedSeedanceTier?.closest(".field")?.toggleAttribute("hidden", provider !== "seedance");
   if (els.advancedSeedanceMediaPanel) {
     els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit
-      || (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !vegaProvider)
-      || !seedanceModeNeedsFirstFrame(seedanceMode);
+      || (vegaProvider
+        ? !vegaUsesFirstFrame && !vegaUsesLastFrame
+        : !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode));
   }
   if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = isVegaAdvancedProvider(provider) ? advancedProviderLabel(provider) : provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
@@ -803,13 +833,14 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-prompt-field").forEach((item) => {
-    item.hidden = simpleAction;
+    item.hidden = simpleAction || vegaDraftFollowup;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit || isStandaloneImage || isQwenText || simpleEdit || animateCapability || advancedVideoEditUsesSourceDuration(capability) || (provider === "seedance-nsfw" && seedanceMode === "edit");
+    item.hidden = isImageEdit || isStandaloneImage || isQwenText || simpleEdit || animateCapability || advancedVideoEditUsesSourceDuration(capability) || (provider === "seedance-nsfw" && seedanceMode === "edit") || vegaEditLikeTask;
   });
   document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
-    item.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
+    item.hidden = simpleAction || simpleEdit
+      || (vegaProvider ? vegaDraftFollowup : !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider));
   });
   const seedanceImagePreprocessAvailable = ["seedance", "seedance25", "seedance-nsfw"].includes(provider)
     && !["edit", "extend"].includes(seedanceMode);
@@ -835,12 +866,14 @@ function updateAdvancedModelControls() {
     item.hidden = !capabilityNeedsVideo && !((capability === "wan27-i2v" || capability === "wan-legacy") && wanModeNeedsClip(wanMode));
   });
   document.querySelectorAll(".seedance-last-frame").forEach((item) => {
-    item.hidden = (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !vegaProvider)
-      || !seedanceModeNeedsLastFrame(seedanceMode);
+    item.hidden = vegaProvider
+      ? !vegaUsesLastFrame
+      : !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsLastFrame(seedanceMode);
   });
   document.querySelectorAll(".seedance-first-frame").forEach((item) => {
-    item.hidden = (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !vegaProvider)
-      || !seedanceModeNeedsFirstFrame(seedanceMode);
+    item.hidden = vegaProvider
+      ? !vegaUsesFirstFrame
+      : !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode);
   });
   document.querySelectorAll(".seedance-video-field").forEach((item) => {
     item.hidden = true;
@@ -866,7 +899,8 @@ function updateAdvancedModelControls() {
       ].filter(Boolean).join(",");
       els.advancedImage.accept = sharedReferenceUpload ? sharedAccept : advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = allowManualReferenceUpload && (
-        (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode) && !(provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)))
+        (vegaProvider && vegaUsesReferences)
+        || (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode) && !(provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)))
         || isStandaloneImage
         || (aliyunVideo && advancedAliyunUsesSharedReferenceUpload(capability))
         || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload())
@@ -874,11 +908,14 @@ function updateAdvancedModelControls() {
       if (vegaProvider) syncAdvancedVegaUploadInput();
     }
     const forceUpload = allowManualReferenceUpload && (simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload());
-    const usesDedicatedFrameUpload = (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || vegaProvider)
-      && seedanceModeNeedsFirstFrame(seedanceMode);
+    const usesDedicatedFrameUpload = vegaProvider
+      ? vegaUsesFirstFrame || vegaUsesLastFrame
+      : ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode);
     els.advancedUploadBox.hidden = hidePresetUploadBox
       || isQwenText
+      || vegaDraftFollowup
       || usesDedicatedFrameUpload
+      || (vegaProvider && !vegaUsesReferences)
       || (aliyunVideo && !capabilityNeedsMedia);
     els.advancedUploadBox.classList.toggle("is-wan", aliyunVideo);
     els.advancedUploadBox.classList.toggle("is-seedance", ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || vegaProvider);

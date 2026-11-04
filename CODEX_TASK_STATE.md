@@ -65,3 +65,33 @@ This file is the durable handoff for this task. After compaction, read it first.
 ## Status
 
 - Merge verification, release build, deployment, and production smoke checks complete.
+
+## Active Vega full integration (2026-11-04)
+
+- Goal: complete Tencent Vega integration for `1.0-pro`, `1.0-pro-fast`, `1.0-pro-mini`, `1.5-pro`, `1.0-lite`, `1.5-lite`.
+- Required: all upstream modes/parameters/extInfo, complete UI controls and replay, docs, tests, build, deploy `123vips.com` only.
+- Preserve existing provider IDs: `seedance20-vega`, `seedance25-vega`, `h3-vega`.
+- Add IDs: `seedance20-fast-vega`, `seedance20-mini-vega`, `seedance20-lite-vega`.
+- Architecture: edit `server.parts/**`, `platform.ui.parts/**`, `platform.create.parts/**`; never regenerate/rewrite monoliths.
+- Tests must use `node --require ./test/source-compat.js --test`.
+- Deployment: commit `old-site`, build `platform-release`, deploy via `scripts/deploy_local.sh --site old`; never touch `live-release`.
+
+
+## Context compaction diagnosis (corrected 2026-11-04)
+
+- A new thread is not by itself a fix: thread `01a1a52f-7928-73f3-83d5-86ba4d0f678d` was already a new session and still compacted 85 times in one turn.
+- Effective model context is 121,600 tokens (128,000 catalog window at 95%); automatic compaction starts around 100k-112k tokens.
+- The turn made about 4,650 `exec_command` calls, including about 3,800 `sed -n` calls, 1,300 `rg -n` calls, and about 4,660 function calls total.
+- Tool outputs totaled about 25.4 million characters; output cap was 1,500 tokens per call. Roughly 50 capped tool calls fill the usable window and force another compaction.
+- Token usage reached 136.9 million input tokens, averaging 73.9k input per model call. This is the cost of repeatedly refilling context, not a provider/compaction bug.
+- The valid fix is to bound work per turn/segment (roughly under 30-40 tool calls when possible), persist state after each phase, and continue from `CODEX_TASK_STATE.md`. Do not claim that merely opening a new thread solves it.
+
+
+## Vega integration verification (2026-11-04)
+
+- Implemented all six Vega models and all upstream modes: text_to_video, first_frame, last_frame, first_last_frame, reference_video, draft_followup.
+- Covered multimodal image/video/audio references, adaptive ratio, smart duration -1, generate audio, input media, taskType auto/reference/edit/extend, Draft/Draft-to-Final, ExtInfo, last-frame/usage parsing, fail-closed pricing, replay, regenerate, Add assets/public URL mirroring, and six-model UI/docs.
+- Focused suite: 31/31 pass using `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js`.
+- Full suite: 628 tests, 607 pass, 21 fail. The 21 failures exactly match the established pre-existing baseline; no Vega focused test fails.
+- Full output: `/tmp/vega-full.out`; focused output: `/tmp/vega-test-3.out`.
+- Deployment status: pending commit, `platform-release` build, and `scripts/deploy_local.sh --site old`.

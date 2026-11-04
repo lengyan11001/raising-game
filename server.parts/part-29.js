@@ -978,22 +978,55 @@ function advancedRegenerateBody(record = {}) {
       ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
     ]);
     const requestedMedia = { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
-    const mediaMode = normalizeVegaMediaMode(
-      firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, ""),
-      requestedMedia,
-    );
-    const regeneratedMedia = mediaMode === "first_last_frame"
-      ? vegaMediaSelection({ mediaMode, firstFrameUrl, lastFrameUrl })
-      : vegaMediaSelection({ mediaMode, referenceImages, referenceVideos, referenceAudios });
+    const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
+    const inferredMediaMode = firstFrameUrl && lastFrameUrl
+      ? "first_last_frame"
+      : firstFrameUrl
+      ? "first_frame"
+      : lastFrameUrl
+      ? "last_frame"
+      : (referenceImages.length || referenceVideos.length || referenceAudios.length)
+      ? "reference_video"
+      : "text_to_video";
+    const mediaMode = normalizeVegaMediaMode(explicitMediaMode || inferredMediaMode, requestedMedia);
+    const taskType = String(firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto").trim().toLowerCase();
+    const effectiveMediaMode = ["edit", "extend"].includes(taskType) ? "reference_video" : mediaMode;
+    const regeneratedMedia = vegaMediaSelection({
+      mediaMode: effectiveMediaMode,
+      firstFrameUrl,
+      lastFrameUrl,
+      referenceImages,
+      referenceVideos,
+      referenceAudios,
+    });
     body.mediaMode = regeneratedMedia.mode;
-    if (regeneratedMedia.mode === "first_last_frame") {
-      body.firstFrameUrl = regeneratedMedia.firstFrameUrl;
-      body.lastFrameUrl = regeneratedMedia.lastFrameUrl;
-    } else {
+    if (["first_frame", "last_frame", "first_last_frame"].includes(regeneratedMedia.mode)) {
+      if (regeneratedMedia.firstFrameUrl) body.firstFrameUrl = regeneratedMedia.firstFrameUrl;
+      if (regeneratedMedia.lastFrameUrl) body.lastFrameUrl = regeneratedMedia.lastFrameUrl;
+    } else if (regeneratedMedia.mode === "reference_video") {
       body.referenceImages = regeneratedMedia.referenceImages.map((url) => ({ url }));
       body.referenceVideos = regeneratedMedia.referenceVideos.map((url) => ({ url }));
       body.referenceAudios = regeneratedMedia.referenceAudios.map((url) => ({ url }));
     }
+    if (regeneratedMedia.mode === "draft_followup") {
+      body.prompt = "";
+      body.duration = -1;
+    } else if (["edit", "extend"].includes(taskType)) {
+      body.duration = -1;
+    }
+    body.taskType = taskType;
+    body.draft = params.draft === true || params.draft === "true";
+    body.draftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
+    body.assetGroupId = String(firstPresent(params.assetGroupId, params.asset_group_id, "") || "").trim();
+    body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
+    body.returnLastFrame = boolFromRequest(firstPresent(params.returnLastFrame, params.return_last_frame), false);
+    body.returnVegaUsage = boolFromRequest(firstPresent(params.returnVegaUsage, params.return_vega_usage), false);
+    body.enhancePromptMode = firstPresent(params.enhancePromptMode, params.enhance_prompt_mode);
+    body.moderationMode = firstPresent(params.moderationMode, params.moderation_mode);
+    body.generateMode = firstPresent(params.generateMode, params.generate_mode);
+    body.videoQualityMode = firstPresent(params.videoQualityMode, params.video_quality_mode);
+    body.outputFormat = firstPresent(params.outputFormat, params.output_format);
+    body.ratio = firstPresent(record.ratio, params.ratio, params.aspect_ratio, body.ratio);
     if (params.seed !== undefined && params.seed !== null && params.seed !== "") body.seed = params.seed;
   } else if (isAliyunVideoProvider(provider)) {
     const capability = normalizeAliyunVideoCapability(params.videoCapability || record.mediaMode || "", {
