@@ -94,4 +94,10 @@ This file is the durable handoff for this task. After compaction, read it first.
 - Focused suite: 31/31 pass using `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js`.
 - Full suite: 628 tests, 607 pass, 21 fail. The 21 failures exactly match the established pre-existing baseline; no Vega focused test fails.
 - Full output: `/tmp/vega-full.out`; focused output: `/tmp/vega-test-3.out`.
-- Deployment status: pending commit, `platform-release` build, and `scripts/deploy_local.sh --site old`.
+- Commit: `04c31c8` on `old-site`; remote `old-site` updated.
+- Platform release: `daee397` built from `04c31c8`; pushed to remote `platform-release` with verified lease after confirming its diff from `91d5774` was exactly the 21 Vega files.
+- Deployed with `scripts/deploy_local.sh --site old`; production commit is `daee397`, service restarted, PostgreSQL/Ark configured.
+- Production health `https://123vips.com/api/health` returns HTTP 200 `{"ok":true}`.
+- Production page contains all six Vega models and full Vega controls; split feature/config assets return 200.
+- `live-release` was not modified or deployed; remote remains `6642e17`.
+- Final `old-site` status clean after the deployment-state commit.
