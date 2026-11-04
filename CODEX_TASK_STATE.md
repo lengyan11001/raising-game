@@ -50,7 +50,18 @@ This file is the durable handoff for this task. After compaction, read it first.
 - Never include Live files in `platform-release`; never modify/deploy `live-release`.
 - Source split release paths must include `server-source.js`, `server.parts/**`, `platform.ui.parts/**`, `platform.create.parts/**`.
 
+## Deployment result
+
+- `old-site` fast-forwarded to verified commit `9221fd2`.
+- Built and pushed `platform-release` commit `91d5774` from source `9221fd2`.
+- Deployed with `scripts/deploy_local.sh --site old`.
+- Production commit confirmed as `91d5774`; health check `https://123vips.com/api/health` returns HTTP 200 with `{"ok":true}`.
+- Frontend split assets return 200: `/platform.ui.parts/part-01.js`, `/platform.create.parts/part-01.js`.
+- Backend source assets remain private: `/server-source.js`, `/server.parts/part-01.js` return 404.
+- Platform page references asset version `mw2780u1`.
+- `live-release` was not deployed or modified (`6642e17` remains remote tip).
+- Production startup shows PostgreSQL and Ark configured; catalog check succeeded.
+
 ## Status
 
-- Merge and regression verification complete.
-- Next: commit this state update, fast-forward `old-site` to the verified merge, build `platform-release`, deploy `old`, and run production smoke checks.
+- Merge verification, release build, deployment, and production smoke checks complete.
