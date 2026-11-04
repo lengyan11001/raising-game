@@ -8,7 +8,10 @@ This file is the durable handoff for this task. After compaction, read this file
 - Lite requests with prompt or media are always treated as ordinary generation; stale draft state is discarded and `draft_task_id` is never sent.
 - Draft-only Lite intent is rejected explicitly with `DRAFT_UNSUPPORTED` before credentials, charging, or upstream submission.
 - Regression suite: 54 pass, 0 fail. Syntax checks and `git diff --check` pass.
-- Production deployment for this Draft-to-Final fix is pending.
+- Production deployment is complete on `123vips.com` only; Live was not deployed.
+- Production verification request `cgt-20261105014851-6a45f4` included a stale `draftTaskId` and generated an ordinary Vega 1.5 Lite task.
+- It returned HTTP 200, reached upstream task `1524935253-AigcVideoTask-6d6fdc965814ceba1ec5171c3cc362b5t`, and finished at 100% with a video URL.
+- The persisted request had `draftTaskId=""`, and upstream `ExtInfo` contained no `draft_task_id`.
 
 - Production `/etc/raising-game-demo.env` now has the Tencent VOD international credentials supplied by the user. Values are intentionally not recorded here.
 - VOD credentials were verified against `DescribeSubAppIds` on the international host; the account returned one application.
@@ -66,10 +69,10 @@ CODEX_TASK_STATE.md
 
 ## Deployment
 
-- `old-site`: `e0c9ca9` (`Configure Vega Lite international input and output pricing`), pushed to origin.
-- `platform-release`: `7466740`, built from `e0c9ca9`; pushed to origin with a lease-protected update because release snapshots are sibling commits over the immutable release base.
+- `old-site`: `eff6a18` (`Fix stale Vega draft state on Lite generation`), pushed to origin.
+- `platform-release`: `3bfe80d`, built from `eff6a18`; pushed to origin with a lease-protected update.
 - Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`.
-- Production checkout: `/opt/raising-game-demo` at `74667407697380abb45ce51f487cf25f6b4c504d`.
+- Production checkout: `/opt/raising-game-demo` at `3bfe80d93a6479ffdef06994cf0fbc368de7c156`.
 - Production service: `raising-game-demo` is `active`.
 - Live release was not deployed.
 
