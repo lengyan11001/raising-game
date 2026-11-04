@@ -4,10 +4,8 @@ This file is the durable handoff for this task. After any context compaction or 
 
 ## User's active request
 
-- Fix **123vips.com** Generate tab for the three Tencent VOD Vega models.
-- Selecting a Vega model and adding an asset from the library must work, including legacy assets that only have a local URL.
-- Audit all Vega multimodal controls: first frame, last frame, reference images, reference video, reference audio, local upload, preview, Add, submit, and regeneration.
-- Vega parameters must follow the Tencent VOD contract, not copied legacy Seedance/ByteDance parameters.
+- Fix missing video thumbnails in both the **Generate → Result** tab and the Seedance **Result** history surface on `123vips.com`.
+- Successful video records with `GENERATED_ASSETS_ON_DEMAND=true` must be able to repair a missing poster without turning on general full-video storage.
 
 | Provider ID | UI label | ModelName | ModelVersion |
 |---|---|---|---|
@@ -17,15 +15,13 @@ This file is the durable handoff for this task. After any context compaction or 
 
 ## Root cause and decisions
 
-- Add failed for older library assets because they could have `localUrl` but no public HTTP(S) URL. Vega only accepts public HTTP(S) media URLs.
-- Frontend now resolves Vega asset IDs through `/api/user-assets/resolve` before Add and again before submit.
-- Backend now forces the public mirror for Vega uploads and Vega asset resolution. Object-storage failure returns HTTP 502 `VEGA_ASSET_PUBLIC_URL_UNAVAILABLE`; there is no local-relative-URL fallback.
-- New Vega uploads return the backend `publicUrl`/`cdnUrl` immediately.
-- First-frame and last-frame state are refreshed from resolved assets before the final payload is built.
-- Local upload handlers capture the selected target before upload so an async refresh cannot redirect the asset into another target.
-- Vega Add never overrides the user's explicitly selected target.
-- `applyAdvancedCreateMode({ syncForm: false })` prevents model-control refreshes from resetting the selected Vega provider.
-- New `platform.vega-media.js` is the single source of truth for target/media-kind/public-URL rules.
+- On-demand storage intentionally skipped normal generated-video download, R2 mirroring, and poster creation. Successful records could therefore contain only an upstream video URL and no thumbnail.
+- Generate Result required a video URL before rendering a poster, and history/Seedance records without media were excluded from the fallback list.
+- Backend now has a narrowly scoped poster-repair path: succeeded, non-API video output, provider video present, and both `cdnPosterUrl` and `localPosterUrl` missing.
+- On-demand mode blocks ordinary video downloads. Only the targeted poster-maintenance path may force a transient local copy and generate a poster.
+- `handleListGenerationRecords()` and `handleGetGenerationRecord()` queue poster repair for matching records, covering both Result surfaces.
+- Public generation records now expose `cdnPosterUrl`, `localPosterUrl`, and `posterPending`.
+- Generate Result renders media when either a video URL or a poster exists, retries missing posters at a bounded frequency, and stops after the retry limit or success.
 
 ## Vega contract
 
@@ -40,76 +36,49 @@ This file is the durable handoff for this task. After any context compaction or 
 
 ## Non-negotiable rules
 
-- Preserve exact Vega provider IDs end to end: records, params, estimate/submit, polling, regeneration, public responses.
-- Never reuse existing Seedance/H3 pricing.
-- Vega `FileInfos` must use `Usage` and must never send legacy `ReferenceType`.
-- Create task ID is `Response.TaskId`; query payload is `Response.AigcVideoTask`.
-- Success status is `FINISH`; outputs are `AigcVideoTask.Output.FileInfos[]`.
-- Choose the output with empty/absent `UsageType`, never `last_frame_url`.
-- Preserve raw create/query responses in generation records.
-- Tencent credentials must stay out of Git.
 - Business/runtime data must use PostgreSQL via `DATABASE_URL`; no JSON/static fallbacks.
 - Deploy `123vips.com` only, via `scripts/deploy_local.sh --site old`, from a committed `old-site` release snapshot. Never deploy `old-site` directly. Do not deploy `live-release`.
-
-## Env vars
-
-- `TENCENTCLOUD_SECRET_ID`
-- `TENCENTCLOUD_SECRET_KEY`
-- `TENCENT_VOD_SUB_APP_ID`
+- Do not broaden poster repair into general on-demand video/R2 storage.
 
 ## Changed files
 
 ```text
-platform.config.js
 platform.create.js
-platform.js
-platform.main.js
-platform.ui.js
 server.js
-platform.vega-media.js
-test/tencent-vod-vega.test.js
-CODEX_TASK_STATE.md
+test/advanced-result-order.test.js
+test/advanced-result-refresh.test.js
+test/generated-assets-on-demand.test.js
 ```
 
 ## Verification
 
-- Focused Vega + advanced custom UI: **62 pass, 0 fail**
-  - `node --test test/tencent-vod-vega.test.js test/advanced-custom-ui.test.js`
-- Full suite: **605 pass, 15 fail**
-  - `npm test`
-  - All 15 failures are pre-existing branch/baseline failures; none are Vega-specific.
-  - Log: `/tmp/raising-game-test.log`
-- Syntax checks passed for `server.js`, `platform.main.js`, `test/tencent-vod-vega.test.js`, and `test/advanced-custom-ui.test.js`.
+- Focused regression: **27 pass, 0 fail**
+  - `node --test test/advanced-result-order.test.js test/advanced-result-refresh.test.js test/generated-assets-on-demand.test.js test/media-url-priority.test.js`
+- `node --check server.js` passed.
+- `node --check platform.create.js` passed.
 - `git diff --check` passed.
-- Browser automation is unavailable in this repository, so coverage is source-level regression plus the existing helper tests. Do not ask the user to manually test each control.
+- Production target record `cgt-20261104211413-a659e7` now has `localVideoUrl` and `localPosterUrl`; poster endpoint returns HTTP 200 `image/jpeg`, video endpoint supports HTTP 206.
+- Production `platform.create.js` contains poster retry/render logic; `platform.ui.js` resolves local posters.
 
 ## Critical code locations
 
-- `server.js:32385` `handleAdvancedVegaGenerate`
-- `server.js:24537` `ensureVegaPublicUrlForUserAsset`
-- `server.js:26780` `refreshVegaGenerationRecord`
-- `server.js:36906` `advancedRegenerateBody`
-- `server.js:37689` Vega API docs
-- `platform.create.js:159` Vega asset resolution helpers
-- `platform.create.js:2442` Vega submission branch
-- `platform.create.js:3548` Vega local uploads
-- `platform.vega-media.js` target/media validation helper
-- `tencent-vod-vega.js` TC3/client/payload helpers
+- `server.js:26569` `generationRecordNeedsPosterMaintenance`
+- `server.js:26609` `queueGenerationRecordMediaMaintenance`
+- `server.js:27592` `downloadGeneratedVideo`
+- `server.js:51641` `handleListGenerationRecords`
+- `server.js:51687` `handleGetGenerationRecord`
+- `platform.create.js:613` history fallback records
+- `platform.create.js:689` advanced result rendering
+- `platform.create.js:803` bounded poster retry
 
 ## Deployment status
 
-- Vega asset/control fix committed as `old-site` `7f35719`.
-- Platform release snapshot: `platform-release` `e146d71`, built from `7f35719`.
+- Thumbnail fix committed as `old-site` `75c7e8b` (`080b630` in the isolated worktree).
+- Platform release snapshot: `platform-release` `af46b2d`, built from `75c7e8b`.
 - Deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`.
 - Live was not modified: `live-release` remains `6642e17`.
-- Production smoke passed:
-  - `https://123vips.com/api/health` -> `{"ok":true}`
-  - `platform.vega-media.js` -> HTTP 200
-  - `platform.js` loads `platform.vega-media.js`
-  - All three Vega labels are present
-  - Vega asset resolution, Add binding, target controls, and public-URL guard are present in the deployed assets
-- Deployment verified release boundary and service health.
+- Production deployment and release-boundary checks passed; health check returned `{"ok":true}`.
 
 ## Next steps
 
-- None for this fix. Use targeted source tests for future regressions; do not ask the user to manually test each control.
+- None for this fix. If a provider URL has already expired and no local/R2 video exists, a poster cannot be recovered after the fact; future successful records are repaired while the provider URL is valid.
