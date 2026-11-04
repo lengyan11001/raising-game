@@ -101,3 +101,43 @@ test("result panel keeps and displays more than six records", () => {
   assert.equal(records.find((record) => record.taskId === "task-7").status, "running");
   assert.doesNotMatch(functionSource("mergeAdvancedResultRecord"), /slice\(0, 6\)/);
 });
+
+test("successful history rows without media still participate in detail refresh", () => {
+  const state = {
+    advancedResultRecords: [],
+    historyRecords: [{ taskId: "video-no-media", status: "succeeded", createdAt: "2026-11-04T10:00:00.000Z" }],
+  };
+  const sourceWithFallback = [
+    functionSource("advancedResultRecordTimestamp"),
+    functionSource("sortAdvancedResultRecords"),
+    create.match(/const ADVANCED_RESULT_MEDIA_FIELDS = \[[\s\S]*?\n\];/)?.[0] || "",
+    functionSource("advancedResultRecordWithMediaFallback"),
+    functionSource("mergeAdvancedResultRecord"),
+    functionSource("advancedResultHistoryFallbackRecords"),
+    functionSource("advancedResultDisplayRecords"),
+  ].join("\n");
+  const displayRecords = new Function(
+    "state",
+    "isPendingGenerationRecord",
+    "generationVideoUrl",
+    "generationImageResultUrl",
+    "generationPosterUrl",
+    "isSucceededGenerationStatus",
+    `${sourceWithFallback}\nreturn advancedResultDisplayRecords;`,
+  )(
+    state,
+    () => false,
+    (record) => record?.videoUrl || "",
+    (record) => record?.imageResultUrl || "",
+    (record) => record?.cdnPosterUrl || record?.posterUrl || "",
+    (status) => ["succeeded", "success", "done", "completed"].includes(String(status || "").toLowerCase()),
+  );
+  assert.deepEqual(displayRecords().map((record) => record.taskId), ["video-no-media"]);
+});
+
+test("poster-only successful records render as video media", () => {
+  const panel = functionSource("renderAdvancedResultPanel");
+  assert.match(panel, /const posterUrl = generationPosterUrl\(record\);/);
+  assert.match(panel, /: videoUrl \|\| posterUrl/);
+  assert.match(panel, /<img src="\$\{escapeHtml\(posterUrl\)\}"/);
+});

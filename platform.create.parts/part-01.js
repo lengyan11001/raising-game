@@ -800,12 +800,24 @@ function renderAdvancedResultPanel() {
 }
 
 const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 * 1000;
+const ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS = 8 * 1000;
+const ADVANCED_RESULT_POSTER_RETRY_LIMIT = 8;
 
 function advancedResultPendingRecords() {
   return advancedResultDisplayRecords().filter((record) => {
     const taskId = String(record?.taskId || "").trim();
     if (!taskId || taskId.startsWith("pending-")) return false;
     return isPendingGenerationRecord(record);
+  });
+}
+
+function advancedResultPosterRefreshRecords() {
+  return advancedResultDisplayRecords().filter((record) => {
+    const taskId = String(record?.taskId || "").trim();
+    if (!taskId || taskId.startsWith("pending-")) return false;
+    if (!isSucceededGenerationStatus(record?.status) || generationPosterUrl(record)) return false;
+    if (!generationVideoUrl(record) && record?.posterPending !== true) return false;
+    return Number(state.advancedResultPosterRetryCounts?.[taskId] || 0) < ADVANCED_RESULT_POSTER_RETRY_LIMIT;
   });
 }
 
@@ -816,16 +828,20 @@ function stopAdvancedResultRefresh() {
 
 function scheduleAdvancedResultRefresh() {
   stopAdvancedResultRefresh();
-  if (
-    !state.user
-    || state.tab !== "advanced"
-    || state.advancedSideTab !== "result"
-    || !advancedResultPendingRecords().length
-  ) return;
+  if (!state.user || state.tab !== "advanced" || state.advancedSideTab !== "result") return;
+  const pendingRecords = advancedResultPendingRecords();
+  const posterRefreshRecords = pendingRecords.length ? [] : advancedResultPosterRefreshRecords();
+  if (!pendingRecords.length && !posterRefreshRecords.length) return;
+  posterRefreshRecords.forEach((record) => {
+    const taskId = String(record?.taskId || "").trim();
+    if (!taskId) return;
+    if (!state.advancedResultPosterRetryCounts) state.advancedResultPosterRetryCounts = {};
+    state.advancedResultPosterRetryCounts[taskId] = Number(state.advancedResultPosterRetryCounts[taskId] || 0) + 1;
+  });
   state.advancedResultTimer = window.setTimeout(() => {
     state.advancedResultTimer = 0;
     refreshAdvancedResultRecord();
-  }, ADVANCED_RESULT_POLL_INTERVAL_MS);
+  }, pendingRecords.length ? ADVANCED_RESULT_POLL_INTERVAL_MS : ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS);
 }
 
 async function refreshAdvancedResultRecord() {
@@ -849,6 +865,9 @@ async function refreshAdvancedResultRecord() {
       const record = payload.record || payload.generation || null;
       if (record?.taskId) {
         mergeAdvancedResultRecord(record);
+        if (generationPosterUrl(record) && state.advancedResultPosterRetryCounts) {
+          delete state.advancedResultPosterRetryCounts[record.taskId];
+        }
         rendered = true;
       }
       if (payload.user) setUser(payload.user);
@@ -1173,33 +1192,5 @@ function syncSeedanceReferenceMode() {
 function advancedReferenceOrderValue(item = {}, fallback = 0) {
   const value = Number(item.order ?? item.referenceOrder ?? item.createdOrder ?? 0);
   return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function ensureAdvancedReferenceOrders(images = state.advancedReferenceImages) {
-  const list = Array.isArray(images) ? images : [];
-  let maxOrder = Math.max(0, Number(state.advancedReferenceOrderCounter || 0));
-  list.forEach((item) => {
-    maxOrder = Math.max(maxOrder, advancedReferenceOrderValue(item));
-  });
-  list.forEach((item) => {
-    if (!item || advancedReferenceOrderValue(item)) return;
-    maxOrder += 1;
-    item.order = maxOrder;
-  });
-  state.advancedReferenceOrderCounter = Math.max(Number(state.advancedReferenceOrderCounter || 0), maxOrder);
-  return maxOrder;
-}
-
-function nextAdvancedReferenceOrder() {
-  ensureAdvancedReferenceOrders();
-  const imageOrders = (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [])
-    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
-  const videoOrders = advancedSeedanceVideoReferences()
-    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
-  const audioOrders = advancedSeedanceAudioReferences()
-    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
-  const current = Math.max(Number(state.advancedReferenceOrderCounter || 0), 0, ...imageOrders, ...videoOrders, ...audioOrders);
-  state.advancedReferenceOrderCounter = current + 1;
-  return state.advancedReferenceOrderCounter;
 }
 

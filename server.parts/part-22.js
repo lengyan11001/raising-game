@@ -1,3 +1,51 @@
+function posterFileName(taskId) {
+  return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.jpg`;
+}
+
+async function generatedVideoNeedsFastStart(videoPath = "") {
+  if (!videoPath || path.extname(videoPath).toLowerCase() !== ".mp4") return false;
+  const handle = await fs.open(videoPath, "r");
+  try {
+    const stat = await handle.stat();
+    const bytes = Buffer.alloc(Math.min(stat.size, 1024 * 1024));
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    const header = bytes.subarray(0, bytesRead);
+    const moovOffset = header.indexOf("moov");
+    const mdatOffset = header.indexOf("mdat");
+    return mdatOffset >= 0 && (moovOffset < 0 || moovOffset > mdatOffset);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function ensureGeneratedVideoFastStart(videoPath = "") {
+  if (!(await generatedVideoNeedsFastStart(videoPath))) return false;
+  const tempPath = `${videoPath}.${Date.now()}.faststart.mp4`;
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-i",
+      videoPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      tempPath,
+    ], { timeout: 120000 });
+    await fs.copyFile(tempPath, videoPath);
+    return true;
+  } catch (error) {
+    console.warn("[generated-video-faststart-failed]", videoPath, error.message || error);
+    return false;
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
 function cacheBustedMediaUrl(url = "", version = "") {
   const value = String(url || "").trim();
   if (!value || !version) return value;
@@ -186,7 +234,7 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
   return true;
 }
 
-async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false } = {}) {
+async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false, posterOnly = false } = {}) {
   if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
     const existing = taskId ? await getGenerationRecord(taskId).catch(() => null) : null;
     return {
@@ -202,6 +250,31 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
   }
   const existing = await getGenerationRecord(taskId);
   const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
+  if (posterOnly) {
+    let source = String(remoteVideoUrl || "").trim();
+    if (existing?.localVideoUrl) {
+      const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
+      try {
+        await fs.access(existingVideoPath);
+        source = existingVideoPath;
+      } catch {
+        // Fall back to the provider URL when the local copy is gone.
+      }
+    }
+    if (!source) throw new Error("No video source is available for poster repair.");
+    const poster = await createGeneratedVideoPoster(taskId, source);
+    if (!poster.localPosterUrl) throw new Error("Could not capture a poster frame from the video.");
+    return {
+      localVideoPath: existing?.localVideoPath || "",
+      localVideoUrl: existing?.localVideoUrl || "",
+      localPosterPath: poster.localPosterPath || "",
+      localPosterUrl: poster.localPosterUrl || "",
+      cdnVideoUrl: existing?.cdnVideoUrl || "",
+      cdnPosterUrl: existing?.cdnPosterUrl || "",
+      cdnError: existing?.cdnError || "",
+      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
+    };
+  }
   if (existing?.localVideoUrl) {
     try {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
@@ -212,6 +285,25 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
       const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
       if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
         let optimized = existing;
+        let poster = null;
+        if (!existing.localPosterUrl) {
+          poster = await createGeneratedVideoPoster(taskId, existingVideoPath);
+          if (poster.localPosterUrl) {
+            optimized = {
+              ...existing,
+              localPosterPath: poster.localPosterPath || existing.localPosterPath || "",
+              localPosterUrl: poster.localPosterUrl || existing.localPosterUrl || "",
+              posterUrl: poster.localPosterUrl || existing.posterUrl || "",
+            };
+            await upsertGenerationRecord({
+              taskId,
+              localPosterPath: optimized.localPosterPath,
+              localPosterUrl: optimized.localPosterUrl,
+              posterUrl: optimized.posterUrl,
+              lastUpdateReason: "generated-poster-recovery",
+            });
+          }
+        }
         if (!GENERATED_ASSETS_ON_DEMAND && !generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
           const cdn = await uploadGeneratedMediaToObjectStorage({
             taskId,
@@ -1178,124 +1270,5 @@ function closestWan27ImageRatioForAsset(asset = {}) {
   return candidates.reduce((best, candidate) => (
     Math.abs(Math.log(sourceRatio / candidate[1])) < Math.abs(Math.log(sourceRatio / best[1])) ? candidate : best
   ))[0];
-}
-
-async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabel = "image edit", successReason = "image-edit" } = {}) {
-  const { taskId, userId, pricing } = job;
-  const db = await readDb();
-  const user = (db.users || []).find((entry) => entry.id === userId);
-  if (!user) throw new Error("User not found.");
-  const assets = [];
-  for (const input of inputs) {
-    const asset = videoToolAsset(db, userId, input.assetId, "image", input.label || "Source image");
-    assets.push(await ensurePublicUrlForUserMediaAsset(db, asset));
-  }
-  if (!assets.length) throw new Error("Image edit input is required.");
-  const imageUrls = assets.map(publicUrlForLocalAsset);
-  if (imageUrls.some((url) => !isPublicHttpUrl(url))) throw new Error("Image edit inputs are not publicly accessible.");
-
-  const config = await readAppConfig();
-  const imageOptions = wan27ImageRequestOptions({}, {
-    defaultModel: pricing.model || normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro.model || WAN27_IMAGE_PRO_MODEL,
-    defaultRatio: closestWan27ImageRatioForAsset(assets[0]),
-    defaultResolution: "2K",
-  });
-  const priorRecord = await getGenerationRecord(taskId);
-  let upstreamTaskId = String(priorRecord?.upstreamTaskId || "").trim();
-  let completed = null;
-  if (!upstreamTaskId) {
-    await updateVideoToolProgress(taskId, "generating");
-    const submit = USE_GATEWAY_UPSTREAM ? gatewaySubmitWan27ImageEditTask : submitWan27ImageModify;
-    const submitted = await submit({
-      imageUrls,
-      prompt,
-      ratio: imageOptions.ratio,
-      resolution: imageOptions.resolution,
-      model: imageOptions.model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-      waitForResult: false,
-    });
-    upstreamTaskId = submitted.task.taskId || "";
-    if (!upstreamTaskId && !submitted.task.imageUrls?.[0] && !submitted.task.imageUrl) {
-      throw new Error(`Wan2.7 ${resultLabel} did not return a task id.`);
-    }
-    await updateVideoToolProgress(taskId, "generating", {
-      upstreamTaskId,
-      upstreamPayload: submitted.payload,
-      createResponse: submitted.raw,
-      awaitingUpstreamTask: Boolean(upstreamTaskId),
-    });
-    if (submitted.task.imageUrls?.[0] || submitted.task.imageUrl) completed = submitted;
-  }
-  if (!completed) completed = await waitForWan27ImageToolTask(upstreamTaskId);
-  const imageUrl = completed.task.imageUrls?.[0] || completed.task.imageUrl || "";
-  if (!imageUrl) throw new Error(`Wan2.7 ${resultLabel} returned no image.`);
-
-  const recordBeforeSave = await getGenerationRecord(taskId);
-  const preDeductedCredits = creditsAmount(recordBeforeSave?.preDeductedCredits || 0);
-  const freeImageGeneration = recordBeforeSave?.freeImageGeneration === true && preDeductedCredits <= 0;
-  let savedImage = { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" };
-  if (freeImageGeneration) {
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
-  } else if (!GENERATED_ASSETS_ON_DEMAND) {
-    savedImage = await saveRemoteGeneratedImage(taskId, imageUrl, { publish: true });
-  }
-  let lockedPreview = {};
-  if (freeImageGeneration) {
-    try {
-      lockedPreview = await createUndressLockedPreview(taskId, savedImage.localImagePath);
-    } catch (error) {
-      console.warn("[undress-locked-preview-failed]", taskId, error.message || error);
-    }
-  }
-  const completedAt = new Date().toISOString();
-  const record = await getGenerationRecord(taskId);
-  await upsertGenerationRecord({
-    ...record,
-    taskId,
-    status: "succeeded",
-    awaitingUpstreamTask: false,
-    upstreamTaskId,
-    imageResultUrl: generationImageResultUrl({ remoteImageUrl: imageUrl }, savedImage),
-    localImageUrl: savedImage.localImageUrl,
-    localImagePath: savedImage.localImagePath,
-    cdnImageUrl: savedImage.cdnImageUrl,
-    cdnError: savedImage.cdnError,
-    ...lockedPreview,
-    remoteImageUrl: imageUrl,
-    providerImageUrl: imageUrl,
-    error: "",
-    finalCredits: freeImageGeneration ? 0 : pricing.credits,
-    originalFinalCredits: freeImageGeneration ? 0 : pricing.originalCredits,
-    billingStatus: freeImageGeneration ? "free_locked" : pricing.credits > 0 ? "settled" : "free",
-    billingSettledAt: completedAt,
-    resultLocked: freeImageGeneration,
-    unlockCredits: freeImageGeneration ? creditsAmount(record?.unlockCredits || pricing.credits) : 0,
-    unlockType: freeImageGeneration ? "undress_image" : "",
-    freeImageGeneration,
-    completedAt,
-    params: { ...plainObject(record?.params), stage: "completed" },
-    lastUpdateReason: `video-tool-${successReason}-succeeded`,
-  });
-  if (freeImageGeneration && record.freeImageClaimId) {
-    await completeToolFreeGenerationInDb({ id: record.freeImageClaimId, userId, taskId }).catch((error) => {
-      console.warn("[undress-free-claim-complete-failed]", taskId, error.message || error);
-    });
-  }
-}
-
-async function runVideoToolImageFaceSwap(job) {
-  return runVideoToolImageEdit(job, {
-    inputs: [
-      { assetId: job.targetImageAssetId, label: "Target image" },
-      { assetId: job.imageAssetId, label: "Face reference" },
-    ],
-    prompt: IMAGE_TOOL_FACE_SWAP_PROMPT,
-    resultLabel: "image face swap",
-    successReason: "image-face-swap",
-  });
 }
 

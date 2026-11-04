@@ -1,3 +1,291 @@
+function byteplusSeedanceTierFromModel(model = "") {
+  const alias = seedanceModelAliasKind(model);
+  if (alias) return alias;
+  const normalized = String(model || "").toLowerCase();
+  return normalized.includes("fast") || normalized.includes("mini") ? "fast" : "standard";
+}
+
+function byteplusV3SupportedSeedanceModel(model = "") {
+  const raw = String(model || "").trim();
+  if (!raw) return false;
+  const compact = (value) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  const wanted = compact(raw);
+  if (!wanted) return false;
+  if ([MODEL_QUALITY, MODEL_FAST, SEEDANCE_QUALITY_ENDPOINT_ID, SEEDANCE_FAST_ENDPOINT_ID]
+    .map(compact)
+    .filter(Boolean)
+    .includes(wanted)) return true;
+  if (seedanceModelAliasKind(raw)) return true;
+  // Seedance 2.5 is a different product that runs on the advanced route, so reject it here
+  // even though its id is Seedance-branded.
+  if (wanted.includes("seedance25") || wanted.includes("seedance2.5")) return false;
+  // Allow any other Seedance-branded model id so future Seedance 2.0 revisions keep working;
+  // reject everything else (Wan, HappyHorse, ...) with a route hint instead of a silent async failure.
+  return wanted.includes("seedance");
+}
+
+function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const model = String(source.model || "").trim();
+  if (!model) throw byteplusHttpError(400, "model is required.", "model");
+  if (!byteplusV3SupportedSeedanceModel(model)) {
+    throw byteplusHttpError(
+      400,
+      `model "${model}" is not supported on POST /api/v3/contents/generations/tasks. This endpoint only accepts Seedance models. Wan 3.0, Wan2.7, HappyHorse, and other video models use POST /api/advanced/generate.`,
+      "model",
+      "InvalidParameter.UnsupportedModel",
+    );
+  }
+  if (!Array.isArray(source.content) || source.content.length < 1 || source.content.length > 16) {
+    throw byteplusHttpError(400, "content must be an array with 1 to 16 items.", "content");
+  }
+  const promptParts = [];
+  const target = {
+    referenceImages: [],
+    referenceImageAssetUris: [],
+    referenceVideoUrls: [],
+    referenceVideoAssetIds: [],
+    referenceAudioUrls: [],
+    referenceAudioAssetIds: [],
+  };
+  let hasFirstFrame = false;
+  let hasLastFrame = false;
+  let hasReferenceImage = false;
+  let hasReferenceVideo = false;
+  let hasReferenceAudio = false;
+  let imageCount = 0;
+  let videoCount = 0;
+  let audioCount = 0;
+
+  source.content.forEach((rawItem, index) => {
+    const param = `content[${index}]`;
+    const item = normalizeSeedanceContentItem(rawItem);
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw byteplusHttpError(400, `${param} must be an object.`, param);
+    }
+    const type = String(item.type || "").trim().toLowerCase();
+    if (type === "text") {
+      const text = String(item.text || "").trim();
+      if (text) promptParts.push(text);
+      return;
+    }
+    const rawRole = String(item.role || "").trim().toLowerCase();
+    if (type === "image_url") {
+      const role = rawRole || "reference_image";
+      if (!["first_frame", "last_frame", "reference_image"].includes(role)) {
+        throw byteplusHttpError(400, "image_url role must be first_frame, last_frame, or reference_image.", `${param}.role`);
+      }
+      const url = byteplusNestedMediaUrl(item, type);
+      pushByteplusV3AssetReference(auth, target, role, url, `${param}.image_url.url`, item);
+      imageCount += 1;
+      hasFirstFrame = hasFirstFrame || role === "first_frame";
+      hasLastFrame = hasLastFrame || role === "last_frame";
+      hasReferenceImage = hasReferenceImage || role === "reference_image";
+      return;
+    }
+    if (type === "video_url") {
+      const role = rawRole || "";
+      if (role !== "reference_video") {
+        throw byteplusHttpError(400, "reference videos require role=reference_video.", `${param}.role`);
+      }
+      const url = byteplusNestedMediaUrl(item, type);
+      pushByteplusV3AssetReference(auth, target, role, url, `${param}.video_url.url`, item);
+      videoCount += 1;
+      hasReferenceVideo = true;
+      return;
+    }
+    if (type === "audio_url") {
+      const role = rawRole || "";
+      if (role !== "reference_audio") {
+        throw byteplusHttpError(400, "reference audios require role=reference_audio.", `${param}.role`);
+      }
+      const url = byteplusNestedMediaUrl(item, type);
+      pushByteplusV3AssetReference(auth, target, role, url, `${param}.audio_url.url`, item);
+      audioCount += 1;
+      hasReferenceAudio = true;
+      return;
+    }
+    throw byteplusHttpError(400, `content type ${type || "(empty)"} is not supported.`, `${param}.type`);
+  });
+
+  const prompt = promptParts.join("\n").trim();
+  if (!prompt) throw byteplusHttpError(400, "content must include a non-empty text prompt.", "content");
+  if (imageCount > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs.`, "content");
+  }
+  if (videoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} video inputs.`, "content");
+  }
+  if (audioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audio inputs.`, "content");
+  }
+  if (hasLastFrame && !hasFirstFrame) {
+    throw byteplusHttpError(400, "last_frame requires a matching first_frame image.", "content");
+  }
+  if ((hasFirstFrame || hasLastFrame) && (hasReferenceImage || hasReferenceVideo || hasReferenceAudio)) {
+    throw byteplusHttpError(400, "first_frame and last_frame roles cannot be mixed with reference media.", "content");
+  }
+  if (hasReferenceAudio && !hasReferenceImage && !hasReferenceVideo) {
+    throw byteplusHttpError(400, "audio_url references must be combined with at least one image_url or video_url reference.", "content");
+  }
+
+  const seedanceMode = hasFirstFrame || hasLastFrame
+    ? (hasLastFrame ? "first_last_frame" : "first_frame")
+    : (hasReferenceVideo || hasReferenceAudio ? "reference_video" : hasReferenceImage ? "reference_images" : "text_to_video");
+  const seedanceTier = byteplusSeedanceTierFromModel(model);
+  const advancedBody = {
+    provider: "seedance",
+    model,
+    seedanceTier,
+    prompt,
+    seedanceMode,
+    ratio: firstPresent(source.ratio, source.aspect_ratio, "9:16"),
+    resolution: firstPresent(source.resolution, "720p"),
+    duration: firstPresent(source.duration, source.durationSeconds, 5),
+    generate_audio: boolFromRequest(firstPresent(source.generate_audio, source.generateAudio), true),
+    watermark: boolFromRequest(source.watermark, false),
+    parameters: plainObject(source.parameters),
+  };
+  [
+    "callback_url",
+    "return_last_frame",
+    "service_tier",
+    "execution_expires_after",
+    "draft",
+    "safety_identifier",
+    "priority",
+    "seed",
+    "frames",
+    "fps",
+    "camera_fixed",
+    "web_search",
+  ].forEach((field) => {
+    if (source[field] !== undefined) advancedBody[field] = source[field];
+  });
+  if (target.image_url) advancedBody.image_url = target.image_url;
+  if (target.end_image_url) advancedBody.end_image_url = target.end_image_url;
+  if (target.firstFrameAssetId) advancedBody.firstFrameAssetId = target.firstFrameAssetId;
+  if (target.endImageAssetId) advancedBody.endImageAssetId = target.endImageAssetId;
+  if (target.referenceImages.length) advancedBody.referenceImages = target.referenceImages;
+  if (target.referenceImageAssetUris.length) advancedBody.referenceImageAssetUris = target.referenceImageAssetUris;
+  if (target.referenceVideoUrls.length) advancedBody.referenceVideoUrls = target.referenceVideoUrls;
+  if (target.referenceVideoAssetIds.length) advancedBody.referenceVideoAssetIds = target.referenceVideoAssetIds;
+  if (target.referenceAudioUrls.length) advancedBody.referenceAudioUrls = target.referenceAudioUrls;
+  if (target.referenceAudioAssetIds.length) advancedBody.referenceAudioAssetIds = target.referenceAudioAssetIds;
+  return advancedBody;
+}
+
+function byteplusTaskStatus(status = "") {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (isSucceededStatus(normalized)) return "succeeded";
+  if (isFailedStatus(normalized)) return "failed";
+  if (["running", "processing"].includes(normalized)) return "running";
+  if (["cancelled", "canceled", "expired"].includes(normalized)) return normalized === "canceled" ? "cancelled" : normalized;
+  return "queued";
+}
+
+function unixSecondsFromIso(value = "") {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : Math.floor(Date.now() / 1000);
+}
+
+function usageFromGenerationRecord(record = {}) {
+  const candidates = [
+    record.queryResponse?.usage,
+    record.createResponse?.usage,
+    record.queryResponse?.data?.usage,
+    record.createResponse?.data?.usage,
+    record.queryResponse?.task?.usage,
+    record.createResponse?.task?.usage,
+  ].filter(Boolean);
+  const usage = candidates.find((item) => item && typeof item === "object") || {};
+  const completion = Number(firstPresent(usage.completion_tokens, usage.completionTokens, usage.total_tokens, usage.totalTokens, record.pricingEstimate?.outputTokens));
+  if (!Number.isFinite(completion) || completion <= 0) return undefined;
+  return { completion_tokens: completion, total_tokens: completion };
+}
+
+function byteplusTaskFromRecord(record = {}, options = {}) {
+  const publicRecord = publicGenerationRecord(record, options);
+  const status = byteplusTaskStatus(publicRecord.status);
+  const params = publicRecord.params && typeof publicRecord.params === "object" ? publicRecord.params : {};
+  const response = {
+    id: publicRecord.taskId || record.taskId || "",
+    model: publicRecord.model || params.model || "",
+    status,
+    created_at: unixSecondsFromIso(publicRecord.createdAt || record.createdAt),
+    updated_at: unixSecondsFromIso(publicRecord.updatedAt || record.updatedAt || record.createdAt),
+    generate_audio: boolFromRequest(firstPresent(params.generate_audio, params.generateAudio), true),
+    seed: firstPresent(params.seed, -1),
+    resolution: publicRecord.resolution || params.resolution || "720p",
+    ratio: publicRecord.ratio || params.ratio || "9:16",
+    duration: publicRecord.duration || params.duration || 5,
+    framespersecond: Number(firstPresent(params.fps, params.framespersecond, 24)),
+    priority: Number(firstPresent(params.priority, 0)),
+    draft: boolFromRequest(params.draft, false),
+    service_tier: String(params.service_tier || "default"),
+    execution_expires_after: Number(firstPresent(params.execution_expires_after, 172800)),
+  };
+  if (status === "succeeded") {
+    const content = {};
+    if (publicRecord.videoUrl || publicRecord.downloadUrl) content.video_url = publicRecord.videoUrl || publicRecord.downloadUrl;
+    if (publicRecord.imageResultUrl) content.image_url = publicRecord.imageResultUrl;
+    if (Array.isArray(publicRecord.imageResultUrls) && publicRecord.imageResultUrls.length) {
+      content.image_urls = publicRecord.imageResultUrls;
+      response.data = publicRecord.imageResultUrls.map((url) => ({ url }));
+    }
+    if (Object.keys(content).length) response.content = content;
+    const usage = usageFromGenerationRecord(record);
+    if (usage) response.usage = usage;
+  }
+  if (status === "failed") {
+    response.error = {
+      code: publicRecord.error ? "TaskFailed" : "500",
+      message: publicRecord.error || "Task failed",
+    };
+  }
+  return response;
+}
+
+async function handleByteplusV3CreateTask(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const body = await readJson(req);
+    const advancedBody = byteplusV3TaskToAdvancedBody(body, auth);
+    const captured = captureJsonResponse();
+    await handleAdvancedGenerate(withJsonBody(req, advancedBody), captured);
+    const payload = capturedJsonPayload(captured);
+    if (captured.statusCode >= 400 || !payload?.taskId) {
+      return sendByteplusError(res, captured.statusCode || 400, {
+        code: payload?.code || payload?.error?.code || "InvalidParameter",
+        message: payload?.message || payload?.error?.message || "Failed to create task.",
+        param: payload?.param || payload?.error?.param || "",
+        byteplusError: payload?.error ? payload : null,
+      });
+    }
+    return sendJson(res, 200, { id: payload.taskId });
+  } catch (error) {
+    return sendByteplusError(res, error.statusCode || 400, error);
+  }
+}
+
+async function handleByteplusV3GetTask(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const captured = captureJsonResponse();
+  await handleGetGenerationRecord(req, captured, taskId);
+  const payload = capturedJsonPayload(captured);
+  if (captured.statusCode >= 400 || !payload?.record) {
+    return sendByteplusError(res, captured.statusCode || 404, {
+      code: payload?.code || "ResourceNotFound",
+      message: payload?.message || "Task not found.",
+      byteplusError: payload?.error ? payload : null,
+    });
+  }
+  const record = await getGenerationRecord(taskId);
+  return sendJson(res, 200, byteplusTaskFromRecord(record || payload.record, generationRecordResponseOptionsForAuth(auth)));
+}
+
 function byteplusV3ImageGenerationToAdvancedBody(body = {}) {
   const source = { ...requestParamsFromBody(body), ...body };
   const model = String(source.model || "").trim();
@@ -1124,179 +1412,5 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     },
   });
   });
-}
-
-function qwenImage3ReferenceInputsFromBody(body = {}) {
-  const inputs = seedream5ReferenceInputsFromBody(body);
-  if (inputs.length > QWEN_IMAGE3_REFERENCE_LIMIT) {
-    throw advancedValidationError(
-      "QWEN_IMAGE3_TOO_MANY_REFERENCES",
-      `Qwen Image 3.0 supports at most ${QWEN_IMAGE3_REFERENCE_LIMIT} reference images.`,
-      { count: inputs.length, max: QWEN_IMAGE3_REFERENCE_LIMIT },
-    );
-  }
-  return inputs;
-}
-
-async function prepareQwenImage3ReferenceImages(db, user, body = {}) {
-  const inputs = qwenImage3ReferenceInputsFromBody(body);
-  const preservePublicMediaUrls = boolFromRequest(body.preservePublicMediaUrls, false);
-  const publicInputs = preservePublicMediaUrls
-    ? inputs.map((item) => {
-        const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
-        return isPublicHttpUrl(value) ? publicHttpUrlForUpstream(value) : "";
-      }).filter(Boolean)
-    : [];
-  const localInputs = inputs.filter((item) => {
-    const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
-    return !preservePublicMediaUrls || !isPublicHttpUrl(value);
-  });
-  const assets = await createUserImageAssetsFromInputs(db, user, localInputs, { name: "Qwen Image 3.0 reference" });
-  const preparedAssets = [];
-  const publicImageUrls = [...publicInputs];
-  for (const asset of assets) {
-    validateWan27MediaKind(asset, "image", "Qwen Image 3.0 reference");
-    if (Number(asset.sizeBytes || 0) > 10 * 1024 * 1024) {
-      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_TOO_LARGE", "Qwen Image 3.0 reference images must be 10MB or smaller.", { assetId: asset.id || "" });
-    }
-    const mime = String(asset.mime || "").toLowerCase();
-    if (mime && !["image/jpeg", "image/png", "image/bmp", "image/tiff", "image/webp", "image/gif"].includes(mime)) {
-      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_FORMAT", "Qwen Image 3.0 reference images must be JPG, JPEG, PNG, BMP, TIFF, WebP, or GIF.", { assetId: asset.id || "", mime });
-    }
-    const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
-    const publicUrl = publicUrlForLocalAsset(prepared);
-    if (!isPublicHttpUrl(publicUrl)) {
-      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_NOT_PUBLIC", "Failed to prepare Qwen Image 3.0 reference image URL.", { assetId: asset.id || "" });
-    }
-    preparedAssets.push(prepared);
-    publicImageUrls.push(publicUrl);
-  }
-  return {
-    inputs,
-    assets: preparedAssets,
-    publicImageUrls: [...new Set(publicImageUrls)],
-  };
-}
-
-function qwenImage3RequestFingerprint({ userId = "", model = "", prompt = "", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, referenceInputs = [] } = {}) {
-  const references = (Array.isArray(referenceInputs) ? referenceInputs : []).map((item) => {
-    if (typeof item === "string") return item.trim();
-    const value = String(item?.assetId || item?.url || item?.imageUrl || item?.image_url || item?.dataUrl || item?.fileName || "").trim();
-    return /^data:/i.test(value) ? `data:${crypto.createHash("sha256").update(value).digest("hex")}` : value;
-  }).filter(Boolean);
-  return crypto.createHash("sha256").update(JSON.stringify({
-    provider: "qwen-image3",
-    userId: String(userId || ""),
-    model,
-    prompt: String(prompt || "").trim(),
-    size,
-    outputImageCount,
-    negativePrompt: String(negativePrompt || "").trim(),
-    promptExtend: Boolean(promptExtend),
-    promptExtendMode: String(promptExtendMode || "direct"),
-    watermark: Boolean(watermark),
-    seed: seed === undefined || seed === null || seed === "" ? null : Number(seed),
-    references,
-  })).digest("hex").slice(0, 32);
-}
-
-async function withQwenImage3InFlight(fingerprint, fn) {
-  const key = String(fingerprint || "").trim();
-  if (!key) return await fn();
-  while (QWEN_IMAGE3_IN_FLIGHT.has(key)) await QWEN_IMAGE3_IN_FLIGHT.get(key).catch(() => {});
-  let release = () => {};
-  const lock = new Promise((resolve) => { release = resolve; });
-  QWEN_IMAGE3_IN_FLIGHT.set(key, lock);
-  try {
-    return await fn();
-  } finally {
-    if (QWEN_IMAGE3_IN_FLIGHT.get(key) === lock) QWEN_IMAGE3_IN_FLIGHT.delete(key);
-    release();
-  }
-}
-
-async function findActiveQwenImage3Duplicate({ userId = "", fingerprint = "" } = {}) {
-  const cutoff = Date.now() - 5 * 60 * 1000;
-  const settledCutoff = Date.now() - 3 * 60 * 1000;
-  const records = await listGenerationRecordsForUser(userId, 80);
-  return records.find((record) => (
-    record?.provider === "qwen-image3"
-    && String(record.requestFingerprint || record.params?.requestFingerprint || "") === fingerprint
-    && (
-      (isActiveGenerationStatus(record.status) && generationRecordCreatedMs(record) >= cutoff)
-      || (isSucceededStatus(record.status) && seedream5ImageRecordHasResult(record) && generationRecordUpdatedMs(record) >= settledCutoff)
-    )
-  )) || null;
-}
-
-function queueQwenImage3Submit(submit) {
-  const run = qwenImage3SubmitTail.catch(() => {}).then(async () => {
-    const waitMs = Math.max(0, 61000 - (Date.now() - qwenImage3LastSubmitAt));
-    if (waitMs) await delay(waitMs);
-    qwenImage3LastSubmitAt = Date.now();
-    return await submit();
-  });
-  qwenImage3SubmitTail = run.then(() => undefined, () => undefined);
-  return run;
-}
-
-function qwen37FlashResponseText(raw = {}) {
-  const content = raw?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => typeof item === "string" ? item : String(item?.text || item?.content || ""))
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-  }
-  return String(raw?.choices?.[0]?.text || raw?.output?.text || "").trim();
-}
-
-function qwen37FlashUsage(raw = {}) {
-  const usage = plainObject(raw.usage);
-  return {
-    promptTokens: Math.max(0, Math.floor(Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0)),
-    completionTokens: Math.max(0, Math.floor(Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0)),
-    totalTokens: Math.max(0, Math.floor(Number(usage.total_tokens ?? 0) || 0)),
-  };
-}
-
-async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {}, provider = "qwen37-flash", prompt = "", textResult = "", maxTokens = 0 } = {}) {
-  let promptTokens = Math.max(0, Math.floor(Number(usage.promptTokens || 0)));
-  let completionTokens = Math.max(0, Math.floor(Number(usage.completionTokens || 0)));
-  if (!promptTokens) promptTokens = Math.max(1, Math.floor(Number(pricing.inputTokens || 0)) || Math.ceil(Buffer.byteLength(String(prompt || ""), "utf8") / 2) || 1);
-  if (!completionTokens && String(textResult || "").trim()) {
-    const cap = Math.max(1, Math.floor(Number(maxTokens || pricing.outputTokens || QWEN37_FLASH_MAX_OUTPUT_TOKENS) || QWEN37_FLASH_MAX_OUTPUT_TOKENS));
-    completionTokens = Math.min(cap, Math.max(1, Math.ceil(String(textResult).length * 1.5)));
-  }
-  const rawFinalPricing = advancedModelPricing(provider, {
-    advancedPricing,
-    inputTokens: Math.max(1, promptTokens),
-    outputTokens: Math.max(0, completionTokens),
-  });
-  const finalPricing = applyUserPricingToEstimate(rawFinalPricing, pricing.userPricingMultiplier || 1);
-  const finalCost = finalPricing.credits;
-  const adjustment = creditsAmount(Math.abs(Number(cost || 0) - finalCost));
-  if (adjustment > 0) {
-    const refund = Number(cost || 0) > finalCost;
-    const db = await readDb();
-    await changeUserCredits(db, userId, refund ? adjustment : -adjustment, "advanced_qwen37_flash_settlement", {
-      taskId,
-      preDeductedCredits: cost,
-      finalCredits: finalCost,
-      promptTokens: usage.promptTokens || 0,
-      completionTokens: usage.completionTokens || 0,
-    });
-    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
-    await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
-      taskId,
-      type: "advanced_qwen37_flash_settlement",
-      amount: refund ? -adjustment : adjustment,
-      meta: { preDeductedCredits: cost, finalCredits: finalCost },
-    });
-    if (!dbEnabled()) await writeDb(db);
-  }
-  return { finalCost, finalPricing };
 }
 

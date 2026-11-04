@@ -1,3 +1,313 @@
+function vegaMediaUrls(value, keys = ["url"]) {
+  return arrayFromBody(value)
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+      return String(firstPresent(...keys.map((key) => item[key]), "") || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function vegaRequestMedia(merged = {}) {
+  const firstFrameUrl = String(firstPresent(
+    merged.firstFrameUrl,
+    merged.first_frame_url,
+    merged.imageUrl,
+    merged.image_url,
+  ) || "").trim();
+  const lastFrameUrl = String(firstPresent(
+    merged.lastFrameUrl,
+    merged.last_frame_url,
+    merged.endImageUrl,
+    merged.end_image_url,
+  ) || "").trim();
+  const referenceImages = [...new Set([
+    ...vegaMediaUrls(merged.referenceImages, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.reference_images, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.referenceImageUrls, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.reference_image_urls, ["url", "imageUrl", "image_url"]),
+  ].map((url) => String(url || "").trim()).filter((url) => url && url !== firstFrameUrl && url !== lastFrameUrl))];
+  const referenceVideos = [...new Set([
+    ...vegaMediaUrls(merged.referenceVideos, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.reference_videos, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.referenceVideoUrls, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.reference_video_urls, ["url", "videoUrl", "video_url"]),
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  const referenceAudios = [...new Set([
+    ...vegaMediaUrls(merged.referenceAudios, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.reference_audios, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.referenceAudioUrls, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.reference_audio_urls, ["url", "audioUrl", "audio_url"]),
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  return { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
+}
+
+async function handleAdvancedVegaGenerate(req, res, context = {}) {
+  const provider = normalizeAdvancedProvider(context.provider);
+  const definition = vegaProviderDefinition(provider);
+  if (!definition) return sendJson(res, 400, { ok: false, code: "INVALID_PROVIDER", message: "Unknown Vega provider." });
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  const config = context.config || await readAppConfig();
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const selectedCase = context.selectedCase || null;
+  const merged = mergedRequestForMedia(body, caseParams);
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  const requestedMedia = vegaRequestMedia(merged);
+  const mediaMode = normalizeVegaMediaMode(firstPresent(
+    body.mediaMode,
+    body.seedanceMode,
+    body.functionMode,
+    bodyParams.mediaMode,
+    bodyParams.seedanceMode,
+    bodyParams.functionMode,
+    caseParams.mediaMode,
+    caseParams.seedanceMode,
+    caseParams.functionMode,
+    "",
+  ), requestedMedia);
+  let media;
+  try {
+    media = vegaMediaSelection({ ...requestedMedia, mediaMode });
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, `${definition.label} media is invalid.`);
+  }
+  const duration = normalizeVegaDuration(provider, firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, caseParams.duration));
+  const resolution = normalizeVegaResolution(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "1080P"));
+  const ratio = normalizeVegaRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, "16:9"));
+  const seedValue = firstPresent(body.seed, bodyParams.seed, caseParams.seed);
+  const seed = seedValue === undefined || seedValue === null || seedValue === "" ? undefined : Number(seedValue);
+  if (seed !== undefined && (!Number.isInteger(seed) || seed < 0)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEED", message: "seed must be a non-negative integer." });
+  }
+  // Pricing is intentionally evaluated before credentials, media transport, charging, or upstream calls.
+  let pricing;
+  try {
+    const rawPricing = advancedModelPricing(provider, {
+      ...merged,
+      duration,
+      resolution,
+      ratio,
+      advancedPricing: config.platform?.advancedPricing,
+    });
+    pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+    assertVegaPricingConfigured(provider, pricing);
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, "Model pricing is unavailable.");
+  }
+  const cost = creditsAmount(pricing.credits || 0);
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || {
+      ok: false,
+      code: error.code || "SUBTOKEN_QUOTA_UNAVAILABLE",
+      message: error.message || "Sub token quota is not enough.",
+    });
+  }
+
+  const subAppId = Number(process.env.TENCENT_VOD_SUB_APP_ID || 0);
+  if (!String(process.env.TENCENTCLOUD_SECRET_ID || "").trim() || !String(process.env.TENCENTCLOUD_SECRET_KEY || "").trim() || !Number.isInteger(subAppId) || subAppId <= 0) {
+    return sendJson(res, 503, {
+      ok: false,
+      code: "TENCENT_VOD_NOT_CONFIGURED",
+      message: "Tencent VOD is not configured. Generation was not started.",
+    });
+  }
+  let payload;
+  try {
+    payload = buildVegaCreatePayload({
+      provider,
+      prompt,
+      ...media,
+      mediaMode: media.mode,
+      duration,
+      resolution,
+      ratio,
+      seed,
+    }, { subAppId });
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
+  }
+
+  const taskId = localGenerationTaskId("cgt");
+  const requestParams = {
+    ...caseParams,
+    ...bodyParams,
+    ...body,
+    provider,
+    mediaMode: media.mode,
+    duration,
+    resolution,
+    ratio,
+    seed,
+  };
+  for (const key of [
+    "firstFrameUrl", "first_frame_url", "imageUrl", "image_url",
+    "lastFrameUrl", "last_frame_url", "endImageUrl", "end_image_url",
+    "referenceImages", "reference_images", "referenceImageUrls", "reference_image_urls",
+    "referenceVideos", "reference_videos", "referenceVideoUrls", "reference_video_urls",
+    "referenceAudios", "reference_audios", "referenceAudioUrls", "reference_audio_urls",
+  ]) delete requestParams[key];
+  if (media.mode === "first_last_frame") {
+    requestParams.firstFrameUrl = media.firstFrameUrl;
+    requestParams.lastFrameUrl = media.lastFrameUrl;
+  } else {
+    requestParams.referenceImages = media.referenceImages;
+    requestParams.referenceVideos = media.referenceVideos;
+    requestParams.referenceAudios = media.referenceAudios;
+  }
+  const requestTrace = requestTraceForGeneration(req);
+  let charged = false;
+  try {
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: "advanced_generation",
+        taskId,
+        meta: {
+          taskId,
+          provider,
+          model: definition.modelName,
+          modelVersion: definition.modelVersion,
+          duration,
+          resolution,
+          ratio,
+          pricingSource: pricing.source || "vega_not_configured",
+          baseCredits: pricing.baseCredits,
+          originalCost: pricing.originalCredits,
+          pricingMultiplier: pricing.userPricingMultiplier,
+          markup: pricing.markup,
+        },
+      });
+      charged = true;
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+    const initialRecord = await upsertGenerationRecord({
+      taskId,
+      status: "submitting",
+      model: `${definition.modelName}:${definition.modelVersion}`,
+      provider,
+      source: `advanced-${provider}`,
+      kind: "advanced-video",
+      upstreamSource: "tencent-vod",
+      templateId: selectedCase?.id || "",
+      templateTitle: selectedCase?.title || definition.label,
+      userId: auth.user.id,
+      prompt,
+      finalPrompt: prompt,
+      params: requestParams,
+      mediaMode: media.mode,
+      mediaAssets: media.mode === "first_last_frame"
+        ? [
+          { type: "first_frame", url: media.firstFrameUrl },
+          { type: "last_frame", url: media.lastFrameUrl },
+        ]
+        : [
+          ...media.referenceImages.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, url })),
+          ...media.referenceVideos.map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, videoUrl: url })),
+          ...media.referenceAudios.map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, audioUrl: url })),
+        ],
+      ratio,
+      resolution,
+      duration,
+      quality: resolution,
+      upstreamPayload: payload,
+      createResponse: null,
+      awaitingUpstreamTask: true,
+      error: "",
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits ?? cost,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+      billingStatus: cost > 0 ? "pre_deducted" : "free",
+      billingSettledAt: "",
+      pricingEstimate: pricing,
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+      ...requestTrace,
+    });
+    const raw = await callTencentVod({ action: "CreateAigcVideoTask", payload });
+    const upstreamTaskId = vegaCreateTaskId(raw);
+    if (!upstreamTaskId) {
+      throw Object.assign(new Error("Tencent VOD did not return a task id."), { statusCode: 502, code: "TENCENT_VOD_TASK_ID_MISSING", payload: raw });
+    }
+    const record = await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId,
+      status: "submitted",
+      awaitingUpstreamTask: true,
+      upstreamPayload: payload,
+      createResponse: raw,
+      error: "",
+    });
+    const latestDb = await readDb();
+    const latestUser = (latestDb.users || []).find((user) => user.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      async: true,
+      task: { taskId: record.taskId, status: record.status },
+      taskId: record.taskId,
+      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
+      user: userView(latestUser),
+      pricing,
+      cost,
+      params: initialRecord.params,
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    if (charged) {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, auth.user.id, cost, "advanced_vega_refund", { taskId, provider, error: errorInfo.message });
+        await recordSubtokenAdjustment({ taskId, userId: auth.user.id, provider }, {
+          taskId,
+          type: "advanced_vega_refund",
+          amount: -cost,
+          meta: { provider, error: errorInfo.message },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[vega-generation-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      provider,
+      source: `advanced-${provider}`,
+      kind: "advanced-video",
+      upstreamSource: "tencent-vod",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || `${definition.label} failed.`,
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload: payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+    const current = await getGenerationRecord(taskId).catch(() => null);
+    return sendJson(res, errorInfo.statusCode || 502, {
+      ok: false,
+      message: errorInfo.message || `${definition.label} failed.`,
+      code: errorInfo.code || "",
+      taskId,
+      record: publicGenerationRecord(current || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      payload: errorInfo.payload || null,
+    });
+  }
+}
+
 function advancedRuntimeForProvider(provider, requestParams = {}) {
   if (isVegaProvider(provider)) {
     const definition = vegaProviderDefinition(provider);
@@ -986,293 +1296,5 @@ function pushByteplusV3AssetReference(auth, target, role, url, param, item = {})
     return;
   }
   target.referenceImages.push({ url: directValue, fileName: item.fileName || item.name || "" });
-}
-
-function byteplusSeedanceTierFromModel(model = "") {
-  const alias = seedanceModelAliasKind(model);
-  if (alias) return alias;
-  const normalized = String(model || "").toLowerCase();
-  return normalized.includes("fast") || normalized.includes("mini") ? "fast" : "standard";
-}
-
-function byteplusV3SupportedSeedanceModel(model = "") {
-  const raw = String(model || "").trim();
-  if (!raw) return false;
-  const compact = (value) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  const wanted = compact(raw);
-  if (!wanted) return false;
-  if ([MODEL_QUALITY, MODEL_FAST, SEEDANCE_QUALITY_ENDPOINT_ID, SEEDANCE_FAST_ENDPOINT_ID]
-    .map(compact)
-    .filter(Boolean)
-    .includes(wanted)) return true;
-  if (seedanceModelAliasKind(raw)) return true;
-  // Seedance 2.5 is a different product that runs on the advanced route, so reject it here
-  // even though its id is Seedance-branded.
-  if (wanted.includes("seedance25") || wanted.includes("seedance2.5")) return false;
-  // Allow any other Seedance-branded model id so future Seedance 2.0 revisions keep working;
-  // reject everything else (Wan, HappyHorse, ...) with a route hint instead of a silent async failure.
-  return wanted.includes("seedance");
-}
-
-function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
-  const source = { ...requestParamsFromBody(body), ...body };
-  const model = String(source.model || "").trim();
-  if (!model) throw byteplusHttpError(400, "model is required.", "model");
-  if (!byteplusV3SupportedSeedanceModel(model)) {
-    throw byteplusHttpError(
-      400,
-      `model "${model}" is not supported on POST /api/v3/contents/generations/tasks. This endpoint only accepts Seedance models. Wan 3.0, Wan2.7, HappyHorse, and other video models use POST /api/advanced/generate.`,
-      "model",
-      "InvalidParameter.UnsupportedModel",
-    );
-  }
-  if (!Array.isArray(source.content) || source.content.length < 1 || source.content.length > 16) {
-    throw byteplusHttpError(400, "content must be an array with 1 to 16 items.", "content");
-  }
-  const promptParts = [];
-  const target = {
-    referenceImages: [],
-    referenceImageAssetUris: [],
-    referenceVideoUrls: [],
-    referenceVideoAssetIds: [],
-    referenceAudioUrls: [],
-    referenceAudioAssetIds: [],
-  };
-  let hasFirstFrame = false;
-  let hasLastFrame = false;
-  let hasReferenceImage = false;
-  let hasReferenceVideo = false;
-  let hasReferenceAudio = false;
-  let imageCount = 0;
-  let videoCount = 0;
-  let audioCount = 0;
-
-  source.content.forEach((rawItem, index) => {
-    const param = `content[${index}]`;
-    const item = normalizeSeedanceContentItem(rawItem);
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw byteplusHttpError(400, `${param} must be an object.`, param);
-    }
-    const type = String(item.type || "").trim().toLowerCase();
-    if (type === "text") {
-      const text = String(item.text || "").trim();
-      if (text) promptParts.push(text);
-      return;
-    }
-    const rawRole = String(item.role || "").trim().toLowerCase();
-    if (type === "image_url") {
-      const role = rawRole || "reference_image";
-      if (!["first_frame", "last_frame", "reference_image"].includes(role)) {
-        throw byteplusHttpError(400, "image_url role must be first_frame, last_frame, or reference_image.", `${param}.role`);
-      }
-      const url = byteplusNestedMediaUrl(item, type);
-      pushByteplusV3AssetReference(auth, target, role, url, `${param}.image_url.url`, item);
-      imageCount += 1;
-      hasFirstFrame = hasFirstFrame || role === "first_frame";
-      hasLastFrame = hasLastFrame || role === "last_frame";
-      hasReferenceImage = hasReferenceImage || role === "reference_image";
-      return;
-    }
-    if (type === "video_url") {
-      const role = rawRole || "";
-      if (role !== "reference_video") {
-        throw byteplusHttpError(400, "reference videos require role=reference_video.", `${param}.role`);
-      }
-      const url = byteplusNestedMediaUrl(item, type);
-      pushByteplusV3AssetReference(auth, target, role, url, `${param}.video_url.url`, item);
-      videoCount += 1;
-      hasReferenceVideo = true;
-      return;
-    }
-    if (type === "audio_url") {
-      const role = rawRole || "";
-      if (role !== "reference_audio") {
-        throw byteplusHttpError(400, "reference audios require role=reference_audio.", `${param}.role`);
-      }
-      const url = byteplusNestedMediaUrl(item, type);
-      pushByteplusV3AssetReference(auth, target, role, url, `${param}.audio_url.url`, item);
-      audioCount += 1;
-      hasReferenceAudio = true;
-      return;
-    }
-    throw byteplusHttpError(400, `content type ${type || "(empty)"} is not supported.`, `${param}.type`);
-  });
-
-  const prompt = promptParts.join("\n").trim();
-  if (!prompt) throw byteplusHttpError(400, "content must include a non-empty text prompt.", "content");
-  if (imageCount > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
-    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs.`, "content");
-  }
-  if (videoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
-    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} video inputs.`, "content");
-  }
-  if (audioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
-    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audio inputs.`, "content");
-  }
-  if (hasLastFrame && !hasFirstFrame) {
-    throw byteplusHttpError(400, "last_frame requires a matching first_frame image.", "content");
-  }
-  if ((hasFirstFrame || hasLastFrame) && (hasReferenceImage || hasReferenceVideo || hasReferenceAudio)) {
-    throw byteplusHttpError(400, "first_frame and last_frame roles cannot be mixed with reference media.", "content");
-  }
-  if (hasReferenceAudio && !hasReferenceImage && !hasReferenceVideo) {
-    throw byteplusHttpError(400, "audio_url references must be combined with at least one image_url or video_url reference.", "content");
-  }
-
-  const seedanceMode = hasFirstFrame || hasLastFrame
-    ? (hasLastFrame ? "first_last_frame" : "first_frame")
-    : (hasReferenceVideo || hasReferenceAudio ? "reference_video" : hasReferenceImage ? "reference_images" : "text_to_video");
-  const seedanceTier = byteplusSeedanceTierFromModel(model);
-  const advancedBody = {
-    provider: "seedance",
-    model,
-    seedanceTier,
-    prompt,
-    seedanceMode,
-    ratio: firstPresent(source.ratio, source.aspect_ratio, "9:16"),
-    resolution: firstPresent(source.resolution, "720p"),
-    duration: firstPresent(source.duration, source.durationSeconds, 5),
-    generate_audio: boolFromRequest(firstPresent(source.generate_audio, source.generateAudio), true),
-    watermark: boolFromRequest(source.watermark, false),
-    parameters: plainObject(source.parameters),
-  };
-  [
-    "callback_url",
-    "return_last_frame",
-    "service_tier",
-    "execution_expires_after",
-    "draft",
-    "safety_identifier",
-    "priority",
-    "seed",
-    "frames",
-    "fps",
-    "camera_fixed",
-    "web_search",
-  ].forEach((field) => {
-    if (source[field] !== undefined) advancedBody[field] = source[field];
-  });
-  if (target.image_url) advancedBody.image_url = target.image_url;
-  if (target.end_image_url) advancedBody.end_image_url = target.end_image_url;
-  if (target.firstFrameAssetId) advancedBody.firstFrameAssetId = target.firstFrameAssetId;
-  if (target.endImageAssetId) advancedBody.endImageAssetId = target.endImageAssetId;
-  if (target.referenceImages.length) advancedBody.referenceImages = target.referenceImages;
-  if (target.referenceImageAssetUris.length) advancedBody.referenceImageAssetUris = target.referenceImageAssetUris;
-  if (target.referenceVideoUrls.length) advancedBody.referenceVideoUrls = target.referenceVideoUrls;
-  if (target.referenceVideoAssetIds.length) advancedBody.referenceVideoAssetIds = target.referenceVideoAssetIds;
-  if (target.referenceAudioUrls.length) advancedBody.referenceAudioUrls = target.referenceAudioUrls;
-  if (target.referenceAudioAssetIds.length) advancedBody.referenceAudioAssetIds = target.referenceAudioAssetIds;
-  return advancedBody;
-}
-
-function byteplusTaskStatus(status = "") {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (isSucceededStatus(normalized)) return "succeeded";
-  if (isFailedStatus(normalized)) return "failed";
-  if (["running", "processing"].includes(normalized)) return "running";
-  if (["cancelled", "canceled", "expired"].includes(normalized)) return normalized === "canceled" ? "cancelled" : normalized;
-  return "queued";
-}
-
-function unixSecondsFromIso(value = "") {
-  const ms = Date.parse(String(value || ""));
-  return Number.isFinite(ms) ? Math.floor(ms / 1000) : Math.floor(Date.now() / 1000);
-}
-
-function usageFromGenerationRecord(record = {}) {
-  const candidates = [
-    record.queryResponse?.usage,
-    record.createResponse?.usage,
-    record.queryResponse?.data?.usage,
-    record.createResponse?.data?.usage,
-    record.queryResponse?.task?.usage,
-    record.createResponse?.task?.usage,
-  ].filter(Boolean);
-  const usage = candidates.find((item) => item && typeof item === "object") || {};
-  const completion = Number(firstPresent(usage.completion_tokens, usage.completionTokens, usage.total_tokens, usage.totalTokens, record.pricingEstimate?.outputTokens));
-  if (!Number.isFinite(completion) || completion <= 0) return undefined;
-  return { completion_tokens: completion, total_tokens: completion };
-}
-
-function byteplusTaskFromRecord(record = {}, options = {}) {
-  const publicRecord = publicGenerationRecord(record, options);
-  const status = byteplusTaskStatus(publicRecord.status);
-  const params = publicRecord.params && typeof publicRecord.params === "object" ? publicRecord.params : {};
-  const response = {
-    id: publicRecord.taskId || record.taskId || "",
-    model: publicRecord.model || params.model || "",
-    status,
-    created_at: unixSecondsFromIso(publicRecord.createdAt || record.createdAt),
-    updated_at: unixSecondsFromIso(publicRecord.updatedAt || record.updatedAt || record.createdAt),
-    generate_audio: boolFromRequest(firstPresent(params.generate_audio, params.generateAudio), true),
-    seed: firstPresent(params.seed, -1),
-    resolution: publicRecord.resolution || params.resolution || "720p",
-    ratio: publicRecord.ratio || params.ratio || "9:16",
-    duration: publicRecord.duration || params.duration || 5,
-    framespersecond: Number(firstPresent(params.fps, params.framespersecond, 24)),
-    priority: Number(firstPresent(params.priority, 0)),
-    draft: boolFromRequest(params.draft, false),
-    service_tier: String(params.service_tier || "default"),
-    execution_expires_after: Number(firstPresent(params.execution_expires_after, 172800)),
-  };
-  if (status === "succeeded") {
-    const content = {};
-    if (publicRecord.videoUrl || publicRecord.downloadUrl) content.video_url = publicRecord.videoUrl || publicRecord.downloadUrl;
-    if (publicRecord.imageResultUrl) content.image_url = publicRecord.imageResultUrl;
-    if (Array.isArray(publicRecord.imageResultUrls) && publicRecord.imageResultUrls.length) {
-      content.image_urls = publicRecord.imageResultUrls;
-      response.data = publicRecord.imageResultUrls.map((url) => ({ url }));
-    }
-    if (Object.keys(content).length) response.content = content;
-    const usage = usageFromGenerationRecord(record);
-    if (usage) response.usage = usage;
-  }
-  if (status === "failed") {
-    response.error = {
-      code: publicRecord.error ? "TaskFailed" : "500",
-      message: publicRecord.error || "Task failed",
-    };
-  }
-  return response;
-}
-
-async function handleByteplusV3CreateTask(req, res) {
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  try {
-    const body = await readJson(req);
-    const advancedBody = byteplusV3TaskToAdvancedBody(body, auth);
-    const captured = captureJsonResponse();
-    await handleAdvancedGenerate(withJsonBody(req, advancedBody), captured);
-    const payload = capturedJsonPayload(captured);
-    if (captured.statusCode >= 400 || !payload?.taskId) {
-      return sendByteplusError(res, captured.statusCode || 400, {
-        code: payload?.code || payload?.error?.code || "InvalidParameter",
-        message: payload?.message || payload?.error?.message || "Failed to create task.",
-        param: payload?.param || payload?.error?.param || "",
-        byteplusError: payload?.error ? payload : null,
-      });
-    }
-    return sendJson(res, 200, { id: payload.taskId });
-  } catch (error) {
-    return sendByteplusError(res, error.statusCode || 400, error);
-  }
-}
-
-async function handleByteplusV3GetTask(req, res, taskId) {
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  const captured = captureJsonResponse();
-  await handleGetGenerationRecord(req, captured, taskId);
-  const payload = capturedJsonPayload(captured);
-  if (captured.statusCode >= 400 || !payload?.record) {
-    return sendByteplusError(res, captured.statusCode || 404, {
-      code: payload?.code || "ResourceNotFound",
-      message: payload?.message || "Task not found.",
-      byteplusError: payload?.error ? payload : null,
-    });
-  }
-  const record = await getGenerationRecord(taskId);
-  return sendJson(res, 200, byteplusTaskFromRecord(record || payload.record, generationRecordResponseOptionsForAuth(auth)));
 }
 

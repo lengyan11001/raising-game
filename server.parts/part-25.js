@@ -1,3 +1,250 @@
+async function settleWan30AdaptiveDuration(record = {}, reason = "query") {
+  if (!usesWan30AdaptiveDurationPricing(record) || !isSucceededStatus(record.status) || record.billingSettledAt) return record;
+  const resultUrl = String(record.remoteVideoUrl || record.videoUrl || record.cdnVideoUrl || record.localVideoUrl || "").trim();
+  if (!resultUrl) return record;
+  const actualDuration = await probeVideoDurationSeconds(resultUrl);
+  if (!(actualDuration > 0)) return record;
+
+  const pricing = record.pricingEstimate || {};
+  const creditsPerSecond = Number(pricing.creditsPerSecond || 0);
+  const originalFinalCredits = creditsAmount(Math.min(30, actualDuration) * creditsPerSecond);
+  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
+  const finalCredits = applyUserPricingMultiplierToCredits(originalFinalCredits, pricingMultiplier);
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const delta = preDeducted - finalCredits;
+  let billingStatus = "settled";
+  const db = await readDb();
+
+  try {
+    if (delta > 0) {
+      await changeUserCredits(db, record.userId, delta, "generation_refund", {
+        taskId: record.taskId,
+        provider: record.provider,
+        reason,
+        preDeducted,
+        finalCredits,
+        originalFinalCredits,
+        pricingMultiplier,
+        generatedDurationSeconds: actualDuration,
+      });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_refund",
+        amount: -delta,
+        meta: { provider: record.provider, reason, preDeducted, finalCredits, originalFinalCredits, generatedDurationSeconds: actualDuration },
+      });
+      if (!dbEnabled()) await writeDb(db);
+    } else if (delta < 0) {
+      await changeUserCredits(db, record.userId, delta, "generation_settle", {
+        taskId: record.taskId,
+        provider: record.provider,
+        reason,
+        preDeducted,
+        finalCredits,
+        originalFinalCredits,
+        pricingMultiplier,
+        generatedDurationSeconds: actualDuration,
+      });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_settle",
+        amount: Math.abs(delta),
+        meta: { provider: record.provider, reason, preDeducted, finalCredits, originalFinalCredits, generatedDurationSeconds: actualDuration },
+      });
+      if (!dbEnabled()) await writeDb(db);
+    }
+  } catch (error) {
+    if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
+      billingStatus = "settle_pending_insufficient";
+      return upsertGenerationRecord({
+        taskId: record.taskId,
+        finalCredits,
+        originalFinalCredits,
+        userPricingMultiplier: pricingMultiplier,
+        generatedDurationSeconds: actualDuration,
+        billingStatus,
+        billingError: error.message || "Not enough credits or sub token quota for final settlement.",
+      });
+    }
+    throw error;
+  }
+
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    finalCredits,
+    originalFinalCredits,
+    userPricingMultiplier: pricingMultiplier,
+    generatedDurationSeconds: actualDuration,
+    billingStatus,
+    billingSettledAt: new Date().toISOString(),
+    billingError: "",
+  });
+}
+
+async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  if (usesWan30AdaptiveDurationPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt) {
+    return settleWan30AdaptiveDuration(record, reason);
+  }
+  if (
+    seedanceUsesTokenPricing(record) &&
+    record.taskId &&
+    record.userId &&
+    isSucceededStatus(record.status) &&
+    !record.billingSettledAt
+  ) {
+    const usage = seedanceFinalCreditsFromUsage(record);
+    if (!usage) return record;
+    const configuredSalePrice = seedanceUsesConfiguredSalePrice(record);
+    const finalCredits = configuredSalePrice ? preDeducted : usage.credits;
+    const originalFinalCredits = configuredSalePrice
+      ? creditsAmount(record.originalPreDeductedCredits ?? preDeducted)
+      : usage.originalCredits;
+    const delta = preDeducted - finalCredits;
+    let billingStatus = "settled";
+    const db = await readDb();
+    try {
+      if (delta > 0) {
+        await changeUserCredits(db, record.userId, delta, "generation_refund", {
+          taskId: record.taskId,
+          provider: record.provider || "seedance",
+          reason,
+          preDeducted,
+          baseCredits: usage.baseCredits,
+          finalCredits,
+          originalFinalCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
+          pricingMultiplier: usage.pricingMultiplier,
+          markup: usage.markup,
+          completionTokens: usage.completionTokens,
+        });
+        await recordSubtokenAdjustment(record, {
+          taskId: record.taskId,
+          type: "generation_refund",
+          amount: -delta,
+          meta: {
+            provider: record.provider || "seedance",
+            reason,
+            preDeducted,
+            finalCredits,
+            originalFinalCredits,
+            upstreamCalculatedCredits: usage.credits,
+            upstreamOriginalCredits: usage.originalCredits,
+          },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } else if (delta < 0) {
+        await changeUserCredits(db, record.userId, delta, "generation_settle", {
+          taskId: record.taskId,
+          provider: record.provider || "seedance",
+          reason,
+          preDeducted,
+          baseCredits: usage.baseCredits,
+          finalCredits,
+          originalFinalCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
+          pricingMultiplier: usage.pricingMultiplier,
+          markup: usage.markup,
+          completionTokens: usage.completionTokens,
+        });
+        await recordSubtokenAdjustment(record, {
+          taskId: record.taskId,
+          type: "generation_settle",
+          amount: Math.abs(delta),
+          meta: {
+            provider: record.provider || "seedance",
+            reason,
+            preDeducted,
+            finalCredits,
+            originalFinalCredits,
+            upstreamCalculatedCredits: usage.credits,
+            upstreamOriginalCredits: usage.originalCredits,
+          },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      }
+    } catch (error) {
+      if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
+        billingStatus = "settle_pending_insufficient";
+        return upsertGenerationRecord({
+          taskId: record.taskId,
+          finalCredits,
+          originalFinalCredits,
+          userPricingMultiplier: usage.pricingMultiplier,
+          billingStatus,
+          billingError: error.message || "Not enough credits or sub token quota for final settlement.",
+          usageCompletionTokens: usage.completionTokens,
+          usageBaseCredits: usage.baseCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
+          billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
+        });
+      }
+      throw error;
+    }
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      finalCredits,
+      originalFinalCredits,
+      userPricingMultiplier: usage.pricingMultiplier,
+      billingStatus,
+      billingSettledAt: new Date().toISOString(),
+      billingError: "",
+      usageCompletionTokens: usage.completionTokens,
+      usageBaseCredits: usage.baseCredits,
+      upstreamCalculatedCredits: usage.credits,
+      upstreamOriginalCredits: usage.originalCredits,
+      billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
+    });
+  }
+
+  if (!needsSeedanceFailureRefund(record)) return record;
+  const db = await readDb();
+  const alreadyRefunded = (db.creditLedger || []).some((entry) => (
+    entry.userId === record.userId &&
+    entry.type === "generation_refund" &&
+    entry.meta?.taskId === record.taskId
+  ));
+
+  try {
+    if (!alreadyRefunded) {
+      await changeUserCredits(db, record.userId, preDeducted, "generation_refund", {
+        taskId: record.taskId,
+        provider: record.provider || "seedance",
+        reason,
+        preDeducted,
+        finalCredits: 0,
+        originalFinalCredits: 0,
+        pricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
+      });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_refund",
+        amount: -preDeducted,
+        meta: { provider: record.provider || "seedance", reason, preDeducted },
+      });
+      if (!dbEnabled()) await writeDb(db);
+    }
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      userPricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
+      billingStatus: "refunded",
+      billingSettledAt: new Date().toISOString(),
+      billingError: "",
+    });
+  } catch (error) {
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      billingStatus: "refund_failed",
+      billingError: error.message || "Failed to refund failed generation.",
+    });
+  }
+}
+
 function extractApizReportedCredits(value, depth = 0) {
   if (value === null || value === undefined || depth > 40) return null;
   if (typeof value === "string") {
@@ -1071,316 +1318,6 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code, message: error.message });
     }
     return sendAdvancedValidationError(res, error, `${providerLabel} request is invalid.`);
-  }
-}
-
-function vegaMediaUrls(value, keys = ["url"]) {
-  return arrayFromBody(value)
-    .map((item) => {
-      if (typeof item === "string") return item.trim();
-      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
-      return String(firstPresent(...keys.map((key) => item[key]), "") || "").trim();
-    })
-    .filter(Boolean);
-}
-
-function vegaRequestMedia(merged = {}) {
-  const firstFrameUrl = String(firstPresent(
-    merged.firstFrameUrl,
-    merged.first_frame_url,
-    merged.imageUrl,
-    merged.image_url,
-  ) || "").trim();
-  const lastFrameUrl = String(firstPresent(
-    merged.lastFrameUrl,
-    merged.last_frame_url,
-    merged.endImageUrl,
-    merged.end_image_url,
-  ) || "").trim();
-  const referenceImages = [...new Set([
-    ...vegaMediaUrls(merged.referenceImages, ["url", "imageUrl", "image_url"]),
-    ...vegaMediaUrls(merged.reference_images, ["url", "imageUrl", "image_url"]),
-    ...vegaMediaUrls(merged.referenceImageUrls, ["url", "imageUrl", "image_url"]),
-    ...vegaMediaUrls(merged.reference_image_urls, ["url", "imageUrl", "image_url"]),
-  ].map((url) => String(url || "").trim()).filter((url) => url && url !== firstFrameUrl && url !== lastFrameUrl))];
-  const referenceVideos = [...new Set([
-    ...vegaMediaUrls(merged.referenceVideos, ["url", "videoUrl", "video_url"]),
-    ...vegaMediaUrls(merged.reference_videos, ["url", "videoUrl", "video_url"]),
-    ...vegaMediaUrls(merged.referenceVideoUrls, ["url", "videoUrl", "video_url"]),
-    ...vegaMediaUrls(merged.reference_video_urls, ["url", "videoUrl", "video_url"]),
-  ].map((url) => String(url || "").trim()).filter(Boolean))];
-  const referenceAudios = [...new Set([
-    ...vegaMediaUrls(merged.referenceAudios, ["url", "audioUrl", "audio_url"]),
-    ...vegaMediaUrls(merged.reference_audios, ["url", "audioUrl", "audio_url"]),
-    ...vegaMediaUrls(merged.referenceAudioUrls, ["url", "audioUrl", "audio_url"]),
-    ...vegaMediaUrls(merged.reference_audio_urls, ["url", "audioUrl", "audio_url"]),
-  ].map((url) => String(url || "").trim()).filter(Boolean))];
-  return { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
-}
-
-async function handleAdvancedVegaGenerate(req, res, context = {}) {
-  const provider = normalizeAdvancedProvider(context.provider);
-  const definition = vegaProviderDefinition(provider);
-  if (!definition) return sendJson(res, 400, { ok: false, code: "INVALID_PROVIDER", message: "Unknown Vega provider." });
-  const auth = context.auth || await requireUser(req, res);
-  if (!auth) return;
-  const config = context.config || await readAppConfig();
-  const body = context.body || await readJson(req);
-  const bodyParams = context.bodyParams || requestParamsFromBody(body);
-  const caseParams = context.caseParams || {};
-  const selectedCase = context.selectedCase || null;
-  const merged = mergedRequestForMedia(body, caseParams);
-  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
-  const requestedMedia = vegaRequestMedia(merged);
-  const mediaMode = normalizeVegaMediaMode(firstPresent(
-    body.mediaMode,
-    body.seedanceMode,
-    body.functionMode,
-    bodyParams.mediaMode,
-    bodyParams.seedanceMode,
-    bodyParams.functionMode,
-    caseParams.mediaMode,
-    caseParams.seedanceMode,
-    caseParams.functionMode,
-    "",
-  ), requestedMedia);
-  let media;
-  try {
-    media = vegaMediaSelection({ ...requestedMedia, mediaMode });
-  } catch (error) {
-    return sendAdvancedValidationError(res, error, `${definition.label} media is invalid.`);
-  }
-  const duration = normalizeVegaDuration(provider, firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, caseParams.duration));
-  const resolution = normalizeVegaResolution(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "1080P"));
-  const ratio = normalizeVegaRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, "16:9"));
-  const seedValue = firstPresent(body.seed, bodyParams.seed, caseParams.seed);
-  const seed = seedValue === undefined || seedValue === null || seedValue === "" ? undefined : Number(seedValue);
-  if (seed !== undefined && (!Number.isInteger(seed) || seed < 0)) {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEED", message: "seed must be a non-negative integer." });
-  }
-  // Pricing is intentionally evaluated before credentials, media transport, charging, or upstream calls.
-  let pricing;
-  try {
-    const rawPricing = advancedModelPricing(provider, {
-      ...merged,
-      duration,
-      resolution,
-      ratio,
-      advancedPricing: config.platform?.advancedPricing,
-    });
-    pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
-    assertVegaPricingConfigured(provider, pricing);
-  } catch (error) {
-    return sendAdvancedValidationError(res, error, "Model pricing is unavailable.");
-  }
-  const cost = creditsAmount(pricing.credits || 0);
-  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  try {
-    assertSubtokenCanSpend(auth, cost);
-  } catch (error) {
-    return sendJson(res, error.statusCode || 402, error.payload || {
-      ok: false,
-      code: error.code || "SUBTOKEN_QUOTA_UNAVAILABLE",
-      message: error.message || "Sub token quota is not enough.",
-    });
-  }
-
-  const subAppId = Number(process.env.TENCENT_VOD_SUB_APP_ID || 0);
-  if (!String(process.env.TENCENTCLOUD_SECRET_ID || "").trim() || !String(process.env.TENCENTCLOUD_SECRET_KEY || "").trim() || !Number.isInteger(subAppId) || subAppId <= 0) {
-    return sendJson(res, 503, {
-      ok: false,
-      code: "TENCENT_VOD_NOT_CONFIGURED",
-      message: "Tencent VOD is not configured. Generation was not started.",
-    });
-  }
-  let payload;
-  try {
-    payload = buildVegaCreatePayload({
-      provider,
-      prompt,
-      ...media,
-      mediaMode: media.mode,
-      duration,
-      resolution,
-      ratio,
-      seed,
-    }, { subAppId });
-  } catch (error) {
-    return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
-  }
-
-  const taskId = localGenerationTaskId("cgt");
-  const requestParams = {
-    ...caseParams,
-    ...bodyParams,
-    ...body,
-    provider,
-    mediaMode: media.mode,
-    duration,
-    resolution,
-    ratio,
-    seed,
-  };
-  for (const key of [
-    "firstFrameUrl", "first_frame_url", "imageUrl", "image_url",
-    "lastFrameUrl", "last_frame_url", "endImageUrl", "end_image_url",
-    "referenceImages", "reference_images", "referenceImageUrls", "reference_image_urls",
-    "referenceVideos", "reference_videos", "referenceVideoUrls", "reference_video_urls",
-    "referenceAudios", "reference_audios", "referenceAudioUrls", "reference_audio_urls",
-  ]) delete requestParams[key];
-  if (media.mode === "first_last_frame") {
-    requestParams.firstFrameUrl = media.firstFrameUrl;
-    requestParams.lastFrameUrl = media.lastFrameUrl;
-  } else {
-    requestParams.referenceImages = media.referenceImages;
-    requestParams.referenceVideos = media.referenceVideos;
-    requestParams.referenceAudios = media.referenceAudios;
-  }
-  const requestTrace = requestTraceForGeneration(req);
-  let charged = false;
-  try {
-    if (cost > 0) {
-      await chargeUserWithSubtoken(auth, {
-        cost,
-        type: "advanced_generation",
-        taskId,
-        meta: {
-          taskId,
-          provider,
-          model: definition.modelName,
-          modelVersion: definition.modelVersion,
-          duration,
-          resolution,
-          ratio,
-          pricingSource: pricing.source || "vega_not_configured",
-          baseCredits: pricing.baseCredits,
-          originalCost: pricing.originalCredits,
-          pricingMultiplier: pricing.userPricingMultiplier,
-          markup: pricing.markup,
-        },
-      });
-      charged = true;
-      if (!dbEnabled()) await writeDb(auth.db);
-    }
-    const initialRecord = await upsertGenerationRecord({
-      taskId,
-      status: "submitting",
-      model: `${definition.modelName}:${definition.modelVersion}`,
-      provider,
-      source: `advanced-${provider}`,
-      kind: "advanced-video",
-      upstreamSource: "tencent-vod",
-      templateId: selectedCase?.id || "",
-      templateTitle: selectedCase?.title || definition.label,
-      userId: auth.user.id,
-      prompt,
-      finalPrompt: prompt,
-      params: requestParams,
-      mediaMode: media.mode,
-      mediaAssets: media.mode === "first_last_frame"
-        ? [
-          { type: "first_frame", url: media.firstFrameUrl },
-          { type: "last_frame", url: media.lastFrameUrl },
-        ]
-        : [
-          ...media.referenceImages.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, url })),
-          ...media.referenceVideos.map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, videoUrl: url })),
-          ...media.referenceAudios.map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, audioUrl: url })),
-        ],
-      ratio,
-      resolution,
-      duration,
-      quality: resolution,
-      upstreamPayload: payload,
-      createResponse: null,
-      awaitingUpstreamTask: true,
-      error: "",
-      preDeductedCredits: cost,
-      originalPreDeductedCredits: pricing.originalCredits ?? cost,
-      finalCredits: cost,
-      originalFinalCredits: pricing.originalCredits ?? cost,
-      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
-      billingStatus: cost > 0 ? "pre_deducted" : "free",
-      billingSettledAt: "",
-      pricingEstimate: pricing,
-      apiTokenId: auth.tokenRecord?.id || "",
-      apiTokenName: auth.tokenRecord?.name || "",
-      apiTokenType: auth.tokenRecord?.quotaType || "",
-      apiTokenSource: auth.tokenSource || "",
-      ...requestTrace,
-    });
-    const raw = await callTencentVod({ action: "CreateAigcVideoTask", payload });
-    const upstreamTaskId = vegaCreateTaskId(raw);
-    if (!upstreamTaskId) {
-      throw Object.assign(new Error("Tencent VOD did not return a task id."), { statusCode: 502, code: "TENCENT_VOD_TASK_ID_MISSING", payload: raw });
-    }
-    const record = await upsertGenerationRecord({
-      taskId,
-      upstreamTaskId,
-      status: "submitted",
-      awaitingUpstreamTask: true,
-      upstreamPayload: payload,
-      createResponse: raw,
-      error: "",
-    });
-    const latestDb = await readDb();
-    const latestUser = (latestDb.users || []).find((user) => user.id === auth.user.id) || auth.user;
-    return sendJson(res, 200, {
-      ok: true,
-      async: true,
-      task: { taskId: record.taskId, status: record.status },
-      taskId: record.taskId,
-      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
-      user: userView(latestUser),
-      pricing,
-      cost,
-      params: initialRecord.params,
-    });
-  } catch (error) {
-    const errorInfo = normalizeErrorPayload(error);
-    if (charged) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "advanced_vega_refund", { taskId, provider, error: errorInfo.message });
-        await recordSubtokenAdjustment({ taskId, userId: auth.user.id, provider }, {
-          taskId,
-          type: "advanced_vega_refund",
-          amount: -cost,
-          meta: { provider, error: errorInfo.message },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[vega-generation-refund-failed]", taskId, refundError.message || refundError);
-      }
-    }
-    await upsertGenerationRecord({
-      taskId,
-      status: "failed",
-      provider,
-      source: `advanced-${provider}`,
-      kind: "advanced-video",
-      upstreamSource: "tencent-vod",
-      awaitingUpstreamTask: false,
-      error: errorInfo.message || `${definition.label} failed.`,
-      code: errorInfo.code || "",
-      errorPayload: errorInfo.payload || null,
-      createResponse: errorInfo.payload || null,
-      upstreamPayload: payload || null,
-      finalCredits: 0,
-      originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
-      failedAt: new Date().toISOString(),
-    });
-    const current = await getGenerationRecord(taskId).catch(() => null);
-    return sendJson(res, errorInfo.statusCode || 502, {
-      ok: false,
-      message: errorInfo.message || `${definition.label} failed.`,
-      code: errorInfo.code || "",
-      taskId,
-      record: publicGenerationRecord(current || { taskId }, generationRecordResponseOptionsForAuth(auth)),
-      payload: errorInfo.payload || null,
-    });
   }
 }
 

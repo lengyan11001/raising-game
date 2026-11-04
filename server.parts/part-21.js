@@ -256,8 +256,27 @@ function drainGenerationRecordRefreshQueue() {
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
-  if (DISABLE_GENERATED_R2_STORAGE || GENERATED_ASSETS_ON_DEMAND) return record;
+  if (DISABLE_GENERATED_R2_STORAGE) return record;
   if (!record?.taskId) return record;
+  if (GENERATED_ASSETS_ON_DEMAND) {
+    if (!generationRecordNeedsPosterMaintenance(record)) return record;
+    const remoteVideo = generationRecordProviderVideoUrl(record);
+    const downloaded = await downloadGeneratedVideo(record.taskId, remoteVideo, { forceLocal: true, posterOnly: true });
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      localVideoPath: downloaded.localVideoPath || record.localVideoPath || "",
+      localVideoUrl: downloaded.localVideoUrl || record.localVideoUrl || "",
+      videoUrl: downloaded.localVideoUrl || record.localVideoUrl || record.videoUrl || "",
+      localPosterPath: downloaded.localPosterPath || record.localPosterPath || "",
+      localPosterUrl: downloaded.localPosterUrl || record.localPosterUrl || "",
+      posterUrl: downloaded.localPosterUrl || record.localPosterUrl || record.posterUrl || "",
+      cdnVideoUrl: downloaded.cdnVideoUrl || record.cdnVideoUrl || "",
+      cdnPosterUrl: downloaded.cdnPosterUrl || record.cdnPosterUrl || "",
+      cdnError: downloaded.cdnError || "",
+      playbackOptimizedAt: downloaded.playbackOptimizedAt || record.playbackOptimizedAt || "",
+      lastUpdateReason: "generated-poster-recovery",
+    });
+  }
   const recovered = await recoverGenerationRecordR2Urls(record);
   if (!recovered?.localVideoUrl) return recovered;
   record = recovered;
@@ -328,10 +347,12 @@ const generatedMediaMaintenanceQueued = new Set();
 let generatedMediaMaintenanceRunning = false;
 const generatedVideoDownloadQueued = new Set();
 
-function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download") {
-  if (GENERATED_ASSETS_ON_DEMAND) return false;
+function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download", { repairPoster = false } = {}) {
   const cleanTaskId = String(taskId || "").trim();
   const remote = String(remoteVideoUrl || "").trim();
+  // On-demand storage deliberately avoids every full video download except the
+  // one maintenance path that repairs a missing thumbnail for a succeeded task.
+  if (GENERATED_ASSETS_ON_DEMAND && !repairPoster) return false;
   if (!cleanTaskId || !remote || generatedVideoDownloadQueued.has(cleanTaskId)) return false;
   generatedVideoDownloadQueued.add(cleanTaskId);
   setImmediate(() => Promise.resolve().then(async () => {
@@ -341,7 +362,7 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       queueGenerationRecordMediaMaintenance(current);
       return;
     }
-    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote);
+    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: repairPoster, posterOnly: repairPoster });
     await upsertAndSettleGenerationRecord({
       taskId: cleanTaskId,
       status: current.status,
@@ -489,10 +510,25 @@ async function recoverGenerationRecordR2Urls(record = {}) {
   return next || { ...record, ...updates };
 }
 
+function generationRecordNeedsPosterMaintenance(record = {}) {
+  return Boolean(
+    record?.taskId
+    && !generationRecordIsApiTask(record)
+    && isSucceededStatus(record.status)
+    && generationRecordIsVideoOutput(record)
+    && !String(record.cdnPosterUrl || "").trim()
+    && !String(record.localPosterUrl || "").trim()
+    && Boolean(
+      generationRecordProviderVideoUrl(record)
+      || String(record.localVideoUrl || "").trim()
+    )
+  );
+}
+
 function generationRecordNeedsMediaMaintenance(record = {}) {
   if (DISABLE_GENERATED_R2_STORAGE || generationRecordR2Expired(record)) return false;
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
-  if (GENERATED_ASSETS_ON_DEMAND) return false;
+  if (GENERATED_ASSETS_ON_DEMAND) return generationRecordNeedsPosterMaintenance(record);
   if (isImageGenerationRecord(record)) {
     const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
     const hasR2Image = Boolean(String(record.cdnImageUrl || "").trim() || cdnImages.some((item) => String(item || "").trim()));
@@ -519,6 +555,9 @@ function generationRecordCanRetryR2(record = {}) {
 
 function queueGenerationRecordMediaMaintenance(record = {}) {
   if (!generationRecordNeedsMediaMaintenance(record)) return false;
+  if (GENERATED_ASSETS_ON_DEMAND && generationRecordNeedsPosterMaintenance(record) && !record.localVideoUrl) {
+    return queueGeneratedVideoDownload(record.taskId, generationRecordProviderVideoUrl(record), "poster-maintenance", { repairPoster: true });
+  }
   const needsImageR2 = isImageGenerationRecord(record)
     && generatedOutputStorageEnabled()
     && !String(record.cdnImageUrl || "").trim()
@@ -1259,53 +1298,5 @@ function generatedVideoIsTooShort(actualSeconds, expectedSeconds) {
   return actualSeconds > 0
     && expectedSeconds > 0
     && actualSeconds + GENERATED_VIDEO_DURATION_TOLERANCE_SECONDS < expectedSeconds;
-}
-
-function posterFileName(taskId) {
-  return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.jpg`;
-}
-
-async function generatedVideoNeedsFastStart(videoPath = "") {
-  if (!videoPath || path.extname(videoPath).toLowerCase() !== ".mp4") return false;
-  const handle = await fs.open(videoPath, "r");
-  try {
-    const stat = await handle.stat();
-    const bytes = Buffer.alloc(Math.min(stat.size, 1024 * 1024));
-    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-    const header = bytes.subarray(0, bytesRead);
-    const moovOffset = header.indexOf("moov");
-    const mdatOffset = header.indexOf("mdat");
-    return mdatOffset >= 0 && (moovOffset < 0 || moovOffset > mdatOffset);
-  } finally {
-    await handle.close();
-  }
-}
-
-async function ensureGeneratedVideoFastStart(videoPath = "") {
-  if (!(await generatedVideoNeedsFastStart(videoPath))) return false;
-  const tempPath = `${videoPath}.${Date.now()}.faststart.mp4`;
-  try {
-    await execFileQuiet("ffmpeg", [
-      "-y",
-      "-i",
-      videoPath,
-      "-map",
-      "0:v:0",
-      "-map",
-      "0:a?",
-      "-c",
-      "copy",
-      "-movflags",
-      "+faststart",
-      tempPath,
-    ], { timeout: 120000 });
-    await fs.copyFile(tempPath, videoPath);
-    return true;
-  } catch (error) {
-    console.warn("[generated-video-faststart-failed]", videoPath, error.message || error);
-    return false;
-  } finally {
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-  }
 }
 

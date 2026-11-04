@@ -1,113 +1,55 @@
 # Codex Task State
 
-This file is the durable handoff for this task. After any context compaction or continuation, read this file first. Do not re-read large source files or repeat discovery already recorded here.
+This file is the durable handoff for this task. After compaction, read it first.
 
-## User's active request
+## Active request
 
-- Solve the repeated context-compaction problem caused by agent reads of oversized source files.
-- Actually split large runtime sources into reasonable, independently readable parts.
-- Preserve existing uncommitted Vega work and verify the application still works normally.
-- Do not deploy unless explicitly requested. Never deploy `old-site` directly or touch `live-release`.
+- Deploy the completed main-site result-thumbnail/poster fixes together with the oversized-source split.
+- Confirm the two change sets do not conflict.
+- Run tests, build the platform release, and deploy only `123vips.com`.
 
-## Context-compaction root cause
+## Root cause and architecture
 
-- `server.js`, `platform.ui.js`, and `platform.create.js` were single files of roughly 54.6k, 7.4k, and 6.8k lines.
-- Whole-file reads or broad searches over those files repeatedly consumed most of the model context and triggered compaction loops across sessions.
-- The fix is physical source splitting, not instructing the agent to read less.
+- Repeated compaction was caused by whole-file reads of `server.js` (~54.6k lines), `platform.ui.js`, and `platform.create.js`.
+- Backend source is now `server.parts/part-01.js` through `part-43.js`; largest part is 1,472 lines.
+- `server-source.js` concatenates ordered parts, and `server.js` is a 23-line VM wrapper preserving CommonJS-like scope and `require.main`.
+- Frontend is now `platform.ui.parts/part-01..07.js` and `platform.create.parts/part-01..06.js`.
+- `platform.js` loads frontend parts in order; `platform.ui.js` and `platform.create.js` remain small compatibility loaders.
+- PostgreSQL-only runtime rule remains unchanged; missing `DATABASE_URL` fails clearly.
 
-## Split architecture
+## Merge decision
 
-### Backend
+- Current split branch was based on `9c4a6fb`.
+- Main-site poster/thumbnail repair landed afterward on `origin/old-site` through `cd7fca9`.
+- Poster commits changed the old monolithic `server.js` and `platform.create.js`, so Git reported structural conflicts with split files.
+- Resolution: independently three-way merge the original monolith sources, regenerate parts from the merged source, and verify concatenated parts match the merged result.
+- No business changes should be dropped from either side.
 
-```text
-server.parts/part-01.js ... part-43.js
-server-source.js
-server.js
-```
+## Existing poster/backfill fixes being deployed
 
-- Largest backend part: 1,472 lines (43 parts; average about 1,270 lines).
-- `server-source.js` reads ordered parts and exports `partFiles`, `readServerSource()`, and `source`.
-- `server.js` is a 23-line VM wrapper that compiles the concatenated source in one CommonJS-like scope.
-- Runtime semantics preserved: `require.main === module`, `module.exports`, `__dirname`, relative requires, execution order, and bootstrap behavior.
-- Without `DATABASE_URL`, startup still fails clearly with the PostgreSQL-required error.
+- PostgreSQL query covers successful, non-deleted, non-API video records missing posters across all users.
+- Bounded background poster backfill: 2 records per batch, max 3 attempts, 30-minute retry backoff, self-scheduling.
+- Poster-only repair does not persist historical full videos.
+- Generate Result UI accepts poster-only records and retries poster refresh.
+- DB maintenance fields are retained.
+- Remaining unrecoverable historical records need a valid provider/local video source.
 
-### Frontend
+## Required verification after merge
 
-```text
-platform.ui.parts/part-01.js ... part-07.js
-platform.create.parts/part-01.js ... part-06.js
-platform.ui.js
-platform.create.js
-```
+- Rebuild split parts and prove concatenated content equals merged monolith.
+- Syntax-check every part/wrapper; require server successfully.
+- Run focused poster/result tests and source-split/deploy tests.
+- Run full test suite and compare failures against the established baseline.
 
-- `platform.ui.js` and `platform.create.js` are compatibility loaders for direct callers.
-- `platform.js` loads the UI/create parts directly in dependency order.
-- Frontend parts retain the original shared global script scope and order.
+## Deployment rules
 
-## Static/runtime safety
+- Use only `scripts/deploy_local.sh --site old` after committing on `old-site` and building `platform-release`.
+- `LOCAL_CREDENTIALS.md` exists and is gitignored; never print or commit it.
+- Never deploy `old-site` directly.
+- Never include Live files in `platform-release`; never modify/deploy `live-release`.
+- Source split release paths must include `server-source.js`, `server.parts/**`, `platform.ui.parts/**`, `platform.create.parts/**`.
 
-- All frontend part files are included in `PLATFORM_ASSET_FILES`, so cache versions change with their content.
-- `/server-source.js`, `/server.parts/`, tests, scripts, and other private paths return 404.
-- Frontend parts remain publicly servable because the browser loads them.
-- Release snapshots and sync include the new part directories; live release remains isolated.
+## Status
 
-## Test compatibility
-
-- `test/source-compat.js` is preloaded by `npm test`.
-- It maps legacy test reads of `server.js`, `platform.ui.js`, and `platform.create.js` to concatenated ordered part sources.
-- `test/source-split.test.js` enforces:
-  - wrappers stay below 100 lines;
-  - part names are contiguous and ordered;
-  - parts are nonempty;
-  - no part exceeds 1,475 lines.
-- This avoids editing dozens of tests while keeping their original whole-source assertions running against the real concatenated source.
-
-## Build/deploy/sync updates
-
-Updated to include split files:
-
-- `scripts/build_release_snapshot.py`
-- `scripts/deploy_site.py`
-- `scripts/sync_old_to_new2.py`
-
-Patterns include:
-
-```text
-server-source.js
-server.parts/**
-platform.ui.parts/**
-platform.create.parts/**
-```
-
-Live-only ownership remains unchanged.
-
-## Verification
-
-- All backend/frontend parts and wrappers pass `node --check`.
-- `require("./server-source")` loads 43 ordered backend parts.
-- `require("./server")` loads successfully and exposes 43 `__sourceParts`.
-- `node server.js` reaches normal bootstrap and fails clearly because local `DATABASE_URL` is absent.
-- `python3 -m py_compile` passes for the three changed Python scripts.
-- Focused split/deploy tests: **8 pass, 0 fail**
-  - `node --require ./test/source-compat.js --test test/source-split.test.js test/deploy-targets.test.js`
-- Full suite after splitting: **621 tests, 600 pass, 21 fail**.
-- Baseline before splitting: **620 tests, 599 pass, 21 fail**.
-- The same 21 failures exist before and after splitting; they are pre-existing Vega/control failures, not split regressions.
-- `git diff --check` passes.
-- Static classification smoke passed: frontend parts public, backend parts and `server-source.js` private, asset version includes all frontend parts.
-- Full HTTP static smoke is blocked locally because serving platform HTML requires PostgreSQL; the database rule must not be bypassed.
-
-## Preservation of prior Vega work
-
-- Existing uncommitted Vega changes remain in `platform.main.js` and `tencent-vod-vega.js`, plus the split create parts.
-- No Vega feature work was resumed in this pass.
-
-## Deployment status
-
-- No deployment performed for the source split.
-- `live-release` was not modified.
-- Previously deployed Vega fix remains recorded in Git history, but this split is not deployed yet.
-
-## Next step
-
-- Commit the verified source split on `old-site` when requested, then optionally build `platform-release` from that committed integration state.
+- Merge is in progress; conflicts are structural only.
+- No deployment has occurred yet for the combined change set.

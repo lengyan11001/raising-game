@@ -1,3 +1,28 @@
+const mimeTypes = new Map([
+  [".html", "text/html; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".json", "application/json; charset=utf-8"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".xml", "application/xml; charset=utf-8"],
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
+  [".svg", "image/svg+xml"],
+  [".mp4", "video/mp4"],
+  [".webm", "video/webm"],
+  [".mov", "video/quicktime"],
+  [".m4v", "video/x-m4v"],
+  [".wav", "audio/wav"],
+  [".mp3", "audio/mpeg"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".ogg", "audio/ogg"],
+  [".apk", "application/vnd.android.package-archive"],
+  [".mobileconfig", "application/x-apple-aspen-config"],
+]);
+
 const DEFAULT_DB = {
   users: [],
   sessions: [],
@@ -1270,16 +1295,4 @@ function publicTenantFeatures(tenant = {}) {
     siteProfile: tenant.siteProfile || "",
   };
 }
-
-function creatorMembershipPayload(user = {}) {
-  return user.membership && typeof user.membership === "object" ? user.membership : {};
-}
-
-function userHasCreatorMembership(user = {}) {
-  const membership = creatorMembershipPayload(user || {});
-  return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
-}
-
-const SHOWCASE_CASES_PREVIEW_LIMIT = 2;
-let showcaseCasesCache = null;
 

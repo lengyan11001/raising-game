@@ -237,6 +237,9 @@ async function handleListGenerationRecords(req, res, url) {
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
   queueGenerationRecordStatusRefreshes(refreshable, { reason: "user-list" });
+  ownRecords
+    .filter((record) => generationRecordNeedsPosterMaintenance(record))
+    .forEach((record) => queueGenerationRecordMediaMaintenance(record));
 
   if (undressToolRequestAllowed(req)) {
     const optimizedRecords = [];
@@ -299,6 +302,9 @@ async function handleGetGenerationRecord(req, res, taskId) {
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   }
 
+  if (generationRecordNeedsPosterMaintenance(nextRecord)) {
+    queueGenerationRecordMediaMaintenance(nextRecord);
+  }
   if (
     generatedOutputStorageEnabled()
     && !generationRecordIsApiTask(nextRecord)

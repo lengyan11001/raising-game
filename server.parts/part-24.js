@@ -1,3 +1,229 @@
+async function handleUndressToolExampleMedia(req, res, generationType, side) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const definition = UNDRESS_TOOL_EXAMPLES[generationType];
+  if (!definition || !["input", "result"].includes(side)) return sendText(res, 404, "Not Found");
+  const record = await getGenerationRecord(definition.taskId);
+  if (!record || !isSucceededStatus(record.status)) return sendText(res, 404, "Not Found");
+  try {
+    let example = await ensureUndressToolExampleFile(record, definition, generationType, side);
+    if (!example && side === "input") {
+      const asset = dbEnabled()
+        ? await getUserAssetFromDb(undressToolExampleAssetId(record))
+        : (await readDb()).userAssets.find((item) => item.id === undressToolExampleAssetId(record));
+      record.__userAssets = asset ? [asset] : [];
+      example = await ensureUndressToolExampleFile(record, definition, generationType, side);
+    }
+    const filePath = example?.filePath || "";
+    if (!filePath) return sendText(res, 404, "Not Found");
+    const stat = await fs.stat(filePath);
+    const mime = example.mime || (definition[side === "input" ? "inputType" : "resultType"] === "video"
+      ? videoMimeFromKnownPath(filePath) || "video/mp4"
+      : imageMimeFromKnownPath(filePath) || "image/jpeg");
+    if (sendInternalAsset(res, filePath, mime, stat)) return;
+    res.writeHead(200, {
+      "content-type": mime,
+      "content-length": stat.size,
+      "cache-control": "public, max-age=604800, immutable",
+    });
+    if (req.method === "HEAD") return res.end();
+    return pipeFileStream(res, filePath);
+  } catch {
+    return sendText(res, 404, "Not Found");
+  }
+}
+
+async function handleUndressToolEstimate(req, res) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
+  const body = await readJson(req);
+  const generation = undressToolGenerationDefinition(body.generationType);
+  if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
+  const durationSeconds = durationSecondsFromValue(body.durationSeconds || body.duration);
+  if (generation.generationType === "video" && !durationSeconds) {
+    return sendJson(res, 400, { ok: false, message: "Read the source video duration before estimating." });
+  }
+  try {
+    const pricing = await videoToolPricing(generation.action, { durationSeconds, user: auth.user, auth });
+    const freeImageAvailable = generation.generationType === "image" && await undressToolFreeImageAvailable(auth.user.id);
+    return sendJson(res, 200, {
+      ok: true,
+      generationType: generation.generationType,
+      mediaKind: generation.mediaKind,
+      freeImageAvailable,
+      chargeCredits: freeImageAvailable ? 0 : pricing.credits,
+      unlockCredits: freeImageAvailable ? pricing.credits : 0,
+      pricing: publicVideoToolPricing(pricing),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Unable to estimate this generation." });
+  }
+}
+
+async function handleUndressToolGenerate(req, res) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
+  const body = await readJson(req);
+  const appConfig = await readAppConfig();
+  const generation = undressToolGenerationDefinition(body.generationType, appConfig.undressPrompts);
+  if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
+  const uploaded = (auth.db.userAssets || []).find((entry) => (
+    entry.id === String(body.assetId || "").trim()
+    && entry.userId === auth.user.id
+    && !isSoftDeleted(entry)
+  ));
+  if (!uploaded) return sendJson(res, 404, { ok: false, message: "Uploaded media not found." });
+  const mime = String(uploaded.mime || "").toLowerCase();
+  const mediaKind = mime.startsWith("video/") ? "video" : mime.startsWith("image/") ? "image" : "";
+  if (!mediaKind) return sendJson(res, 400, { ok: false, message: "Upload one image or video." });
+  if (mediaKind !== generation.mediaKind) {
+    return sendJson(res, 400, {
+      ok: false,
+      message: generation.mediaKind === "video" ? "Upload a video for this generation type." : "Upload an image for this generation type.",
+    });
+  }
+
+  const { action, generationType } = generation;
+  const asset = videoToolAsset(
+    auth.db,
+    auth.user.id,
+    uploaded.id,
+    generation.mediaKind,
+    generation.mediaKind === "video" ? "Source video" : "Source image",
+  );
+  let durationSeconds = 0;
+  if (generationType === "video") {
+    const localPath = localPathForUserAsset(asset);
+    durationSeconds = durationSecondsFromValue(asset.durationSeconds)
+      || (localPath ? await probeLocalVideoDurationSeconds(localPath) : 0)
+      || await probeVideoDurationSeconds(publicUrlForLocalAsset(asset));
+    if (!durationSeconds) return sendJson(res, 400, { ok: false, message: "Source video duration could not be read." });
+  }
+
+  const taskId = localGenerationTaskId(generationType.replace(/_/g, "-"));
+  const freeClaimId = generationType === "image" ? undressToolFreeImageClaimId(auth.user.id) : "";
+  let freeClaim = null;
+  let recordCreated = false;
+  try {
+    const pricing = await videoToolPricing(action, { durationSeconds, user: auth.user, auth });
+    if (generationType === "image") {
+      freeClaim = await claimUndressToolFreeImage({
+        userId: auth.user.id,
+        tenantId: requestTenantId(req),
+        taskId,
+      });
+    }
+    const freeImageGeneration = Boolean(freeClaim);
+    const cost = freeImageGeneration ? 0 : pricing.credits;
+    if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+    try {
+      assertSubtokenCanSpend(auth, cost);
+    } catch (error) {
+      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+    }
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: `undress_tool_${generationType}_generate`,
+        taskId,
+        meta: {
+          taskId,
+          action,
+          assetId: asset.id,
+          durationSeconds: pricing.durationSeconds,
+          segmentCount: pricing.segmentCount,
+          model: pricing.model,
+          originalCost: pricing.originalCredits,
+          pricingSource: pricing.source,
+        },
+      });
+    }
+    const createdAt = new Date().toISOString();
+    const resultLocked = freeImageGeneration;
+    const record = await upsertGenerationRecord({
+      taskId,
+      status: "queued",
+      source: generation.source,
+      kind: generation.kind,
+      provider: generation.provider,
+      upstreamSource: "video-tool-orchestrator",
+      model: pricing.model,
+      userId: auth.user.id,
+      userAssetId: asset.id,
+      userAssetIds: [asset.id],
+      imageUrl: generation.mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
+      sourceImageUrl: generation.mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
+      mediaAssets: [{
+        type: generationType === "video" ? "video" : generationType === "image_video" ? "first_frame" : "reference_image",
+        userAssetId: asset.id,
+        localUrl: asset.localUrl || "",
+      }],
+      prompt: generation.prompt,
+      finalPrompt: generation.prompt,
+      params: {
+        toolAction: action,
+        generationType,
+        stage: "queued",
+        durationSeconds: pricing.durationSeconds,
+        segmentCount: pricing.segmentCount,
+        completedSegments: 0,
+        freeImageClaimId: freeImageGeneration ? freeClaimId : "",
+      },
+      ratio: generationType === "image" ? closestWan27ImageRatioForAsset(asset) : generationType === "image_video" ? "9:16" : "source",
+      resolution: generationType === "image" ? "2K" : "720p",
+      duration: generationType === "image" ? "" : pricing.durationSeconds,
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: freeImageGeneration ? 0 : pricing.originalCredits,
+      finalCredits: null,
+      originalFinalCredits: null,
+      userPricingMultiplier: pricing.components?.[0]?.userPricingMultiplier ?? 1,
+      billingStatus: freeImageGeneration ? "free_generating" : cost > 0 ? "pre_deducted" : "free",
+      billingSettledAt: "",
+      pricingEstimate: pricing,
+      resultLocked,
+      unlockCredits: freeImageGeneration ? pricing.credits : 0,
+      unlockType: freeImageGeneration ? "undress_image" : "",
+      freeImageGeneration,
+      freeImageClaimId: freeImageGeneration ? freeClaimId : "",
+      awaitingUpstreamTask: false,
+      error: "",
+      createdAt,
+      updatedAt: createdAt,
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+    });
+    recordCreated = true;
+    startVideoToolJob({
+      taskId,
+      action,
+      userId: auth.user.id,
+      imageAssetId: generation.mediaKind === "image" ? asset.id : "",
+      videoAssetId: generation.mediaKind === "video" ? asset.id : "",
+      pricing,
+      prompt: generation.prompt,
+    });
+    return sendJson(res, 202, {
+      ok: true,
+      async: true,
+      taskId,
+      freeImageGeneration,
+      pricing: publicVideoToolPricing(pricing),
+      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
+      user: userView(auth.user),
+    });
+  } catch (error) {
+    if (freeClaim && !recordCreated) {
+      await releaseToolFreeGenerationClaimInDb({ id: freeClaimId, userId: auth.user.id, taskId }).catch(() => {});
+    }
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Generation submission failed." });
+  }
+}
+
 async function handleUnlockUndressToolResult(req, res, taskId) {
   if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireUser(req, res);
@@ -1040,252 +1266,5 @@ function usesWan30AdaptiveDurationPricing(record = {}) {
   return String(record.provider || "").toLowerCase() === "aliyun-wan30"
     && pricing.adaptiveDuration === true
     && Number(pricing.creditsPerSecond) > 0;
-}
-
-async function settleWan30AdaptiveDuration(record = {}, reason = "query") {
-  if (!usesWan30AdaptiveDurationPricing(record) || !isSucceededStatus(record.status) || record.billingSettledAt) return record;
-  const resultUrl = String(record.remoteVideoUrl || record.videoUrl || record.cdnVideoUrl || record.localVideoUrl || "").trim();
-  if (!resultUrl) return record;
-  const actualDuration = await probeVideoDurationSeconds(resultUrl);
-  if (!(actualDuration > 0)) return record;
-
-  const pricing = record.pricingEstimate || {};
-  const creditsPerSecond = Number(pricing.creditsPerSecond || 0);
-  const originalFinalCredits = creditsAmount(Math.min(30, actualDuration) * creditsPerSecond);
-  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
-  const finalCredits = applyUserPricingMultiplierToCredits(originalFinalCredits, pricingMultiplier);
-  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
-  const delta = preDeducted - finalCredits;
-  let billingStatus = "settled";
-  const db = await readDb();
-
-  try {
-    if (delta > 0) {
-      await changeUserCredits(db, record.userId, delta, "generation_refund", {
-        taskId: record.taskId,
-        provider: record.provider,
-        reason,
-        preDeducted,
-        finalCredits,
-        originalFinalCredits,
-        pricingMultiplier,
-        generatedDurationSeconds: actualDuration,
-      });
-      await recordSubtokenAdjustment(record, {
-        taskId: record.taskId,
-        type: "generation_refund",
-        amount: -delta,
-        meta: { provider: record.provider, reason, preDeducted, finalCredits, originalFinalCredits, generatedDurationSeconds: actualDuration },
-      });
-      if (!dbEnabled()) await writeDb(db);
-    } else if (delta < 0) {
-      await changeUserCredits(db, record.userId, delta, "generation_settle", {
-        taskId: record.taskId,
-        provider: record.provider,
-        reason,
-        preDeducted,
-        finalCredits,
-        originalFinalCredits,
-        pricingMultiplier,
-        generatedDurationSeconds: actualDuration,
-      });
-      await recordSubtokenAdjustment(record, {
-        taskId: record.taskId,
-        type: "generation_settle",
-        amount: Math.abs(delta),
-        meta: { provider: record.provider, reason, preDeducted, finalCredits, originalFinalCredits, generatedDurationSeconds: actualDuration },
-      });
-      if (!dbEnabled()) await writeDb(db);
-    }
-  } catch (error) {
-    if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
-      billingStatus = "settle_pending_insufficient";
-      return upsertGenerationRecord({
-        taskId: record.taskId,
-        finalCredits,
-        originalFinalCredits,
-        userPricingMultiplier: pricingMultiplier,
-        generatedDurationSeconds: actualDuration,
-        billingStatus,
-        billingError: error.message || "Not enough credits or sub token quota for final settlement.",
-      });
-    }
-    throw error;
-  }
-
-  return upsertGenerationRecord({
-    taskId: record.taskId,
-    finalCredits,
-    originalFinalCredits,
-    userPricingMultiplier: pricingMultiplier,
-    generatedDurationSeconds: actualDuration,
-    billingStatus,
-    billingSettledAt: new Date().toISOString(),
-    billingError: "",
-  });
-}
-
-async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
-  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
-  if (usesWan30AdaptiveDurationPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt) {
-    return settleWan30AdaptiveDuration(record, reason);
-  }
-  if (
-    seedanceUsesTokenPricing(record) &&
-    record.taskId &&
-    record.userId &&
-    isSucceededStatus(record.status) &&
-    !record.billingSettledAt
-  ) {
-    const usage = seedanceFinalCreditsFromUsage(record);
-    if (!usage) return record;
-    const configuredSalePrice = seedanceUsesConfiguredSalePrice(record);
-    const finalCredits = configuredSalePrice ? preDeducted : usage.credits;
-    const originalFinalCredits = configuredSalePrice
-      ? creditsAmount(record.originalPreDeductedCredits ?? preDeducted)
-      : usage.originalCredits;
-    const delta = preDeducted - finalCredits;
-    let billingStatus = "settled";
-    const db = await readDb();
-    try {
-      if (delta > 0) {
-        await changeUserCredits(db, record.userId, delta, "generation_refund", {
-          taskId: record.taskId,
-          provider: record.provider || "seedance",
-          reason,
-          preDeducted,
-          baseCredits: usage.baseCredits,
-          finalCredits,
-          originalFinalCredits,
-          upstreamCalculatedCredits: usage.credits,
-          upstreamOriginalCredits: usage.originalCredits,
-          pricingMultiplier: usage.pricingMultiplier,
-          markup: usage.markup,
-          completionTokens: usage.completionTokens,
-        });
-        await recordSubtokenAdjustment(record, {
-          taskId: record.taskId,
-          type: "generation_refund",
-          amount: -delta,
-          meta: {
-            provider: record.provider || "seedance",
-            reason,
-            preDeducted,
-            finalCredits,
-            originalFinalCredits,
-            upstreamCalculatedCredits: usage.credits,
-            upstreamOriginalCredits: usage.originalCredits,
-          },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } else if (delta < 0) {
-        await changeUserCredits(db, record.userId, delta, "generation_settle", {
-          taskId: record.taskId,
-          provider: record.provider || "seedance",
-          reason,
-          preDeducted,
-          baseCredits: usage.baseCredits,
-          finalCredits,
-          originalFinalCredits,
-          upstreamCalculatedCredits: usage.credits,
-          upstreamOriginalCredits: usage.originalCredits,
-          pricingMultiplier: usage.pricingMultiplier,
-          markup: usage.markup,
-          completionTokens: usage.completionTokens,
-        });
-        await recordSubtokenAdjustment(record, {
-          taskId: record.taskId,
-          type: "generation_settle",
-          amount: Math.abs(delta),
-          meta: {
-            provider: record.provider || "seedance",
-            reason,
-            preDeducted,
-            finalCredits,
-            originalFinalCredits,
-            upstreamCalculatedCredits: usage.credits,
-            upstreamOriginalCredits: usage.originalCredits,
-          },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      }
-    } catch (error) {
-      if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
-        billingStatus = "settle_pending_insufficient";
-        return upsertGenerationRecord({
-          taskId: record.taskId,
-          finalCredits,
-          originalFinalCredits,
-          userPricingMultiplier: usage.pricingMultiplier,
-          billingStatus,
-          billingError: error.message || "Not enough credits or sub token quota for final settlement.",
-          usageCompletionTokens: usage.completionTokens,
-          usageBaseCredits: usage.baseCredits,
-          upstreamCalculatedCredits: usage.credits,
-          upstreamOriginalCredits: usage.originalCredits,
-          billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
-        });
-      }
-      throw error;
-    }
-    return upsertGenerationRecord({
-      taskId: record.taskId,
-      finalCredits,
-      originalFinalCredits,
-      userPricingMultiplier: usage.pricingMultiplier,
-      billingStatus,
-      billingSettledAt: new Date().toISOString(),
-      billingError: "",
-      usageCompletionTokens: usage.completionTokens,
-      usageBaseCredits: usage.baseCredits,
-      upstreamCalculatedCredits: usage.credits,
-      upstreamOriginalCredits: usage.originalCredits,
-      billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
-    });
-  }
-
-  if (!needsSeedanceFailureRefund(record)) return record;
-  const db = await readDb();
-  const alreadyRefunded = (db.creditLedger || []).some((entry) => (
-    entry.userId === record.userId &&
-    entry.type === "generation_refund" &&
-    entry.meta?.taskId === record.taskId
-  ));
-
-  try {
-    if (!alreadyRefunded) {
-      await changeUserCredits(db, record.userId, preDeducted, "generation_refund", {
-        taskId: record.taskId,
-        provider: record.provider || "seedance",
-        reason,
-        preDeducted,
-        finalCredits: 0,
-        originalFinalCredits: 0,
-        pricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
-      });
-      await recordSubtokenAdjustment(record, {
-        taskId: record.taskId,
-        type: "generation_refund",
-        amount: -preDeducted,
-        meta: { provider: record.provider || "seedance", reason, preDeducted },
-      });
-      if (!dbEnabled()) await writeDb(db);
-    }
-    return upsertGenerationRecord({
-      taskId: record.taskId,
-      finalCredits: 0,
-      originalFinalCredits: 0,
-      userPricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
-      billingStatus: "refunded",
-      billingSettledAt: new Date().toISOString(),
-      billingError: "",
-    });
-  } catch (error) {
-    return upsertGenerationRecord({
-      taskId: record.taskId,
-      billingStatus: "refund_failed",
-      billingError: error.message || "Failed to refund failed generation.",
-    });
-  }
 }
 

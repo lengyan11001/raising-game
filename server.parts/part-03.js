@@ -1,3 +1,15 @@
+function creatorMembershipPayload(user = {}) {
+  return user.membership && typeof user.membership === "object" ? user.membership : {};
+}
+
+function userHasCreatorMembership(user = {}) {
+  const membership = creatorMembershipPayload(user || {});
+  return membership.status === "active" && Boolean(membership.activatedAt || membership.source);
+}
+
+const SHOWCASE_CASES_PREVIEW_LIMIT = 2;
+let showcaseCasesCache = null;
+
 const SHOWCASE_CASE_TITLE_TERMS = {
   scenes: [
     { zh: "便利店后巷", en: "Convenience-store alley", needles: ["便利店后巷", "convenience store alley", "convenience-store alley"] },

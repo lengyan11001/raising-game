@@ -1,3 +1,177 @@
+function qwenImage3ReferenceInputsFromBody(body = {}) {
+  const inputs = seedream5ReferenceInputsFromBody(body);
+  if (inputs.length > QWEN_IMAGE3_REFERENCE_LIMIT) {
+    throw advancedValidationError(
+      "QWEN_IMAGE3_TOO_MANY_REFERENCES",
+      `Qwen Image 3.0 supports at most ${QWEN_IMAGE3_REFERENCE_LIMIT} reference images.`,
+      { count: inputs.length, max: QWEN_IMAGE3_REFERENCE_LIMIT },
+    );
+  }
+  return inputs;
+}
+
+async function prepareQwenImage3ReferenceImages(db, user, body = {}) {
+  const inputs = qwenImage3ReferenceInputsFromBody(body);
+  const preservePublicMediaUrls = boolFromRequest(body.preservePublicMediaUrls, false);
+  const publicInputs = preservePublicMediaUrls
+    ? inputs.map((item) => {
+        const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+        return isPublicHttpUrl(value) ? publicHttpUrlForUpstream(value) : "";
+      }).filter(Boolean)
+    : [];
+  const localInputs = inputs.filter((item) => {
+    const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+    return !preservePublicMediaUrls || !isPublicHttpUrl(value);
+  });
+  const assets = await createUserImageAssetsFromInputs(db, user, localInputs, { name: "Qwen Image 3.0 reference" });
+  const preparedAssets = [];
+  const publicImageUrls = [...publicInputs];
+  for (const asset of assets) {
+    validateWan27MediaKind(asset, "image", "Qwen Image 3.0 reference");
+    if (Number(asset.sizeBytes || 0) > 10 * 1024 * 1024) {
+      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_TOO_LARGE", "Qwen Image 3.0 reference images must be 10MB or smaller.", { assetId: asset.id || "" });
+    }
+    const mime = String(asset.mime || "").toLowerCase();
+    if (mime && !["image/jpeg", "image/png", "image/bmp", "image/tiff", "image/webp", "image/gif"].includes(mime)) {
+      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_FORMAT", "Qwen Image 3.0 reference images must be JPG, JPEG, PNG, BMP, TIFF, WebP, or GIF.", { assetId: asset.id || "", mime });
+    }
+    const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
+    const publicUrl = publicUrlForLocalAsset(prepared);
+    if (!isPublicHttpUrl(publicUrl)) {
+      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_NOT_PUBLIC", "Failed to prepare Qwen Image 3.0 reference image URL.", { assetId: asset.id || "" });
+    }
+    preparedAssets.push(prepared);
+    publicImageUrls.push(publicUrl);
+  }
+  return {
+    inputs,
+    assets: preparedAssets,
+    publicImageUrls: [...new Set(publicImageUrls)],
+  };
+}
+
+function qwenImage3RequestFingerprint({ userId = "", model = "", prompt = "", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, referenceInputs = [] } = {}) {
+  const references = (Array.isArray(referenceInputs) ? referenceInputs : []).map((item) => {
+    if (typeof item === "string") return item.trim();
+    const value = String(item?.assetId || item?.url || item?.imageUrl || item?.image_url || item?.dataUrl || item?.fileName || "").trim();
+    return /^data:/i.test(value) ? `data:${crypto.createHash("sha256").update(value).digest("hex")}` : value;
+  }).filter(Boolean);
+  return crypto.createHash("sha256").update(JSON.stringify({
+    provider: "qwen-image3",
+    userId: String(userId || ""),
+    model,
+    prompt: String(prompt || "").trim(),
+    size,
+    outputImageCount,
+    negativePrompt: String(negativePrompt || "").trim(),
+    promptExtend: Boolean(promptExtend),
+    promptExtendMode: String(promptExtendMode || "direct"),
+    watermark: Boolean(watermark),
+    seed: seed === undefined || seed === null || seed === "" ? null : Number(seed),
+    references,
+  })).digest("hex").slice(0, 32);
+}
+
+async function withQwenImage3InFlight(fingerprint, fn) {
+  const key = String(fingerprint || "").trim();
+  if (!key) return await fn();
+  while (QWEN_IMAGE3_IN_FLIGHT.has(key)) await QWEN_IMAGE3_IN_FLIGHT.get(key).catch(() => {});
+  let release = () => {};
+  const lock = new Promise((resolve) => { release = resolve; });
+  QWEN_IMAGE3_IN_FLIGHT.set(key, lock);
+  try {
+    return await fn();
+  } finally {
+    if (QWEN_IMAGE3_IN_FLIGHT.get(key) === lock) QWEN_IMAGE3_IN_FLIGHT.delete(key);
+    release();
+  }
+}
+
+async function findActiveQwenImage3Duplicate({ userId = "", fingerprint = "" } = {}) {
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  const settledCutoff = Date.now() - 3 * 60 * 1000;
+  const records = await listGenerationRecordsForUser(userId, 80);
+  return records.find((record) => (
+    record?.provider === "qwen-image3"
+    && String(record.requestFingerprint || record.params?.requestFingerprint || "") === fingerprint
+    && (
+      (isActiveGenerationStatus(record.status) && generationRecordCreatedMs(record) >= cutoff)
+      || (isSucceededStatus(record.status) && seedream5ImageRecordHasResult(record) && generationRecordUpdatedMs(record) >= settledCutoff)
+    )
+  )) || null;
+}
+
+function queueQwenImage3Submit(submit) {
+  const run = qwenImage3SubmitTail.catch(() => {}).then(async () => {
+    const waitMs = Math.max(0, 61000 - (Date.now() - qwenImage3LastSubmitAt));
+    if (waitMs) await delay(waitMs);
+    qwenImage3LastSubmitAt = Date.now();
+    return await submit();
+  });
+  qwenImage3SubmitTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function qwen37FlashResponseText(raw = {}) {
+  const content = raw?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => typeof item === "string" ? item : String(item?.text || item?.content || ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return String(raw?.choices?.[0]?.text || raw?.output?.text || "").trim();
+}
+
+function qwen37FlashUsage(raw = {}) {
+  const usage = plainObject(raw.usage);
+  return {
+    promptTokens: Math.max(0, Math.floor(Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0)),
+    completionTokens: Math.max(0, Math.floor(Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0)),
+    totalTokens: Math.max(0, Math.floor(Number(usage.total_tokens ?? 0) || 0)),
+  };
+}
+
+async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {}, provider = "qwen37-flash", prompt = "", textResult = "", maxTokens = 0 } = {}) {
+  let promptTokens = Math.max(0, Math.floor(Number(usage.promptTokens || 0)));
+  let completionTokens = Math.max(0, Math.floor(Number(usage.completionTokens || 0)));
+  if (!promptTokens) promptTokens = Math.max(1, Math.floor(Number(pricing.inputTokens || 0)) || Math.ceil(Buffer.byteLength(String(prompt || ""), "utf8") / 2) || 1);
+  if (!completionTokens && String(textResult || "").trim()) {
+    const cap = Math.max(1, Math.floor(Number(maxTokens || pricing.outputTokens || QWEN37_FLASH_MAX_OUTPUT_TOKENS) || QWEN37_FLASH_MAX_OUTPUT_TOKENS));
+    completionTokens = Math.min(cap, Math.max(1, Math.ceil(String(textResult).length * 1.5)));
+  }
+  const rawFinalPricing = advancedModelPricing(provider, {
+    advancedPricing,
+    inputTokens: Math.max(1, promptTokens),
+    outputTokens: Math.max(0, completionTokens),
+  });
+  const finalPricing = applyUserPricingToEstimate(rawFinalPricing, pricing.userPricingMultiplier || 1);
+  const finalCost = finalPricing.credits;
+  const adjustment = creditsAmount(Math.abs(Number(cost || 0) - finalCost));
+  if (adjustment > 0) {
+    const refund = Number(cost || 0) > finalCost;
+    const db = await readDb();
+    await changeUserCredits(db, userId, refund ? adjustment : -adjustment, "advanced_qwen37_flash_settlement", {
+      taskId,
+      preDeductedCredits: cost,
+      finalCredits: finalCost,
+      promptTokens: usage.promptTokens || 0,
+      completionTokens: usage.completionTokens || 0,
+    });
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+      taskId,
+      type: "advanced_qwen37_flash_settlement",
+      amount: refund ? -adjustment : adjustment,
+      meta: { preDeductedCredits: cost, finalCredits: finalCost },
+    });
+    if (!dbEnabled()) await writeDb(db);
+  }
+  return { finalCost, finalPricing };
+}
+
 async function runQwen37FlashGenerationJob(job = {}) {
   const {
     taskId = "",

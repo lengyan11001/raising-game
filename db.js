@@ -5288,6 +5288,46 @@ async function getGenerationRecordsForScheduledMaintenanceFromDb({ maxAgeMs = 24
   return rows.map((row) => row.payload).filter(Boolean);
 }
 
+async function getGenerationRecordsNeedingPosterMaintenanceFromDb({
+  limit = 4,
+  maxAttempts = 3,
+  retryDelayMs = 30 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(20, Math.trunc(Number(limit || 4) || 4)));
+  const safeMaxAttempts = Math.max(1, Math.min(10, Math.trunc(Number(maxAttempts || 3) || 3)));
+  const safeRetryDelayMs = Math.max(60000, Number(retryDelayMs || 30 * 60 * 1000));
+  const retryBefore = new Date(Date.now() - safeRetryDelayMs).toISOString();
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'r2PurgedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND COALESCE(payload->>'cdnPosterUrl', '') = ''
+      AND COALESCE(payload->>'localPosterUrl', '') = ''
+      AND (
+        COALESCE(payload->>'remoteVideoUrl', '') <> ''
+        OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+        OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+        OR COALESCE(payload->>'localVideoUrl', '') <> ''
+      )
+      AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+      AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+      AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < $1
+      AND (
+        COALESCE(payload->>'posterMaintenanceRetryAt', '') = ''
+        OR payload->>'posterMaintenanceRetryAt' <= $2
+      )
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $3
+  `, [safeMaxAttempts, retryBefore, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
 async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -6747,6 +6787,7 @@ module.exports = {
   getGenerationRecordsFromDb,
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
+  getGenerationRecordsNeedingPosterMaintenanceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,

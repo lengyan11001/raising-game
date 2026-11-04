@@ -1,3 +1,31 @@
+function ensureAdvancedReferenceOrders(images = state.advancedReferenceImages) {
+  const list = Array.isArray(images) ? images : [];
+  let maxOrder = Math.max(0, Number(state.advancedReferenceOrderCounter || 0));
+  list.forEach((item) => {
+    maxOrder = Math.max(maxOrder, advancedReferenceOrderValue(item));
+  });
+  list.forEach((item) => {
+    if (!item || advancedReferenceOrderValue(item)) return;
+    maxOrder += 1;
+    item.order = maxOrder;
+  });
+  state.advancedReferenceOrderCounter = Math.max(Number(state.advancedReferenceOrderCounter || 0), maxOrder);
+  return maxOrder;
+}
+
+function nextAdvancedReferenceOrder() {
+  ensureAdvancedReferenceOrders();
+  const imageOrders = (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [])
+    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
+  const videoOrders = advancedSeedanceVideoReferences()
+    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
+  const audioOrders = advancedSeedanceAudioReferences()
+    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
+  const current = Math.max(Number(state.advancedReferenceOrderCounter || 0), 0, ...imageOrders, ...videoOrders, ...audioOrders);
+  state.advancedReferenceOrderCounter = current + 1;
+  return state.advancedReferenceOrderCounter;
+}
+
 function advancedPendingReferences(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   return (Array.isArray(state.advancedPendingReferences) ? state.advancedPendingReferences : [])

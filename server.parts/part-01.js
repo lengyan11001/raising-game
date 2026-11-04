@@ -274,6 +274,7 @@ const {
   getGenerationRecordsFromDb,
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
+  getGenerationRecordsNeedingPosterMaintenanceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
@@ -687,6 +688,10 @@ const GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS = Math.max(60 * 1000, Number(proc
 const GENERATION_ACTIVE_SCAN_INTERVAL_MS = Math.max(30 * 1000, Number(process.env.GENERATION_ACTIVE_SCAN_INTERVAL_MS || 60 * 1000) || 60 * 1000);
 const GENERATION_ACTIVE_SCAN_BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.GENERATION_ACTIVE_SCAN_BATCH_SIZE || 8) || 8));
 const GENERATION_ACTIVE_SCAN_MAX_AGE_MS = Math.max(30 * 60 * 1000, Number(process.env.GENERATION_ACTIVE_SCAN_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
+const GENERATION_POSTER_BACKFILL_INTERVAL_MS = Math.max(15000, Number(process.env.GENERATION_POSTER_BACKFILL_INTERVAL_MS || 30000) || 30000);
+const GENERATION_POSTER_BACKFILL_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_BATCH_SIZE || 2) || 2));
+const GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS || 3) || 3));
+const GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS || 30 * 60 * 1000) || 30 * 60 * 1000);
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_CREDITS_PER_USD = clampNumber(process.env.CREDITS_PER_USD || process.env.CREDITS_PER_USDT, 100, 0.0001, 100000);
@@ -1285,29 +1290,4 @@ async function withAppStateWriteLock(fn) {
     store.appStateWriteLocked = false;
   }
 }
-
-const mimeTypes = new Map([
-  [".html", "text/html; charset=utf-8"],
-  [".css", "text/css; charset=utf-8"],
-  [".js", "text/javascript; charset=utf-8"],
-  [".json", "application/json; charset=utf-8"],
-  [".txt", "text/plain; charset=utf-8"],
-  [".xml", "application/xml; charset=utf-8"],
-  [".png", "image/png"],
-  [".jpg", "image/jpeg"],
-  [".jpeg", "image/jpeg"],
-  [".webp", "image/webp"],
-  [".svg", "image/svg+xml"],
-  [".mp4", "video/mp4"],
-  [".webm", "video/webm"],
-  [".mov", "video/quicktime"],
-  [".m4v", "video/x-m4v"],
-  [".wav", "audio/wav"],
-  [".mp3", "audio/mpeg"],
-  [".m4a", "audio/mp4"],
-  [".aac", "audio/aac"],
-  [".ogg", "audio/ogg"],
-  [".apk", "application/vnd.android.package-archive"],
-  [".mobileconfig", "application/x-apple-aspen-config"],
-]);
 

@@ -1,3 +1,122 @@
+async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabel = "image edit", successReason = "image-edit" } = {}) {
+  const { taskId, userId, pricing } = job;
+  const db = await readDb();
+  const user = (db.users || []).find((entry) => entry.id === userId);
+  if (!user) throw new Error("User not found.");
+  const assets = [];
+  for (const input of inputs) {
+    const asset = videoToolAsset(db, userId, input.assetId, "image", input.label || "Source image");
+    assets.push(await ensurePublicUrlForUserMediaAsset(db, asset));
+  }
+  if (!assets.length) throw new Error("Image edit input is required.");
+  const imageUrls = assets.map(publicUrlForLocalAsset);
+  if (imageUrls.some((url) => !isPublicHttpUrl(url))) throw new Error("Image edit inputs are not publicly accessible.");
+
+  const config = await readAppConfig();
+  const imageOptions = wan27ImageRequestOptions({}, {
+    defaultModel: pricing.model || normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: closestWan27ImageRatioForAsset(assets[0]),
+    defaultResolution: "2K",
+  });
+  const priorRecord = await getGenerationRecord(taskId);
+  let upstreamTaskId = String(priorRecord?.upstreamTaskId || "").trim();
+  let completed = null;
+  if (!upstreamTaskId) {
+    await updateVideoToolProgress(taskId, "generating");
+    const submit = USE_GATEWAY_UPSTREAM ? gatewaySubmitWan27ImageEditTask : submitWan27ImageModify;
+    const submitted = await submit({
+      imageUrls,
+      prompt,
+      ratio: imageOptions.ratio,
+      resolution: imageOptions.resolution,
+      model: imageOptions.model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+      waitForResult: false,
+    });
+    upstreamTaskId = submitted.task.taskId || "";
+    if (!upstreamTaskId && !submitted.task.imageUrls?.[0] && !submitted.task.imageUrl) {
+      throw new Error(`Wan2.7 ${resultLabel} did not return a task id.`);
+    }
+    await updateVideoToolProgress(taskId, "generating", {
+      upstreamTaskId,
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      awaitingUpstreamTask: Boolean(upstreamTaskId),
+    });
+    if (submitted.task.imageUrls?.[0] || submitted.task.imageUrl) completed = submitted;
+  }
+  if (!completed) completed = await waitForWan27ImageToolTask(upstreamTaskId);
+  const imageUrl = completed.task.imageUrls?.[0] || completed.task.imageUrl || "";
+  if (!imageUrl) throw new Error(`Wan2.7 ${resultLabel} returned no image.`);
+
+  const recordBeforeSave = await getGenerationRecord(taskId);
+  const preDeductedCredits = creditsAmount(recordBeforeSave?.preDeductedCredits || 0);
+  const freeImageGeneration = recordBeforeSave?.freeImageGeneration === true && preDeductedCredits <= 0;
+  let savedImage = { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" };
+  if (freeImageGeneration) {
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
+  } else if (!GENERATED_ASSETS_ON_DEMAND) {
+    savedImage = await saveRemoteGeneratedImage(taskId, imageUrl, { publish: true });
+  }
+  let lockedPreview = {};
+  if (freeImageGeneration) {
+    try {
+      lockedPreview = await createUndressLockedPreview(taskId, savedImage.localImagePath);
+    } catch (error) {
+      console.warn("[undress-locked-preview-failed]", taskId, error.message || error);
+    }
+  }
+  const completedAt = new Date().toISOString();
+  const record = await getGenerationRecord(taskId);
+  await upsertGenerationRecord({
+    ...record,
+    taskId,
+    status: "succeeded",
+    awaitingUpstreamTask: false,
+    upstreamTaskId,
+    imageResultUrl: generationImageResultUrl({ remoteImageUrl: imageUrl }, savedImage),
+    localImageUrl: savedImage.localImageUrl,
+    localImagePath: savedImage.localImagePath,
+    cdnImageUrl: savedImage.cdnImageUrl,
+    cdnError: savedImage.cdnError,
+    ...lockedPreview,
+    remoteImageUrl: imageUrl,
+    providerImageUrl: imageUrl,
+    error: "",
+    finalCredits: freeImageGeneration ? 0 : pricing.credits,
+    originalFinalCredits: freeImageGeneration ? 0 : pricing.originalCredits,
+    billingStatus: freeImageGeneration ? "free_locked" : pricing.credits > 0 ? "settled" : "free",
+    billingSettledAt: completedAt,
+    resultLocked: freeImageGeneration,
+    unlockCredits: freeImageGeneration ? creditsAmount(record?.unlockCredits || pricing.credits) : 0,
+    unlockType: freeImageGeneration ? "undress_image" : "",
+    freeImageGeneration,
+    completedAt,
+    params: { ...plainObject(record?.params), stage: "completed" },
+    lastUpdateReason: `video-tool-${successReason}-succeeded`,
+  });
+  if (freeImageGeneration && record.freeImageClaimId) {
+    await completeToolFreeGenerationInDb({ id: record.freeImageClaimId, userId, taskId }).catch((error) => {
+      console.warn("[undress-free-claim-complete-failed]", taskId, error.message || error);
+    });
+  }
+}
+
+async function runVideoToolImageFaceSwap(job) {
+  return runVideoToolImageEdit(job, {
+    inputs: [
+      { assetId: job.targetImageAssetId, label: "Target image" },
+      { assetId: job.imageAssetId, label: "Face reference" },
+    ],
+    prompt: IMAGE_TOOL_FACE_SWAP_PROMPT,
+    resultLabel: "image face swap",
+    successReason: "image-face-swap",
+  });
+}
+
 async function runVideoToolFaceSwap(job) {
   const { taskId, userId, imageAssetId, videoAssetId, pricing } = job;
   const undressVideo = job.action === "undress-video";
@@ -413,9 +532,75 @@ async function scanGenerationRecordMediaRecovery(reason = "timer") {
   }
 }
 
+let generationPosterBackfillRunning = false;
+
+async function scanGenerationRecordMissingPosterBackfill(reason = "timer") {
+  if (generationPosterBackfillRunning || !dbEnabled()) return;
+  generationPosterBackfillRunning = true;
+  try {
+    const records = await getGenerationRecordsNeedingPosterMaintenanceFromDb({
+      limit: GENERATION_POSTER_BACKFILL_BATCH_SIZE,
+      maxAttempts: GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS,
+      retryDelayMs: GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS,
+    }) || [];
+    let repaired = 0;
+    let failed = 0;
+    for (const candidate of records) {
+      const current = await getGenerationRecord(candidate.taskId).catch(() => null);
+      if (!current || !generationRecordNeedsPosterMaintenance(current)) continue;
+      const previousAttempts = Number(current.posterMaintenanceAttempts || 0);
+      const repairStartedAt = Date.now();
+      try {
+        // Avoid storing thousands of historical full videos. Poster-only mode
+        // uses the local file when present, otherwise ffmpeg reads the remote
+        // stream and writes only the thumbnail.
+        await ensureGenerationRecordMediaOptimized(current, { allowObjectStorageUpload: false });
+        const repairedRecord = await getGenerationRecord(current.taskId).catch(() => null);
+        if (!generationRecordNeedsPosterMaintenance(repairedRecord || {})) {
+          repaired += 1;
+          await upsertGenerationRecord({
+            taskId: current.taskId,
+            posterMaintenanceAttempts: previousAttempts + 1,
+            posterMaintenanceRetryAt: "",
+            posterMaintenanceError: "",
+            posterMaintenanceCompletedAt: new Date().toISOString(),
+            posterMaintenanceLastDurationMs: Math.max(0, Date.now() - repairStartedAt),
+          });
+        } else {
+          throw new Error("Poster frame was not created.");
+        }
+      } catch (error) {
+        failed += 1;
+        const now = Date.now();
+        const retryAt = new Date(now + GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS * (previousAttempts + 1)).toISOString();
+        await upsertGenerationRecord({
+          taskId: current.taskId,
+          posterMaintenanceAttempts: previousAttempts + 1,
+          posterMaintenanceRetryAt: retryAt,
+          posterMaintenanceError: String(error?.message || error || "Poster backfill failed.").slice(0, 500),
+          posterMaintenanceLastDurationMs: Math.max(0, now - repairStartedAt),
+        }).catch(() => {});
+      }
+      await delay(750);
+    }
+    if (repaired || failed) {
+      console.log("[generation-poster-backfill]", reason, { scanned: records.length, repaired, failed });
+    }
+  } catch (error) {
+    console.warn("[generation-poster-backfill-scan-failed]", error.message || error);
+  } finally {
+    generationPosterBackfillRunning = false;
+  }
+}
+
 function startGenerationRecordMediaRecoveryScheduler() {
   setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
   setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
+  setTimeout(function runPosterBackfill() {
+    scanGenerationRecordMissingPosterBackfill("startup")
+      .catch((error) => console.warn("[generation-poster-backfill-loop-failed]", error.message || error))
+      .finally(() => setTimeout(runPosterBackfill, GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.());
+  }, 25000).unref?.();
 }
 
 function scheduleVideoToolJobDrain() {
@@ -1094,232 +1279,6 @@ async function ensureUndressToolExampleFile(record = {}, definition = {}, genera
   } finally {
     await fs.rm(temporaryPath, { force: true }).catch(() => {});
     if (downloadedSourcePath) await fs.rm(downloadedSourcePath, { force: true }).catch(() => {});
-  }
-}
-
-async function handleUndressToolExampleMedia(req, res, generationType, side) {
-  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const definition = UNDRESS_TOOL_EXAMPLES[generationType];
-  if (!definition || !["input", "result"].includes(side)) return sendText(res, 404, "Not Found");
-  const record = await getGenerationRecord(definition.taskId);
-  if (!record || !isSucceededStatus(record.status)) return sendText(res, 404, "Not Found");
-  try {
-    let example = await ensureUndressToolExampleFile(record, definition, generationType, side);
-    if (!example && side === "input") {
-      const asset = dbEnabled()
-        ? await getUserAssetFromDb(undressToolExampleAssetId(record))
-        : (await readDb()).userAssets.find((item) => item.id === undressToolExampleAssetId(record));
-      record.__userAssets = asset ? [asset] : [];
-      example = await ensureUndressToolExampleFile(record, definition, generationType, side);
-    }
-    const filePath = example?.filePath || "";
-    if (!filePath) return sendText(res, 404, "Not Found");
-    const stat = await fs.stat(filePath);
-    const mime = example.mime || (definition[side === "input" ? "inputType" : "resultType"] === "video"
-      ? videoMimeFromKnownPath(filePath) || "video/mp4"
-      : imageMimeFromKnownPath(filePath) || "image/jpeg");
-    if (sendInternalAsset(res, filePath, mime, stat)) return;
-    res.writeHead(200, {
-      "content-type": mime,
-      "content-length": stat.size,
-      "cache-control": "public, max-age=604800, immutable",
-    });
-    if (req.method === "HEAD") return res.end();
-    return pipeFileStream(res, filePath);
-  } catch {
-    return sendText(res, 404, "Not Found");
-  }
-}
-
-async function handleUndressToolEstimate(req, res) {
-  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
-  const body = await readJson(req);
-  const generation = undressToolGenerationDefinition(body.generationType);
-  if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
-  const durationSeconds = durationSecondsFromValue(body.durationSeconds || body.duration);
-  if (generation.generationType === "video" && !durationSeconds) {
-    return sendJson(res, 400, { ok: false, message: "Read the source video duration before estimating." });
-  }
-  try {
-    const pricing = await videoToolPricing(generation.action, { durationSeconds, user: auth.user, auth });
-    const freeImageAvailable = generation.generationType === "image" && await undressToolFreeImageAvailable(auth.user.id);
-    return sendJson(res, 200, {
-      ok: true,
-      generationType: generation.generationType,
-      mediaKind: generation.mediaKind,
-      freeImageAvailable,
-      chargeCredits: freeImageAvailable ? 0 : pricing.credits,
-      unlockCredits: freeImageAvailable ? pricing.credits : 0,
-      pricing: publicVideoToolPricing(pricing),
-    });
-  } catch (error) {
-    return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Unable to estimate this generation." });
-  }
-}
-
-async function handleUndressToolGenerate(req, res) {
-  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
-  const body = await readJson(req);
-  const appConfig = await readAppConfig();
-  const generation = undressToolGenerationDefinition(body.generationType, appConfig.undressPrompts);
-  if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
-  const uploaded = (auth.db.userAssets || []).find((entry) => (
-    entry.id === String(body.assetId || "").trim()
-    && entry.userId === auth.user.id
-    && !isSoftDeleted(entry)
-  ));
-  if (!uploaded) return sendJson(res, 404, { ok: false, message: "Uploaded media not found." });
-  const mime = String(uploaded.mime || "").toLowerCase();
-  const mediaKind = mime.startsWith("video/") ? "video" : mime.startsWith("image/") ? "image" : "";
-  if (!mediaKind) return sendJson(res, 400, { ok: false, message: "Upload one image or video." });
-  if (mediaKind !== generation.mediaKind) {
-    return sendJson(res, 400, {
-      ok: false,
-      message: generation.mediaKind === "video" ? "Upload a video for this generation type." : "Upload an image for this generation type.",
-    });
-  }
-
-  const { action, generationType } = generation;
-  const asset = videoToolAsset(
-    auth.db,
-    auth.user.id,
-    uploaded.id,
-    generation.mediaKind,
-    generation.mediaKind === "video" ? "Source video" : "Source image",
-  );
-  let durationSeconds = 0;
-  if (generationType === "video") {
-    const localPath = localPathForUserAsset(asset);
-    durationSeconds = durationSecondsFromValue(asset.durationSeconds)
-      || (localPath ? await probeLocalVideoDurationSeconds(localPath) : 0)
-      || await probeVideoDurationSeconds(publicUrlForLocalAsset(asset));
-    if (!durationSeconds) return sendJson(res, 400, { ok: false, message: "Source video duration could not be read." });
-  }
-
-  const taskId = localGenerationTaskId(generationType.replace(/_/g, "-"));
-  const freeClaimId = generationType === "image" ? undressToolFreeImageClaimId(auth.user.id) : "";
-  let freeClaim = null;
-  let recordCreated = false;
-  try {
-    const pricing = await videoToolPricing(action, { durationSeconds, user: auth.user, auth });
-    if (generationType === "image") {
-      freeClaim = await claimUndressToolFreeImage({
-        userId: auth.user.id,
-        tenantId: requestTenantId(req),
-        taskId,
-      });
-    }
-    const freeImageGeneration = Boolean(freeClaim);
-    const cost = freeImageGeneration ? 0 : pricing.credits;
-    if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-    try {
-      assertSubtokenCanSpend(auth, cost);
-    } catch (error) {
-      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-    }
-    if (cost > 0) {
-      await chargeUserWithSubtoken(auth, {
-        cost,
-        type: `undress_tool_${generationType}_generate`,
-        taskId,
-        meta: {
-          taskId,
-          action,
-          assetId: asset.id,
-          durationSeconds: pricing.durationSeconds,
-          segmentCount: pricing.segmentCount,
-          model: pricing.model,
-          originalCost: pricing.originalCredits,
-          pricingSource: pricing.source,
-        },
-      });
-    }
-    const createdAt = new Date().toISOString();
-    const resultLocked = freeImageGeneration;
-    const record = await upsertGenerationRecord({
-      taskId,
-      status: "queued",
-      source: generation.source,
-      kind: generation.kind,
-      provider: generation.provider,
-      upstreamSource: "video-tool-orchestrator",
-      model: pricing.model,
-      userId: auth.user.id,
-      userAssetId: asset.id,
-      userAssetIds: [asset.id],
-      imageUrl: generation.mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
-      sourceImageUrl: generation.mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
-      mediaAssets: [{
-        type: generationType === "video" ? "video" : generationType === "image_video" ? "first_frame" : "reference_image",
-        userAssetId: asset.id,
-        localUrl: asset.localUrl || "",
-      }],
-      prompt: generation.prompt,
-      finalPrompt: generation.prompt,
-      params: {
-        toolAction: action,
-        generationType,
-        stage: "queued",
-        durationSeconds: pricing.durationSeconds,
-        segmentCount: pricing.segmentCount,
-        completedSegments: 0,
-        freeImageClaimId: freeImageGeneration ? freeClaimId : "",
-      },
-      ratio: generationType === "image" ? closestWan27ImageRatioForAsset(asset) : generationType === "image_video" ? "9:16" : "source",
-      resolution: generationType === "image" ? "2K" : "720p",
-      duration: generationType === "image" ? "" : pricing.durationSeconds,
-      preDeductedCredits: cost,
-      originalPreDeductedCredits: freeImageGeneration ? 0 : pricing.originalCredits,
-      finalCredits: null,
-      originalFinalCredits: null,
-      userPricingMultiplier: pricing.components?.[0]?.userPricingMultiplier ?? 1,
-      billingStatus: freeImageGeneration ? "free_generating" : cost > 0 ? "pre_deducted" : "free",
-      billingSettledAt: "",
-      pricingEstimate: pricing,
-      resultLocked,
-      unlockCredits: freeImageGeneration ? pricing.credits : 0,
-      unlockType: freeImageGeneration ? "undress_image" : "",
-      freeImageGeneration,
-      freeImageClaimId: freeImageGeneration ? freeClaimId : "",
-      awaitingUpstreamTask: false,
-      error: "",
-      createdAt,
-      updatedAt: createdAt,
-      apiTokenId: auth.tokenRecord?.id || "",
-      apiTokenName: auth.tokenRecord?.name || "",
-      apiTokenType: auth.tokenRecord?.quotaType || "",
-      apiTokenSource: auth.tokenSource || "",
-    });
-    recordCreated = true;
-    startVideoToolJob({
-      taskId,
-      action,
-      userId: auth.user.id,
-      imageAssetId: generation.mediaKind === "image" ? asset.id : "",
-      videoAssetId: generation.mediaKind === "video" ? asset.id : "",
-      pricing,
-      prompt: generation.prompt,
-    });
-    return sendJson(res, 202, {
-      ok: true,
-      async: true,
-      taskId,
-      freeImageGeneration,
-      pricing: publicVideoToolPricing(pricing),
-      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
-      user: userView(auth.user),
-    });
-  } catch (error) {
-    if (freeClaim && !recordCreated) {
-      await releaseToolFreeGenerationClaimInDb({ id: freeClaimId, userId: auth.user.id, taskId }).catch(() => {});
-    }
-    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Generation submission failed." });
   }
 }
 
