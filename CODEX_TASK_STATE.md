@@ -24,7 +24,7 @@ This file is the durable handoff for this task. After compaction, read it first.
 - Production smoke: `https://123vips.com/api/health` returns 200.
 - Database after first batches: multiple other-user records repaired (seedance, seedance-nsfw, aliyun-wan30).
 - Example repaired other-user record: `cgt-20261104171358-9e0d9b`, user `user-1792321148162-001c8e52`; poster URL returned HTTP 200 `image/jpeg`.
-- Recoverable remaining count was 5201 before the self-scheduling worker had processed long; recount after deployment if reporting progress.
+- Recoverable remaining count fell from 5201 to 5187; 15 records have confirmed completed poster maintenance.
 
 ## Deployment
 
@@ -37,8 +37,9 @@ This file is the durable handoff for this task. After compaction, read it first.
 ## Live progress observed
 
 - Worker continues after restart; logs showed more completed batches (`startup` entries from the self-scheduling loop).
-- Completed poster repairs in DB increased to 9, recoverable missing count decreased from 5201 to 5191 during a short observation.
+- Completed poster repairs in DB increased to 15, recoverable missing count decreased from 5201 to 5187.
 - Another repaired other-user task `cgt-20261104165022-0c412b` poster URL returned HTTP 200 `image/jpeg`.
+- All 15 latest repaired poster URLs returned HTTP 200 `image/jpeg`, covering 12 distinct users.
 - The remaining backlog is processed slowly by design. No burst download.
 
 ## Important caveat
