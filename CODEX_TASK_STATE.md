@@ -11,35 +11,36 @@ This file is the durable handoff for this task. After compaction, read it first.
 ## Root cause and architecture
 
 - Repeated compaction was caused by whole-file reads of `server.js` (~54.6k lines), `platform.ui.js`, and `platform.create.js`.
-- Backend source is now `server.parts/part-01.js` through `part-43.js`; largest part is 1,472 lines.
-- `server-source.js` concatenates ordered parts, and `server.js` is a 23-line VM wrapper preserving CommonJS-like scope and `require.main`.
+- Backend source is now `server.parts/part-01.js` through `part-43.js`; largest part is 1,473 lines.
+- `server-source.js` concatenates ordered parts; `server.js` is a small VM wrapper preserving shared source scope and `require.main`.
 - Frontend is now `platform.ui.parts/part-01..07.js` and `platform.create.parts/part-01..06.js`.
 - `platform.js` loads frontend parts in order; `platform.ui.js` and `platform.create.js` remain small compatibility loaders.
 - PostgreSQL-only runtime rule remains unchanged; missing `DATABASE_URL` fails clearly.
 
-## Merge decision
+## Merge result
 
-- Current split branch was based on `9c4a6fb`.
-- Main-site poster/thumbnail repair landed afterward on `origin/old-site` through `cd7fca9`.
-- Poster commits changed the old monolithic `server.js` and `platform.create.js`, so Git reported structural conflicts with split files.
-- Resolution: independently three-way merge the original monolith sources, regenerate parts from the merged source, and verify concatenated parts match the merged result.
-- No business changes should be dropped from either side.
+- Split implementation: `adbbc93` (`Split oversized runtime sources`).
+- Main-site poster/backfill tip merged in: `cd7fca9`.
+- Merge commit: `883e458` (`Merge poster backfill fixes into source split branch`).
+- Conflicts were structural only: upstream changed monolithic `server.js` / `platform.create.js`, while this branch had split wrappers.
+- Resolution independently three-way merged the monolith sources, regenerated ordered parts, and verified both sides' functionality remains present.
+- Vega target controls and poster/backfill behavior are both retained.
 
-## Existing poster/backfill fixes being deployed
+## Poster/backfill behavior
 
 - PostgreSQL query covers successful, non-deleted, non-API video records missing posters across all users.
 - Bounded background poster backfill: 2 records per batch, max 3 attempts, 30-minute retry backoff, self-scheduling.
 - Poster-only repair does not persist historical full videos.
 - Generate Result UI accepts poster-only records and retries poster refresh.
 - DB maintenance fields are retained.
-- Remaining unrecoverable historical records need a valid provider/local video source.
 
-## Required verification after merge
+## Verification
 
-- Rebuild split parts and prove concatenated content equals merged monolith.
-- Syntax-check every part/wrapper; require server successfully.
-- Run focused poster/result tests and source-split/deploy tests.
-- Run full test suite and compare failures against the established baseline.
+- Python compile checks passed for release/deploy scripts.
+- Full suite: 628 tests, 607 pass, 21 fail. The 21 failures are the established pre-existing Vega/control/payment/landing baseline, not merge regressions.
+- Focused suite with required source compatibility loader: 44 tests, 44 pass, 0 fail.
+- Backend split: 43 parts, largest 1,473 lines; `require('./server')` exposes 43 source parts.
+- `git diff --check` passed before final state update.
 
 ## Deployment rules
 
@@ -51,5 +52,5 @@ This file is the durable handoff for this task. After compaction, read it first.
 
 ## Status
 
-- Merge is in progress; conflicts are structural only.
-- No deployment has occurred yet for the combined change set.
+- Merge and regression verification complete.
+- Next: commit this state update, fast-forward `old-site` to the verified merge, build `platform-release`, deploy `old`, and run production smoke checks.
