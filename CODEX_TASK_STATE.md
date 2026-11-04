@@ -34,6 +34,13 @@ This file is the durable handoff for this task. After compaction, read it first.
 - `live-release` must not be deployed/defaulted; do not change it for this fix.
 - `LOCAL_CREDENTIALS.md` copied into this worktree locally and remains gitignored; never print/commit it.
 
+## Live progress observed
+
+- Worker continues after restart; logs showed more completed batches (`startup` entries from the self-scheduling loop).
+- Completed poster repairs in DB increased to 9, recoverable missing count decreased from 5201 to 5191 during a short observation.
+- Another repaired other-user task `cgt-20261104165022-0c412b` poster URL returned HTTP 200 `image/jpeg`.
+- The remaining backlog is processed slowly by design. No burst download.
+
 ## Important caveat
 
 - Historical records with no local video and no still-valid provider video URL cannot be repaired. Do not count image records as missing video posters.
