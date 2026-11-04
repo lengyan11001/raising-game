@@ -106,7 +106,7 @@ test("background poster backfill scans non-API video records in bounded batches"
   assert.match(scan, /ensureGenerationRecordMediaOptimized\(current, \{ allowObjectStorageUpload: false \}\)/);
   assert.match(server, /downloadGeneratedVideo\(record\.taskId, remoteVideo, \{ forceLocal: true, posterOnly: true \}\)/);
   assert.match(server, /startGenerationRecordMediaRecoveryScheduler\(\);/);
-  assert.match(server, /setInterval\(\(\) => scanGenerationRecordMissingPosterBackfill\("timer"\), GENERATION_POSTER_BACKFILL_INTERVAL_MS\)/);
+  assert.match(server, /setTimeout\(runPosterBackfill, GENERATION_POSTER_BACKFILL_INTERVAL_MS\)/);
 });
 
 test("on-demand poster-only repair does not persist a downloaded video", () => {

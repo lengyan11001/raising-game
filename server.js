@@ -29232,8 +29232,11 @@ async function scanGenerationRecordMissingPosterBackfill(reason = "timer") {
 function startGenerationRecordMediaRecoveryScheduler() {
   setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
   setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
-  setTimeout(() => scanGenerationRecordMissingPosterBackfill("startup"), 25000).unref?.();
-  setInterval(() => scanGenerationRecordMissingPosterBackfill("timer"), GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.();
+  setTimeout(function runPosterBackfill() {
+    scanGenerationRecordMissingPosterBackfill("startup")
+      .catch((error) => console.warn("[generation-poster-backfill-loop-failed]", error.message || error))
+      .finally(() => setTimeout(runPosterBackfill, GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.());
+  }, 25000).unref?.();
 }
 
 function scheduleVideoToolJobDrain() {
