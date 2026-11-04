@@ -1001,7 +1001,7 @@ function generationRecordIsVideoOutput(record = {}) {
     || record.cdnVideoUrl
     || record.videoUrl
     || kind.includes("video")
-    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance20-vega", "seedance20-fast-vega", "seedance20-mini-vega", "seedance25-vega", "seedance20-lite-vega", "h3-vega"].includes(provider),
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "h3-vega"].includes(provider),
   );
 }
 

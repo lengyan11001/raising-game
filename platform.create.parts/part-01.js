@@ -292,9 +292,12 @@ function applyAdvancedVegaSelection(selection = {}, target = {}) {
 
 function syncAdvancedVegaUploadInput() {
   if (!els.advancedImage || !isVegaAdvancedProvider()) return;
-  const config = advancedVegaUploadConfig();
-  els.advancedImage.accept = config.accept;
-  els.advancedImage.multiple = config.multiple;
+  const mode = advancedVegaMediaMode();
+  const acceptsReferences = vegaModeUsesReferences(mode);
+  els.advancedImage.accept = acceptsReferences
+    ? "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/*"
+    : advancedVegaUploadConfig().accept;
+  els.advancedImage.multiple = acceptsReferences || advancedVegaUploadConfig().multiple;
 }
 
 function advancedAssetTargetItems() {

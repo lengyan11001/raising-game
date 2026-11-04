@@ -209,7 +209,7 @@ function publicModelDocsView(docs = {}) {
   const publicModelFamilies = [
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
-    "Vega 1.0 Pro, Vega 1.0 Pro Fast, Vega 1.0 Pro Mini, Vega 1.5 Pro, Vega 1.0 Lite, and Vega 1.5 Lite use the Advanced route.",
+    "Vega 1.5 Pro and Vega 1.5 Lite use the Advanced route.",
     ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
   ];
@@ -363,11 +363,7 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     { title: "W3.0-VSR-Prime (w3.0-video-prime-pro)", example: external.wan30PrimeProExample, fields: () => wan30VideoParameterFields("w3.0-video-prime-pro") },
     { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
     { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
-    { title: "Vega 1.0 Pro", example: external.seedance20VegaExample, fields: () => vegaVideoParameterFields("seedance20-vega") },
-    { title: "Vega 1.0 Pro Fast", example: external.seedance20FastVegaExample, fields: () => vegaVideoParameterFields("seedance20-fast-vega") },
-    { title: "Vega 1.0 Pro Mini", example: external.seedance20MiniVegaExample, fields: () => vegaVideoParameterFields("seedance20-mini-vega") },
     { title: "Vega 1.5 Pro", example: external.seedance25VegaExample, fields: () => vegaVideoParameterFields("seedance25-vega") },
-    { title: "Vega 1.0 Lite", example: external.seedance20LiteVegaExample, fields: () => vegaVideoParameterFields("seedance20-lite-vega") },
     { title: "Vega 1.5 Lite", example: external.h3VegaExample, fields: () => vegaVideoParameterFields("h3-vega") },
   ];
   for (const section of advancedSections) {
@@ -766,9 +762,9 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "**Vega video models**",
     "",
-    "`Vega 1.0 Pro`, `Vega 1.0 Pro Fast`, `Vega 1.0 Pro Mini`, `Vega 1.5 Pro`, `Vega 1.0 Lite`, and `Vega 1.5 Lite` use Tencent VOD through the same Advanced route. All six support text, first frame, last frame, first + last frame, and multimodal references. Vega 1.5 Pro additionally supports edit, extend, Draft, and Draft to Final. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Vega pricing is not configured, so requests fail before charging or calling upstream.",
+    "`Vega 1.5 Pro` and `Vega 1.5 Lite` use Tencent VOD through the same Advanced route. Both support text, first frame, last frame, first + last frame, and multimodal references. Vega 1.5 Pro additionally supports edit, extend, Draft, and Draft to Final. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Vega pricing is not configured, so requests fail before charging or calling upstream.",
     "",
-    ...["seedance20-vega", "seedance20-fast-vega", "seedance20-mini-vega", "seedance25-vega", "seedance20-lite-vega", "h3-vega"].flatMap((provider) => [
+    ...["seedance25-vega", "h3-vega"].flatMap((provider) => [
       `**${vegaProviderLabel(provider)} (provider \`${provider}\`)**`,
       "",
       markdownCodeBlock("http", [

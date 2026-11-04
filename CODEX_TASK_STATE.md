@@ -4,6 +4,28 @@ This file is the durable handoff for this task. After compaction, read it first.
 
 ## Active request
 
+- Finish Vega integration correction: keep only Vega 1.5 Pro (`seedance25-vega`) and Vega 1.5 Lite (`h3-vega`); remove every Vega 1.0 entry.
+- Match the original Seedance 2.5 interaction: shared multimodal upload visible by default, image/video/audio multi-select, and Add from library usable for reference images, video, audio, first frame, and last frame.
+- Preserve first frame, last frame, first + last frame, text-to-video, multimodal references, plus Vega 1.5 Pro edit/extend/Draft controls.
+- Verify, commit `old-site`, build `platform-release`, deploy `old`, and confirm production commit and UI assets. Do not touch `live-release`.
+
+## Vega 1.5 correction status (2026-11-04)
+
+- Committed baseline before correction: `683f49b`; correction work was applied on `old-site` only.
+- Model registries reduced to two providers in `platform.config.js`, `tencent-vod-vega.js`, UI selectors, backend provider routing, and API docs.
+- Vega default mode is `reference_video`; default target is `referenceImages`; shared upload is visible.
+- Shared upload accept is `image/*,video/mp4,video/webm,video/quicktime,video/*,audio/*`, with multi-select in reference mode.
+- Dedicated first/last/first+last frame cards remain; text-to-video and draft-followup hide the shared upload.
+- Add from library supports `referenceImages`, `video`, `audio`, `primary`, and `lastFrame`, resolving public URLs through `/api/user-assets/resolve`.
+- Focused suite: 32/32 pass. Full suite: 629 tests, 608 pass, 21 known historical failures (same baseline).
+- Output files: `/tmp/vega-final-focus.out`, `/tmp/vega-full-2.out`.
+- Pending: update state file, commit, build platform release, push release, deploy old, verify production commit and live assets.
+- Never deploy `old-site`; never modify or deploy `live-release`.
+
+## Prior context
+
+
+
 - Deploy the completed main-site result-thumbnail/poster fixes together with the oversized-source split.
 - Confirm the two change sets do not conflict.
 - Run tests, build the platform release, and deploy only `123vips.com`.

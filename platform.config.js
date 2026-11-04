@@ -447,45 +447,25 @@ const ADVANCED_CREATE_MODES = {
 };
 
 const VEGA_PROVIDER_IDS = Object.freeze([
-  "seedance20-vega",
-  "seedance20-fast-vega",
-  "seedance20-mini-vega",
   "seedance25-vega",
-  "seedance20-lite-vega",
   "h3-vega",
 ]);
 const VEGA_MODEL_LABELS = Object.freeze({
-  "seedance20-vega": "Vega 1.0 Pro",
-  "seedance20-fast-vega": "Vega 1.0 Pro Fast",
-  "seedance20-mini-vega": "Vega 1.0 Pro Mini",
   "seedance25-vega": "Vega 1.5 Pro",
-  "seedance20-lite-vega": "Vega 1.0 Lite",
   "h3-vega": "Vega 1.5 Lite",
 });
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_DURATION_BOUNDS = Object.freeze({
-  "seedance20-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
-  "seedance20-fast-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
-  "seedance20-mini-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
   "seedance25-vega": Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
-  "seedance20-lite-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
   "h3-vega": Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
 });
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
-  "seedance20-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
-  "seedance20-fast-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
-  "seedance20-mini-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
   "seedance25-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true }),
-  "seedance20-lite-vega": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true }),
   "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
 });
 const VEGA_REFERENCE_LIMITS = Object.freeze({
-  "seedance20-vega": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
-  "seedance20-fast-vega": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
-  "seedance20-mini-vega": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
   "seedance25-vega": Object.freeze({ images: 30, videos: 10, audios: 10, total: 50 }),
-  "seedance20-lite-vega": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
   "h3-vega": Object.freeze({ images: 10, videos: 5, audios: 5, total: 20 }),
 });
 
@@ -499,7 +479,7 @@ function vegaCapabilities(provider = "") {
 }
 
 function vegaReferenceLimits(provider = "") {
-  return VEGA_REFERENCE_LIMITS[String(provider || "").trim().toLowerCase()] || VEGA_REFERENCE_LIMITS["seedance20-vega"];
+  return VEGA_REFERENCE_LIMITS[String(provider || "").trim().toLowerCase()] || VEGA_REFERENCE_LIMITS["seedance25-vega"];
 }
 
 function normalizeVegaUiMediaMode(value = "") {

@@ -1004,8 +1004,8 @@ els.advancedProvider?.addEventListener("change", () => {
   const provider = currentAdvancedProvider();
   if (isVegaProviderId(provider)) {
     syncAdvancedSeedanceModeOptions(provider);
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "text_to_video";
-    if (els.advancedRatio) els.advancedRatio.value = "16:9";
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    if (els.advancedRatio) els.advancedRatio.value = "adaptive";
     if (els.advancedResolution) els.advancedResolution.value = "768P";
     if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : "5";
     if (els.advancedWanSeed) els.advancedWanSeed.value = "";
@@ -1020,7 +1020,7 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedVegaOutputFormat) els.advancedVegaOutputFormat.value = "mp4";
     if (els.advancedVegaEnhancePromptMode) els.advancedVegaEnhancePromptMode.value = "auto";
     if (els.advancedVegaModerationMode) els.advancedVegaModerationMode.value = "Moderation_L1";
-    state.advancedAssetTarget = "primary";
+    state.advancedAssetTarget = "referenceImages";
   }
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());

@@ -873,10 +873,6 @@ function normalizeAdvancedProvider(value = "") {
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
-  if (normalized.includes("seedance20fast") && normalized.includes("vega")) return "seedance20-fast-vega";
-  if (normalized.includes("seedance20mini") && normalized.includes("vega")) return "seedance20-mini-vega";
-  if (normalized.includes("seedance20lite") && normalized.includes("vega")) return "seedance20-lite-vega";
-  if (["seedance20vega", "seedance2.0vega"].includes(normalized) || (normalized.includes("seedance20") && normalized.includes("vega")) || (normalized.includes("seedance2.0") && normalized.includes("vega"))) return "seedance20-vega";
   if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
   if (["h3vega", "h3"].includes(normalized) || normalized.includes("h3vega")) return "h3-vega";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
@@ -1040,11 +1036,11 @@ const ADVANCED_SEEDANCE_MODE_OPTIONS = Object.freeze({
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
   ]),
   ...Object.fromEntries(VEGA_PROVIDER_IDS.map((id) => [id, Object.freeze([
-    Object.freeze({ value: "text_to_video", label: "Text to Video" }),
+    Object.freeze({ value: "reference_video", label: "Multimodal References" }),
     Object.freeze({ value: "first_frame", label: "First Frame" }),
     Object.freeze({ value: "last_frame", label: "Last Frame" }),
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
-    Object.freeze({ value: "reference_video", label: "Multimodal References" }),
+    Object.freeze({ value: "text_to_video", label: "Text to Video" }),
     ...(VEGA_MODEL_CAPABILITIES[id]?.draft ? [Object.freeze({ value: "draft_followup", label: "Draft to Final" })] : []),
   ])])),
 });
@@ -1159,7 +1155,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit" || normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
-  if (isVegaProviderId(normalized)) return { ...(VEGA_DURATION_BOUNDS[normalized] || VEGA_DURATION_BOUNDS["seedance20-vega"]) };
+  if (isVegaProviderId(normalized)) return { ...(VEGA_DURATION_BOUNDS[normalized] || VEGA_DURATION_BOUNDS["seedance25-vega"]) };
   if (["seedance25", "seedance-nsfw"].includes(normalized)) return { min: 4, max: 30, fallback: 4 };
   const resolvedCapability = capability || (
     typeof currentAdvancedVideoCapability === "function"
