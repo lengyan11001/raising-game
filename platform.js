@@ -1,6 +1,7 @@
 (() => {
   const chunkFiles = [
     "platform.config.js",
+    "platform.vega-media.js",
     "platform.copy.js",
     "platform.ui.js",
     "platform.telegram.js",

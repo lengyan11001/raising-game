@@ -521,7 +521,14 @@ function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
   return !(state.advancedCreateKind === "video" && mode === "video-edit");
 }
 
-function advancedCreateModeAllowsManualReferenceUpload(mode = state.advancedCreateMode) {
+function advancedCreateModeAllowsManualReferenceUpload(
+  mode = state.advancedCreateMode,
+  provider = typeof currentAdvancedProvider === "function" ? currentAdvancedProvider() : "",
+) {
+  const normalizedProvider = typeof normalizeAdvancedProvider === "function"
+    ? normalizeAdvancedProvider(provider)
+    : String(provider || "").toLowerCase();
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(normalizedProvider)) return true;
   return !(state.advancedCreateKind === "video" && ["video-image", "video-extend", "video-replace"].includes(mode));
 }
 

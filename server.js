@@ -378,6 +378,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.css",
   "platform.js",
   "platform.config.js",
+  "platform.vega-media.js",
   "platform.copy.js",
   "platform.ui.js",
   "platform.telegram.js",
@@ -24533,6 +24534,21 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
   return userAsset;
 }
 
+async function ensureVegaPublicUrlForUserAsset(db, userAsset) {
+  try {
+    const ensured = await ensurePublicUrlForUserAsset(db, userAsset);
+    const publicUrl = [ensured?.publicUrl, ensured?.cdnUrl].find((value) => isPublicHttpUrl(value)) || "";
+    if (!publicUrl) throw new Error("Object storage did not return a public HTTP(S) URL.");
+    return ensured;
+  } catch (error) {
+    const wrapped = new Error(`Vega asset public URL unavailable: ${error.message || "object storage upload failed"}`);
+    wrapped.statusCode = 502;
+    wrapped.code = "VEGA_ASSET_PUBLIC_URL_UNAVAILABLE";
+    wrapped.cause = error;
+    throw wrapped;
+  }
+}
+
 async function arkOpenApiAction(action, payload) {
   requireValue("BYTEPLUS_ACCESS_KEY_ID or VOLC_ACCESS_KEY_ID", ARK_OPENAPI.accessKey);
   requireValue("BYTEPLUS_SECRET_ACCESS_KEY or VOLC_ACCESS_KEY_SECRET", ARK_OPENAPI.secretKey);
@@ -45142,13 +45158,16 @@ async function handleUploadUserAsset(req, res) {
   const uploadProvider = normalizeAdvancedProvider(body.provider || "");
   const publicUrl = String(body.url || body.imageUrl || body.videoUrl || body.audioUrl || "").trim();
   if (publicUrl) {
-    const userAsset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
+    let userAsset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
       url: publicUrl,
       name: body.name || body.fileName || "Upload",
       fileName: body.fileName || body.name || "",
       durationSeconds: firstPresent(body.durationSeconds, body.duration, body.videoDurationSeconds, body.audioDurationSeconds),
       provider: uploadProvider,
     });
+    if (isVegaProvider(uploadProvider)) {
+      userAsset = await ensureVegaPublicUrlForUserAsset(auth.db, userAsset);
+    }
     return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
   }
 
@@ -45168,7 +45187,7 @@ async function handleUploadUserAsset(req, res) {
   }
   const limits = userMediaUploadLimits(uploadProvider);
   const maxBytes = isDocument ? WAN30_DOCUMENT_UPLOAD_MAX_BYTES : mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
-  const userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+  let userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
     bytes,
     mime,
     name: body.name || "Upload",
@@ -45176,6 +45195,9 @@ async function handleUploadUserAsset(req, res) {
     maxBytes,
     durationSeconds: firstPresent(body.durationSeconds, body.duration, body.videoDurationSeconds, body.audioDurationSeconds),
   });
+  if (isVegaProvider(uploadProvider)) {
+    userAsset = await ensureVegaPublicUrlForUserAsset(auth.db, userAsset);
+  }
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
 }
 
@@ -45633,7 +45655,8 @@ function publicUserAsset(asset = {}) {
     mime: asset.mime || "",
     localUrl: asset.localUrl || "",
     publicUrl: asset.publicUrl || "",
-    previewUrl: asset.localUrl || asset.publicUrl || "",
+    cdnUrl: asset.cdnUrl || "",
+    previewUrl: asset.localUrl || asset.publicUrl || asset.cdnUrl || "",
     durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.duration)),
     assetUri: kind === "image" ? asset.assetUri || "" : "",
     seedanceAssetUri: kind === "video" ? asset.seedanceVideoAssetUri || "" : kind === "audio" ? asset.seedanceAudioAssetUri || "" : asset.assetUri || "",
@@ -46822,10 +46845,15 @@ async function handleResolveUserAssets(req, res) {
   const assets = assetIds
     .map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)))
     .filter(Boolean);
+  const requirePublicUrl = Boolean(body.requirePublicUrl) || isVegaProvider(body.provider);
+  const resolvedAssets = [];
+  for (const asset of assets) {
+    resolvedAssets.push(requirePublicUrl ? await ensureVegaPublicUrlForUserAsset(auth.db, asset) : asset);
+  }
   const foundIds = new Set(assets.map((asset) => asset.id));
   return sendJson(res, 200, {
     ok: true,
-    assets: assets.map(publicUserAsset),
+    assets: resolvedAssets.map(publicUserAsset),
     missingAssetIds: assetIds.filter((assetId) => !foundIds.has(assetId)),
   });
 }

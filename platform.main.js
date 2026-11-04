@@ -456,6 +456,13 @@ els.advancedImage?.addEventListener("change", async () => {
 els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
   const file = els.advancedSeedanceFirstFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "primary";
+    await handleAdvancedVegaLocalFiles([file]);
+    els.advancedSeedanceFirstFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
     els.advancedSeedanceFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -493,6 +500,13 @@ els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
 els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   const file = els.advancedSeedanceLastFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "lastFrame";
+    await handleAdvancedVegaLocalFiles([file]);
+    els.advancedSeedanceLastFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
     els.advancedSeedanceLastFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -753,9 +767,16 @@ els.advancedAssetSearch?.addEventListener("input", () => {
   state.advancedAssetSearchTimer = window.setTimeout(() => loadAdvancedAssets(1), 250);
 });
 els.advancedAssetTypeFilter?.addEventListener("change", () => loadAdvancedAssets(1));
-els.advancedAssetUploadInput?.addEventListener("change", () => {
+els.advancedAssetUploadInput?.addEventListener("change", async () => {
   updateFilePickerLabel(els.advancedAssetUploadInput);
-  uploadAdvancedAssets(els.advancedAssetUploadInput.files);
+  const files = Array.from(els.advancedAssetUploadInput.files || []);
+  if (isVegaAdvancedProvider()) {
+    await handleAdvancedVegaLocalFiles(files);
+    els.advancedAssetUploadInput.value = "";
+    updateFilePickerLabel(els.advancedAssetUploadInput);
+    return;
+  }
+  uploadAdvancedAssets(files);
 });
 els.topupFilters?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -980,6 +1001,14 @@ els.advancedDuration?.addEventListener("input", handleAdvancedDurationSelection)
 els.advancedDuration?.addEventListener("change", handleAdvancedDurationSelection);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
+  const provider = currentAdvancedProvider();
+  if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider)) {
+    if (els.advancedRatio) els.advancedRatio.value = "16:9";
+    if (els.advancedResolution) els.advancedResolution.value = "768P";
+    if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : "5";
+    if (els.advancedWanSeed) els.advancedWanSeed.value = "";
+    state.advancedAssetTarget = "primary";
+  }
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "omini";
@@ -1104,7 +1133,9 @@ els.advancedUploadBox?.addEventListener("click", () => {
   const aliyunSharedTarget = ["wan30", "wan27", "happyhorse"].includes(provider)
     ? (advancedAssetTargetItems().find((target) => target.type === "image")?.id || advancedAssetTargetItems()[0]?.id || "primary")
     : "";
-  setAdvancedAssetTarget(provider === "wan27-image-edit"
+  setAdvancedAssetTarget(["seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider)
+    ? (advancedAssetTargetItems().some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : "primary")
+    : provider === "wan27-image-edit"
     ? "sourceImages"
     : ["seedream5-image", "qwen-image3"].includes(provider)
     ? "referenceImages"

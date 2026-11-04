@@ -4,9 +4,10 @@ This file is the durable handoff for this task. After any context compaction or 
 
 ## User's active request
 
-- Fix **123vips.com** Generate tab Result video thumbnails missing while the same records show posters in History.
-- Root cause: `advancedResultDisplayRecords()` merged the history list snapshot over the richer detail record, so empty media fields erased valid `cdnPosterUrl`.
-- Preserve non-empty poster/video/image fields during Result merges; remaining Vega work is already implemented but was not deployed.
+- Fix **123vips.com** Generate tab for the three Tencent VOD Vega models.
+- Selecting a Vega model and adding an asset from the library must work, including legacy assets that only have a local URL.
+- Audit all Vega multimodal controls: first frame, last frame, reference images, reference video, reference audio, local upload, preview, Add, submit, and regeneration.
+- Vega parameters must follow the Tencent VOD contract, not copied legacy Seedance/ByteDance parameters.
 
 | Provider ID | UI label | ModelName | ModelVersion |
 |---|---|---|---|
@@ -14,20 +15,41 @@ This file is the durable handoff for this task. After any context compaction or 
 | `seedance25-vega` | `Seedance 2.5（Vega）` | `wand-vega-video` | `1.5-pro` |
 | `h3-vega` | `H3（Vega）` | `wand-vega-video` | `1.5-lite` |
 
+## Root cause and decisions
+
+- Add failed for older library assets because they could have `localUrl` but no public HTTP(S) URL. Vega only accepts public HTTP(S) media URLs.
+- Frontend now resolves Vega asset IDs through `/api/user-assets/resolve` before Add and again before submit.
+- Backend now forces the public mirror for Vega uploads and Vega asset resolution. Object-storage failure returns HTTP 502 `VEGA_ASSET_PUBLIC_URL_UNAVAILABLE`; there is no local-relative-URL fallback.
+- New Vega uploads return the backend `publicUrl`/`cdnUrl` immediately.
+- First-frame and last-frame state are refreshed from resolved assets before the final payload is built.
+- Local upload handlers capture the selected target before upload so an async refresh cannot redirect the asset into another target.
+- Vega Add never overrides the user's explicitly selected target.
+- `applyAdvancedCreateMode({ syncForm: false })` prevents model-control refreshes from resetting the selected Vega provider.
+- New `platform.vega-media.js` is the single source of truth for target/media-kind/public-URL rules.
+
+## Vega contract
+
+- Payload fields: `ModelName`, `ModelVersion`, `Prompt`, `FileInfos[]`, `OutputConfig`, optional `Seed`, `EnhancePromptMode: "disable"`.
+- `FileInfos[].Usage`: `FirstFrame` / `LastFrame` / `Reference`.
+- `FileInfos[].Category`: `Image` / `Video` / `Audio`.
+- Duration: 1-15 seconds.
+- Resolution: `768P` / `1080P` / `2K` / `4K`.
+- Aspect ratio: `21:9` / `16:9` / `4:3` / `1:1` / `3:4` / `9:16`.
+- Never send legacy `ReferenceType`.
+- Vega pricing is not supplied. Fail closed with HTTP 422 `MODEL_PRICING_UNAVAILABLE`; no upstream call and no deduction.
+
 ## Non-negotiable rules
 
 - Preserve exact Vega provider IDs end to end: records, params, estimate/submit, polling, regeneration, public responses.
-- Vega pricing is not supplied. Fail closed with HTTP 422 `MODEL_PRICING_UNAVAILABLE`; no upstream call and no deduction.
 - Never reuse existing Seedance/H3 pricing.
-- Do not use `publicHttpUrlForUpstream()` for Vega inputs; require real public HTTP(S) media URLs.
-- Vega `FileInfos` must use `Usage` (`FirstFrame`, `LastFrame`, `Reference`) and must never send legacy `ReferenceType`.
-- Force `EnhancePromptMode: "disable"`.
+- Vega `FileInfos` must use `Usage` and must never send legacy `ReferenceType`.
 - Create task ID is `Response.TaskId`; query payload is `Response.AigcVideoTask`.
 - Success status is `FINISH`; outputs are `AigcVideoTask.Output.FileInfos[]`.
 - Choose the output with empty/absent `UsageType`, never `last_frame_url`.
 - Preserve raw create/query responses in generation records.
 - Tencent credentials must stay out of Git.
 - Business/runtime data must use PostgreSQL via `DATABASE_URL`; no JSON/static fallbacks.
+- Deploy `123vips.com` only, via `scripts/deploy_local.sh --site old`, from a committed `old-site` release snapshot. Never deploy `old-site` directly. Do not deploy `live-release`.
 
 ## Env vars
 
@@ -35,67 +57,55 @@ This file is the durable handoff for this task. After any context compaction or 
 - `TENCENTCLOUD_SECRET_KEY`
 - `TENCENT_VOD_SUB_APP_ID`
 
-## Status
+## Changed files
 
-- Backend, frontend, upload flow, generation/polling/refund/regeneration, API docs, and focused tests are complete.
-- Modified: `AGENTS.md`, `lib-providers.js`, `platform.create.js`, `platform.html`, `platform.main.js`, `platform.ui.js`, `server.js`.
-- Added: `.codex/config.toml`, `CODEX_TASK_STATE.md`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`.
-- Current state: poster merge fix committed as `8ef1977`; Vega and poster fix are deployed to `123vips.com`.
-- Modified for poster fix: `platform.create.js`, `test/advanced-result-order.test.js`, `test/advanced-result-refresh.test.js`.
-- Deployment target: `123vips.com` only, through `scripts/deploy_local.sh --site old` after building from committed `old-site`.
-- Deployed `platform-release` snapshot: `8ef7a19` from `old-site` `8ef1977`.
-- Deployment completed 2026-11-04 through `scripts/deploy_local.sh --site old`; service restarted and health returned HTTP 200 `{"ok":true}`.
-- Post-deploy smoke: platform home contains `platform.css` and `Vipeak AI`; `live.html`, `live.css`, `live.js`, `qrcode.js`, `site-landing.html`, and `downloads/vipeak-live.apk` all return 404.
+```text
+platform.config.js
+platform.create.js
+platform.js
+platform.main.js
+platform.ui.js
+server.js
+platform.vega-media.js
+test/tencent-vod-vega.test.js
+CODEX_TASK_STATE.md
+```
 
-## Test status
+## Verification
 
-- Vega + pricing/docs regression: `45 pass, 0 fail`
-  - `node --test test/tencent-vod-vega.test.js test/advanced-pricing.test.js test/advanced-result-refresh.test.js test/external-model-docs.test.js`
-- Syntax checks passed for `server.js`, `tencent-vod-vega.js`, `platform.create.js`, `platform.ui.js`, `platform.main.js`.
+- Focused Vega + advanced custom UI: **62 pass, 0 fail**
+  - `node --test test/tencent-vod-vega.test.js test/advanced-custom-ui.test.js`
+- Full suite: **605 pass, 15 fail**
+  - `npm test`
+  - All 15 failures are pre-existing branch/baseline failures; none are Vega-specific.
+  - Log: `/tmp/raising-game-test.log`
+- Syntax checks passed for `server.js`, `platform.main.js`, `test/tencent-vod-vega.test.js`, and `test/advanced-custom-ui.test.js`.
 - `git diff --check` passed.
-- Known pre-existing UI regressions (stale assertions, also fail or mismatch at `HEAD`; unrelated to Vega):
-  - `test/advanced-custom-ui.test.js:329` expects old `fallbackRatio` regex.
-  - `test/custom-media-kind-tabs.test.js:17` expects old shorter image-provider array.
-  - `test/custom-media-kind-tabs.test.js:28` expects literal `records.filter(...)`; implementation uses `advancedResultVisibleRecords()`.
+- Browser automation is unavailable in this repository, so coverage is source-level regression plus the existing helper tests. Do not ask the user to manually test each control.
 
 ## Critical code locations
 
 - `server.js:32385` `handleAdvancedVegaGenerate`
+- `server.js:24537` `ensureVegaPublicUrlForUserAsset`
 - `server.js:26780` `refreshVegaGenerationRecord`
 - `server.js:36906` `advancedRegenerateBody`
 - `server.js:37689` Vega API docs
+- `platform.create.js:159` Vega asset resolution helpers
 - `platform.create.js:2442` Vega submission branch
+- `platform.create.js:3548` Vega local uploads
+- `platform.vega-media.js` target/media validation helper
 - `tencent-vod-vega.js` TC3/client/payload helpers
 
-## Progress log
+## Deployment status
 
-### Context compaction diagnosis (2026-11-04)
+- Previous poster-fix deployment: `old-site` `8ef1977`, `platform-release` `8ef7a19`, deployed to `123vips.com`.
+- Current Vega asset/control fix is **not committed, not released, and not deployed**.
 
-- Session `01a1877f-1064-7ed3-b8e9-0315abe364fb` has 311 compactions; 130 occurred on 2026-11-04.
-- One turn from 03:51 to 06:02 performed 120 compactions and made 4,031 tool-output items totaling 34,803,934 characters.
-- In that turn, `server.js` was read 2,622 times; exact range `lib-providers.js:1-230` was read 36 times.
-- Root cause: repeated broad reads and rediscovery after summaries lost exact anchors, not the threshold by itself.
-- Mitigations applied: `AGENTS.md` context-efficiency/state-first rules, this state file, repo `.codex/config.toml`, and global `~/.codex/config.toml` limits. Backup: `~/.codex/config.toml.bak_context_efficiency`.
-- Global settings: `tool_output_token_limit = 1500`, `model_auto_compact_token_limit_scope = "body_after_prefix"`, `model_post_turn_compact_threshold_percent = 0`.
+## Next steps
 
-### Implementation
-
-- 2026-11-04: Implemented the Vega helper module and provider normalization.
-- 2026-11-04: Completed exact model IDs/labels, TC3 signing, URL safety, validation, pricing fail-closed, charging/refunds, polling, regeneration, raw upstream storage, UI controls/uploads, and public docs.
-- 2026-11-04: Focused regressions pass as recorded above.
-- 2026-11-04: Committed as `c27caff` (`Add Tencent VOD Vega video models`). Next step: build release snapshot, deploy old site, smoke test, and update this status.
-
-### Generate Result poster fix (2026-11-04)
-
-- Confirmed production record `cgt-20261103202134-82bb35` has a valid `cdnPosterUrl` and R2 returns `HTTP 200 image/jpeg`.
-- Confirmed the bug comes from history fallback merge clobbering detail media fields with empty values.
-- Added `advancedResultRecordWithMediaFallback()` and regression tests for list/detail merges.
-- Focused tests: `18 pass, 0 fail` (`advanced-result-kind`, `media-url-priority`, `advanced-result-order`, `advanced-result-refresh`).
-
-### Deployment (2026-11-04)
-
-- Pushed `old-site` `8ef1977` and `platform-release` `8ef7a19` to GitHub.
-- Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; did not deploy `live-release` or `old-site` directly.
-- Focused regression before deployment: 35 pass, 0 fail (`advanced-result-kind`, `media-url-priority`, `advanced-result-order`, `advanced-result-refresh`, `tencent-vod-vega`).
-- Syntax checks passed for `server.js`, `tencent-vod-vega.js`, and `platform.create.js`.
-- Production smoke tests passed as recorded above.
+1. Run focused tests, syntax checks, and `git diff --check` after any final adjustment.
+2. Commit the Vega media/control fix on `old-site`.
+3. Build from the committed `old-site` with `python3 scripts/build_release_snapshot.py --source old-site`.
+4. Push `old-site` and `platform-release` only.
+5. Deploy only `123vips.com` with `scripts/deploy_local.sh --site old`.
+6. Smoke test health, loader/helper availability, and three Vega options. Do not deploy Live.

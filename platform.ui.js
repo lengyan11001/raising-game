@@ -3735,7 +3735,7 @@ function clearAdvancedMediaInputs() {
   renderAdvancedPresetBuilder();
 }
 
-function applyAdvancedCreateMode({ clearMedia = false } = {}) {
+function applyAdvancedCreateMode({ clearMedia = false, syncForm = true } = {}) {
   const kind = advancedCreateKindConfig().id;
   const config = advancedCreateModeConfig(kind);
   state.advancedCreateKind = kind;
@@ -3754,7 +3754,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
     });
     els.advancedWorkspace.dataset.createMode = config.id;
   }
-  if (!custom) {
+  if (!custom && syncForm) {
     if (els.advancedProvider && config.provider) els.advancedProvider.value = config.provider;
     if (config.videoCapability && typeof syncAdvancedVideoCapabilityOptions === "function") {
       syncAdvancedVideoCapabilityOptions(config.videoCapability);

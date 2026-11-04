@@ -326,8 +326,8 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.match(ui, /capability === "wan30-video-pro" \|\| capability === "wan30-video-prime-pro"\) return \["1080p", "2k", "4k"\]/);
   assert.match(create, /resolution: currentAdvancedResolution\(\)/);
   assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
-  assert.match(create, /const fallbackRatio = provider === "seedance25" \? "16:9"/);
-  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /const fallbackRatio = vegaProvider \|\| provider === "seedance25" \? "16:9"/);
+  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio\.toLowerCase\(\) === "adaptive" \? "adaptive"/);
   assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
@@ -477,7 +477,7 @@ test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);
   assert.match(ui, /"wan-animate-move": \{ min: 1\.8, max: 30\.2, displayMin: 2, displayMax: 30 \}/);
   assert.match(ui, /"happyhorse-video-edit": \{ min: 2\.8, max: 60\.2, displayMin: 3, displayMax: 60 \}/);
-  assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, currentAdvancedProvider\(\), currentAdvancedVideoCapability\(\)\)/);
+  assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, provider, currentAdvancedVideoCapability\(\)\)/);
   assert.match(create, /advancedVideoInputDurationMessage\(aliyunInputVideoSeconds, provider, videoCapability, \{ allowUnknown: true \}\)/);
   assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
   assert.doesNotMatch(main, /const maxVideoSeconds = capability/);
