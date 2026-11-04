@@ -1,84 +1,39 @@
 # Codex Task State
 
-This file is the durable handoff for this task. After any context compaction or continuation, read this file first. Do not re-read large source files or repeat discovery already recorded here.
+This file is the durable handoff for this task. After compaction, read it first.
 
-## User's active request
+## Active request
 
-- Fix missing video thumbnails in both the **Generate → Result** tab and the Seedance **Result** history surface on `123vips.com`.
-- Successful video records with `GENERATED_ASSETS_ON_DEMAND=true` must be able to repair a missing poster without turning on general full-video storage.
+- `其他人的记录呢`: poster/thumbnail repair must cover all users' historical records, not only the current user's lazily opened records.
 
-| Provider ID | UI label | ModelName | ModelVersion |
-|---|---|---|---|
-| `seedance20-vega` | `Seedance 2.0（Vega）` | `wand-vega-video` | `1.0-pro` |
-| `seedance25-vega` | `Seedance 2.5（Vega）` | `wand-vega-video` | `1.5-pro` |
-| `h3-vega` | `H3（Vega）` | `wand-vega-video` | `1.5-lite` |
+## Implemented
 
-## Root cause and decisions
-
-- On-demand storage intentionally skipped normal generated-video download, R2 mirroring, and poster creation. Successful records could therefore contain only an upstream video URL and no thumbnail.
-- Generate Result required a video URL before rendering a poster, and history/Seedance records without media were excluded from the fallback list.
-- Backend now has a narrowly scoped poster-repair path: succeeded, non-API video output, provider video present, and both `cdnPosterUrl` and `localPosterUrl` missing.
-- On-demand mode blocks ordinary video downloads. Only the targeted poster-maintenance path may force a transient local copy and generate a poster.
-- `handleListGenerationRecords()` and `handleGetGenerationRecord()` queue poster repair for matching records, covering both Result surfaces.
-- Public generation records now expose `cdnPosterUrl`, `localPosterUrl`, and `posterPending`.
-- Generate Result renders media when either a video URL or a poster exists, retries missing posters at a bounded frequency, and stops after the retry limit or success.
-
-## Vega contract
-
-- Payload fields: `ModelName`, `ModelVersion`, `Prompt`, `FileInfos[]`, `OutputConfig`, optional `Seed`, `EnhancePromptMode: "disable"`.
-- `FileInfos[].Usage`: `FirstFrame` / `LastFrame` / `Reference`.
-- `FileInfos[].Category`: `Image` / `Video` / `Audio`.
-- Duration: 1-15 seconds.
-- Resolution: `768P` / `1080P` / `2K` / `4K`.
-- Aspect ratio: `21:9` / `16:9` / `4:3` / `1:1` / `3:4` / `9:16`.
-- Never send legacy `ReferenceType`.
-- Vega pricing is not supplied. Fail closed with HTTP 422 `MODEL_PRICING_UNAVAILABLE`; no upstream call and no deduction.
-
-## Non-negotiable rules
-
-- Business/runtime data must use PostgreSQL via `DATABASE_URL`; no JSON/static fallbacks.
-- Deploy `123vips.com` only, via `scripts/deploy_local.sh --site old`, from a committed `old-site` release snapshot. Never deploy `old-site` directly. Do not deploy `live-release`.
-- Do not broaden poster repair into general on-demand video/R2 storage.
-
-## Changed files
-
-```text
-platform.create.js
-server.js
-test/advanced-result-order.test.js
-test/advanced-result-refresh.test.js
-test/generated-assets-on-demand.test.js
-```
+- Added PostgreSQL query `getGenerationRecordsNeedingPosterMaintenanceFromDb` in `db.js`.
+- Scans successful, non-deleted, non-API, non-`r2PurgedAt` video records missing both `cdnPosterUrl` and `localPosterUrl`.
+- Excludes image provider/kind records and text/other non-video records.
+- Added bounded background backfill in `server.js`: 2 records per batch, one at a time, 30 seconds between batches by default, max 3 attempts, retry backoff 30 minutes.
+- Backfill is self-scheduling via `setTimeout`; it must continue after each completed batch.
+- Uses `posterOnly` repair: local video when available; otherwise ffmpeg reads provider video and writes only the JPG thumbnail. It does not persist historical full videos.
+- Added DB fields: `posterMaintenanceAttempts`, `posterMaintenanceRetryAt`, `posterMaintenanceError`, `posterMaintenanceCompletedAt`, `posterMaintenanceLastDurationMs`.
+- On-demand poster queue still works for newly opened records.
 
 ## Verification
 
-- Focused regression: **27 pass, 0 fail**
-  - `node --test test/advanced-result-order.test.js test/advanced-result-refresh.test.js test/generated-assets-on-demand.test.js test/media-url-priority.test.js`
-- `node --check server.js` passed.
-- `node --check platform.create.js` passed.
-- `git diff --check` passed.
-- Production target record `cgt-20261104211413-a659e7` now has `localVideoUrl` and `localPosterUrl`; poster endpoint returns HTTP 200 `image/jpeg`, video endpoint supports HTTP 206.
-- Production `platform.create.js` contains poster retry/render logic; `platform.ui.js` resolves local posters.
+- `node --test test/generated-assets-on-demand.test.js test/local-media-retention.test.js test/media-url-priority.test.js test/advanced-result-order.test.js`: 27 pass, 0 fail.
+- `node --check server.js`, `node --check db.js`, `git diff --check`: passed.
+- Production smoke: `https://123vips.com/api/health` returns 200.
+- Database after first batches: multiple other-user records repaired (seedance, seedance-nsfw, aliyun-wan30).
+- Example repaired other-user record: `cgt-20261104171358-9e0d9b`, user `user-1792321148162-001c8e52`; poster URL returned HTTP 200 `image/jpeg`.
+- Recoverable remaining count was 5201 before the self-scheduling worker had processed long; recount after deployment if reporting progress.
 
-## Critical code locations
+## Deployment
 
-- `server.js:26569` `generationRecordNeedsPosterMaintenance`
-- `server.js:26609` `queueGenerationRecordMediaMaintenance`
-- `server.js:27592` `downloadGeneratedVideo`
-- `server.js:51641` `handleListGenerationRecords`
-- `server.js:51687` `handleGetGenerationRecord`
-- `platform.create.js:613` history fallback records
-- `platform.create.js:689` advanced result rendering
-- `platform.create.js:803` bounded poster retry
+- `old-site`: `ca6ea9fb945ee2c7916e0d3a1bf44272803fac00` (includes `7f99968` plus continuation fix).
+- `platform-release`: `8dea3b0fe4c410223c12e7872f9e0086ba1ea1a2`.
+- Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`.
+- `live-release` must not be deployed/defaulted; do not change it for this fix.
+- `LOCAL_CREDENTIALS.md` copied into this worktree locally and remains gitignored; never print/commit it.
 
-## Deployment status
+## Important caveat
 
-- Thumbnail fix committed as `old-site` `75c7e8b` (`080b630` in the isolated worktree).
-- Platform release snapshot: `platform-release` `af46b2d`, built from `75c7e8b`.
-- Deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`.
-- Live was not modified: `live-release` remains `6642e17`.
-- Production deployment and release-boundary checks passed; health check returned `{"ok":true}`.
-
-## Next steps
-
-- None for this fix. If a provider URL has already expired and no local/R2 video exists, a poster cannot be recovered after the fact; future successful records are repaired while the provider URL is valid.
+- Historical records with no local video and no still-valid provider video URL cannot be repaired. Do not count image records as missing video posters.
