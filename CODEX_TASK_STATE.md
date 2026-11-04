@@ -4,9 +4,9 @@ This file is the durable handoff for this task. After any context compaction or 
 
 ## User's active request
 
-- Modify **123vips.com** Generate tab only.
-- Add three independent video models; append them after all existing models/nodes without changing existing order.
-- Route them through Tencent VOD `CreateAigcVideoTask` and `DescribeTaskDetail`.
+- Fix **123vips.com** Generate tab Result video thumbnails missing while the same records show posters in History.
+- Root cause: `advancedResultDisplayRecords()` merged the history list snapshot over the richer detail record, so empty media fields erased valid `cdnPosterUrl`.
+- Preserve non-empty poster/video/image fields during Result merges; remaining Vega work is already implemented but was not deployed.
 
 | Provider ID | UI label | ModelName | ModelVersion |
 |---|---|---|---|
@@ -40,7 +40,8 @@ This file is the durable handoff for this task. After any context compaction or 
 - Backend, frontend, upload flow, generation/polling/refund/regeneration, API docs, and focused tests are complete.
 - Modified: `AGENTS.md`, `lib-providers.js`, `platform.create.js`, `platform.html`, `platform.main.js`, `platform.ui.js`, `server.js`.
 - Added: `.codex/config.toml`, `CODEX_TASK_STATE.md`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`.
-- Current state: committed as `c27caff` (`Add Tencent VOD Vega video models`); deployment pending.
+- Current state: poster merge fix implemented on `old-site`; focused tests pass; commit/deploy in progress.
+- Modified for poster fix: `platform.create.js`, `test/advanced-result-order.test.js`, `test/advanced-result-refresh.test.js`.
 - Deployment target: `123vips.com` only, through `scripts/deploy_local.sh --site old` after building from committed `old-site`.
 
 ## Test status
@@ -80,3 +81,10 @@ This file is the durable handoff for this task. After any context compaction or 
 - 2026-11-04: Completed exact model IDs/labels, TC3 signing, URL safety, validation, pricing fail-closed, charging/refunds, polling, regeneration, raw upstream storage, UI controls/uploads, and public docs.
 - 2026-11-04: Focused regressions pass as recorded above.
 - 2026-11-04: Committed as `c27caff` (`Add Tencent VOD Vega video models`). Next step: build release snapshot, deploy old site, smoke test, and update this status.
+
+### Generate Result poster fix (2026-11-04)
+
+- Confirmed production record `cgt-20261103202134-82bb35` has a valid `cdnPosterUrl` and R2 returns `HTTP 200 image/jpeg`.
+- Confirmed the bug comes from history fallback merge clobbering detail media fields with empty values.
+- Added `advancedResultRecordWithMediaFallback()` and regression tests for list/detail merges.
+- Focused tests: `18 pass, 0 fail` (`advanced-result-kind`, `media-url-priority`, `advanced-result-order`, `advanced-result-refresh`).

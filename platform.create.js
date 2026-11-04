@@ -444,13 +444,38 @@ function sortAdvancedResultRecords(records = []) {
   });
 }
 
+const ADVANCED_RESULT_MEDIA_FIELDS = [
+  "cdnPosterUrl", "localPosterUrl", "posterUrl", "providerPosterUrl", "remotePosterUrl",
+  "cdnVideoUrl", "localVideoUrl", "videoUrl", "downloadUrl", "remoteVideoUrl",
+  "providerVideoUrl", "upstreamVideoUrl", "cdnImageUrl", "localImageUrl", "imageResultUrl",
+  "providerImageUrl", "upstreamImageUrl", "remoteImageUrl", "cdnImageUrls", "localImageUrls",
+  "imageResultUrls", "providerImageUrls", "remoteImageUrls",
+];
+
+function advancedResultRecordWithMediaFallback(previous = null, record = {}) {
+  const merged = { ...(previous || {}), ...record };
+  if (!previous) return merged;
+  // History list snapshots can lag behind the richer detail response. Never
+  // let an empty media field from the list erase a poster or video URL that
+  // Result already received from the detail endpoint.
+  ADVANCED_RESULT_MEDIA_FIELDS.forEach((key) => {
+    const incoming = record?.[key];
+    const prior = previous?.[key];
+    const incomingEmpty = incoming == null
+      || (typeof incoming === "string" && !incoming.trim())
+      || (Array.isArray(incoming) && !incoming.length);
+    if (incomingEmpty && prior) merged[key] = prior;
+  });
+  return merged;
+}
+
 function mergeAdvancedResultRecord(record = {}) {
   if (!record?.taskId) return;
   const existing = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
   const previous = existing.find((item) => item.taskId === record.taskId);
   // Detail responses are authoritative. Preserve fields omitted by a partial
   // update, but always take the latest server status and download readiness.
-  const merged = previous ? { ...previous, ...record } : record;
+  const merged = previous ? advancedResultRecordWithMediaFallback(previous, record) : record;
   // A detail refresh must never change chronological order. Otherwise an old
   // task that happens to finish last jumps ahead of newly submitted tasks.
   state.advancedResultRecords = sortAdvancedResultRecords([
@@ -530,7 +555,7 @@ function advancedResultDisplayRecords() {
   [...current, ...history].forEach((record) => {
     const taskId = String(record?.taskId || "");
     if (!taskId) return;
-    byTaskId.set(taskId, { ...(byTaskId.get(taskId) || {}), ...record });
+    byTaskId.set(taskId, advancedResultRecordWithMediaFallback(byTaskId.get(taskId), record));
   });
   return sortAdvancedResultRecords([...byTaskId.values()]);
 }

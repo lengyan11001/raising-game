@@ -17,6 +17,8 @@ function functionSource(name) {
 const source = [
   functionSource("advancedResultRecordTimestamp"),
   functionSource("sortAdvancedResultRecords"),
+  create.match(/const ADVANCED_RESULT_MEDIA_FIELDS = \[[\s\S]*?\n\];/)?.[0] || "",
+  functionSource("advancedResultRecordWithMediaFallback"),
   functionSource("mergeAdvancedResultRecord"),
   "function advancedResultHistoryFallbackRecords() { return state.historyRecords || []; }",
   functionSource("advancedResultDisplayRecords"),
@@ -42,6 +44,43 @@ test("refreshing an old task cannot move it ahead of a newer task", () => {
 
   assert.deepEqual(state.advancedResultRecords.map((record) => record.taskId), ["new", "old"]);
   assert.equal(state.advancedResultRecords[1].status, "succeeded");
+});
+
+test("history fallback cannot erase a detail poster with empty media fields", () => {
+  const state = {
+    advancedResultRecords: [{
+      taskId: "video-1",
+      status: "succeeded",
+      createdAt: "2026-11-03T08:00:00.000Z",
+      cdnPosterUrl: "https://media.123vips.com/generated/posters/video-1.jpg",
+      cdnVideoUrl: "https://media.123vips.com/generated/videos/video-1.mp4",
+    }],
+    historyRecords: [{
+      taskId: "video-1",
+      status: "succeeded",
+      createdAt: "2026-11-03T08:00:00.000Z",
+      cdnPosterUrl: "",
+      posterUrl: "",
+      localPosterUrl: "",
+      cdnVideoUrl: "",
+    }],
+  };
+  const { advancedResultDisplayRecords } = load(state);
+  const [record] = advancedResultDisplayRecords();
+  assert.equal(record.cdnPosterUrl, "https://media.123vips.com/generated/posters/video-1.jpg");
+  assert.equal(record.cdnVideoUrl, "https://media.123vips.com/generated/videos/video-1.mp4");
+});
+
+test("a partial detail refresh cannot erase an existing poster", () => {
+  const state = { advancedResultRecords: [], historyRecords: [] };
+  const { mergeAdvancedResultRecord } = load(state);
+  mergeAdvancedResultRecord({
+    taskId: "video-2",
+    cdnPosterUrl: "https://media.123vips.com/generated/posters/video-2.jpg",
+  });
+  mergeAdvancedResultRecord({ taskId: "video-2", status: "succeeded", cdnPosterUrl: "" });
+  assert.equal(state.advancedResultRecords[0].cdnPosterUrl, "https://media.123vips.com/generated/posters/video-2.jpg");
+  assert.equal(state.advancedResultRecords[0].status, "succeeded");
 });
 
 test("result panel keeps and displays more than six records", () => {
