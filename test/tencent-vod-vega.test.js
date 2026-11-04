@@ -77,6 +77,39 @@ test("Tencent VOD calls use the international endpoint and region", async () => 
   assert.doesNotMatch(requests[0].url, /^https:\/\/vod\.tencentcloudapi\.com/);
 });
 
+test("Vega Lite omits unsupported GenerateMode and VideoQualityMode", () => {
+  const lite = vega.buildVegaCreatePayload({
+    provider: "h3-vega",
+    prompt: "test",
+    mediaMode: "text_to_video",
+    generateMode: "Fast",
+    videoQualityMode: "SuperFast",
+    enhancePromptMode: "enable",
+  }, { subAppId: 123 });
+  const liteExt = JSON.parse(lite.ExtInfo);
+  const liteWand = JSON.parse(liteExt.WandVegaParameters);
+  assert.deepEqual(liteWand, {
+    EnhancePromptMode: "enable",
+    ModerationMode: "Moderation_L1",
+    ReturnVegaUsage: false,
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "GenerateMode"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "VideoQualityMode"), false);
+
+  const pro = vega.buildVegaCreatePayload({
+    provider: "seedance25-vega",
+    prompt: "test",
+    mediaMode: "text_to_video",
+    generateMode: "StandardMovie",
+    videoQualityMode: "Fast",
+  }, { subAppId: 123 });
+  const proWand = JSON.parse(JSON.parse(pro.ExtInfo).WandVegaParameters);
+  assert.equal(proWand.GenerateMode, "StandardMovie");
+  assert.equal(proWand.VideoQualityMode, "Fast");
+  assert.equal(vega.vegaProviderCapabilities("h3-vega").generateMode, false);
+  assert.equal(vega.vegaProviderCapabilities("h3-vega").qualityMode, false);
+});
+
 test("Vega duration validates boundaries, defaults, and integer seconds", () => {
     assert.equal(vega.normalizeVegaDuration("seedance25-vega", 4), 4);
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1), -1);

@@ -462,7 +462,7 @@ const VEGA_DURATION_BOUNDS = Object.freeze({
 });
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
   "seedance25-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true }),
-  "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
+  "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false }),
 });
 const VEGA_REFERENCE_LIMITS = Object.freeze({
   "seedance25-vega": Object.freeze({ images: 30, videos: 10, audios: 10, total: 50 }),

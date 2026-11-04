@@ -2,6 +2,17 @@
 
 This file is the durable handoff for this task. After compaction, read this file first.
 
+## Current live verification
+
+- Production `/etc/raising-game-demo.env` now has the Tencent VOD international credentials supplied by the user. Values are intentionally not recorded here.
+- VOD credentials were verified against `DescribeSubAppIds` on the international host; the account returned one application.
+- Real Vega 1.5 Lite 720P / 4-second text-to-video tasks completed successfully.
+- Successful test task IDs:
+  - `1524935253-AigcVideoTask-6c72d17c36d7390bc113b180f3abfaaft` (with `EnhancePromptMode=enable`)
+  - `1524935253-AigcVideoTask-87f79f53e45b8865dc811fd6670bb00bt` (no ExtInfo)
+- Output URLs were returned by `DescribeTaskDetail`; video generation is live.
+- Upstream rejects `GenerateMode` and `VideoQualityMode` for `1.5-lite`, despite the generic Lite guide listing them. The backend now omits both for Lite and the UI hides those unsupported controls for Lite.
+
 ## Active request
 
 - Add **Vega 1.5 Lite** (`h3-vega`) sale-price configuration to the admin pricing page.

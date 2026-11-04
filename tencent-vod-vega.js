@@ -67,6 +67,8 @@ const VEGA_CAPABILITIES = Object.freeze({
   "h3-vega": capability({
     resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]),
     durationSeconds: Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
+    generateMode: false,
+    qualityMode: false,
     limits: VEGA_15_LITE_LIMITS,
   }),
 });
@@ -386,13 +388,17 @@ function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
   if (taskType && !["auto", "reference"].includes(taskType)) additional.omni_reference_task_type = taskType;
   if (String(input.assetGroupId || "").trim()) additional.asset_group_id = String(input.assetGroupId).trim();
   if (input.outputFormat) additional.output_format = normalizeVegaOutputFormat(input.outputFormat);
+  const caps = vegaProviderCapabilities(input.provider);
   const wand = {
     EnhancePromptMode: normalizeVegaPromptEnhanceMode(input.enhancePromptMode, input.provider),
     ModerationMode: normalizeVegaModerationMode(input.moderationMode),
     ReturnVegaUsage: Boolean(input.returnVegaUsage),
-    GenerateMode: normalizeVegaGenerateMode(input.generateMode),
-    VideoQualityMode: normalizeVegaQualityMode(input.videoQualityMode),
   };
+  // Tencent rejects these fields for Lite even though the public Lite guide
+  // lists them in a generic ExtInfo section. Keep the model-specific contract
+  // strict so a default UI value can never break an otherwise valid request.
+  if (!caps || caps.generateMode) wand.GenerateMode = normalizeVegaGenerateMode(input.generateMode);
+  if (!caps || caps.qualityMode) wand.VideoQualityMode = normalizeVegaQualityMode(input.videoQualityMode);
   const ext = {};
   if (Object.keys(additional).length) ext.AdditionalParameters = JSON.stringify(additional);
   ext.WandVegaParameters = JSON.stringify(wand);

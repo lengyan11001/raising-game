@@ -771,6 +771,8 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-vega-option").forEach((item) => {
     item.hidden = !vegaProvider;
   });
+  els.advancedVegaGenerateMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.generateMode === false);
+  els.advancedVegaQualityMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.qualityMode === false);
   const vegaDraftOption = els.advancedVegaDraft?.closest(".advanced-vega-option");
   if (vegaDraftOption) vegaDraftOption.hidden = !vegaProvider || !vegaCaps?.draft;
   if (!vegaCaps?.draft && els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
