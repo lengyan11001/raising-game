@@ -40,9 +40,12 @@ This file is the durable handoff for this task. After any context compaction or 
 - Backend, frontend, upload flow, generation/polling/refund/regeneration, API docs, and focused tests are complete.
 - Modified: `AGENTS.md`, `lib-providers.js`, `platform.create.js`, `platform.html`, `platform.main.js`, `platform.ui.js`, `server.js`.
 - Added: `.codex/config.toml`, `CODEX_TASK_STATE.md`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`.
-- Current state: poster merge fix implemented on `old-site`; focused tests pass; commit/deploy in progress.
+- Current state: poster merge fix committed as `8ef1977`; Vega and poster fix are deployed to `123vips.com`.
 - Modified for poster fix: `platform.create.js`, `test/advanced-result-order.test.js`, `test/advanced-result-refresh.test.js`.
 - Deployment target: `123vips.com` only, through `scripts/deploy_local.sh --site old` after building from committed `old-site`.
+- Deployed `platform-release` snapshot: `8ef7a19` from `old-site` `8ef1977`.
+- Deployment completed 2026-11-04 through `scripts/deploy_local.sh --site old`; service restarted and health returned HTTP 200 `{"ok":true}`.
+- Post-deploy smoke: platform home contains `platform.css` and `Vipeak AI`; `live.html`, `live.css`, `live.js`, `qrcode.js`, `site-landing.html`, and `downloads/vipeak-live.apk` all return 404.
 
 ## Test status
 
@@ -88,3 +91,11 @@ This file is the durable handoff for this task. After any context compaction or 
 - Confirmed the bug comes from history fallback merge clobbering detail media fields with empty values.
 - Added `advancedResultRecordWithMediaFallback()` and regression tests for list/detail merges.
 - Focused tests: `18 pass, 0 fail` (`advanced-result-kind`, `media-url-priority`, `advanced-result-order`, `advanced-result-refresh`).
+
+### Deployment (2026-11-04)
+
+- Pushed `old-site` `8ef1977` and `platform-release` `8ef7a19` to GitHub.
+- Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; did not deploy `live-release` or `old-site` directly.
+- Focused regression before deployment: 35 pass, 0 fail (`advanced-result-kind`, `media-url-priority`, `advanced-result-order`, `advanced-result-refresh`, `tencent-vod-vega`).
+- Syntax checks passed for `server.js`, `tencent-vod-vega.js`, and `platform.create.js`.
+- Production smoke tests passed as recorded above.
