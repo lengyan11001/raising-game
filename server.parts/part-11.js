@@ -653,6 +653,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const ratio = normalizeVegaRatio(options.ratio || options.aspect_ratio || "16:9", normalizedProvider);
     const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
     const creditsPerSecond = pricingNumber(advancedPricing.h3VegaCreditsPerSecondByResolution?.[resolution], 0, 0, 6);
+    const inputVideoCreditsPerSecond = pricingNumber(advancedPricing.h3VegaInputVideoCreditsPerSecondByResolution?.[resolution], 0, 0, 6);
     if (!(creditsPerSecond > 0)) {
       const error = advancedValidationError(
         "MODEL_PRICING_UNAVAILABLE",
@@ -662,7 +663,32 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       error.statusCode = 422;
       throw error;
     }
-    const credits = creditsAmount(billingDuration * creditsPerSecond);
+    const referenceVideoDurations = Array.isArray(options.referenceVideoDurations)
+      ? options.referenceVideoDurations
+      : [];
+    const explicitInputVideoSeconds = durationSecondsFromValue(firstPresent(
+      options.inputVideoSeconds,
+      options.videoInputSeconds,
+      options.referenceVideoDurationSeconds,
+      options.referenceVideoSeconds,
+    ));
+    const inputVideoSeconds = durationSecondsFromValue(Math.max(
+      explicitInputVideoSeconds,
+      referenceVideoDurations.reduce((sum, seconds) => sum + durationSecondsFromValue(seconds), 0),
+    ));
+    const hasVideoInput = inputVideoSeconds > 0;
+    if (hasVideoInput && !(inputVideoCreditsPerSecond > 0)) {
+      const error = advancedValidationError(
+        "MODEL_PRICING_UNAVAILABLE",
+        `Vega 1.5 Lite ${resolution.toUpperCase()} input-video pricing is not configured. Generation was not started.`,
+        { resolution, rateKind: "video_input" },
+      );
+      error.statusCode = 422;
+      throw error;
+    }
+    const outputCredits = creditsAmount(billingDuration * creditsPerSecond);
+    const inputVideoCredits = creditsAmount(hasVideoInput ? inputVideoSeconds * inputVideoCreditsPerSecond : 0);
+    const credits = creditsAmount(outputCredits + inputVideoCredits);
     return {
       provider: normalizedProvider,
       providerLabel: "Vega 1.5 Lite",
@@ -674,12 +700,14 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       resolution,
       ratio,
       creditsPerSecond,
-      outputCredits: credits,
-      inputVideoCredits: 0,
+      outputCredits,
+      inputVideoSeconds,
+      inputVideoCreditsPerSecond,
+      inputVideoCredits,
       baseCredits: credits,
       credits,
       markup: 1,
-      source: "configured_h3_vega_output_duration_rate",
+      source: hasVideoInput ? "configured_h3_vega_input_and_output_duration_rates" : "configured_h3_vega_output_duration_rate",
     };
   }
   if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);

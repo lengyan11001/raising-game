@@ -65,7 +65,7 @@ function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvanc
 }
 
 function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedProvider()) {
-  if (!["seedance", "seedance25", "seedance-nsfw"].includes(normalizeAdvancedProvider(provider))) return [];
+  if (!["seedance", "seedance25", "seedance-nsfw", "h3-vega"].includes(normalizeAdvancedProvider(provider))) return [];
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   if (seedanceModeNeedsFirstFrame(seedanceMode)) return [];
   const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];

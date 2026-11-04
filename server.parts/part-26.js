@@ -117,6 +117,20 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
   }
+  const referenceVideoDurations = (Array.isArray(body.referenceVideoDurations)
+    ? body.referenceVideoDurations
+    : (Array.isArray(bodyParams.referenceVideoDurations)
+      ? bodyParams.referenceVideoDurations
+      : media.referenceVideos.map((url, index) => {
+        const sourceItems = [
+          ...arrayFromBody(merged.referenceVideos),
+          ...arrayFromBody(merged.reference_videos),
+          ...arrayFromBody(merged.referenceVideoUrls),
+          ...arrayFromBody(merged.reference_video_urls),
+        ];
+        const source = sourceItems[index];
+        return source && typeof source === "object" ? firstPresent(source.durationSeconds, source.duration, 0) : 0;
+      }))).map((value) => durationSecondsFromValue(value)).filter((value) => value > 0);
   // Pricing is intentionally evaluated before credentials, media transport, charging, or upstream calls.
   let pricing;
   try {
@@ -125,6 +139,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       duration,
       resolution,
       ratio,
+      referenceVideoDurations,
       advancedPricing: config.platform?.advancedPricing,
     });
     pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
@@ -177,7 +192,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       resolution,
       ratio,
       seed: firstPresent(body.seed, bodyParams.seed, caseParams.seed),
-      referenceVideoDurations: (Array.isArray(body.referenceVideoDurations) ? body.referenceVideoDurations : (Array.isArray(bodyParams.referenceVideoDurations) ? bodyParams.referenceVideoDurations : [])),
+      referenceVideoDurations,
       referenceAudioDurations: (Array.isArray(body.referenceAudioDurations) ? body.referenceAudioDurations : (Array.isArray(bodyParams.referenceAudioDurations) ? bodyParams.referenceAudioDurations : [])),
       ...advancedOptions,
     }, { subAppId });

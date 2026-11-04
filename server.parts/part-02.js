@@ -761,6 +761,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const h3Vega = source.h3VegaCreditsPerSecondByResolution && typeof source.h3VegaCreditsPerSecondByResolution === "object"
     ? source.h3VegaCreditsPerSecondByResolution
     : {};
+  const h3VegaInputVideo = source.h3VegaInputVideoCreditsPerSecondByResolution && typeof source.h3VegaInputVideoCreditsPerSecondByResolution === "object"
+    ? source.h3VegaInputVideoCreditsPerSecondByResolution
+    : {};
   const seedanceNsfw = source.seedanceNsfwCreditsPerSecondByResolution && typeof source.seedanceNsfwCreditsPerSecondByResolution === "object"
     ? source.seedanceNsfwCreditsPerSecondByResolution
     : {};
@@ -982,11 +985,18 @@ function normalizeAdvancedPricing(pricing = {}) {
       "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"], "720p"),
     },
     h3VegaCreditsPerSecondByResolution: {
-      "480p": normalizeStoredCredits(h3Vega["480p"], 0, 6),
-      "720p": normalizeStoredCredits(h3Vega["720p"], 0, 6),
-      "1080p": normalizeStoredCredits(h3Vega["1080p"], 0, 6),
-      "2k": normalizeStoredCredits(h3Vega["2k"], 0, 6),
-      "4k": normalizeStoredCredits(h3Vega["4k"], 0, 6),
+      "480p": normalizeStoredCredits(h3Vega["480p"], DEFAULT_ADVANCED_PRICING.h3VegaCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(h3Vega["720p"], DEFAULT_ADVANCED_PRICING.h3VegaCreditsPerSecondByResolution["720p"], 6),
+      "1080p": normalizeStoredCredits(h3Vega["1080p"], DEFAULT_ADVANCED_PRICING.h3VegaCreditsPerSecondByResolution["1080p"], 6),
+      "2k": normalizeStoredCredits(h3Vega["2k"], DEFAULT_ADVANCED_PRICING.h3VegaCreditsPerSecondByResolution["2k"], 6),
+      "4k": normalizeStoredCredits(h3Vega["4k"], DEFAULT_ADVANCED_PRICING.h3VegaCreditsPerSecondByResolution["4k"], 6),
+    },
+    h3VegaInputVideoCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(h3VegaInputVideo["480p"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(h3VegaInputVideo["720p"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["720p"], 6),
+      "1080p": normalizeStoredCredits(h3VegaInputVideo["1080p"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["1080p"], 6),
+      "2k": normalizeStoredCredits(h3VegaInputVideo["2k"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["2k"], 6),
+      "4k": normalizeStoredCredits(h3VegaInputVideo["4k"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["4k"], 6),
     },
     seedanceNsfwCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceNsfw["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["480p"], 6),
@@ -1149,6 +1159,7 @@ function publicAdvancedPricingView(pricing = {}) {
     creditsPerCny: normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY,
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
     h3VegaCreditsPerSecondByResolution: { ...normalized.h3VegaCreditsPerSecondByResolution },
+    h3VegaInputVideoCreditsPerSecondByResolution: { ...normalized.h3VegaInputVideoCreditsPerSecondByResolution },
     seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
     seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
     seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },

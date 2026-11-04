@@ -138,6 +138,7 @@ function advancedPricingRowKey(row = {}) {
   if (provider === "seedance" && isFast) return `seedance-fast-${resolution}`;
   if (provider === "seedance" && isVideoInput) return `seedance-video-input-${resolution}`;
   if (provider === SEEDANCE25_DIRECT_PROVIDER && isVideoInput) return `seedance-nsfw-video-input-${resolution}`;
+  if (provider === "h3-vega" && isVideoInput) return `h3-vega-video-input-${resolution}`;
   return `${provider}-${resolution}`;
 }
 
@@ -192,6 +193,8 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
   const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
   const table = normalizedProvider === "seedance25"
     ? normalized.seedance25CreditsPerSecondByResolution
+    : normalizedProvider === "h3-vega" && rateKind === "video_input"
+    ? normalized.h3VegaInputVideoCreditsPerSecondByResolution
     : normalizedProvider === "h3-vega"
     ? normalized.h3VegaCreditsPerSecondByResolution
     : normalizedProvider === SEEDANCE25_DIRECT_PROVIDER && rateKind === "video_input"
@@ -866,6 +869,11 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "h3-vega-1080p") next.h3VegaCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "h3-vega-2k") next.h3VegaCreditsPerSecondByResolution["2k"] = credits;
     else if (key === "h3-vega-4k") next.h3VegaCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "h3-vega-video-input-480p") next.h3VegaInputVideoCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "h3-vega-video-input-720p") next.h3VegaInputVideoCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "h3-vega-video-input-1080p") next.h3VegaInputVideoCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "h3-vega-video-input-2k") next.h3VegaInputVideoCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "h3-vega-video-input-4k") next.h3VegaInputVideoCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-nsfw-720p") next.seedanceNsfwCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-nsfw-video-input-480p") next.seedanceNsfwVideoCreditsPerSecondByResolution["480p"] = credits;

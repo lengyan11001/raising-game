@@ -397,7 +397,9 @@ async function submitAdvancedGenerate() {
       ...(vegaUsesReferences ? {
         referenceImages: vegaReferenceImages,
         referenceVideos: vegaReferenceVideos,
+        referenceVideoDurations: vegaVideoItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0)),
         referenceAudios: vegaReferenceAudios,
+        referenceAudioDurations: vegaAudioItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0)),
       } : {}),
     };
     if (vegaDraftFollowup) {

@@ -1200,11 +1200,13 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
   const inputVideoSeconds = normalizedProvider === "seedance"
     ? await seedanceVideoInputSecondsForPricingWithProbe(params, { requestParams: params })
     : firstPresent(params.inputVideoSeconds, params.videoInputSeconds, params.referenceVideoDurationSeconds, params.referenceVideoSeconds);
+  const referenceVideoDurations = Array.isArray(params.referenceVideoDurations) ? params.referenceVideoDurations : [];
   const rawPricing = advancedModelPricing(provider, {
     duration: params.duration ?? params.durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
     inputVideoSeconds,
+    referenceVideoDurations,
     seedanceTier: params.seedanceTier,
     videoCapability: params.videoCapability,
     model: params.model,
@@ -1255,6 +1257,11 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
+  params.referenceVideoDurations = Array.isArray(body.referenceVideoDurations)
+    ? body.referenceVideoDurations
+    : Array.isArray(body.params?.referenceVideoDurations)
+    ? body.params.referenceVideoDurations
+    : [];
   if (["qwen37-flash", "byteplus-language", "papaya"].includes(provider)) {
     params.inputTokens = firstPresent(
       body.inputTokens,

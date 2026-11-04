@@ -52,35 +52,41 @@ test("admin pricing keeps current models and omits early Wan models", () => {
   assert.match(pricingRowsSource, /model: "happyhorse"/);
 });
 
-test("Vega 1.5 Lite has editable per-resolution pricing rows", () => {
+test("Vega 1.5 Lite has editable output and input-video pricing rows", () => {
   const pricingRowsSource = server.slice(
     server.indexOf("const ADVANCED_PRICING_ROWS = ["),
     server.indexOf("const ADVANCED_PRICING_ROW_KEYS"),
   );
   for (const resolution of ["480p", "720p", "1080p", "2k", "4k"]) {
     assert.match(pricingRowsSource, new RegExp(`key: "h3-vega-${resolution}"[^\\n]*provider: "h3-vega"[^\\n]*providerLabel: "Vega 1\\.5 Lite"[^\\n]*resolution: "${resolution}"`));
+    assert.match(pricingRowsSource, new RegExp(`key: "h3-vega-video-input-${resolution}"[^\\n]*provider: "h3-vega"[^\\n]*resolution: "${resolution}"[^\\n]*rateKind: "video_input"`));
     assert.match(server, new RegExp(`key === "h3-vega-${resolution}"\\) next\\.h3VegaCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
+    assert.match(server, new RegExp(`key === "h3-vega-video-input-${resolution}"\\) next\\.h3VegaInputVideoCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
   }
-  assert.match(server, /h3VegaCreditsPerSecondByResolution: \{\s*"480p": 0,\s*"720p": 0,\s*"1080p": 0,\s*"2k": 0,\s*"4k": 0,?\s*\}/);
-  assert.match(server, /"480p": normalizeStoredCredits\(h3Vega\["480p"\], 0, 6\)/);
-  assert.match(server, /"720p": normalizeStoredCredits\(h3Vega\["720p"\], 0, 6\)/);
-  assert.match(server, /"1080p": normalizeStoredCredits\(h3Vega\["1080p"\], 0, 6\)/);
-  assert.match(server, /"2k": normalizeStoredCredits\(h3Vega\["2k"\], 0, 6\)/);
-  assert.match(server, /"4k": normalizeStoredCredits\(h3Vega\["4k"\], 0, 6\)/);
+  assert.match(server, /h3VegaCreditsPerSecondByResolution: \{\s*"480p": 6\.75,\s*"720p": 13\.5,\s*"1080p": 27,\s*"2k": 32\.4,\s*"4k": 38\.88,?\s*\}/);
+  assert.match(server, /h3VegaInputVideoCreditsPerSecondByResolution: \{\s*"480p": 6\.75,\s*"720p": 13\.5,\s*"1080p": 27,\s*"2k": 27,\s*"4k": 27,?\s*\}/);
+  for (const resolution of ["480p", "720p", "1080p", "2k", "4k"]) {
+    assert.match(server, new RegExp(`"${resolution}": normalizeStoredCredits\\(h3Vega\\["${resolution}"\\], DEFAULT_ADVANCED_PRICING\\.h3VegaCreditsPerSecondByResolution\\["${resolution}"\\], 6\\)`));
+    assert.match(server, new RegExp(`"${resolution}": normalizeStoredCredits\\(h3VegaInputVideo\\["${resolution}"\\], DEFAULT_ADVANCED_PRICING\\.h3VegaInputVideoCreditsPerSecondByResolution\\["${resolution}"\\], 6\\)`));
+  }
 });
 
-test("Vega 1.5 Lite billing uses the configured output-second price and fails closed at zero", () => {
+test("Vega 1.5 Lite bills output and reference input video separately and fails closed at zero", () => {
   const pricingSource = server.slice(
     server.indexOf("function advancedModelPricing("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
   assert.match(pricingSource, /normalizedProvider === "h3-vega"/);
   assert.match(pricingSource, /normalizeVegaDuration\(normalizedProvider, options\.duration \?\? options\.durationSeconds\)/);
-  assert.match(pricingSource, /advancedPricing\.h3VegaCreditsPerSecondByResolution\?\.\[resolution\]/);
   assert.match(pricingSource, /const billingDuration = adaptiveDuration \? 30 : duration/);
-  assert.match(pricingSource, /if \(!\(creditsPerSecond > 0\)\)/);
+  assert.match(pricingSource, /advancedPricing\.h3VegaCreditsPerSecondByResolution\?\.\[resolution\]/);
+  assert.match(pricingSource, /advancedPricing\.h3VegaInputVideoCreditsPerSecondByResolution\?\.\[resolution\]/);
+  assert.match(pricingSource, /const outputCredits = creditsAmount\(billingDuration \* creditsPerSecond\)/);
+  assert.match(pricingSource, /const inputVideoCredits = creditsAmount\(hasVideoInput \? inputVideoSeconds \* inputVideoCreditsPerSecond : 0\)/);
+  assert.match(pricingSource, /const credits = creditsAmount\(outputCredits \+ inputVideoCredits\)/);
+  assert.match(pricingSource, /if \(hasVideoInput && !\(inputVideoCreditsPerSecond > 0\)\)/);
   assert.match(pricingSource, /MODEL_PRICING_UNAVAILABLE/);
-  assert.match(pricingSource, /const credits = creditsAmount\(billingDuration \* creditsPerSecond\)/);
+  assert.match(pricingSource, /configured_h3_vega_input_and_output_duration_rates/);
   assert.match(server, /normalizedProvider === "h3-vega"\s*\?\s*normalized\.h3VegaCreditsPerSecondByResolution/);
   assert.ok(
     pricingSource.indexOf('normalizedProvider === "h3-vega"')
@@ -182,4 +188,18 @@ test("Seedance NSFW prices video input from combined input and output seconds", 
   assert.match(pricingSource, /billingSeconds = duration \+ \(hasVideoInput \? inputVideoSeconds : 0\)/);
   assert.match(pricingSource, /source: "seedance25_direct_token_estimate"/);
   assert.match(server, /directSeedance25[\s\S]*completionTokens \* usdPerMillionTokens \* DEFAULT_CREDITS_PER_USD/);
+});
+
+test("Vega 1.5 Lite request and estimate carry reference video durations", () => {
+  const createSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-03.js"), "utf8");
+  const estimateSource = fs.readFileSync(path.join(root, "platform.ui.parts", "part-04.js"), "utf8");
+  const vegaHandlerSource = server.slice(
+    server.indexOf("async function handleAdvancedVegaGenerate("),
+    server.indexOf("async function handleAdvancedVegaTask(", server.indexOf("async function handleAdvancedVegaGenerate")),
+  );
+  assert.match(createSource, /referenceVideoDurations: vegaVideoItems\.map/);
+  assert.match(vegaHandlerSource, /referenceVideoDurations/);
+  assert.match(vegaHandlerSource, /advancedModelPricing\(provider, \{[\s\S]*?referenceVideoDurations,/);
+  assert.match(estimateSource, /referenceVideoDurations: Array\.isArray\(options\.referenceVideoDurations\)/);
+  assert.match(estimateSource, /vegaReferenceVideoDurations/);
 });

@@ -661,10 +661,10 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  const inputVideoSeconds = ["seedance", "seedance25", "seedance-nsfw", "wan27", "happyhorse"].includes(normalizedProvider)
+  const inputVideoSeconds = ["seedance", "seedance25", "seedance-nsfw", "wan27", "happyhorse", "h3-vega"].includes(normalizedProvider)
     ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
     : 0;
-  const referenceVideoSignature = ["seedance", "seedance25", "seedance-nsfw"].includes(normalizedProvider)
+  const referenceVideoSignature = ["seedance", "seedance25", "seedance-nsfw", "h3-vega"].includes(normalizedProvider)
     ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
     : "";
   return [
@@ -709,6 +709,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           resolution,
           ratio,
           inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0),
+          referenceVideoDurations: Array.isArray(options.referenceVideoDurations) ? options.referenceVideoDurations : [],
           referenceVideoUrls: Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : [],
           seedanceTier: options.seedanceTier,
           videoCapability: options.videoCapability,
@@ -782,13 +783,20 @@ function updateAdvancedButtonCost() {
     refreshIcons();
     return;
   }
+  const vegaVideoItems = provider === "h3-vega" && typeof advancedSeedanceVideoReferences === "function"
+    ? advancedSeedanceVideoReferences()
+    : [];
+  const vegaReferenceVideoDurations = vegaVideoItems.map((item) => positiveDurationSeconds(item?.durationSeconds || item?.duration, 0));
   const options = {
     inputVideoSeconds: ["seedance", "seedance25", "seedance-nsfw"].includes(provider)
       ? currentSeedanceVideoInputSeconds(duration, provider)
       : ["wan27", "happyhorse"].includes(provider)
       ? currentAdvancedAliyunSourceVideoSeconds(duration)
+      : provider === "h3-vega"
+      ? vegaReferenceVideoDurations.reduce((sum, seconds) => sum + seconds, 0)
       : 0,
-    referenceVideoUrls: ["seedance", "seedance25", "seedance-nsfw"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
+    referenceVideoDurations: provider === "h3-vega" ? vegaReferenceVideoDurations : [],
+    referenceVideoUrls: ["seedance", "seedance25", "seedance-nsfw", "h3-vega"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
