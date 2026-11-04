@@ -41,6 +41,15 @@ CODEX_TASK_STATE.md
 - Fixed Vega 1.5 Pro/Lite being incorrectly treated as Draft to Final from stale template/record parameters.
 - That fix was committed as `eb873be`, release snapshot `e576a05`, and deployed to `123vips.com`.
 
+## Deployment
+
+- `old-site`: `41fb846` (`Add Vega 1.5 Lite admin pricing rows`), pushed to origin.
+- `platform-release`: `509b663`, built from `41fb846`; published with a lease-protected update.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; release boundary audit passed and service restarted.
+- Production `https://123vips.com/api/health`: 200 `{"ok":true}`.
+- Production admin pricing API exists at `/api/admin/pricing` and returns 401 without login, as expected.
+- Live release was not deployed.
+
 ## Deployment rule
 
 - Commit this phase to `old-site`, then:
