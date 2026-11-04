@@ -98,14 +98,18 @@ CODEX_TASK_STATE.md
 
 ## Deployment status
 
-- Previous poster-fix deployment: `old-site` `8ef1977`, `platform-release` `8ef7a19`, deployed to `123vips.com`.
-- Current Vega asset/control fix is **not committed, not released, and not deployed**.
+- Vega asset/control fix committed as `old-site` `7f35719`.
+- Platform release snapshot: `platform-release` `e146d71`, built from `7f35719`.
+- Deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`.
+- Live was not modified: `live-release` remains `6642e17`.
+- Production smoke passed:
+  - `https://123vips.com/api/health` -> `{"ok":true}`
+  - `platform.vega-media.js` -> HTTP 200
+  - `platform.js` loads `platform.vega-media.js`
+  - All three Vega labels are present
+  - Vega asset resolution, Add binding, target controls, and public-URL guard are present in the deployed assets
+- Deployment verified release boundary and service health.
 
 ## Next steps
 
-1. Run focused tests, syntax checks, and `git diff --check` after any final adjustment.
-2. Commit the Vega media/control fix on `old-site`.
-3. Build from the committed `old-site` with `python3 scripts/build_release_snapshot.py --source old-site`.
-4. Push `old-site` and `platform-release` only.
-5. Deploy only `123vips.com` with `scripts/deploy_local.sh --site old`.
-6. Smoke test health, loader/helper availability, and three Vega options. Do not deploy Live.
+- None for this fix. Use targeted source tests for future regressions; do not ask the user to manually test each control.
