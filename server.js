@@ -274,6 +274,7 @@ const {
   getGenerationRecordsFromDb,
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
+  getGenerationRecordsNeedingPosterMaintenanceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
@@ -672,6 +673,10 @@ const GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS = Math.max(60 * 1000, Number(proc
 const GENERATION_ACTIVE_SCAN_INTERVAL_MS = Math.max(30 * 1000, Number(process.env.GENERATION_ACTIVE_SCAN_INTERVAL_MS || 60 * 1000) || 60 * 1000);
 const GENERATION_ACTIVE_SCAN_BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.GENERATION_ACTIVE_SCAN_BATCH_SIZE || 8) || 8));
 const GENERATION_ACTIVE_SCAN_MAX_AGE_MS = Math.max(30 * 60 * 1000, Number(process.env.GENERATION_ACTIVE_SCAN_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
+const GENERATION_POSTER_BACKFILL_INTERVAL_MS = Math.max(15000, Number(process.env.GENERATION_POSTER_BACKFILL_INTERVAL_MS || 30000) || 30000);
+const GENERATION_POSTER_BACKFILL_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_BATCH_SIZE || 2) || 2));
+const GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS || 3) || 3));
+const GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS || 30 * 60 * 1000) || 30 * 60 * 1000);
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_CREDITS_PER_USD = clampNumber(process.env.CREDITS_PER_USD || process.env.CREDITS_PER_USDT, 100, 0.0001, 100000);
@@ -26316,8 +26321,7 @@ async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectSt
   if (GENERATED_ASSETS_ON_DEMAND) {
     if (!generationRecordNeedsPosterMaintenance(record)) return record;
     const remoteVideo = generationRecordProviderVideoUrl(record);
-    if (!remoteVideo) return record;
-    const downloaded = await downloadGeneratedVideo(record.taskId, remoteVideo, { forceLocal: true });
+    const downloaded = await downloadGeneratedVideo(record.taskId, remoteVideo, { forceLocal: true, posterOnly: true });
     return upsertGenerationRecord({
       taskId: record.taskId,
       localVideoPath: downloaded.localVideoPath || record.localVideoPath || "",
@@ -26418,7 +26422,7 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       queueGenerationRecordMediaMaintenance(current);
       return;
     }
-    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: repairPoster });
+    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: repairPoster, posterOnly: repairPoster });
     await upsertAndSettleGenerationRecord({
       taskId: cleanTaskId,
       status: current.status,
@@ -26574,7 +26578,10 @@ function generationRecordNeedsPosterMaintenance(record = {}) {
     && generationRecordIsVideoOutput(record)
     && !String(record.cdnPosterUrl || "").trim()
     && !String(record.localPosterUrl || "").trim()
-    && Boolean(generationRecordProviderVideoUrl(record))
+    && Boolean(
+      generationRecordProviderVideoUrl(record)
+      || String(record.localVideoUrl || "").trim()
+    )
   );
 }
 
@@ -27589,7 +27596,7 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
   return true;
 }
 
-async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false } = {}) {
+async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false, posterOnly = false } = {}) {
   if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
     const existing = taskId ? await getGenerationRecord(taskId).catch(() => null) : null;
     return {
@@ -27605,6 +27612,31 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
   }
   const existing = await getGenerationRecord(taskId);
   const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
+  if (posterOnly) {
+    let source = String(remoteVideoUrl || "").trim();
+    if (existing?.localVideoUrl) {
+      const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
+      try {
+        await fs.access(existingVideoPath);
+        source = existingVideoPath;
+      } catch {
+        // Fall back to the provider URL when the local copy is gone.
+      }
+    }
+    if (!source) throw new Error("No video source is available for poster repair.");
+    const poster = await createGeneratedVideoPoster(taskId, source);
+    if (!poster.localPosterUrl) throw new Error("Could not capture a poster frame from the video.");
+    return {
+      localVideoPath: existing?.localVideoPath || "",
+      localVideoUrl: existing?.localVideoUrl || "",
+      localPosterPath: poster.localPosterPath || "",
+      localPosterUrl: poster.localPosterUrl || "",
+      cdnVideoUrl: existing?.cdnVideoUrl || "",
+      cdnPosterUrl: existing?.cdnPosterUrl || "",
+      cdnError: existing?.cdnError || "",
+      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
+    };
+  }
   if (existing?.localVideoUrl) {
     try {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
@@ -29136,9 +29168,72 @@ async function scanGenerationRecordMediaRecovery(reason = "timer") {
   }
 }
 
+let generationPosterBackfillRunning = false;
+
+async function scanGenerationRecordMissingPosterBackfill(reason = "timer") {
+  if (generationPosterBackfillRunning || !dbEnabled()) return;
+  generationPosterBackfillRunning = true;
+  try {
+    const records = await getGenerationRecordsNeedingPosterMaintenanceFromDb({
+      limit: GENERATION_POSTER_BACKFILL_BATCH_SIZE,
+      maxAttempts: GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS,
+      retryDelayMs: GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS,
+    }) || [];
+    let repaired = 0;
+    let failed = 0;
+    for (const candidate of records) {
+      const current = await getGenerationRecord(candidate.taskId).catch(() => null);
+      if (!current || !generationRecordNeedsPosterMaintenance(current)) continue;
+      const previousAttempts = Number(current.posterMaintenanceAttempts || 0);
+      const repairStartedAt = Date.now();
+      try {
+        // Avoid storing thousands of historical full videos. Poster-only mode
+        // uses the local file when present, otherwise ffmpeg reads the remote
+        // stream and writes only the thumbnail.
+        await ensureGenerationRecordMediaOptimized(current, { allowObjectStorageUpload: false });
+        const repairedRecord = await getGenerationRecord(current.taskId).catch(() => null);
+        if (!generationRecordNeedsPosterMaintenance(repairedRecord || {})) {
+          repaired += 1;
+          await upsertGenerationRecord({
+            taskId: current.taskId,
+            posterMaintenanceAttempts: previousAttempts + 1,
+            posterMaintenanceRetryAt: "",
+            posterMaintenanceError: "",
+            posterMaintenanceCompletedAt: new Date().toISOString(),
+            posterMaintenanceLastDurationMs: Math.max(0, Date.now() - repairStartedAt),
+          });
+        } else {
+          throw new Error("Poster frame was not created.");
+        }
+      } catch (error) {
+        failed += 1;
+        const now = Date.now();
+        const retryAt = new Date(now + GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS * (previousAttempts + 1)).toISOString();
+        await upsertGenerationRecord({
+          taskId: current.taskId,
+          posterMaintenanceAttempts: previousAttempts + 1,
+          posterMaintenanceRetryAt: retryAt,
+          posterMaintenanceError: String(error?.message || error || "Poster backfill failed.").slice(0, 500),
+          posterMaintenanceLastDurationMs: Math.max(0, now - repairStartedAt),
+        }).catch(() => {});
+      }
+      await delay(750);
+    }
+    if (repaired || failed) {
+      console.log("[generation-poster-backfill]", reason, { scanned: records.length, repaired, failed });
+    }
+  } catch (error) {
+    console.warn("[generation-poster-backfill-scan-failed]", error.message || error);
+  } finally {
+    generationPosterBackfillRunning = false;
+  }
+}
+
 function startGenerationRecordMediaRecoveryScheduler() {
   setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
   setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
+  setTimeout(() => scanGenerationRecordMissingPosterBackfill("startup"), 25000).unref?.();
+  setInterval(() => scanGenerationRecordMissingPosterBackfill("timer"), GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.();
 }
 
 function scheduleVideoToolJobDrain() {
