@@ -1057,7 +1057,7 @@ function publicGenerationRecord(record = {}, options = {}) {
   // hide a result that the upstream has already completed.
   const publicVideoUrl = providerOnlyOutputs || providerOnlyVideoUrl
     ? (providerVideoUrl || cdnUrl || localUrl)
-    : (providerVideoUrl || cdnUrl || localUrl);
+    : (cdnUrl || providerVideoUrl || localUrl);
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
   const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
@@ -1128,6 +1128,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     quality: String(record.quality || ""),
     videoUrl: publicVideoUrl,
     downloadUrl: publicDownloadUrl,
+    cdnVideoUrl: includeStoredVideoUrls ? cdnUrl : "",
+    cdnImageUrl: includeStoredImageUrls ? String(record.cdnImageUrl || "").trim() : "",
+    cdnImageUrls: includeStoredImageUrls && Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [],
     providerVideoUrl,
     upstreamVideoUrl: providerVideoUrl,
     remoteVideoUrl: String(record.remoteVideoUrl || ""),

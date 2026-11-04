@@ -68,10 +68,11 @@ test("advanced download button exposes transferring and ready states", () => {
   assert.match(css, /\.history-r2-download\.is-ready/);
 });
 
-test("advanced downloads always request an R2 transfer before browser fetch", () => {
+test("advanced downloads always request an R2 transfer before direct browser download", () => {
   const download = ui.slice(ui.indexOf("async function downloadGenerationRecordInternal"), ui.indexOf("function stripModelParams"));
   assert.match(download, /download-url\?quality=r2/);
-  assert.ok(download.indexOf("download-url?quality=r2") < download.indexOf("await saveDownloadFromFetch(href, fileName)"));
+  assert.ok(download.indexOf("download-url?quality=r2") < download.indexOf("triggerBrowserDownload(href, fileName)"));
+  assert.doesNotMatch(download, /saveDownloadFromFetch|response\.blob\(\)/);
 });
 
 test("free locked Undress previews still keep a forced local source", () => {

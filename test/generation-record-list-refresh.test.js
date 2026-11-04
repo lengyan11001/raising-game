@@ -63,20 +63,21 @@ test("completed records stay complete while R2 publication catches up", () => {
   const start = server.indexOf("function publicGenerationRecord");
   const end = server.indexOf("function generationRecordTime", start + 1);
   const source = server.slice(start, end);
-  assert.match(source, /const publicVideoUrl = .*?providerVideoUrl \|\| cdnUrl \|\| localUrl/s);
+  assert.match(source, /const publicVideoUrl = .*?cdnUrl \|\| providerVideoUrl \|\| localUrl/s);
   assert.match(source, /r2DownloadReady:/);
   assert.doesNotMatch(source, /publicRecord\.status = "running"/);
   assert.doesNotMatch(source, /publicRecord\.videoUrl = ""/);
   assert.doesNotMatch(source, /publicRecord\.localVideoUrl = r2PublicationPending \? ""/);
 });
 
-test("advanced downloads are R2-only while standard downloads use the original asset", () => {
+test("advanced downloads stay R2-only while browser results expose the durable CDN copy", () => {
   const targetSource = server.slice(
     server.indexOf("function generationRecordDownloadTarget"),
     server.indexOf("function awsQueryEncode"),
   );
   assert.match(targetSource, /r2Only/);
   assert.match(targetSource, /r2Only \? cdnVideoUrl : generationRecordVideoUrl\(record, \{ preferProviderVideoUrl: true \}\)/);
+  assert.match(server, /cdnVideoUrl: includeStoredVideoUrls \? cdnUrl : ""/);
   assert.match(server, /r2Only \? 409 : 404/);
   assert.match(server, /const fallbackUrl = `\/api\/generation-records\/\$\{encodeURIComponent\(taskId\)\}\/download\$\{r2Only \? "\?quality=r2" : ""\}`/);
 });

@@ -421,11 +421,11 @@ function generationPosterUrl(record) {
 }
 
 function generationRecordDownloadHref(record = {}) {
-  // Standard downloads intentionally prefer the original provider asset. The
-  // R2 copy is used by the separate advanced-download action.
-  const providerUrl = record?.remoteVideoUrl || record?.providerVideoUrl || record?.upstreamVideoUrl
-    || record?.remoteImageUrl || record?.providerImageUrl || record?.upstreamImageUrl || "";
-  const mediaUrl = providerUrl || generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
+  // Use the durable CDN copy first. Provider URLs expire quickly and can make
+  // downloads stall even though the same file is already available on R2.
+  const mediaUrl = record?.cdnVideoUrl || record?.cdnImageUrl
+    || (Array.isArray(record?.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "")
+    || generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
   if (mediaUrl) return mediaUrl;
   const taskId = String(record?.taskId || "").trim();
   return taskId && !taskId.startsWith("pending-")
@@ -498,33 +498,6 @@ function triggerBrowserDownload(href, fileName, options = {}) {
   link.remove();
 }
 
-function generationRecordDownloadFetchHref(href = "") {
-  const value = String(href || "");
-  if (!/^https:\/\/media\.123vips\.com\//i.test(value)) return value;
-  try {
-    const url = new URL(value);
-    url.searchParams.set("download", "1");
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
-async function saveDownloadFromFetch(href = "", fileName = "generation") {
-  const headers = {};
-  if (state.token && href.startsWith("/api/")) headers.authorization = `Bearer ${state.token}`;
-  const fetchHref = generationRecordDownloadFetchHref(href);
-  const response = await fetch(fetchHref, {
-    headers,
-    credentials: fetchHref.startsWith("/") ? "same-origin" : "omit",
-  });
-  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  triggerBrowserDownload(objectUrl, fileName);
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-}
-
 async function downloadGenerationRecord(record = {}, { advanced = false } = {}) {
   try {
     await downloadGenerationRecordInternal(record, { advanced });
@@ -567,7 +540,10 @@ async function downloadGenerationRecordInternal(record = {}, { advanced = false 
     href = String(payload.url || "").trim();
     fileName = payload.fileName || fileName;
     if (!href) throw new Error(payload.message || "高级下载暂时不可用。");
-    await saveDownloadFromFetch(href, fileName);
+    // R2 returns an attachment with CORS headers. Send the browser straight to
+    // the signed URL instead of buffering the whole video with fetch()+blob.
+    // The old path reported an unhelpful "Failed to fetch" after long videos.
+    triggerBrowserDownload(href, fileName);
     return;
   }
 

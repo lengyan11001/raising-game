@@ -267,7 +267,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(server, /source: signedUrl \? "r2_signed" : "authenticated_proxy"/);
   assert.match(ui, /href = payload\.url/);
   assert.match(ui, /download-url\?quality=r2/);
-  assert.match(ui, /await saveDownloadFromFetch\(href, fileName\)/);
+  assert.match(ui, /triggerBrowserDownload\(href, fileName\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, "transferring"\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, ok \? "ready" : "failed"\)/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
