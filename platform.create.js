@@ -614,8 +614,10 @@ function advancedResultHistoryFallbackRecords() {
   return (Array.isArray(state.historyRecords) ? state.historyRecords : [])
     .filter((record) => (
       isPendingGenerationRecord(record)
+      || isSucceededGenerationStatus(record?.status)
       || generationVideoUrl(record)
       || generationImageResultUrl(record)
+      || generationPosterUrl(record)
       || record?.downloadUrl
       || record?.textResult
       || record?.responseText
@@ -689,7 +691,7 @@ function renderAdvancedResultPanel() {
     const imageUrl = imageUrls[0] || "";
     const textResult = String(record.textResult || record.responseText || "").trim();
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl || textResult);
-    const posterUrl = videoUrl || imageUrl ? generationPosterUrl(record) : "";
+    const posterUrl = generationPosterUrl(record);
     const status = statusLabel(record.status);
     const taskId = record.taskId || "";
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
@@ -699,7 +701,7 @@ function renderAdvancedResultPanel() {
     const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
     const media = resultExpired
       ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
-      : videoUrl
+      : videoUrl || posterUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
         ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="${index === 0 && imageIndex === 0 ? "eager" : "lazy"}" fetchpriority="${index === 0 && imageIndex === 0 ? "high" : "auto"}" decoding="async" /></button>`).join("")}</div>`
@@ -787,12 +789,24 @@ function renderAdvancedResultPanel() {
 }
 
 const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 * 1000;
+const ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS = 8 * 1000;
+const ADVANCED_RESULT_POSTER_RETRY_LIMIT = 8;
 
 function advancedResultPendingRecords() {
   return advancedResultDisplayRecords().filter((record) => {
     const taskId = String(record?.taskId || "").trim();
     if (!taskId || taskId.startsWith("pending-")) return false;
     return isPendingGenerationRecord(record);
+  });
+}
+
+function advancedResultPosterRefreshRecords() {
+  return advancedResultDisplayRecords().filter((record) => {
+    const taskId = String(record?.taskId || "").trim();
+    if (!taskId || taskId.startsWith("pending-")) return false;
+    if (!isSucceededGenerationStatus(record?.status) || generationPosterUrl(record)) return false;
+    if (!generationVideoUrl(record) && record?.posterPending !== true) return false;
+    return Number(state.advancedResultPosterRetryCounts?.[taskId] || 0) < ADVANCED_RESULT_POSTER_RETRY_LIMIT;
   });
 }
 
@@ -803,16 +817,20 @@ function stopAdvancedResultRefresh() {
 
 function scheduleAdvancedResultRefresh() {
   stopAdvancedResultRefresh();
-  if (
-    !state.user
-    || state.tab !== "advanced"
-    || state.advancedSideTab !== "result"
-    || !advancedResultPendingRecords().length
-  ) return;
+  if (!state.user || state.tab !== "advanced" || state.advancedSideTab !== "result") return;
+  const pendingRecords = advancedResultPendingRecords();
+  const posterRefreshRecords = pendingRecords.length ? [] : advancedResultPosterRefreshRecords();
+  if (!pendingRecords.length && !posterRefreshRecords.length) return;
+  posterRefreshRecords.forEach((record) => {
+    const taskId = String(record?.taskId || "").trim();
+    if (!taskId) return;
+    if (!state.advancedResultPosterRetryCounts) state.advancedResultPosterRetryCounts = {};
+    state.advancedResultPosterRetryCounts[taskId] = Number(state.advancedResultPosterRetryCounts[taskId] || 0) + 1;
+  });
   state.advancedResultTimer = window.setTimeout(() => {
     state.advancedResultTimer = 0;
     refreshAdvancedResultRecord();
-  }, ADVANCED_RESULT_POLL_INTERVAL_MS);
+  }, pendingRecords.length ? ADVANCED_RESULT_POLL_INTERVAL_MS : ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS);
 }
 
 async function refreshAdvancedResultRecord() {
@@ -836,6 +854,9 @@ async function refreshAdvancedResultRecord() {
       const record = payload.record || payload.generation || null;
       if (record?.taskId) {
         mergeAdvancedResultRecord(record);
+        if (generationPosterUrl(record) && state.advancedResultPosterRetryCounts) {
+          delete state.advancedResultPosterRetryCounts[record.taskId];
+        }
         rendered = true;
       }
       if (payload.user) setUser(payload.user);

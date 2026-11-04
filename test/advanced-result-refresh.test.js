@@ -37,7 +37,7 @@ test("advanced result entry has no duplicate detail request", () => {
 test("pending results use one low-frequency timeout instead of an interval", () => {
   assert.match(create, /const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 \* 1000;/);
   assert.match(create, /function scheduleAdvancedResultRefresh\(\) \{/);
-  assert.match(create, /advancedResultPendingRecords\(\)\.length/);
+  assert.match(create, /const pendingRecords = advancedResultPendingRecords\(\);/);
   assert.match(create, /window\.setTimeout\(\(\) => \{[\s\S]*?refreshAdvancedResultRecord\(\);[\s\S]*?ADVANCED_RESULT_POLL_INTERVAL_MS/);
   assert.doesNotMatch(create, /setInterval\([\s\S]{0,120}refreshAdvancedResultRecord/);
 });
@@ -51,8 +51,20 @@ test("pending history without media can seed the result panel and polling", () =
 test("polling stops when the result has no pending tasks", () => {
   const schedule = create.match(/function scheduleAdvancedResultRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(schedule, "scheduleAdvancedResultRefresh should exist");
-  assert.match(schedule, /\|\| !advancedResultPendingRecords\(\)\.length\s*\) return;/);
+  assert.match(schedule, /const pendingRecords = advancedResultPendingRecords\(\);/);
+  assert.match(schedule, /if \(!pendingRecords\.length && !posterRefreshRecords\.length\) return;/);
   assert.match(schedule, /state\.advancedResultTimer = window\.setTimeout/);
+});
+
+test("completed video results retry until their poster is repaired", () => {
+  assert.match(create, /const ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS = 8 \* 1000;/);
+  assert.match(create, /const ADVANCED_RESULT_POSTER_RETRY_LIMIT = 8;/);
+  const posterRefresh = create.match(/function advancedResultPosterRefreshRecords\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(posterRefresh, "advancedResultPosterRefreshRecords should exist");
+  assert.match(posterRefresh, /isSucceededGenerationStatus\(record\?\.status\)/);
+  assert.match(posterRefresh, /generationPosterUrl\(record\)/);
+  assert.match(posterRefresh, /advancedResultPosterRetryCounts/);
+  assert.match(create, /delete state\.advancedResultPosterRetryCounts\[record\.taskId\]/);
 });
 
 test("logout and leaving advanced stop pending-result polling", () => {

@@ -25864,6 +25864,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
     posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
+    posterPending: generationRecordNeedsPosterMaintenance(record),
+    cdnPosterUrl: includeStoredVideoUrls ? (String(record.cdnPosterUrl || "").trim() || preferredPosterUrl) : "",
+    localPosterUrl: includeStoredVideoUrls ? (String(record.localPosterUrl || "").trim() || "") : "",
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),
@@ -26308,8 +26311,28 @@ function drainGenerationRecordRefreshQueue() {
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
-  if (DISABLE_GENERATED_R2_STORAGE || GENERATED_ASSETS_ON_DEMAND) return record;
+  if (DISABLE_GENERATED_R2_STORAGE) return record;
   if (!record?.taskId) return record;
+  if (GENERATED_ASSETS_ON_DEMAND) {
+    if (!generationRecordNeedsPosterMaintenance(record)) return record;
+    const remoteVideo = generationRecordProviderVideoUrl(record);
+    if (!remoteVideo) return record;
+    const downloaded = await downloadGeneratedVideo(record.taskId, remoteVideo, { forceLocal: true });
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      localVideoPath: downloaded.localVideoPath || record.localVideoPath || "",
+      localVideoUrl: downloaded.localVideoUrl || record.localVideoUrl || "",
+      videoUrl: downloaded.localVideoUrl || record.localVideoUrl || record.videoUrl || "",
+      localPosterPath: downloaded.localPosterPath || record.localPosterPath || "",
+      localPosterUrl: downloaded.localPosterUrl || record.localPosterUrl || "",
+      posterUrl: downloaded.localPosterUrl || record.localPosterUrl || record.posterUrl || "",
+      cdnVideoUrl: downloaded.cdnVideoUrl || record.cdnVideoUrl || "",
+      cdnPosterUrl: downloaded.cdnPosterUrl || record.cdnPosterUrl || "",
+      cdnError: downloaded.cdnError || "",
+      playbackOptimizedAt: downloaded.playbackOptimizedAt || record.playbackOptimizedAt || "",
+      lastUpdateReason: "generated-poster-recovery",
+    });
+  }
   const recovered = await recoverGenerationRecordR2Urls(record);
   if (!recovered?.localVideoUrl) return recovered;
   record = recovered;
@@ -26380,10 +26403,12 @@ const generatedMediaMaintenanceQueued = new Set();
 let generatedMediaMaintenanceRunning = false;
 const generatedVideoDownloadQueued = new Set();
 
-function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download") {
-  if (GENERATED_ASSETS_ON_DEMAND) return false;
+function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download", { repairPoster = false } = {}) {
   const cleanTaskId = String(taskId || "").trim();
   const remote = String(remoteVideoUrl || "").trim();
+  // On-demand storage deliberately avoids every full video download except the
+  // one maintenance path that repairs a missing thumbnail for a succeeded task.
+  if (GENERATED_ASSETS_ON_DEMAND && !repairPoster) return false;
   if (!cleanTaskId || !remote || generatedVideoDownloadQueued.has(cleanTaskId)) return false;
   generatedVideoDownloadQueued.add(cleanTaskId);
   setImmediate(() => Promise.resolve().then(async () => {
@@ -26393,7 +26418,7 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       queueGenerationRecordMediaMaintenance(current);
       return;
     }
-    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote);
+    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: repairPoster });
     await upsertAndSettleGenerationRecord({
       taskId: cleanTaskId,
       status: current.status,
@@ -26541,10 +26566,22 @@ async function recoverGenerationRecordR2Urls(record = {}) {
   return next || { ...record, ...updates };
 }
 
+function generationRecordNeedsPosterMaintenance(record = {}) {
+  return Boolean(
+    record?.taskId
+    && !generationRecordIsApiTask(record)
+    && isSucceededStatus(record.status)
+    && generationRecordIsVideoOutput(record)
+    && !String(record.cdnPosterUrl || "").trim()
+    && !String(record.localPosterUrl || "").trim()
+    && Boolean(generationRecordProviderVideoUrl(record))
+  );
+}
+
 function generationRecordNeedsMediaMaintenance(record = {}) {
   if (DISABLE_GENERATED_R2_STORAGE || generationRecordR2Expired(record)) return false;
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
-  if (GENERATED_ASSETS_ON_DEMAND) return false;
+  if (GENERATED_ASSETS_ON_DEMAND) return generationRecordNeedsPosterMaintenance(record);
   if (isImageGenerationRecord(record)) {
     const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
     const hasR2Image = Boolean(String(record.cdnImageUrl || "").trim() || cdnImages.some((item) => String(item || "").trim()));
@@ -26571,6 +26608,9 @@ function generationRecordCanRetryR2(record = {}) {
 
 function queueGenerationRecordMediaMaintenance(record = {}) {
   if (!generationRecordNeedsMediaMaintenance(record)) return false;
+  if (GENERATED_ASSETS_ON_DEMAND && generationRecordNeedsPosterMaintenance(record) && !record.localVideoUrl) {
+    return queueGeneratedVideoDownload(record.taskId, generationRecordProviderVideoUrl(record), "poster-maintenance", { repairPoster: true });
+  }
   const needsImageR2 = isImageGenerationRecord(record)
     && generatedOutputStorageEnabled()
     && !String(record.cdnImageUrl || "").trim()
@@ -27575,6 +27615,25 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
       const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
       if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
         let optimized = existing;
+        let poster = null;
+        if (!existing.localPosterUrl) {
+          poster = await createGeneratedVideoPoster(taskId, existingVideoPath);
+          if (poster.localPosterUrl) {
+            optimized = {
+              ...existing,
+              localPosterPath: poster.localPosterPath || existing.localPosterPath || "",
+              localPosterUrl: poster.localPosterUrl || existing.localPosterUrl || "",
+              posterUrl: poster.localPosterUrl || existing.posterUrl || "",
+            };
+            await upsertGenerationRecord({
+              taskId,
+              localPosterPath: optimized.localPosterPath,
+              localPosterUrl: optimized.localPosterUrl,
+              posterUrl: optimized.posterUrl,
+              lastUpdateReason: "generated-poster-recovery",
+            });
+          }
+        }
         if (!GENERATED_ASSETS_ON_DEMAND && !generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
           const cdn = await uploadGeneratedMediaToObjectStorage({
             taskId,
@@ -51602,6 +51661,9 @@ async function handleListGenerationRecords(req, res, url) {
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
   queueGenerationRecordStatusRefreshes(refreshable, { reason: "user-list" });
+  ownRecords
+    .filter((record) => generationRecordNeedsPosterMaintenance(record))
+    .forEach((record) => queueGenerationRecordMediaMaintenance(record));
 
   if (undressToolRequestAllowed(req)) {
     const optimizedRecords = [];
@@ -51664,6 +51726,9 @@ async function handleGetGenerationRecord(req, res, taskId) {
     queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
   }
 
+  if (generationRecordNeedsPosterMaintenance(nextRecord)) {
+    queueGenerationRecordMediaMaintenance(nextRecord);
+  }
   if (
     generatedOutputStorageEnabled()
     && !generationRecordIsApiTask(nextRecord)

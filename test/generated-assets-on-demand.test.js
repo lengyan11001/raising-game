@@ -15,8 +15,8 @@ const css = read("platform.css");
 
 test("generated media defaults to on-demand storage", () => {
   assert.match(server, /const GENERATED_ASSETS_ON_DEMAND = .*process\.env\.GENERATED_ASSETS_ON_DEMAND \|\| "true"/);
-  assert.match(server, /if \(GENERATED_ASSETS_ON_DEMAND\) return false;\n  const cleanTaskId = String\(taskId \|\| ""\)/);
-  assert.match(server, /if \(DISABLE_GENERATED_R2_STORAGE \|\| GENERATED_ASSETS_ON_DEMAND\) return record;/);
+  assert.match(server, /if \(GENERATED_ASSETS_ON_DEMAND\) return generationRecordNeedsPosterMaintenance\(record\)/);
+  assert.match(server, /if \(DISABLE_GENERATED_R2_STORAGE\) return record;\n  if \(!record\?\.taskId\) return record;/);
 });
 
 test("generated video and image helpers defer local writes until forced", () => {
@@ -76,4 +76,20 @@ test("advanced downloads always request an R2 transfer before browser fetch", ()
 
 test("free locked Undress previews still keep a forced local source", () => {
   assert.match(server, /if \(freeImageGeneration\) \{[\s\S]*?saveGeneratedImageFile\(taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
+});
+
+test("on-demand still repairs a successful video poster", () => {
+  assert.match(server, /function generationRecordNeedsPosterMaintenance\(record = \{\}\)/);
+  assert.match(server, /if \(GENERATED_ASSETS_ON_DEMAND\) return generationRecordNeedsPosterMaintenance\(record\)/);
+  assert.match(server, /if \(GENERATED_ASSETS_ON_DEMAND\) \{[\s\S]*?downloadGeneratedVideo\(record\.taskId, remoteVideo, \{ forceLocal: true \}\)/);
+  assert.match(server, /ownRecords[\s\S]*?generationRecordNeedsPosterMaintenance\(record\)[\s\S]*?queueGenerationRecordMediaMaintenance\(record\)/);
+  assert.match(server, /if \(generationRecordNeedsPosterMaintenance\(nextRecord\)\) \{[\s\S]*?queueGenerationRecordMediaMaintenance\(nextRecord\)/);
+  assert.match(server, /if \(GENERATED_ASSETS_ON_DEMAND && !repairPoster\) return false;/);
+  assert.match(server, /"poster-maintenance", \{ repairPoster: true \}/);
+});
+
+test("public records expose repaired posters to both result surfaces", () => {
+  assert.match(server, /posterPending: generationRecordNeedsPosterMaintenance\(record\)/);
+  assert.match(server, /cdnPosterUrl: includeStoredVideoUrls \? \(String\(record\.cdnPosterUrl \|\| ""\)\.trim\(\) \|\| preferredPosterUrl\) : ""/);
+  assert.match(server, /localPosterUrl: includeStoredVideoUrls \? \(String\(record\.localPosterUrl \|\| ""\)\.trim\(\) \|\| ""\) : ""/);
 });
