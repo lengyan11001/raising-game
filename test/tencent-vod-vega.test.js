@@ -147,6 +147,52 @@ test("Vega frame modes are mutually exclusive and complete", () => {
   }, { subAppId: 1 }), "INVALID_MEDIA_COMBINATION");
 });
 
+test("Vega draft follow-up ignores stale media and keeps only draft output settings", () => {
+  const payload = vega.buildVegaCreatePayload({
+    provider: "seedance25-vega",
+    prompt: "stale prompt must not be sent",
+    draftTaskId: "draft-task-123",
+    duration: -1,
+    resolution: "1080P",
+    mediaMode: "reference_video",
+    firstFrameUrl: "https://cdn.example.com/first.png",
+    lastFrameUrl: "https://cdn.example.com/last.png",
+    referenceImages: ["https://cdn.example.com/ref.png"],
+    referenceVideos: ["https://cdn.example.com/ref.mp4"],
+    referenceAudios: ["https://cdn.example.com/ref.mp3"],
+  }, { subAppId: 123 });
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "Prompt"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "FileInfos"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "Seed"), false);
+  assert.deepEqual(payload.OutputConfig, { StorageMode: "Temporary", Resolution: "1080P" });
+  const extInfo = JSON.parse(payload.ExtInfo);
+  assert.deepEqual(JSON.parse(extInfo.AdditionalParameters), { draft_task_id: "draft-task-123" });
+  assertCode(() => vega.buildVegaCreatePayload({
+    provider: "h3-vega",
+    draftTaskId: "draft-task-lite",
+    resolution: "1080P",
+  }, { subAppId: 123 }), "DRAFT_UNSUPPORTED");
+});
+
+test("Vega regenerated draft bodies discard reconstructed prompt and media before validation", () => {
+  const regenerate = sourceBetween(server, "function advancedRegenerateBody(record = {})", "async function handleRegenerateGenerationRecord(");
+  assert.match(regenerate, /const explicitMediaMode = firstPresent\(record\.mediaMode, params\.mediaMode/);
+  assert.match(regenerate, /const requestedDraftTaskId = String\(firstPresent\(params\.draftTaskId, params\.draft_task_id, ""\)/);
+  assert.match(regenerate, /const draftTaskId = normalizeVegaMediaMode\(explicitMediaMode\) === "draft_followup" \? requestedDraftTaskId : ""/);
+  assert.match(regenerate, /const requestedMedia = draftTaskId[\s\S]*?firstFrameUrl: ""[\s\S]*?referenceImages: \[\]/);
+  assert.match(regenerate, /mediaMode: effectiveMediaMode,[\s\S]*?\.\.\.requestedMedia/);
+  assert.match(regenerate, /body\.prompt = ""/);
+  assert.match(regenerate, /body\.draft = draftTaskId \? false/);
+  const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "function advancedRuntimeForProvider(");
+  assert.match(handler, /body\.draftTaskId,[\s\S]*?bodyParams\.draft_task_id,[\s\S]*?"",/);
+  const requestedMode = sourceBetween(handler, "const requestedMediaMode = firstPresent(", "const explicitDraftMode");
+  assert.doesNotMatch(requestedMode, /caseParams\./);
+  assert.match(handler, /const draftTaskId = String\(firstPresent\([\s\S]*?explicitDraftMode \? caseParams\.draftTaskId/);
+  assert.match(handler, /const requestedMedia = draftTaskId[\s\S]*?firstFrameUrl: ""[\s\S]*?referenceImages: \[\]/);
+  assert.match(handler, /const mediaMode = draftTaskId[\s\S]*?"draft_followup"/);
+  assert.match(create, /restoredDraftFollowup \? "draft_followup"/);
+});
+
 test("Vega task responses are extracted with the required status mapping", () => {
   assert.equal(vega.vegaCreateTaskId({ Response: { TaskId: "task-1" } }), "task-1");
   const detail = { TaskId: "task-1", Status: "FINISH", Output: { FileInfos: [

@@ -352,7 +352,9 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
       : (media.referenceImages.length || media.referenceVideos.length || media.referenceAudios.length)
       ? "reference_video"
       : "text_to_video";
-    const vegaMediaMode = normalizeVegaUiMediaMode(explicitMediaMode || inferredMediaMode);
+    const restoredDraftTaskId = firstPresent(params.draftTaskId, params.draft_task_id, record.draftTaskId, "") || "";
+    const restoredDraftFollowup = normalizeVegaUiMediaMode(explicitMediaMode) === "draft_followup" && Boolean(restoredDraftTaskId);
+    const vegaMediaMode = normalizeVegaUiMediaMode(restoredDraftFollowup ? "draft_followup" : explicitMediaMode || inferredMediaMode);
     const rawVegaRatio = String(record.ratio || params.ratio || params.aspect_ratio || "16:9").trim();
     const vegaRatio = VEGA_ALL_RATIOS.includes(rawVegaRatio) ? rawVegaRatio : "16:9";
     const vegaDurationBounds = advancedDurationBounds(provider);
@@ -369,7 +371,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     if (els.advancedWanSeed) els.advancedWanSeed.value = record.seed ?? params.seed ?? params.parameters?.seed ?? "";
     if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto";
     if (els.advancedVegaDraft) els.advancedVegaDraft.checked = advancedBoolFromValue(params.draft ?? record.draft, false);
-    if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = firstPresent(params.draftTaskId, params.draft_task_id, record.draftTaskId, "") || "";
+    if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = restoredDraftFollowup ? restoredDraftTaskId : "";
     if (els.advancedVegaAssetGroupId) els.advancedVegaAssetGroupId.value = firstPresent(params.assetGroupId, params.asset_group_id, "") || "";
     if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = advancedBoolFromValue(firstPresent(params.returnLastFrame, params.return_last_frame), false);
     if (els.advancedVegaReturnUsage) els.advancedVegaReturnUsage.checked = advancedBoolFromValue(firstPresent(params.returnVegaUsage, params.return_vega_usage), false);

@@ -954,6 +954,11 @@ function advancedRegenerateBody(record = {}) {
   };
   if (isVegaProvider(provider)) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+    const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
+    const requestedDraftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
+    // Do not let a stale draft id from an old record silently turn a normal
+    // regeneration into Draft to Final.
+    const draftTaskId = normalizeVegaMediaMode(explicitMediaMode) === "draft_followup" ? requestedDraftTaskId : "";
     const assetUrl = (asset, keys = []) => String(keys.map((key) => asset?.[key]).find(Boolean) || "").trim();
     const urlsByType = (type, keys) => mediaAssets
       .filter((asset) => asset?.type === type)
@@ -977,8 +982,9 @@ function advancedRegenerateBody(record = {}) {
       ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url) : []),
       ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
     ]);
-    const requestedMedia = { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
-    const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
+    const requestedMedia = draftTaskId
+      ? { firstFrameUrl: "", lastFrameUrl: "", referenceImages: [], referenceVideos: [], referenceAudios: [] }
+      : { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
     const inferredMediaMode = firstFrameUrl && lastFrameUrl
       ? "first_last_frame"
       : firstFrameUrl
@@ -988,16 +994,20 @@ function advancedRegenerateBody(record = {}) {
       : (referenceImages.length || referenceVideos.length || referenceAudios.length)
       ? "reference_video"
       : "text_to_video";
-    const mediaMode = normalizeVegaMediaMode(explicitMediaMode || inferredMediaMode, requestedMedia);
-    const taskType = String(firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto").trim().toLowerCase();
-    const effectiveMediaMode = ["edit", "extend"].includes(taskType) ? "reference_video" : mediaMode;
+    const mediaMode = draftTaskId
+      ? "draft_followup"
+      : normalizeVegaMediaMode(explicitMediaMode || inferredMediaMode, requestedMedia);
+    const taskType = draftTaskId
+      ? "auto"
+      : String(firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto").trim().toLowerCase();
+    const effectiveMediaMode = draftTaskId
+      ? "draft_followup"
+      : ["edit", "extend"].includes(taskType)
+      ? "reference_video"
+      : mediaMode;
     const regeneratedMedia = vegaMediaSelection({
       mediaMode: effectiveMediaMode,
-      firstFrameUrl,
-      lastFrameUrl,
-      referenceImages,
-      referenceVideos,
-      referenceAudios,
+      ...requestedMedia,
     });
     body.mediaMode = regeneratedMedia.mode;
     if (["first_frame", "last_frame", "first_last_frame"].includes(regeneratedMedia.mode)) {
@@ -1015,8 +1025,8 @@ function advancedRegenerateBody(record = {}) {
       body.duration = -1;
     }
     body.taskType = taskType;
-    body.draft = params.draft === true || params.draft === "true";
-    body.draftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
+    body.draft = draftTaskId ? false : params.draft === true || params.draft === "true";
+    body.draftTaskId = draftTaskId;
     body.assetGroupId = String(firstPresent(params.assetGroupId, params.asset_group_id, "") || "").trim();
     body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
     body.returnLastFrame = boolFromRequest(firstPresent(params.returnLastFrame, params.return_last_frame), false);

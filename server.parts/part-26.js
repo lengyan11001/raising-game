@@ -54,21 +54,47 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   const caseParams = context.caseParams || {};
   const selectedCase = context.selectedCase || null;
   const merged = mergedRequestForMedia(body, caseParams);
-  const draftTaskId = String(firstPresent(body.draftTaskId, body.draft_task_id, bodyParams.draftTaskId, bodyParams.draft_task_id, caseParams.draftTaskId, "")).trim();
-  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
-  const requestedMedia = vegaRequestMedia(merged);
-  const mediaMode = draftTaskId ? "draft_followup" : normalizeVegaMediaMode(firstPresent(
+  const requestedMediaMode = firstPresent(
     body.mediaMode,
     body.seedanceMode,
     body.functionMode,
     bodyParams.mediaMode,
     bodyParams.seedanceMode,
     bodyParams.functionMode,
-    caseParams.mediaMode,
-    caseParams.seedanceMode,
-    caseParams.functionMode,
     "",
-  ), requestedMedia);
+  );
+  const explicitDraftMode = normalizeVegaMediaMode(requestedMediaMode) === "draft_followup";
+  const directDraftTaskId = String(firstPresent(
+    body.draftTaskId,
+    body.draft_task_id,
+    bodyParams.draftTaskId,
+    bodyParams.draft_task_id,
+    "",
+  )).trim();
+  // Template params are defaults for ordinary generation, not proof that the
+  // user selected Draft to Final. A stale draft mode or draft id in a template
+  // must never turn a normal request into Draft to Final.
+  const draftTaskId = String(firstPresent(
+    directDraftTaskId,
+    explicitDraftMode ? caseParams.draftTaskId : "",
+    explicitDraftMode ? caseParams.draft_task_id : "",
+  ) || "").trim();
+  if ((explicitDraftMode || directDraftTaskId) && !draftTaskId) {
+    return sendAdvancedValidationError(res, Object.assign(new Error("Draft to Final requires the upstream draft task ID."), {
+      statusCode: 400,
+      code: "DRAFT_TASK_ID_REQUIRED",
+    }), `${definition.label} request is invalid.`);
+  }
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  // Regenerate requests can carry media reconstructed from the source record.
+  // Draft-to-final is identified solely by draftTaskId and must discard all of
+  // that stale media before validation.
+  const requestedMedia = draftTaskId
+    ? { firstFrameUrl: "", lastFrameUrl: "", referenceImages: [], referenceVideos: [], referenceAudios: [] }
+    : vegaRequestMedia(merged);
+  const mediaMode = draftTaskId
+    ? "draft_followup"
+    : normalizeVegaMediaMode(requestedMediaMode, requestedMedia);
   let media;
   try {
     media = vegaMediaSelection({ ...requestedMedia, mediaMode, draftTaskId });

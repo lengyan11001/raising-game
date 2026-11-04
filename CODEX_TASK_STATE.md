@@ -4,47 +4,41 @@ This file is the durable handoff for this task. After compaction, read this file
 
 ## Active request
 
-- Investigate task `cgt-20261104232822-2811e0`: slow download and `Failed to fetch` when saving.
-- Fix the download path on `123vips.com` only. Do not deploy Live.
+- Fix Vega 1.5 Pro/Lite generation incorrectly treated as **Draft to Final** even when the user did not select that mode.
+- Deploy the fix to `123vips.com` only. Do not deploy Live.
 
 ## Root cause and decisions
 
-- R2/CDN was healthy. The reported video is 13,740,819 bytes on `media.123vips.com`; full GET returned 200, Range returned 206, CORS is present, and cache responded with `cf-cache-status: HIT`.
-- The advanced-download UI buffered the entire video through `fetch().blob()`, so a transient request failure surfaced as the generic `Failed to fetch`.
-- First-time R2 preparation of this record took about 33 seconds. That backend transfer is still expected when no R2 copy exists yet.
-- Advanced downloads now navigate directly to the signed R2 URL instead of buffering a blob.
-- Browser-facing standard downloads now prefer the durable CDN URL over expiring provider URLs.
-- External API response behavior remains provider-first and must not be changed for this fix.
+- A stale `draftTaskId` / `draft_followup` value in template or restored record params was treated as an explicit user mode.
+- Draft to Final is now accepted only from explicit request fields (`mediaMode`, `seedanceMode`, `functionMode`, or direct `draftTaskId`); template params cannot select it silently.
+- Real Draft to Final requests discard prompt, all first/last-frame fields, and all reference media before validation and payload construction.
+- Normal regeneration ignores stale record `draftTaskId`; record restoration clears the draft ID unless the record's explicit media mode is `draft_followup`.
+- A Draft to Final request without an upstream draft task ID now fails clearly with `DRAFT_TASK_ID_REQUIRED`.
+- Vega 1.5 Lite rejects Draft to Final with `DRAFT_UNSUPPORTED`.
 
 ## Changed files
 
 ```text
-platform.ui.parts/part-02.js
-server.parts/part-20.js
-test/generated-assets-on-demand.test.js
-test/generation-record-list-refresh.test.js
-test/undress-tool.test.js
+platform.create.parts/part-04.js
+server.parts/part-26.js
+server.parts/part-29.js
+tencent-vod-vega.js
+test/tencent-vod-vega.test.js
 CODEX_TASK_STATE.md
 ```
 
 ## Verification
 
-- `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js test/undress-tool.test.js test/generation-record-list-refresh.test.js test/source-split.test.js`: 39 pass, 0 fail.
-- `node --check server.parts/part-20.js`, `node --check platform.ui.parts/part-02.js`, and `git diff --check`: passed.
-- Production `https://123vips.com/api/health`: 200 `{"ok":true}`.
-- Deployed `platform.ui.parts/part-02.js` contains CDN-first selection and direct `triggerBrowserDownload`, and no `saveDownloadFromFetch`/`response.blob()`.
-- CDN probe for the reported record: 200 GET, 206 Range, `content-length: 13740819`.
+- `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js test/source-split.test.js`: 35 pass, 0 fail.
+- Syntax checks for all four changed runtime files and `git diff --check`: passed.
+- Full `npm test`: 610 pass, 21 fail. The same 21 failures occur at unchanged `HEAD` (608 pass, 21 fail); no new failure was introduced.
+- The full-suite failures are pre-existing unrelated UI/docs/payment/creator assertions, not Vega behavior.
 
 ## Deployment
 
-- `old-site`: `64ccf45` (`Fix generated media downloads to stream from CDN`).
-- `platform-release`: `553bc96`, built from `64ccf45`.
-- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`.
-- Release boundary/audit passed and service restarted successfully.
-- Live release was not deployed.
-- Never deploy integration branches directly; continue using the release snapshot workflow.
+- Pending commit and deployment on `old-site` -> `platform-release` -> fixed `123vips.com` target.
+- Deployment commands only:
+  - `python3 scripts/build_release_snapshot.py --source old-site`
+  - `scripts/deploy_local.sh --site old`
+- Do not deploy integration branch directly. Do not deploy Live.
 - Business/runtime data remains PostgreSQL-only.
-
-## Next steps
-
-- None for this fix. Monitor the user's retry; first preparation can still take up to tens of seconds, but the browser no longer buffers the whole file in frontend JavaScript.

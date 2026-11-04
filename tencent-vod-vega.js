@@ -404,13 +404,15 @@ function buildVegaCreatePayload(input = {}, { subAppId } = {}) {
   if (!Number.isInteger(Number(subAppId)) || Number(subAppId) <= 0) throw new Error("TENCENT_VOD_SUB_APP_ID must be a positive integer.");
   const draftTaskId = String(input.draftTaskId || "").trim();
   if (draftTaskId && !caps.draft) throw vegaValidationError(`${provider.label} does not support draft-to-final generation.`, "DRAFT_UNSUPPORTED");
-  const media = vegaMediaSelection({ ...input, mediaMode: draftTaskId ? "draft_followup" : input.mediaMode });
+  // A platform regeneration can retain the previous generation's media in the
+  // record. Draft-to-final only accepts the draft id and output settings, so
+  // those stale fields must never reach media validation or the upstream body.
+  const media = draftTaskId
+    ? { mode: "draft_followup", firstFrameUrl: "", lastFrameUrl: "", referenceImages: [], referenceVideos: [], referenceAudios: [] }
+    : vegaMediaSelection({ ...input, mediaMode: input.mediaMode });
   const prompt = String(input.prompt || "").trim();
   if (!draftTaskId && !prompt) throw Object.assign(new Error("Prompt is required."), { statusCode: 400, code: "PROMPT_REQUIRED" });
   if (prompt.length > 7000) throw vegaValidationError("Vega prompt must not exceed 7000 characters.", "PROMPT_TOO_LONG");
-  if (draftTaskId && (media.firstFrameUrl || media.lastFrameUrl || media.referenceImages.length || media.referenceVideos.length || media.referenceAudios.length)) {
-    throw mediaCombinationError("Draft to Final accepts only the draft task id and output settings.");
-  }
   const taskType = normalizeVegaTaskType(input.taskType, provider.id);
   if (draftTaskId && taskType !== "auto") throw vegaValidationError("Draft to Final does not accept omni_reference_task_type.", "INVALID_TASK_TYPE");
   if (["edit", "extend"].includes(taskType) && media.referenceVideos.length < 1) {
