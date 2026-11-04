@@ -36,7 +36,12 @@ CODEX_TASK_STATE.md
 
 ## Deployment
 
-- Pending commit and deployment on `old-site` -> `platform-release` -> fixed `123vips.com` target.
+- `old-site`: `eb873be` (`Fix Vega draft mode detection`), pushed to origin.
+- `platform-release`: `e576a05`, built from `eb873be`; remote snapshot advanced with lease protection.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; release boundary audit passed and service restarted.
+- Production `https://123vips.com/api/health`: 200 `{"ok":true}`.
+- Production `platform.create.parts/part-04.js` contains the restored-draft guard; production `tencent-vod-vega.js` contains the draft stale-media sanitization.
+- Live release was not deployed.
 - Deployment commands only:
   - `python3 scripts/build_release_snapshot.py --source old-site`
   - `scripts/deploy_local.sh --site old`
