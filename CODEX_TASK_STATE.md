@@ -15,10 +15,9 @@ This file is the durable handoff for this task. After compaction, read this file
 
 ## Active request
 
-- Add **Vega 1.5 Lite** (`h3-vega`) sale-price configuration to the admin pricing page.
-- Do not research or invent upstream pricing. Default all Lite sale prices to `0`; the user will set them in Backoffice.
-- Generation must stay fail-closed until a positive sale price is configured.
-- Do not enable/price Vega Pro and do not change Lite generation controls in this phase.
+- Vega 1.5 Lite (`h3-vega`) integration is complete for the current phase.
+- Sale-price rows are available in Backoffice; prices default to `0` and generation remains fail-closed until the user sets positive values.
+- Vega Pro remains disabled/fail-closed.
 
 ## Decisions
 
@@ -61,11 +60,14 @@ CODEX_TASK_STATE.md
 
 ## Deployment
 
-- `old-site`: `41fb846` (`Add Vega 1.5 Lite admin pricing rows`), pushed to origin.
-- `platform-release`: `509b663`, built from `41fb846`; published with a lease-protected update.
-- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; release boundary audit passed and service restarted.
-- Production `https://123vips.com/api/health`: 200 `{"ok":true}`.
-- Production admin pricing API exists at `/api/admin/pricing` and returns 401 without login, as expected.
+- `old-site`: `9e50a6a` (`Fix Vega Lite unsupported generation controls`), pushed to origin.
+- `platform-release`: `6e4ac1c`, built from `9e50a6a`; pushed to origin.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`.
+- Production checkout: `/opt/raising-game-demo` at `6e4ac1ca45f3e0a5d8bdfd03a63713c90b6391aa`.
+- Production service: `raising-game-demo` is `active`.
+- Production server-local health: `200 {"ok":true}`.
+- Public verification: homepage `200`, `platform.config.js` `200`, and `https://123vips.com/api/health` `200 {"ok":true}`.
+- Production asset includes the Lite capability flags hiding unsupported Generate Mode and Quality Mode controls.
 - Live release was not deployed.
 
 ## Deployment rule
