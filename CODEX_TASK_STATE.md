@@ -4,46 +4,48 @@ This file is the durable handoff for this task. After compaction, read this file
 
 ## Active request
 
-- Fix Vega 1.5 Pro/Lite generation incorrectly treated as **Draft to Final** even when the user did not select that mode.
-- Deploy the fix to `123vips.com` only. Do not deploy Live.
+- Add **Vega 1.5 Lite** (`h3-vega`) sale-price configuration to the admin pricing page.
+- Do not research or invent upstream pricing. Default all Lite sale prices to `0`; the user will set them in Backoffice.
+- Generation must stay fail-closed until a positive sale price is configured.
+- Do not enable/price Vega Pro and do not change Lite generation controls in this phase.
 
-## Root cause and decisions
+## Decisions
 
-- A stale `draftTaskId` / `draft_followup` value in template or restored record params was treated as an explicit user mode.
-- Draft to Final is now accepted only from explicit request fields (`mediaMode`, `seedanceMode`, `functionMode`, or direct `draftTaskId`); template params cannot select it silently.
-- Real Draft to Final requests discard prompt, all first/last-frame fields, and all reference media before validation and payload construction.
-- Normal regeneration ignores stale record `draftTaskId`; record restoration clears the draft ID unless the record's explicit media mode is `draft_followup`.
-- A Draft to Final request without an upstream draft task ID now fails clearly with `DRAFT_TASK_ID_REQUIRED`.
-- Vega 1.5 Lite rejects Draft to Final with `DRAFT_UNSUPPORTED`.
+- Lite has five editable output-second sale-price rows: `480p`, `720p`, `1080p`, `2k`, `4k`.
+- All five default to `0` and persist from PostgreSQL-backed `app_config`.
+- Admin purchase price is intentionally unconfigured and displayed as unavailable; no fallback to Pro or another model.
+- Lite generation uses `configured sale credits/second × billing duration`; smart duration (`-1`) pre-deducts 30 seconds.
+- Zero/missing Lite price throws `MODEL_PRICING_UNAVAILABLE` (HTTP 422) before charging or calling upstream.
+- Vega Pro remains fail-closed behind its existing pricing-unavailable guard.
 
 ## Changed files
 
 ```text
-platform.create.parts/part-04.js
-server.parts/part-26.js
-server.parts/part-29.js
-tencent-vod-vega.js
-test/tencent-vod-vega.test.js
+server.parts/part-01.js
+server.parts/part-02.js
+server.parts/part-11.js
+server.parts/part-38.js
+server.parts/part-39.js
+test/advanced-pricing.test.js
 CODEX_TASK_STATE.md
 ```
 
 ## Verification
 
-- `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js test/source-split.test.js`: 35 pass, 0 fail.
-- Syntax checks for all four changed runtime files and `git diff --check`: passed.
-- Full `npm test`: 610 pass, 21 fail. The same 21 failures occur at unchanged `HEAD` (608 pass, 21 fail); no new failure was introduced.
-- The full-suite failures are pre-existing unrelated UI/docs/payment/creator assertions, not Vega behavior.
+- `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/tencent-vod-vega.test.js test/source-split.test.js`: 48 pass, 0 fail.
+- `node --check server.js`, `node --check tencent-vod-vega.js`, and `git diff --check`: passed.
+- Pricing tests cover row presence/save mappings, zero-safe defaults/persistence, runtime rate calculation, zero-price fail-closed behavior, and Pro fail-closed behavior.
 
-## Deployment
+## Prior completed work in this task
 
-- `old-site`: `eb873be` (`Fix Vega draft mode detection`), pushed to origin.
-- `platform-release`: `e576a05`, built from `eb873be`; remote snapshot advanced with lease protection.
-- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; release boundary audit passed and service restarted.
-- Production `https://123vips.com/api/health`: 200 `{"ok":true}`.
-- Production `platform.create.parts/part-04.js` contains the restored-draft guard; production `tencent-vod-vega.js` contains the draft stale-media sanitization.
-- Live release was not deployed.
-- Deployment commands only:
+- Fixed Vega 1.5 Pro/Lite being incorrectly treated as Draft to Final from stale template/record parameters.
+- That fix was committed as `eb873be`, release snapshot `e576a05`, and deployed to `123vips.com`.
+
+## Deployment rule
+
+- Commit this phase to `old-site`, then:
   - `python3 scripts/build_release_snapshot.py --source old-site`
   - `scripts/deploy_local.sh --site old`
-- Do not deploy integration branch directly. Do not deploy Live.
+- Never deploy `old-site` directly. Do not deploy Live for this task.
+- Do not print or commit `LOCAL_CREDENTIALS.md`.
 - Business/runtime data remains PostgreSQL-only.

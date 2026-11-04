@@ -645,6 +645,43 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "h3-vega") {
+    const duration = normalizeVegaDuration(normalizedProvider, options.duration ?? options.durationSeconds);
+    const adaptiveDuration = duration === -1;
+    const billingDuration = adaptiveDuration ? 30 : duration;
+    const resolution = normalizeVegaResolution(options.resolution || "1080P", normalizedProvider).toLowerCase();
+    const ratio = normalizeVegaRatio(options.ratio || options.aspect_ratio || "16:9", normalizedProvider);
+    const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+    const creditsPerSecond = pricingNumber(advancedPricing.h3VegaCreditsPerSecondByResolution?.[resolution], 0, 0, 6);
+    if (!(creditsPerSecond > 0)) {
+      const error = advancedValidationError(
+        "MODEL_PRICING_UNAVAILABLE",
+        `Vega 1.5 Lite ${resolution.toUpperCase()} pricing is not configured. Generation was not started.`,
+        { resolution },
+      );
+      error.statusCode = 422;
+      throw error;
+    }
+    const credits = creditsAmount(billingDuration * creditsPerSecond);
+    return {
+      provider: normalizedProvider,
+      providerLabel: "Vega 1.5 Lite",
+      model: "wand-vega-video / 1.5-lite",
+      duration,
+      requestedDuration: duration,
+      billingDuration,
+      adaptiveDuration,
+      resolution,
+      ratio,
+      creditsPerSecond,
+      outputCredits: credits,
+      inputVideoCredits: 0,
+      baseCredits: credits,
+      credits,
+      markup: 1,
+      source: "configured_h3_vega_output_duration_rate",
+    };
+  }
   if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   if (normalizedProvider === "papaya") return papayaPricingEstimate(advancedPricing, options);

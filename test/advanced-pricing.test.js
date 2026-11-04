@@ -52,6 +52,42 @@ test("admin pricing keeps current models and omits early Wan models", () => {
   assert.match(pricingRowsSource, /model: "happyhorse"/);
 });
 
+test("Vega 1.5 Lite has editable per-resolution pricing rows", () => {
+  const pricingRowsSource = server.slice(
+    server.indexOf("const ADVANCED_PRICING_ROWS = ["),
+    server.indexOf("const ADVANCED_PRICING_ROW_KEYS"),
+  );
+  for (const resolution of ["480p", "720p", "1080p", "2k", "4k"]) {
+    assert.match(pricingRowsSource, new RegExp(`key: "h3-vega-${resolution}"[^\\n]*provider: "h3-vega"[^\\n]*providerLabel: "Vega 1\\.5 Lite"[^\\n]*resolution: "${resolution}"`));
+    assert.match(server, new RegExp(`key === "h3-vega-${resolution}"\\) next\\.h3VegaCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
+  }
+  assert.match(server, /h3VegaCreditsPerSecondByResolution: \{\s*"480p": 0,\s*"720p": 0,\s*"1080p": 0,\s*"2k": 0,\s*"4k": 0,?\s*\}/);
+  assert.match(server, /"480p": normalizeStoredCredits\(h3Vega\["480p"\], 0, 6\)/);
+  assert.match(server, /"720p": normalizeStoredCredits\(h3Vega\["720p"\], 0, 6\)/);
+  assert.match(server, /"1080p": normalizeStoredCredits\(h3Vega\["1080p"\], 0, 6\)/);
+  assert.match(server, /"2k": normalizeStoredCredits\(h3Vega\["2k"\], 0, 6\)/);
+  assert.match(server, /"4k": normalizeStoredCredits\(h3Vega\["4k"\], 0, 6\)/);
+});
+
+test("Vega 1.5 Lite billing uses the configured output-second price and fails closed at zero", () => {
+  const pricingSource = server.slice(
+    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function seedream5ImagePricingEstimate("),
+  );
+  assert.match(pricingSource, /normalizedProvider === "h3-vega"/);
+  assert.match(pricingSource, /normalizeVegaDuration\(normalizedProvider, options\.duration \?\? options\.durationSeconds\)/);
+  assert.match(pricingSource, /advancedPricing\.h3VegaCreditsPerSecondByResolution\?\.\[resolution\]/);
+  assert.match(pricingSource, /const billingDuration = adaptiveDuration \? 30 : duration/);
+  assert.match(pricingSource, /if \(!\(creditsPerSecond > 0\)\)/);
+  assert.match(pricingSource, /MODEL_PRICING_UNAVAILABLE/);
+  assert.match(pricingSource, /const credits = creditsAmount\(billingDuration \* creditsPerSecond\)/);
+  assert.match(server, /normalizedProvider === "h3-vega"\s*\?\s*normalized\.h3VegaCreditsPerSecondByResolution/);
+  assert.ok(
+    pricingSource.indexOf('normalizedProvider === "h3-vega"')
+      < pricingSource.indexOf("if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);"),
+  );
+});
+
 test("admin pricing filters retired rows while preserving internal compatibility", () => {
   assert.match(server, /ADMIN_HIDDEN_PRICING_PROVIDERS = new Set\(\["wan27", "wan27-image"\]\)/);
   assert.match(server, /ADMIN_HIDDEN_PRICING_CAPABILITIES = new Set\(\["wan-animate-move", "wan-animate-mix"\]\)/);

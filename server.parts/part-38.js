@@ -1216,6 +1216,11 @@ async function handleAdminSaveUndressPrompts(req, res) {
 const ADVANCED_PRICING_ROWS = [
   { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
   { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
+  { key: "h3-vega-480p", provider: "h3-vega", providerLabel: "Vega 1.5 Lite", model: "wand-vega-video / 1.5-lite", resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "Per output second" },
+  { key: "h3-vega-720p", provider: "h3-vega", providerLabel: "Vega 1.5 Lite", model: "wand-vega-video / 1.5-lite", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "Per output second" },
+  { key: "h3-vega-1080p", provider: "h3-vega", providerLabel: "Vega 1.5 Lite", model: "wand-vega-video / 1.5-lite", resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "Per output second" },
+  { key: "h3-vega-2k", provider: "h3-vega", providerLabel: "Vega 1.5 Lite", model: "wand-vega-video / 1.5-lite", resolution: "2k", rateKind: "output", unit: "output_second", usageLabel: "Per output second" },
+  { key: "h3-vega-4k", provider: "h3-vega", providerLabel: "Vega 1.5 Lite", model: "wand-vega-video / 1.5-lite", resolution: "4k", rateKind: "output", unit: "output_second", usageLabel: "Per output second" },
   { key: "seedance-nsfw-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
   { key: "seedance-nsfw-720p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
   { key: "seedance-nsfw-video-input-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: `${SEEDANCE25_DIRECT_LABEL} + Video`, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "video_input", unit: "combined_second", usageLabel: "Input + output video seconds" },

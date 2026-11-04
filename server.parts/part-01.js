@@ -945,6 +945,13 @@ const DEFAULT_ADVANCED_PRICING = {
     "480p": seedance25PurchaseSiteCreditsPerSecond("480p"),
     "720p": seedance25PurchaseSiteCreditsPerSecond("720p"),
   },
+  h3VegaCreditsPerSecondByResolution: {
+    "480p": 0,
+    "720p": 0,
+    "1080p": 0,
+    "2k": 0,
+    "4k": 0,
+  },
   seedanceNsfwCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p"),

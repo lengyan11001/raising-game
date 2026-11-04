@@ -758,6 +758,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const seedance25 = source.seedance25CreditsPerSecondByResolution && typeof source.seedance25CreditsPerSecondByResolution === "object"
     ? source.seedance25CreditsPerSecondByResolution
     : {};
+  const h3Vega = source.h3VegaCreditsPerSecondByResolution && typeof source.h3VegaCreditsPerSecondByResolution === "object"
+    ? source.h3VegaCreditsPerSecondByResolution
+    : {};
   const seedanceNsfw = source.seedanceNsfwCreditsPerSecondByResolution && typeof source.seedanceNsfwCreditsPerSecondByResolution === "object"
     ? source.seedanceNsfwCreditsPerSecondByResolution
     : {};
@@ -978,6 +981,13 @@ function normalizeAdvancedPricing(pricing = {}) {
       "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"], "480p"),
       "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"], "720p"),
     },
+    h3VegaCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(h3Vega["480p"], 0, 6),
+      "720p": normalizeStoredCredits(h3Vega["720p"], 0, 6),
+      "1080p": normalizeStoredCredits(h3Vega["1080p"], 0, 6),
+      "2k": normalizeStoredCredits(h3Vega["2k"], 0, 6),
+      "4k": normalizeStoredCredits(h3Vega["4k"], 0, 6),
+    },
     seedanceNsfwCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceNsfw["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(seedanceNsfw["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["720p"], 6),
@@ -1138,6 +1148,7 @@ function publicAdvancedPricingView(pricing = {}) {
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
     creditsPerCny: normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY,
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
+    h3VegaCreditsPerSecondByResolution: { ...normalized.h3VegaCreditsPerSecondByResolution },
     seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
     seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
     seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },
