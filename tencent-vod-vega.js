@@ -27,6 +27,16 @@ const VEGA_PROVIDER_IDS = Object.freeze(Object.keys(VEGA_PROVIDERS));
 const VEGA_USAGES = Object.freeze(new Set(["FirstFrame", "LastFrame", "Reference"]));
 const VEGA_RESOLUTIONS = Object.freeze(["768P", "1080P", "2K", "4K"]);
 const VEGA_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]);
+const VEGA_MEDIA_MODES = Object.freeze({
+  reference_video: Object.freeze({
+    id: "reference_video",
+    label: "Multimodal References",
+  }),
+  first_last_frame: Object.freeze({
+    id: "first_last_frame",
+    label: "First + Last Frame",
+  }),
+});
 
 function isVegaProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
@@ -52,6 +62,66 @@ function vegaPricingUnavailableError(provider = "") {
 function assertVegaPricingConfigured(provider = "", pricing = null) {
   if (!pricing || !(Number(pricing.credits) > 0)) throw vegaPricingUnavailableError(provider);
   return pricing;
+}
+
+function normalizeVegaMediaMode(value = "", input = {}) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["first_last_frame", "first_last", "first_and_last", "start_end", "image_to_video", "i2v", "first_frame", "last_frame"].includes(normalized)) {
+    return "first_last_frame";
+  }
+  if (["reference_video", "multimodal", "multi_modal", "references", "reference", "reference_images", "multi_reference", "omni", "omini"].includes(normalized)) {
+    return "reference_video";
+  }
+  const hasFrames = Boolean(String(input.firstFrameUrl || "").trim() || String(input.lastFrameUrl || "").trim());
+  const hasReferences = ["referenceImages", "referenceVideos", "referenceAudios"].some((key) => Array.isArray(input[key]) && input[key].length > 0);
+  if (hasFrames && !hasReferences) return "first_last_frame";
+  return "reference_video";
+}
+
+function vegaMediaSelection(input = {}) {
+  const mode = normalizeVegaMediaMode(input.mediaMode || input.seedanceMode || input.functionMode, input);
+  const firstFrameUrl = String(input.firstFrameUrl || "").trim();
+  const lastFrameUrl = String(input.lastFrameUrl || "").trim();
+  const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages.filter(Boolean) : [];
+  const referenceVideos = Array.isArray(input.referenceVideos) ? input.referenceVideos.filter(Boolean) : [];
+  const referenceAudios = Array.isArray(input.referenceAudios) ? input.referenceAudios.filter(Boolean) : [];
+  const hasReferences = referenceImages.length + referenceVideos.length + referenceAudios.length > 0;
+  const hasFrames = Boolean(firstFrameUrl || lastFrameUrl);
+  if (mode === "first_last_frame") {
+    if (hasReferences) {
+      throw Object.assign(new Error("First + Last Frame cannot be combined with reference images, videos, or audio."), {
+        statusCode: 400,
+        code: "INVALID_MEDIA_COMBINATION",
+      });
+    }
+    if (!firstFrameUrl || !lastFrameUrl) {
+      throw Object.assign(new Error("First + Last Frame requires both a first frame and a last frame."), {
+        statusCode: 400,
+        code: "INVALID_MEDIA_COMBINATION",
+      });
+    }
+  } else {
+    if (hasFrames) {
+      throw Object.assign(new Error("Multimodal References cannot be combined with first frame or last frame images."), {
+        statusCode: 400,
+        code: "INVALID_MEDIA_COMBINATION",
+      });
+    }
+    if (!hasReferences) {
+      throw Object.assign(new Error("Multimodal References requires at least one reference image, video, or audio."), {
+        statusCode: 400,
+        code: "INVALID_MEDIA_COMBINATION",
+      });
+    }
+  }
+  return {
+    mode,
+    firstFrameUrl,
+    lastFrameUrl,
+    referenceImages,
+    referenceVideos,
+    referenceAudios,
+  };
 }
 
 function normalizeVegaUsage(value = "") {
@@ -121,6 +191,7 @@ function publicVegaUrl(value = "", label = "media") {
 }
 
 function buildVegaFileInfos(input = {}) {
+  const media = vegaMediaSelection(input);
   const files = [];
   const seen = new Set();
   const add = (category, url, usage, label) => {
@@ -132,17 +203,20 @@ function buildVegaFileInfos(input = {}) {
     seen.add(key);
     files.push({ Type: "Url", Category: category, Url: publicUrl, Usage: usage });
   };
-  add("Image", input.firstFrameUrl, "FirstFrame", "First frame image");
-  add("Image", input.lastFrameUrl, "LastFrame", "Last frame image");
-  (Array.isArray(input.referenceImages) ? input.referenceImages : []).forEach((url, index) => {
-    add("Image", url, "Reference", `Reference image ${index + 1}`);
-  });
-  (Array.isArray(input.referenceVideos) ? input.referenceVideos : []).forEach((url, index) => {
-    add("Video", url, "Reference", `Reference video ${index + 1}`);
-  });
-  (Array.isArray(input.referenceAudios) ? input.referenceAudios : []).forEach((url, index) => {
-    add("Audio", url, "Reference", `Reference audio ${index + 1}`);
-  });
+  if (media.mode === "first_last_frame") {
+    add("Image", media.firstFrameUrl, "FirstFrame", "First frame image");
+    add("Image", media.lastFrameUrl, "LastFrame", "Last frame image");
+  } else {
+    media.referenceImages.forEach((url, index) => {
+      add("Image", url, "Reference", `Reference image ${index + 1}`);
+    });
+    media.referenceVideos.forEach((url, index) => {
+      add("Video", url, "Reference", `Reference video ${index + 1}`);
+    });
+    media.referenceAudios.forEach((url, index) => {
+      add("Audio", url, "Reference", `Reference audio ${index + 1}`);
+    });
+  }
   return files;
 }
 
@@ -193,11 +267,8 @@ function buildVegaCreatePayload(input = {}, { subAppId } = {}) {
   if (!String(input.prompt || "").trim()) {
     throw Object.assign(new Error("Prompt is required."), { statusCode: 400, code: "PROMPT_REQUIRED" });
   }
-  const fileInfos = buildVegaFileInfos(input);
-  const hasLastFrame = fileInfos.some((item) => item.Usage === "LastFrame");
-  if (hasLastFrame && !fileInfos.some((item) => item.Usage === "FirstFrame")) {
-    throw Object.assign(new Error("A last frame requires a first frame."), { statusCode: 400, code: "INVALID_MEDIA_COMBINATION" });
-  }
+  const media = vegaMediaSelection(input);
+  const fileInfos = buildVegaFileInfos({ ...input, mediaMode: media.mode });
   return {
     SubAppId: Number(subAppId),
     ModelName: provider.modelName,
@@ -334,6 +405,7 @@ module.exports = {
   VEGA_MODEL_NAME,
   VEGA_PROVIDERS,
   VEGA_PROVIDER_IDS,
+  VEGA_MEDIA_MODES,
   VEGA_RATIOS,
   VEGA_RESOLUTIONS,
   assertVegaPricingConfigured,
@@ -342,6 +414,7 @@ module.exports = {
   callTencentVod,
   isVegaProvider,
   normalizeVegaDuration,
+  normalizeVegaMediaMode,
   normalizeVegaRatio,
   normalizeVegaResolution,
   normalizeVegaStatus,
@@ -356,4 +429,5 @@ module.exports = {
   vegaProviderLabel,
   vegaTaskDetail,
   vegaTaskFailureMessage,
+  vegaMediaSelection,
 };

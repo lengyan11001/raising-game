@@ -1003,11 +1003,13 @@ els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   const provider = currentAdvancedProvider();
   if (["seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider)) {
+    syncAdvancedSeedanceModeOptions(provider);
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
     if (els.advancedRatio) els.advancedRatio.value = "16:9";
     if (els.advancedResolution) els.advancedResolution.value = "768P";
     if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : "5";
     if (els.advancedWanSeed) els.advancedWanSeed.value = "";
-    state.advancedAssetTarget = "primary";
+    state.advancedAssetTarget = "referenceImages";
   }
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());
@@ -1099,6 +1101,26 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
         : seedanceMode === "omini" ? "1:1" : "adaptive";
     }
   }
+  if (isVegaAdvancedProvider(provider)) {
+    const previousPromptRefs = advancedPromptMentionSnapshot();
+    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+      state.advancedReferenceImages = [];
+      setAdvancedSeedanceVideoReferences([]);
+      setAdvancedSeedanceAudioReferences([]);
+      state.advancedUploadDataUrl = "";
+    } else {
+      state.advancedSeedanceFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameDataUrl = "";
+      state.advancedSeedanceLastFrameAssetId = "";
+      state.advancedSeedanceLastFrameDataUrl = "";
+      state.advancedFirstFrameAssetId = "";
+      state.advancedUploadDataUrl = state.advancedReferenceImages?.[0]?.dataUrl || state.advancedReferenceImages?.[0]?.url || "";
+    }
+    if (els.advancedImage) els.advancedImage.value = "";
+    if (els.advancedSeedanceFirstFrame) els.advancedSeedanceFirstFrame.value = "";
+    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+    syncAdvancedPromptMentionLabels(previousPromptRefs);
+  }
   state.advancedAssetTarget = seedanceModeNeedsFirstFrame(seedanceMode)
     ? "primary"
     : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
@@ -1133,8 +1155,9 @@ els.advancedUploadBox?.addEventListener("click", () => {
   const aliyunSharedTarget = ["wan30", "wan27", "happyhorse"].includes(provider)
     ? (advancedAssetTargetItems().find((target) => target.type === "image")?.id || advancedAssetTargetItems()[0]?.id || "primary")
     : "";
+  const vegaTargets = advancedAssetTargetItems();
   setAdvancedAssetTarget(["seedance20-vega", "seedance25-vega", "h3-vega"].includes(provider)
-    ? (advancedAssetTargetItems().some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : "primary")
+    ? (vegaTargets.some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : (vegaTargets[0]?.id || "referenceImages"))
     : provider === "wan27-image-edit"
     ? "sourceImages"
     : ["seedream5-image", "qwen-image3"].includes(provider)

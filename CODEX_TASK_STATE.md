@@ -4,112 +4,110 @@ This file is the durable handoff for this task. After any context compaction or 
 
 ## User's active request
 
-- Fix **123vips.com** Generate tab for the three Tencent VOD Vega models.
-- Selecting a Vega model and adding an asset from the library must work, including legacy assets that only have a local URL.
-- Audit all Vega multimodal controls: first frame, last frame, reference images, reference video, reference audio, local upload, preview, Add, submit, and regeneration.
-- Vega parameters must follow the Tencent VOD contract, not copied legacy Seedance/ByteDance parameters.
+- Solve the repeated context-compaction problem caused by agent reads of oversized source files.
+- Actually split large runtime sources into reasonable, independently readable parts.
+- Preserve existing uncommitted Vega work and verify the application still works normally.
+- Do not deploy unless explicitly requested. Never deploy `old-site` directly or touch `live-release`.
 
-| Provider ID | UI label | ModelName | ModelVersion |
-|---|---|---|---|
-| `seedance20-vega` | `Seedance 2.0（Vega）` | `wand-vega-video` | `1.0-pro` |
-| `seedance25-vega` | `Seedance 2.5（Vega）` | `wand-vega-video` | `1.5-pro` |
-| `h3-vega` | `H3（Vega）` | `wand-vega-video` | `1.5-lite` |
+## Context-compaction root cause
 
-## Root cause and decisions
+- `server.js`, `platform.ui.js`, and `platform.create.js` were single files of roughly 54.6k, 7.4k, and 6.8k lines.
+- Whole-file reads or broad searches over those files repeatedly consumed most of the model context and triggered compaction loops across sessions.
+- The fix is physical source splitting, not instructing the agent to read less.
 
-- Add failed for older library assets because they could have `localUrl` but no public HTTP(S) URL. Vega only accepts public HTTP(S) media URLs.
-- Frontend now resolves Vega asset IDs through `/api/user-assets/resolve` before Add and again before submit.
-- Backend now forces the public mirror for Vega uploads and Vega asset resolution. Object-storage failure returns HTTP 502 `VEGA_ASSET_PUBLIC_URL_UNAVAILABLE`; there is no local-relative-URL fallback.
-- New Vega uploads return the backend `publicUrl`/`cdnUrl` immediately.
-- First-frame and last-frame state are refreshed from resolved assets before the final payload is built.
-- Local upload handlers capture the selected target before upload so an async refresh cannot redirect the asset into another target.
-- Vega Add never overrides the user's explicitly selected target.
-- `applyAdvancedCreateMode({ syncForm: false })` prevents model-control refreshes from resetting the selected Vega provider.
-- New `platform.vega-media.js` is the single source of truth for target/media-kind/public-URL rules.
+## Split architecture
 
-## Vega contract
-
-- Payload fields: `ModelName`, `ModelVersion`, `Prompt`, `FileInfos[]`, `OutputConfig`, optional `Seed`, `EnhancePromptMode: "disable"`.
-- `FileInfos[].Usage`: `FirstFrame` / `LastFrame` / `Reference`.
-- `FileInfos[].Category`: `Image` / `Video` / `Audio`.
-- Duration: 1-15 seconds.
-- Resolution: `768P` / `1080P` / `2K` / `4K`.
-- Aspect ratio: `21:9` / `16:9` / `4:3` / `1:1` / `3:4` / `9:16`.
-- Never send legacy `ReferenceType`.
-- Vega pricing is not supplied. Fail closed with HTTP 422 `MODEL_PRICING_UNAVAILABLE`; no upstream call and no deduction.
-
-## Non-negotiable rules
-
-- Preserve exact Vega provider IDs end to end: records, params, estimate/submit, polling, regeneration, public responses.
-- Never reuse existing Seedance/H3 pricing.
-- Vega `FileInfos` must use `Usage` and must never send legacy `ReferenceType`.
-- Create task ID is `Response.TaskId`; query payload is `Response.AigcVideoTask`.
-- Success status is `FINISH`; outputs are `AigcVideoTask.Output.FileInfos[]`.
-- Choose the output with empty/absent `UsageType`, never `last_frame_url`.
-- Preserve raw create/query responses in generation records.
-- Tencent credentials must stay out of Git.
-- Business/runtime data must use PostgreSQL via `DATABASE_URL`; no JSON/static fallbacks.
-- Deploy `123vips.com` only, via `scripts/deploy_local.sh --site old`, from a committed `old-site` release snapshot. Never deploy `old-site` directly. Do not deploy `live-release`.
-
-## Env vars
-
-- `TENCENTCLOUD_SECRET_ID`
-- `TENCENTCLOUD_SECRET_KEY`
-- `TENCENT_VOD_SUB_APP_ID`
-
-## Changed files
+### Backend
 
 ```text
-platform.config.js
-platform.create.js
-platform.js
-platform.main.js
-platform.ui.js
+server.parts/part-01.js ... part-43.js
+server-source.js
 server.js
-platform.vega-media.js
-test/tencent-vod-vega.test.js
-CODEX_TASK_STATE.md
 ```
+
+- Largest backend part: 1,472 lines (43 parts; average about 1,270 lines).
+- `server-source.js` reads ordered parts and exports `partFiles`, `readServerSource()`, and `source`.
+- `server.js` is a 23-line VM wrapper that compiles the concatenated source in one CommonJS-like scope.
+- Runtime semantics preserved: `require.main === module`, `module.exports`, `__dirname`, relative requires, execution order, and bootstrap behavior.
+- Without `DATABASE_URL`, startup still fails clearly with the PostgreSQL-required error.
+
+### Frontend
+
+```text
+platform.ui.parts/part-01.js ... part-07.js
+platform.create.parts/part-01.js ... part-06.js
+platform.ui.js
+platform.create.js
+```
+
+- `platform.ui.js` and `platform.create.js` are compatibility loaders for direct callers.
+- `platform.js` loads the UI/create parts directly in dependency order.
+- Frontend parts retain the original shared global script scope and order.
+
+## Static/runtime safety
+
+- All frontend part files are included in `PLATFORM_ASSET_FILES`, so cache versions change with their content.
+- `/server-source.js`, `/server.parts/`, tests, scripts, and other private paths return 404.
+- Frontend parts remain publicly servable because the browser loads them.
+- Release snapshots and sync include the new part directories; live release remains isolated.
+
+## Test compatibility
+
+- `test/source-compat.js` is preloaded by `npm test`.
+- It maps legacy test reads of `server.js`, `platform.ui.js`, and `platform.create.js` to concatenated ordered part sources.
+- `test/source-split.test.js` enforces:
+  - wrappers stay below 100 lines;
+  - part names are contiguous and ordered;
+  - parts are nonempty;
+  - no part exceeds 1,475 lines.
+- This avoids editing dozens of tests while keeping their original whole-source assertions running against the real concatenated source.
+
+## Build/deploy/sync updates
+
+Updated to include split files:
+
+- `scripts/build_release_snapshot.py`
+- `scripts/deploy_site.py`
+- `scripts/sync_old_to_new2.py`
+
+Patterns include:
+
+```text
+server-source.js
+server.parts/**
+platform.ui.parts/**
+platform.create.parts/**
+```
+
+Live-only ownership remains unchanged.
 
 ## Verification
 
-- Focused Vega + advanced custom UI: **62 pass, 0 fail**
-  - `node --test test/tencent-vod-vega.test.js test/advanced-custom-ui.test.js`
-- Full suite: **605 pass, 15 fail**
-  - `npm test`
-  - All 15 failures are pre-existing branch/baseline failures; none are Vega-specific.
-  - Log: `/tmp/raising-game-test.log`
-- Syntax checks passed for `server.js`, `platform.main.js`, `test/tencent-vod-vega.test.js`, and `test/advanced-custom-ui.test.js`.
-- `git diff --check` passed.
-- Browser automation is unavailable in this repository, so coverage is source-level regression plus the existing helper tests. Do not ask the user to manually test each control.
+- All backend/frontend parts and wrappers pass `node --check`.
+- `require("./server-source")` loads 43 ordered backend parts.
+- `require("./server")` loads successfully and exposes 43 `__sourceParts`.
+- `node server.js` reaches normal bootstrap and fails clearly because local `DATABASE_URL` is absent.
+- `python3 -m py_compile` passes for the three changed Python scripts.
+- Focused split/deploy tests: **8 pass, 0 fail**
+  - `node --require ./test/source-compat.js --test test/source-split.test.js test/deploy-targets.test.js`
+- Full suite after splitting: **621 tests, 600 pass, 21 fail**.
+- Baseline before splitting: **620 tests, 599 pass, 21 fail**.
+- The same 21 failures exist before and after splitting; they are pre-existing Vega/control failures, not split regressions.
+- `git diff --check` passes.
+- Static classification smoke passed: frontend parts public, backend parts and `server-source.js` private, asset version includes all frontend parts.
+- Full HTTP static smoke is blocked locally because serving platform HTML requires PostgreSQL; the database rule must not be bypassed.
 
-## Critical code locations
+## Preservation of prior Vega work
 
-- `server.js:32385` `handleAdvancedVegaGenerate`
-- `server.js:24537` `ensureVegaPublicUrlForUserAsset`
-- `server.js:26780` `refreshVegaGenerationRecord`
-- `server.js:36906` `advancedRegenerateBody`
-- `server.js:37689` Vega API docs
-- `platform.create.js:159` Vega asset resolution helpers
-- `platform.create.js:2442` Vega submission branch
-- `platform.create.js:3548` Vega local uploads
-- `platform.vega-media.js` target/media validation helper
-- `tencent-vod-vega.js` TC3/client/payload helpers
+- Existing uncommitted Vega changes remain in `platform.main.js` and `tencent-vod-vega.js`, plus the split create parts.
+- No Vega feature work was resumed in this pass.
 
 ## Deployment status
 
-- Vega asset/control fix committed as `old-site` `7f35719`.
-- Platform release snapshot: `platform-release` `e146d71`, built from `7f35719`.
-- Deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`.
-- Live was not modified: `live-release` remains `6642e17`.
-- Production smoke passed:
-  - `https://123vips.com/api/health` -> `{"ok":true}`
-  - `platform.vega-media.js` -> HTTP 200
-  - `platform.js` loads `platform.vega-media.js`
-  - All three Vega labels are present
-  - Vega asset resolution, Add binding, target controls, and public-URL guard are present in the deployed assets
-- Deployment verified release boundary and service health.
+- No deployment performed for the source split.
+- `live-release` was not modified.
+- Previously deployed Vega fix remains recorded in Git history, but this split is not deployed yet.
 
-## Next steps
+## Next step
 
-- None for this fix. Use targeted source tests for future regressions; do not ask the user to manually test each control.
+- Commit the verified source split on `old-site` when requested, then optionally build `platform-release` from that committed integration state.

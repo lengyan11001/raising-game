@@ -32,11 +32,13 @@ SHARED_APP_FILES = (
     "platform.config.js",
     "platform.copy.js",
     "platform.ui.js",
+    "platform.ui.parts/*.js",
     "platform.workflow-canvases.js",
     "platform.telegram.js",
     "platform.google.js",
     "platform.explore.js",
     "platform.create.js",
+    "platform.create.parts/*.js",
     "platform.main.js",
     "platform.video-tools.js",
     "platform.undress-tool.js",
@@ -68,6 +70,8 @@ SHARED_APP_FILES = (
     "telegram-bot.js",
     "undress-prompts.js",
     "server.js",
+    "server-source.js",
+    "server.parts/*.js",
     "seedance25.js",
     "seedance25-direct.js",
     "video-tools.js",
@@ -111,8 +115,16 @@ def normalized_root(value: str | None, fallback: Path) -> Path:
     return Path(value).resolve() if value else fallback.resolve()
 
 
-def selected_files(args: argparse.Namespace) -> list[str]:
+def selected_files(args: argparse.Namespace, old_root: Path) -> list[str]:
     files = list(SHARED_APP_FILES) + list(SHARED_TOOLING_FILES)
+    expanded: list[str] = []
+    for item in files:
+        if any(character in item for character in "*?["):
+            matches = sorted(path.relative_to(old_root).as_posix() for path in old_root.glob(item) if path.is_file())
+            expanded.extend(matches)
+        else:
+            expanded.append(item)
+    files = expanded
     if args.only:
         wanted = {item.strip().replace("\\", "/") for item in args.only.split(",") if item.strip()}
         files = [item for item in files if item.replace("\\", "/") in wanted]
@@ -146,7 +158,7 @@ def main() -> int:
 
     changed: list[str] = []
     missing: list[str] = []
-    files = selected_files(args)
+    files = selected_files(args, old_root)
     for relative in files:
         source = old_root / relative
         target = new2_root / relative
