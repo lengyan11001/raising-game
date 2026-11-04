@@ -40,7 +40,7 @@ This file is the durable handoff for this task. After any context compaction or 
 - Backend, frontend, upload flow, generation/polling/refund/regeneration, API docs, and focused tests are complete.
 - Modified: `AGENTS.md`, `lib-providers.js`, `platform.create.js`, `platform.html`, `platform.main.js`, `platform.ui.js`, `server.js`.
 - Added: `.codex/config.toml`, `CODEX_TASK_STATE.md`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`.
-- Current state: uncommitted and not deployed.
+- Current state: committed as `c27caff` (`Add Tencent VOD Vega video models`); deployment pending.
 - Deployment target: `123vips.com` only, through `scripts/deploy_local.sh --site old` after building from committed `old-site`.
 
 ## Test status
@@ -78,4 +78,5 @@ This file is the durable handoff for this task. After any context compaction or 
 
 - 2026-11-04: Implemented the Vega helper module and provider normalization.
 - 2026-11-04: Completed exact model IDs/labels, TC3 signing, URL safety, validation, pricing fail-closed, charging/refunds, polling, regeneration, raw upstream storage, UI controls/uploads, and public docs.
-- 2026-11-04: Focused regressions pass as recorded above. Next step: commit, build release snapshot, deploy old site, smoke test, and update this status.
+- 2026-11-04: Focused regressions pass as recorded above.
+- 2026-11-04: Committed as `c27caff` (`Add Tencent VOD Vega video models`). Next step: build release snapshot, deploy old site, smoke test, and update this status.
