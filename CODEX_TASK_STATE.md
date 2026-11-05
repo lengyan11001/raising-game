@@ -600,4 +600,5 @@ CODEX_TASK_STATE.md
 - Cross-page polish: case library toolbar/cards and asset toolbar now share the same radius, height, spacing, and low-contrast surfaces. Mobile-only tag truncation was added; mobile layout remains two columns.
 - Previewed via CDP against production with local CSS injected at 1440x1000 and 390x844. Screenshots: `/tmp/raising-perf-shots/ours-visual-refined.png`, `visual-tab-cases.png`, `visual-tab-advanced.png`, `visual-tab-history.png`, `visual-mobile-gallery.png`.
 - Verification: syntax and `git diff --check` pass; targeted suite 76/82. The same 6 failures reproduce on HEAD without this change (`test/advanced-custom-ui.test.js`, pre-existing Vega/Wan pricing assertions).
-- Pending: commit, build `platform-release`, deploy only `123vips.com`, then verify production CSS/visuals.
+- Release: `old-site` `e634055`; `platform-release` `ae53a85` built from it and pushed with lease protection. Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; Live was not deployed.
+- Production verification: `/api/health` is `200 {"ok":true}`; production `platform.css` SHA-256 exactly matches `platform-release`; browser at 1440x1000 reports 216px rail, 240px content origin, 44px search, 12px grid gap, and 12px card radius. Cases/Advanced/History render without new console errors; mobile gallery remains two columns.
