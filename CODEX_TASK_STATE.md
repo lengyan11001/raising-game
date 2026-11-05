@@ -210,6 +210,7 @@ This file is the durable handoff for this task. After compaction, read this file
 - Added a regression test using the exact production prompt, 1080P/5-second settings, and two reference images; it asserts Prompt and two FileInfos are sent and `draft_task_id` is absent.
 - Verification: `test/tencent-vod-vega.test.js` 52 pass, 0 fail; advanced-pricing + source-split 21 pass, 0 fail; syntax checks and `git diff --check` pass.
 - No provider IDs, model versions, pricing, or media limits changed.
+- Deployment: `old-site` `ef866f7`; `platform-release` `7d7ee81`, built from `ef866f7`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`. Production `/api/health` returned `200 {"ok":true}` and the public Vega module contains the new dirty-ID normalization. Live was not deployed.
 
 ## Current live verification
 
