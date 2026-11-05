@@ -782,21 +782,17 @@ function updateAdvancedModelControls() {
     });
     if (!allowedTaskTypes.includes(els.advancedVegaTaskType.value)) els.advancedVegaTaskType.value = "auto";
   }
+  // The four Vega models expose only the first two rows of user-facing
+  // controls: model/mode/ratio and resolution/duration/audio. Keep the
+  // remaining controls as hidden inputs so their existing defaults continue
+  // to be submitted without expanding the public form.
   document.querySelectorAll(".advanced-vega-option").forEach((item) => {
-    item.hidden = !vegaProvider;
+    item.hidden = true;
   });
-  els.advancedVegaModerationMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.moderation === false);
-  els.advancedVegaReturnLastFrame?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.returnLastFrame === false);
   if (!vegaProvider || vegaCaps?.returnLastFrame === false) {
     if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = false;
   }
-  els.advancedVegaGenerateMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.generateMode === false);
-  els.advancedVegaQualityMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.qualityMode === false);
-  const vegaDraftOption = els.advancedVegaDraft?.closest(".advanced-vega-option");
-  if (vegaDraftOption) vegaDraftOption.hidden = !vegaProvider || !vegaCaps?.draft;
   if (!vegaCaps?.draft && els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
-  const vegaDraftTaskOption = els.advancedVegaDraftTaskId?.closest(".advanced-vega-option");
-  if (vegaDraftTaskOption) vegaDraftTaskOption.hidden = !vegaProvider || !vegaCaps?.draft || !vegaDraftFollowup;
   if (!vegaDraftFollowup && els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = "";
   if (vegaProvider && els.advancedSeedanceMediaMode) {
     els.advancedSeedanceMediaMode.closest(".field")?.removeAttribute("hidden");
@@ -870,8 +866,10 @@ function updateAdvancedModelControls() {
   if (!seedanceImagePreprocessAvailable && els.advancedPreprocessReference) {
     els.advancedPreprocessReference.checked = false;
   }
-  if (["seedance-nsfw", "qwen-image3"].includes(provider) || vegaProvider) {
+  if (["seedance-nsfw", "qwen-image3"].includes(provider)) {
     els.advancedWanSeed?.closest(".field")?.removeAttribute("hidden");
+  } else if (vegaProvider) {
+    els.advancedWanSeed?.closest(".field")?.setAttribute("hidden", "");
   }
   syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {

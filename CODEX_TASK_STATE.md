@@ -1,3 +1,10 @@
+## Vega user controls limited to first two rows (2026-11-05)
+
+- The four Vega models (`seedance20-vega`, `seedance25-vega`, `h3-vega`, `vega10-lite`) now expose only the first two control rows: model/mode/ratio and resolution/duration/audio.
+- All `.advanced-vega-option` controls and the random seed are hidden for Vega models. Existing hidden defaults still flow through `advancedVegaPayloadOptions()`.
+- Updated `platform.create.parts/part-02.js` and added a regression assertion in `test/tencent-vod-vega.test.js`.
+- Verification: targeted Vega/media/pricing suite 115 pass / 0 fail; syntax and `git diff --check` pass.
+
 ## Result tab download2 save hint (2026-11-05)
 
 - Extended the save hint bubble from the Advanced Result panel to the top-level Result/history cards and the history detail dialog.

@@ -967,6 +967,17 @@ test("Vega UI exposes the full capability matrix and duration controls", () => {
   assert.match(ui, /MODEL_PRICING_UNAVAILABLE/);
 });
 
+test("Vega models expose only the first two control rows and keep hidden defaults", () => {
+  const controls = sourceBetween(create, "function updateAdvancedModelControls()", "function triggerAdvancedLocalImageUpload(");
+  assert.match(controls, /document\.querySelectorAll\("\.advanced-vega-option"\)\.forEach\(\(item\) => \{\s*item\.hidden = true;\s*\}\);/);
+  assert.doesNotMatch(controls, /item\.hidden = !vegaProvider/);
+  assert.match(controls, /else if \(vegaProvider\) \{\s*els\.advancedWanSeed\?\.closest\("\.field"\)\?\.setAttribute\("hidden", ""\);\s*\}/);
+  const options = sourceBetween(create, "function advancedVegaPayloadOptions(", "function advancedVegaUploadConfig(");
+  for (const field of ["taskType", "generateAudio", "returnLastFrame", "returnVegaUsage", "enhancePromptMode", "moderationMode", "generateMode", "videoQualityMode", "outputFormat"]) {
+    assert.match(options, new RegExp(`\\b${field}\\b(?=\\s*[:,])`));
+  }
+});
+
 test("Vega submit payload includes every required field", () => {
   const branch = sourceBetween(create, "const vegaPayload = {", "const vegaPendingTaskId =");
   for (const field of ["provider", "duration", "resolution", "ratio", "seed", "mediaMode", "firstFrameUrl", "lastFrameUrl", "referenceImages", "referenceVideos", "referenceAudios"]) {
