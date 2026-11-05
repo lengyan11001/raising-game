@@ -131,7 +131,7 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /\.advanced-result-list \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: visible/);
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
-  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(create, /class="advanced-result-actions"/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
 });

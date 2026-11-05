@@ -1,8 +1,8 @@
-## Generate Result six-per-page and single-column compact controls (2026-11-05)
+## Generate Result six-per-page and compact controls (2026-11-05)
 
 - User corrected the previous implementation: parameters must remain single-column, not two columns; Result must show 6 records per page. The deployed version still had `ADVANCED_RESULT_PAGE_SIZE = 4`.
 - Set Result page size to 6 and updated pagination regressions for six-item first page and three-item second page out of nine records.
-- Restored the custom Create parameter fields to one column. Compression now comes only from smaller gaps, labels, control heights, prompt height, advanced-option spacing, and form padding.
+- Restored the custom Create parameter fields to the original three-column layout. Compression comes only from smaller gaps, labels, control heights, prompt height, advanced-option spacing, and form padding; do not reduce the column count.
 - Tightened Result card spacing/media height and added a short-viewport desktop rule so a six-card page is visible without reintroducing page-level scrolling.
 - Verification: targeted pagination/source tests 34 pass, 6 known pre-existing Wan/pricing failures remain in the full `advanced-custom-ui.test.js`; syntax and `git diff --check` pass.
 - Files: `platform.config.js`, `platform.css`, `test/advanced-result-order.test.js`, `test/advanced-custom-ui.test.js`, `CODEX_TASK_STATE.md`.
