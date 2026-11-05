@@ -34,6 +34,12 @@
 - Updated `platform.create.parts/part-02.js` and added a regression assertion in `test/tencent-vod-vega.test.js`.
 - Verification: targeted Vega/media/pricing suite 115 pass / 0 fail; syntax and `git diff --check` pass.
 
+## History download2 hint overlap fix (2026-11-05)
+
+- History card and history detail download2 hints now stay inside the button as a compact in-flow second row instead of floating above and covering adjacent actions.
+- Added History-specific CSS so the Advanced Result panel bubble treatment remains unchanged.
+- Verification: desktop and mobile browser render checks show `position: static`, the button expands to about 45px, the hint stays inside the viewport, and overlap with the Add asset button is zero. Targeted save-hint test passes; `git diff --check` passes.
+
 ## Result tab download2 save hint (2026-11-05)
 
 - Extended the save hint bubble from the Advanced Result panel to the top-level Result/history cards and the history detail dialog.

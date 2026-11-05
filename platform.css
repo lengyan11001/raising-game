@@ -8515,6 +8515,32 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
     transform: translateY(-50%) rotate(45deg);
   }
 }
+
+/* History actions keep the save hint in flow so it never covers adjacent buttons. */
+.history-r2-download,
+.history-detail-r2-download {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.history-r2-download .advanced-result-download-hint,
+.history-detail-r2-download .advanced-result-download-hint {
+  position: static;
+  order: 2;
+  flex: 1 0 100%;
+  width: auto;
+  max-width: none;
+  padding: 3px 6px;
+  transform: none;
+  border-radius: 5px;
+  box-shadow: none;
+  font-size: .62rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.history-r2-download .advanced-result-download-hint::after,
+.history-detail-r2-download .advanced-result-download-hint::after {
+  display: none;
+}
 .history-r2-download:hover:not(:disabled),
 .advanced-result-r2-download:hover:not(:disabled),
 .history-detail-r2-download:hover:not(:disabled) {
