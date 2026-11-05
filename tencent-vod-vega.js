@@ -6,6 +6,12 @@ const VEGA_MODEL_NAME = "wand-vega-video";
 const TENCENT_VOD_INTERNATIONAL_HOST = "vod.intl.tencentcloudapi.com";
 const TENCENT_VOD_INTERNATIONAL_REGION = "ap-singapore";
 const VEGA_PROVIDERS = Object.freeze({
+  "seedance20-vega": Object.freeze({
+    id: "seedance20-vega",
+    label: "Vega 1.0 Pro",
+    modelName: VEGA_MODEL_NAME,
+    modelVersion: "1.0-pro",
+  }),
   "seedance25-vega": Object.freeze({
     id: "seedance25-vega",
     label: "Vega 1.5 Pro",
@@ -40,7 +46,8 @@ const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:1
 const VEGA_COMMON_MODES = Object.freeze(["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video"]);
 const VEGA_15_PRO_LIMITS = Object.freeze({ images: 30, videos: 10, audios: 10, total: 50, videoSeconds: 0, audioSeconds: 30 });
 const VEGA_15_LITE_LIMITS = Object.freeze({ images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 });
-const VEGA_10_LITE_LIMITS = Object.freeze({ images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15, perFileMinSeconds: 2, perFileMaxSeconds: 15 });
+const VEGA_10_PRO_LIMITS = Object.freeze({ images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15 });
+const VEGA_10_LITE_LIMITS = Object.freeze({ ...VEGA_10_PRO_LIMITS, perFileMinSeconds: 2, perFileMaxSeconds: 15 });
 
 function capability(overrides = {}) {
   return Object.freeze({
@@ -65,6 +72,10 @@ function capability(overrides = {}) {
 }
 
 const VEGA_CAPABILITIES = Object.freeze({
+  "seedance20-vega": capability({
+    durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
+    limits: VEGA_10_PRO_LIMITS,
+  }),
   "seedance25-vega": capability({
     durationSeconds: Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
     taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]),

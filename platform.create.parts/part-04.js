@@ -1,6 +1,6 @@
 function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
-  if (isVegaProviderId(normalized) && normalized === "vega10-lite") {
+  if (isVegaProviderId(normalized) && ["seedance20-vega", "vega10-lite"].includes(normalized)) {
     return kind === "image"
       ? ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES
       : kind === "video"

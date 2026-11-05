@@ -733,6 +733,7 @@ function advancedGenerateConstraintsDoc() {
     },
     vega: {
       providers: [
+        { id: "seedance20-vega", label: "Vega 1.0 Pro", modelName: "wand-vega-video", modelVersion: "1.0-pro" },
         { id: "seedance25-vega", label: "Vega 1.5 Pro", modelName: "wand-vega-video", modelVersion: "1.5-pro" },
         { id: "h3-vega", label: "Vega 1.5 Lite", modelName: "wand-vega-video", modelVersion: "1.5-lite" },
         { id: "vega10-lite", label: "Vega 1.0 Lite", modelName: "wand-vega-video", modelVersion: "1.0-lite" },
@@ -740,7 +741,7 @@ function advancedGenerateConstraintsDoc() {
       route: "/api/advanced/generate",
       modes: ["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video", "draft_followup"],
       taskTypes: { "seedance25-vega": ["auto", "reference", "edit", "extend"], otherModels: ["auto", "reference"] },
-      durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance25-vega": 5, "h3-vega": 6, "vega10-lite": 5 }, perModel: { "seedance25-vega": "4-30 or -1", "h3-vega": "2-30 or -1", "vega10-lite": "4-15, no -1" } },
+      durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance20-vega": 5, "seedance25-vega": 5, "h3-vega": 6, "vega10-lite": 5 }, perModel: { "seedance20-vega": "4-15, no -1", "seedance25-vega": "4-30 or -1", "h3-vega": "2-30 or -1", "vega10-lite": "4-15, no -1" } },
       resolution: ["480P", "720P", "768P", "1080P", "2K", "4K"],
       ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
       fileInfoUsage: ["FirstFrame", "LastFrame", "Reference"],
@@ -850,6 +851,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "W3.0-VSR-Prime", provider: "wan30", capability: "w3.0-video-prime-pro", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Vega 1.0 Pro", provider: "seedance20-vega", model: "wand-vega-video / 1.0-pro", capability: "text / first frame / last frame / first_last_frame / multimodal references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.5 Pro", provider: "seedance25-vega", model: "wand-vega-video / 1.5-pro", capability: "text / frames / references / edit / extend / draft", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.5 Lite", provider: "h3-vega", model: "wand-vega-video / 1.5-lite", capability: "text / frames / references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.0 Lite", provider: "vega10-lite", model: "wand-vega-video / 1.0-lite", capability: "text / first frame / last frame / first_last_frame / multimodal references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
@@ -1050,6 +1052,19 @@ function externalAdvancedApiDoc(origin) {
         ratio: "21:9",
         resolution: "4K",
         duration: 6,
+      },
+    },
+    vega10ProExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "seedance20-vega",
+        prompt: "Create a polished cinematic shot.",
+        referenceImages: ["https://example.com/reference.png"],
+        ratio: "16:9",
+        resolution: "1080P",
+        duration: 5,
       },
     },
     vega10LiteExample: {

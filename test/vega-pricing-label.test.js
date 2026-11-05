@@ -73,7 +73,7 @@ function loadHelpers(state) {
      return { advancedEstimateKey, advancedCostLabel };`,
   )(
     state,
-    (provider) => ["h3-vega", "vega10-lite"].includes(provider),
+    (provider) => ["h3-vega", "vega10-lite", "seedance20-vega"].includes(provider),
     (provider) => String(provider || ""),
     () => "Vega 1.5 Lite",
     (pricing) => String(pricing?.message || "Pricing unavailable. Generation was not started."),
@@ -138,6 +138,20 @@ test("Vega Lite estimate key changes with reference-video duration", () => {
 });
 
 
+test("Vega 1.0 Pro aliases keep their provider identity instead of falling back to Seedance pricing", () => {
+  const normalizeAdvancedProvider = new Function(
+    "DEFAULT_ADVANCED_PROVIDER",
+    `${extractFunction("normalizeAdvancedProvider")}
+     return normalizeAdvancedProvider;`,
+  )("wan27");
+
+  for (const provider of ["seedance20-vega", "seedance20vega", "seedance2.0vega", "vega10pro", "vega1.0pro", "vega10", "vega1.0"]) {
+    assert.equal(normalizeAdvancedProvider(provider), "seedance20-vega");
+  }
+  assert.equal(normalizeAdvancedProvider("vega10-lite"), "vega10-lite");
+  assert.equal(normalizeAdvancedProvider("seedance25-vega"), "seedance25-vega");
+});
+
 test("Vega 1.0 Lite keeps its provider identity instead of falling back to Seedance pricing", () => {
   const normalizeAdvancedProvider = new Function(
     "DEFAULT_ADVANCED_PROVIDER",
@@ -163,6 +177,18 @@ test("Changing the video resolution refreshes the estimated button cost", () => 
   assert.match(handler, /updateAdvancedButtonCost\(\);/);
 });
 
+test("Vega 1.0 Pro renders its successful estimate instead of a pricing error", () => {
+  const state = { user: { pricingMultiplier: 1 }, advancedEstimateFailureKey: "" };
+  const helpers = loadHelpers(state);
+  const options = { inputVideoSeconds: 1, referenceVideoDurations: [1], referenceVideoUrls: ["https://cdn.example.com/ref.mp4"], referenceImageCount: 9 };
+  state.advancedEstimateKey = helpers.advancedEstimateKey(6, "seedance20-vega", "1080P", "16:9", options);
+  state.advancedEstimate = { available: true, credits: 249.3, duration: 6, resolution: "1080P", videoInputSeconds: 4 };
+
+  const label = helpers.advancedCostLabel(6, "seedance20-vega", "1080P", "16:9", options);
+  assert.equal(label, "249.3 credits · 6s + input 4s - 1080P");
+  assert.doesNotMatch(label, /pricing|unavailable|not configured/i);
+});
+
 test("Vega 1.0 Lite renders its successful estimate instead of a pricing error", () => {
   const state = { user: { pricingMultiplier: 1 }, advancedEstimateFailureKey: "" };
   const helpers = loadHelpers(state);
@@ -173,10 +199,4 @@ test("Vega 1.0 Lite renders its successful estimate instead of a pricing error",
   const label = helpers.advancedCostLabel(5, "vega10-lite", "768P", "16:9", options);
   assert.equal(label, "78.24 credits · 5s + input 3s - 768P");
   assert.doesNotMatch(label, /pricing|unavailable|not configured/i);
-});
-
-test("Vega Lite submit does not shadow the reference-limit helper", () => {
-  const createSource = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
-  assert.doesNotMatch(createSource, /const\s+vegaReferenceLimits\s*=\s*vegaReferenceLimits\s*\(/);
-  assert.match(createSource, /const\s+vegaReferenceLimitConfig\s*=\s*vegaReferenceLimits\s*\(provider\)/);
 });

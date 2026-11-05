@@ -140,6 +140,7 @@ function advancedPricingRowKey(row = {}) {
   if (provider === SEEDANCE25_DIRECT_PROVIDER && isVideoInput) return `seedance-nsfw-video-input-${resolution}`;
   if (provider === "h3-vega" && isVideoInput) return `h3-vega-video-input-${resolution}`;
   if (provider === "vega10-lite" && isVideoInput) return `vega10-lite-video-input-${resolution}`;
+  if (provider === "seedance20-vega" && isVideoInput) return `vega10-pro-video-${resolution}`;
   if (provider === "vega10-lite" && (rateKindRaw === "reference_image" || resolutionRaw === "reference")) return "vega10-lite-reference-image";
   return `${provider}-${resolution}`;
 }
@@ -201,6 +202,10 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.h3VegaCreditsPerSecondByResolution
     : normalizedProvider === "vega10-lite" && rateKind === "video_input"
     ? normalized.vega10LiteInputVideoCreditsPerSecondByResolution
+    : normalizedProvider === "seedance20-vega" && rateKind === "video_input"
+    ? normalized.vega10ProInputVideoCreditsPerSecondByResolution
+    : normalizedProvider === "seedance20-vega"
+    ? normalized.vega10ProCreditsPerSecondByResolution
     : normalizedProvider === "vega10-lite" && rateKind === "reference_image"
     ? { reference: normalized.vega10LiteReferenceImageCreditsEach }
     : normalizedProvider === "vega10-lite"
@@ -228,7 +233,7 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     : normalizedProvider === "happyhorse"
     ? normalized.happyhorseCreditsPerSecondByResolution
     : normalized.seedanceCreditsPerSecondByResolution;
-  const rateKey = normalizedProvider === "vega10-lite"
+  const rateKey = ["vega10-lite", "seedance20-vega"].includes(normalizedProvider)
     ? String(resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
     : normalizeAdvancedResolution(resolution);
   return pricingNumber(table[rateKey], 0);
@@ -874,6 +879,18 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "wan30-prime-pro-1080p") next.wan30PrimeProCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "wan30-prime-pro-2k") next.wan30PrimeProCreditsPerSecondByResolution["2k"] = credits;
     else if (key === "wan30-prime-pro-4k") next.wan30PrimeProCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "vega10-pro-480p") next.vega10ProCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "vega10-pro-720p") next.vega10ProCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "vega10-pro-768p") next.vega10ProCreditsPerSecondByResolution["768p"] = credits;
+    else if (key === "vega10-pro-1080p") next.vega10ProCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "vega10-pro-2k") next.vega10ProCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "vega10-pro-4k") next.vega10ProCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "vega10-pro-video-480p") next.vega10ProInputVideoCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "vega10-pro-video-720p") next.vega10ProInputVideoCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "vega10-pro-video-768p") next.vega10ProInputVideoCreditsPerSecondByResolution["768p"] = credits;
+    else if (key === "vega10-pro-video-1080p") next.vega10ProInputVideoCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "vega10-pro-video-2k") next.vega10ProInputVideoCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "vega10-pro-video-4k") next.vega10ProInputVideoCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "vega10-lite-480p") next.vega10LiteCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "vega10-lite-768p") next.vega10LiteCreditsPerSecondByResolution["768p"] = credits;
     else if (key === "vega10-lite-1080p") next.vega10LiteCreditsPerSecondByResolution["1080p"] = credits;
