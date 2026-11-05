@@ -128,14 +128,77 @@ function recordParams(record = {}) {
   return record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
 }
 
+function upstreamMediaUrl(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  return item.Url
+    || item.URL
+    || item.url
+    || item.image_url?.url
+    || item.imageUrl?.url
+    || item.video_url?.url
+    || item.videoUrl?.url
+    || item.audio_url?.url
+    || item.audioUrl?.url
+    || item.image_url
+    || item.imageUrl
+    || item.video_url
+    || item.videoUrl
+    || item.audio_url
+    || item.audioUrl
+    || "";
+}
+
+function upstreamMediaType(item = {}) {
+  const category = String(item.Category || item.category || item.type || item.Type || "").toLowerCase();
+  const usage = String(item.Usage || item.usage || "").toLowerCase();
+  const role = String(item.role || item.Role || "").toLowerCase();
+  if (category.includes("video") || usage.includes("video") || role.includes("video")) return "reference_video";
+  if (category.includes("audio") || usage.includes("audio") || role.includes("audio")) return "reference_audio";
+  if (usage.includes("first") || role.includes("first")) return "first_frame";
+  if (usage.includes("last") || usage.includes("end") || role.includes("last") || role.includes("end")) return "last_frame";
+  return "reference_image";
+}
+
+function upstreamInputMediaItems(record = {}) {
+  const payload = record.upstreamPayload && typeof record.upstreamPayload === "object" && !Array.isArray(record.upstreamPayload) ? record.upstreamPayload : {};
+  const params = recordParams(record);
+  const items = [];
+  const seen = new Set();
+  const push = (item, fallbackType = "") => {
+    const source = typeof item === "string" ? { url: item } : (item && typeof item === "object" ? item : null);
+    if (!source) return;
+    const rawUrl = upstreamMediaUrl(source);
+    const assetId = String(source.userAssetId || source.assetId || "").trim();
+    const assetUri = String(source.assetUri || source.referenceAssetUri || (String(rawUrl).startsWith("asset://") ? rawUrl : "")).trim();
+    const url = rawUrl && !String(rawUrl).startsWith("asset://") ? rawUrl : "";
+    const type = fallbackType || upstreamMediaType(source);
+    const key = assetId ? `asset:${assetId}` : assetUri ? `asset-uri:${assetUri}` : url ? `url:${url}` : "";
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    items.push({ ...source, assetId, userAssetId: source.userAssetId || assetId, assetUri, referenceAssetUri: assetUri, url: url || assetUri, type });
+  };
+  const fileInfos = Array.isArray(payload.FileInfos) ? payload.FileInfos : [];
+  fileInfos.forEach((item) => push(item));
+  const content = Array.isArray(payload.Content) ? payload.Content : Array.isArray(payload.content) ? payload.content : [];
+  content.forEach((item) => {
+    const type = String(item?.type || item?.Type || "").toLowerCase();
+    const role = String(item?.role || item?.Role || "").toLowerCase();
+    const fallback = type.includes("video") || role.includes("video") ? "reference_video" : type.includes("audio") || role.includes("audio") ? "reference_audio" : role.includes("last") || role.includes("end") ? "last_frame" : role.includes("first") ? "first_frame" : "reference_image";
+    push(item, fallback);
+  });
+  const listKeys = ["referenceImages", "reference_images", "referenceImageUrls", "reference_image_urls", "referenceVideos", "reference_videos", "referenceVideoUrls", "reference_video_urls", "referenceAudios", "reference_audios", "referenceAudioUrls", "reference_audio_urls"];
+  listKeys.forEach((key) => {
+    const fallback = key.toLowerCase().includes("video") ? "reference_video" : key.toLowerCase().includes("audio") ? "reference_audio" : "reference_image";
+    arrayFrom(firstNonEmpty(params[key], payload[key])).forEach((item) => push(item, fallback));
+  });
+  return items;
+}
+
 function restoreMediaUrl(item = {}) {
   return item.dataUrl
-    || item.imageUrl
-    || item.videoUrl
-    || item.audioUrl
+    || upstreamMediaUrl(item)
     || item.publicUrl
     || item.cdnUrl
-    || item.url
     || item.sourceImageUrl
     || item.previewUrl
     || item.localUrl
@@ -287,8 +350,9 @@ function restoreRecordMedia(record = {}) {
   const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
   const frameTypes = new Set(["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe"]);
   const recordedImages = recordImageAssets(record);
+  const upstreamItems = upstreamInputMediaItems(record);
   const seenImageKeys = new Set();
-  const imageEntries = [...mediaAssets, ...recordedImages].map((item, index) => ({ item, index })).filter(({ item }) => {
+  const imageEntries = [...mediaAssets, ...recordedImages, ...upstreamItems].map((item, index) => ({ item, index })).filter(({ item }) => {
     const type = String(item?.type || item?.key || "").toLowerCase();
     const assetId = restoreMediaAssetId(item);
     const assetUri = restoreMediaAssetUri(item);
@@ -310,14 +374,13 @@ function restoreRecordMedia(record = {}) {
     .filter(({ item }) => !frameTypes.has(String(item.type || item.key || "").toLowerCase()))
     .map(({ item, index }) => restoreReferenceFromMedia(item, index))
     .filter(Boolean);
-  const videos = mediaAssets
-    .map((item, index) => ({ item, index }))
+  const videoEntries = [...mediaAssets, ...upstreamItems].map((item, index) => ({ item, index }));
+  const videos = videoEntries
     .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("video") && restoreMediaUrl(item))
-    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
-  const audios = mediaAssets
-    .map((item, index) => ({ item, index }))
+    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
+  const audios = videoEntries
     .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("audio") && restoreMediaUrl(item))
-    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
+    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
   if (!references.length) {
     recordImageAssets(record).forEach((item, index) => {
       const ref = restoreReferenceFromMedia(item, index);

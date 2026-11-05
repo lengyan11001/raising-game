@@ -943,8 +943,10 @@ function platformRegenerateBody(record = {}) {
 
 function upstreamPayloadInputImageItems(record = {}) {
   const payload = plainObject(record.upstreamPayload);
+  const params = plainObject(record.params);
   const containers = [
     payload,
+    params,
     plainObject(payload.params),
     plainObject(payload.parameters),
     plainObject(payload.input),
@@ -952,9 +954,9 @@ function upstreamPayloadInputImageItems(record = {}) {
   ];
   const urls = new Set();
   const items = [];
-  const push = (value) => {
+  const push = (value, fallbackType = "") => {
     if (Array.isArray(value)) {
-      value.forEach(push);
+      value.forEach((item) => push(item, fallbackType));
       return;
     }
     if (typeof value === "string") {
@@ -963,20 +965,43 @@ function upstreamPayloadInputImageItems(record = {}) {
       return;
     }
     if (!value || typeof value !== "object") return;
-    const itemUrl = String(firstPresent(
-      value.userAssetId,
-      value.assetId,
-      value.id,
+    const url = [
+      value.Url,
+      value.URL,
+      value.url,
+      value.image_url?.url,
+      value.imageUrl?.url,
       value.image_url,
       value.imageUrl,
-      value.url,
       value.publicUrl,
       value.sourceImageUrl,
       value.image,
+    ].map((item) => String(item || "").trim()).find(Boolean) || "";
+    const itemUrl = String(firstPresent(
+      value.userAssetId,
+      value.assetId,
+      value.FileId,
+      value.fileId,
+      value.id,
+      url,
       "",
     ) || "").trim();
-    if (itemUrl) items.push(value);
+    if (!itemUrl) return;
+    const category = String(value.Category || value.category || value.type || value.Type || "").toLowerCase();
+    const role = String(value.Usage || value.usage || value.role || value.Role || "").toLowerCase();
+    const type = fallbackType || (category.includes("video") || role.includes("video") ? "reference_video" : category.includes("audio") || role.includes("audio") ? "reference_audio" : role.includes("last") || role.includes("end") ? "last_frame" : role.includes("first") ? "first_frame" : "reference_image");
+    items.push({
+      ...value,
+      url: url || value.url || "",
+      type,
+      assetId: String(firstPresent(value.userAssetId, value.assetId, "") || "").trim(),
+      upstreamFileId: String(firstPresent(value.FileId, value.fileId, "") || "").trim(),
+    });
   };
+  const fileInfos = Array.isArray(payload.FileInfos) ? payload.FileInfos : [];
+  fileInfos.forEach((item) => push(item));
+  const content = Array.isArray(payload.Content) ? payload.Content : Array.isArray(payload.content) ? payload.content : [];
+  content.forEach((item) => push(item));
   containers.forEach((source) => {
     [
       source.input_image,
@@ -999,7 +1024,19 @@ function upstreamPayloadInputImageItems(record = {}) {
       source.referenceImages,
       source.reference_image_urls,
       source.referenceImageUrls,
-    ].forEach(push);
+      source.reference_videos,
+      source.referenceVideos,
+      source.reference_video_urls,
+      source.referenceVideoUrls,
+      source.reference_audios,
+      source.referenceAudios,
+      source.reference_audio_urls,
+      source.referenceAudioUrls,
+    ].forEach((value) => {
+      const key = Object.keys(source).find((name) => source[name] === value) || "";
+      const fallback = key.toLowerCase().includes("video") ? "reference_video" : key.toLowerCase().includes("audio") ? "reference_audio" : "";
+      push(value, fallback);
+    });
   });
   const urlItems = [...urls].map((url) => ({ url }));
   return [...items, ...urlItems];
@@ -1073,8 +1110,14 @@ function advancedRegenerateBody(record = {}) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
     const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
     const requestedDraftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
-    const assetUrl = (asset, keys = []) => String(keys.map((key) => asset?.[key]).find(Boolean) || "").trim();
+    const assetUrl = (asset, keys = []) => {
+      if (!asset || typeof asset !== "object") return "";
+      const direct = keys.map((key) => asset[key]).find(Boolean);
+      return String(direct || asset.Url || asset.URL || asset.image_url?.url || asset.video_url?.url || asset.audio_url?.url || "").trim();
+    };
     const assetId = (asset) => String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim();
+    const upstreamItems = upstreamPayloadInputImageItems(record);
+    const upstreamByType = (type) => upstreamItems.filter((item) => item.type === type);
     const assetIdsByType = (type) => mediaAssets
       .filter((asset) => asset?.type === type)
       .map(assetId)
@@ -1084,21 +1127,24 @@ function advancedRegenerateBody(record = {}) {
       .map((asset) => assetUrl(asset, keys))
       .filter(Boolean);
     const uniqueUrls = (values) => [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))];
-    const firstFrameUrl = String(firstPresent(params.firstFrameUrl, params.first_frame_url, urlsByType("first_frame", ["url", "imageUrl", "image_url"])) || "").trim();
-    const lastFrameUrl = String(firstPresent(params.lastFrameUrl, params.last_frame_url, urlsByType("last_frame", ["url", "imageUrl", "image_url"])) || "").trim();
+    const firstFrameUrl = String(firstPresent(params.firstFrameUrl, params.first_frame_url, urlsByType("first_frame", ["url", "imageUrl", "image_url"]), upstreamByType("first_frame").map((item) => assetUrl(item))) || "").trim();
+    const lastFrameUrl = String(firstPresent(params.lastFrameUrl, params.last_frame_url, urlsByType("last_frame", ["url", "imageUrl", "image_url"]), upstreamByType("last_frame").map((item) => assetUrl(item))) || "").trim();
     const referenceImages = uniqueUrls([
       ...urlsByType("reference_image", ["url", "imageUrl", "image_url"]),
-      ...(Array.isArray(params.referenceImages) ? params.referenceImages.map((item) => typeof item === "string" ? item : item?.url || item?.imageUrl || item?.image_url) : []),
+      ...upstreamByType("reference_image").map((item) => assetUrl(item)),
+      ...(Array.isArray(params.referenceImages) ? params.referenceImages.map((item) => typeof item === "string" ? item : item?.url || item?.imageUrl || item?.image_url?.url || item?.image_url) : []),
       ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
     ]).filter((url) => url !== firstFrameUrl && url !== lastFrameUrl);
     const referenceVideos = uniqueUrls([
       ...urlsByType("reference_video", ["url", "videoUrl", "video_url"]),
-      ...(Array.isArray(params.referenceVideos) ? params.referenceVideos.map((item) => typeof item === "string" ? item : item?.url || item?.videoUrl || item?.video_url) : []),
+      ...upstreamByType("reference_video").map((item) => assetUrl(item)),
+      ...(Array.isArray(params.referenceVideos) ? params.referenceVideos.map((item) => typeof item === "string" ? item : item?.url || item?.videoUrl || item?.video_url?.url || item?.video_url) : []),
       ...(Array.isArray(params.referenceVideoUrls) ? params.referenceVideoUrls : []),
     ]);
     const referenceAudios = uniqueUrls([
       ...urlsByType("reference_audio", ["url", "audioUrl", "audio_url"]),
-      ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url) : []),
+      ...upstreamByType("reference_audio").map((item) => assetUrl(item)),
+      ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url?.url || item?.audio_url) : []),
       ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
     ]);
     const firstFrameAssetId = String(firstPresent(
@@ -1118,14 +1164,17 @@ function advancedRegenerateBody(record = {}) {
     const referenceImageAssetIds = [...new Set([
       ...arrayFromBody(firstPresent(params.referenceImageAssetIds, params.reference_image_asset_ids)),
       ...assetIdsByType("reference_image"),
+      ...upstreamByType("reference_image").map((item) => assetId(item)),
     ].map((id) => String(id || "").trim()).filter(Boolean))];
     const referenceVideoAssetIds = [...new Set([
       ...arrayFromBody(firstPresent(params.referenceVideoAssetIds, params.reference_video_asset_ids)),
       ...assetIdsByType("reference_video"),
+      ...upstreamByType("reference_video").map((item) => assetId(item)),
     ].map((id) => String(id || "").trim()).filter(Boolean))];
     const referenceAudioAssetIds = [...new Set([
       ...arrayFromBody(firstPresent(params.referenceAudioAssetIds, params.reference_audio_asset_ids)),
       ...assetIdsByType("reference_audio"),
+      ...upstreamByType("reference_audio").map((item) => assetId(item)),
     ].map((id) => String(id || "").trim()).filter(Boolean))];
     const reconstructedMedia = { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
     let draftSelection;
@@ -1181,6 +1230,8 @@ function advancedRegenerateBody(record = {}) {
       if (firstFrameAssetId) body.firstFrameAssetId = firstFrameAssetId;
       if (lastFrameAssetId) body.lastFrameAssetId = lastFrameAssetId;
     } else if (regeneratedMedia.mode === "reference_video") {
+      // File-based Vega records have no local mediaAssets. Keep the original
+      // FileInfos URLs/IDs so an old finished result can be regenerated directly.
       body.referenceImages = regeneratedMedia.referenceImages.map((url, index) => ({
         url,
         ...(referenceImageAssetIds[index] ? { userAssetId: referenceImageAssetIds[index] } : {}),

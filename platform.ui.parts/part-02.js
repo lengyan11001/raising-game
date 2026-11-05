@@ -602,6 +602,13 @@ function upstreamInputImageAssets(record = {}) {
   const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
   const payload = record.upstreamPayload && typeof record.upstreamPayload === "object" && !Array.isArray(record.upstreamPayload) ? record.upstreamPayload : {};
   const payloadParams = payload.params && typeof payload.params === "object" && !Array.isArray(payload.params) ? payload.params : {};
+  const fileInfos = Array.isArray(payload.FileInfos) ? payload.FileInfos : [];
+  const content = Array.isArray(payload.Content) ? payload.Content : Array.isArray(payload.content) ? payload.content : [];
+  const nestedMedia = [...fileInfos, ...content].filter((item) => {
+    const category = String(item?.Category || item?.category || item?.type || item?.Type || "").toLowerCase();
+    const role = String(item?.Usage || item?.usage || item?.role || item?.Role || "").toLowerCase();
+    return category.includes("image") || role.includes("image") || role.includes("reference") || role.includes("first") || role.includes("last");
+  });
   const values = (source) => [
     source?.input_image,
     source?.inputImage,
@@ -624,15 +631,38 @@ function upstreamInputImageAssets(record = {}) {
     ...(Array.isArray(source?.reference_image_urls) ? source.reference_image_urls : []),
     ...(Array.isArray(source?.referenceImageUrls) ? source.referenceImageUrls : []),
   ];
-  return [...values(params), ...values(payloadParams), ...values(payload)]
+  return [...values(params), ...values(payloadParams), ...values(payload), ...nestedMedia]
     .flatMap((item) => Array.isArray(item) ? item : [item])
     .map((item) => typeof item === "string" ? { imageUrl: item, type: "reference_image" } : item)
     .filter((item) => item && typeof item === "object")
-    .map((item) => ({
-      ...item,
-      imageUrl: item.imageUrl || item.image_url || item.url || item.publicUrl || item.sourceImageUrl || item.image || "",
-      type: item.type || "reference_image",
-    }))
+    .map((item) => {
+      const role = String(item.Usage || item.usage || item.role || item.Role || "").toLowerCase();
+      const category = String(item.Category || item.category || item.Type || "").toLowerCase();
+      const declaredType = String(item.type || "").toLowerCase();
+      const type = role.includes("last") || role.includes("end")
+        ? "last_frame"
+        : role.includes("first")
+        ? "first_frame"
+        : category.includes("video") || declaredType.includes("video")
+        ? "reference_video"
+        : category.includes("audio") || declaredType.includes("audio")
+        ? "reference_audio"
+        : "reference_image";
+      return {
+        ...item,
+        imageUrl: item.imageUrl
+          || item.image_url?.url
+          || item.image_url
+          || item.Url
+          || item.URL
+          || item.url
+          || item.publicUrl
+          || item.sourceImageUrl
+          || item.image
+          || "",
+        type,
+      };
+    })
     .filter((item) => mediaAssetPreviewUrl(item) || item.userAssetId || item.assetId || item.id);
 }
 

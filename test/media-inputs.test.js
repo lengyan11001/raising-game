@@ -323,7 +323,7 @@ test("image regeneration restores original providers and input media without a n
   assert.doesNotMatch(restoreProvider, /source\.includes\("image"\)\) return "wan27-image-edit"/);
   assert.match(restoreMedia, /const recordedImages = recordImageAssets\(record\)/);
   assert.match(restoreMedia, /const seenImageKeys = new Set\(\)/);
-  assert.match(restoreMedia, /\[\.\.\.mediaAssets, \.\.\.recordedImages\]/);
+  assert.match(restoreMedia, /\[\.\.\.mediaAssets, \.\.\.recordedImages, \.\.\.upstreamItems\]/);
   assert.match(submit, /params: \{[\s\S]*?advancedProviderId: provider,[\s\S]*?\},\n          async: true/);
   assert.match(regenerateSource, /function imageEditRegenerateBody\(record = \{\}\)/);
   assert.match(regenerateSource, /if \(\["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image-edit"\]\.includes\(explicitProvider\)\)[\s\S]*?handleWan27ImageEdit/);
@@ -380,6 +380,31 @@ test("legacy regeneration recovers input images from old records without generat
   assert.deepEqual(recordImageAssets(sameAssetRecord).map((item) => item.url), ["https://cdn.example.com/original-input.png"]);
   assert.equal(recordImageAssets(sameAssetRecord)[0].assetId, "asset-1");
   assert.doesNotMatch(JSON.stringify(recordImageAssets(sameAssetRecord)), /generated-result/);
+  const vegaFileInfoRecord = {
+    mediaAssets: [],
+    params: { advancedProviderId: "seedance25-vega" },
+    upstreamPayload: {
+      FileInfos: [
+        { Type: "Url", Usage: "FirstFrame", Category: "Image", Url: "https://cdn.example.com/vega-first-frame.png" },
+        { Type: "Url", Usage: "LastFrame", Category: "Image", Url: "https://cdn.example.com/vega-last-frame.png" },
+        { Type: "Url", Usage: "Reference", Category: "Image", Url: "https://cdn.example.com/vega-reference.png" },
+      ],
+      Content: [
+        { role: "reference_image", type: "image_url", image_url: { url: "asset://asset-legacy-reference" } },
+      ],
+      result: { FileInfos: [{ Url: "https://cdn.example.com/vega-generated-result.png" }] },
+    },
+  };
+  const vegaImages = recordImageAssets(vegaFileInfoRecord);
+  assert.deepEqual(vegaImages.map((item) => item.url), [
+    "https://cdn.example.com/vega-first-frame.png",
+    "https://cdn.example.com/vega-last-frame.png",
+    "https://cdn.example.com/vega-reference.png",
+    "asset://asset-legacy-reference",
+  ]);
+  assert.deepEqual(vegaImages.map((item) => item.type), ["first_frame", "last_frame", "reference_image", "reference_image"]);
+  assert.doesNotMatch(JSON.stringify(vegaImages), /vega-generated-result/);
+
 
   const upstreamOnlyRecord = {
     mediaAssets: [],
