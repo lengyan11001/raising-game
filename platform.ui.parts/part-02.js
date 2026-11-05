@@ -66,7 +66,7 @@ function apiSubtokenExpiresInputValue(value = "") {
 
 function renderApiSubtokens() {
   if (!els.accessSubtokens) return;
-  if (!tenantFeature("apiAccess", true) || !apiDocsAccessActive()) {
+  if (!tenantFeature("apiAccess", true)) {
     els.accessSubtokens.innerHTML = "";
     return;
   }
@@ -164,7 +164,7 @@ function renderApiSubtokens() {
 }
 
 async function loadApiSubtokens({ force = false } = {}) {
-  if (!tenantFeature("apiAccess", true) || !apiDocsAccessActive() || !state.user || !els.accessSubtokens) {
+  if (!tenantFeature("apiAccess", true) || !state.user || !els.accessSubtokens) {
     state.apiSubtokens = [];
     state.apiSubtokensLoaded = false;
     renderApiSubtokens();
@@ -285,7 +285,6 @@ async function submitApiSubtokenUpdate(event) {
 
 function renderTokenDisplays() {
   const apiAccessEnabled = tenantFeature("apiAccess", true);
-  const entitlementActive = apiDocsAccessActive();
   if (els.accessTokenDisplay) {
     els.accessTokenDisplay.textContent = currentTokenLabel(state.showAccessToken);
   }
@@ -300,11 +299,11 @@ function renderTokenDisplays() {
   }
   if (els.copyTokenBtn) {
     els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
-    els.copyTokenBtn.hidden = !apiAccessEnabled || !entitlementActive;
+    els.copyTokenBtn.hidden = !apiAccessEnabled;
     els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>Copy token + docs`;
   }
   const accountTokenBox = els.accountToken?.closest(".token-box");
-  if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled || !entitlementActive;
+  if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled;
   if (els.supportFab) {
     els.supportFab.hidden = !state.user;
   }
@@ -321,18 +320,17 @@ function renderTokenDisplays() {
   if (els.toggleAccountTokenBtn) {
     els.toggleAccountTokenBtn.textContent = state.showAccountToken ? t("common.hide") : t("common.showFull");
     els.toggleAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
-    els.toggleAccountTokenBtn.hidden = !apiAccessEnabled || !entitlementActive;
+    els.toggleAccountTokenBtn.hidden = !apiAccessEnabled;
   }
   if (els.copyAccountTokenBtn) {
     els.copyAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
-    els.copyAccountTokenBtn.hidden = !apiAccessEnabled || !entitlementActive;
+    els.copyAccountTokenBtn.hidden = !apiAccessEnabled;
   }
 }
 
 function renderAccountMenu() {
   const loggedIn = Boolean(state.user);
   const apiAccessEnabled = tenantFeature("apiAccess", true);
-  const entitlementActive = apiDocsAccessActive();
   if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.mobileDrawerTopupBtn) els.mobileDrawerTopupBtn.hidden = !loggedIn;
@@ -345,7 +343,7 @@ function renderAccountMenu() {
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
-  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !entitlementActive || !loggedIn;
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !loggedIn;
   if (els.menuLogoutBtn) {
     els.menuLogoutBtn.hidden = !loggedIn;
     els.menuLogoutBtn.disabled = !loggedIn;

@@ -552,22 +552,7 @@ async function handleCreatePaymentOrder(req, res) {
     ? toolTopupPackagesForPlan(await getBillingPlanInDb(tenant.tenantId))
     : publicTopupPackages(auth.user);
   let paymentSelection = null;
-  if (requestedProductId === API_DOCS_PRODUCT_ID && tenant.membershipProgram) {
-    if (userHasApiDocsAccess(auth.user)) {
-      return sendJson(res, 409, {
-        ok: false,
-        code: "PRODUCT_ALREADY_OWNED",
-        message: "API documentation access is already active.",
-      });
-    }
-    paymentSelection = {
-      kind: "product",
-      id: API_DOCS_PRODUCT_ID,
-      name: "API Documentation Access",
-      amount: API_DOCS_PRICE_USD,
-      credits: API_DOCS_TEST_CREDITS,
-    };
-  } else if (!requestedProductId) {
+  if (!requestedProductId) {
     const topupPackage = tenant.subscriptions
       ? await toolTopupPackageForRequest(req, body)
       : findTopupPackage(body, auth.user);
@@ -1016,7 +1001,7 @@ async function createStripeCheckoutSession(req, res) {
     return sendJson(res, 409, {
       ok: false,
       code: selection.kind === "subscription" ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED",
-      message: selection.kind === "subscription" ? "Creator Membership is already active." : "API documentation access is already active.",
+      message: "Creator Membership is already active.",
     });
   }
   const amount = Number(selection.amount || 0);

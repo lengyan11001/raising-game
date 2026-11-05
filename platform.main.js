@@ -1285,9 +1285,6 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
-els.buyApiDocsBtn?.addEventListener("click", () => {
-  openEntitlementPaymentChoice("api-docs-access", els.apiDocsPurchaseStatus);
-});
 els.buyMembershipBtn?.addEventListener("click", () => {
   openBillingPaymentChoice({
     billingPlanId: "plan-main-creator",

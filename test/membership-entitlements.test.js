@@ -6,24 +6,28 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
-test("membership and API documentation entitlements use the requested products", () => {
+test("membership products remain while API documentation is available to everyone", () => {
   const server = read("server.js");
   const html = read("platform.html");
   const main = read("platform.main.js");
-  const config = read("platform.config.js");
-  const create = read("platform.create.js");
   const explore = read("platform.explore.js");
   const copy = read("platform.copy.js");
 
   assert.match(server, /CREATOR_MEMBERSHIP_PLAN_ID\s*=\s*"plan-main-creator"/);
   assert.match(server, /CREATOR_MEMBERSHIP_PRICE_USD\s*=\s*99/);
   assert.match(server, /CREATOR_MEMBERSHIP_REFERRAL_TARGET\s*=\s*100/);
-  assert.match(server, /API_DOCS_PRODUCT_ID\s*=\s*"api-docs-access"/);
-  assert.match(server, /API_DOCS_PRICE_USD\s*=\s*1000/);
-  assert.match(server, /API_DOCS_TEST_CREDITS\s*=\s*20000/);
+  assert.doesNotMatch(server, /API_DOCS_PRICE_USD/);
+  assert.doesNotMatch(server, /API_DOCS_TEST_CREDITS/);
+  assert.doesNotMatch(server, /API_DOCS_PURCHASE_REQUIRED/);
+  assert.doesNotMatch(server, /API_DOCS_ACCESS_REQUIRED/);
+  assert.match(server, /async function requireApiDocsAccess[\s\S]*?return \{ user: null, db: null, tokenSource: "" \};/);
+  assert.match(server, /async function requireExternalApiDocsAccess[\s\S]*?return requireUser\(req, res\);/);
   assert.match(server, /id:\s*"usd-500"/);
   assert.doesNotMatch(server, /id:\s*"usd-1000"/);
-  assert.match(html, /id="buyApiDocsBtn"/);
+  assert.doesNotMatch(html, /id="apiDocsPurchaseCard"/);
+  assert.doesNotMatch(html, /id="buyApiDocsBtn"/);
+  assert.doesNotMatch(html, /\$1,000/);
+  assert.match(html, /<div id="apiDocsUnlockedContent">/);
   assert.match(html, /id="buyMembershipBtn"/);
   assert.match(html, /id="topupMembershipLink"/);
   assert.match(html, /data-i18n="topup\.membershipGuideHint"/);
@@ -39,21 +43,12 @@ test("membership and API documentation entitlements use the requested products",
   assert.match(copy, /"membership\.badgeTopup": "最高 20%"/);
   assert.match(main, /topupMembershipLink\?\.addEventListener\("click"[\s\S]*?setTab\("referral"\)/);
   assert.match(main, /membershipCard\?\.scrollIntoView/);
-  assert.match(config, /selectedProductId:\s*""/);
-  assert.match(main, /openEntitlementPaymentChoice\("api-docs-access", els\.apiDocsPurchaseStatus\)/);
-  assert.doesNotMatch(main, /startEntitlementCheckout\(\{ productId:\s*"api-docs-access"/);
-  assert.match(create, /function openEntitlementPaymentChoice/);
-  assert.match(create, /state\.selectedProductId = product\.id/);
-  assert.match(create, /setTopupStep\("payment"\)/);
-  assert.match(create, /if \(stripeCheckoutVisible\(\)\) renderStripeCheckout\(\)/);
-  assert.match(explore, /function selectedBillingProduct/);
-  assert.match(explore, /\? \{ productId: billingProduct\.id \}/);
-  assert.match(explore, /body: billingPlan[\s\S]*?\? \{ productId: billingProduct\.id, walletOptionId:/);
+  assert.doesNotMatch(main, /openEntitlementPaymentChoice\("api-docs-access"/);
   assert.match(main, /billingPlanId:\s*"plan-main-creator"/);
   assert.match(main, /openBillingPaymentChoice\(\{[\s\S]*billingPlanId:\s*"plan-main-creator"/);
-  assert.match(main, /function openTopupDialog\(\)[\s\S]*?topupMembershipLink\.hidden = !membershipProgramEnabled\(\)/);
-  assert.match(create, /function openBillingPaymentChoice/);
-  assert.match(create, /state\.selectedBillingPlanId = plan\?\.id \|\| ""/);
+  assert.match(explore, /function renderAccessGuides\(\) \{\s*const enabled = tenantFeature\("apiAccess", true\);/);
+  assert.doesNotMatch(explore, /apiDocsAccessActive\(\)/);
+  assert.match(explore, /els\.apiDocsUnlockedContent\.hidden = !enabled/);
   assert.match(explore, /function isOwnGalleryCharacter/);
   assert.match(explore, /ownCharacter/);
   assert.match(explore, /function isHiddenToolSubscriptionPlan/);
@@ -62,43 +57,22 @@ test("membership and API documentation entitlements use the requested products",
   assert.doesNotMatch(explore, /if \(confirmed === "confirm"\) \{[\s\S]*?startEntitlementCheckout\(\{ billingPlanId:/);
 });
 
-test("API documentation access can be revoked for external tokens without blocking the site frontend", () => {
+test("API documentation is public and external API tokens no longer need a paid entitlement", () => {
   const server = read("server.js");
+  const html = read("platform.html");
+  const ui = read("platform.ui.js");
+  const config = read("platform.config.js");
   const admin = read("admin.js");
-  assert.match(server, /async function requireExternalApiDocsAccess\(/);
-  assert.match(server, /tokenSource === "api_token" \|\| tokenSource === "subtoken"/);
-  assert.match(server, /code: "API_DOCS_ACCESS_REQUIRED"/);
-  assert.match(server, /if \(typeof body\.apiDocsAccess === "boolean"\)/);
-  assert.match(server, /status: "revoked"/);
-  assert.match(server, /status: "active"/);
+  const copy = read("platform.copy.js");
+  assert.doesNotMatch(server, /API_DOCS_PURCHASE_REQUIRED/);
+  assert.doesNotMatch(server, /API_DOCS_ACCESS_REQUIRED/);
+  assert.match(server, /async function requireExternalApiDocsAccess\(req, res\)[\s\S]*?return requireUser\(req, res\);/);
   assert.match(server, /requireExternalApiDocsAccess\(req, res\)/);
-  assert.match(admin, /id="editApiDocsAccess"/);
-  assert.match(admin, /const apiDocsAccess = Boolean\(tpl\.querySelector\("#editApiDocsAccess"\)/);
-  assert.match(admin, /const body = \{ role, apiDocsAccess \}/);
-});
-
-test("USDT API documentation checkout creates a product order", () => {
-  const server = read("server.js");
-  const handler = server.match(/async function handleCreatePaymentOrder[\s\S]*?\n}\r?\n\r?\nasync function handleListPaymentOrders/);
-  assert.ok(handler, "manual payment order handler should be present");
-  assert.match(handler[0], /requestedProductId === API_DOCS_PRODUCT_ID && tenant\.membershipProgram/);
-  assert.match(handler[0], /code: "PRODUCT_ALREADY_OWNED"/);
-  assert.match(handler[0], /kind: "product"/);
-  assert.match(handler[0], /amount: API_DOCS_PRICE_USD/);
-  assert.match(handler[0], /credits: API_DOCS_TEST_CREDITS/);
-  assert.match(handler[0], /orderKind: paymentSelection\.kind/);
-  assert.match(handler[0], /productId: paymentSelection\.kind === "product" \? paymentSelection\.id : ""/);
-});
-
-test("paid settlement grants product credits or membership without double settlement", () => {
-  const server = read("server.js");
-  const settlement = server.match(/async function settleWalletOrderPayment[\s\S]*?\n}\r?\n\r?\nasync function safeSettleWalletOrderPayment/);
-  assert.ok(settlement, "settlement function should be present");
-  assert.match(settlement[0], /if \(order\.status === "paid"\)/);
-  assert.match(settlement[0], /order\.orderKind === "product" && order\.productId === API_DOCS_PRODUCT_ID/);
-  assert.match(settlement[0], /grantApiDocsAccess\(db, user/);
-  assert.match(settlement[0], /if \(subscriptionPlan\) await activatePaidSubscription/);
-  assert.match(settlement[0], /if \(order\.orderKind === "product" && order\.productId === API_DOCS_PRODUCT_ID\)/);
+  assert.doesNotMatch(html, /Unlock docs/);
+  assert.doesNotMatch(config, /apiDocsPurchaseCard|buyApiDocsBtn|apiDocsPurchaseStatus|apiDocsAccessActive/);
+  assert.doesNotMatch(admin, /editApiDocsAccess|API 文档接口权限|会员 \/ API文档/);
+  assert.doesNotMatch(copy, /referral\.apiDocsCommission|\$1000 API docs|1000 美元接口文档/);
+  assert.match(ui, /loadApiDocsCenter/);
 });
 
 test("membership-only benefits are enforced server-side", () => {

@@ -272,7 +272,7 @@ function openBillingPaymentChoice({ billingPlanId = "", productId = "", statusEl
     return;
   }
   if (product?.owned) {
-    if (statusElement) statusElement.textContent = "API documentation access is already active.";
+    if (statusElement) statusElement.textContent = "This product is already active.";
     return;
   }
   if (statusElement) statusElement.textContent = "";

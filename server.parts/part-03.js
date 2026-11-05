@@ -345,14 +345,7 @@ async function billingViewForRequest(req, auth = null) {
     subscription: publicBillingSubscription(subscription, plans.find((plan) => plan.id === subscription?.planId) || primaryPlan),
     membership: auth?.user ? publicCreatorMembership(auth.user) : publicCreatorMembership(),
     apiDocs: auth?.user ? publicApiDocsEntitlement(auth.user) : publicApiDocsEntitlement(),
-    products: membershipProgram ? [{
-      id: API_DOCS_PRODUCT_ID,
-      name: "API Documentation Access",
-      amount: API_DOCS_PRICE_USD,
-      currency: "USD",
-      includedCredits: API_DOCS_TEST_CREDITS,
-      owned: Boolean(auth?.user && userHasApiDocsAccess(auth.user)),
-    }] : [],
+    products: [],
     topupPackages: membershipProgram ? publicTopupPackages(auth?.user || null) : toolTopupPackagesForPlan(primaryPlan),
     recurringPaymentReady: false,
   };

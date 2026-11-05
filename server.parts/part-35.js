@@ -16,17 +16,6 @@ async function paypalCheckoutSelectionForRequest(req, body = {}, user = null) {
       plan,
     };
   }
-  const productId = String(body.productId || body.product_id || "").trim();
-  if (productId === API_DOCS_PRODUCT_ID && tenant.membershipProgram) {
-    if (user && userHasApiDocsAccess(user)) return { alreadyOwned: true, kind: "product", id: API_DOCS_PRODUCT_ID };
-    return {
-      kind: "product",
-      id: API_DOCS_PRODUCT_ID,
-      amount: API_DOCS_PRICE_USD,
-      credits: API_DOCS_TEST_CREDITS,
-      product: { id: API_DOCS_PRODUCT_ID, name: "API Documentation Access" },
-    };
-  }
   const topupPackage = await paypalTopupPackageForRequest(req, body, user);
   if (!topupPackage) return null;
   return {
@@ -134,11 +123,10 @@ async function createPayPalCheckoutSession(req, res) {
     });
   }
   if (selection.alreadyOwned) {
-    const membership = selection.kind === "subscription";
     return sendJson(res, 409, {
       ok: false,
-      code: membership ? "MEMBERSHIP_ALREADY_ACTIVE" : "PRODUCT_ALREADY_OWNED",
-      message: membership ? "Creator Membership is already active." : "API documentation access is already active.",
+      code: "MEMBERSHIP_ALREADY_ACTIVE",
+      message: "Creator Membership is already active.",
     });
   }
   const rawAmount = selection.amount;

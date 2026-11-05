@@ -1,5 +1,15 @@
 # Codex Task State
 
+## API docs unlock removal (2026-11-05)
+
+- Goal: remove the $1,000 API-documentation unlock gate from the main site so everyone can view API documentation; external API calls still require authentication and the tenant API-access feature flag.
+- Backend: removed `API_DOCS_PRICE_USD` / `API_DOCS_TEST_CREDITS`; public docs endpoints no longer require login or purchase; external API token/subtoken requests no longer check the paid entitlement; removed new API-doc product purchase paths from billing/manual/PayPal flows.
+- Frontend: removed the $1,000 unlock card and entitlement gating from API docs, token controls, subtoken controls, account menu, and referral commission copy. Token management still requires login.
+- Admin: removed the obsolete API-doc entitlement toggle/status from user management.
+- Historical settlement code remains only for backward compatibility with pre-existing product orders.
+- Verification: syntax checks pass; targeted `membership-entitlements`, `subtoken-user-view`, and `source-split` tests pass 12/12.
+- Deployment: pending commit/release/deploy to `123vips.com` only.
+
 ## Vega 1.0 Lite integration (2026-11-05)
 
 - Integration commit `b1eeea1` adds provider `vega10-lite` (`wand-vega-video / 1.0-lite`) with text, first frame, last frame, first+last frame, and multimodal reference modes; resolutions 480P/768P/1080P/2K/4K; duration 4-15 seconds without smart duration.

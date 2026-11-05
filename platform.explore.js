@@ -4565,7 +4565,7 @@ function renderTopupSummary() {
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
   if (els.topupSelectedPackage) {
     els.topupSelectedPackage.textContent = selectedProduct
-      ? `${selectedProduct.name || "API Documentation Access"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
+      ? `${selectedProduct.name || "Billing product"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
       : selectedPlan
       ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
       : selectedPackage
@@ -4856,23 +4856,10 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  const enabled = tenantFeature("apiAccess", true) && membershipProgramEnabled();
-  const active = apiDocsAccessActive();
-  if (els.apiDocsPurchaseCard) els.apiDocsPurchaseCard.hidden = !enabled || active;
-  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled || !active;
-  if (els.buyApiDocsBtn) {
-    els.buyApiDocsBtn.disabled = !state.user || active;
-    els.buyApiDocsBtn.innerHTML = state.user
-      ? '<i data-lucide="lock-keyhole-open"></i>Unlock docs'
-      : '<i data-lucide="log-in"></i>Sign in to unlock';
-  }
-  if (els.apiDocsPurchaseStatus) {
-    els.apiDocsPurchaseStatus.textContent = active
-      ? "API documentation access is active."
-      : state.user ? "" : "Sign in before purchasing access.";
-  }
+  const enabled = tenantFeature("apiAccess", true);
+  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled;
   ensureActiveAccessGuide();
-  if (!enabled || !active || !state.user) {
+  if (!enabled) {
     if (state.apiDocsCenter) {
       state.apiDocsCenter = null;
       state.apiDocsCenterActiveId = "";
@@ -4901,7 +4888,7 @@ function renderAccessGuides() {
     els.accessDocs.hidden = true;
     els.accessDocs.innerHTML = "";
   }
-  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled || !active;
+  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled;
   renderTokenDisplays();
   renderApiSubtokens();
   refreshIcons();

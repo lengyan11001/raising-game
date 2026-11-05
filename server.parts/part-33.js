@@ -149,50 +149,16 @@ async function requireApiDocsAccess(req, res) {
     sendApiAccessDisabled(res);
     return null;
   }
-  const auth = await requireUser(req, res);
-  if (!auth) return null;
-  if (!userHasApiDocsAccess(auth.user)) {
-    sendJson(res, 402, {
-      ok: false,
-      code: "API_DOCS_PURCHASE_REQUIRED",
-      message: "Purchase API Documentation Access to view the integration guide.",
-      product: {
-        id: API_DOCS_PRODUCT_ID,
-        amount: API_DOCS_PRICE_USD,
-        currency: "USD",
-        includedCredits: API_DOCS_TEST_CREDITS,
-      },
-    });
-    return null;
-  }
-  return auth;
+  return { user: null, db: null, tokenSource: "" };
 }
 
-// External API calls require the purchased API documentation entitlement;
-// session-authenticated site requests continue to use the frontend normally.
+// External API calls require authentication but no paid documentation entitlement.
 async function requireExternalApiDocsAccess(req, res) {
   if (!apiAccessEnabledForRequest(req)) {
     sendApiAccessDisabled(res);
     return null;
   }
-  const auth = await requireUser(req, res);
-  if (!auth) return null;
-  const tokenSource = String(auth.tokenSource || "").toLowerCase();
-  if ((tokenSource === "api_token" || tokenSource === "subtoken") && !userHasApiDocsAccess(auth.user)) {
-    sendJson(res, 402, {
-      ok: false,
-      code: "API_DOCS_ACCESS_REQUIRED",
-      message: "API documentation access is required for external API calls.",
-      product: {
-        id: API_DOCS_PRODUCT_ID,
-        amount: API_DOCS_PRICE_USD,
-        currency: "USD",
-        includedCredits: API_DOCS_TEST_CREDITS,
-      },
-    });
-    return null;
-  }
-  return auth;
+  return requireUser(req, res);
 }
 
 async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "stripe") {

@@ -716,7 +716,7 @@ function renderApiDocsCenter() {
 }
 
 async function loadApiDocsCenter({ force = false } = {}) {
-  if (!els.apiDocsCenter || !apiDocsAccessActive() || !state.user) return;
+  if (!els.apiDocsCenter || !tenantFeature("apiAccess", true)) return;
   if (state.apiDocsCenterLoading) return;
   if (state.apiDocsCenter && !force) {
     renderApiDocsCenter();

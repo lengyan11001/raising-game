@@ -1068,10 +1068,6 @@ function creatorMembershipActive() {
   return Boolean(state.user?.membershipActive || state.user?.membership?.active || state.billing?.membership?.active);
 }
 
-function apiDocsAccessActive() {
-  return Boolean(state.user?.apiDocsAccess || state.user?.apiDocs?.active || state.billing?.apiDocs?.active);
-}
-
 function canUseWorkflow() {
   return tenantFeature("workflow", true);
 }
@@ -1245,10 +1241,7 @@ const els = {
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
   accessSubtokens: document.querySelector("#accessSubtokens"),
-  apiDocsPurchaseCard: document.querySelector("#apiDocsPurchaseCard"),
   apiDocsUnlockedContent: document.querySelector("#apiDocsUnlockedContent"),
-  buyApiDocsBtn: document.querySelector("#buyApiDocsBtn"),
-  apiDocsPurchaseStatus: document.querySelector("#apiDocsPurchaseStatus"),
   apiDocsCenter: document.querySelector("#apiDocsCenter"),
   accessTokenDisplay: document.querySelector("#accessTokenDisplay"),
   accessTokenHint: document.querySelector("#accessTokenHint"),
