@@ -6,6 +6,7 @@
 - Tightened Result card spacing/media height and added a short-viewport desktop rule so a six-card page is visible without reintroducing page-level scrolling.
 - Verification: targeted pagination/source tests 34 pass, 6 known pre-existing Wan/pricing failures remain in the full `advanced-custom-ui.test.js`; syntax and `git diff --check` pass.
 - Files: `platform.config.js`, `platform.css`, `test/advanced-result-order.test.js`, `test/advanced-custom-ui.test.js`, `CODEX_TASK_STATE.md`.
+- Deployment: `old-site` `abe51d2`; `platform-release` `d7f4aaf`, built from `abe51d2`. Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; production checkout `d7f4aaf`, service active, health `200 {"ok":true}`. Production config has `ADVANCED_RESULT_PAGE_SIZE = 6`; CSS preserves single-column create fields. Live was not deployed.
 
 ## Generate Result pagination and compact controls (2026-11-05)
 
