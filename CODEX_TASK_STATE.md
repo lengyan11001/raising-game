@@ -7,7 +7,9 @@
 - Existing Vega records without stored IDs are backfilled from PostgreSQL `app_user_assets` by the current user and matching media URL. No JSON/flat-file fallback was added.
 - Files changed: `db.js`, `platform.create.parts/part-01.js`, `part-03.js`, `part-04.js`, `part-05.js`, `server.parts/part-01.js`, `part-26.js`, `part-29.js`, `part-41.js`, and targeted tests.
 - Targeted Vega/pricing/refresh tests: 86 pass, 0 fail. Syntax checks and `git diff --check` pass.
-- Deployment status: pending at time of this entry; deploy only `123vips.com`, never Live.
+- `old-site`: `c444fb2`, pushed. `platform-release`: `edff497`, built from `c444fb2`, pushed with lease protection.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; service is active and `/api/health` is `200 {"ok":true}`.
+- Public `platform.create.parts/part-03.js` confirms first-frame/reference asset IDs and pending media asset IDs; `part-04.js` confirms restore logic. Live was not deployed.
 
 ## Vega Pro media-library import (2026-11-05)
 
