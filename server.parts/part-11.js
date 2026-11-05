@@ -645,19 +645,29 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "h3-vega") {
-    const duration = normalizeVegaDuration(normalizedProvider, options.duration ?? options.durationSeconds);
-    const adaptiveDuration = duration === -1;
-    const billingDuration = adaptiveDuration ? 30 : duration;
-    const resolution = normalizeVegaResolution(options.resolution || "1080P", normalizedProvider).toLowerCase();
+  if (normalizedProvider === "h3-vega" || normalizedProvider === "vega10-lite") {
+    const isVega10Lite = normalizedProvider === "vega10-lite";
+    const providerLabel = isVega10Lite ? "Vega 1.0 Lite" : "Vega 1.5 Lite";
+    const modelVersion = isVega10Lite ? "1.0-lite" : "1.5-lite";
+    const duration = options.duration ?? options.durationSeconds;
+    const normalizedDuration = normalizeVegaDuration(normalizedProvider, duration);
+    const adaptiveDuration = normalizedDuration === -1;
+    const billingDuration = adaptiveDuration ? 30 : normalizedDuration;
+    const resolution = normalizeVegaResolution(options.resolution || (isVega10Lite ? "768P" : "1080P"), normalizedProvider).toLowerCase();
     const ratio = normalizeVegaRatio(options.ratio || options.aspect_ratio || "16:9", normalizedProvider);
     const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
-    const creditsPerSecond = pricingNumber(advancedPricing.h3VegaCreditsPerSecondByResolution?.[resolution], 0, 0, 6);
-    const inputVideoCreditsPerSecond = pricingNumber(advancedPricing.h3VegaInputVideoCreditsPerSecondByResolution?.[resolution], 0, 0, 6);
+    const priceTable = isVega10Lite
+      ? advancedPricing.vega10LiteCreditsPerSecondByResolution
+      : advancedPricing.h3VegaCreditsPerSecondByResolution;
+    const inputPriceTable = isVega10Lite
+      ? advancedPricing.vega10LiteInputVideoCreditsPerSecondByResolution
+      : advancedPricing.h3VegaInputVideoCreditsPerSecondByResolution;
+    const creditsPerSecond = pricingNumber(priceTable?.[resolution], 0, 0, 6);
+    const inputVideoCreditsPerSecond = pricingNumber(inputPriceTable?.[resolution], 0, 0, 6);
     if (!(creditsPerSecond > 0)) {
       const error = advancedValidationError(
         "MODEL_PRICING_UNAVAILABLE",
-        `Vega 1.5 Lite ${resolution.toUpperCase()} pricing is not configured. Generation was not started.`,
+        `${providerLabel} ${resolution.toUpperCase()} pricing is not configured. Generation was not started.`,
         { resolution },
       );
       error.statusCode = 422;
@@ -680,21 +690,36 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     if (hasVideoInput && !(inputVideoCreditsPerSecond > 0)) {
       const error = advancedValidationError(
         "MODEL_PRICING_UNAVAILABLE",
-        `Vega 1.5 Lite ${resolution.toUpperCase()} input-video pricing is not configured. Generation was not started.`,
+        `${providerLabel} ${resolution.toUpperCase()} input-video pricing is not configured. Generation was not started.`,
         { resolution, rateKind: "video_input" },
+      );
+      error.statusCode = 422;
+      throw error;
+    }
+    const referenceImageCount = Math.max(0, Math.floor(Number(options.referenceImageCount || 0) || 0));
+    const billableReferenceImageCount = isVega10Lite ? Math.max(0, referenceImageCount - 5) : 0;
+    const referenceImageCreditsEach = isVega10Lite
+      ? pricingNumber(advancedPricing.vega10LiteReferenceImageCreditsEach, 0, 0, 6)
+      : 0;
+    if (billableReferenceImageCount > 0 && !(referenceImageCreditsEach > 0)) {
+      const error = advancedValidationError(
+        "MODEL_PRICING_UNAVAILABLE",
+        `${providerLabel} extra-reference-image pricing is not configured. Generation was not started.`,
+        { rateKind: "reference_image" },
       );
       error.statusCode = 422;
       throw error;
     }
     const outputCredits = creditsAmount(billingDuration * creditsPerSecond);
     const inputVideoCredits = creditsAmount(hasVideoInput ? inputVideoSeconds * inputVideoCreditsPerSecond : 0);
-    const credits = creditsAmount(outputCredits + inputVideoCredits);
+    const referenceImageCredits = creditsAmount(billableReferenceImageCount * referenceImageCreditsEach);
+    const credits = creditsAmount(outputCredits + inputVideoCredits + referenceImageCredits);
     return {
       provider: normalizedProvider,
-      providerLabel: "Vega 1.5 Lite",
-      model: "wand-vega-video / 1.5-lite",
-      duration,
-      requestedDuration: duration,
+      providerLabel,
+      model: `wand-vega-video / ${modelVersion}`,
+      duration: normalizedDuration,
+      requestedDuration: normalizedDuration,
       billingDuration,
       adaptiveDuration,
       resolution,
@@ -704,10 +729,16 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       inputVideoSeconds,
       inputVideoCreditsPerSecond,
       inputVideoCredits,
+      referenceImageCount,
+      billableReferenceImageCount,
+      referenceImageCreditsEach,
+      referenceImageCredits,
       baseCredits: credits,
       credits,
       markup: 1,
-      source: hasVideoInput ? "configured_h3_vega_input_and_output_duration_rates" : "configured_h3_vega_output_duration_rate",
+      source: hasVideoInput || billableReferenceImageCount > 0
+        ? `configured_${isVega10Lite ? "vega10_lite" : "h3_vega"}_input_output_and_reference_rates`
+        : `configured_${isVega10Lite ? "vega10_lite" : "h3_vega"}_output_duration_rate`,
     };
   }
   if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);

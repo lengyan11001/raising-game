@@ -1,3 +1,16 @@
+function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvider()) {
+  const normalized = normalizeAdvancedProvider(provider);
+  if (isVegaProviderId(normalized) && normalized === "vega10-lite") {
+    return kind === "image"
+      ? ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES
+      : kind === "video"
+        ? ADVANCED_VEGA10_LITE_VIDEO_MAX_BYTES
+        : ADVANCED_VEGA10_LITE_AUDIO_MAX_BYTES;
+  }
+  if (kind === "image") return ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES;
+  return ADVANCED_WAN_CLIP_MAX_BYTES;
+}
+
 function vegaMediaSource(item = {}) {
   return vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || "");
 }
@@ -43,7 +56,7 @@ async function handleAdvancedVegaLocalFiles(files = []) {
         });
         continue;
       }
-      if (kind === "image" && file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+      if (file.size > advancedMediaUploadMaxBytes(kind, provider)) {
         rejected = true;
         if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.referenceImageTooLarge");
         continue;

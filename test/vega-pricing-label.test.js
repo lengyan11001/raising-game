@@ -73,7 +73,7 @@ function loadHelpers(state) {
      return { advancedEstimateKey, advancedCostLabel };`,
   )(
     state,
-    (provider) => provider === "h3-vega",
+    (provider) => ["h3-vega", "vega10-lite"].includes(provider),
     (provider) => String(provider || ""),
     () => "Vega 1.5 Lite",
     (pricing) => String(pricing?.message || "Pricing unavailable. Generation was not started."),
@@ -135,4 +135,17 @@ test("Vega Lite estimate key changes with reference-video duration", () => {
   const withReference = keyFor(helpers, { inputVideoSeconds: 7, referenceVideoDurations: [7], referenceVideoUrls: [] });
 
   assert.notEqual(withReference, withoutReference);
+});
+
+
+test("Vega 1.0 Lite renders its successful estimate instead of a pricing error", () => {
+  const state = { user: { pricingMultiplier: 1 }, advancedEstimateFailureKey: "" };
+  const helpers = loadHelpers(state);
+  const options = { inputVideoSeconds: 3, referenceVideoDurations: [3], referenceVideoUrls: ["https://cdn.example.com/ref.mp4"], referenceImageCount: 7 };
+  state.advancedEstimateKey = helpers.advancedEstimateKey(5, "vega10-lite", "768P", "16:9", options);
+  state.advancedEstimate = { available: true, credits: 78.24, duration: 5, resolution: "768P", videoInputSeconds: 3 };
+
+  const label = helpers.advancedCostLabel(5, "vega10-lite", "768P", "16:9", options);
+  assert.equal(label, "78.24 credits · 5s + input 3s - 768P");
+  assert.doesNotMatch(label, /pricing|unavailable|not configured/i);
 });

@@ -461,13 +461,13 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: `Create an asynchronous ${definition.label} video task through Tencent VOD.`, default: "-" },
     { name: "provider", type: "string", required: "Yes", description: `Use \`${definition.id}\`.`, default: definition.id },
-    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt. Prompt enhancement is controlled by enhancePromptMode.", default: "-" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt, max 7000 characters. Prompt enhancement is controlled by enhancePromptMode.", default: "-" },
     { name: "mediaMode", type: "enum", required: "No", description: "`text_to_video`, `first_frame`, `last_frame`, `first_last_frame`, `reference_video`, or `draft_followup`.", default: "text_to_video" },
     { name: "firstFrameUrl", type: "string", required: "For first_frame / first_last_frame", description: "Public HTTP(S) first-frame image URL. Asset IDs and data URLs are not accepted.", default: "-" },
     { name: "lastFrameUrl", type: "string", required: "For last_frame / first_last_frame", description: "Public HTTP(S) last-frame image URL. This is a standalone mode and does not require a first frame.", default: "-" },
-    { name: "referenceImages", type: "array", required: "No", description: "Public HTTP(S) image reference URLs.", default: "[]" },
-    { name: "referenceVideos", type: "array", required: "No", description: "Public HTTP(S) video reference URLs. Edit and extend require at least one.", default: "[]" },
-    { name: "referenceAudios", type: "array", required: "No", description: "Public HTTP(S) audio reference URLs. Audio must be paired with an image or video.", default: "[]" },
+    { name: "referenceImages", type: "array", required: "No", description: definition.id === "vega10-lite" ? "Public HTTP(S) image reference URLs: JPG/JPEG, PNG, WebP, HEIC, or HEIF; max 30MB each." : "Public HTTP(S) image reference URLs.", default: "[]" },
+    { name: "referenceVideos", type: "array", required: "No", description: definition.id === "vega10-lite" ? "Public HTTP(S) video reference URLs: H.264/AVC or H.265/HEVC; max 50MB each." : "Public HTTP(S) video reference URLs. Edit and extend require at least one.", default: "[]" },
+    { name: "referenceAudios", type: "array", required: "No", description: definition.id === "vega10-lite" ? "Public HTTP(S) WAV or MP3 audio reference URLs, max 15MB each. Audio must be paired with an image or video." : "Public HTTP(S) audio reference URLs. Audio must be paired with an image or video.", default: "[]" },
     { name: "resolution", type: "enum", required: "No", description: resolutions.map((item) => `\`${item}\``).join(", "), default: "1080P" },
     { name: "ratio", type: "enum", required: "No", description: ratios.map((item) => `\`${item}\``).join(", "), default: "16:9" },
     { name: "duration", type: "integer", required: "No", description: `Integer ${bounds.min}-${bounds.max} seconds${bounds.smart ? ", or -1 for smart duration" : ""}. Edit requires -1.`, default: String(bounds.fallback) },
@@ -483,7 +483,7 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
     { name: "generateMode", type: "enum", required: "No", description: "`Standard`, `Fast`, or `StandardMovie`.", default: "Standard" },
     { name: "videoQualityMode", type: "enum", required: "No", description: "`Standard`, `Fast`, or `SuperFast`.", default: "Standard" },
     { name: "outputFormat", type: "enum", required: "No", description: "`mp4` or `mov`.", default: "mp4" },
-    { name: "pricing", type: "rule", required: "Yes", description: "Vega pricing is not configured. Requests fail with HTTP 422 `MODEL_PRICING_UNAVAILABLE` before charging or calling upstream.", default: "-" },
+    { name: "pricing", type: "rule", required: "Yes", description: "Vega prices come from PostgreSQL admin pricing. Requests fail with HTTP 422 `MODEL_PRICING_UNAVAILABLE` before charging or calling upstream when a required rate is missing.", default: "-" },
     { name: "media transport", type: "rule", required: "Yes", description: "Inputs are sent as `FileInfos` with `Usage` values `FirstFrame`, `LastFrame`, or `Reference`. Use public URLs only; never send asset IDs or data URLs.", default: "-" },
   ];
 }
@@ -497,9 +497,11 @@ function vegaProviderExample(provider = "seedance25-vega") {
       : "Use the supplied references to create a cinematic shot.",
     ...(definition.id === "h3-vega"
       ? { referenceVideos: ["https://example.com/reference.mp4"] }
+      : definition.id === "vega10-lite"
+      ? { mediaMode: "first_frame", firstFrameUrl: "https://example.com/first-frame.png" }
       : { referenceImages: ["https://example.com/reference.png"] }),
     ratio: definition.id === "h3-vega" ? "21:9" : "16:9",
-    resolution: definition.id === "seedance25-vega" ? "2K" : "1080P",
+    resolution: definition.id === "seedance25-vega" ? "2K" : definition.id === "vega10-lite" ? "768P" : "1080P",
     duration: advancedDurationBounds(definition.id).fallback,
   };
 }
@@ -733,11 +735,12 @@ function advancedGenerateConstraintsDoc() {
       providers: [
         { id: "seedance25-vega", label: "Vega 1.5 Pro", modelName: "wand-vega-video", modelVersion: "1.5-pro" },
         { id: "h3-vega", label: "Vega 1.5 Lite", modelName: "wand-vega-video", modelVersion: "1.5-lite" },
+        { id: "vega10-lite", label: "Vega 1.0 Lite", modelName: "wand-vega-video", modelVersion: "1.0-lite" },
       ],
       route: "/api/advanced/generate",
       modes: ["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video", "draft_followup"],
       taskTypes: { "seedance25-vega": ["auto", "reference", "edit", "extend"], otherModels: ["auto", "reference"] },
-      durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance25-vega": 5, "h3-vega": 6 } },
+      durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance25-vega": 5, "h3-vega": 6, "vega10-lite": 5 }, perModel: { "seedance25-vega": "4-30 or -1", "h3-vega": "2-30 or -1", "vega10-lite": "4-15, no -1" } },
       resolution: ["480P", "720P", "768P", "1080P", "2K", "4K"],
       ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
       fileInfoUsage: ["FirstFrame", "LastFrame", "Reference"],
@@ -747,7 +750,7 @@ function advancedGenerateConstraintsDoc() {
       draftRule: "Draft requires 480P; Draft to Final uses draft_task_id with no prompt or media inputs.",
       mediaTransport: "Media: public HTTP(S) URLs only. FileInfos use Usage FirstFrame, LastFrame, or Reference. Asset IDs and data URLs are rejected.",
       extInfo: ["return_last_frame", "draft", "draft_task_id", "omni_reference_task_type", "asset_group_id", "output_format", "EnhancePromptMode", "ModerationMode", "ReturnVegaUsage", "GenerateMode", "VideoQualityMode"],
-      pricing: "Vega pricing is not configured; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream.",
+      pricing: "Vega prices are configured in PostgreSQL through the admin pricing API; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream when a required rate is missing.",
     },
     wan27: {
       provider: "wan27",
@@ -835,7 +838,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and the two Vega video models use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and the three Vega video models use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -849,6 +852,7 @@ function externalAdvancedApiDoc(origin) {
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.5 Pro", provider: "seedance25-vega", model: "wand-vega-video / 1.5-pro", capability: "text / frames / references / edit / extend / draft", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.5 Lite", provider: "h3-vega", model: "wand-vega-video / 1.5-lite", capability: "text / frames / references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Vega 1.0 Lite", provider: "vega10-lite", model: "wand-vega-video / 1.0-lite", capability: "text / first frame / last frame / first_last_frame / multimodal references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Z-Image Spicy Pro", model: "z-image-spicy-pro", capability: "text-to-image", create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
@@ -1046,6 +1050,20 @@ function externalAdvancedApiDoc(origin) {
         ratio: "21:9",
         resolution: "4K",
         duration: 6,
+      },
+    },
+    vega10LiteExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: "vega10-lite",
+        prompt: "Create a polished cinematic shot that follows the supplied frames.",
+        mediaMode: "first_frame",
+        firstFrameUrl: "https://example.com/first-frame.png",
+        ratio: "16:9",
+        resolution: "768P",
+        duration: 5,
       },
     },
     wan27Example: {

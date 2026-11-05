@@ -209,7 +209,7 @@ function publicModelDocsView(docs = {}) {
   const publicModelFamilies = [
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
-    "Vega 1.5 Pro and Vega 1.5 Lite use the Advanced route.",
+    "Vega 1.5 Pro, Vega 1.5 Lite, and Vega 1.0 Lite use the Advanced route.",
     ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
   ];
@@ -365,6 +365,7 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
     { title: "Vega 1.5 Pro", example: external.seedance25VegaExample, fields: () => vegaVideoParameterFields("seedance25-vega") },
     { title: "Vega 1.5 Lite", example: external.h3VegaExample, fields: () => vegaVideoParameterFields("h3-vega") },
+    { title: "Vega 1.0 Lite", example: external.vega10LiteExample, fields: () => vegaVideoParameterFields("vega10-lite") },
   ];
   for (const section of advancedSections) {
     if (!section.example) continue;
@@ -509,7 +510,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     `- Endpoint: \`${vega.route || "/api/advanced/generate"}\` with \`provider\`: ${(vega.providers || []).map((item) => `\`${item.id}\``).join(", ")}.`,
     `- \`modes\`: ${(vega.modes || ["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video", "draft_followup"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`duration\`: integer ${vega.durationSeconds?.min ?? 2}-${vega.durationSeconds?.max ?? 30} seconds; Vega 1.5 Pro and Vega 1.5 Lite also accept -1 (smart duration). Edit requires -1.`,
+    `- \`duration\`: per-model limits: Vega 1.5 Pro ${advancedDurationBounds("seedance25-vega").min}-${advancedDurationBounds("seedance25-vega").max} or -1; Vega 1.5 Lite ${advancedDurationBounds("h3-vega").min}-${advancedDurationBounds("h3-vega").max} or -1; Vega 1.0 Lite ${advancedDurationBounds("vega10-lite").min}-${advancedDurationBounds("vega10-lite").max} with no smart duration.`,
     `- \`resolution\`: ${(vega.resolution || ["480P", "720P", "768P", "1080P", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")} (per-model limits apply).`,
     `- \`ratio\`: ${(vega.ratio || ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- ${vega.mediaTransport || `${vega.mediaUrl || "Use public HTTP(S) URLs only."} FileInfos use Usage FirstFrame, LastFrame, or Reference.`}`,
@@ -762,9 +763,9 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "**Vega video models**",
     "",
-    "`Vega 1.5 Pro` and `Vega 1.5 Lite` use Tencent VOD through the same Advanced route. Both support text, first frame, last frame, first + last frame, and multimodal references. Vega 1.5 Pro additionally supports edit, extend, Draft, and Draft to Final. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Vega pricing is not configured, so requests fail before charging or calling upstream.",
+    "`Vega 1.5 Pro`, `Vega 1.5 Lite`, and `Vega 1.0 Lite` use Tencent VOD International through the same Advanced route. All three support text, first frame, last frame, first + last frame, and multimodal references. Vega 1.5 Pro additionally supports edit, extend, Draft, and Draft to Final. Vega 1.0 Lite supports 480P/768P/1080P/2K/4K, 4-15 second outputs, 9 images, 3 videos, 3 audios, and 12 references total. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Prices are stored in PostgreSQL and missing rates fail closed before charging or calling upstream.",
     "",
-    ...["seedance25-vega", "h3-vega"].flatMap((provider) => [
+    ...["seedance25-vega", "h3-vega", "vega10-lite"].flatMap((provider) => [
       `**${vegaProviderLabel(provider)} (provider \`${provider}\`)**`,
       "",
       markdownCodeBlock("http", [

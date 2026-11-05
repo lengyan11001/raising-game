@@ -960,6 +960,21 @@ const DEFAULT_ADVANCED_PRICING = {
     "2k": 27,
     "4k": 27,
   },
+  vega10LiteCreditsPerSecondByResolution: {
+    "480p": 6.855,
+    "768p": 8.655,
+    "1080p": 11.535,
+    "2k": 14.43,
+    "4k": 17.31,
+  },
+  vega10LiteInputVideoCreditsPerSecondByResolution: {
+    "480p": 6.855,
+    "768p": 8.655,
+    "1080p": 11.535,
+    "2k": 14.43,
+    "4k": 17.31,
+  },
+  vega10LiteReferenceImageCreditsEach: 4.5,
   seedanceNsfwCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p"),
@@ -1131,6 +1146,9 @@ const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2";
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 140, 1, 200) * 1024 * 1024);
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
+const VEGA_10_LITE_IMAGE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
+const VEGA_10_LITE_VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+const VEGA_10_LITE_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const WAN30_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const WAN30_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const WAN30_DOCUMENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;

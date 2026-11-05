@@ -764,6 +764,12 @@ function normalizeAdvancedPricing(pricing = {}) {
   const h3VegaInputVideo = source.h3VegaInputVideoCreditsPerSecondByResolution && typeof source.h3VegaInputVideoCreditsPerSecondByResolution === "object"
     ? source.h3VegaInputVideoCreditsPerSecondByResolution
     : {};
+  const vega10Lite = source.vega10LiteCreditsPerSecondByResolution && typeof source.vega10LiteCreditsPerSecondByResolution === "object"
+    ? source.vega10LiteCreditsPerSecondByResolution
+    : {};
+  const vega10LiteInputVideo = source.vega10LiteInputVideoCreditsPerSecondByResolution && typeof source.vega10LiteInputVideoCreditsPerSecondByResolution === "object"
+    ? source.vega10LiteInputVideoCreditsPerSecondByResolution
+    : {};
   const seedanceNsfw = source.seedanceNsfwCreditsPerSecondByResolution && typeof source.seedanceNsfwCreditsPerSecondByResolution === "object"
     ? source.seedanceNsfwCreditsPerSecondByResolution
     : {};
@@ -998,6 +1004,21 @@ function normalizeAdvancedPricing(pricing = {}) {
       "2k": normalizeStoredCredits(h3VegaInputVideo["2k"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["2k"], 6),
       "4k": normalizeStoredCredits(h3VegaInputVideo["4k"], DEFAULT_ADVANCED_PRICING.h3VegaInputVideoCreditsPerSecondByResolution["4k"], 6),
     },
+    vega10LiteCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(vega10Lite["480p"], DEFAULT_ADVANCED_PRICING.vega10LiteCreditsPerSecondByResolution["480p"], 6),
+      "768p": normalizeStoredCredits(vega10Lite["768p"], DEFAULT_ADVANCED_PRICING.vega10LiteCreditsPerSecondByResolution["768p"], 6),
+      "1080p": normalizeStoredCredits(vega10Lite["1080p"], DEFAULT_ADVANCED_PRICING.vega10LiteCreditsPerSecondByResolution["1080p"], 6),
+      "2k": normalizeStoredCredits(vega10Lite["2k"], DEFAULT_ADVANCED_PRICING.vega10LiteCreditsPerSecondByResolution["2k"], 6),
+      "4k": normalizeStoredCredits(vega10Lite["4k"], DEFAULT_ADVANCED_PRICING.vega10LiteCreditsPerSecondByResolution["4k"], 6),
+    },
+    vega10LiteInputVideoCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(vega10LiteInputVideo["480p"], DEFAULT_ADVANCED_PRICING.vega10LiteInputVideoCreditsPerSecondByResolution["480p"], 6),
+      "768p": normalizeStoredCredits(vega10LiteInputVideo["768p"], DEFAULT_ADVANCED_PRICING.vega10LiteInputVideoCreditsPerSecondByResolution["768p"], 6),
+      "1080p": normalizeStoredCredits(vega10LiteInputVideo["1080p"], DEFAULT_ADVANCED_PRICING.vega10LiteInputVideoCreditsPerSecondByResolution["1080p"], 6),
+      "2k": normalizeStoredCredits(vega10LiteInputVideo["2k"], DEFAULT_ADVANCED_PRICING.vega10LiteInputVideoCreditsPerSecondByResolution["2k"], 6),
+      "4k": normalizeStoredCredits(vega10LiteInputVideo["4k"], DEFAULT_ADVANCED_PRICING.vega10LiteInputVideoCreditsPerSecondByResolution["4k"], 6),
+    },
+    vega10LiteReferenceImageCreditsEach: normalizeStoredCredits(source.vega10LiteReferenceImageCreditsEach, DEFAULT_ADVANCED_PRICING.vega10LiteReferenceImageCreditsEach, 6),
     seedanceNsfwCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceNsfw["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(seedanceNsfw["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["720p"], 6),
@@ -1160,6 +1181,9 @@ function publicAdvancedPricingView(pricing = {}) {
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
     h3VegaCreditsPerSecondByResolution: { ...normalized.h3VegaCreditsPerSecondByResolution },
     h3VegaInputVideoCreditsPerSecondByResolution: { ...normalized.h3VegaInputVideoCreditsPerSecondByResolution },
+    vega10LiteCreditsPerSecondByResolution: { ...normalized.vega10LiteCreditsPerSecondByResolution },
+    vega10LiteInputVideoCreditsPerSecondByResolution: { ...normalized.vega10LiteInputVideoCreditsPerSecondByResolution },
+    vega10LiteReferenceImageCreditsEach: normalized.vega10LiteReferenceImageCreditsEach,
     seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
     seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
     seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },

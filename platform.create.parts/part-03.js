@@ -366,6 +366,21 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = "Vega audio references require at least one image or video reference.";
       return;
     }
+    const vegaReferenceLimits = vegaReferenceLimits(provider);
+    const vegaReferenceTotal = vegaReferenceImages.length + vegaReferenceVideos.length + vegaReferenceAudios.length;
+    if (vegaReferenceImages.length > vegaReferenceLimits.images || vegaReferenceVideos.length > vegaReferenceLimits.videos || vegaReferenceAudios.length > vegaReferenceLimits.audios || vegaReferenceTotal > vegaReferenceLimits.total) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = `Vega references exceed the ${advancedProviderLabel(provider)} limit (images ${vegaReferenceLimits.images}, videos ${vegaReferenceLimits.videos}, audio ${vegaReferenceLimits.audios}, total ${vegaReferenceLimits.total}).`;
+      return;
+    }
+    const vegaReferenceVideoDurations = vegaVideoItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0));
+    const vegaReferenceAudioDurations = vegaAudioItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0));
+    const vegaMediaDurationError = advancedVegaMediaDurationError(provider, vegaReferenceVideoDurations, vegaReferenceAudioDurations, vegaReferenceVideos.length, vegaReferenceAudios.length);
+    if (vegaMediaDurationError) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = vegaMediaDurationError;
+      return;
+    }
     if (["edit", "extend"].includes(vegaOptions.taskType)) {
       if (!vegaUsesReferences || !vegaReferenceVideos.length) {
         els.advancedSubmitBtn.disabled = false;
@@ -396,10 +411,11 @@ async function submitAdvancedGenerate() {
       ...(vegaUsesLastFrame ? { lastFrameUrl: vegaLastFrameUrl } : {}),
       ...(vegaUsesReferences ? {
         referenceImages: vegaReferenceImages,
+        referenceImageCount: vegaReferenceImages.length,
         referenceVideos: vegaReferenceVideos,
-        referenceVideoDurations: vegaVideoItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0)),
+        referenceVideoDurations: vegaReferenceVideoDurations,
         referenceAudios: vegaReferenceAudios,
-        referenceAudioDurations: vegaAudioItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0)),
+        referenceAudioDurations: vegaReferenceAudioDurations,
       } : {}),
     };
     if (vegaDraftFollowup) {
@@ -1050,7 +1066,7 @@ async function handleAdvancedPromptPaste(event) {
   event.preventDefault();
   const provider = currentAdvancedProvider();
   const referenceLimit = rule.limit;
-  const maxBytes = currentAdvancedProvider() === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES : ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES;
+  const maxBytes = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES : advancedMediaUploadMaxBytes("image", provider);
   const validFiles = files.filter((file) => file.size <= maxBytes);
   if (validFiles.length !== files.length && els.advancedNote) {
     els.advancedNote.textContent = t("advanced.referenceImageTooLarge");

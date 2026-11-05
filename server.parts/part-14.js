@@ -194,7 +194,7 @@ function decodeWanMediaDataUrl(dataUrl = "") {
   }
   const mime = match[1].toLowerCase().replace("image/jpg", "image/jpeg").replace("audio/mp3", "audio/mpeg");
   const supportedMediaMimes = new Set([
-    "image/png", "image/jpeg", "image/webp", "image/bmp",
+    "image/png", "image/jpeg", "image/webp", "image/bmp", "image/heic", "image/heif",
     "audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm",
     "video/mp4", "video/webm", "video/quicktime", "video/x-m4v",
   ]);
@@ -310,11 +310,19 @@ function isAutoPresetReferenceAsset(asset = {}) {
 }
 
 function userMediaUploadLimits(provider = "") {
-  if (normalizeAdvancedProvider(provider) === "wan30") {
+  const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "wan30") {
     return {
       image: IMAGE_UPLOAD_MAX_BYTES,
       video: WAN30_VIDEO_UPLOAD_MAX_BYTES,
       audio: WAN30_AUDIO_UPLOAD_MAX_BYTES,
+    };
+  }
+  if (normalized === "vega10-lite") {
+    return {
+      image: VEGA_10_LITE_IMAGE_UPLOAD_MAX_BYTES,
+      video: VEGA_10_LITE_VIDEO_UPLOAD_MAX_BYTES,
+      audio: VEGA_10_LITE_AUDIO_UPLOAD_MAX_BYTES,
     };
   }
   return { image: IMAGE_UPLOAD_MAX_BYTES, video: MEDIA_UPLOAD_MAX_BYTES, audio: MEDIA_UPLOAD_MAX_BYTES };

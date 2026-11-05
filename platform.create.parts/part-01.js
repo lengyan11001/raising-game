@@ -242,7 +242,7 @@ function advancedVegaPayloadOptions(provider = currentAdvancedProvider()) {
     draftTaskId: draftFollowup ? draftTaskId : "",
     assetGroupId: String(els.advancedVegaAssetGroupId?.value || "").trim(),
     generateAudio: String(els.advancedSeedanceGenerateAudio?.value || "true") !== "false",
-    returnLastFrame: Boolean(els.advancedVegaReturnLastFrame?.checked),
+    returnLastFrame: caps?.returnLastFrame === false ? false : Boolean(els.advancedVegaReturnLastFrame?.checked),
     returnVegaUsage: Boolean(els.advancedVegaReturnUsage?.checked),
     enhancePromptMode: String(els.advancedVegaEnhancePromptMode?.value || "auto"),
     moderationMode: String(els.advancedVegaModerationMode?.value || "Moderation_L1"),
@@ -992,7 +992,7 @@ async function uploadAdvancedAssets(files = []) {
           name: file.name || "Upload",
           fileName: file.name || "",
           durationSeconds,
-          provider: isWan30DocumentFile(file) ? "wan30" : undefined,
+          provider: isWan30DocumentFile(file) ? "wan30" : currentAdvancedProvider(),
         },
       });
       uploaded += 1;

@@ -64,6 +64,9 @@ const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_CLIENT_IMAGE_MAX_PIXELS = 2000000;
 const ADVANCED_CLIENT_IMAGE_JPEG_QUALITY = 0.88;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_VEGA10_LITE_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const ADVANCED_VEGA10_LITE_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
 const OURDREAM_PRESET_URL = "/api/ourdream/presets";
@@ -449,24 +452,29 @@ const ADVANCED_CREATE_MODES = {
 const VEGA_PROVIDER_IDS = Object.freeze([
   "seedance25-vega",
   "h3-vega",
+  "vega10-lite",
 ]);
 const VEGA_MODEL_LABELS = Object.freeze({
   "seedance25-vega": "Vega 1.5 Pro",
   "h3-vega": "Vega 1.5 Lite",
+  "vega10-lite": "Vega 1.0 Lite",
 });
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_DURATION_BOUNDS = Object.freeze({
   "seedance25-vega": Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
   "h3-vega": Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
+  "vega10-lite": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
 });
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
   "seedance25-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true }),
   "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false }),
+  "vega10-lite": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true, returnLastFrame: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
 });
 const VEGA_REFERENCE_LIMITS = Object.freeze({
   "seedance25-vega": Object.freeze({ images: 30, videos: 10, audios: 10, total: 50 }),
   "h3-vega": Object.freeze({ images: 10, videos: 5, audios: 5, total: 20 }),
+  "vega10-lite": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
 });
 
 function isVegaProviderId(value = "") {
@@ -480,6 +488,28 @@ function vegaCapabilities(provider = "") {
 
 function vegaReferenceLimits(provider = "") {
   return VEGA_REFERENCE_LIMITS[String(provider || "").trim().toLowerCase()] || VEGA_REFERENCE_LIMITS["seedance25-vega"];
+}
+
+function advancedVegaMediaDurationError(provider = "", videoDurations = [], audioDurations = [], videoCount = 0, audioCount = 0) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  if (!isVegaProviderId(normalizedProvider)) return "";
+  const limits = vegaReferenceLimits(normalizedProvider);
+  const caps = vegaCapabilities(normalizedProvider) || {};
+  const min = Number(caps.perFileMinSeconds || 0);
+  const max = Number(caps.perFileMaxSeconds || 0);
+  const videos = (Array.isArray(videoDurations) ? videoDurations : []).map(Number).filter((value) => value > 0);
+  const audios = (Array.isArray(audioDurations) ? audioDurations : []).map(Number).filter((value) => value > 0);
+  if (min > 0 && max > 0) {
+    if (videos.length !== Number(videoCount || 0)) return "Each Vega reference video must have a readable duration.";
+    if (audios.length !== Number(audioCount || 0)) return "Each Vega reference audio must have a readable duration.";
+    if (videos.some((seconds) => seconds < min || seconds > max)) return `Each Vega reference video must be ${min}-${max} seconds.`;
+    if (audios.some((seconds) => seconds < min || seconds > max)) return `Each Vega reference audio must be ${min}-${max} seconds.`;
+  }
+  const videoSeconds = videos.reduce((sum, seconds) => sum + seconds, 0);
+  const audioSeconds = audios.reduce((sum, seconds) => sum + seconds, 0);
+  if (Number(caps.videoSeconds || 0) > 0 && videoSeconds > Number(caps.videoSeconds)) return `Vega reference videos must total ${caps.videoSeconds} seconds or less.`;
+  if (Number(caps.audioSeconds || 0) > 0 && audioSeconds > Number(caps.audioSeconds)) return `Vega reference audio must total ${caps.audioSeconds} seconds or less.`;
+  return "";
 }
 
 function normalizeVegaUiMediaMode(value = "") {

@@ -663,6 +663,8 @@ function decodeAudioDataUrl(dataUrl) {
 
 function imageMimeFromPath(filePath) {
   const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".heic") return "image/heic";
+  if (ext === ".heif") return "image/heif";
   if (ext === ".png") return "image/png";
   if (ext === ".webp") return "image/webp";
   if (ext === ".bmp") return "image/bmp";
@@ -672,7 +674,7 @@ function imageMimeFromPath(filePath) {
 
 function imageMimeFromKnownPath(filePath) {
   const ext = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
-  if (![".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"].includes(ext)) return "";
+  if (![".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".heic", ".heif"].includes(ext)) return "";
   return imageMimeFromPath(filePath);
 }
 

@@ -149,3 +149,12 @@ CODEX_TASK_STATE.md
 - Never deploy `old-site` directly. Do not deploy Live for this task.
 - Do not print or commit `LOCAL_CREDENTIALS.md`.
 - Business/runtime data remains PostgreSQL-only.
+
+## Diagnosis (2026-11-05): cgt-20261105092021-4b09c0
+
+- Upstream Tencent VOD task: `1524935253-AigcVideoTask-a02321d6a8d0b6f5417a8ce3835b775ft`.
+- Upstream status: `FINISH`, task err code `70000`, ext code `InvalidParameter.ViolationContent`.
+- Message: `task failed with status: FAIL, message: Input Prompt violates policy`.
+- Failure occurred 21 seconds after creation; it is an upstream content-policy rejection, not an API/parameter or model availability failure.
+- Pricing was 1080P x 6s = 162 credits. `app_credit_ledger` contains the 162 deduction but no `generation_refund` entry for this task.
+- Current failed record still has `billingStatus: pre_deducted` and `finalCredits: 0`. Existing `needsSeedanceFailureRefund()` requires `finalCredits > 0`, so it does not trigger on this already-zeroed failed record. This is a real refund-repair gap, separate from the upstream rejection.

@@ -111,7 +111,7 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
   }
   const maxBytes = wan30
     ? (kind === "audio" ? ADVANCED_WAN30_AUDIO_MAX_BYTES : ADVANCED_WAN30_VIDEO_MAX_BYTES)
-    : ADVANCED_WAN_CLIP_MAX_BYTES;
+    : advancedMediaUploadMaxBytes(kind, provider);
   if (file.size > maxBytes || (wan30 && file.size === maxBytes)) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
     return null;
@@ -126,7 +126,21 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
     }
   }
   const durationSeconds = await readMediaDuration(file);
-  if (kind === "video") {
+  const vegaCaps = isVegaAdvancedProvider(provider) ? vegaCapabilities(provider) : null;
+  if (vegaCaps?.perFileMinSeconds > 0) {
+    if (!(durationSeconds >= vegaCaps.perFileMinSeconds && durationSeconds <= vegaCaps.perFileMaxSeconds)) {
+      if (els.advancedNote) els.advancedNote.textContent = `Vega reference ${kind} duration must be between ${vegaCaps.perFileMinSeconds} and ${vegaCaps.perFileMaxSeconds} seconds.`;
+      return null;
+    }
+    const existing = kind === "audio" ? advancedSeedanceAudioReferences() : advancedSeedanceVideoReferences();
+    const totalSeconds = existing.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0) + durationSeconds;
+    const totalLimit = kind === "audio" ? vegaCaps.audioSeconds : vegaCaps.videoSeconds;
+    if (totalLimit > 0 && totalSeconds > totalLimit) {
+      if (els.advancedNote) els.advancedNote.textContent = `Vega reference ${kind}s must total ${totalLimit} seconds or less.`;
+      return null;
+    }
+  }
+  if (kind === "video" && !vegaCaps) {
     const durationMessage = advancedVideoInputDurationMessage(durationSeconds, provider, currentAdvancedVideoCapability());
     if (durationMessage) {
       if (els.advancedNote) els.advancedNote.textContent = durationMessage;
@@ -771,6 +785,10 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-vega-option").forEach((item) => {
     item.hidden = !vegaProvider;
   });
+  els.advancedVegaReturnLastFrame?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.returnLastFrame === false);
+  if (!vegaProvider || vegaCaps?.returnLastFrame === false) {
+    if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = false;
+  }
   els.advancedVegaGenerateMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.generateMode === false);
   els.advancedVegaQualityMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.qualityMode === false);
   const vegaDraftOption = els.advancedVegaDraft?.closest(".advanced-vega-option");

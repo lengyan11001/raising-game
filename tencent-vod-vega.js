@@ -18,6 +18,12 @@ const VEGA_PROVIDERS = Object.freeze({
     modelName: VEGA_MODEL_NAME,
     modelVersion: "1.5-lite",
   }),
+  "vega10-lite": Object.freeze({
+    id: "vega10-lite",
+    label: "Vega 1.0 Lite",
+    modelName: VEGA_MODEL_NAME,
+    modelVersion: "1.0-lite",
+  }),
 });
 const VEGA_PROVIDER_IDS = Object.freeze(Object.keys(VEGA_PROVIDERS));
 const VEGA_USAGES = Object.freeze(new Set(["FirstFrame", "LastFrame", "Reference"]));
@@ -34,6 +40,7 @@ const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:1
 const VEGA_COMMON_MODES = Object.freeze(["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video"]);
 const VEGA_15_PRO_LIMITS = Object.freeze({ images: 30, videos: 10, audios: 10, total: 50, videoSeconds: 0, audioSeconds: 30 });
 const VEGA_15_LITE_LIMITS = Object.freeze({ images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 });
+const VEGA_10_LITE_LIMITS = Object.freeze({ images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15, perFileMinSeconds: 2, perFileMaxSeconds: 15 });
 
 function capability(overrides = {}) {
   return Object.freeze({
@@ -70,6 +77,13 @@ const VEGA_CAPABILITIES = Object.freeze({
     generateMode: false,
     qualityMode: false,
     limits: VEGA_15_LITE_LIMITS,
+  }),
+  "vega10-lite": capability({
+    resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]),
+    durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
+    frameRatioFromInput: true,
+    returnLastFrame: false,
+    limits: VEGA_10_LITE_LIMITS,
   }),
 });
 const VEGA_RESOLUTIONS = VEGA_ALL_RESOLUTIONS;
@@ -296,8 +310,21 @@ function validateVegaMediaCounts(provider, media, input = {}) {
   if (counts.audios > 0 && counts.images + counts.videos === 0) {
     throw mediaCombinationError("Reference audio must be paired with at least one reference image or video.");
   }
-  const videoDurations = (Array.isArray(input.referenceVideoDurations) ? input.referenceVideoDurations : []).map(Number).filter((n) => n > 0);
-  const audioDurations = (Array.isArray(input.referenceAudioDurations) ? input.referenceAudioDurations : []).map(Number).filter((n) => n > 0);
+  const videoDurationInput = Array.isArray(input.referenceVideoDurations) ? input.referenceVideoDurations : [];
+  const audioDurationInput = Array.isArray(input.referenceAudioDurations) ? input.referenceAudioDurations : [];
+  const videoDurations = videoDurationInput.map(Number).filter((n) => n > 0);
+  const audioDurations = audioDurationInput.map(Number).filter((n) => n > 0);
+  if (limits.perFileMinSeconds > 0 && limits.perFileMaxSeconds > 0) {
+    for (const [kind, durations, expectedCount] of [["video", videoDurations, counts.videos], ["audio", audioDurations, counts.audios]]) {
+      if (durations.length !== expectedCount) {
+        throw vegaValidationError(`Each reference ${kind} must have a readable duration.`, "MEDIA_DURATION_REQUIRED", { kind, expectedCount, receivedCount: durations.length, min: limits.perFileMinSeconds, max: limits.perFileMaxSeconds });
+      }
+      const invalid = durations.find((seconds) => seconds < limits.perFileMinSeconds || seconds > limits.perFileMaxSeconds);
+      if (invalid !== undefined) {
+        throw vegaValidationError(`Each reference ${kind} must be ${limits.perFileMinSeconds}-${limits.perFileMaxSeconds} seconds.`, "MEDIA_DURATION_LIMIT_EXCEEDED", { kind, duration: invalid, min: limits.perFileMinSeconds, max: limits.perFileMaxSeconds });
+      }
+    }
+  }
   if (limits.videoSeconds > 0 && videoDurations.reduce((sum, n) => sum + n, 0) > limits.videoSeconds) {
     throw vegaValidationError(`Reference videos exceed the ${limits.videoSeconds}s total limit.`, "MEDIA_DURATION_LIMIT_EXCEEDED", { limit: limits.videoSeconds });
   }
@@ -433,21 +460,20 @@ function normalizeVegaAudioGeneration(value, fallback = true) {
 
 function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
   const additional = {};
-  if (input.returnLastFrame === true || input.returnLastFrame === "true") additional.return_last_frame = true;
+  const caps = vegaProviderCapabilities(input.provider);
+  if (caps?.returnLastFrame && (input.returnLastFrame === true || input.returnLastFrame === "true")) additional.return_last_frame = true;
   if (draftTaskId) additional.draft_task_id = String(draftTaskId).trim();
   else if (input.draft === true || input.draft === "true") additional.draft = true;
   if (taskType && !["auto", "reference"].includes(taskType)) additional.omni_reference_task_type = taskType;
   if (String(input.assetGroupId || "").trim()) additional.asset_group_id = String(input.assetGroupId).trim();
   if (input.outputFormat) additional.output_format = normalizeVegaOutputFormat(input.outputFormat);
-  const caps = vegaProviderCapabilities(input.provider);
   const wand = {
     EnhancePromptMode: normalizeVegaPromptEnhanceMode(input.enhancePromptMode, input.provider),
     ModerationMode: normalizeVegaModerationMode(input.moderationMode),
     ReturnVegaUsage: Boolean(input.returnVegaUsage),
   };
-  // Tencent rejects these fields for Lite even though the public Lite guide
-  // lists them in a generic ExtInfo section. Keep the model-specific contract
-  // strict so a default UI value can never break an otherwise valid request.
+  // Vega 1.5 Lite rejects these fields in production. Vega 1.0 Lite documents
+  // and supports both model controls, so only h3-vega suppresses them.
   if (!caps || caps.generateMode) wand.GenerateMode = normalizeVegaGenerateMode(input.generateMode);
   if (!caps || caps.qualityMode) wand.VideoQualityMode = normalizeVegaQualityMode(input.videoQualityMode);
   const ext = {};
