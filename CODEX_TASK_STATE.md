@@ -6,7 +6,8 @@
 - Desktop Result list is independently scrollable with a capped height; mobile keeps natural flow. The custom Create form is independently scrollable and uses tighter desktop spacing, controls, and advanced-option gaps so Generate stays reachable in one viewport.
 - Verification: 86 focused Result/source tests pass; pagination slice regression passes; syntax and `git diff --check` pass. Six `advanced-custom-ui` Wan/pricing tests fail identically on the clean baseline and are pre-existing, not caused by this change.
 - Files: `platform.html`, `platform.css`, `platform.config.js`, `platform.main.js`, `platform.explore.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-03.js`, and related source-contract tests.
-- Deployment: pending.
+- Deployment: `old-site` `a5baa70`; `platform-release` `509e840`, built from `a5baa70` and pushed with lease protection. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; production checkout `509e840`, service active, health `200 {"ok":true}`. Live was not deployed.
+- Production verification: homepage references `platform.css?v=mw37z2lw` / `platform.js?v=mw37z2lw`; deployed `platform.html` includes `advancedResultPager`, `part-01.js` includes `advancedResultPageData`, and `platform.css` caps `.advanced-result-list` at `max-height: min(62vh, 720px)` with independent scrolling.
 
 ## Vega 1.0 Lite ModerationMode removal (2026-11-05)
 
