@@ -731,19 +731,49 @@ function showGenerationCompletionNotice(record = {}) {
   window.setTimeout(() => item.remove(), 6000);
 }
 
+const GENERATION_COMPLETION_STATUS_STORAGE_KEY = "raisingGameGenerationCompletionStatuses";
+const GENERATION_COMPLETION_STATUS_LIMIT = 300;
+
+function generationCompletionStatusStorageKey(userId = "") {
+  return userId ? `${GENERATION_COMPLETION_STATUS_STORAGE_KEY}:${userId}` : "";
+}
+
+function readGenerationCompletionStatuses(userId = "") {
+  const key = generationCompletionStatusStorageKey(userId);
+  if (!key) return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveGenerationCompletionStatuses() {
+  const key = generationCompletionStatusStorageKey(state.user?.id || "");
+  if (!key) return;
+  const entries = Object.entries(state.generationCompletionStatuses || {}).filter(([taskId, status]) => taskId && status);
+  const statuses = Object.fromEntries(entries.slice(-GENERATION_COMPLETION_STATUS_LIMIT));
+  try {
+    localStorage.setItem(key, JSON.stringify(statuses));
+  } catch {
+    // Notification persistence is best-effort; polling still works without it.
+  }
+}
+
 function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = []) {
+  state.generationCompletionStatuses = state.generationCompletionStatuses || {};
   const previousByTask = new Map((Array.isArray(previousRecords) ? previousRecords : [])
     .filter((record) => record?.taskId)
     .map((record) => [String(record.taskId), record]));
-  if (!state.generationCompletionPrimed) {
-    state.generationCompletionPrimed = true;
-    return;
-  }
   const completed = (Array.isArray(nextRecords) ? nextRecords : [])
     .filter((record) => record?.taskId && isCompletedGenerationRecord(record))
     .filter((record) => {
-      const previous = previousByTask.get(String(record.taskId));
-      return !previous || !isCompletedGenerationRecord(previous);
+      const taskId = String(record.taskId);
+      const rememberedStatus = state.generationCompletionStatuses[taskId];
+      const previousStatus = rememberedStatus || previousByTask.get(taskId)?.status;
+      if (!previousStatus || isTerminalGenerationStatus(previousStatus)) return false;
+      return isTerminalGenerationStatus(record.status);
     })
     .filter((record) => {
       const taskId = String(record.taskId);
@@ -752,6 +782,16 @@ function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = [
       state.generationCompletionNotified[taskId] = true;
       return true;
     });
+  (Array.isArray(nextRecords) ? nextRecords : []).forEach((record) => {
+    if (!record?.taskId || !record.status) return;
+    const taskId = String(record.taskId);
+    const previousStatus = state.generationCompletionStatuses[taskId];
+    // A terminal result is authoritative. Do not let a stale list response
+    // downgrade it and make the same task look newly completed on the next poll.
+    if (isTerminalGenerationStatus(previousStatus)) return;
+    state.generationCompletionStatuses[taskId] = String(record.status).toLowerCase();
+  });
+  saveGenerationCompletionStatuses();
   completed.slice(0, 3).forEach(showGenerationCompletionNotice);
   if (completed.length > 3) showGenerationCompletionNotice({ taskId: `${completed.length} records`, modelLabel: state.lang === "zh" ? `还有 ${completed.length - 3} 条` : `${completed.length - 3} more` });
 }

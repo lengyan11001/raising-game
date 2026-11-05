@@ -1,3 +1,14 @@
+## Generation notification transition-only fix (2026-11-05)
+
+- User reported generation notices reappeared on every page refresh.
+- Root cause: completion detection compared against the current in-memory list and reset that list whenever `setUser()` saw a transient/missing user id. Completed history was therefore treated as newly completed again.
+- Fix records the last observed status per task in account-scoped localStorage and emits a notice only when that task transitions from a non-terminal status to a terminal success/failure status.
+- Terminal statuses are never downgraded by stale list responses. First observation of an already-complete task is a baseline and does not notify.
+- Targeted refresh/history/Vega tests: 34 pass, 0 fail. Syntax and diff checks pass.
+- Merged current `origin/old-site` Vega 1.0 Pro work without conflicts. Related merged test suite: 96 pass, 0 fail.
+- `old-site`: `443d2b7`, pushed. `platform-release`: `10caf89`, built from `443d2b7`, pushed and deployed to `123vips.com` only.
+- Production health: `200 {"ok":true}`. Public `platform.ui.parts/part-02.js` contains the transition-only notification implementation. Live was not deployed.
+
 ## Vega Lite submit crash hotfix (2026-11-05)
 
 - User reported Vega 1.0 Lite submit button had no response after the latest changes.
