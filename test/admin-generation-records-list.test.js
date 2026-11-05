@@ -16,8 +16,8 @@ test("admin generation list resolves exact users before broad payload search", (
   assert.notEqual(end, -1);
   const source = db.slice(start, end);
 
-  assert.match(source, /SELECT id FROM app_users[\s\S]*?WHERE id = \$1 OR username = \$1/);
-  assert.match(source, /where\.push\(`records\.payload->>'userId' = \$\{addParam\(exactUserId\)\}`\)/);
+  assert.match(source, /SELECT id FROM app_users[\s\S]*?WHERE \(id = \$1 OR username = \$1 OR LOWER\(username\) = LOWER\(\$1\)\)/);
+  assert.match(source, /where\.push\(`records\.payload->>'userId' = ANY\(\$\{addParam\(exactUserIds\)\}::text\[\]\)`\)/);
   assert.match(source, /records\.task_id = \$\{addParam\(cleanSearch\)\}/);
   assert.match(source, /\$\{needsUserJoin \? "LEFT JOIN app_users users ON users\.id = records\.payload->>'userId'" : ""\}/);
 });

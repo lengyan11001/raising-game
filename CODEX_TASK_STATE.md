@@ -231,3 +231,12 @@ CODEX_TASK_STATE.md
 - Applied the production repair for `cgt-20261105120518-1c9a87`; PostgreSQL now reports `status=failed`, `billingStatus=refunded`, `finalCredits=0`.
 - Targeted regression tests: 61 pass, 0 fail. `node --check` and `git diff --check` pass.
 - Full suite currently has 22 pre-existing failures outside these changed paths; the relevant Vega/result/refund suites pass.
+
+## Admin generation username search fix (2026-11-05)
+
+- User reported that admin generation records no longer found data when searching by username `test01`.
+- Production verification found four active accounts with username `test01` across different tenants: `user-1777972853765-6da5a3f7` (main) 237 records, `user-1785989952997-cc30465c` (tool-undress-14vips) 13 records, `user-1784902608053-8303c73c` (tool-video-123tops) 11 records, and `user-1788749742388-95672d95` (tool-chat-5vips) 0 records.
+- Root cause: the optimized generation-record search resolved a username with `LIMIT 1`, so it selected one tenant-specific account and missed records belonging to the others.
+- Fixed `getAdminGenerationRecordsPageFromDb()` to resolve every matching non-deleted account and filter generation records with `userId = ANY(text[])`.
+- Also made username matching case-insensitive while preserving the fast indexed user-ID lookup.
+- Regression coverage updated in `test/admin-generation-records-list.test.js`.
