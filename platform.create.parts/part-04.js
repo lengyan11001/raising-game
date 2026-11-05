@@ -295,12 +295,12 @@ function autoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
   if (!textarea) return false;
   syncAdvancedPromptHighlight();
   if (resetManual) delete textarea.dataset.promptUserResized;
-  if (!force && textarea.dataset.promptUserResized === "true") return false;
+  if (!force && state.advancedPromptResizing) return false;
   if (!textarea.isConnected || textarea.offsetParent === null || textarea.getClientRects().length === 0) return false;
   const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
-  textarea.style.height = "auto";
+  textarea.style.height = "0px";
   textarea.style.overflowY = "hidden";
-  const contentHeight = Math.max(0, textarea.scrollHeight + 2);
+  const contentHeight = Math.max(minimumHeight, textarea.scrollHeight + 2);
   const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, contentHeight));
   textarea.style.height = `${Math.round(nextHeight)}px`;
   textarea.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
@@ -337,6 +337,7 @@ function bindAdvancedPromptResizeHandle() {
     handle.setAttribute("aria-valuenow", String(Math.round(next)));
   };
   const finish = () => {
+    state.advancedPromptResizing = false;
     if (pointerId !== null && handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
     pointerId = null;
     handle.classList.remove("is-resizing");
@@ -349,6 +350,7 @@ function bindAdvancedPromptResizeHandle() {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    state.advancedPromptResizing = true;
     pointerId = event.pointerId;
     startY = event.clientY;
     startHeight = textarea.getBoundingClientRect().height;
@@ -364,6 +366,7 @@ function bindAdvancedPromptResizeHandle() {
   handle.addEventListener("pointerup", finish);
   handle.addEventListener("pointercancel", finish);
   handle.addEventListener("lostpointercapture", () => {
+    state.advancedPromptResizing = false;
     pointerId = null;
     handle.classList.remove("is-resizing");
     document.body.classList.remove("is-resizing-advanced-prompt");

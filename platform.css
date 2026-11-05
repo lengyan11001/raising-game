@@ -5366,11 +5366,13 @@ dialog.tool-download-modal {
   z-index: 1;
   display: block;
   min-height: 68px;
+  max-height: min(62vh, 520px);
   padding-right: 38px;
   color: transparent;
   caret-color: var(--text);
   background: transparent;
   resize: none;
+  field-sizing: content;
 }
 .advanced-prompt-resize {
   position: absolute;

@@ -4,6 +4,8 @@
 - Only labels backed by actual current reference items are highlighted; ordinary text and email-like `@` text remain unchanged. Markup is escaped before rendering, and the overlay syncs on input, scroll, resizing, and programmatic prompt loads.
 - Updated `platform.html`, `platform.config.js`, `platform.css`, `platform.create.parts/part-04.js`, `platform.main.js`, and `test/advanced-custom-ui.test.js`.
 - Targeted regression passes. Full `advanced-custom-ui.test.js`: 30 pass / 5 pre-existing unrelated failures. Syntax and `git diff --check` pass.
+- User reported multi-line typing did not grow the control. Root cause: input-time measurement ran before layout and a prior manual-resize flag could block later growth. Input now schedules a forced next-frame measurement, measurement resets to `0px` before reading `scrollHeight`, and only active drag resizing suppresses auto-growth; native `field-sizing: content` and `max-height` are also enabled as a progressive fallback.
+- Follow-up verification: Chrome headless check confirms 8 lines grow the textarea to 126px; targeted prompt regressions 2 pass / 0 fail; syntax and `git diff --check` pass.
 
 ## Generate prompt auto-height (2026-11-05)
 

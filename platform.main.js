@@ -734,7 +734,7 @@ els.advancedCreateModeTabs?.addEventListener("click", (event) => {
   setAdvancedCreateMode(button.dataset.advancedCreateMode || "");
 });
 els.advancedPrompt?.addEventListener("input", handleAdvancedPromptMentionInput);
-els.advancedPrompt?.addEventListener("input", () => autoSizeAdvancedPrompt());
+els.advancedPrompt?.addEventListener("input", () => scheduleAutoSizeAdvancedPrompt({ force: true }));
 els.advancedPrompt?.addEventListener("scroll", syncAdvancedPromptHighlight);
 els.advancedPrompt?.addEventListener("click", renderAdvancedPromptMentionMenu);
 els.advancedPrompt?.addEventListener("keyup", (event) => {

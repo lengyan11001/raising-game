@@ -412,13 +412,13 @@ test("prompt editor exposes a large keyboard-accessible resize handle", () => {
 
 test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {
   assert.match(create, /function autoSizeAdvancedPrompt\(/);
-  assert.match(create, /textarea\.style\.height = "auto"/);
+  assert.match(create, /textarea\.style\.height = "0px"/);
   assert.match(create, /textarea\.scrollHeight \+ 2/);
   assert.match(create, /Math\.min\(maximumHeight, Math\.max\(minimumHeight, contentHeight\)\)/);
   assert.match(create, /textarea\.style\.overflowY = contentHeight > maximumHeight \+ 1 \? "auto" : "hidden"/);
   assert.match(create, /function scheduleAutoSizeAdvancedPrompt\(/);
   assert.match(platformExploreSource, /nextTab === "advanced"[\s\S]*?scheduleAutoSizeAdvancedPrompt\(\)/);
-  assert.match(main, /els\.advancedPrompt\?\.addEventListener\("input", \(\) => autoSizeAdvancedPrompt\(\)\)/);
+  assert.match(main, /els\.advancedPrompt\?\.addEventListener\("input", \(\) => scheduleAutoSizeAdvancedPrompt\(\{ force: true \}\)\)/);
   assert.match(platformExploreSource, /els\.advancedPrompt\.value = template\.prompt[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
   assert.match(create, /els\.advancedPrompt\.value = els\.templatePrompt\?\.value[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
 });
