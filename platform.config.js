@@ -450,11 +450,13 @@ const ADVANCED_CREATE_MODES = {
 };
 
 const VEGA_PROVIDER_IDS = Object.freeze([
+  "seedance20-vega",
   "seedance25-vega",
   "h3-vega",
   "vega10-lite",
 ]);
 const VEGA_MODEL_LABELS = Object.freeze({
+  "seedance20-vega": "Vega 1.0 Pro",
   "seedance25-vega": "Vega 1.5 Pro",
   "h3-vega": "Vega 1.5 Lite",
   "vega10-lite": "Vega 1.0 Lite",
@@ -462,16 +464,19 @@ const VEGA_MODEL_LABELS = Object.freeze({
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_DURATION_BOUNDS = Object.freeze({
+  "seedance20-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
   "seedance25-vega": Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
   "h3-vega": Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
   "vega10-lite": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
 });
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
+  "seedance20-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
   "seedance25-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true }),
   "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false }),
   "vega10-lite": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true, returnLastFrame: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
 });
 const VEGA_REFERENCE_LIMITS = Object.freeze({
+  "seedance20-vega": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
   "seedance25-vega": Object.freeze({ images: 30, videos: 10, audios: 10, total: 50 }),
   "h3-vega": Object.freeze({ images: 10, videos: 5, audios: 5, total: 20 }),
   "vega10-lite": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),

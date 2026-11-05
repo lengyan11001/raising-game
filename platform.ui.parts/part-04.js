@@ -666,10 +666,10 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  const inputVideoSeconds = ["seedance", "seedance25", "seedance-nsfw", "wan27", "happyhorse", "h3-vega", "vega10-lite"].includes(normalizedProvider)
+  const inputVideoSeconds = ["seedance", "seedance25", "seedance-nsfw", "wan27", "happyhorse", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizedProvider)
     ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
     : 0;
-  const referenceVideoSignature = ["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite"].includes(normalizedProvider)
+  const referenceVideoSignature = ["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizedProvider)
     ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
     : "";
   return [
@@ -790,8 +790,8 @@ function updateAdvancedButtonCost() {
     refreshIcons();
     return;
   }
-  const isVegaLiteEstimate = ["h3-vega", "vega10-lite"].includes(provider);
-  const vegaVideoItems = isVegaLiteEstimate && typeof advancedSeedanceVideoReferences === "function"
+  const isVegaEstimate = ["h3-vega", "vega10-lite", "seedance20-vega"].includes(provider);
+  const vegaVideoItems = isVegaEstimate && typeof advancedSeedanceVideoReferences === "function"
     ? advancedSeedanceVideoReferences()
     : [];
   const vegaReferenceVideoDurations = vegaVideoItems.map((item) => positiveDurationSeconds(item?.durationSeconds || item?.duration, 0));
@@ -800,11 +800,11 @@ function updateAdvancedButtonCost() {
       ? currentSeedanceVideoInputSeconds(duration, provider)
       : ["wan27", "happyhorse"].includes(provider)
       ? currentAdvancedAliyunSourceVideoSeconds(duration)
-      : isVegaLiteEstimate
+      : isVegaEstimate
       ? vegaReferenceVideoDurations.reduce((sum, seconds) => sum + seconds, 0)
       : 0,
-    referenceVideoDurations: isVegaLiteEstimate ? vegaReferenceVideoDurations : [],
-    referenceVideoUrls: ["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
+    referenceVideoDurations: isVegaEstimate ? vegaReferenceVideoDurations : [],
+    referenceVideoUrls: ["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
@@ -812,7 +812,7 @@ function updateAdvancedButtonCost() {
     outputTokens: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37MaxTokens?.value || 8192) : undefined,
     enableThinking: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? els.advancedQwen37Thinking?.value === "true" : undefined,
     temperature: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
-    referenceImageCount: provider === "vega10-lite"
+    referenceImageCount: ["vega10-lite", "seedance20-vega"].includes(provider)
       ? selectedAdvancedReferenceImages(provider).length
       : ["seedream5-image", "qwen-image3"].includes(provider)
       ? selectedAdvancedReferenceImages(provider).length

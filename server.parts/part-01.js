@@ -973,6 +973,24 @@ const DEFAULT_ADVANCED_PRICING = {
     "4k": 17.31,
   },
   vega10LiteReferenceImageCreditsEach: 4.5,
+  // Tencent VOD international list price x CREDITS_PER_USD (100) x 1.5 markup.
+  // Vega 1.0 Pro has separate no-reference and reference-video output rates.
+  vega10ProCreditsPerSecondByResolution: {
+    "480p": 9.6,
+    "720p": 18.345,
+    "768p": 18.345,
+    "1080p": 39.93,
+    "2k": 99.225,
+    "4k": 113.07,
+  },
+  vega10ProInputVideoCreditsPerSecondByResolution: {
+    "480p": 6.03,
+    "720p": 11.535,
+    "768p": 11.535,
+    "1080p": 24.93,
+    "2k": 61.62,
+    "4k": 69.225,
+  },
   seedanceNsfwCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p"),
