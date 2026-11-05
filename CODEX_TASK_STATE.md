@@ -5,6 +5,8 @@
 - Fix: mark Vega 1.0 Pro as not supporting generation/quality modes; `buildVegaExtInfo()` now omits both fields as a backend fail-safe. The create-page payload also omits unsupported controls, and API docs mark them unsupported for this model.
 - Regression coverage includes Vega 1.0 Pro reference-video payload construction, Vega 1.5 Lite support, and Vega 1.5 Lite omission behavior.
 - Targeted tests: 69 pass, 0 fail. Related notification/history/source tests: 35 pass, 0 fail. Syntax and diff checks pass.
+- `old-site`: `a043425`, pushed. `platform-release`: `8c13804`, built from `a043425`, pushed with lease protection and deployed to `123vips.com` only.
+- Production verification: `/api/health` returns `200 {"ok":true}`; deployed `tencent-vod-vega.js` marks Vega 1.0 Pro `generateMode: false` / `qualityMode: false`; deployed create payload omits unsupported fields. Live was not deployed.
 
 ## Generation notification transition-only fix (2026-11-05)
 
