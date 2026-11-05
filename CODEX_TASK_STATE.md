@@ -366,3 +366,14 @@ CODEX_TASK_STATE.md
 - Fixed `getAdminGenerationRecordsPageFromDb()` to resolve every matching non-deleted account and filter generation records with `userId = ANY(text[])`.
 - Also made username matching case-insensitive while preserving the fast indexed user-ID lookup.
 - Regression coverage updated in `test/admin-generation-records-list.test.js`.
+
+## Admin generation detail reference media fix (2026-11-05)
+
+- User reported that reference images and other reference media were missing in the admin generation-record detail dialog.
+- Root cause: after the admin list performance optimization removed heavy `mediaAssets` payloads from list rows, `fetchAdminGenerationRecordDetail()` could still short-circuit when a list row happened to contain result/request fields. The dialog then rendered the lightweight list record instead of fetching the complete detail record.
+- Fixed the detail flow to always request `/api/admin/generation-records/:taskId` for any row with a task ID.
+- Media detail mapping now preserves stable `referenceIndex` values, signs preview/download URLs by the stable index, preserves a direct source fallback, and recognizes images, reference videos, and reference audio. Direct URL fields (`cdnUrl`, `publicUrl`, `localUrl`, `sourceUrl`, `url`) are supported even when no linked `userAssetId` exists.
+- Changed files: `admin.js`, `admin.css`, `server.parts/part-21.js`, `server.parts/part-41.js`, `test/admin-generation-records-list.test.js`.
+- Verification: targeted admin generation/media suites 13 pass, 0 fail; `node --check admin.js`, `node --check server.js`, `node --check server.parts/part-21.js`, `node --check server.parts/part-41.js`, and `git diff --check` pass.
+- Deployment: `old-site` `85ca673`; `platform-release` `8054ce5`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production `/api/health` returned `200 {"ok":true}`. Public `admin.html` now references the new content-hash asset version, and the deployed `admin.js` contains the forced full-detail fetch and audio/video reference handling. Live was not deployed.
+
