@@ -316,6 +316,7 @@ async function submitAdvancedGenerateInternal() {
             createKind: state.advancedCreateKind,
             createMode: state.advancedCreateMode,
             presets: advancedPresetSelection,
+            advancedProviderId: provider,
           },
           async: true,
         },

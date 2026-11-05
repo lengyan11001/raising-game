@@ -952,6 +952,57 @@ function advancedRegenerateBody(record = {}) {
     resolution: record.resolution || params.resolution || "720p",
     duration: record.duration || params.duration || 5,
   };
+  if (["seedream5-image", "qwen-image3"].includes(provider)) {
+    const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+    const imageItems = mediaAssets
+      .filter((asset) => !["video", "audio", "first_clip", "driving_audio"].some((type) => String(asset?.type || "").includes(type)))
+      .map((asset) => {
+        const assetId = String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim();
+        if (assetId) return { assetId };
+        const url = String(firstPresent(asset?.imageUrl, asset?.url, asset?.publicUrl, asset?.localUrl, "") || "").trim();
+        return url ? { url } : null;
+      })
+      .filter(Boolean);
+    const recordedImageItems = (items) => (Array.isArray(items) ? items : []).map((item) => {
+      if (typeof item === "string") return item ? { url: item } : null;
+      const assetId = String(firstPresent(item?.userAssetId, item?.assetId, item?.id, "") || "").trim();
+      if (assetId) return { assetId };
+      const url = String(firstPresent(item?.imageUrl, item?.url, item?.publicUrl, item?.sourceImageUrl, "") || "").trim();
+      return url ? { url } : null;
+    }).filter(Boolean);
+    const referenceImages = [...imageItems, ...recordedImageItems(params.referenceImages)];
+    const fallbackIds = [...new Set([
+      ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
+      ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+      record.userAssetId || "",
+    ].map((id) => String(id || "").trim()).filter(Boolean))];
+    const referenceImageUrls = [...new Set([
+      ...(Array.isArray(record.imageUrls) ? record.imageUrls : []),
+      ...(Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []),
+      ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
+      record.imageUrl || "",
+      record.sourceImageUrl || "",
+    ].map((url) => String(url || "").trim()).filter(Boolean))];
+    const seen = new Set();
+    body.referenceImages = [...referenceImages, ...fallbackIds.map((assetId) => ({ assetId })), ...referenceImageUrls.map((url) => ({ url }))]
+      .filter((item) => {
+        const key = item.assetId ? `asset:${item.assetId}` : `url:${item.url}`;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    body.preservePublicMediaUrls = true;
+    if (provider === "seedream5-image") body.seedreamTier = firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier);
+    if (provider === "qwen-image3") {
+      body.qwenTier = firstPresent(params.qwenTier, params.qwenImageTier, params.tier);
+      body.model = firstPresent(params.model, record.model);
+      body.n = firstPresent(params.outputImageCount, params.n);
+      body.prompt_extend = firstPresent(params.prompt_extend, params.promptExtend);
+      body.watermark = firstPresent(params.watermark);
+      if (params.seed !== undefined && params.seed !== null && params.seed !== "") body.seed = params.seed;
+    }
+    return body;
+  }
   if (isVegaProvider(provider)) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
     const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
@@ -1244,6 +1295,36 @@ function advancedRegenerateBody(record = {}) {
   return body;
 }
 
+function imageEditRegenerateBody(record = {}) {
+  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
+  const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const assetIds = [...new Set([
+    ...mediaAssets.map((asset) => String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim()),
+    ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
+    ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+    record.userAssetId || "",
+  ].map((id) => String(id || "").trim()).filter(Boolean))];
+  const imageUrls = [...new Set([
+    ...mediaAssets.map((asset) => String(firstPresent(asset?.sourceImageUrl, asset?.imageUrl, asset?.url, asset?.publicUrl, asset?.localUrl, "") || "").trim()),
+    ...(Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []),
+    ...(Array.isArray(record.imageUrls) ? record.imageUrls : []),
+    ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
+    record.sourceImageUrl || "",
+    record.imageUrl || "",
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  return {
+    prompt: record.finalPrompt || record.prompt || params.prompt || "",
+    imageAssetIds: assetIds,
+    userAssetIds: assetIds,
+    imageUrls,
+    sourceImageUrls: imageUrls,
+    ratio: record.ratio || params.ratio || params.aspect_ratio || "9:16",
+    resolution: record.resolution || params.resolution || "2K",
+    params: { ...params, advancedProviderId: params.advancedProviderId || record.provider || "" },
+    async: true,
+  };
+}
+
 async function handleRegenerateGenerationRecord(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -1257,7 +1338,17 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
   if (source === "platform-template" || (record.templateId && ["image-to-video", "text-to-video"].includes(kind))) {
     return handlePlatformGenerate(withJsonBody(req, platformRegenerateBody(record)), res);
   }
-  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
+  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
+  const explicitProvider = normalizeAdvancedProvider(params.advancedProviderId || "");
+  if (["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image-edit"].includes(explicitProvider)) {
+    return handleWan27ImageEdit(withJsonBody(req, imageEditRegenerateBody(record)), res);
+  }
+  const rawProvider = String(record.provider || params.provider || "").toLowerCase();
+  if (rawProvider === "aliyun-wan27-image" || isWan27ImageProvider(rawProvider)) {
+    return handleWan27ImageEdit(withJsonBody(req, imageEditRegenerateBody(record)), res);
+  }
+  const provider = normalizeAdvancedProvider(record.provider || params.provider || "");
+  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image", "qwen-image3"].includes(provider)) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });

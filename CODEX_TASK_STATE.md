@@ -1,3 +1,15 @@
+## Regeneration restores original image endpoint and user media (2026-11-05)
+
+- User corrected the requirement: regenerate must reuse the original endpoint and original user media; it must not create another upload/paste UI and must not use generated result images as inputs.
+- Restored exact image provider identity from `params.advancedProviderId`, provider/model/source fields, with explicit precedence for Seedream 5, Qwen Image3, Z-Image, Qwen Image Edit, and Wan Image Edit.
+- `restoreRecordMedia()` now merges `record.mediaAssets` with legacy record input fields and deduplicates by user asset ID, asset URI, or URL while preserving first/last-frame typing.
+- Existing image-edit submit now persists `params.advancedProviderId`; no UI or upload flow was added.
+- Backend regenerate body for Seedream/Qwen Image3 restores original reference asset IDs and input URLs through `/api/advanced/generate`.
+- Backend regenerate body for Wan/Z-Image/Qwen Image Edit restores original input asset IDs/URLs through the existing `/api/wan27/image-edit`; it never uses `cdnImageUrls` or `imageResultUrls`.
+- Locked/internal public records clear `userAssetIds`, `imageUrls`, and `sourceImageUrls`.
+- Tests: target media regeneration contract passes. `test/media-inputs.test.js` has 2 known pre-existing assertion-shape failures unrelated to this change.
+- Pending: commit, release snapshot, old-site deployment.
+
 ## Create button submission feedback (2026-11-05)
 
 - User reported the Create/Generate button looked unresponsive after click.

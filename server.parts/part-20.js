@@ -1111,10 +1111,13 @@ function publicGenerationRecord(record = {}, options = {}) {
     partnerCharacterId: String(record.partnerCharacterId || ""),
     partnerCharacterName: String(record.partnerCharacterName || ""),
     imageUrl: String(record.imageUrl || ""),
+    imageUrls: Array.isArray(record.imageUrls) ? record.imageUrls.map(String) : [],
     sourceImageUrl: String(record.sourceImageUrl || ""),
+    sourceImageUrls: Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls.map(String) : [],
     syntheticReferenceLocalUrl: String(record.syntheticReferenceLocalUrl || ""),
     syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
     userAssetId: String(record.userAssetId || ""),
+    userAssetIds: Array.isArray(record.userAssetIds) ? record.userAssetIds.map(String) : [],
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
@@ -1225,6 +1228,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     };
     publicRecord.mediaAssets = [];
     publicRecord.userAssetId = "";
+    publicRecord.userAssetIds = [];
+    publicRecord.imageUrls = [];
+    publicRecord.sourceImageUrls = [];
     publicRecord.referenceAssetUri = "";
     delete publicRecord.upstreamPayload;
   }
@@ -1242,6 +1248,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     publicRecord.cdnImageUrls = [];
     publicRecord.mediaAssets = [];
     publicRecord.userAssetId = "";
+    publicRecord.userAssetIds = [];
+    publicRecord.imageUrls = [];
+    publicRecord.sourceImageUrls = [];
     publicRecord.prompt = "";
     publicRecord.finalPrompt = "";
     delete publicRecord.upstreamPayload;

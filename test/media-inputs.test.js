@@ -302,3 +302,40 @@ test("owner and admin parameter views show the payload actually sent upstream", 
   assert.match(explore, /params: record\.upstreamPayload \|\| record\.params \|\| null/);
   assert.match(admin, /recordDetailJsonSectionHtml\("upstream", "实际发送参数", record\.upstreamPayload \|\| record\.params\)/);
 });
+
+test("image regeneration restores original providers and input media without a new upload flow", () => {
+  const create = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-04.js"), "utf8");
+  const submit = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-03.js"), "utf8");
+  const regenerateSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-29.js"), "utf8");
+  const publicRecords = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-20.js"), "utf8");
+  const restoreProvider = create.slice(
+    create.indexOf("function restoreRecordProvider(record = {})"),
+    create.indexOf("function restoreSeedanceMode("),
+  );
+  const restoreMedia = create.slice(
+    create.indexOf("function restoreRecordMedia(record = {})"),
+    create.indexOf("function restoreVegaMediaItem("),
+  );
+  assert.match(restoreProvider, /"seedream5-image"/);
+  assert.match(restoreProvider, /"qwen-image3"/);
+  assert.match(restoreProvider, /"z-image-spicy-pro"/);
+  assert.match(restoreProvider, /"qwen-image-edit-spicy"/);
+  assert.doesNotMatch(restoreProvider, /source\.includes\("image"\)\) return "wan27-image-edit"/);
+  assert.match(restoreMedia, /const recordedImages = recordImageAssets\(record\)/);
+  assert.match(restoreMedia, /const seenImageKeys = new Set\(\)/);
+  assert.match(restoreMedia, /\[\.\.\.mediaAssets, \.\.\.recordedImages\]/);
+  assert.match(submit, /params: \{[\s\S]*?advancedProviderId: provider,[\s\S]*?\},\n          async: true/);
+  assert.match(regenerateSource, /function imageEditRegenerateBody\(record = \{\}\)/);
+  assert.match(regenerateSource, /if \(\["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image-edit"\]\.includes\(explicitProvider\)\)[\s\S]*?handleWan27ImageEdit/);
+  assert.match(regenerateSource, /rawProvider === "aliyun-wan27-image"[\s\S]*?handleWan27ImageEdit/);
+  assert.match(regenerateSource, /if \(\["seedream5-image", "qwen-image3"\]\.includes\(provider\)\)/);
+  assert.match(regenerateSource, /body\.preservePublicMediaUrls = true/);
+  assert.match(publicRecords, /publicRecord\.userAssetIds = \[\];[\s\S]*?publicRecord\.imageUrls = \[\];[\s\S]*?publicRecord\.sourceImageUrls = \[\];/);
+  const editHelper = regenerateSource.slice(
+    regenerateSource.indexOf("function imageEditRegenerateBody(record = {})"),
+    regenerateSource.indexOf("async function handleRegenerateGenerationRecord("),
+  );
+  assert.match(editHelper, /assetId[\s\S]*?params\.referenceImageAssetIds[\s\S]*?record\.userAssetIds/);
+  assert.match(editHelper, /record\.sourceImageUrls[\s\S]*?record\.imageUrls/);
+  assert.doesNotMatch(editHelper, /cdnImageUrls|imageResultUrls/);
+});

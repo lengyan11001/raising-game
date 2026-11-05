@@ -173,11 +173,22 @@ function restoreReferenceFromMedia(item = {}, index = 0) {
 
 function restoreRecordProvider(record = {}) {
   const params = recordParams(record);
-  const explicitProvider = String(params.advancedProviderId || "").trim().toLowerCase();
-  if (explicitProvider === "z-image-spicy-pro" || explicitProvider === "qwen-image-edit-spicy") return normalizeAdvancedProvider(explicitProvider);
+  const imageProviders = new Set([
+    "seedream5-image",
+    "qwen-image3",
+    "z-image-spicy-pro",
+    "qwen-image-edit-spicy",
+    "wan27-image-edit",
+  ]);
+  const explicitProvider = normalizeAdvancedProvider(params.advancedProviderId || "");
+  if (imageProviders.has(explicitProvider)) return explicitProvider;
+  const candidates = [params.provider, record.provider, record.model, params.model, record.source];
+  for (const value of candidates) {
+    const provider = normalizeAdvancedProvider(value || "");
+    if (imageProviders.has(provider)) return provider;
+  }
   const source = String(record.source || record.provider || params.provider || "").toLowerCase();
-  if (source.includes("image") || source.includes("wan27-image")) return "wan27-image-edit";
-  if (source.includes("z-image-spicy") || source.includes("qwen-image-edit")) return normalizeAdvancedProvider(source);
+  if (source.includes("image") || source.includes("wan27-image") || source.includes("wan2.7-image")) return "wan27-image-edit";
   return normalizeAdvancedProvider(record.provider || params.provider || (source.includes("wan") ? "wan27" : "seedance"));
 }
 
@@ -215,9 +226,17 @@ function restoreRecordImageLimit(record = {}) {
 function restoreRecordMedia(record = {}) {
   const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
   const frameTypes = new Set(["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe"]);
-  const imageEntries = mediaAssets.map((item, index) => ({ item, index })).filter(({ item }) => {
-    const type = String(item.type || item.key || "").toLowerCase();
-    return !type.includes("audio") && !type.includes("video") && !type.includes("clip") && (restoreMediaUrl(item) || restoreMediaAssetUri(item));
+  const recordedImages = recordImageAssets(record);
+  const seenImageKeys = new Set();
+  const imageEntries = [...mediaAssets, ...recordedImages].map((item, index) => ({ item, index })).filter(({ item }) => {
+    const type = String(item?.type || item?.key || "").toLowerCase();
+    const assetId = restoreMediaAssetId(item);
+    const assetUri = restoreMediaAssetUri(item);
+    const url = restoreMediaUrl(item);
+    const key = assetId ? `asset:${assetId}` : assetUri ? `asset-uri:${assetUri}` : url ? `url:${url}` : "";
+    if (!key || seenImageKeys.has(key)) return false;
+    seenImageKeys.add(key);
+    return !type.includes("audio") && !type.includes("video") && !type.includes("clip");
   });
   const imageAssets = imageEntries.map(({ item }) => item);
   const references = imageAssets.map(restoreReferenceFromMedia).filter(Boolean);

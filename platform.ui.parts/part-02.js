@@ -600,16 +600,32 @@ function mediaAssetLabel(asset = {}, index = 0) {
 
 function recordImageAssets(record = {}) {
   const images = [];
-  const seen = new Set();
+  const seenUrls = new Set();
+  const seenAssetIds = new Set();
+  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
   const pushImage = (asset = {}, fallbackLabel = "") => {
-    const url = mediaAssetPreviewUrl(asset);
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    images.push({ ...asset, label: asset.label || fallbackLabel || mediaAssetLabel(asset, images.length) });
+    const source = typeof asset === "string" ? { imageUrl: asset } : (asset || {});
+    const url = mediaAssetPreviewUrl(source);
+    const assetId = String(source.userAssetId || source.assetId || source.id || "").trim();
+    const assetUri = String(source.assetUri || source.referenceAssetUri || "").trim();
+    const key = url ? `url:${url}` : assetId ? `asset:${assetId}` : assetUri ? `asset-uri:${assetUri}` : "";
+    if (!key || seenUrls.has(key) || (assetId && seenAssetIds.has(assetId))) return;
+    seenUrls.add(key);
+    if (assetId) seenAssetIds.add(assetId);
+    images.push({ ...source, assetId: source.assetId || assetId, url: source.url || assetUri || url, dataUrl: source.dataUrl || (url && !url.startsWith("asset://") ? url : ""), label: source.label || fallbackLabel || mediaAssetLabel(source, images.length) });
   };
+  const referenceIds = [
+    ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : [record.userAssetId]),
+    ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  referenceIds.forEach((assetId, index) => pushImage({ userAssetId: assetId, type: "reference_image", name: `Reference ${index + 1}` }, "Reference"));
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
     .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
     .forEach((asset) => pushImage(asset));
+  (Array.isArray(record.imageUrls) ? record.imageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "reference_image" }, "Reference"));
+  (Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "source_image" }, "Source image"));
+  (Array.isArray(params.referenceImages) ? params.referenceImages : []).forEach((item) => pushImage(item, "Reference"));
+  (Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "reference_image" }, "Reference"));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
   return images;
