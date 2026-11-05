@@ -5,7 +5,10 @@
 - Fixed by renaming the local config to `vegaReferenceLimitConfig`; no validation behavior changed.
 - Added regression coverage preventing the self-shadowing declaration from returning.
 - Targeted tests: 66 pass, 0 fail. `node --check` and `git diff --check` pass.
-- Deployment status: pending release snapshot and `scripts/deploy_local.sh --site old`.
+- `old-site` commit `61d6e6e`, pushed to origin.
+- Platform release `fafcafc`, built from `61d6e6e`, pushed to origin with lease protection and deployed to `123vips.com` only.
+- Production verification: `/api/health` `200 {"ok":true}`; deployed `platform.create.parts/part-03.js` contains `vegaReferenceLimitConfig`; `vega10-lite` 1080P x 6s estimate is 69.21 credits.
+- Live was not deployed.
 
 # Codex Task State
 
