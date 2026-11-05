@@ -849,6 +849,7 @@ function normalizeAdvancedProvider(value = "") {
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
   if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
   if (["h3vega", "h3"].includes(normalized) || normalized.includes("h3vega")) return "h3-vega";
+  if (["vega10lite", "vega1.0lite", "10lite"].includes(normalized) || normalized.includes("vega10lite") || normalized.includes("vega1.0lite")) return "vega10-lite";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["zimagespicypro", "zimagespicy", "zimage", "zimagepro", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicypro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";

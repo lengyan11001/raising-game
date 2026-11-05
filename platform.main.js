@@ -1191,6 +1191,7 @@ els.advancedVideoResolutionChoices?.addEventListener("click", (event) => {
   if (!button || !els.advancedResolution) return;
   els.advancedResolution.value = button.dataset.advancedVideoResolution || "480p";
   updateAdvancedModelControls();
+  updateAdvancedButtonCost();
 });
 els.advancedVideoDurationChoices?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-advanced-video-duration]");

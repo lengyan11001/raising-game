@@ -1,5 +1,16 @@
 # Codex Task State
 
+## Vega 1.0 Lite button cost hotfix (2026-11-05)
+
+- User reported Vega 1.5 Lite 1080P × 6s = 162 credits and Vega 1.0 Lite 1080P × 6s = 300 credits.
+- Root cause: browser-side `normalizeAdvancedProvider()` did not recognize `vega10-lite` / `vega1.0lite`, so it fell through to Seedance. Seedance 1080P at 60 credits/sec × forced 5s explained the incorrect 300.
+- Fixed `platform.ui.parts/part-02.js` to preserve Vega 1.0 Lite provider identity before Seedance normalization.
+- Fixed `platform.main.js` resolution-choice click handler to call `updateAdvancedButtonCost()` after changing resolution.
+- Backend pricing is correct: Vega 1.5 Lite (`h3-vega`) 1080P × 6s = 162 credits; Vega 1.0 Lite (`vega10-lite`) 1080P × 6s = 69.21 credits.
+- Regression coverage added in `test/vega-pricing-label.test.js` and `test/advanced-pricing.test.js`.
+- Targeted tests: 64 pass, 0 fail. `node --check` and `git diff --check` pass.
+- Deployment status: pending release snapshot and `scripts/deploy_local.sh --site old` after committing this hotfix.
+
 ## API docs unlock removal (2026-11-05)
 
 - Goal: remove the $1,000 API-documentation unlock gate from the main site so everyone can view API documentation; external API calls still require authentication and the tenant API-access feature flag.

@@ -110,6 +110,13 @@ test("Vega 1.0 Lite pricing rows, defaults, validation, and reference-image fees
   assert.equal(estimate.credits, 78.24);
   assert.equal(estimate.source, "configured_vega10_lite_input_output_and_reference_rates");
 
+  const hdSixSeconds = application.advancedModelPricing("vega10-lite", {
+    duration: 6,
+    resolution: "1080P",
+  });
+  assert.equal(hdSixSeconds.outputCredits, 69.21);
+  assert.equal(hdSixSeconds.credits, 69.21);
+
   const fiveImages = application.advancedModelPricing("vega10-lite", {
     duration: 4,
     resolution: "480P",

@@ -138,6 +138,31 @@ test("Vega Lite estimate key changes with reference-video duration", () => {
 });
 
 
+test("Vega 1.0 Lite keeps its provider identity instead of falling back to Seedance pricing", () => {
+  const normalizeAdvancedProvider = new Function(
+    "DEFAULT_ADVANCED_PROVIDER",
+    `${extractFunction("normalizeAdvancedProvider")}
+     return normalizeAdvancedProvider;`,
+  )("wan27");
+
+  for (const provider of ["vega10-lite", "vega10lite", "vega1.0-lite", "vega1.0lite"]) {
+    assert.equal(normalizeAdvancedProvider(provider), "vega10-lite");
+  }
+  assert.equal(normalizeAdvancedProvider("seedance25-vega"), "seedance25-vega");
+  assert.equal(normalizeAdvancedProvider("h3-vega"), "h3-vega");
+});
+
+test("Changing the video resolution refreshes the estimated button cost", () => {
+  const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
+  const handler = main.slice(
+    main.indexOf('els.advancedVideoResolutionChoices?.addEventListener("click"'),
+    main.indexOf('els.advancedVideoDurationChoices?.addEventListener("click"'),
+  );
+  assert.match(handler, /els\.advancedResolution\.value = button\.dataset\.advancedVideoResolution/);
+  assert.match(handler, /updateAdvancedModelControls\(\);/);
+  assert.match(handler, /updateAdvancedButtonCost\(\);/);
+});
+
 test("Vega 1.0 Lite renders its successful estimate instead of a pricing error", () => {
   const state = { user: { pricingMultiplier: 1 }, advancedEstimateFailureKey: "" };
   const helpers = loadHelpers(state);
