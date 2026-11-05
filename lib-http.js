@@ -30,11 +30,18 @@ function sendText(res, statusCode, body, { cacheControl = "no-cache", head = fal
 
 function sendHtml(res, statusCode, body, { cacheControl = "no-store", head = false } = {}) {
   const html = String(body ?? "");
-  res.writeHead(statusCode, {
+  const headers = {
     "content-type": "text/html; charset=utf-8",
     "cache-control": cacheControl,
     "content-length": Buffer.byteLength(html),
-  });
+  };
+  // Cloudflare only treats a document as cacheable when the CDN-specific
+  // directive opts it in. Keep private/error responses uncached.
+  if (cacheControl.startsWith("public")) {
+    headers["cdn-cache-control"] = cacheControl;
+    headers["cloudflare-cdn-cache-control"] = cacheControl;
+  }
+  res.writeHead(statusCode, headers);
   res.end(head ? undefined : html);
 }
 

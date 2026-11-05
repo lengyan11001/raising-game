@@ -1122,6 +1122,55 @@ function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
   return `${lines.join("\n")}\n`;
 }
 
+const platformHtmlSnapshotCache = new Map();
+const PLATFORM_HTML_CACHE_TTL_MS = 20_000;
+
+function platformHtmlCacheKey(req, version = "current") {
+  const tenant = requestTenantOptions(req);
+  return [
+    pageOriginFromRequest(req),
+    requestHostname(req),
+    tenant.tenant?.tenantId || "",
+    tenant.tenant?.toolId || "",
+    tenant.tenant?.siteProfile || "",
+    version,
+  ].join("|");
+}
+
+async function renderPlatformHtmlSnapshot(req) {
+  const filePath = path.join(ROOT, "platform.html");
+  const html = await fs.readFile(filePath, "utf8");
+  const version = await currentPlatformAssetVersion();
+  const versionedHtml = applyPlatformAssetVersion(html, version);
+  const snapshot = await geoSiteSnapshot(req);
+  return injectPlatformGeoHead(versionedHtml, snapshot, requestTenantOptions(req));
+}
+
+function prunePlatformHtmlSnapshotCache(now = Date.now()) {
+  for (const [key, entry] of platformHtmlSnapshotCache) {
+    if (entry.expiresAt > now) continue;
+    platformHtmlSnapshotCache.delete(key);
+  }
+}
+
+async function platformHtmlSnapshot(req) {
+  const version = await currentPlatformAssetVersion();
+  const key = platformHtmlCacheKey(req, version);
+  const now = Date.now();
+  prunePlatformHtmlSnapshotCache(now);
+  const cached = platformHtmlSnapshotCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.promise;
+  const pending = renderPlatformHtmlSnapshot(req);
+  const entry = { promise: pending, expiresAt: now + PLATFORM_HTML_CACHE_TTL_MS };
+  platformHtmlSnapshotCache.set(key, entry);
+  try {
+    return await pending;
+  } catch (error) {
+    if (platformHtmlSnapshotCache.get(key) === entry) platformHtmlSnapshotCache.delete(key);
+    throw error;
+  }
+}
+
 async function currentPlatformAssetVersion() {
   if (!platformAssetVersionPromise) {
     platformAssetVersionPromise = Promise.all(
@@ -1142,12 +1191,12 @@ function applyPlatformAssetVersion(html = "", version = "current") {
 }
 
 async function servePlatformHtmlWithGeo(req, res) {
-  const filePath = path.join(ROOT, "platform.html");
-  const html = await fs.readFile(filePath, "utf8");
-  const versionedHtml = applyPlatformAssetVersion(html, await currentPlatformAssetVersion());
-  const snapshot = await geoSiteSnapshot(req);
-  return sendHtml(res, 200, injectPlatformGeoHead(versionedHtml, snapshot, requestTenantOptions(req)), {
-    cacheControl: "no-cache, no-store, must-revalidate",
+  const html = await platformHtmlSnapshot(req);
+  // This document is tenant metadata plus static client bootstrap; account
+  // state is restored in the browser. Let Cloudflare absorb repeat refreshes
+  // while keeping a short TTL so site copy and deployments become visible.
+  return sendHtml(res, 200, html, {
+    cacheControl: "public, max-age=0, s-maxage=15, stale-while-revalidate=60",
     head: req.method === "HEAD",
   });
 }

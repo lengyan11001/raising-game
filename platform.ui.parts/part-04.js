@@ -841,7 +841,9 @@ function escapeHtml(value) {
 
 async function requestJson(url, options = {}) {
   const headers = { "content-type": "application/json", ...(options.headers || {}) };
-  if (state.token) headers.authorization = `Bearer ${state.token}`;
+  // Public bootstrap data is shared by all visitors. Callers must be able to
+  // request the anonymous view even when localStorage already has a token.
+  if (state.token && options.auth !== false) headers.authorization = `Bearer ${state.token}`;
   const response = await fetch(url, {
     method: options.method || "GET",
     headers,

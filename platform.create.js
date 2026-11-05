@@ -23,17 +23,14 @@
     url.search = cacheSuffix;
     return url.toString();
   });
-  if (document.readyState === "loading") {
-    document.write(sources.map((src) => `<script src="${src}"><\/script>`).join(""));
-    return;
-  }
-  sources
-    .reduce((chain, src) => chain.then(() => new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = src;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error("Failed to load " + src));
-      document.head.appendChild(script);
-    })), Promise.resolve())
-    .catch((error) => setTimeout(() => { throw error; }, 0));
+  // Never use document.write: parser-blocking writes delay first paint and
+  // hide the rest of the document from the browser's preload scanner.
+  sources.forEach((src) => {
+    const script = document.createElement("script");
+    script.src = src;
+    // async=false keeps the source order without blocking HTML parsing.
+    script.async = false;
+    script.onerror = () => console.error("Failed to load " + src);
+    document.head.appendChild(script);
+  });
 })();

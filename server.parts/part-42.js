@@ -248,12 +248,20 @@ async function handleRequest(req, res) {
     applyPublicSecurityHeaders(req, res);
     if (sendHttpsRedirect(req, res, url)) return;
     if (sendCanonicalRedirect(req, res, url)) return;
-    if (!requestTenantOptions(req).toolOnly) await recordGeoVisitStats(req, url);
+    // Analytics must never sit in the request critical path. Record it in the
+    // background so HTML, static assets, and API calls are not delayed by DB IO.
+    if (!requestTenantOptions(req).toolOnly) {
+      recordGeoVisitStats(req, url).catch((error) => {
+        console.warn("GEO visit stats failed", error.message || error);
+      });
+    }
 
     if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
       return await handleFavicon(req, res);
     }
 
+    // Serve the heavy platform HTML before geo/analytics work. This keeps the
+    // first document available even when stats or geo enrichment are slow.
     if (isMainlandChinaRequest(req) && !isMainlandAdminAllowedRequest(req, url)) {
       if (requestHasMainlandBypass(req, url)) {
         setMainlandBypassCookie(res);

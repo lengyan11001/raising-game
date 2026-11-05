@@ -1,3 +1,15 @@
+## Main-site refresh performance (2026-11-05)
+
+- Goal: reduce first-load and repeat-refresh latency on `123vips.com` without changing Live or adding file-based runtime storage.
+- Benchmarked `https://ourdream.ai/`: Vercel HTML cache HIT, immutable versioned assets, fast repeat navigation. Ours previously returned platform HTML as `cf-cache-status: DYNAMIC` with `no-store`.
+- Frontend: removed parser-blocking `document.write` from `platform.js`, `platform.ui.js`, and `platform.create.js`; ordered chunks now use `async=false` and start immediately. Restored Lucide icons when chunks execute after `DOMContentLoaded`.
+- Bootstrap: anonymous `/api/config/public` request starts before session restore, with no Authorization header. Public config is snapshotted in `sessionStorage` for 5 minutes. Authenticated config is refreshed only after session restore and is not cached.
+- Shell work: public config/shell renders before advanced presets, billing, deep-link character hydration, and chat onboarding. These now run in idle/background tasks.
+- Server: platform HTML snapshot cache is coalesced per origin/host/tenant/tool/site-profile/asset-version with a 20s TTL. GEO visit stats run in the background instead of blocking each request.
+- Caching: platform HTML now emits `public, max-age=0, s-maxage=15, stale-while-revalidate=60` plus CDN cache headers; anonymous public config remains 30s `s-maxage`/SWR.
+- Changed: `platform.js`, `platform.ui.js`, `platform.create.js`, `platform.main.js`, `platform.ui.parts/part-01.js`, `platform.ui.parts/part-04.js`, `platform.create.parts/part-06.js`, `server.parts/part-04.js`, `server.parts/part-42.js`, `lib-http.js`, regression tests.
+- Verification: targeted performance/mobile/chat/video/Vega suite 111 pass / 0 fail after updating stale cache-busting and background-analytics assertions. `source-split` still reports pre-existing `server.parts/part-29.js` >1475 lines. Syntax and `git diff --check` pass.
+
 ## Vega stale asset URI recovery (2026-11-05)
 
 - Failed task `cgt-20261105203512-9b9e6c` (`seedance25-vega`) submitted three `asset://` URIs absent from Tencent VOD (`asset-20261105195615-x2vfl`, `asset-20261105195616-49c7h`, `asset-20261105195616-snf4f`). Neither `app_vega_media_library` nor `DescribeAigcMaterial` could resolve them.

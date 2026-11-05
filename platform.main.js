@@ -3,7 +3,12 @@ async function startPlatform() {
   const allowed = await ensureAgeGate();
   if (!allowed) return;
   await bootstrap();
-  initChatOnboarding();
+  const hydrate = () => initChatOnboarding();
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(hydrate, { timeout: 1200 });
+  } else {
+    window.setTimeout(hydrate, 300);
+  }
 }
 
 document.addEventListener("click", (event) => {

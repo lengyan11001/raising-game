@@ -838,38 +838,49 @@ function captureRegistrationAttributionFromUrl() {
   try { localStorage.setItem(REGISTRATION_ATTRIBUTION_KEY, JSON.stringify(attribution)); } catch {}
 }
 
-async function bootstrap() {
-  captureReferralCodeFromUrl();
-  captureRegistrationAttributionFromUrl();
-  await loadTelegramMiniAppAuth().catch((error) => {
-    console.warn("Telegram Mini App authentication failed", error.message || error);
-  });
-  await loadMe();
-  const payload = await requestJson("/api/config/public");
-  const platform = payload.config?.platform || {};
-  initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
-  state.config = payload.config;
-  configureGoogleLogin();
-  state.wallet = payload.config?.wallet || null;
-  state.billing = payload.config?.billing || null;
-  ensureSelectedWalletOption();
+const BOOTSTRAP_CONFIG_KEY = "vipeakPlatformBootstrapConfigV1";
+const BOOTSTRAP_CONFIG_MAX_AGE_MS = 5 * 60_000;
+
+function bootstrapConfigSnapshot() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(BOOTSTRAP_CONFIG_KEY) || "null");
+    if (!cached?.config || Number(cached.savedAt || 0) < Date.now() - BOOTSTRAP_CONFIG_MAX_AGE_MS) return null;
+    return cached.config;
+  } catch {
+    return null;
+  }
+}
+
+function cacheBootstrapConfigSnapshot(config) {
+  if (!config) return;
+  try {
+    sessionStorage.setItem(BOOTSTRAP_CONFIG_KEY, JSON.stringify({ config, savedAt: Date.now() }));
+  } catch {}
+}
+
+function installBootstrapConfig(config) {
+  if (!config) return;
+  const platform = config.platform || {};
+  state.config = config;
+  state.wallet = config.wallet || null;
+  state.billing = config.billing || null;
   state.templates = platform.templates || [];
-  state.playfluxTemplates = Array.isArray(payload.config?.playfluxTemplates) ? payload.config.playfluxTemplates : [];
+  state.playfluxTemplates = Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
-  const homeVideo = payload.config?.homeVideo || {};
+  const homeVideo = config.homeVideo || {};
   state.homeCharacters = homeVideo.items || [];
   state.homeCharactersPage = Number(homeVideo.page || 1) || 1;
   state.homeCharactersLimit = Number(homeVideo.limit || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE;
   state.homeCharactersTotal = Number(homeVideo.total || state.homeCharacters.length) || state.homeCharacters.length;
   state.homeCharactersTotalPages = Number(homeVideo.totalPages || 1) || 1;
-  await ensureRouteHomeCharacterLoaded().catch((error) => console.warn("route character preload failed", error.message || error));
-  applyRouteCharacterDetail({ allowTabSwitch: true });
+}
+
+function renderBootstrapShell(config) {
+  const platform = config?.platform || {};
   els.brandName.textContent = platform.brand || "Vipeak AI";
-  if (isTabAllowed("advanced")) await loadAdvancedPresets();
   applyTenantFeatures();
   normalizeTenantRouteAfterConfig();
-  applyTelegramMiniAppRoute();
   renderCategories();
   renderTemplates();
   renderAccessGuides();
@@ -881,5 +892,86 @@ async function bootstrap() {
   renderTokenDisplays();
   setTab(window.location.hash || tenantStringFeature("defaultRoute", "") || state.tab);
   refreshIcons();
+  if (isTabAllowed("advanced")) scheduleAdvancedPresetsLoad();
+}
+
+function hydrateRouteCharacterInBackground() {
+  ensureRouteHomeCharacterLoaded()
+    .then(() => {
+      if (!applyRouteCharacterDetail({ allowTabSwitch: true })) return;
+      setTab(window.location.hash || tenantStringFeature("defaultRoute", "") || state.tab);
+    })
+    .catch((error) => console.warn("route character preload failed", error.message || error));
+}
+
+async function bootstrap() {
+  captureReferralCodeFromUrl();
+  captureRegistrationAttributionFromUrl();
+  // Restore the last public config immediately on refresh so the shell and
+  // gallery render without waiting for the network. Fresh config replaces it.
+  const cachedConfig = bootstrapConfigSnapshot();
+  if (cachedConfig) {
+    installBootstrapConfig(cachedConfig);
+    configureGoogleLogin();
+    ensureSelectedWalletOption();
+    applyRouteCharacterDetail({ allowTabSwitch: true });
+    renderBootstrapShell(cachedConfig);
+  }
+
+  // Public config is anonymous/cacheable and is needed for the first paint.
+  // Start it immediately while the existing session is restored in parallel.
+  // Never send a stored token here: this response is reused for the anonymous
+  // first render and cached in sessionStorage.
+  const publicConfigPromise = requestJson("/api/config/public", { auth: false });
+  const sessionPromise = (async () => {
+    await loadTelegramMiniAppAuth().catch((error) => {
+      console.warn("Telegram Mini App authentication failed", error.message || error);
+    });
+    await loadMe();
+  })().catch((error) => console.warn("session restore failed", error.message || error));
+
+  const payload = await publicConfigPromise;
+  const platform = payload.config?.platform || {};
+  initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
+  installBootstrapConfig(payload.config);
+  cacheBootstrapConfigSnapshot(payload.config);
+  configureGoogleLogin();
+  ensureSelectedWalletOption();
+  applyRouteCharacterDetail({ allowTabSwitch: true });
+  renderBootstrapShell(payload.config);
+  hydrateRouteCharacterInBackground();
+  sessionPromise.then(async () => {
+    applyTelegramMiniAppRoute();
+    renderBootstrapShell(payload.config);
+    // The first response above is deliberately anonymous. Once the stored
+    // session is restored, refresh the config for entitlement-aware fields
+    // without making guests or the initial paint wait for it.
+    if (state.token) {
+      try {
+        const authenticated = await requestJson("/api/config/public");
+        if (authenticated?.config) {
+          installBootstrapConfig(authenticated.config);
+          renderBootstrapShell(authenticated.config);
+        }
+      } catch (error) {
+        console.warn("authenticated config refresh failed", error.message || error);
+      }
+    }
+    if (state.user && (tenantFeature("subscriptions", false) || membershipProgramEnabled())) {
+      loadBillingSummary().catch((error) => console.warn("billing summary failed", error.message || error));
+    }
+  });
   if (!isTenantTool("undress")) loadPlatformEstimates();
+}
+
+function scheduleAdvancedPresetsLoad() {
+  if (state.advancedPresetsLoaded || state.advancedPresetsLoading) return;
+  const load = () => loadAdvancedPresets().catch((error) => {
+    console.warn("advanced presets failed", error.message || error);
+  });
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(load, { timeout: 1500 });
+    return;
+  }
+  window.setTimeout(load, 800);
 }

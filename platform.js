@@ -42,18 +42,20 @@
     return url.toString();
   });
 
-  if (document.readyState === "loading") {
-    document.write(chunkSources.map((src) => `<script src="${src}"><\/script>`).join(""));
-    return;
-  }
-
-  chunkSources
-    .reduce((chain, src) => chain.then(() => new Promise((resolve, reject) => {
+  function loadChunks() {
+    chunkSources.forEach((src) => {
       const script = document.createElement("script");
       script.src = src;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error("Failed to load " + src));
+      // Preserve source order without blocking the HTML parser.
+      script.async = false;
+      script.onerror = () => console.error("Failed to load " + src);
       document.head.appendChild(script);
-    })), Promise.resolve())
-    .catch((error) => setTimeout(() => { throw error; }, 0));
+    });
+  }
+
+  // Never use document.write here: parser-blocking writes delay first paint and
+  // prevent the browser from discovering the rest of the page resources early.
+  // Start ordered chunk downloads as soon as this loader executes instead of
+  // waiting for DOMContentLoaded; async=false still preserves execution order.
+  loadChunks();
 })();
