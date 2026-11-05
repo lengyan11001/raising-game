@@ -145,6 +145,9 @@ async function serveStatic(req, res, url) {
 
     const isHtml = contentType === "text/html";
     const isVersionedAsset = Boolean(url.searchParams.get("v"));
+    // Browsers reject service worker scripts that use no-store. Keep this
+    // revalidated on each update while allowing the browser to store it.
+    const isServiceWorker = pathname === "/platform-sw.js";
     const frontendNames = ["/admin.html", "/admin.css", "/admin.js", "/live.html", "/live.css", "/live.js", "/chat.html", "/chat.css", "/chat.js", "/chat-live.js", "/site-landing.html", "/site-landing.css", "/site-landing.js"];
     const isFrontendAsset = frontendNames.includes(pathname)
       || PLATFORM_ASSET_FILES.some((fileName) => pathname === `/${fileName}`)
@@ -174,7 +177,9 @@ async function serveStatic(req, res, url) {
       "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
       "cache-control": isFrontendNoStore || isHtml
         ? "no-store, no-cache, must-revalidate, max-age=0"
-        : contentType.startsWith("video/") || isLongCacheAsset
+        : isServiceWorker
+          ? "no-cache, must-revalidate, max-age=0"
+          : contentType.startsWith("video/") || isLongCacheAsset
           ? "public, max-age=31536000, immutable"
           : contentType.startsWith("text/")
             ? "no-cache"

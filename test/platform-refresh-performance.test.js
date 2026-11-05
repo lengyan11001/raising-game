@@ -113,3 +113,9 @@ test("service worker never intercepts API or non-GET requests", () => {
   assert.match(sw, /type !== "precache"/);
   assert.match(sw, /caches\.delete\(key\)/);
 });
+
+test("service worker script remains registrable", () => {
+  const staticServer = read("server.parts/part-42.js");
+  assert.match(staticServer, /const isServiceWorker = pathname === "\/platform-sw\.js"/);
+  assert.match(staticServer, /isServiceWorker[\s\S]*?"no-cache, must-revalidate, max-age=0"/);
+});
