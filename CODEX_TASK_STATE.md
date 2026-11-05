@@ -5,7 +5,7 @@
 - Regression coverage asserts the upstream `WandVegaParameters` omit `GenerateMode` while preserving `VideoQualityMode`, and that the frontend Lite capability remains disabled.
 - Verification: `tencent-vod-vega.test.js` 56/56; syntax and `git diff --check` pass.
 - Files: `tencent-vod-vega.js`, `platform.config.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
-- Deployment: pending release build and `123vips.com` deployment. Live must not be deployed.
+- Deployment: `old-site` `cbe709e`; `platform-release` `7bd857a`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production checkout is `7bd857a`, service active, and `/api/health` returns `200 {"ok":true}`. Production config contains `vega10-lite` `generateMode: false`; Live release remained `6642e17` and was not deployed.
 
 ## Generate Result six-per-page and compact controls (2026-11-05)
 
