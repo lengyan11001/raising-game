@@ -115,11 +115,22 @@ async function handleAdminGetGenerationRecord(req, res, taskId) {
     view.adminResultPreviewUrl = adminGenerationMediaUrl(enrichedRecord.taskId);
     view.adminResultPreviewType = String(target.mime || "").startsWith("video/") ? "video" : "image";
   }
-  view.mediaAssets = (Array.isArray(view.mediaAssets) ? view.mediaAssets : []).map((asset, index) => ({
-    ...asset,
-    adminPreviewUrl: adminGenerationReferenceMediaUrl(enrichedRecord.taskId, index),
-    adminDownloadUrl: adminGenerationReferenceMediaUrl(enrichedRecord.taskId, index, { download: true }),
-  }));
+  view.mediaAssets = (Array.isArray(view.mediaAssets) ? view.mediaAssets : []).map((asset, index) => {
+    const referenceIndex = Number.isInteger(Number(asset?.referenceIndex)) && Number(asset.referenceIndex) >= 0
+      ? Number(asset.referenceIndex)
+      : index;
+    const signedPreviewUrl = adminGenerationReferenceMediaUrl(enrichedRecord.taskId, referenceIndex);
+    const directPreviewUrl = adminRecordMediaAssetUrl(asset);
+    return {
+      ...asset,
+      referenceIndex,
+      adminPreviewUrl: signedPreviewUrl || directPreviewUrl,
+      adminSourcePreviewUrl: directPreviewUrl,
+      adminDownloadUrl: signedPreviewUrl
+        ? adminGenerationReferenceMediaUrl(enrichedRecord.taskId, referenceIndex, { download: true })
+        : directPreviewUrl,
+    };
+  });
   return sendJson(res, 200, { ok: true, record: view });
 }
 
@@ -138,10 +149,14 @@ async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, refer
   const record = await getGenerationRecord(decodedTaskId);
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-  if (!Number.isInteger(index) || index < 0 || index >= assets.length) {
+  const indexedAsset = Number.isInteger(index) && index >= 0
+    ? assets.find((asset) => Number.isInteger(Number(asset?.referenceIndex)) && Number(asset.referenceIndex) === index)
+    : null;
+  const assetIndex = indexedAsset ? assets.indexOf(indexedAsset) : index;
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= assets.length) {
     return sendJson(res, 404, { ok: false, message: "Reference media not found." });
   }
-  const asset = assets[index] || {};
+  const asset = assets[assetIndex] || {};
   let linked = null;
   if (asset.userAssetId) {
     linked = await getUserAssetFromDb(asset.userAssetId);

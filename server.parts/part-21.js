@@ -390,14 +390,20 @@ function adminRecordMediaAssetUrl(asset = {}, userAssetMap = new Map()) {
     linked?.cdnUrl,
     linked?.publicUrl,
     linked?.sourcePublicUrl,
+    linked?.localUrl,
+    asset.adminPreviewUrl,
     asset.cdnUrl,
     asset.publicUrl,
     asset.imageUrl,
-    asset.videoUrl,
-    asset.audioUrl,
-    asset.localUrl,
     asset.sourceImageUrl,
+    asset.localImageUrl,
+    asset.videoUrl,
+    asset.localVideoUrl,
+    asset.audioUrl,
+    asset.localAudioUrl,
+    asset.localUrl,
     asset.sourceUrl,
+    asset.previewUrl,
     asset.url,
   ];
   return candidates.map((value) => String(value || "").trim()).find((value) => /^https?:\/\//i.test(value) || value.startsWith("/")) || "";
@@ -406,14 +412,12 @@ function adminRecordMediaAssetUrl(asset = {}, userAssetMap = new Map()) {
 async function enrichAdminGenerationRecordMedia(record = {}, db = null) {
   const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
   const ids = [...new Set(assets.map((asset) => String(asset?.userAssetId || "").trim()).filter(Boolean))];
-  if (!ids.length) return { ...record, mediaAssets: assets.map((asset, index) => ({ ...asset, referenceIndex: index })) };
   const userAssetMap = new Map();
   for (const id of ids) {
     const found = (db?.userAssets || []).find((asset) => String(asset?.id || "") === id && !isSoftDeleted(asset))
       || await getUserAssetFromDb(id);
     if (found) userAssetMap.set(id, found);
   }
-  if (!userAssetMap.size) return { ...record, mediaAssets: assets.map((asset, index) => ({ ...asset, referenceIndex: index })) };
   const enrich = (asset, index) => {
     const url = adminRecordMediaAssetUrl(asset, userAssetMap);
     if (!url) return { ...asset, referenceIndex: index };

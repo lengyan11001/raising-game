@@ -1864,10 +1864,24 @@ function recordResultPosterUrl(record = {}) {
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+  return [
+    asset.adminPreviewUrl,
+    asset.imageUrl,
+    asset.sourceImageUrl,
+    asset.localImageUrl,
+    asset.thumbnailUrl,
+    asset.posterUrl,
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.localUrl,
+    asset.sourceUrl,
+    asset.previewUrl,
+    asset.url,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
 }
 
 function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  if (asset.adminDownloadUrl) return asset.adminDownloadUrl;
   const index = Number(asset.referenceIndex);
   if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
   return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
@@ -1892,6 +1906,11 @@ function isPreviewableVideoUrl(url = "") {
   return Boolean(value) && !isInternalAssetUrl(value) && isVideoUrl(value);
 }
 
+function isPreviewableAudioUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && /\.(mp3|wav|m4a|aac|ogg|opus|flac)(?:[?#]|$)/i.test(value);
+}
+
 function recordMediaAssetLabel(asset = {}, index = 0) {
   if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
   if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
@@ -1909,12 +1928,14 @@ function recordImageAssets(record = {}) {
     seen.add(url);
     images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
   };
+  const nonImageTypes = ["driving_audio", "reference_audio", "first_clip", "reference_video"];
+  const isAudio = (asset) => String(asset?.mime || "").startsWith("audio/") || nonImageTypes.includes(asset?.type);
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
   upstreamMedia
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
@@ -1941,6 +1962,36 @@ function recordReferenceVideoAssets(record = {}) {
   return videos;
 }
 
+function recordMediaAssetAudioUrl(asset = {}) {
+  const candidates = [asset.audioUrl, asset.localAudioUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return candidates.find((url) => isPreviewableAudioUrl(url))
+    || (String(asset.mime || "").startsWith("audio/") || ["driving_audio", "reference_audio"].includes(asset.type)
+      ? candidates.find((url) => !isInternalAssetUrl(url))
+      : "")
+    || "";
+}
+
+function recordReferenceAudioAssets(record = {}) {
+  const audios = [];
+  const seen = new Set();
+  const pushAudio = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetAudioUrl(asset);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    audios.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, audios.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  return audios;
+}
+
 function recordPrimaryImageUrl(record = {}) {
   const images = recordImageAssets(record);
   return toAbsoluteHttpUrl(images[0] ? recordMediaAssetPreviewUrl(images[0]) : "")
@@ -1948,13 +1999,11 @@ function recordPrimaryImageUrl(record = {}) {
 }
 
 function recordMediaAssetVideoUrl(asset = {}) {
-  const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
+  const candidates = [asset.videoUrl, asset.localVideoUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  const adminUrl = String(asset.adminPreviewUrl || "").trim();
-  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
-    || candidates.find((url) => isPreviewableVideoUrl(url))
-    || candidates.find((url) => !isInternalAssetUrl(url))
+  return candidates.find((url) => isPreviewableVideoUrl(url))
+    || (String(asset.mime || "").startsWith("video/") ? candidates.find((url) => !isInternalAssetUrl(url)) : "")
     || "";
 }
 
@@ -1978,7 +2027,8 @@ function recordInputVideoPosterUrl(record = {}) {
 function recordImageAssetsHtml(record = {}) {
   const images = recordImageAssets(record);
   const videos = recordReferenceVideoAssets(record);
-  if (!images.length && !videos.length) return "";
+  const audios = recordReferenceAudioAssets(record);
+  if (!images.length && !videos.length && !audios.length) return "";
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
@@ -1995,6 +2045,13 @@ function recordImageAssetsHtml(record = {}) {
           <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
             <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
           </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>
+      `).join("")}
+      ${audios.map((asset) => `
+        <figure class="adm-record-reference-audio" data-reference-item>
+          <audio src="${escapeHtml(recordMediaAssetAudioUrl(asset))}" controls preload="metadata"></audio>
           <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
@@ -2743,6 +2800,7 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
   const referenceByIndex = new Map([
     ...recordImageAssets(record),
     ...recordReferenceVideoAssets(record),
+    ...recordReferenceAudioAssets(record),
   ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
   const referenceUrl = (index, download = false) => {
     const asset = referenceByIndex.get(String(index));
@@ -2795,7 +2853,6 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
 
 async function fetchAdminGenerationRecordDetail(record = {}) {
   if (!record?.taskId) return record;
-  if (record.adminResultPreviewUrl && (record.upstreamPayload || record.createResponse || record.queryResponse)) return record;
   const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
   return payload.record || record;
 }

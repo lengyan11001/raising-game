@@ -33,11 +33,37 @@ test("admin generation list omits heavy detail payloads from the page query", ()
   assert.doesNotMatch(source, /SELECT records\.payload\s+\$\{fromSql\}/);
 });
 
-test("admin generation details still load the complete record from the separate endpoint", () => {
+test("admin generation details always load the complete record from the separate endpoint", () => {
   assert.match(db, /async function getGenerationRecordFromDb\(taskId\)[\s\S]*?SELECT payload FROM app_generation_records WHERE task_id = \$1/);
   assert.match(server, /async function handleAdminGetGenerationRecord[\s\S]*?const record = await getGenerationRecord\(decodeURIComponent\(taskId\)\)/);
   assert.match(server, /async function handleAdminGetGenerationRecord[\s\S]*?requireAdmin\(req, res, \{ loadDb: false \}\)/);
   assert.match(admin, /async function openGenerationRecordDetail[\s\S]*?fetchAdminGenerationRecordDetail\(record\)/);
+  const start = admin.indexOf("async function fetchAdminGenerationRecordDetail");
+  const end = admin.indexOf("async function openGenerationRecordDetail", start + 1);
+  const source = admin.slice(start, end);
+  assert.match(source, /const payload = await api\(`\/api\/admin\/generation-records\/\$\{encodeURIComponent\(record\.taskId\)\}`\)/);
+  assert.doesNotMatch(source, /return record;\s*\}\s*const payload/);
+});
+
+test("admin generation media detail preserves stable reference indexes and all media kinds", () => {
+  const detailStart = server.indexOf("async function handleAdminGetGenerationRecord");
+  const detailEnd = server.indexOf("async function handleAdminGenerationRecordReferenceMedia", detailStart + 1);
+  const detailSource = server.slice(detailStart, detailEnd);
+  assert.match(detailSource, /const referenceIndex = Number\.isInteger\(Number\(asset\?\.referenceIndex\)\)/);
+  assert.match(detailSource, /const directPreviewUrl = adminRecordMediaAssetUrl\(asset\)/);
+  assert.match(detailSource, /adminPreviewUrl: signedPreviewUrl \|\| directPreviewUrl/);
+
+  const mediaStart = server.indexOf("function adminRecordMediaAssetUrl");
+  const mediaEnd = server.indexOf("async function ensureGenerationRecordImageR2Published", mediaStart + 1);
+  const mediaSource = server.slice(mediaStart, mediaEnd);
+  assert.match(mediaSource, /asset\.cdnUrl/);
+  assert.match(mediaSource, /asset\.videoUrl/);
+  assert.match(mediaSource, /asset\.audioUrl/);
+  assert.doesNotMatch(mediaSource, /if \(!ids\.length\) return/);
+
+  assert.match(admin, /function recordReferenceAudioAssets/);
+  assert.match(admin, /"reference_audio"/);
+  assert.match(admin, /class="adm-record-reference-audio"/);
 });
 
 
