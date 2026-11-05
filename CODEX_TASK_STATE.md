@@ -15,6 +15,9 @@
 - New regression test: `test/admin-generation-records-list.test.js`.
 - Verification: `node --require ./test/source-compat.js --test test/admin-generation-records-list.test.js test/generation-record-list-refresh.test.js test/history-pagination.test.js test/source-split.test.js` => 21 pass, 0 fail. `node --check db.js` and `git diff --check` pass.
 - Existing unrelated failure remains in `test/media-inputs.test.js` for the Seedance 2.5 dedupe source assertion; it predates this change and is not part of the deployed diff.
+- Deployment status (2026-11-05): committed `e71f46e` on `old-site`; rebuilt `platform-release` as `159c6dc` (includes remote Vega pricing fix `acd4a5a`) and pushed with lease protection.
+- Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; production checkout `159c6dc`, service active, `/api/health` 200. Live was not deployed.
+- Unauthenticated admin API probe correctly returned 401; authenticated timing must be measured in the admin browser session.
 
 ## Current issue (2026-11-05)
 
