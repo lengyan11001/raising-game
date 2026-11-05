@@ -144,6 +144,7 @@ function setTab(tab) {
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
     renderAdvanced();
+    scheduleAutoSizeAdvancedPrompt();
     if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
     // renderAdvanced/setAdvancedSideTab schedules one authoritative detail
@@ -1485,7 +1486,10 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedResolution) els.advancedResolution.value = "1K";
     if (els.advancedRatio) els.advancedRatio.value = "9:16";
   }
-  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || "";
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = template.prompt || "";
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   setTab("advanced");
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -3550,6 +3554,7 @@ async function useHomeCharacter(characterId = "") {
   state.advancedUploadDataUrl = imageUrl || "";
   if (els.advancedPrompt) {
     els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   setTab("advanced");
   updateAdvancedModelControls();
@@ -4059,6 +4064,7 @@ function fillAdvancedCasePrompt(item = {}) {
   }
   if (els.advancedPrompt) {
     els.advancedPrompt.value = prompt;
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
     els.advancedPrompt.focus?.();
   }
   state.activeAdvancedCaseId = "";

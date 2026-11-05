@@ -610,7 +610,10 @@ async function submitTemplate() {
   state.activeTemplate = null;
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
-  if (els.advancedPrompt) els.advancedPrompt.value = els.templatePrompt?.value || template.prompt || template.description || "";
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = els.templatePrompt?.value || template.prompt || template.description || "";
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   if (state.uploadDataUrl) {
     state.advancedReferenceImages = [{ dataUrl: state.uploadDataUrl, fileName: "reference.png" }];

@@ -1099,7 +1099,10 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedWanAnimateMode && ["wan-animate-move", "wan-animate-mix"].includes(restoredCapability)) {
     els.advancedWanAnimateMode.value = params.animateMode || params.parameters?.mode || "wan-std";
   }
-  if (els.advancedPrompt) els.advancedPrompt.value = item.prompt || params.prompt || "";
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = item.prompt || params.prompt || "";
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
@@ -1178,6 +1181,7 @@ function clearAdvancedCreationInputs() {
   ].forEach((input) => {
     if (input) input.value = "";
   });
+  autoSizeAdvancedPrompt({ resetManual: true });
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = false;
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;

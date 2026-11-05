@@ -1110,10 +1110,58 @@ function advancedRegenerateBody(record = {}) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
     const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
     const requestedDraftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
+    const assetUri = (asset) => String(firstPresent(
+      asset?.assetUri,
+      asset?.referenceAssetUri,
+      asset?.seedanceAssetUri,
+      asset?.Url,
+      asset?.URL,
+      asset?.url,
+      asset?.imageUrl,
+      asset?.image_url?.url,
+      asset?.videoUrl,
+      asset?.video_url?.url,
+      asset?.audioUrl,
+      asset?.audio_url?.url,
+      "",
+    ) || "").trim();
+    const publicUrlByAssetUri = new Map();
+    const assetUriByPublicUrl = new Map();
+    const rememberPublicUrl = (item) => {
+      const uri = vegaRecordAssetUriValues(item)[0] || "";
+      const url = vegaRecordMediaPublicUrl(item);
+      if (uri && url && !url.startsWith("asset://")) {
+        if (!publicUrlByAssetUri.has(uri)) publicUrlByAssetUri.set(uri, url);
+        if (!assetUriByPublicUrl.has(url)) assetUriByPublicUrl.set(url, uri);
+      }
+    };
+    mediaAssets.forEach(rememberPublicUrl);
+    [
+      params.firstFrameUrl || params.first_frame_url,
+      params.lastFrameUrl || params.last_frame_url,
+      params.referenceImages || params.reference_images,
+      params.referenceVideos || params.reference_videos,
+      params.referenceAudios || params.reference_audios,
+    ].forEach((value) => arrayFromBody(value).forEach(rememberPublicUrl));
     const assetUrl = (asset, keys = []) => {
       if (!asset || typeof asset !== "object") return "";
       const direct = keys.map((key) => asset[key]).find(Boolean);
-      return String(direct || asset.Url || asset.URL || asset.image_url?.url || asset.video_url?.url || asset.audio_url?.url || "").trim();
+      const directUrl = String(firstPresent(
+        direct,
+        asset.Url,
+        asset.URL,
+        asset.url,
+        asset.imageUrl,
+        asset.image_url?.url,
+        asset.videoUrl,
+        asset.video_url?.url,
+        asset.audioUrl,
+        asset.audio_url?.url,
+        "",
+      ) || "").trim();
+      const uri = assetUri(asset);
+      const publicUrl = uri ? publicUrlByAssetUri.get(uri) || "" : "";
+      return publicUrl || (!directUrl.startsWith("asset://") ? directUrl : "") || uri;
     };
     const assetId = (asset) => String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim();
     const upstreamItems = upstreamPayloadInputImageItems(record);
@@ -1127,26 +1175,57 @@ function advancedRegenerateBody(record = {}) {
       .map((asset) => assetUrl(asset, keys))
       .filter(Boolean);
     const uniqueUrls = (values) => [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))];
-    const firstFrameUrl = String(firstPresent(params.firstFrameUrl, params.first_frame_url, urlsByType("first_frame", ["url", "imageUrl", "image_url"]), upstreamByType("first_frame").map((item) => assetUrl(item))) || "").trim();
-    const lastFrameUrl = String(firstPresent(params.lastFrameUrl, params.last_frame_url, urlsByType("last_frame", ["url", "imageUrl", "image_url"]), upstreamByType("last_frame").map((item) => assetUrl(item))) || "").trim();
+    const missingAssetUriOnly = (urls, uris) => {
+      const represented = new Set(urls.flatMap((item) => {
+        const values = vegaRecordAssetUriValues(item);
+        const publicUrl = vegaRecordMediaPublicUrl(item);
+        const mappedUri = publicUrl ? assetUriByPublicUrl.get(publicUrl) : "";
+        return mappedUri ? [...values, mappedUri] : values;
+      }));
+      return arrayFromBody(uris)
+        .map((uri) => String(uri || "").trim())
+        .filter((uri) => uri.startsWith("asset://") && !represented.has(uri));
+    };
+    const firstFrameUrl = String(firstPresent(
+      params.firstFrameUrl,
+      params.first_frame_url,
+      params.firstFrameAssetUri,
+      urlsByType("first_frame", ["url", "imageUrl", "image_url"]),
+      upstreamByType("first_frame").map((item) => assetUrl(item)),
+      "",
+    ) || "").trim();
+    const lastFrameUrl = String(firstPresent(
+      params.lastFrameUrl,
+      params.last_frame_url,
+      params.lastFrameAssetUri,
+      urlsByType("last_frame", ["url", "imageUrl", "image_url"]),
+      upstreamByType("last_frame").map((item) => assetUrl(item)),
+      "",
+    ) || "").trim();
     const referenceImages = uniqueUrls([
       ...urlsByType("reference_image", ["url", "imageUrl", "image_url"]),
       ...upstreamByType("reference_image").map((item) => assetUrl(item)),
-      ...(Array.isArray(params.referenceImages) ? params.referenceImages.map((item) => typeof item === "string" ? item : item?.url || item?.imageUrl || item?.image_url?.url || item?.image_url) : []),
+      ...(Array.isArray(params.referenceImages) ? params.referenceImages.map((item) => typeof item === "string" ? item : assetUrl(item, ["url", "imageUrl", "image_url"])) : []),
       ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
     ]).filter((url) => url !== firstFrameUrl && url !== lastFrameUrl);
+    const imageUriOnly = missingAssetUriOnly(referenceImages, params.referenceImageAssetUris);
+    referenceImages.push(...imageUriOnly);
     const referenceVideos = uniqueUrls([
       ...urlsByType("reference_video", ["url", "videoUrl", "video_url"]),
       ...upstreamByType("reference_video").map((item) => assetUrl(item)),
-      ...(Array.isArray(params.referenceVideos) ? params.referenceVideos.map((item) => typeof item === "string" ? item : item?.url || item?.videoUrl || item?.video_url?.url || item?.video_url) : []),
+      ...(Array.isArray(params.referenceVideos) ? params.referenceVideos.map((item) => typeof item === "string" ? item : assetUrl(item, ["url", "videoUrl", "video_url"])) : []),
       ...(Array.isArray(params.referenceVideoUrls) ? params.referenceVideoUrls : []),
     ]);
+    const videoUriOnly = missingAssetUriOnly(referenceVideos, params.referenceVideoAssetUris);
+    referenceVideos.push(...videoUriOnly);
     const referenceAudios = uniqueUrls([
       ...urlsByType("reference_audio", ["url", "audioUrl", "audio_url"]),
       ...upstreamByType("reference_audio").map((item) => assetUrl(item)),
-      ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url?.url || item?.audio_url) : []),
+      ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : assetUrl(item, ["url", "audioUrl", "audio_url"])) : []),
       ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
     ]);
+    const audioUriOnly = missingAssetUriOnly(referenceAudios, params.referenceAudioAssetUris);
+    referenceAudios.push(...audioUriOnly);
     const firstFrameAssetId = String(firstPresent(
       params.firstFrameAssetId,
       params.first_frame_asset_id,
@@ -1176,6 +1255,40 @@ function advancedRegenerateBody(record = {}) {
       ...assetIdsByType("reference_audio"),
       ...upstreamByType("reference_audio").map((item) => assetId(item)),
     ].map((id) => String(id || "").trim()).filter(Boolean))];
+    const firstFrameAssetUri = String(firstPresent(
+      params.firstFrameAssetUri,
+      params.first_frame_asset_uri,
+      vegaRecordAssetUriValues(params.firstFrameUrl || params.first_frame_url)[0],
+      vegaRecordAssetUriValues(urlsByType("first_frame", ["assetUri", "url", "imageUrl", "image_url"]))[0],
+      vegaRecordAssetUriValues(upstreamByType("first_frame"))[0],
+      "",
+    ) || "").trim();
+    const lastFrameAssetUri = String(firstPresent(
+      params.lastFrameAssetUri,
+      params.last_frame_asset_uri,
+      vegaRecordAssetUriValues(params.lastFrameUrl || params.last_frame_url)[0],
+      vegaRecordAssetUriValues(urlsByType("last_frame", ["assetUri", "url", "imageUrl", "image_url"]))[0],
+      vegaRecordAssetUriValues(upstreamByType("last_frame"))[0],
+      "",
+    ) || "").trim();
+    const referenceImageAssetUris = [...new Set([
+      ...arrayFromBody(firstPresent(params.referenceImageAssetUris, params.reference_image_asset_uris)),
+      ...referenceImages.flatMap((item) => vegaRecordAssetUriValues(item)),
+      ...urlsByType("reference_image", ["assetUri", "referenceAssetUri", "url", "imageUrl", "image_url"]),
+      ...upstreamByType("reference_image").flatMap((item) => vegaRecordAssetUriValues(item)),
+    ].map((uri) => String(uri || "").trim()).filter((uri) => uri.startsWith("asset://")))].slice(0, referenceImages.length);
+    const referenceVideoAssetUris = [...new Set([
+      ...arrayFromBody(firstPresent(params.referenceVideoAssetUris, params.reference_video_asset_uris)),
+      ...referenceVideos.flatMap((item) => vegaRecordAssetUriValues(item)),
+      ...urlsByType("reference_video", ["assetUri", "referenceAssetUri", "url", "videoUrl", "video_url"]),
+      ...upstreamByType("reference_video").flatMap((item) => vegaRecordAssetUriValues(item)),
+    ].map((uri) => String(uri || "").trim()).filter((uri) => uri.startsWith("asset://")))].slice(0, referenceVideos.length);
+    const referenceAudioAssetUris = [...new Set([
+      ...arrayFromBody(firstPresent(params.referenceAudioAssetUris, params.reference_audio_asset_uris)),
+      ...referenceAudios.flatMap((item) => vegaRecordAssetUriValues(item)),
+      ...urlsByType("reference_audio", ["assetUri", "referenceAssetUri", "url", "audioUrl", "audio_url"]),
+      ...upstreamByType("reference_audio").flatMap((item) => vegaRecordAssetUriValues(item)),
+    ].map((uri) => String(uri || "").trim()).filter((uri) => uri.startsWith("asset://")))].slice(0, referenceAudios.length);
     const reconstructedMedia = { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
     let draftSelection;
     try {
@@ -1229,24 +1342,32 @@ function advancedRegenerateBody(record = {}) {
       if (regeneratedMedia.lastFrameUrl) body.lastFrameUrl = regeneratedMedia.lastFrameUrl;
       if (firstFrameAssetId) body.firstFrameAssetId = firstFrameAssetId;
       if (lastFrameAssetId) body.lastFrameAssetId = lastFrameAssetId;
+      if (firstFrameAssetUri) body.firstFrameAssetUri = firstFrameAssetUri;
+      if (lastFrameAssetUri) body.lastFrameAssetUri = lastFrameAssetUri;
     } else if (regeneratedMedia.mode === "reference_video") {
       // File-based Vega records have no local mediaAssets. Keep the original
-      // FileInfos URLs/IDs so an old finished result can be regenerated directly.
+      // FileInfos URLs/IDs and asset URIs so an old finished result can be regenerated directly.
       body.referenceImages = regeneratedMedia.referenceImages.map((url, index) => ({
         url,
+        ...(referenceImageAssetUris[index] ? { assetUri: referenceImageAssetUris[index], referenceAssetUri: referenceImageAssetUris[index] } : {}),
         ...(referenceImageAssetIds[index] ? { userAssetId: referenceImageAssetIds[index] } : {}),
       }));
       body.referenceVideos = regeneratedMedia.referenceVideos.map((url, index) => ({
         url,
+        ...(referenceVideoAssetUris[index] ? { assetUri: referenceVideoAssetUris[index], referenceAssetUri: referenceVideoAssetUris[index] } : {}),
         ...(referenceVideoAssetIds[index] ? { userAssetId: referenceVideoAssetIds[index] } : {}),
       }));
       body.referenceAudios = regeneratedMedia.referenceAudios.map((url, index) => ({
         url,
+        ...(referenceAudioAssetUris[index] ? { assetUri: referenceAudioAssetUris[index], referenceAssetUri: referenceAudioAssetUris[index] } : {}),
         ...(referenceAudioAssetIds[index] ? { userAssetId: referenceAudioAssetIds[index] } : {}),
       }));
       if (referenceImageAssetIds.length) body.referenceImageAssetIds = referenceImageAssetIds;
       if (referenceVideoAssetIds.length) body.referenceVideoAssetIds = referenceVideoAssetIds;
       if (referenceAudioAssetIds.length) body.referenceAudioAssetIds = referenceAudioAssetIds;
+      if (referenceImageAssetUris.length) body.referenceImageAssetUris = referenceImageAssetUris;
+      if (referenceVideoAssetUris.length) body.referenceVideoAssetUris = referenceVideoAssetUris;
+      if (referenceAudioAssetUris.length) body.referenceAudioAssetUris = referenceAudioAssetUris;
     }
     if (regeneratedMedia.mode === "draft_followup") {
       body.prompt = "";

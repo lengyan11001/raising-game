@@ -410,6 +410,28 @@ test("prompt editor exposes a large keyboard-accessible resize handle", () => {
   assert.match(main, /bindAdvancedPromptResizeHandle\(\);/);
 });
 
+test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {
+  assert.match(create, /function autoSizeAdvancedPrompt\(/);
+  assert.match(create, /textarea\.style\.height = "auto"/);
+  assert.match(create, /textarea\.scrollHeight \+ 2/);
+  assert.match(create, /Math\.min\(maximumHeight, Math\.max\(minimumHeight, contentHeight\)\)/);
+  assert.match(create, /textarea\.style\.overflowY = contentHeight > maximumHeight \+ 1 \? "auto" : "hidden"/);
+  assert.match(create, /function scheduleAutoSizeAdvancedPrompt\(/);
+  assert.match(platformExploreSource, /nextTab === "advanced"[\s\S]*?scheduleAutoSizeAdvancedPrompt\(\)/);
+  assert.match(main, /els\.advancedPrompt\?\.addEventListener\("input", \(\) => autoSizeAdvancedPrompt\(\)\)/);
+  assert.match(platformExploreSource, /els\.advancedPrompt\.value = template\.prompt[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
+  assert.match(create, /els\.advancedPrompt\.value = els\.templatePrompt\?\.value[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
+});
+
+test("prompt @ reference tokens render in pink without changing textarea editing", () => {
+  assert.match(html, /<div class="advanced-prompt-highlight" id="advancedPromptHighlight" aria-hidden="true"><\/div>[\s\S]*?<textarea id="advancedPrompt"/);
+  assert.match(create, /function syncAdvancedPromptHighlight\(\)/);
+  assert.match(create, /class="advanced-prompt-mention-token"/);
+  assert.match(css, /\.advanced-prompt-mention-token \{[\s\S]*?color: #ff4fa3;/);
+  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?color: transparent;[\s\S]*?caret-color: var\(--text\);/);
+  assert.match(main, /els\.advancedPrompt\?\.addEventListener\("scroll", syncAdvancedPromptHighlight\)/);
+});
+
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
   assert.match(ui, /function advancedVideoEditUsesSourceDuration/);
   assert.match(create, /followInputDuration: advancedVideoEditUsesSourceDuration\(videoCapability\)/);

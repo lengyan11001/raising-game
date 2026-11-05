@@ -326,6 +326,7 @@ function isPrivateVegaHostname(hostname = "") {
 function publicVegaUrl(value = "", label = "media") {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  if (/^asset:\/\/asset-[A-Za-z0-9._-]+$/.test(raw)) return raw;
   let parsed;
   try { parsed = new URL(raw); } catch { parsed = null; }
   if (!parsed || !["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || isPrivateVegaHostname(parsed.hostname)) {

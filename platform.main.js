@@ -734,6 +734,8 @@ els.advancedCreateModeTabs?.addEventListener("click", (event) => {
   setAdvancedCreateMode(button.dataset.advancedCreateMode || "");
 });
 els.advancedPrompt?.addEventListener("input", handleAdvancedPromptMentionInput);
+els.advancedPrompt?.addEventListener("input", () => autoSizeAdvancedPrompt());
+els.advancedPrompt?.addEventListener("scroll", syncAdvancedPromptHighlight);
 els.advancedPrompt?.addEventListener("click", renderAdvancedPromptMentionMenu);
 els.advancedPrompt?.addEventListener("keyup", (event) => {
   if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) return;
@@ -752,7 +754,10 @@ document.addEventListener("pointerdown", (event) => {
   if (event.target.closest("#advancedPrompt, #advancedPromptMentions")) return;
   closeAdvancedPromptMentions();
 });
-window.addEventListener("resize", positionAdvancedPromptMentionMenu);
+window.addEventListener("resize", () => {
+  positionAdvancedPromptMentionMenu();
+  autoSizeAdvancedPrompt({ force: true });
+});
 els.characterCreateBtn?.addEventListener("click", createCharacterFromPrompt);
 els.assetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.assetSearchTimer);
@@ -1007,7 +1012,7 @@ els.advancedProvider?.addEventListener("change", () => {
     syncAdvancedSeedanceModeOptions(provider);
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
     if (els.advancedRatio) els.advancedRatio.value = "adaptive";
-    if (els.advancedResolution) els.advancedResolution.value = "768P";
+    if (els.advancedResolution) els.advancedResolution.value = provider === "seedance20-vega" ? "1080P" : "768P";
     if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : provider === "seedance20-vega" ? "5" : "5";
     if (els.advancedWanSeed) els.advancedWanSeed.value = "";
     if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = "auto";
@@ -1107,7 +1112,10 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       state.advancedSeedanceLastFrameDataUrl = "";
     }
     if (mode === "draft_followup") {
-      if (els.advancedPrompt) els.advancedPrompt.value = "";
+      if (els.advancedPrompt) {
+        els.advancedPrompt.value = "";
+        autoSizeAdvancedPrompt({ force: true, resetManual: true });
+      }
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences([]);
       setAdvancedSeedanceAudioReferences([]);

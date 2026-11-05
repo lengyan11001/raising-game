@@ -1,3 +1,20 @@
+## Generate prompt @ mention pink highlight (2026-11-05)
+
+- Added a textarea mirror layer behind `#advancedPrompt` so inserted `@Image 1`, `@Video 1`, `@Audio 1`, and document references display in pink without changing the native editing/selection behavior.
+- Only labels backed by actual current reference items are highlighted; ordinary text and email-like `@` text remain unchanged. Markup is escaped before rendering, and the overlay syncs on input, scroll, resizing, and programmatic prompt loads.
+- Updated `platform.html`, `platform.config.js`, `platform.css`, `platform.create.parts/part-04.js`, `platform.main.js`, and `test/advanced-custom-ui.test.js`.
+- Targeted regression passes. Full `advanced-custom-ui.test.js`: 30 pass / 5 pre-existing unrelated failures. Syntax and `git diff --check` pass.
+
+## Generate prompt auto-height (2026-11-05)
+
+- User clarified the target is the top-level Generate entry (the Advanced workspace), not a separate prompt panel.
+- Added `autoSizeAdvancedPrompt()` and `scheduleAutoSizeAdvancedPrompt()` in `platform.create.parts/part-04.js`: measure `scrollHeight`, clamp to 68px through the existing responsive maximum, and scroll only after that maximum.
+- Prompt input now follows text length. Generated/template/case/character prompt loads force a full-content remeasure and reset any manual height, while drag/keyboard resizing keeps the user's chosen height until a new loaded prompt arrives.
+- The Generate/Advanced tab remeasures after it becomes visible, fixing hidden-tab `scrollHeight=0`; window resize and programmatic clears also refresh the height.
+- Updated prompt assignments in `platform.create.parts/part-02.js`, `part-03.js`, `part-05.js`, `platform.explore.js`, and `platform.main.js`.
+- Added regression coverage in `test/advanced-custom-ui.test.js`.
+- Targeted test `prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible` passes. Full `advanced-custom-ui.test.js`: 29 pass / 5 pre-existing unrelated failures (Vega/price/frame-mode expectations). Syntax and `git diff --check` pass.
+
 ## Vega Pro asset-library API correction (2026-11-05)
 
 - User supplied the upstream rule for Vega 1.0 Pro / 1.5 Pro: public URLs must first become VOD assets through `CreateAigcMaterial`, and the video request must reference `Type=Url`, `Url=asset://asset-...`. The previous `PullUpload` + `Type=File` + `FileId` + `InputRegion=Oversea` flow was incorrect.
@@ -212,6 +229,16 @@
 - Live was not deployed.
 
 # Codex Task State
+
+## Vega regeneration input-media restoration (2026-11-05)
+
+- User reported that all four new Vega channels lost original reference media when regenerating an existing record. The affected inputs are first frame, last frame, reference images, reference videos, and reference audio.
+- `server.parts/part-29.js` now resolves `asset://asset-...` values back to public PostgreSQL-backed source URLs, keeps URI fields separate, and no longer duplicates URI-only FileInfos beside hydrated URL entries. Reference asset URI arrays are aligned to the actual media count.
+- `platform.create.parts/part-04.js` prefers public URLs during form restoration, safely handles missing frame/asset values, and merges media across asset ID, asset URI, and public URL without dropping fields or creating duplicates.
+- `server.parts/part-41.js` recognizes Vega media type from Usage/Role/Category/type, merges canonical and legacy arrays by position, preserves asset IDs and URIs, and excludes generated result URLs from regeneration inputs.
+- Regression file `test/vega-regeneration-media.test.js` covers legacy `upstreamPayload.FileInfos`, ordered reference images/videos/audios, asset-URI-only frames, canonical-versus-legacy array hydration, result-URL exclusion, the server regenerate payload, and frontend restoration.
+- Verification: `node --require ./test/source-compat.js --test test/media-inputs.test.js test/tencent-vod-vega.test.js test/advanced-pricing.test.js test/vega-pricing-label.test.js test/vega-regeneration-media.test.js` passes 114/114. `node --check tencent-vod-vega.js`, `node --check server.js`, `node --check platform.create.js`, and `git diff --check` pass.
+- Pending: commit, build `platform-release` from committed `old-site`, push, and deploy only `123vips.com` with `scripts/deploy_local.sh --site old`.
 
 ## Vega 1.0 Pro integration (2026-11-05)
 

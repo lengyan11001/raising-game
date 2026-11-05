@@ -212,7 +212,9 @@ test("Seedance API references are deduplicated before the nine-image limit and u
 test("all multimodal adapters deduplicate compatibility aliases before counting and sending", () => {
   assert.match(server, /function seedanceReferenceAudioInputsFromBody[\s\S]*?const seen = new Set\(\)/);
   assert.match(server, /function seedance25ReferenceInputs[\s\S]*?const seenItems = new Set\(\)/);
-  assert.match(server, /const imageUrls = \[\.\.\.new Set\(\[\.\.\.await seedance25PublicAssetUrls/);
+  assert.match(server, /const imageUrls = \[\]/);
+  assert.match(server, /imageUrls\.push\(url\)/);
+  assert.match(server, /!imageUrls\.includes\(item\)/);
   assert.match(server, /function aliyunMediaInputs[\s\S]*?const seen = new Set\(\)/);
   assert.match(server, /function uniqueResolvedAliyunMedia/);
   assert.match(server, /const media = uniqueResolvedAliyunMedia\(resolvedMedia\)/);
@@ -268,7 +270,7 @@ test("Seedance 2.5 regeneration preserves all saved multimodal references", () =
 });
 
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
-  assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
+  assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.localVideoUrl, asset\.publicUrl, asset\.cdnUrl, asset\.localUrl, asset\.url, asset\.adminPreviewUrl\]/);
   assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);
   assert.match(admin, /candidates\.find\(\(url\) => !isInternalAssetUrl\(url\)\)/);
 });
@@ -323,7 +325,7 @@ test("image regeneration restores original providers and input media without a n
   assert.doesNotMatch(restoreProvider, /source\.includes\("image"\)\) return "wan27-image-edit"/);
   assert.match(restoreMedia, /const recordedImages = recordImageAssets\(record\)/);
   assert.match(restoreMedia, /const seenImageKeys = new Set\(\)/);
-  assert.match(restoreMedia, /\[\.\.\.mediaAssets, \.\.\.recordedImages, \.\.\.upstreamItems\]/);
+  assert.match(restoreMedia, /const imageEntries = recordedImages\.map/);
   assert.match(submit, /params: \{[\s\S]*?advancedProviderId: provider,[\s\S]*?\},\n          async: true/);
   assert.match(regenerateSource, /function imageEditRegenerateBody\(record = \{\}\)/);
   assert.match(regenerateSource, /if \(\["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image-edit"\]\.includes\(explicitProvider\)\)[\s\S]*?handleWan27ImageEdit/);

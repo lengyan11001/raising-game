@@ -281,40 +281,307 @@ function vegaRecordMediaUrlValues(value = []) {
   return list.flatMap((item) => {
     if (typeof item === "string") return [item];
     if (!item || typeof item !== "object") return [];
-    return [item.url, item.imageUrl, item.image_url, item.videoUrl, item.video_url, item.audioUrl, item.audio_url, item.localUrl, item.publicUrl, item.cdnUrl, item.previewUrl];
+    return [
+      item.url,
+      item.imageUrl,
+      item.image_url,
+      item.videoUrl,
+      item.video_url,
+      item.audioUrl,
+      item.audio_url,
+      item.localUrl,
+      item.publicUrl,
+      item.cdnUrl,
+      item.previewUrl,
+      item.sourceUrl,
+      item.Url,
+      item.URL,
+      item.image_url?.url,
+      item.imageUrl?.url,
+      item.video_url?.url,
+      item.videoUrl?.url,
+      item.audio_url?.url,
+      item.audioUrl?.url,
+    ];
   }).map((value) => String(value || "").trim()).filter(Boolean);
+}
+
+function vegaRecordAssetUriValues(value = []) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (!item || typeof item !== "object") return [];
+    return [
+      item.assetUri,
+      item.referenceAssetUri,
+      item.seedanceAssetUri,
+      item.Url,
+      item.URL,
+      item.url,
+      item.image_url?.url,
+      item.imageUrl?.url,
+      item.video_url?.url,
+      item.videoUrl?.url,
+      item.audio_url?.url,
+      item.audioUrl?.url,
+    ];
+  }).map((value) => String(value || "").trim()).filter((value) => value.startsWith("asset://"));
+}
+
+function vegaRecordUpstreamMediaValues(record = {}) {
+  const payload = record.upstreamPayload && typeof record.upstreamPayload === "object" ? record.upstreamPayload : {};
+  return [
+    ...(Array.isArray(payload.FileInfos) ? payload.FileInfos : []),
+    ...(Array.isArray(payload.Content) ? payload.Content : []),
+    ...(Array.isArray(payload.content) ? payload.content : []),
+  ];
+}
+
+function vegaRecordMediaPublicUrl(item = {}) {
+  if (typeof item === "string") return String(item || "").trim().startsWith("asset://") ? "" : String(item || "").trim();
+  if (!item || typeof item !== "object") return "";
+  return String(firstPresent(
+    item.url,
+    item.imageUrl,
+    item.image_url,
+    item.videoUrl,
+    item.video_url,
+    item.audioUrl,
+    item.audio_url,
+    item.localUrl,
+    item.publicUrl,
+    item.cdnUrl,
+    item.previewUrl,
+    item.sourceUrl,
+    item.Url,
+    item.URL,
+    item.image_url?.url,
+    item.imageUrl?.url,
+    item.video_url?.url,
+    item.videoUrl?.url,
+    item.audio_url?.url,
+    item.audioUrl?.url,
+    "",
+  ) || "").trim();
+}
+
+function vegaRecordMediaKind(item = {}, typeHint = "") {
+  if (typeof item === "string") {
+    return String(typeHint || "").toLowerCase().includes("video")
+      ? "video"
+      : String(typeHint || "").toLowerCase().includes("audio")
+      ? "audio"
+      : "image";
+  }
+  const hint = String(typeHint || item?.type || item?.Category || item?.category || item?.Usage || item?.usage || "").toLowerCase();
+  if (hint.includes("video")) return "video";
+  if (hint.includes("audio")) return "audio";
+  if (hint.includes("image") || hint.includes("frame")) return "image";
+  if (item?.videoUrl || item?.video_url) return "video";
+  if (item?.audioUrl || item?.audio_url) return "audio";
+  return "image";
+}
+
+function vegaRecordMediaType(item = {}, typeHint = "") {
+  // Usage/role carries the frame semantics supplied by VOD while Category is
+  // the media container (Image/Video/Audio). Inspect both: a generic list hint
+  // such as "reference_image" must not turn an old video/audio FileInfo into
+  // an image, and Category=Image must not erase Usage=FirstFrame.
+  const hint = String([
+    typeHint,
+    item?.Usage,
+    item?.usage,
+    item?.role,
+    item?.Role,
+    item?.type,
+    item?.Category,
+    item?.category,
+  ].filter(Boolean).join(" ")).toLowerCase();
+  if (hint.includes("video") || hint.includes("clip")) return "reference_video";
+  if (hint.includes("audio")) return "reference_audio";
+  if (hint.includes("last") || hint.includes("end")) return "last_frame";
+  if (hint.includes("first")) return "first_frame";
+  return "reference_image";
+}
+
+function withVegaRecordMediaSource(item, sourceUrl, assetUri = "", typeHint = "") {
+  if (typeof item === "string") {
+    if (String(item).trim().startsWith("asset://")) {
+      const uri = String(item).trim();
+      const kind = vegaRecordMediaKind(item, typeHint);
+      const source = sourceUrl || uri;
+      return {
+        url: source,
+        ...(kind === "video" ? { videoUrl: source } : kind === "audio" ? { audioUrl: source } : { imageUrl: source }),
+        assetUri: uri,
+        referenceAssetUri: uri,
+      };
+    }
+    return item;
+  }
+  if (!item || typeof item !== "object") return item;
+  const uri = String(assetUri || item.assetUri || item.referenceAssetUri || "").trim() ||
+    (String(vegaRecordMediaPublicUrl(item)).startsWith("asset://") ? String(vegaRecordMediaPublicUrl(item)).trim() : "");
+  const kind = vegaRecordMediaKind(item, typeHint);
+  if (!sourceUrl && !uri) return item;
+  const typedKey = kind === "video" ? "videoUrl" : kind === "audio" ? "audioUrl" : "imageUrl";
+  const typedUrl = String(item[typedKey] || "").trim();
+  const shouldReplaceTyped = !typedUrl || typedUrl.startsWith("asset://");
+  return {
+    ...item,
+    ...(sourceUrl ? { url: sourceUrl } : {}),
+    ...(sourceUrl && shouldReplaceTyped ? { [typedKey]: sourceUrl } : {}),
+    ...(uri ? { assetUri: uri, referenceAssetUri: item.referenceAssetUri || uri } : {}),
+  };
 }
 
 async function hydrateVegaRecordMediaAssetIds(record = {}, userId = "") {
   if (!record || !isVegaProvider(record.provider || record.params?.provider)) return record;
   const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
   const params = record.params && typeof record.params === "object" ? record.params : {};
-  const hasMissingAssetId = mediaAssets.some((asset) => !String(asset?.userAssetId || asset?.assetId || asset?.id || "").trim() && vegaRecordMediaUrlValues(asset).length);
-  const hasOnlyUrlParams = !mediaAssets.length && [
+  const upstreamItems = vegaRecordUpstreamMediaValues(record);
+  const paramValues = [
     params.firstFrameUrl || params.first_frame_url,
     params.lastFrameUrl || params.last_frame_url,
     params.referenceImages || params.reference_images,
     params.referenceVideos || params.reference_videos,
     params.referenceAudios || params.reference_audios,
-  ].some((value) => vegaRecordMediaUrlValues(value).length);
-  if (!hasMissingAssetId && !hasOnlyUrlParams) return record;
+  ];
+  const hasMissingAssetId = mediaAssets.some((asset) => !String(asset?.userAssetId || asset?.assetId || asset?.id || "").trim() && vegaRecordMediaUrlValues(asset).length);
+  const hasOnlyUrlParams = !mediaAssets.length && paramValues.some((value) => vegaRecordMediaUrlValues(value).length);
+  const assetUris = [...new Set([
+    ...mediaAssets.flatMap((asset) => vegaRecordAssetUriValues(asset)),
+    ...paramValues.flatMap((value) => vegaRecordAssetUriValues(value)),
+    ...upstreamItems.flatMap((item) => vegaRecordAssetUriValues(item)),
+    ...(Array.isArray(params.referenceImageAssetUris) ? params.referenceImageAssetUris : []),
+    ...(Array.isArray(params.referenceVideoAssetUris) ? params.referenceVideoAssetUris : []),
+    ...(Array.isArray(params.referenceAudioAssetUris) ? params.referenceAudioAssetUris : []),
+    params.firstFrameAssetUri,
+    params.lastFrameAssetUri,
+  ].map((value) => String(value || "").trim()).filter((value) => value.startsWith("asset://")))];
   const urls = [
     ...mediaAssets.flatMap((asset) => vegaRecordMediaUrlValues(asset)),
-    ...vegaRecordMediaUrlValues(params.firstFrameUrl || params.first_frame_url),
-    ...vegaRecordMediaUrlValues(params.lastFrameUrl || params.last_frame_url),
-    ...vegaRecordMediaUrlValues(params.referenceImages || params.reference_images),
-    ...vegaRecordMediaUrlValues(params.referenceVideos || params.reference_videos),
-    ...vegaRecordMediaUrlValues(params.referenceAudios || params.reference_audios),
-  ];
-  const assetIdsByUrl = await getUserAssetIdsByUrlsFromDb({ userId, urls });
-  if (!Object.keys(assetIdsByUrl).length) return record;
-  const assetIdFor = (asset) => String(
-    firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, assetIdsByUrl[String(asset?.url || asset?.imageUrl || asset?.videoUrl || asset?.audioUrl || asset?.localUrl || asset?.publicUrl || asset?.cdnUrl || asset?.previewUrl || "").trim()], "")
-    || "",
-  ).trim();
-  const nextAssets = mediaAssets.map((asset) => ({ ...asset, userAssetId: assetIdFor(asset) }));
-  const idsByType = (type) => nextAssets.filter((asset) => asset?.type === type && asset.userAssetId).map((asset) => asset.userAssetId);
+    ...paramValues.flatMap((value) => vegaRecordMediaUrlValues(value)),
+    ...upstreamItems.flatMap((item) => vegaRecordMediaUrlValues(item)),
+  ].filter((url) => !url.startsWith("asset://"));
+  if (!assetUris.length && !urls.length) return record;
+  const [sourceUrlsByAssetUri, assetIdsByUrl] = await Promise.all([
+    assetUris.length ? getVegaMediaLibrarySourceUrlsByAssetUrisFromDb({ userId, assetUris }) : Promise.resolve({}),
+    urls.length ? getUserAssetIdsByUrlsFromDb({ userId, urls }) : Promise.resolve({}),
+  ]);
+  if (!Object.keys(sourceUrlsByAssetUri).length && !Object.keys(assetIdsByUrl).length && !assetUris.length && !hasMissingAssetId && !hasOnlyUrlParams) return record;
+
+  const sourceFor = (item) => {
+    const uri = vegaRecordAssetUriValues(item)[0] || "";
+    const directUrl = vegaRecordMediaPublicUrl(item);
+    return String(sourceUrlsByAssetUri[uri] || directUrl || "").trim();
+  };
+  const assetIdFor = (item) => {
+    const direct = typeof item === "object" ? String(firstPresent(item?.userAssetId, item?.assetId, item?.id, "") || "").trim() : "";
+    const url = vegaRecordMediaPublicUrl(item);
+    return String(direct || assetIdsByUrl[url] || "").trim();
+  };
+  const hydrate = (item, typeHint = "") => {
+    const uri = vegaRecordAssetUriValues(item)[0] || "";
+    const sourceUrl = sourceFor(item);
+    const next = withVegaRecordMediaSource(item, sourceUrl, uri, typeHint);
+    const assetId = assetIdFor(item);
+    return next && typeof next === "object" && assetId ? { ...next, userAssetId: assetId } : next;
+  };
+
+  // Older Vega records can have no mediaAssets at all: the only original input
+  // evidence is upstreamPayload.FileInfos/Content. Rebuild those entries so the
+  // detail/regenerate path receives the same typed, ordered media as new rows.
+  const recoveredAssets = upstreamItems.map((item) => {
+    const type = vegaRecordMediaType(item);
+    const next = hydrate(item, type);
+    if (!next || typeof next !== "object") return null;
+    return { ...next, type: next.type || type };
+  }).filter(Boolean);
+  const combinedAssets = [...mediaAssets, ...recoveredAssets];
+  // FileInfos and Content may describe the same input with different metadata
+  // (one has userAssetId, the other only has asset://). Treat every identity
+  // as a duplicate key instead of letting that split one asset into two.
+  const seenAssetIds = new Set();
+  const seenAssetUris = new Set();
+  const seenAssetUrls = new Set();
+  const nextAssets = combinedAssets.filter((asset) => {
+    const assetId = String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim();
+    const assetUri = vegaRecordAssetUriValues(asset)[0] || "";
+    const sourceUrl = vegaRecordMediaPublicUrl(asset);
+    if ((assetId && seenAssetIds.has(assetId))
+      || (assetUri && seenAssetUris.has(assetUri))
+      || (sourceUrl && seenAssetUrls.has(sourceUrl))) return false;
+    if (assetId) seenAssetIds.add(assetId);
+    if (assetUri) seenAssetUris.add(assetUri);
+    if (sourceUrl) seenAssetUrls.add(sourceUrl);
+    return true;
+  }).map((asset) => hydrate(asset, asset?.type || asset?.Category || asset?.category || ""));
   const nextParams = { ...params };
+  const hydrateFrame = (raw, frameKey, uriKey, typeHint) => {
+    const value = raw || params[uriKey] || "";
+    const source = sourceFor(value);
+    const next = hydrate(value, typeHint);
+    const uri = vegaRecordAssetUriValues(next)[0] || vegaRecordAssetUriValues(value)[0] || "";
+    nextParams[frameKey] = source || (typeof next === "string" ? next : next?.url) || (typeof value === "string" ? value : "") || "";
+    if (uri) nextParams[uriKey] = uri;
+  };
+  hydrateFrame(params.firstFrameUrl || params.first_frame_url, "firstFrameUrl", "firstFrameAssetUri", "first_frame");
+  hydrateFrame(params.lastFrameUrl || params.last_frame_url, "lastFrameUrl", "lastFrameAssetUri", "last_frame");
+  const hydrateList = (key, urlKey, uriKey, typeHint) => {
+    // Legacy rows often store the display URL and the Pro media-library URI in
+    // parallel arrays. Merge them positionally; an explicitly empty canonical
+    // array must not hide either source.
+    const lists = [params[key], params[urlKey], params[uriKey]].filter(Array.isArray);
+    const length = Math.max(0, ...lists.map((list) => list.length));
+    if (!length) return;
+    nextParams[key] = Array.from({ length }, (_unused, index) => {
+      const candidates = lists.map((list) => list[index]).filter((item) => item !== undefined && item !== null && item !== "");
+      const object = candidates.find((item) => item && typeof item === "object" && !Array.isArray(item)) || {};
+      const urlCandidate = candidates.find((item) => typeof item === "string" && !item.trim().startsWith("asset://"));
+      const uriCandidate = candidates.find((item) => typeof item === "string" && item.trim().startsWith("asset://"));
+      const assetUri = vegaRecordAssetUriValues(candidates)[0] || "";
+      const merged = {
+        ...object,
+        ...(urlCandidate && !vegaRecordMediaPublicUrl(object) ? { url: urlCandidate } : {}),
+        ...(assetUri && !vegaRecordAssetUriValues(object).length ? { assetUri, referenceAssetUri: assetUri } : {}),
+      };
+      const hydrated = hydrate(candidates.length === 1 ? candidates[0] : merged, typeHint);
+      if (hydrated && typeof hydrated === "object") {
+        return { ...hydrated, type: hydrated.type || vegaRecordMediaType(merged, typeHint) };
+      }
+      return hydrated;
+    }).filter(Boolean);
+    const uris = nextParams[key].map((item) => vegaRecordAssetUriValues(item)[0] || "").filter(Boolean);
+    if (uris.length) nextParams[uriKey] = uris;
+  };
+  hydrateList("referenceImages", "reference_image_urls", "referenceImageAssetUris", "reference_image");
+  hydrateList("referenceVideos", "reference_video_urls", "referenceVideoAssetUris", "reference_video");
+  hydrateList("referenceAudios", "reference_audio_urls", "referenceAudioAssetUris", "reference_audio");
+  const sourceForAssetType = (type) => nextAssets.find((asset) => vegaRecordMediaType(asset) === type);
+  const deriveFrame = (frameKey, uriKey, type) => {
+    const asset = sourceForAssetType(type);
+    if (!asset) return;
+    const source = sourceFor(asset) || vegaRecordMediaPublicUrl(asset);
+    const uri = vegaRecordAssetUriValues(asset)[0] || "";
+    if (!nextParams[frameKey] && source) nextParams[frameKey] = source;
+    if (!nextParams[uriKey] && uri) nextParams[uriKey] = uri;
+  };
+  deriveFrame("firstFrameUrl", "firstFrameAssetUri", "first_frame");
+  deriveFrame("lastFrameUrl", "lastFrameAssetUri", "last_frame");
+  const deriveList = (key, uriKey, type) => {
+    if (Array.isArray(nextParams[key]) && nextParams[key].length) return;
+    const assets = nextAssets.filter((asset) => vegaRecordMediaType(asset) === type);
+    if (assets.length) nextParams[key] = assets;
+    const uris = assets.map((asset) => vegaRecordAssetUriValues(asset)[0] || "").filter(Boolean);
+    if (!Array.isArray(nextParams[uriKey]) || !nextParams[uriKey].length) {
+      if (uris.length) nextParams[uriKey] = uris;
+    }
+  };
+  deriveList("referenceImages", "referenceImageAssetUris", "reference_image");
+  deriveList("referenceVideos", "referenceVideoAssetUris", "reference_video");
+  deriveList("referenceAudios", "referenceAudioAssetUris", "reference_audio");
+  const idsByType = (type) => nextAssets.filter((asset) => asset?.type === type && asset.userAssetId).map((asset) => asset.userAssetId);
   const firstFrameAssetId = idsByType("first_frame")[0] || params.firstFrameAssetId || params.first_frame_asset_id || "";
   const lastFrameAssetId = idsByType("last_frame")[0] || params.lastFrameAssetId || params.last_frame_asset_id || "";
   const referenceImageAssetIds = idsByType("reference_image");

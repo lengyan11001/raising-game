@@ -409,11 +409,26 @@ async function submitAdvancedGenerateInternal() {
     }
     const vegaFirstFrameSource = vegaUsesFirstFrame ? String(state.advancedSeedanceFirstFrameDataUrl || "").trim() : "";
     const vegaLastFrameSource = vegaUsesLastFrame ? String(state.advancedSeedanceLastFrameDataUrl || "").trim() : "";
-    const vegaFirstFrameUrl = vegaFirstFrameSource ? vegaPublicHttpUrl(vegaFirstFrameSource) : "";
-    const vegaLastFrameUrl = vegaLastFrameSource ? vegaPublicHttpUrl(vegaLastFrameSource) : "";
-    const vegaReferenceImages = vegaReferenceImageItems.map(vegaMediaSource);
-    const vegaReferenceVideos = vegaVideoItems.map(vegaMediaSource);
-    const vegaReferenceAudios = vegaAudioItems.map(vegaMediaSource);
+    const vegaFirstFrameUrl = vegaFirstFrameSource ? vegaMediaSource({ url: vegaFirstFrameSource }) : "";
+    const vegaLastFrameUrl = vegaLastFrameSource ? vegaMediaSource({ url: vegaLastFrameSource }) : "";
+    const vegaReferenceImageMedia = vegaReferenceImageItems.map((item) => ({
+      item,
+      source: vegaMediaSource(item),
+      assetUri: String(item.assetUri || item.referenceAssetUri || "").trim(),
+    }));
+    const vegaReferenceVideoMedia = vegaVideoItems.map((item) => ({
+      item,
+      source: vegaMediaSource(item),
+      assetUri: String(item.assetUri || item.referenceAssetUri || "").trim(),
+    }));
+    const vegaReferenceAudioMedia = vegaAudioItems.map((item) => ({
+      item,
+      source: vegaMediaSource(item),
+      assetUri: String(item.assetUri || item.referenceAssetUri || "").trim(),
+    }));
+    const vegaReferenceImages = vegaReferenceImageMedia.map((entry) => entry.source);
+    const vegaReferenceVideos = vegaReferenceVideoMedia.map((entry) => entry.source);
+    const vegaReferenceAudios = vegaReferenceAudioMedia.map((entry) => entry.source);
     const invalidVegaMedia = (vegaFirstFrameSource && !vegaFirstFrameUrl)
       || (vegaLastFrameSource && !vegaLastFrameUrl)
       || vegaReferenceImages.some((url) => !url)
@@ -421,7 +436,7 @@ async function submitAdvancedGenerateInternal() {
       || vegaReferenceAudios.some((url) => !url);
     if (invalidVegaMedia) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Vega requires a public HTTP(S) URL.";
+      if (els.advancedNote) els.advancedNote.textContent = "Vega requires a public HTTP(S) URL or an existing asset:// URI.";
       return;
     }
     if (vegaUsesFirstFrame && !vegaFirstFrameUrl) {
@@ -497,12 +512,15 @@ async function submitAdvancedGenerateInternal() {
         referenceImages: vegaReferenceImages,
         referenceImageCount: vegaReferenceImages.length,
         referenceImageAssetIds: vegaReferenceImageItems.map((item) => item.assetId || ""),
+        referenceImageAssetUris: vegaReferenceImageMedia.map((entry) => entry.assetUri || ""),
         referenceVideos: vegaReferenceVideos,
         referenceVideoDurations: vegaReferenceVideoDurations,
         referenceVideoAssetIds: vegaVideoItems.map((item) => item.assetId || ""),
+        referenceVideoAssetUris: vegaReferenceVideoMedia.map((entry) => entry.assetUri || ""),
         referenceAudios: vegaReferenceAudios,
         referenceAudioDurations: vegaReferenceAudioDurations,
         referenceAudioAssetIds: vegaAudioItems.map((item) => item.assetId || ""),
+        referenceAudioAssetUris: vegaReferenceAudioMedia.map((entry) => entry.assetUri || ""),
       } : {}),
     };
     if (vegaDraftFollowup) {
@@ -1059,7 +1077,10 @@ function openTemplate(templateId) {
   }
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
-  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || template.description || "";
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = template.prompt || template.description || "";
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   updateAdvancedModelControls();
   setAdvancedSideTab("assets");

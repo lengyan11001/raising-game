@@ -204,6 +204,7 @@ const {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getVegaMediaLibraryEntryFromDb,
+  getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
   upsertVegaMediaLibraryEntryInDb,
   getUserAssetIdsByUrlsFromDb,
   upsertUserCharacterInDb,

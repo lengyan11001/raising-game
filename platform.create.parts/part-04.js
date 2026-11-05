@@ -19,7 +19,9 @@ function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvid
 }
 
 function vegaMediaSource(item = {}) {
-  return vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || "");
+  const assetUri = String(item.assetUri || item.referenceAssetUri || "").trim();
+  if (assetUri.startsWith("asset://")) return assetUri;
+  return vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || item.sourceUrl || "");
 }
 
 function applyResolvedVegaMediaSource(item = {}, resolved = {}) {
@@ -202,6 +204,9 @@ function upstreamInputMediaItems(record = {}) {
 }
 
 function restoreMediaUrl(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  const publicUrl = firstPresent(item.url, item.publicUrl, item.cdnUrl, item.previewUrl, item.sourceUrl);
+  if (publicUrl && !String(publicUrl).trim().startsWith("asset://")) return String(publicUrl).trim();
   return item.dataUrl
     || upstreamMediaUrl(item)
     || item.publicUrl
@@ -213,6 +218,7 @@ function restoreMediaUrl(item = {}) {
 }
 
 function restoreMediaAssetUri(item = {}) {
+  if (!item || typeof item !== "object") return "";
   const direct = String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || "").trim();
   if (direct) return direct;
   const url = String(item.url || item.imageUrl || item.sourceImageUrl || "").trim();
@@ -220,6 +226,7 @@ function restoreMediaAssetUri(item = {}) {
 }
 
 function restoreMediaAssetId(item = {}) {
+  if (!item || typeof item !== "object") return "";
   return String(item.userAssetId || item.assetId || item.id || "").trim();
 }
 
@@ -241,23 +248,92 @@ function restoreReferenceFromMedia(item = {}, index = 0) {
   };
 }
 
+function advancedPromptHeightLimits() {
+  const minimumHeight = 68;
+  const maximumHeight = Math.max(minimumHeight, Math.min(window.innerHeight * 0.62, 520));
+  return { minimumHeight, maximumHeight };
+}
+
+function advancedPromptMentionTokenPattern() {
+  const tokens = advancedReferenceDisplayItems(currentAdvancedProvider())
+    .filter(({ item }) => item && !item.isPending && !item.pendingId)
+    .map((entry) => `@${entry.label}`)
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+    .map(escapeAdvancedPromptMentionRegExp);
+  return tokens.length ? new RegExp(`(?:${tokens.join("|")})(?=$|[^A-Za-z0-9_-])`, "g") : null;
+}
+
+function advancedPromptHighlightHtml(value = "") {
+  const text = String(value || "");
+  if (!text) return "";
+  const pattern = advancedPromptMentionTokenPattern();
+  if (!pattern) return escapeHtml(text);
+  let html = "";
+  let lastIndex = 0;
+  text.replace(pattern, (match, offset) => {
+    html += escapeHtml(text.slice(lastIndex, offset));
+    html += `<mark class="advanced-prompt-mention-token">${escapeHtml(match)}</mark>`;
+    lastIndex = offset + match.length;
+    return match;
+  });
+  return html + escapeHtml(text.slice(lastIndex));
+}
+
+function syncAdvancedPromptHighlight() {
+  const textarea = els.advancedPrompt;
+  const highlight = els.advancedPromptHighlight;
+  if (!textarea || !highlight) return false;
+  highlight.innerHTML = advancedPromptHighlightHtml(textarea.value);
+  highlight.scrollTop = textarea.scrollTop;
+  highlight.scrollLeft = textarea.scrollLeft;
+  return true;
+}
+
+function autoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
+  const textarea = els.advancedPrompt;
+  if (!textarea) return false;
+  syncAdvancedPromptHighlight();
+  if (resetManual) delete textarea.dataset.promptUserResized;
+  if (!force && textarea.dataset.promptUserResized === "true") return false;
+  if (!textarea.isConnected || textarea.offsetParent === null || textarea.getClientRects().length === 0) return false;
+  const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
+  textarea.style.height = "auto";
+  textarea.style.overflowY = "hidden";
+  const contentHeight = Math.max(0, textarea.scrollHeight + 2);
+  const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, contentHeight));
+  textarea.style.height = `${Math.round(nextHeight)}px`;
+  textarea.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
+  const handle = els.advancedPromptResizeHandle;
+  if (handle) {
+    handle.setAttribute("aria-valuemin", String(minimumHeight));
+    handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
+    handle.setAttribute("aria-valuenow", String(Math.round(nextHeight)));
+  }
+  return true;
+}
+
+function scheduleAutoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
+  window.requestAnimationFrame(() => autoSizeAdvancedPrompt({ force, resetManual }));
+}
+
 function bindAdvancedPromptResizeHandle() {
   const textarea = els.advancedPrompt;
   const handle = els.advancedPromptResizeHandle;
   if (!textarea || !handle || handle.dataset.resizeBound === "true") return;
   handle.dataset.resizeBound = "true";
-  const minimumHeight = 68;
-  const maximumHeight = () => Math.max(minimumHeight, Math.min(window.innerHeight * 0.62, 520));
+  const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
   let startY = 0;
   let startHeight = 0;
   let pointerId = null;
 
-  const resize = (height) => {
-    const next = Math.max(minimumHeight, Math.min(maximumHeight(), height));
+  const resize = (height, { manual = false } = {}) => {
+    if (manual) textarea.dataset.promptUserResized = "true";
+    const next = Math.max(minimumHeight, Math.min(maximumHeight, height));
     textarea.style.height = `${Math.round(next)}px`;
-    textarea.style.overflowY = next >= maximumHeight() ? "auto" : "hidden";
+    textarea.style.overflowY = next >= maximumHeight ? "auto" : "hidden";
     handle.setAttribute("aria-valuemin", String(minimumHeight));
-    handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight())));
+    handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
     handle.setAttribute("aria-valuenow", String(Math.round(next)));
   };
   const finish = () => {
@@ -267,6 +343,7 @@ function bindAdvancedPromptResizeHandle() {
     document.body.classList.remove("is-resizing-advanced-prompt");
   };
 
+  autoSizeAdvancedPrompt({ force: true, resetManual: true });
   resize(textarea.getBoundingClientRect().height || minimumHeight);
   handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
@@ -282,7 +359,7 @@ function bindAdvancedPromptResizeHandle() {
   handle.addEventListener("pointermove", (event) => {
     if (event.pointerId !== pointerId) return;
     event.preventDefault();
-    resize(startHeight + event.clientY - startY);
+    resize(startHeight + event.clientY - startY, { manual: true });
   });
   handle.addEventListener("pointerup", finish);
   handle.addEventListener("pointercancel", finish);
@@ -295,9 +372,9 @@ function bindAdvancedPromptResizeHandle() {
     if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const current = textarea.getBoundingClientRect().height || minimumHeight;
-    if (event.key === "Home") resize(minimumHeight);
-    else if (event.key === "End") resize(maximumHeight());
-    else resize(current + (event.key === "ArrowDown" ? 24 : -24));
+    if (event.key === "Home") resize(minimumHeight, { manual: true });
+    else if (event.key === "End") resize(maximumHeight, { manual: true });
+    else resize(current + (event.key === "ArrowDown" ? 24 : -24), { manual: true });
   });
 }
 
@@ -359,7 +436,7 @@ function restoreRecordMedia(record = {}) {
   const recordedImages = recordImageAssets(record);
   const upstreamItems = upstreamInputMediaItems(record);
   const seenImageKeys = new Set();
-  const imageEntries = [...mediaAssets, ...recordedImages, ...upstreamItems].map((item, index) => ({ item, index })).filter(({ item }) => {
+  const imageEntries = recordedImages.map((item, index) => ({ item, index })).filter(({ item }) => {
     const type = String(item?.type || item?.key || "").toLowerCase();
     const assetId = restoreMediaAssetId(item);
     const assetUri = restoreMediaAssetUri(item);
@@ -407,12 +484,17 @@ function restoreRecordMedia(record = {}) {
 function restoreVegaMediaItem(item = {}, index = 0, kind = "image") {
   const source = typeof item === "string" ? { url: item } : (item && typeof item === "object" ? item : {});
   const assetId = restoreMediaAssetId(source);
-  const url = vegaPublicHttpUrl(restoreMediaUrl(source) || source.publicUrl || source.cdnUrl || source.previewUrl || "");
-  if (!assetId && !url) return null;
+  const assetUri = restoreMediaAssetUri(source);
+  const sourceUrl = restoreMediaUrl(source) || source.publicUrl || source.cdnUrl || source.previewUrl || "";
+  const url = vegaPublicHttpUrl(sourceUrl);
+  if (!assetId && !assetUri && !url) return null;
   const name = source.name || source.label || source.fileName || `${kind}-${index + 1}`;
   return {
     ...source,
     assetId,
+    assetUri,
+    referenceAssetUri: assetUri,
+    sourceUrl: url || assetUri || sourceUrl,
     url,
     publicUrl: url || source.publicUrl || "",
     cdnUrl: url || source.cdnUrl || "",
@@ -427,14 +509,30 @@ function restoreVegaMediaItem(item = {}, index = 0, kind = "image") {
 
 function mergeVegaMediaItems(...lists) {
   const merged = [];
-  const seen = new Set();
+  const seen = new Map();
+  const hasValue = (value) => value !== undefined && value !== null && String(value).trim() !== "";
   lists.flat().forEach((item, index) => {
     const normalized = restoreVegaMediaItem(item, index, "reference");
     if (!normalized) return;
-    const key = normalized.assetId ? `asset:${normalized.assetId}` : `url:${normalized.url}`;
-    if (seen.has(key)) return;
-    seen.add(key);
+    const keys = [
+      normalized.assetId ? `asset:${normalized.assetId}` : "",
+      normalized.assetUri ? `asset-uri:${normalized.assetUri}` : "",
+      normalized.url ? `url:${normalized.url}` : "",
+      normalized.url ? `asset-url:${normalized.url}` : "",
+    ].filter(Boolean);
+    const duplicateIndex = keys.map((key) => seen.get(key)).find((value) => value !== undefined);
+    if (duplicateIndex !== undefined) {
+      merged[duplicateIndex] = {
+        ...merged[duplicateIndex],
+        ...Object.fromEntries(Object.entries(normalized).filter(([key, value]) => !hasValue(merged[duplicateIndex][key]) && hasValue(value))),
+      };
+      keys.forEach((key) => seen.set(key, duplicateIndex));
+      return;
+    }
+    const nextIndex = merged.length;
     merged.push(normalized);
+    keys.forEach((key) => seen.set(key, nextIndex));
+    if (normalized.url) seen.set(`asset-uri:${normalized.url}`, nextIndex);
   });
   return merged;
 }
@@ -474,19 +572,20 @@ function restoreVegaRecordMedia(record = {}, params = {}) {
     arrayFrom(record.referenceAudios),
     media.audios,
   ), audioAssetIds);
+  const mediaSourceValue = (item) => item?.sourceUrl || item?.url || item?.assetUri || item?.referenceAssetUri || "";
   return {
     firstFrame,
     lastFrame,
     firstFrameAssetId: firstFrame?.assetId || "",
-    firstFrameUrl: firstFrame?.url || "",
+    firstFrameUrl: mediaSourceValue(firstFrame),
     lastFrameAssetId: lastFrame?.assetId || "",
-    lastFrameUrl: lastFrame?.url || "",
+    lastFrameUrl: mediaSourceValue(lastFrame),
     referenceImages,
-    referenceImageUrls: referenceImages.map((item) => item.url).filter(Boolean),
+    referenceImageUrls: referenceImages.map(mediaSourceValue).filter(Boolean),
     referenceVideos,
-    referenceVideoUrls: referenceVideos.map((item) => item.url).filter(Boolean),
+    referenceVideoUrls: referenceVideos.map(mediaSourceValue).filter(Boolean),
     referenceAudios,
-    referenceAudioUrls: referenceAudios.map((item) => item.url).filter(Boolean),
+    referenceAudioUrls: referenceAudios.map(mediaSourceValue).filter(Boolean),
   };
 }
 
@@ -536,6 +635,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedPrompt) {
     const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
     els.advancedPrompt.value = restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt;
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   if (els.advancedRatio) els.advancedRatio.value = ratio;
   if (els.advancedResolution) els.advancedResolution.value = resolution;
@@ -629,32 +729,41 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
       state.advancedSeedanceLastFrameDataUrl = media.lastFrameUrl;
     }
     if (vegaMediaMode === "reference_video") {
-      state.advancedReferenceImages = media.referenceImages.map((item, index) => stampAdvancedReferenceOrder({
-        ...item,
-        assetId: item.assetId || "",
-        dataUrl: item.url,
-        url: item.url,
-        fileName: item.fileName || `reference-${index + 1}`,
-        name: item.name || `Reference ${index + 1}`,
-        fromLibrary: Boolean(item.assetId),
-      }));
+      state.advancedReferenceImages = media.referenceImages.map((item, index) => {
+        const sourceUrl = item.sourceUrl || item.url || item.assetUri || "";
+        return stampAdvancedReferenceOrder({
+          ...item,
+          assetId: item.assetId || "",
+          dataUrl: item.url || "",
+          url: sourceUrl,
+          fileName: item.fileName || `reference-${index + 1}`,
+          name: item.name || `Reference ${index + 1}`,
+          fromLibrary: Boolean(item.assetId),
+        });
+      });
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.url || "";
-      setAdvancedSeedanceVideoReferences(media.referenceVideos.map((item, index) => ({
-        ...item,
-        assetId: item.assetId || "",
-        url: item.url,
-        previewUrl: item.url,
-        name: item.name || `Video ${index + 1}`,
-        fileName: item.fileName || `video-${index + 1}`,
-      })));
-      setAdvancedSeedanceAudioReferences(media.referenceAudios.map((item, index) => ({
-        ...item,
-        assetId: item.assetId || "",
-        url: item.url,
-        previewUrl: item.url,
-        name: item.name || `Audio ${index + 1}`,
-        fileName: item.fileName || `audio-${index + 1}`,
-      })));
+      setAdvancedSeedanceVideoReferences(media.referenceVideos.map((item, index) => {
+        const sourceUrl = item.sourceUrl || item.url || item.assetUri || "";
+        return {
+          ...item,
+          assetId: item.assetId || "",
+          url: sourceUrl,
+          previewUrl: item.url || "",
+          name: item.name || `Video ${index + 1}`,
+          fileName: item.fileName || `video-${index + 1}`,
+        };
+      }));
+      setAdvancedSeedanceAudioReferences(media.referenceAudios.map((item, index) => {
+        const sourceUrl = item.sourceUrl || item.url || item.assetUri || "";
+        return {
+          ...item,
+          assetId: item.assetId || "",
+          url: sourceUrl,
+          previewUrl: item.url || "",
+          name: item.name || `Audio ${index + 1}`,
+          fileName: item.fileName || `audio-${index + 1}`,
+        };
+      }));
     }
     state.advancedAssetTarget = vegaModeNeedsFirstFrame(vegaMediaMode)
       ? "primary"
@@ -1221,7 +1330,10 @@ function useAssetInAdvanced(asset = {}, action = "use") {
     const imageLimit = action === "replace" ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, imageLimit);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
-    if (action === "modify" && els.advancedPrompt) els.advancedPrompt.value = "";
+    if (action === "modify" && els.advancedPrompt) {
+      els.advancedPrompt.value = "";
+      autoSizeAdvancedPrompt({ force: true, resetManual: true });
+    }
   }
   if (isVideoAsset(asset)) {
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";

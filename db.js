@@ -2898,6 +2898,32 @@ async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
   return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
 }
 
+async function getVegaMediaLibrarySourceUrlsByAssetUrisFromDb({ userId = "", assetUris = [] } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  const cleanAssetUris = [...new Set((Array.isArray(assetUris) ? assetUris : [])
+    .map((assetUri) => String(assetUri || "").trim())
+    .filter(Boolean))].slice(0, 100);
+  if (!cleanUserId || !cleanAssetUris.length) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT asset_uri, source_url
+    FROM app_vega_media_library
+    WHERE user_id = $1
+      AND asset_uri = ANY($2::text[])
+      AND status = 'succeeded'
+      AND source_url <> ''
+    ORDER BY updated_at DESC
+  `, [cleanUserId, cleanAssetUris]);
+  const sourceUrlsByAssetUri = {};
+  rows.forEach((row) => {
+    const assetUri = String(row?.asset_uri || "").trim();
+    const sourceUrl = String(row?.source_url || "").trim();
+    if (assetUri && sourceUrl && !sourceUrlsByAssetUri[assetUri]) sourceUrlsByAssetUri[assetUri] = sourceUrl;
+  });
+  return sourceUrlsByAssetUri;
+}
+
 async function getUserAssetIdsByUrlsFromDb({ userId = "", urls = [] } = {}) {
   if (!dbEnabled()) return {};
   const cleanUserId = String(userId || "").trim();
@@ -6981,6 +7007,7 @@ module.exports = {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getVegaMediaLibraryEntryFromDb,
+  getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
   upsertVegaMediaLibraryEntryInDb,
   getUserAssetIdsByUrlsFromDb,
   upsertUserCharacterInDb,

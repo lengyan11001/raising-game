@@ -631,87 +631,228 @@ function upstreamInputImageAssets(record = {}) {
     ...(Array.isArray(source?.reference_image_urls) ? source.reference_image_urls : []),
     ...(Array.isArray(source?.referenceImageUrls) ? source.referenceImageUrls : []),
   ];
-  return [...values(params), ...values(payloadParams), ...values(payload), ...nestedMedia]
-    .flatMap((item) => Array.isArray(item) ? item : [item])
-    .map((item) => typeof item === "string" ? { imageUrl: item, type: "reference_image" } : item)
-    .filter((item) => item && typeof item === "object")
-    .map((item) => {
-      const role = String(item.Usage || item.usage || item.role || item.Role || "").toLowerCase();
-      const category = String(item.Category || item.category || item.Type || "").toLowerCase();
-      const declaredType = String(item.type || "").toLowerCase();
-      const type = role.includes("last") || role.includes("end")
-        ? "last_frame"
-        : role.includes("first")
-        ? "first_frame"
-        : category.includes("video") || declaredType.includes("video")
-        ? "reference_video"
-        : category.includes("audio") || declaredType.includes("audio")
-        ? "reference_audio"
-        : "reference_image";
-      return {
-        ...item,
-        imageUrl: item.imageUrl
-          || item.image_url?.url
-          || item.image_url
-          || item.Url
-          || item.URL
-          || item.url
-          || item.publicUrl
-          || item.sourceImageUrl
-          || item.image
-          || "",
-        type,
-      };
-    })
-    .filter((item) => mediaAssetPreviewUrl(item) || item.userAssetId || item.assetId || item.id);
+  const normalize = (item) => {
+    const source = typeof item === "string" ? { imageUrl: item, type: "reference_image" } : item;
+    if (!source || typeof source !== "object") return null;
+    const role = String(source.Usage || source.usage || source.role || source.Role || "").toLowerCase();
+    const category = String(source.Category || source.category || source.Type || "").toLowerCase();
+    const declaredType = String(source.type || "").toLowerCase();
+    const type = role.includes("last") || role.includes("end")
+      ? "last_frame"
+      : role.includes("first")
+      ? "first_frame"
+      : category.includes("video") || declaredType.includes("video")
+      ? "reference_video"
+      : category.includes("audio") || declaredType.includes("audio")
+      ? "reference_audio"
+      : "reference_image";
+    const imageUrl = source.imageUrl
+      || source.image_url?.url
+      || source.image_url
+      || source.Url
+      || source.URL
+      || source.url
+      || source.publicUrl
+      || source.sourceImageUrl
+      || source.image
+      || "";
+    if (!mediaAssetPreviewUrl({ ...source, imageUrl }) && !source.userAssetId && !source.assetId && !source.id) return null;
+    return { ...source, imageUrl, type };
+  };
+  const sourceLists = [values(params), values(payloadParams), values(payload), nestedMedia]
+    .map((list) => list.flatMap((item) => Array.isArray(item) ? item : [item]).map(normalize).filter(Boolean));
+  const groups = new Map();
+  sourceLists.forEach((items) => {
+    const byType = new Map();
+    items.forEach((item) => {
+      if (!byType.has(item.type)) byType.set(item.type, []);
+      byType.get(item.type).push(item);
+    });
+    byType.forEach((typeItems, type) => {
+      if (!groups.has(type)) groups.set(type, []);
+      groups.get(type).push(typeItems);
+    });
+  });
+  return [...groups.entries()].flatMap(([type, lists]) => {
+    if (type !== "reference_image") return lists.flat();
+    const length = Math.max(0, ...lists.map((list) => list.length));
+    const merged = [];
+    for (let index = 0; index < length; index += 1) {
+      let item = null;
+      lists.forEach((list) => {
+        const candidate = list[index];
+        if (!candidate) return;
+        if (!item) {
+          item = { ...candidate };
+          return;
+        }
+        item = {
+          ...item,
+          ...Object.fromEntries(Object.entries(candidate).filter(([, value]) => value !== undefined && value !== null && value !== "")),
+          imageUrl: item.imageUrl?.startsWith("asset://") ? candidate.imageUrl || item.imageUrl : item.imageUrl,
+          assetId: item.assetId || candidate.assetId,
+          userAssetId: item.userAssetId || candidate.userAssetId,
+          assetUri: item.assetUri || candidate.assetUri,
+          referenceAssetUri: item.referenceAssetUri || candidate.referenceAssetUri,
+          type,
+        };
+      });
+      if (item) merged.push(item);
+    }
+    return merged;
+  });
 }
 
 function recordImageAssets(record = {}) {
-  const images = [];
+  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
+  const normalizeImage = (asset = {}, fallbackType = "reference_image", fallbackLabel = "") => {
+    const source = typeof asset === "string" ? { imageUrl: asset } : (asset || {});
+    const rawUrl = String(mediaAssetPreviewUrl(source) || "").trim();
+    const role = String(source.Usage || source.usage || source.role || source.Role || "").toLowerCase();
+    const category = String(source.Category || source.category || source.Type || "").toLowerCase();
+    const declaredType = String(source.type || source.key || "").toLowerCase();
+    const type = role.includes("last") || role.includes("end")
+      ? "last_frame"
+      : role.includes("first")
+      ? "first_frame"
+      : category.includes("video") || declaredType.includes("video")
+      ? "reference_video"
+      : category.includes("audio") || declaredType.includes("audio")
+      ? "reference_audio"
+      : ["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe", "source_image", "reference_image"].includes(declaredType)
+      ? declaredType.replace(/[-]/g, "_")
+      : fallbackType;
+    const assetUri = String(source.assetUri || source.referenceAssetUri || (rawUrl.startsWith("asset://") ? rawUrl : "") || "").trim();
+    const httpUrl = String(source.imageUrl || source.publicUrl || source.cdnUrl || source.url || source.sourceImageUrl || source.previewUrl || source.localUrl || "").trim();
+    const resolvedHttpUrl = httpUrl && !httpUrl.startsWith("asset://") ? httpUrl : "";
+    const inferredAssetId = (resolvedHttpUrl.match(/asset-[A-Za-z0-9-]+?(?=\.[A-Za-z0-9]+(?:[?#]|$))/)?.[0]
+      || resolvedHttpUrl.match(/asset-[A-Za-z0-9-]+/)?.[0]
+      || "");
+    const assetId = String(source.userAssetId || source.assetId || source.id || inferredAssetId || "").trim();
+    const url = resolvedHttpUrl || assetUri || rawUrl;
+    return {
+      ...source,
+      type,
+      assetId,
+      userAssetId: source.userAssetId || assetId,
+      assetUri,
+      referenceAssetUri: source.referenceAssetUri || assetUri,
+      imageUrl: resolvedHttpUrl || source.imageUrl || assetUri || rawUrl,
+      url,
+      dataUrl: source.dataUrl?.startsWith("asset://") ? "" : (source.dataUrl || resolvedHttpUrl),
+      label: source.label || fallbackLabel || mediaAssetLabel({ ...source, type }, 0),
+    };
+  };
+  const splitImages = (list = [], fallbackType = "reference_image") => {
+    const groups = new Map();
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      const normalized = normalizeImage(item, fallbackType);
+      if (!normalized.assetId && !normalized.assetUri && !normalized.url) return;
+      if (["reference_audio", "reference_video", "first_clip"].includes(normalized.type)) return;
+      const type = normalized.type || fallbackType;
+      if (!groups.has(type)) groups.set(type, []);
+      groups.get(type).push(normalized);
+    });
+    return groups;
+  };
+  const mergeAtSamePosition = (lists = []) => {
+    const length = Math.max(0, ...lists.map((list) => list.length));
+    const merged = [];
+    for (let index = 0; index < length; index += 1) {
+      let item = null;
+      lists.forEach((list) => {
+        const candidate = list[index];
+        if (!candidate) return;
+        if (!item) {
+          item = { ...candidate };
+          return;
+        }
+        item = {
+          ...item,
+          ...Object.fromEntries(Object.entries(candidate).filter(([, value]) => value !== undefined && value !== null && value !== "")),
+          type: item.type || candidate.type,
+          assetId: item.assetId || candidate.assetId,
+          userAssetId: item.userAssetId || candidate.userAssetId,
+          assetUri: item.assetUri || candidate.assetUri,
+          referenceAssetUri: item.referenceAssetUri || candidate.referenceAssetUri,
+          imageUrl: item.imageUrl?.startsWith("asset://") ? candidate.imageUrl || item.imageUrl : item.imageUrl,
+          url: item.url?.startsWith("asset://") ? candidate.url || item.url : item.url,
+          dataUrl: item.dataUrl || candidate.dataUrl,
+        };
+      });
+      if (item) merged.push(item);
+    }
+    return merged;
+  };
+  const groups = new Map();
+  const addGroups = (sourceGroups) => {
+    sourceGroups.forEach((items, type) => {
+      if (!groups.has(type)) groups.set(type, []);
+      groups.get(type).push(items);
+    });
+  };
+  addGroups(splitImages((Array.isArray(record.mediaAssets) ? record.mediaAssets : []).filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))));
+  addGroups(splitImages(params.referenceImages, "reference_image"));
+  const referenceImageAssetIds = (Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  if (referenceImageAssetIds.length) {
+    const referenceItems = groups.get("reference_image") || [];
+    referenceItems.forEach((items, index) => {
+      const assetId = referenceImageAssetIds[index];
+      if (!assetId) return;
+      items.forEach((item) => {
+        if (item.assetId) return;
+        item.assetId = assetId;
+        item.userAssetId = assetId;
+        item.fromLibrary = true;
+      });
+    });
+  }
+  addGroups(splitImages(record.imageUrls, "reference_image"));
+  addGroups(splitImages(record.sourceImageUrls, "source_image"));
+  addGroups(splitImages(params.referenceImageUrls, "reference_image"));
+  addGroups(splitImages(upstreamInputImageAssets(record), "reference_image"));
+  addGroups(splitImages([record.imageUrl].filter(Boolean), "reference_image"));
+  addGroups(splitImages([record.sourceImageUrl].filter(Boolean), "source_image"));
+
+  const typeOrder = ["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe", "reference_image", "source_image"];
+  const orderedTypes = [
+    ...typeOrder.filter((type) => groups.has(type)),
+    ...[...groups.keys()].filter((type) => !typeOrder.includes(type)),
+  ];
   const seenUrls = new Set();
   const seenAssetIds = new Set();
-  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
-  const pushImage = (asset = {}, fallbackLabel = "") => {
-    const source = typeof asset === "string" ? { imageUrl: asset } : (asset || {});
-    const url = mediaAssetPreviewUrl(source);
-    const assetId = String(source.userAssetId || source.assetId || source.id || "").trim();
-    const assetUri = String(source.assetUri || source.referenceAssetUri || "").trim();
-    const key = url ? `url:${url}` : assetId ? `asset:${assetId}` : assetUri ? `asset-uri:${assetUri}` : "";
-    if (!key || seenUrls.has(key) || (assetId && seenAssetIds.has(assetId))) return;
-    seenUrls.add(key);
-    if (assetId) seenAssetIds.add(assetId);
-    images.push({ ...source, assetId: source.assetId || assetId, url: source.url || assetUri || url, dataUrl: source.dataUrl || (url && !url.startsWith("asset://") ? url : ""), label: source.label || fallbackLabel || mediaAssetLabel(source, images.length) });
-  };
+  const seenAssetUris = new Set();
+  const images = [];
+  orderedTypes.forEach((type) => {
+    mergeAtSamePosition(groups.get(type) || []).forEach((item) => {
+      const url = String(item.url || item.imageUrl || "").trim();
+      const assetId = String(item.assetId || item.userAssetId || "").trim();
+      const assetUri = String(item.assetUri || item.referenceAssetUri || "").trim();
+      if (!url && !assetId && !assetUri) return;
+      if ((assetId && seenAssetIds.has(assetId))
+        || (assetUri && seenAssetUris.has(assetUri))
+        || (url && seenUrls.has(url))) return;
+      if (assetId) seenAssetIds.add(assetId);
+      if (assetUri) seenAssetUris.add(assetUri);
+      if (url) seenUrls.add(url);
+      images.push({ ...item, label: item.label || mediaAssetLabel(item, images.length) });
+    });
+  });
   const referenceIds = [
     ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : [record.userAssetId]),
     ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
   ].map((item) => String(item || "").trim()).filter(Boolean);
-  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
-    .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
-    .forEach((asset) => pushImage(asset));
-  (Array.isArray(record.imageUrls) ? record.imageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "reference_image" }, "Reference"));
-  (Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "source_image" }, "Source image"));
-  (Array.isArray(params.referenceImages) ? params.referenceImages : []).forEach((item) => pushImage(item, "Reference"));
-  (Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "reference_image" }, "Reference"));
-  upstreamInputImageAssets(record).forEach((item) => pushImage(item, "Reference"));
-  pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
-  pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
-
-  // Older image records often contain both userAssetIds and the original input
-  // URL but no mediaAssets. Join those positional records instead of rendering
-  // one asset placeholder and one duplicate URL.
   const unmatchedIds = referenceIds.filter((assetId) => !seenAssetIds.has(assetId));
-  const urlOnlyImages = images.filter((item) => !String(item.assetId || "").trim() && (item.url || item.dataUrl));
+  const urlOnlyImages = images.filter((item) => !item.assetId && (item.url || item.imageUrl));
   unmatchedIds.forEach((assetId, index) => {
     const target = urlOnlyImages[index];
-    if (target) {
-      target.assetId = assetId;
-      target.userAssetId = assetId;
-      target.fromLibrary = true;
-      seenAssetIds.add(assetId);
-      return;
-    }
-    pushImage({ userAssetId: assetId, type: "reference_image", name: `Reference ${index + 1}` }, "Reference");
+    if (!target) return;
+    target.assetId = assetId;
+    target.userAssetId = assetId;
+    target.fromLibrary = true;
+    seenAssetIds.add(assetId);
   });
   return images;
 }

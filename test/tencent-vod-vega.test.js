@@ -1115,7 +1115,7 @@ test("Vega submit resolves every selected asset before building media URLs", () 
   const firstSourceIndex = branch.indexOf("const vegaFirstFrameSource =");
   const payloadIndex = branch.indexOf("const vegaPayload =");
   assert.ok(resolveIndex > 0 && firstSourceIndex > resolveIndex && payloadIndex > firstSourceIndex);
-  assert.match(branch, /const vegaFirstFrameUrl = vegaFirstFrameSource \? vegaPublicHttpUrl\(vegaFirstFrameSource\) : ""/);
+  assert.match(branch, /const vegaFirstFrameUrl = vegaFirstFrameSource \? vegaMediaSource\(\{ url: vegaFirstFrameSource \}\) : ""/);
 });
 
 test("Vega Add never overrides the explicitly selected media target", () => {
