@@ -9,7 +9,11 @@
 - Backend pricing is correct: Vega 1.5 Lite (`h3-vega`) 1080P × 6s = 162 credits; Vega 1.0 Lite (`vega10-lite`) 1080P × 6s = 69.21 credits.
 - Regression coverage added in `test/vega-pricing-label.test.js` and `test/advanced-pricing.test.js`.
 - Targeted tests: 64 pass, 0 fail. `node --check` and `git diff --check` pass.
-- Deployment status: pending release snapshot and `scripts/deploy_local.sh --site old` after committing this hotfix.
+- `old-site` commit `4620c59`, pushed to origin.
+- Platform release `1222bda`, built from `4620c59`, pushed to origin with lease protection and deployed to `123vips.com` only.
+- Production verification: homepage `200`, `/api/health` `{"ok":true}`, deployed `part-02.js` contains the Vega 1.0 Lite normalization, and deployed `platform.main.js` resolution handler calls `updateAdvancedButtonCost()`.
+- Production estimate: `h3-vega` 1080P × 6s = 162 credits; `vega10-lite` 1080P × 6s = 69.21 credits.
+- Live was not deployed.
 
 ## API docs unlock removal (2026-11-05)
 
