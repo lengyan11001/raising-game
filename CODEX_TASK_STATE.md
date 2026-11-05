@@ -24,7 +24,9 @@
 - PostgreSQL/admin pricing includes 6 no-reference output rows and 6 reference-video input/output rows. Missing rates fail closed before charging or calling upstream.
 - Updated: `platform.config.js`, `platform.create.parts/part-04.js`, `platform.html`, `platform.main.js`, `platform.ui.parts/part-02.js`, `platform.ui.parts/part-03.js`, `platform.ui.parts/part-04.js`, `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-11.js`, `server.parts/part-30.js`, `server.parts/part-31.js`, `server.parts/part-38.js`, `server.parts/part-39.js`, `tencent-vod-vega.js`, and three targeted test files.
 - Targeted tests: 69 pass / 0 fail; result-order/refresh/history/source-split: 35 pass / 0 fail. `node --check` and `git diff --check` pass.
-- Deployment status: pending integration commit, release snapshot, Old-site deployment, and production verification.
+- `old-site` commit `53d47cd`, pushed to origin. Platform release `dc402b5` was built from that commit, pushed to `platform-release`, and deployed to `123vips.com` only.
+- Production PostgreSQL `app_kv.app_config.platform.advancedPricing` now contains both Vega 1.0 Pro rate tables (6 output and 6 reference-video input rates).
+- Production verification: `/api/health` returns `200 {"ok":true}`; `platform.html` exposes `seedance20-vega`; `/api/advanced/estimate` returns 239.58 credits for 1080P x 6s and 249.3 credits for 1080P x 6s with 1s reference video (4s input floor). Live release remains `6642e17` and was not deployed.
 
 ## Account-level generation completion polling (2026-11-05)
 
