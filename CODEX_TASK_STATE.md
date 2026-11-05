@@ -7,6 +7,8 @@
 - Updated public API docs and API response descriptions to distinguish Pro media-library import from Lite URL submission.
 - Changed files: `tencent-vod-vega.js`, `db.js`, `server.parts/part-01.js`, `server.parts/part-26.js`, `server.parts/part-30.js`, `server.parts/part-31.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: `test/tencent-vod-vega.test.js` 47 pass / 0 fail; `test/advanced-pricing.test.js test/source-split.test.js` 19 pass / 0 fail; `node --check server.js tencent-vod-vega.js db.js` and `git diff --check` pass.
+- Contract check against Tencent Cloud VOD SDK `4.1.340`: `PullUploadRequest` accepts `MediaUrl` / `MediaName` / `SubAppId`; `PullUploadResponse` returns `TaskId`; `DescribeTaskDetailResponse.PullUploadTask` exposes `Status`, `ErrCode`, `Message`, and `FileId`; `AigcVideoTaskInputFileInfo` supports `Type=File` + `FileId`; `AigcVideoTaskInput.InputRegion` is a top-level field.
+- Deployment: `old-site` `aaca5b0`, `platform-release` `9e039aa` (pushed with lease protection), deployed only with `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}` and `raising-game-demo` is active. Live was not deployed.
 
 ## Vega 1.0 Pro parameter compatibility fix (2026-11-05)
 
