@@ -1,5 +1,14 @@
 # Codex Task State
 
+## Current issue (2026-11-05)
+
+- User saw `Available balance: -2.835 credits, Minimum required: 0 credits`.
+- Root cause: MuleRouter upstream account balance, not the platform user wallet. Platform balance was 2513.8044 credits; the failed request pre-deducted 35 and refunded 35 exactly once.
+- User explicitly rejected automatic provider fallback. Do not add fallback or change MuleRouter routing for this issue.
+- Fix implemented in `mulerouter-aliyun.js`: upstream balance failures are normalized to `MULEROUTER_UPSTREAM_BALANCE_UNAVAILABLE` with a Chinese message stating MuleRouter is negative, the platform deduction is refunded, and it is not the user's platform balance.
+- Regression test: `test/mulerouter-balance.test.js` (2 pass).
+- Targeted regression suite: 58 pass, 0 fail.
+- Full suite currently has unrelated existing UI-source failures (22); do not attribute them to this fix without targeted evidence.
 This file is the durable handoff for this task. After compaction, read this file first.
 
 ## Current live verification
