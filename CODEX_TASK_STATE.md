@@ -1,10 +1,22 @@
+## Admin page loading audit and fix (2026-11-05)
+
+- User asked to check whether other admin pages also load slowly. Production measurements before the fix: dashboard `readAppDbFromTables` 1102–2734ms; generation records exact username `test01` search about 972ms; users 185.7ms; ordinary generation list 52.3ms; user assets 101.8ms; wallet/ledger/support/membership/creator pages 2–50ms.
+- Root causes: `/api/admin/dashboard` loaded the entire app DB plus all generation records; exact username generation lookup used a broad payload scan for pagination/count; `/api/admin/overview` also loaded the full DB and all records; many read-only admin endpoints used default `requireAdmin`, which loads the whole app DB only to verify the session.
+- Added `getAdminDashboardStatsFromDb()` as one PostgreSQL aggregate query for dashboard counters, including scene-video counts.
+- Optimized exact user generation search to count and page separately, preserving all same-name accounts across tenants and using the indexed `(payload->>userId, created_at)` path.
+- Converted `/api/admin/overview` to bounded paginated database readers: 100 users, 100 wallet orders, 100 assets, 30 lightweight records. Heavy record detail remains click-time only.
+- Switched read-only admin config/pricing/geo/chat-live/creator/support/membership/home/scene/asset/generation detail and media handlers to lightweight auth where they do not consume `auth.db`.
+- Changed files: `db.js`, `server.parts/part-01.js`, `part-05.js`, `part-07.js`, `part-09.js`, `part-33.js`, `part-38.js`, `part-39.js`, `part-40.js`, `part-41.js`, `part-42.js`, `test/admin-generation-records-list.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: targeted admin/generation suites 41 pass, 0 fail; `node --check db.js`, `node --check server.js`, and `git diff --check` pass.
+
 ## Vega frontend display labels (2026-11-05)
 
 - User requested test-stage frontend labels only: `vega10-lite` -> `h3（vega）`, `h3-vega` -> `wan（vega）`, `seedance20-vega` -> `seedance2.0（vega）`, `seedance25-vega` -> `seedance2.5vega`.
 - Provider IDs, model versions, routing, pricing, and media limits are unchanged. Pro will later be routed behind a unified Seedance entry; this change only separates the test models in the UI.
 - Changed files: `platform.html`, `platform.config.js`, `test/tencent-vod-vega.test.js`.
 - Verification: Vega tests 50/50 pass; advanced-pricing + source-split 21/21 pass; syntax checks and `git diff --check` pass.
-- Deployment pending.
+- `old-site`: `c2c6f5b`, pushed. `platform-release`: `3420456`, built from `c2c6f5b` and pushed with force-with-lease.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; `/api/health` returns `200 {"ok":true}`. Public HTML and `platform.config.js` confirm all four new labels. Live was not deployed.
 
 ## Vega 1.5 Pro integration (2026-11-05)
 
