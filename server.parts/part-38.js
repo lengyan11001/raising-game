@@ -1171,14 +1171,14 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
 }
 
 async function handleAdminGetConfig(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, { ok: true, config });
 }
 
 async function handleAdminGetUndressPrompts(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, {

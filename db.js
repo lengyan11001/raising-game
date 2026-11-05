@@ -5508,6 +5508,42 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
   return { records: rows.map((row) => row.payload), total, page: actualPage, limit: safeLimit, totalPages };
 }
 
+async function getAdminDashboardStatsFromDb() {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL) AS users,
+      (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND role = 'admin') AS admins,
+      (SELECT COALESCE(SUM(credits), 0) FROM app_users WHERE deleted_at IS NULL) AS total_credits,
+      (SELECT COUNT(*)::int FROM app_user_characters WHERE deleted_at IS NULL) AS user_characters,
+      (SELECT COALESCE(SUM(
+        CASE WHEN jsonb_typeof(payload->'sceneVideos') = 'object'
+          THEN (SELECT COUNT(*) FROM jsonb_object_keys(payload->'sceneVideos'))
+          ELSE 0
+        END
+      ), 0)::int FROM app_user_characters WHERE deleted_at IS NULL) AS user_scene_videos,
+      (SELECT COUNT(*)::int FROM app_wallet_orders) AS wallet_orders,
+      (SELECT COUNT(*)::int FROM app_wallet_orders WHERE status = 'pending') AS pending_orders,
+      (SELECT COUNT(*)::int FROM app_generation_records) AS generation_records,
+      (SELECT COUNT(*)::int FROM app_sessions) AS sessions,
+      (SELECT COUNT(*)::int FROM app_user_assets WHERE deleted_at IS NULL) AS user_assets
+  `);
+  const row = rows[0] || {};
+  return {
+    users: Number(row.users || 0),
+    admins: Number(row.admins || 0),
+    totalCredits: Number(row.total_credits || 0),
+    userCharacters: Number(row.user_characters || 0),
+    userSceneVideos: Number(row.user_scene_videos || 0),
+    walletOrders: Number(row.wallet_orders || 0),
+    pendingOrders: Number(row.pending_orders || 0),
+    generationRecords: Number(row.generation_records || 0),
+    sessions: Number(row.sessions || 0),
+    userAssets: Number(row.user_assets || 0),
+  };
+}
+
 async function getAdminGenerationRecordsPageFromDb({
   page = 1,
   limit = 20,
@@ -5533,6 +5569,7 @@ async function getAdminGenerationRecordsPageFromDb({
   const normalizedSearch = cleanSearch.toLowerCase();
   let needsUserJoin = false;
   let exactSearchMatched = false;
+  let exactUserIds = [];
   if (cleanSearch) {
     // User IDs and usernames are the common admin lookup. Resolve them to a
     // single indexed userId predicate instead of scanning every generation
@@ -5544,7 +5581,7 @@ async function getAdminGenerationRecordsPageFromDb({
        ORDER BY (id = $1) DESC, created_at DESC`,
       [cleanSearch],
     );
-    const exactUserIds = userMatches.rows.map((row) => String(row.id || "").trim()).filter(Boolean);
+    exactUserIds = userMatches.rows.map((row) => String(row.id || "").trim()).filter(Boolean);
     if (exactUserIds.length) {
       // Usernames are not globally unique across tenants, so a username search
       // must include every matching account instead of silently choosing one.
@@ -5616,6 +5653,38 @@ async function getAdminGenerationRecordsPageFromDb({
     )) ELSE NULL END
   ))`;
   const requestedPage = Math.max(1, Math.trunc(Number(page || 1)));
+  // Exact user lookups are common in admin support work. Do not use a window
+  // count here: PostgreSQL otherwise scans every matching row and builds the
+  // stripped payload before it can return the first page. Counting and paging
+  // separately lets both queries use the (userId, createdAt) index.
+  if (exactSearchMatched && exactUserIds.length > 0 && provider === "" && status === "" && kind === "") {
+    const countResult = await query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params);
+    const filtered = Number(countResult.rows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+    const safePage = Math.min(totalPages, requestedPage);
+    let pageRows = [];
+    if (safePage === requestedPage || requestedPage > 1) {
+      pageRows = (await query(
+        `
+          SELECT ${listPayloadSql} AS payload
+          ${fromSql}
+          ${whereSql}
+          ORDER BY records.created_at DESC, records.task_id DESC
+          LIMIT $${params.length + 1}
+          OFFSET $${params.length + 2}
+        `,
+        [...params, safeLimit, (safePage - 1) * safeLimit],
+      )).rows;
+    }
+    return {
+      records: pageRows.map((row) => row.payload),
+      page: safePage,
+      limit: safeLimit,
+      total: filtered,
+      filtered,
+      totalPages,
+    };
+  }
   const pageParams = [...params, safeLimit, (requestedPage - 1) * safeLimit];
   // Count and page rows in one pass. This is especially important for a user
   // lookup: PostgreSQL can range-scan that user's index and return the first
@@ -6989,6 +7058,7 @@ module.exports = {
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
+  getAdminDashboardStatsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,

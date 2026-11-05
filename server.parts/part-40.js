@@ -117,7 +117,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
 }
 
 async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
@@ -188,7 +188,7 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
 }
 
 async function handleAdminGetHomeVideo(req, res, taskId) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let config = await readAppConfig();
   const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
@@ -684,32 +684,34 @@ function adminUserAssetView(asset, userMap) {
 }
 
 async function handleAdminDashboard(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
-  const config = await readAppConfig();
-  const records = await readGenerationRecords();
+  const [config, characterVisitStats, dashboardStats] = await Promise.all([
+    readAppConfig(),
+    readGeoCharacterVisitStats(),
+    dbEnabled() ? getAdminDashboardStatsFromDb() : Promise.resolve(null),
+  ]);
   const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
-  const characterVisits = adminCharacterVisitDashboardStats(items, await readGeoCharacterVisitStats());
+  const characterVisits = adminCharacterVisitDashboardStats(items, characterVisitStats);
   const sceneBindCount = items.reduce((sum, item) => sum + Object.keys(item.sceneVideos || {}).length, 0);
-  const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
-  const userSceneCount = userCharacters.reduce((sum, c) => sum + Object.keys(c.sceneVideos || {}).length, 0);
-  const totalCredits = (auth.db.users || []).reduce((sum, u) => sum + Number(u.credits || 0), 0);
-  const pendingOrders = (auth.db.walletOrders || []).filter((o) => o.status === "pending").length;
+  const stats = dashboardStats || {
+    users: (auth.db.users || []).length,
+    admins: (auth.db.users || []).filter((u) => u.role === "admin").length,
+    totalCredits: (auth.db.users || []).reduce((sum, u) => sum + Number(u.credits || 0), 0),
+    userCharacters: (auth.db.userCharacters || []).length,
+    userSceneVideos: (auth.db.userCharacters || []).reduce((sum, c) => sum + Object.keys(c.sceneVideos || {}).length, 0),
+    walletOrders: (auth.db.walletOrders || []).length,
+    pendingOrders: (auth.db.walletOrders || []).filter((o) => o.status === "pending").length,
+    generationRecords: (auth.db.generationRecords || []).length,
+    sessions: (auth.db.sessions || []).length,
+    userAssets: (auth.db.userAssets || []).length,
+  };
   return sendJson(res, 200, {
     ok: true,
     stats: {
-      users: (auth.db.users || []).length,
-      admins: (auth.db.users || []).filter((u) => u.role === "admin").length,
-      totalCredits,
+      ...stats,
       adminCharacters: items.length,
-      userCharacters: userCharacters.length,
       sceneBindings: sceneBindCount,
-      userSceneVideos: userSceneCount,
-      walletOrders: (auth.db.walletOrders || []).length,
-      pendingOrders,
-      generationRecords: records.length,
-      sessions: (auth.db.sessions || []).length,
-      userAssets: (auth.db.userAssets || []).length,
       scenes: Array.isArray(config.scenes) ? config.scenes.length : 0,
     },
     activeHomeItemId: config.homeVideo?.activeItemId || "",
@@ -976,7 +978,7 @@ function adminHomeItemView(item, activeId) {
 }
 
 async function handleAdminListHomeItems(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const q = String(url?.searchParams?.get("q") || "").trim().toLowerCase();
@@ -1125,7 +1127,7 @@ async function handleAdminSetHomeActive(req, res, itemId) {
 }
 
 async function handleAdminListScenes(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, { ok: true, scenes: Array.isArray(config.scenes) ? config.scenes : [] });

@@ -973,7 +973,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
 }
 
 async function handleAdminGetPricing(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, { ok: true, pricing: await adminAdvancedPricingView(config) });
@@ -1044,8 +1044,25 @@ async function handleAdminSaveConfig(req, res) {
 }
 
 async function handleAdminList(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
+  if (dbEnabled()) {
+    const [usersPage, ordersPage, assetsPage, recordsPage] = await Promise.all([
+      getAdminUsersPageFromDb({ page: 1, limit: 100 }),
+      getAdminWalletOrdersPageFromDb({ page: 1, limit: 100 }),
+      getAdminUserAssetsPageFromDb({ page: 1, limit: 100 }),
+      getAdminGenerationRecordsPageFromDb({ page: 1, limit: 30 }),
+    ]);
+    const recordUsers = await getUsersByIdsInDb((recordsPage?.records || []).map((record) => record.userId));
+    const recordUserMap = new Map(recordUsers.map((user) => [user.id, user]));
+    return sendJson(res, 200, {
+      ok: true,
+      users: (usersPage?.items || []).map(userView),
+      walletOrders: ordersPage?.items || [],
+      userAssets: assetsPage?.items || [],
+      generationRecords: (recordsPage?.records || []).map((record) => adminGenerationRecordView(record, recordUserMap)),
+    });
+  }
   const records = await readGenerationRecords();
   return sendJson(res, 200, {
     ok: true,
@@ -1215,7 +1232,7 @@ function scheduleHomeItemReferenceBuild(itemId) {
 }
 
 async function handleAdminIfilmStatus(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   const cliPath = config.ifilm?.cliPath || "ifilm";

@@ -94,7 +94,7 @@ function livePricingView(live = {}) {
 }
 
 async function handleAdminChatLiveGifts(req, res) {
-  const auth = await requireAdmin(req, res); if (!auth) return;
+  const auth = await requireAdmin(req, res, { loadDb: false }); if (!auth) return;
   const live = chatLiveConfigValue(await readAppConfig());
   return sendJson(res, 200, { ok: true, gifts: live.gifts });
 }
@@ -161,7 +161,7 @@ async function handleAdminUploadChatLiveAsset(req, res, options = {}) {
 }
 
 async function handleAdminChatLiveCharacters(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   const live = chatLiveConfigValue(config);
@@ -900,7 +900,7 @@ async function handleAdminGenerateChatLiveUndress(req, res, characterId = "", op
 }
 
 async function handleAdminChatLiveVoices(req, res, url = null, options = {}) {
-  const auth = options.auth || await requireAdmin(req, res);
+  const auth = options.auth || await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const scope = String(url?.searchParams?.get("scope") || "realtime");
   try {
@@ -912,14 +912,14 @@ async function handleAdminChatLiveVoices(req, res, url = null, options = {}) {
 }
 
 async function handleAdminGetChatLivePricing(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, { ok: true, pricing: livePricingView(chatLiveConfigValue(config)) });
 }
 
 async function handleAdminGetChatLiveMembershipPlans(req, res) {
-  const auth = await requireAdmin(req, res); if (!auth) return;
+  const auth = await requireAdmin(req, res, { loadDb: false }); if (!auth) return;
   const tenantId = "tool-chat-5vips";
   return sendJson(res, 200, { ok: true, plans: (await listBillingPlansInDb(tenantId, { includeInactive: true })).filter((plan) => plan.id.startsWith("plan-tool-chat-weekly") || plan.id.startsWith("plan-tool-chat-monthly") || plan.id.startsWith("plan-tool-chat-quarterly") || plan.id.startsWith("plan-tool-chat-yearly")).map(publicBillingPlan) });
 }

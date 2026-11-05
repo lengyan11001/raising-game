@@ -1068,7 +1068,7 @@ async function handleRequest(req, res) {
       return await handleAdminSaveConfig(req, res);
     }
     if (req.method === "GET" && url.pathname === "/api/admin/aliyun-route") {
-      const admin = await requireAdmin(req, res);
+      const admin = await requireAdmin(req, res, { loadDb: false });
       if (!admin) return;
       return sendJson(res, 200, { ok: true, route: await mulerouterAliyun.publicStatus() });
     }

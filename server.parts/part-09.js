@@ -898,7 +898,7 @@ function publicAdminChatLiveSession(session = {}, extras = {}) {
 }
 
 async function handleAdminListChatLiveSessions(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const page = Math.max(1, Number.parseInt(url?.searchParams?.get("page") || "1", 10) || 1);
   const limit = Math.max(1, Math.min(100, Number.parseInt(url?.searchParams?.get("limit") || "20", 10) || 20));

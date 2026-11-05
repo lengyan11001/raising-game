@@ -617,7 +617,7 @@ async function handleRedeemMembershipActivationCode(req, res) {
 }
 
 async function handleAdminListMembershipActivationCodes(req, res, url) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 30, maxLimit: 200 });
   const status = String(url?.searchParams?.get("status") || "").trim();

@@ -366,7 +366,7 @@ async function handleAdminGeoRealtimeTest(req, res) {
 }
 
 async function handleAdminGeoReport(req, res) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const snapshot = await geoSiteSnapshot(req);
   const visitorStats = await readGeoVisitorStats();
