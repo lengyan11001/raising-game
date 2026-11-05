@@ -436,6 +436,7 @@ if (require.main === module) {
 module.exports = {
   advancedModelPricing,
   publicAdvancedPricingRows,
+  publicGenerationRecord,
   handleAdvancedVegaGenerate,
   repairStalledGenerationRecords,
   listStalledGenerationRecordsForRepair,

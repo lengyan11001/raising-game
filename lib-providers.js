@@ -119,6 +119,37 @@ function publicProviderLabel(value = "") {
   return id;
 }
 
+function publicGenerationDisplayLabel(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return "";
+  if (
+    normalized === "seedance25vega"
+    || normalized === "seedance2.5vega"
+    || normalized === "vega1.5pro"
+    || normalized.includes("vega1.5pro")
+    || normalized.includes("wandvegavideo1.5pro")
+  ) return "seedance2.5vega";
+  if (
+    normalized === "seedance20vega"
+    || normalized === "seedance2.0vega"
+    || normalized === "vega1.0pro"
+    || normalized.includes("vega1.0pro")
+    || normalized.includes("wandvegavideo1.0pro")
+  ) return "seedance2.0（vega）";
+  return "";
+}
+
+function publicGenerationDisplayTitle(record = {}, fallback = "") {
+  const provider = record.provider || record.params?.provider || "";
+  const alias = publicGenerationDisplayLabel(provider)
+    || publicGenerationDisplayLabel(record.templateTitle)
+    || publicGenerationDisplayLabel(record.modelLabel)
+    || publicGenerationDisplayLabel(record.model);
+  if (alias) return alias;
+  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || fallback || "").trim();
+}
+
 function publicModelText(value = "") {
   return String(value ?? "");
 }
@@ -209,6 +240,8 @@ module.exports = {
   normalizeAdvancedProvider,
   publicProviderId,
   publicProviderLabel,
+  publicGenerationDisplayLabel,
+  publicGenerationDisplayTitle,
   publicModelText,
   publicModelKey,
   publicModelValue,

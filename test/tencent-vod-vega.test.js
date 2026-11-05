@@ -49,6 +49,63 @@ test("Vega provider identities are exact and preserve the provider id", () => {
   }
 });
 
+test("Vega Pro public display aliases normalize new and historical records", () => {
+  assert.equal(providers.publicGenerationDisplayLabel("seedance25-vega"), "seedance2.5vega");
+  assert.equal(providers.publicGenerationDisplayLabel("Vega 1.5 Pro"), "seedance2.5vega");
+  assert.equal(providers.publicGenerationDisplayLabel("seedance20-vega"), "seedance2.0（vega）");
+  assert.equal(providers.publicGenerationDisplayLabel("Vega 1.0 Pro"), "seedance2.0（vega）");
+  assert.equal(providers.publicGenerationDisplayLabel("Vega 1.5 Lite"), "");
+  assert.equal(providers.publicGenerationDisplayLabel("Vega 1.0 Lite"), "");
+
+  const display25 = application.publicGenerationRecord({
+    taskId: "vega-15-pro",
+    provider: "seedance25-vega",
+    templateTitle: "Vega 1.5 Pro",
+    model: "wand-vega-video:1.5-pro",
+  });
+  assert.equal(display25.provider, "seedance25-vega");
+  assert.equal(display25.providerLabel, "seedance2.5vega");
+  assert.equal(display25.templateTitle, "seedance2.5vega");
+
+  const historical25 = application.publicGenerationRecord({
+    taskId: "legacy-vega-15-pro",
+    provider: "Vega 1.5 Pro",
+    templateTitle: "Vega 1.5 Pro",
+    model: "wand-vega-video:1.5-pro",
+  });
+  assert.equal(historical25.providerLabel, "seedance2.5vega");
+  assert.equal(historical25.templateTitle, "seedance2.5vega");
+
+  const display20 = application.publicGenerationRecord({
+    taskId: "vega-10-pro",
+    provider: "seedance20-vega",
+    templateTitle: "Vega 1.0 Pro",
+    model: "wand-vega-video:1.0-pro",
+  });
+  assert.equal(display20.providerLabel, "seedance2.0（vega）");
+  assert.equal(display20.templateTitle, "seedance2.0（vega）");
+
+  const lite = application.publicGenerationRecord({
+    taskId: "vega-15-lite",
+    provider: "h3-vega",
+    templateTitle: "Vega 1.5 Lite",
+    model: "wand-vega-video:1.5-lite",
+  });
+  assert.equal(lite.provider, "h3-vega");
+  assert.equal(lite.providerLabel, "Vega 1.5 Lite");
+  assert.equal(lite.templateTitle, "Vega 1.5 Lite");
+});
+
+test("Vega Pro result, history, preview, and completion labels use the shared display alias", () => {
+  assert.match(ui, /function generationCompletionLabel\(record = \{\}\) \{\s*return publicGenerationDisplayTitle\(record, "生成记录"\);/);
+  assert.match(create, /publicGenerationDisplayTitle\(record, "Generation"\)/);
+  assert.match(create, /playPreview\(\{ title: publicModelText\(publicGenerationDisplayTitle\(record, t\("common\.preview"\)\)\)/);
+  assert.match(create, /previewImage\(\{ title: publicModelText\(publicGenerationDisplayTitle\(record, t\("common\.preview"\)\)\)/);
+  assert.match(create, /title: record \? publicGenerationDisplayTitle\(record, t\("common\.preview"\)\) : t\("common\.preview"\)/);
+  const explore = read("platform.explore.js");
+  assert.match(explore, /const title = publicModelText\(publicGenerationDisplayTitle\(record, t\("history\.detailTitle"\)\)\);/);
+});
+
 test("Tencent VOD calls use the international endpoint and region", async () => {
   assert.equal(vega.TENCENT_VOD_INTERNATIONAL_HOST, "vod.intl.tencentcloudapi.com");
   assert.equal(vega.TENCENT_VOD_INTERNATIONAL_REGION, "ap-singapore");

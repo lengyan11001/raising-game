@@ -1036,6 +1036,12 @@ function generationRecordR2PublicationPending(record = {}) {
 }
 
 function publicGenerationRecord(record = {}, options = {}) {
+  const publicProvider = publicProviderId(record.provider || record.params?.provider || "");
+  const generationDisplayLabel = publicGenerationDisplayLabel(publicProvider)
+    || publicGenerationDisplayLabel(record.provider)
+    || publicGenerationDisplayLabel(record.params?.provider)
+    || publicGenerationDisplayLabel(record.templateTitle)
+    || publicGenerationDisplayLabel(record.model);
   const providerOnlyOutputs = DISABLE_GENERATED_R2_STORAGE;
   const requireR2Ready = options.requireR2Ready === true;
   const r2PublicationPending = requireR2Ready && generationRecordR2PublicationPending(record);
@@ -1095,7 +1101,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     source: publicModelText(record.source || ""),
     kind: String(record.kind || generationRecordKind(record)),
     templateId: String(record.templateId || ""),
-    templateTitle: String(record.templateTitle || ""),
+    templateTitle: generationDisplayLabel || String(record.templateTitle || ""),
     sceneId: String(record.sceneId || ""),
     sceneName: String(record.sceneName || ""),
     sceneEntryId: String(record.sceneEntryId || ""),
@@ -1120,8 +1126,8 @@ function publicGenerationRecord(record = {}, options = {}) {
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),
     model: publicModelText(record.model || ""),
-    provider: publicProviderId(record.provider || record.params?.provider || ""),
-    providerLabel: publicProviderLabel(record.provider || record.params?.provider || ""),
+    provider: publicProvider,
+    providerLabel: generationDisplayLabel || publicProviderLabel(record.provider || record.params?.provider || ""),
     ratio: String(record.ratio || ""),
     resolution: String(record.resolution || ""),
     duration: record.duration || "",

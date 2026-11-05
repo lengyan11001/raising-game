@@ -704,7 +704,7 @@ function isFailedGenerationRecord(record = {}) {
 }
 
 function generationCompletionLabel(record = {}) {
-  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || "生成记录").trim();
+  return publicGenerationDisplayTitle(record, "生成记录");
 }
 
 function showGenerationCompletionNotice(record = {}) {

@@ -855,7 +855,7 @@ function renderHistory(records = []) {
       const record = Number.isInteger(index) && index >= 0 ? sortedRecords[index] : null;
       if (!previewUrl) return;
       playPreview({
-        title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
+        title: record ? publicGenerationDisplayTitle(record, t("common.preview")) : t("common.preview"),
         previewUrl,
         posterUrl: generationPosterUrl(record),
         ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
@@ -874,7 +874,7 @@ function renderHistory(records = []) {
       const previewUrl = image.getAttribute("src") || generationImageResultUrl(record);
       if (!previewUrl) return;
       previewImage({
-        title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
+        title: record ? publicGenerationDisplayTitle(record, t("common.preview")) : t("common.preview"),
         imageUrl: previewUrl,
       });
     });

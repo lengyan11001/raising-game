@@ -358,6 +358,7 @@ const {
   normalizeAdvancedProvider,
   publicProviderId,
   publicProviderLabel,
+  publicGenerationDisplayLabel,
   publicModelText,
   publicModelKey,
   publicModelValue,

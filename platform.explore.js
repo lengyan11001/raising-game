@@ -3807,7 +3807,7 @@ function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
   prepareModalOpen();
-  const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
+  const title = publicModelText(publicGenerationDisplayTitle(record, t("history.detailTitle")));
   const videoUrl = generationVideoUrl(record);
   // The local generated copy is served by the site's optimized static
   // handler and supports byte ranges. Prefer it for the detail preview when

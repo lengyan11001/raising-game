@@ -464,6 +464,28 @@ const VEGA_MODEL_LABELS = Object.freeze({
   "h3-vega": "wan（vega）",
   "vega10-lite": "h3（vega）",
 });
+
+function publicGenerationDisplayLabel(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return "";
+  if (normalized === "seedance25vega" || normalized === "seedance2.5vega" || normalized.includes("vega1.5pro") || normalized.includes("wandvegavideo1.5pro")) return VEGA_MODEL_LABELS["seedance25-vega"];
+  if (normalized === "seedance20vega" || normalized === "seedance2.0vega" || normalized.includes("vega1.0pro") || normalized.includes("wandvegavideo1.0pro")) return VEGA_MODEL_LABELS["seedance20-vega"];
+  if (normalized === "h3vega" || normalized.includes("vega1.5lite") || normalized.includes("wandvegavideo1.5lite")) return VEGA_MODEL_LABELS["h3-vega"];
+  if (normalized === "vega10lite" || normalized.includes("vega1.0lite") || normalized.includes("wandvegavideo1.0lite")) return VEGA_MODEL_LABELS["vega10-lite"];
+  return "";
+}
+
+function publicGenerationDisplayTitle(record = {}, fallback = "") {
+  if (!record || typeof record !== "object") return String(record || fallback || "").trim();
+  const provider = record.provider || record.params?.provider || "";
+  const alias = publicGenerationDisplayLabel(provider)
+    || publicGenerationDisplayLabel(record.templateTitle)
+    || publicGenerationDisplayLabel(record.modelLabel)
+    || publicGenerationDisplayLabel(record.model);
+  if (alias) return alias;
+  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || fallback || "").trim();
+}
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_DURATION_BOUNDS = Object.freeze({

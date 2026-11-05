@@ -778,7 +778,7 @@ function renderAdvancedResultPanel() {
       <article class="advanced-result-card is-${escapeHtml(statusClass(record.status))}">
         ${media}
         <div class="advanced-result-meta">
-          <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
+          <strong>${escapeHtml(publicModelText(publicGenerationDisplayTitle(record, "Generation")))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
           <div class="advanced-result-actions">
@@ -806,7 +806,7 @@ function renderAdvancedResultPanel() {
       const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultVideo || 0)];
       const videoUrl = generationVideoUrl(record);
       if (!videoUrl) return;
-      playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
+      playPreview({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
@@ -815,7 +815,7 @@ function renderAdvancedResultPanel() {
       const record = advancedResultVisibleRecords()[recordIndex || 0];
       const imageUrl = generationImageResultUrls(record)[imageIndex || 0] || generationImageResultUrl(record);
       if (!imageUrl) return;
-      previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
+      previewImage({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), imageUrl });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-copy]").forEach((button) => {
