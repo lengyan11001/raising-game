@@ -7,7 +7,10 @@
 - Create-page `assetGroupId` is passed into asset registration; `TENCENT_VOD_VEGA_ASSET_GROUP_ID` defaults to `123vips-vega`.
 - Changed files: `.env.example`, `db.js`, `server.parts/part-26.js`, `server.parts/part-30.js`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js test/advanced-pricing.test.js test/vega-pricing-label.test.js` 85 pass / 0 fail; syntax and `git diff --check` pass.
-- Pending: commit, build `platform-release`, deploy `123vips.com` only, and submit a real Pro 1.5 task to verify the upstream asset path.
+- `old-site` commit `8895462`, pushed to origin. Platform release `f1a610c` was built from that commit, pushed, and deployed to `123vips.com` only; production health returned `200 {"ok":true}`. Live was not deployed.
+- Real production verification: `cgt-20261105185652-8e9597`, Vega 1.5 Pro reference-image task with two public images. Local status reached `succeeded`; upstream task `1524935253-AigcVideoTask-d671ca4033756468d91077f30c42b727t` completed and returned a playable MP4.
+- Both source images were registered as VOD assets (`asset-20261105185644-jbum2` and `asset-20261105185643-rdttv`). Persisted `upstreamPayload.FileInfos` contains `Type=Url`, `Usage=Reference`, `Category=Image`, and `Url=asset://asset-...`; no `PullUpload`, `FileId`, or `InputRegion` is present.
+- Refreshed generation detail returned `templateTitle=seedance2.5vega` and `providerLabel=seedance2.5vega`, confirming the public name remains stable after completion.
 
 ## Legacy regeneration runtime helper fix (2026-11-05)
 
