@@ -74,6 +74,8 @@ function capability(overrides = {}) {
 const VEGA_CAPABILITIES = Object.freeze({
   "seedance20-vega": capability({
     durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
+    generateMode: false,
+    qualityMode: false,
     limits: VEGA_10_PRO_LIMITS,
   }),
   "seedance25-vega": capability({
@@ -483,8 +485,8 @@ function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
     ModerationMode: normalizeVegaModerationMode(input.moderationMode),
     ReturnVegaUsage: Boolean(input.returnVegaUsage),
   };
-  // Vega 1.5 Lite rejects these fields in production. Vega 1.0 Lite documents
-  // and supports both model controls, so only h3-vega suppresses them.
+  // Vega 1.0 Pro and Vega 1.5 Lite reject these fields in production.
+  // Vega 1.0 Lite documents and supports both model controls.
   if (!caps || caps.generateMode) wand.GenerateMode = normalizeVegaGenerateMode(input.generateMode);
   if (!caps || caps.qualityMode) wand.VideoQualityMode = normalizeVegaQualityMode(input.videoQualityMode);
   const ext = {};

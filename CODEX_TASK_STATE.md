@@ -1,3 +1,11 @@
+## Vega 1.0 Pro parameter compatibility fix (2026-11-05)
+
+- Failed task `cgt-20261105130507-09ee17` was refunded after upstream returned `InvalidParameter: ModelVersion "1.0-pro" does not support WandAgent.Parameters.GenerateMode`.
+- Root cause: `seedance20-vega` inherited permissive capability defaults, so both `GenerateMode` and `VideoQualityMode` were included in `WandVegaParameters`.
+- Fix: mark Vega 1.0 Pro as not supporting generation/quality modes; `buildVegaExtInfo()` now omits both fields as a backend fail-safe. The create-page payload also omits unsupported controls, and API docs mark them unsupported for this model.
+- Regression coverage includes Vega 1.0 Pro reference-video payload construction, Vega 1.5 Lite support, and Vega 1.5 Lite omission behavior.
+- Targeted tests: 69 pass, 0 fail. Related notification/history/source tests: 35 pass, 0 fail. Syntax and diff checks pass.
+
 ## Generation notification transition-only fix (2026-11-05)
 
 - User reported generation notices reappeared on every page refresh.

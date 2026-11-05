@@ -246,8 +246,8 @@ function advancedVegaPayloadOptions(provider = currentAdvancedProvider()) {
     returnVegaUsage: Boolean(els.advancedVegaReturnUsage?.checked),
     enhancePromptMode: String(els.advancedVegaEnhancePromptMode?.value || "auto"),
     moderationMode: String(els.advancedVegaModerationMode?.value || "Moderation_L1"),
-    generateMode: String(els.advancedVegaGenerateMode?.value || "Standard"),
-    videoQualityMode: String(els.advancedVegaQualityMode?.value || "Standard"),
+    ...(caps?.generateMode === false ? {} : { generateMode: String(els.advancedVegaGenerateMode?.value || "Standard") }),
+    ...(caps?.qualityMode === false ? {} : { videoQualityMode: String(els.advancedVegaQualityMode?.value || "Standard") }),
     outputFormat: String(els.advancedVegaOutputFormat?.value || "mp4"),
   };
 }

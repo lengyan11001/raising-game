@@ -80,7 +80,7 @@ test("Tencent VOD calls use the international endpoint and region", async () => 
   assert.doesNotMatch(requests[0].url, /^https:\/\/vod\.tencentcloudapi\.com/);
 });
 
-test("Vega Lite omits unsupported GenerateMode and VideoQualityMode", () => {
+test("Vega models omit unsupported GenerateMode and VideoQualityMode", () => {
   const lite = vega.buildVegaCreatePayload({
     provider: "h3-vega",
     prompt: "test",
@@ -111,6 +111,20 @@ test("Vega Lite omits unsupported GenerateMode and VideoQualityMode", () => {
   assert.equal(proWand.VideoQualityMode, "Fast");
   assert.equal(vega.vegaProviderCapabilities("h3-vega").generateMode, false);
   assert.equal(vega.vegaProviderCapabilities("h3-vega").qualityMode, false);
+
+  const vega10Pro = vega.buildVegaCreatePayload({
+    provider: "seedance20-vega",
+    prompt: "test",
+    mediaMode: "reference_video",
+    referenceImages: ["https://media.example.com/reference.png"],
+    generateMode: "Standard",
+    videoQualityMode: "Standard",
+  }, { subAppId: 123 });
+  const vega10ProWand = JSON.parse(JSON.parse(vega10Pro.ExtInfo).WandVegaParameters);
+  assert.equal(Object.prototype.hasOwnProperty.call(vega10ProWand, "GenerateMode"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(vega10ProWand, "VideoQualityMode"), false);
+  assert.equal(vega.vegaProviderCapabilities("seedance20-vega").generateMode, false);
+  assert.equal(vega.vegaProviderCapabilities("seedance20-vega").qualityMode, false);
 });
 
 test("Vega duration validates boundaries, defaults, and integer seconds", () => {
@@ -543,6 +557,8 @@ test("Vega submit payload includes every required field", () => {
   for (const field of ["taskType", "draft", "draftTaskId", "assetGroupId", "generateAudio", "returnLastFrame", "returnVegaUsage", "enhancePromptMode", "moderationMode", "generateMode", "videoQualityMode", "outputFormat"]) {
     assert.match(options, new RegExp(`\\b${field}\\b(?=\\s*[:,])`));
   }
+  assert.match(options, /caps\?\.generateMode === false \? \{\} : \{ generateMode:/);
+  assert.match(options, /caps\?\.qualityMode === false \? \{} : \{ videoQualityMode:/);
   assert.match(branch, /duration: vegaDraftFollowup \|\| \["edit", "extend"\]\.includes\(vegaTaskType\) \? -1 : vegaDuration/);
   assert.match(create, /requestJson\("\/api\/advanced\/generate", \{ method: "POST", body: vegaPayload \}\)/);
 });
