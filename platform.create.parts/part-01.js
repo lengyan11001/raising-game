@@ -607,6 +607,18 @@ const ADVANCED_RESULT_MEDIA_FIELDS = [
 function advancedResultRecordWithMediaFallback(previous = null, record = {}) {
   const merged = { ...(previous || {}), ...record };
   if (!previous) return merged;
+  // History rows are cached snapshots and are merged after the detail record.
+  // A stale pending snapshot must never turn a terminal detail result back
+  // into "processing" on screen.
+  const previousStatus = String(previous.status || "").toLowerCase();
+  const incomingStatus = String(record?.status || "").toLowerCase();
+  const terminalStatuses = ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled"];
+  if (terminalStatuses.includes(previousStatus) && !terminalStatuses.includes(incomingStatus)) {
+    merged.status = previous.status;
+    if (previous.error) merged.error = previous.error;
+    if (previous.completedAt) merged.completedAt = previous.completedAt;
+    if (previous.failedAt) merged.failedAt = previous.failedAt;
+  }
   // History list snapshots can lag behind the richer detail response. Never
   // let an empty media field from the list erase a poster or video URL that
   // Result already received from the detail endpoint.
@@ -837,7 +849,10 @@ function renderAdvancedResultPanel() {
   refreshIcons();
 }
 
-const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 * 1000;
+// Detail requests are cheap and enqueue upstream checks in the background.
+// Poll often enough that a 61-second upstream task does not wait another full
+// minute after it has already reached a terminal state.
+const ADVANCED_RESULT_POLL_INTERVAL_MS = 10 * 1000;
 const ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS = 8 * 1000;
 const ADVANCED_RESULT_POSTER_RETRY_LIMIT = 8;
 

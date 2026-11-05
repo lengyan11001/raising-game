@@ -71,6 +71,31 @@ test("history fallback cannot erase a detail poster with empty media fields", ()
   assert.equal(record.cdnVideoUrl, "https://media.123vips.com/generated/videos/video-1.mp4");
 });
 
+test("history fallback cannot turn a terminal detail record back into processing", () => {
+  const state = {
+    advancedResultRecords: [{
+      taskId: "failed-1",
+      status: "failed",
+      error: "ContentViolated: audit block prompt",
+      createdAt: "2026-11-05T04:05:19.036Z",
+      updatedAt: "2026-11-05T04:07:17.289Z",
+      failedAt: "2026-11-05T04:07:17.289Z",
+    }],
+    historyRecords: [{
+      taskId: "failed-1",
+      status: "processing",
+      error: "",
+      createdAt: "2026-11-05T04:05:19.036Z",
+      updatedAt: "2026-11-05T04:05:19.036Z",
+    }],
+  };
+  const { advancedResultDisplayRecords } = load(state);
+  const [record] = advancedResultDisplayRecords();
+  assert.equal(record.status, "failed");
+  assert.match(record.error, /ContentViolated/);
+  assert.equal(record.failedAt, "2026-11-05T04:07:17.289Z");
+});
+
 test("a partial detail refresh cannot erase an existing poster", () => {
   const state = { advancedResultRecords: [], historyRecords: [] };
   const { mergeAdvancedResultRecord } = load(state);

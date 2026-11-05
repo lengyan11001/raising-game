@@ -1152,24 +1152,26 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
 function needsApizFailureRefund(record = {}) {
   if (String(record.provider || "").toLowerCase() !== "apiz") return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
-  if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
+  const billingStatus = String(record.billingStatus || "").toLowerCase();
+  if (billingStatus === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
   const finalCredits = record.finalCredits === undefined || record.finalCredits === null
     ? preDeducted
     : creditsAmount(record.finalCredits || 0);
-  return preDeducted > 0 && finalCredits > 0;
+  return preDeducted > 0 && (finalCredits > 0 || ["pre_deducted", "refund_failed"].includes(billingStatus));
 }
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
   if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider) && !isVegaProvider(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
-  if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
+  const billingStatus = String(record.billingStatus || "").toLowerCase();
+  if (billingStatus === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
   const finalCredits = record.finalCredits === undefined || record.finalCredits === null
     ? preDeducted
     : creditsAmount(record.finalCredits || 0);
-  return preDeducted > 0 && finalCredits > 0;
+  return preDeducted > 0 && (finalCredits > 0 || ["pre_deducted", "refund_failed"].includes(billingStatus));
 }
 
 function seedanceUsesTokenPricing(record = {}) {

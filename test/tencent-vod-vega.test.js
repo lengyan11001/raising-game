@@ -448,6 +448,7 @@ test("Vega create failure and polling failure paths refund without double chargi
   const refresh = sourceBetween(server, "async function refreshGenerationRecordStatus(", "if (record.provider === \"apiz\")");
   assert.match(refresh, /upstreamResourceMissing\(error\)[\s\S]*status: "failed"[\s\S]*finalCredits: 0[\s\S]*originalFinalCredits: 0/);
   assert.match(server, /function needsSeedanceFailureRefund[\s\S]*isVegaProvider\(provider\)/);
+  assert.match(server, /function needsSeedanceFailureRefund[\s\S]*\["pre_deducted", "refund_failed"\]\.includes\(billingStatus\)/);
 });
 
 test("Vega regeneration preserves exact provider and public media URLs", () => {

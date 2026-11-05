@@ -34,8 +34,8 @@ test("advanced result entry has no duplicate detail request", () => {
   assert.doesNotMatch(explore, /renderAdvancedResultPanel\(\);\s*if \(state\.advancedSideTab === "result" && state\.user && state\.advancedResultRecords\?\.length\) refreshAdvancedResultRecord\(\);/);
 });
 
-test("pending results use one low-frequency timeout instead of an interval", () => {
-  assert.match(create, /const ADVANCED_RESULT_POLL_INTERVAL_MS = 60 \* 1000;/);
+test("pending results use one bounded timeout instead of an interval", () => {
+  assert.match(create, /const ADVANCED_RESULT_POLL_INTERVAL_MS = 10 \* 1000;/);
   assert.match(create, /function scheduleAdvancedResultRefresh\(\) \{/);
   assert.match(create, /const pendingRecords = advancedResultPendingRecords\(\);/);
   assert.match(create, /window\.setTimeout\(\(\) => \{[\s\S]*?refreshAdvancedResultRecord\(\);[\s\S]*?ADVANCED_RESULT_POLL_INTERVAL_MS/);

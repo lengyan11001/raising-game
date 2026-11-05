@@ -211,3 +211,23 @@ CODEX_TASK_STATE.md
 - Failure occurred 21 seconds after creation; it is an upstream content-policy rejection, not an API/parameter or model availability failure.
 - Pricing was 1080P x 6s = 162 credits. `app_credit_ledger` contains the 162 deduction but no `generation_refund` entry for this task.
 - Current failed record still has `billingStatus: pre_deducted` and `finalCredits: 0`. Existing `needsSeedanceFailureRefund()` requires `finalCredits > 0`, so it does not trigger on this already-zeroed failed record. This is a real refund-repair gap, separate from the upstream rejection.
+
+## Diagnosis (2026-11-05): cgt-20261105120518-1c9a87
+
+- Created at `2026-11-05T04:05:19.036Z` (server UTC+8: 12:05:19).
+- Vega 1.0 Lite, 1080P, 5s, reference-image mode; upstream Tencent VOD task `1524935253-AigcVideoTask-1057c525539a26e362668d375774be9et`.
+- Upstream ran from `04:05:19Z` to `04:06:20Z` (61 seconds) and returned `FINISH`, progress 100, `ErrCode 70000`, `ErrCodeExt ContentViolated`.
+- Upstream message: `task failed with status: FAIL, message: audit block prompt: label=Porn`.
+- Local record was terminalized as `failed` at `04:07:17Z`; generation failure is an upstream content-policy rejection, not a submission/polling stall.
+- Billing defect: 57.675 credits were deducted (`ledger-981a9c2cedf055d6a1e2e6e1`, type `advanced_generation`, delta -57.675), but the failed record remains `billingStatus: pre_deducted`, `finalCredits: 0`, with no generation refund ledger entry.
+- Dry-run repair confirms the record matches refund repair, but no production mutation was applied.
+
+## Fix and production refund (2026-11-05): cgt-20261105120518-1c9a87
+
+- Confirmed the production detail and list APIs already returned `failed` for the task, not `processing`; the stale UI state came from cached History records merged after the authoritative detail response.
+- Fixed Result record merging so a stale pending History row can no longer overwrite a terminal detail status or erase its failure metadata.
+- Reduced active Result polling from 60 seconds to 10 seconds. Detail polling enqueues upstream refresh in the background, so this does not add another synchronous upstream request.
+- Fixed the refund predicate: failed Vega/Seedance/APIZ records already carrying `finalCredits: 0` but `billingStatus: pre_deducted` now enter the normal idempotent refund path. Previously only `finalCredits > 0` qualified.
+- Applied the production repair for `cgt-20261105120518-1c9a87`; PostgreSQL now reports `status=failed`, `billingStatus=refunded`, `finalCredits=0`.
+- Targeted regression tests: 61 pass, 0 fail. `node --check` and `git diff --check` pass.
+- Full suite currently has 22 pre-existing failures outside these changed paths; the relevant Vega/result/refund suites pass.
