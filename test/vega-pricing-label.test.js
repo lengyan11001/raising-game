@@ -174,3 +174,9 @@ test("Vega 1.0 Lite renders its successful estimate instead of a pricing error",
   assert.equal(label, "78.24 credits · 5s + input 3s - 768P");
   assert.doesNotMatch(label, /pricing|unavailable|not configured/i);
 });
+
+test("Vega Lite submit does not shadow the reference-limit helper", () => {
+  const createSource = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+  assert.doesNotMatch(createSource, /const\s+vegaReferenceLimits\s*=\s*vegaReferenceLimits\s*\(/);
+  assert.match(createSource, /const\s+vegaReferenceLimitConfig\s*=\s*vegaReferenceLimits\s*\(provider\)/);
+});

@@ -366,11 +366,11 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = "Vega audio references require at least one image or video reference.";
       return;
     }
-    const vegaReferenceLimits = vegaReferenceLimits(provider);
+    const vegaReferenceLimitConfig = vegaReferenceLimits(provider);
     const vegaReferenceTotal = vegaReferenceImages.length + vegaReferenceVideos.length + vegaReferenceAudios.length;
-    if (vegaReferenceImages.length > vegaReferenceLimits.images || vegaReferenceVideos.length > vegaReferenceLimits.videos || vegaReferenceAudios.length > vegaReferenceLimits.audios || vegaReferenceTotal > vegaReferenceLimits.total) {
+    if (vegaReferenceImages.length > vegaReferenceLimitConfig.images || vegaReferenceVideos.length > vegaReferenceLimitConfig.videos || vegaReferenceAudios.length > vegaReferenceLimitConfig.audios || vegaReferenceTotal > vegaReferenceLimitConfig.total) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = `Vega references exceed the ${advancedProviderLabel(provider)} limit (images ${vegaReferenceLimits.images}, videos ${vegaReferenceLimits.videos}, audio ${vegaReferenceLimits.audios}, total ${vegaReferenceLimits.total}).`;
+      if (els.advancedNote) els.advancedNote.textContent = `Vega references exceed the ${advancedProviderLabel(provider)} limit (images ${vegaReferenceLimitConfig.images}, videos ${vegaReferenceLimitConfig.videos}, audio ${vegaReferenceLimitConfig.audios}, total ${vegaReferenceLimitConfig.total}).`;
       return;
     }
     const vegaReferenceVideoDurations = vegaVideoItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0));

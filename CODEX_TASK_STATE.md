@@ -1,3 +1,12 @@
+## Vega Lite submit crash hotfix (2026-11-05)
+
+- User reported Vega 1.0 Lite submit button had no response after the latest changes.
+- Root cause: in the Vega submit branch, `const vegaReferenceLimits = vegaReferenceLimits(provider)` shadowed the helper of the same name. JavaScript TDZ threw before the request and left the button disabled.
+- Fixed by renaming the local config to `vegaReferenceLimitConfig`; no validation behavior changed.
+- Added regression coverage preventing the self-shadowing declaration from returning.
+- Targeted tests: 66 pass, 0 fail. `node --check` and `git diff --check` pass.
+- Deployment status: pending release snapshot and `scripts/deploy_local.sh --site old`.
+
 # Codex Task State
 
 ## Vega 1.0 Lite button cost hotfix (2026-11-05)
