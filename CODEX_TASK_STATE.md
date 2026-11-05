@@ -8,7 +8,10 @@
 - Admin: removed the obsolete API-doc entitlement toggle/status from user management.
 - Historical settlement code remains only for backward compatibility with pre-existing product orders.
 - Verification: syntax checks pass; targeted `membership-entitlements`, `subtoken-user-view`, and `source-split` tests pass 12/12.
-- Deployment: pending commit/release/deploy to `123vips.com` only.
+- Commit: `e2bc778` on `old-site`, pushed to origin.
+- Release: `platform-release` `142ab6c`, built from `e2bc778`, pushed to origin and deployed to `123vips.com` only.
+- Production verification: health `200 {"ok":true}`; `/docs/api.json` public `200` with 23 sections / 5 groups; `/api/models` public `200`; deployed `platform.html` contains `apiDocsUnlockedContent` and no purchase card / `Unlock docs` / `$1,000`; deployed copy has no retired referral API-doc commission entries.
+- Live was not deployed.
 
 ## Vega 1.0 Lite integration (2026-11-05)
 
