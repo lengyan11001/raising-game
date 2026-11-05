@@ -742,6 +742,7 @@ els.advancedPrompt?.addEventListener("keyup", (event) => {
 els.advancedPrompt?.addEventListener("keydown", handleAdvancedPromptMentionKeydown);
 els.advancedPrompt?.addEventListener("blur", () => window.setTimeout(closeAdvancedPromptMentions, 120));
 els.advancedPromptMentions?.addEventListener("pointerdown", handleAdvancedPromptMentionPointer);
+bindAdvancedPromptResizeHandle();
 els.advancedPrompt?.addEventListener("paste", (event) => {
   handleAdvancedPromptPaste(event).catch((error) => {
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);

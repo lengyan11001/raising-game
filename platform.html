@@ -504,7 +504,10 @@
             <div class="advanced-preset-builder" id="advancedPresetBuilder" aria-label="Generation presets"></div>
             <label class="field advanced-prompt-field">
               <span data-i18n="field.prompt">Prompt</span>
-              <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
+              <div class="advanced-prompt-input-shell">
+                <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
+                <span class="advanced-prompt-resize" id="advancedPromptResizeHandle" role="separator" tabindex="0" aria-label="Resize prompt editor" aria-orientation="horizontal"></span>
+              </div>
               <div class="advanced-prompt-mentions" id="advancedPromptMentions" role="listbox" aria-label="Prompt references" hidden></div>
             </label>
             <details class="advanced-video-settings" id="advancedVideoSettings">

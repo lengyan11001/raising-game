@@ -941,6 +941,70 @@ function platformRegenerateBody(record = {}) {
   return body;
 }
 
+function upstreamPayloadInputImageItems(record = {}) {
+  const payload = plainObject(record.upstreamPayload);
+  const containers = [
+    payload,
+    plainObject(payload.params),
+    plainObject(payload.parameters),
+    plainObject(payload.input),
+    plainObject(payload.request),
+  ];
+  const urls = new Set();
+  const items = [];
+  const push = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(push);
+      return;
+    }
+    if (typeof value === "string") {
+      const url = value.trim();
+      if (url) urls.add(url);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const itemUrl = String(firstPresent(
+      value.userAssetId,
+      value.assetId,
+      value.id,
+      value.image_url,
+      value.imageUrl,
+      value.url,
+      value.publicUrl,
+      value.sourceImageUrl,
+      value.image,
+      "",
+    ) || "").trim();
+    if (itemUrl) items.push(value);
+  };
+  containers.forEach((source) => {
+    [
+      source.input_image,
+      source.inputImage,
+      source.image_url,
+      source.imageUrl,
+      source.image,
+      source.first_frame_url,
+      source.firstFrameUrl,
+      source.first_image,
+      source.firstImage,
+      source.last_frame_url,
+      source.lastFrameUrl,
+      source.last_image,
+      source.lastImage,
+      source.images,
+      source.image_urls,
+      source.imageUrls,
+      source.reference_images,
+      source.referenceImages,
+      source.reference_image_urls,
+      source.referenceImageUrls,
+    ].forEach(push);
+  });
+  const urlItems = [...urls].map((url) => ({ url }));
+  return [...items, ...urlItems];
+}
+
 function advancedRegenerateBody(record = {}) {
   const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
   const provider = normalizeAdvancedProvider(record.provider || params.provider);
@@ -970,7 +1034,8 @@ function advancedRegenerateBody(record = {}) {
       const url = String(firstPresent(item?.imageUrl, item?.url, item?.publicUrl, item?.sourceImageUrl, "") || "").trim();
       return url ? { url } : null;
     }).filter(Boolean);
-    const referenceImages = [...imageItems, ...recordedImageItems(params.referenceImages)];
+    const upstreamItems = upstreamPayloadInputImageItems(record);
+    const referenceImages = [...imageItems, ...recordedImageItems(params.referenceImages), ...recordedImageItems(upstreamItems)];
     const fallbackIds = [...new Set([
       ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
       ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
@@ -980,6 +1045,7 @@ function advancedRegenerateBody(record = {}) {
       ...(Array.isArray(record.imageUrls) ? record.imageUrls : []),
       ...(Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []),
       ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
+      ...upstreamItems.map((item) => String(firstPresent(item?.image_url, item?.imageUrl, item?.url, item?.publicUrl, item?.sourceImageUrl, "") || "").trim()),
       record.imageUrl || "",
       record.sourceImageUrl || "",
     ].map((url) => String(url || "").trim()).filter(Boolean))];
@@ -1298,10 +1364,12 @@ function advancedRegenerateBody(record = {}) {
 function imageEditRegenerateBody(record = {}) {
   const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
   const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const upstreamItems = upstreamPayloadInputImageItems(record);
   const assetIds = [...new Set([
     ...mediaAssets.map((asset) => String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim()),
     ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
     ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+    ...upstreamItems.map((item) => String(firstPresent(item?.userAssetId, item?.assetId, item?.id, "") || "").trim()),
     record.userAssetId || "",
   ].map((id) => String(id || "").trim()).filter(Boolean))];
   const imageUrls = [...new Set([
@@ -1309,6 +1377,7 @@ function imageEditRegenerateBody(record = {}) {
     ...(Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []),
     ...(Array.isArray(record.imageUrls) ? record.imageUrls : []),
     ...(Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []),
+    ...upstreamItems.map((item) => String(firstPresent(item?.image_url, item?.imageUrl, item?.url, item?.publicUrl, item?.sourceImageUrl, "") || "").trim()),
     record.sourceImageUrl || "",
     record.imageUrl || "",
   ].map((url) => String(url || "").trim()).filter(Boolean))];

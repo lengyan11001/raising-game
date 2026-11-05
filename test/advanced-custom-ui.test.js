@@ -396,10 +396,18 @@ test("prompt image paste and @ mentions follow the shared upload control for eve
   assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);
   assert.match(create, /else if \(\["wan27", "happyhorse"\]\.includes\(provider\)\) limit = advancedAliyunReferenceImageLimit\(capability\)/);
   assert.match(create, /else if \(advancedUsesSharedReferenceUpload\(provider, capability\)\) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT/);
-  assert.match(create, /sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /\(sharedFrameProvider \|\| isVegaAdvancedProvider\(provider\)\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.match(create, /rule\.target === "frames"/);
   assert.match(create, /syncAdvancedPromptMentionLabels\(previousPromptRefs\)/);
   assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);
+});
+
+test("prompt editor exposes a large keyboard-accessible resize handle", () => {
+  assert.match(html, /id="advancedPromptResizeHandle"[^>]+role="separator"[^>]+tabindex="0"/);
+  assert.match(css, /\.advanced-prompt-resize \{[\s\S]*?width: 30px;[\s\S]*?height: 30px;[\s\S]*?cursor: nwse-resize;/);
+  assert.match(create, /function bindAdvancedPromptResizeHandle\(\)/);
+  assert.match(create, /startHeight \+ event\.clientY - startY/);
+  assert.match(main, /bindAdvancedPromptResizeHandle\(\);/);
 });
 
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {

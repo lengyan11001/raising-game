@@ -1,3 +1,11 @@
+## Legacy regeneration input recovery (2026-11-05)
+
+- User reported old generation records could not restore input media on “再次生成” and asked whether a new generation was required. It is not: old records are restored directly from their saved input fields.
+- Frontend `recordImageAssets()` now reads legacy input images from `upstreamPayload` (`image`, `image_url`, `reference_images`, snake_case aliases, first/last-frame fields) and joins positional `userAssetIds` with URL-only images instead of showing duplicate placeholder/URL entries.
+- Backend regeneration helpers now recover input images and asset IDs from the same legacy `upstreamPayload` fields for Seedream/Qwen Image3 and image-edit regeneration. Generated result URLs are never used as regeneration inputs.
+- Added regression coverage for `mediaAssets: []` records with `userAssetIds + sourceImageUrl` and upstream-only input images. The new regression passes; known unrelated media-input assertion failures remain.
+- Pending: commit, platform release snapshot, old-site deployment.
+
 ## Regeneration restores original image endpoint and user media (2026-11-05)
 
 - User corrected the requirement: regenerate must reuse the original endpoint and original user media; it must not create another upload/paste UI and must not use generated result images as inputs.

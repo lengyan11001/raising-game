@@ -339,3 +339,70 @@ test("image regeneration restores original providers and input media without a n
   assert.match(editHelper, /record\.sourceImageUrls[\s\S]*?record\.imageUrls/);
   assert.doesNotMatch(editHelper, /cdnImageUrls|imageResultUrls/);
 });
+
+test("legacy regeneration recovers input images from old records without generating again", () => {
+  const createUi = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.parts", "part-02.js"), "utf8");
+  const regenerateSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-29.js"), "utf8");
+  const extract = (source, name) => {
+    const start = source.indexOf(`function ${name}(`);
+    assert.notEqual(start, -1, `missing ${name}`);
+    let parenDepth = 0;
+    let bodyStart = -1;
+    for (let index = source.indexOf("(", start); index < source.length; index += 1) {
+      if (source[index] === "(") parenDepth += 1;
+      else if (source[index] === ")" && --parenDepth === 0) {
+        bodyStart = source.indexOf("{", index);
+        break;
+      }
+    }
+    let depth = 0;
+    for (let index = bodyStart; index < source.length; index += 1) {
+      if (source[index] === "{") depth += 1;
+      else if (source[index] === "}" && --depth === 0) return source.slice(start, index + 1);
+    }
+    throw new Error(`unterminated ${name}`);
+  };
+  const { recordImageAssets } = new Function([
+    extract(createUi, "mediaAssetPreviewUrl"),
+    extract(createUi, "mediaAssetLabel"),
+    extract(createUi, "upstreamInputImageAssets"),
+    extract(createUi, "recordImageAssets"),
+    "return { recordImageAssets };",
+  ].join("\n"))();
+
+  const sameAssetRecord = {
+    mediaAssets: [],
+    userAssetIds: ["asset-1"],
+    sourceImageUrl: "https://cdn.example.com/original-input.png",
+    imageResultUrl: "https://cdn.example.com/generated-result.png",
+    params: { advancedProviderId: "seedream5-image" },
+  };
+  assert.deepEqual(recordImageAssets(sameAssetRecord).map((item) => item.url), ["https://cdn.example.com/original-input.png"]);
+  assert.equal(recordImageAssets(sameAssetRecord)[0].assetId, "asset-1");
+  assert.doesNotMatch(JSON.stringify(recordImageAssets(sameAssetRecord)), /generated-result/);
+
+  const upstreamOnlyRecord = {
+    mediaAssets: [],
+    params: { advancedProviderId: "wan27-image-edit" },
+    upstreamPayload: {
+      image: "https://cdn.example.com/upstream-input.png",
+      reference_images: ["https://cdn.example.com/upstream-reference.png"],
+    },
+  };
+  assert.deepEqual(recordImageAssets(upstreamOnlyRecord).map((item) => item.url), [
+    "https://cdn.example.com/upstream-input.png",
+    "https://cdn.example.com/upstream-reference.png",
+  ]);
+
+  const serverSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-11.js"), "utf8");
+  const serverHelpers = new Function([
+    extract(serverSource, "plainObject"),
+    extract(serverSource, "firstPresent"),
+    extract(regenerateSource, "upstreamPayloadInputImageItems"),
+    "return { upstreamPayloadInputImageItems };",
+  ].join("\n"))();
+  assert.deepEqual(serverHelpers.upstreamPayloadInputImageItems(upstreamOnlyRecord).map((item) => item.url), [
+    "https://cdn.example.com/upstream-input.png",
+    "https://cdn.example.com/upstream-reference.png",
+  ]);
+});

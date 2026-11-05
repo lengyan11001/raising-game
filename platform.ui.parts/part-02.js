@@ -598,6 +598,44 @@ function mediaAssetLabel(asset = {}, index = 0) {
   return type || `Image ${index + 1}`;
 }
 
+function upstreamInputImageAssets(record = {}) {
+  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
+  const payload = record.upstreamPayload && typeof record.upstreamPayload === "object" && !Array.isArray(record.upstreamPayload) ? record.upstreamPayload : {};
+  const payloadParams = payload.params && typeof payload.params === "object" && !Array.isArray(payload.params) ? payload.params : {};
+  const values = (source) => [
+    source?.input_image,
+    source?.inputImage,
+    source?.image_url,
+    source?.imageUrl,
+    source?.image,
+    source?.first_frame_url,
+    source?.firstFrameUrl,
+    source?.first_image,
+    source?.firstImage,
+    source?.last_frame_url,
+    source?.lastFrameUrl,
+    source?.last_image,
+    source?.lastImage,
+    ...(Array.isArray(source?.images) ? source.images : []),
+    ...(Array.isArray(source?.image_urls) ? source.image_urls : []),
+    ...(Array.isArray(source?.imageUrls) ? source.imageUrls : []),
+    ...(Array.isArray(source?.reference_images) ? source.reference_images : []),
+    ...(Array.isArray(source?.referenceImages) ? source.referenceImages : []),
+    ...(Array.isArray(source?.reference_image_urls) ? source.reference_image_urls : []),
+    ...(Array.isArray(source?.referenceImageUrls) ? source.referenceImageUrls : []),
+  ];
+  return [...values(params), ...values(payloadParams), ...values(payload)]
+    .flatMap((item) => Array.isArray(item) ? item : [item])
+    .map((item) => typeof item === "string" ? { imageUrl: item, type: "reference_image" } : item)
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      ...item,
+      imageUrl: item.imageUrl || item.image_url || item.url || item.publicUrl || item.sourceImageUrl || item.image || "",
+      type: item.type || "reference_image",
+    }))
+    .filter((item) => mediaAssetPreviewUrl(item) || item.userAssetId || item.assetId || item.id);
+}
+
 function recordImageAssets(record = {}) {
   const images = [];
   const seenUrls = new Set();
@@ -618,7 +656,6 @@ function recordImageAssets(record = {}) {
     ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : [record.userAssetId]),
     ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
   ].map((item) => String(item || "").trim()).filter(Boolean);
-  referenceIds.forEach((assetId, index) => pushImage({ userAssetId: assetId, type: "reference_image", name: `Reference ${index + 1}` }, "Reference"));
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
     .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
     .forEach((asset) => pushImage(asset));
@@ -626,8 +663,26 @@ function recordImageAssets(record = {}) {
   (Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "source_image" }, "Source image"));
   (Array.isArray(params.referenceImages) ? params.referenceImages : []).forEach((item) => pushImage(item, "Reference"));
   (Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []).forEach((url) => pushImage({ imageUrl: url, type: "reference_image" }, "Reference"));
+  upstreamInputImageAssets(record).forEach((item) => pushImage(item, "Reference"));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
+
+  // Older image records often contain both userAssetIds and the original input
+  // URL but no mediaAssets. Join those positional records instead of rendering
+  // one asset placeholder and one duplicate URL.
+  const unmatchedIds = referenceIds.filter((assetId) => !seenAssetIds.has(assetId));
+  const urlOnlyImages = images.filter((item) => !String(item.assetId || "").trim() && (item.url || item.dataUrl));
+  unmatchedIds.forEach((assetId, index) => {
+    const target = urlOnlyImages[index];
+    if (target) {
+      target.assetId = assetId;
+      target.userAssetId = assetId;
+      target.fromLibrary = true;
+      seenAssetIds.add(assetId);
+      return;
+    }
+    pushImage({ userAssetId: assetId, type: "reference_image", name: `Reference ${index + 1}` }, "Reference");
+  });
   return images;
 }
 

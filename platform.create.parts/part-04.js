@@ -171,6 +171,66 @@ function restoreReferenceFromMedia(item = {}, index = 0) {
   };
 }
 
+function bindAdvancedPromptResizeHandle() {
+  const textarea = els.advancedPrompt;
+  const handle = els.advancedPromptResizeHandle;
+  if (!textarea || !handle || handle.dataset.resizeBound === "true") return;
+  handle.dataset.resizeBound = "true";
+  const minimumHeight = 68;
+  const maximumHeight = () => Math.max(minimumHeight, Math.min(window.innerHeight * 0.62, 520));
+  let startY = 0;
+  let startHeight = 0;
+  let pointerId = null;
+
+  const resize = (height) => {
+    const next = Math.max(minimumHeight, Math.min(maximumHeight(), height));
+    textarea.style.height = `${Math.round(next)}px`;
+    textarea.style.overflowY = next >= maximumHeight() ? "auto" : "hidden";
+    handle.setAttribute("aria-valuemin", String(minimumHeight));
+    handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight())));
+    handle.setAttribute("aria-valuenow", String(Math.round(next)));
+  };
+  const finish = () => {
+    if (pointerId !== null && handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+    pointerId = null;
+    handle.classList.remove("is-resizing");
+    document.body.classList.remove("is-resizing-advanced-prompt");
+  };
+
+  resize(textarea.getBoundingClientRect().height || minimumHeight);
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pointerId = event.pointerId;
+    startY = event.clientY;
+    startHeight = textarea.getBoundingClientRect().height;
+    handle.setPointerCapture?.(pointerId);
+    handle.classList.add("is-resizing");
+    document.body.classList.add("is-resizing-advanced-prompt");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId) return;
+    event.preventDefault();
+    resize(startHeight + event.clientY - startY);
+  });
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("lostpointercapture", () => {
+    pointerId = null;
+    handle.classList.remove("is-resizing");
+    document.body.classList.remove("is-resizing-advanced-prompt");
+  });
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = textarea.getBoundingClientRect().height || minimumHeight;
+    if (event.key === "Home") resize(minimumHeight);
+    else if (event.key === "End") resize(maximumHeight());
+    else resize(current + (event.key === "ArrowDown" ? 24 : -24));
+  });
+}
+
 function restoreRecordProvider(record = {}) {
   const params = recordParams(record);
   const imageProviders = new Set([
