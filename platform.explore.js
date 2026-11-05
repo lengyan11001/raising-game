@@ -153,7 +153,21 @@ function setTab(tab) {
   if (nextTab === "workflow") {
     renderWorkflowPanel();
     loadWorkflowPresets();
-    loadWorkflowCanvases();
+    // Workflow canvases are a deferred module. Render the shell immediately,
+    // then hydrate it as soon as the module is available. This covers a fast
+    // click before the idle loader has finished.
+    const loadCanvases = () => {
+      if (state.tab !== "workflow") return;
+      if (typeof loadWorkflowCanvases === "function") {
+        Promise.resolve(loadWorkflowCanvases()).catch((error) => {
+          state.workflowCanvasMessage = error.message || String(error);
+          renderWorkflowPanel();
+        });
+      }
+    };
+    const deferred = window.PlatformDeferredModules?.load?.();
+    if (deferred?.then) deferred.then(loadCanvases).catch(() => {});
+    else loadCanvases();
   }
   closeAccountMenu();
   closeMobileDrawer();

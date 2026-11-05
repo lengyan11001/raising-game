@@ -12,6 +12,20 @@ async function startPlatform() {
 }
 
 document.addEventListener("click", (event) => {
+  // Video tools load in the idle phase. If the user beats that loader, wait
+  // for the module and open the selected tool instead of dropping the click.
+  const deferredVideoTool = event.target.closest("[data-video-tool-action]");
+  if (deferredVideoTool && typeof openVideoToolDialog !== "function") {
+    event.preventDefault();
+    event.stopPropagation();
+    const action = deferredVideoTool.dataset.videoToolAction || "";
+    window.PlatformDeferredModules?.load?.()
+      .then(() => {
+        if (typeof openVideoToolDialog === "function") openVideoToolDialog(action);
+      })
+      .catch((error) => console.warn("video tool module unavailable", error.message || error));
+    return;
+  }
   if (event.target.closest("#sideNavMoreMenu [data-tab]")) {
     const menu = document.getElementById("sideNavMoreMenu");
     const moreButton = document.getElementById("sideNavMoreBtn");

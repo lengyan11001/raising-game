@@ -395,6 +395,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.html",
   "platform.css",
   "platform.js",
+  "platform-sw.js",
   "platform.config.js",
   "platform.vega-media.js",
   "platform.copy.js",

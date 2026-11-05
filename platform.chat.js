@@ -871,7 +871,12 @@ els.chatVoiceBtn?.addEventListener("click", () => {
 document.querySelectorAll("[data-chat-setting]").forEach((button) => button.addEventListener("click", () => { state.chatSetting = button.dataset.chatSetting || "style"; renderChatSettings(); refreshIcons(); }));
 document.querySelectorAll("[data-chat-close-panels]").forEach((button) => button.addEventListener("click", () => els.chatShell?.classList.remove("mobile-list-open", "mobile-settings-open")));
 window.addEventListener("resize", syncChatViewportHeight);
-/* 在线聊天（Vidu 实时数字人）：拉一次配置，chat 面板里就能出现实时入口 */
-if (window.ChatLive && typeof window.ChatLive.loadConfig === "function") {
-  window.ChatLive.loadConfig().then(() => { if (typeof renderChatPanel === "function") renderChatPanel(); }).catch(() => {});
+/* 在线聊天（Vidu 实时数字人）：模块后置加载，完成后无刷新补出入口。 */
+function hydrateChatLiveEntry() {
+  if (!window.ChatLive || typeof window.ChatLive.loadConfig !== "function") return;
+  window.ChatLive.loadConfig()
+    .then(() => { if (typeof renderChatPanel === "function") renderChatPanel(); })
+    .catch(() => {});
 }
+hydrateChatLiveEntry();
+window.addEventListener("platform-deferred-ready", hydrateChatLiveEntry, { once: true });

@@ -75,3 +75,41 @@ test("GEO analytics never sits on the request critical path", () => {
   assert.match(source, /recordGeoVisitStats\(req, url\)\.catch\(\(error\) => \{/);
   assert.doesNotMatch(source, /await recordGeoVisitStats\(req, url\)/);
 });
+
+test("first paint defers heavy optional modules and icons", () => {
+  const html = read("platform.html");
+  const loader = read("platform.js");
+  assert.doesNotMatch(html, /vendor\/lucide-1\.27\.0\.min\.js/);
+  assert.match(html, /rel="preconnect" href="https:\/\/media\.123vips\.com"/);
+  assert.match(loader, /const criticalChunkFiles = \[/);
+  assert.match(loader, /const deferredChunkFiles = \[[\s\S]*?platform\.workflow-canvases\.js[\s\S]*?platform\.video-tools\.js[\s\S]*?platform\.undress-tool\.js[\s\S]*?chat-live\.js/);
+  assert.match(loader, /requestIdleCallback\(\(\) => loadDeferredChunks\(\)/);
+  assert.match(loader, /requestIdleCallback\(loadIcons/);
+  assert.match(loader, /window\.PlatformDeferredModules = \{ load: loadDeferredChunks \}/);
+  assert.match(loader, /deferredLoadPromise = appendChunks\(deferredChunkFiles\)/);
+  assert.match(loader, /platform-deferred-ready/);
+});
+
+test("deferred interactions hydrate instead of throwing on first click", () => {
+  const loader = read("platform.js");
+  const explore = read("platform.explore.js");
+  const chat = read("platform.chat.js");
+  const main = read("platform.main.js");
+  assert.match(loader, /script\.onload = \(\) => resolve\(script\.src\)/);
+  assert.match(explore, /const deferred = window\.PlatformDeferredModules\?\.load\?\.\(\)/);
+  assert.match(explore, /deferred\.then\(loadCanvases\)/);
+  assert.match(chat, /platform-deferred-ready/);
+  assert.match(chat, /hydrateChatLiveEntry/);
+  assert.match(main, /deferredVideoTool/);
+  assert.match(main, /openVideoToolDialog\(action\)/);
+});
+
+test("service worker never intercepts API or non-GET requests", () => {
+  const sw = read("platform-sw.js");
+  assert.match(sw, /request\.method !== "GET"/);
+  assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(sw, /request\.mode === "navigate"/);
+  assert.match(sw, /stale|refresh/);
+  assert.match(sw, /type !== "precache"/);
+  assert.match(sw, /caches\.delete\(key\)/);
+});
