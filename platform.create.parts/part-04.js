@@ -1,5 +1,12 @@
 function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "seedance25-vega") {
+    return kind === "image"
+      ? ADVANCED_VEGA15_PRO_IMAGE_MAX_BYTES
+      : kind === "video"
+        ? ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES
+        : ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES;
+  }
   if (isVegaProviderId(normalized) && ["seedance20-vega", "vega10-lite"].includes(normalized)) {
     return kind === "image"
       ? ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES
@@ -198,6 +205,7 @@ function restoreRecordImageLimit(record = {}) {
   const capability = String(params.videoCapability || record.mediaMode || "").trim();
   if (provider === "qwen-image3") return ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
   if (provider === "wan30") return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
+  if (provider === "seedance25-vega") return vegaReferenceLimits(provider).images;
   if (["seedance25", "seedance-nsfw"].includes(provider)) return ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT;
   if (["wan27", "happyhorse"].includes(provider)) return advancedAliyunReferenceImageLimit(capability);
   if (provider === "wan27-image-edit" || provider === "qwen-image-edit-spicy") return 1;

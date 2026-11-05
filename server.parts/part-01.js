@@ -996,6 +996,24 @@ const DEFAULT_ADVANCED_PRICING = {
     "2k": 61.62,
     "4k": 69.225,
   },
+  // Vega 1.5 Pro uses the same reference-video billing shape: input and
+  // output are both charged at the reference-video rate.
+  vega15ProCreditsPerSecondByResolution: {
+    "480p": 13.98,
+    "720p": 27.42,
+    "768p": 27.42,
+    "1080p": 59.685,
+    "2k": 147,
+    "4k": 161.7,
+  },
+  vega15ProInputVideoCreditsPerSecondByResolution: {
+    "480p": 8.385,
+    "720p": 17.07,
+    "768p": 17.07,
+    "1080p": 36.465,
+    "2k": 89.07,
+    "4k": 97.98,
+  },
   seedanceNsfwCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p"),
@@ -1170,6 +1188,9 @@ const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VEGA_10_LITE_IMAGE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VEGA_10_LITE_VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const VEGA_10_LITE_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
+const VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
+const VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
+const VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const WAN30_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const WAN30_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const WAN30_DOCUMENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;

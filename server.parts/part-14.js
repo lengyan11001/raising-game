@@ -318,6 +318,13 @@ function userMediaUploadLimits(provider = "") {
       audio: WAN30_AUDIO_UPLOAD_MAX_BYTES,
     };
   }
+  if (normalized === "seedance25-vega") {
+    return {
+      image: VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES,
+      video: VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES,
+      audio: VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES,
+    };
+  }
   if (normalized === "vega10-lite") {
     return {
       image: VEGA_10_LITE_IMAGE_UPLOAD_MAX_BYTES,

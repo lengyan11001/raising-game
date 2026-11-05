@@ -173,7 +173,9 @@ test("Vega FileInfos use Usage and never ReferenceType", () => {
     mediaMode: "reference_video",
     referenceImages: ["https://cdn.example.com/ref.png"],
     referenceVideos: ["https://cdn.example.com/ref.mp4"],
+    referenceVideoDurations: [2],
     referenceAudios: ["https://cdn.example.com/ref.mp3"],
+    referenceAudioDurations: [2],
   });
   assert.deepEqual(referenceFiles.map((item) => item.Usage), ["Reference", "Reference", "Reference"]);
   assert.deepEqual(referenceFiles.map((item) => item.Category), ["Image", "Video", "Audio"]);
@@ -471,6 +473,85 @@ test("Vega 1.0 Pro exposes its duration, reference limits, and model controls", 
   assert.equal(payload.OutputConfig.AspectRatio, "adaptive");
   const additional = JSON.parse(JSON.parse(payload.ExtInfo).AdditionalParameters || "{}");
   assert.equal(additional.return_last_frame, true);
+});
+
+test("Vega 1.5 Pro enforces 30 images, 10 videos, 10 audios, and 50 references", () => {
+  const image = (n) => `https://cdn.example.com/${n}.png`;
+  const video = (n) => `https://cdn.example.com/${n}.mp4`;
+  const audio = (n) => `https://cdn.example.com/${n}.mp3`;
+  const base = { provider: "seedance25-vega", prompt: "test", mediaMode: "reference_video", duration: 5, resolution: "1080P", ratio: "adaptive" };
+  const caps = vega.vegaProviderCapabilities("seedance25-vega");
+  assert.deepEqual(caps.durationSeconds, { min: 4, max: 30, fallback: 5, smart: true });
+  assert.deepEqual(caps.limits, {
+    images: 30,
+    videos: 10,
+    audios: 10,
+    total: 50,
+    videoSeconds: 0,
+    audioSeconds: 30,
+    perFileMinSeconds: 2,
+    perFileMaxSeconds: 30,
+  });
+
+  const maxReferences = {
+    ...base,
+    referenceImages: Array.from({ length: 30 }, (_, i) => image(i)),
+    referenceVideos: Array.from({ length: 10 }, (_, i) => video(i)),
+    referenceVideoDurations: Array(10).fill(30),
+    referenceAudios: Array.from({ length: 10 }, (_, i) => audio(i)),
+    referenceAudioDurations: Array(10).fill(3),
+  };
+  const maxPayload = vega.buildVegaCreatePayload(maxReferences, { subAppId: 123 });
+  assert.equal(maxPayload.FileInfos.length, 50);
+  assert.equal(maxPayload.ModelVersion, "1.5-pro");
+
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceImages: Array.from({ length: 31 }, (_, i) => image(i)) }, { subAppId: 123 }), "MEDIA_LIMIT_EXCEEDED");
+  assertCode(() => vega.buildVegaCreatePayload({
+    ...base,
+    referenceVideos: Array.from({ length: 11 }, (_, i) => video(i)),
+    referenceVideoDurations: Array(11).fill(2),
+  }, { subAppId: 123 }), "MEDIA_LIMIT_EXCEEDED");
+  assertCode(() => vega.buildVegaCreatePayload({
+    ...base,
+    referenceImages: [image(0)],
+    referenceAudios: Array.from({ length: 11 }, (_, i) => audio(i)),
+    referenceAudioDurations: Array(11).fill(2),
+  }, { subAppId: 123 }), "MEDIA_LIMIT_EXCEEDED");
+
+  assert.doesNotThrow(() => vega.buildVegaCreatePayload({
+    ...base,
+    referenceVideos: [video(0), video(1), video(2)],
+    referenceVideoDurations: [30, 30, 2],
+  }, { subAppId: 123 }));
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceVideos: [video(0)], referenceVideoDurations: [1] }, { subAppId: 123 }), "MEDIA_DURATION_LIMIT_EXCEEDED");
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceVideos: [video(0)], referenceVideoDurations: [31] }, { subAppId: 123 }), "MEDIA_DURATION_LIMIT_EXCEEDED");
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceVideos: [video(0)], referenceVideoDurations: [] }, { subAppId: 123 }), "MEDIA_DURATION_REQUIRED");
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceImages: [image(0)], referenceAudios: [audio(0)], referenceAudioDurations: [1] }, { subAppId: 123 }), "MEDIA_DURATION_LIMIT_EXCEEDED");
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceImages: [image(0)], referenceAudios: [audio(0)], referenceAudioDurations: [31] }, { subAppId: 123 }), "MEDIA_DURATION_LIMIT_EXCEEDED");
+  assertCode(() => vega.buildVegaCreatePayload({ ...base, referenceImages: [image(0)], referenceAudios: [audio(0)], referenceAudioDurations: [] }, { subAppId: 123 }), "MEDIA_DURATION_REQUIRED");
+  assertCode(() => vega.buildVegaCreatePayload({
+    ...base,
+    referenceImages: [image(0)],
+    referenceAudios: Array.from({ length: 10 }, (_, i) => audio(i)),
+    referenceAudioDurations: [4, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+  }, { subAppId: 123 }), "MEDIA_DURATION_LIMIT_EXCEEDED");
+});
+
+test("Vega model upload limits keep Lite and Pro 1.0 behavior while allowing Pro 1.5 video files up to 200MB", () => {
+  assert.match(config, /ADVANCED_VEGA15_PRO_IMAGE_MAX_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(config, /ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES = 200 \* 1024 \* 1024/);
+  assert.match(config, /ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES = 15 \* 1024 \* 1024/);
+  assert.match(create, /if \(normalized === "seedance25-vega"\) \{[\s\S]*?ADVANCED_VEGA15_PRO_IMAGE_MAX_BYTES[\s\S]*?ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES[\s\S]*?ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES/);
+  assert.match(create, /if \(provider === "seedance25-vega"\) return vegaReferenceLimits\(provider\)\.images/);
+  assert.match(config, /"seedance20-vega": Object\.freeze\(\{ images: 9, videos: 3, audios: 3, total: 12 \}\)/);
+  assert.match(config, /"seedance25-vega": Object\.freeze\(\{ images: 30, videos: 10, audios: 10, total: 50 \}\)/);
+  assert.match(config, /"h3-vega": Object\.freeze\(\{ images: 10, videos: 5, audios: 5, total: 20 \}\)/);
+  assert.match(config, /"vega10-lite": Object\.freeze\(\{ images: 9, videos: 3, audios: 3, total: 12 \}\)/);
+  assert.match(server, /VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(server, /VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES = 200 \* 1024 \* 1024/);
+  assert.match(server, /VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES = 15 \* 1024 \* 1024/);
+  assert.match(server, /normalized === "seedance25-vega"[\s\S]{0,240}VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES[\s\S]{0,120}VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES[\s\S]{0,120}VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES/);
+  assert.match(config, /"seedance25-vega": Object\.freeze\(\{ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object\.freeze\(\["auto", "reference", "edit", "extend"\]\), draft: true, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 \}\)/);
 });
 
 test("Vega 1.5 Lite stale draft state is normalized into a normal generation", () => {

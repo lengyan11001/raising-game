@@ -645,12 +645,14 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "h3-vega" || normalizedProvider === "vega10-lite" || normalizedProvider === "seedance20-vega") {
+  if (normalizedProvider === "h3-vega" || normalizedProvider === "vega10-lite" || normalizedProvider === "seedance20-vega" || normalizedProvider === "seedance25-vega") {
     const isVega10Pro = normalizedProvider === "seedance20-vega";
+    const isVega15Pro = normalizedProvider === "seedance25-vega";
+    const isVegaProWithReferenceRates = isVega10Pro || isVega15Pro;
     const isVega10Lite = normalizedProvider === "vega10-lite";
-    const providerLabel = isVega10Pro ? "Vega 1.0 Pro" : isVega10Lite ? "Vega 1.0 Lite" : "Vega 1.5 Lite";
-    const modelVersion = isVega10Pro ? "1.0-pro" : isVega10Lite ? "1.0-lite" : "1.5-lite";
-    const pricingKey = isVega10Pro ? "vega10_pro" : isVega10Lite ? "vega10_lite" : "h3_vega";
+    const providerLabel = isVega10Pro ? "Vega 1.0 Pro" : isVega15Pro ? "Vega 1.5 Pro" : isVega10Lite ? "Vega 1.0 Lite" : "Vega 1.5 Lite";
+    const modelVersion = isVega10Pro ? "1.0-pro" : isVega15Pro ? "1.5-pro" : isVega10Lite ? "1.0-lite" : "1.5-lite";
+    const pricingKey = isVega10Pro ? "vega10_pro" : isVega15Pro ? "vega15_pro" : isVega10Lite ? "vega10_lite" : "h3_vega";
     const duration = options.duration ?? options.durationSeconds;
     const normalizedDuration = normalizeVegaDuration(normalizedProvider, duration);
     const adaptiveDuration = normalizedDuration === -1;
@@ -660,11 +662,15 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
     const priceTable = isVega10Pro
       ? advancedPricing.vega10ProCreditsPerSecondByResolution
+      : isVega15Pro
+      ? advancedPricing.vega15ProCreditsPerSecondByResolution
       : isVega10Lite
       ? advancedPricing.vega10LiteCreditsPerSecondByResolution
       : advancedPricing.h3VegaCreditsPerSecondByResolution;
     const inputPriceTable = isVega10Pro
       ? advancedPricing.vega10ProInputVideoCreditsPerSecondByResolution
+      : isVega15Pro
+      ? advancedPricing.vega15ProInputVideoCreditsPerSecondByResolution
       : isVega10Lite
       ? advancedPricing.vega10LiteInputVideoCreditsPerSecondByResolution
       : advancedPricing.h3VegaInputVideoCreditsPerSecondByResolution;
@@ -704,11 +710,11 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     }
     // Tencent charges a reference-video request at the reference-video rate for
     // both input and output. The input is billed for at least 2/3 of the output.
-    const inputVideoMinimumSeconds = isVega10Pro && hasVideoInput ? Math.ceil(billingDuration * 2 / 3) : 0;
-    const inputVideoSeconds = isVega10Pro && hasVideoInput
+    const inputVideoMinimumSeconds = isVegaProWithReferenceRates && hasVideoInput ? Math.ceil(billingDuration * 2 / 3) : 0;
+    const inputVideoSeconds = isVegaProWithReferenceRates && hasVideoInput
       ? Math.max(rawInputVideoSeconds, inputVideoMinimumSeconds)
       : rawInputVideoSeconds;
-    const outputRate = isVega10Pro && hasVideoInput ? inputVideoCreditsPerSecond : creditsPerSecond;
+    const outputRate = isVegaProWithReferenceRates && hasVideoInput ? inputVideoCreditsPerSecond : creditsPerSecond;
     const referenceImageCount = Math.max(0, Math.floor(Number(options.referenceImageCount || 0) || 0));
     const billableReferenceImageCount = isVega10Lite ? Math.max(0, referenceImageCount - 5) : 0;
     const referenceImageCreditsEach = isVega10Lite

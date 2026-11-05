@@ -458,6 +458,16 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
   const bounds = vegaDurationBounds(definition.id);
   const resolutions = caps?.resolutions || VEGA_ALL_RESOLUTIONS;
   const ratios = caps?.ratios || VEGA_ALL_RATIOS;
+  const referenceLimits = definition.id === "seedance25-vega"
+    ? "Up to 30 images, 10 videos, and 10 audios (50 references total). Each video and audio must be 2-30 seconds; reference audio must total at most 30 seconds. Image max 30MB, video max 200MB, audio max 15MB."
+    : definition.id === "seedance20-vega"
+    ? "Up to 9 images, 3 videos, and 3 audios (12 references total). Reference video and audio durations must each total at most 15 seconds. Image max 30MB, video max 50MB, audio max 15MB."
+    : definition.id === "h3-vega"
+    ? "Up to 10 images, 5 videos, and 5 audios (20 references total). Reference video and audio durations must each total at most 15 seconds."
+    : "Up to 9 images, 3 videos, and 3 audios (12 references total). Each video and audio must be 2-15 seconds, and each media type must total at most 15 seconds. Image max 30MB, video max 50MB, audio max 15MB.";
+  const mediaTransportDescription = definition.id === "seedance20-vega" || definition.id === "seedance25-vega"
+    ? `${definition.label} first imports every public URL through VOD PullUpload, polls DescribeTaskDetail until the media is ready, then submits FileInfos Type=File with FileId and top-level InputRegion=Oversea. Import failure stops the request before charging.`
+    : `${definition.label} submits public URLs as FileInfos Type=Url.`;
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: `Create an asynchronous ${definition.label} video task through Tencent VOD.`, default: "-" },
     { name: "provider", type: "string", required: "Yes", description: `Use \`${definition.id}\`.`, default: definition.id },
@@ -465,9 +475,10 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
     { name: "mediaMode", type: "enum", required: "No", description: "`text_to_video`, `first_frame`, `last_frame`, `first_last_frame`, `reference_video`, or `draft_followup`.", default: "text_to_video" },
     { name: "firstFrameUrl", type: "string", required: "For first_frame / first_last_frame", description: "Public HTTP(S) first-frame image URL. Asset IDs and data URLs are not accepted.", default: "-" },
     { name: "lastFrameUrl", type: "string", required: "For last_frame / first_last_frame", description: "Public HTTP(S) last-frame image URL. This is a standalone mode and does not require a first frame.", default: "-" },
-    { name: "referenceImages", type: "array", required: "No", description: definition.id === "vega10-lite" ? "Public HTTP(S) image reference URLs: JPG/JPEG, PNG, WebP, HEIC, or HEIF; max 30MB each." : "Public HTTP(S) image reference URLs.", default: "[]" },
-    { name: "referenceVideos", type: "array", required: "No", description: definition.id === "vega10-lite" ? "Public HTTP(S) video reference URLs: H.264/AVC or H.265/HEVC; max 50MB each." : "Public HTTP(S) video reference URLs. Edit and extend require at least one.", default: "[]" },
-    { name: "referenceAudios", type: "array", required: "No", description: definition.id === "vega10-lite" ? "Public HTTP(S) WAV or MP3 audio reference URLs, max 15MB each. Audio must be paired with an image or video." : "Public HTTP(S) audio reference URLs. Audio must be paired with an image or video.", default: "[]" },
+    { name: "reference limits", type: "rule", required: "For reference mode", description: referenceLimits, default: "-" },
+    { name: "referenceImages", type: "array", required: "No", description: definition.id === "seedance25-vega" ? "Public HTTP(S) image reference URLs. Max 30 images; JPG/JPEG, PNG, WebP, BMP, TIFF, GIF, HEIC, or HEIF; max 30MB each." : definition.id === "vega10-lite" ? "Public HTTP(S) image reference URLs: JPG/JPEG, PNG, WebP, HEIC, or HEIF; max 30MB each." : "Public HTTP(S) image reference URLs.", default: "[]" },
+    { name: "referenceVideos", type: "array", required: "No", description: definition.id === "seedance25-vega" ? "Public HTTP(S) video reference URLs. Max 10 videos; MP4/MOV with H.264/H.265 video and AAC/MP3 audio; 2-30 seconds each; max 200MB each. There is no aggregate video-duration cap." : definition.id === "vega10-lite" ? "Public HTTP(S) video reference URLs: H.264/AVC or H.265/HEVC; max 50MB each." : "Public HTTP(S) video reference URLs. Edit and extend require at least one.", default: "[]" },
+    { name: "referenceAudios", type: "array", required: "No", description: definition.id === "seedance25-vega" ? "Public HTTP(S) WAV or MP3 audio reference URLs. Max 10 audios, 2-30 seconds each, max 15MB each, and at most 30 seconds total. Audio must be paired with an image or video." : definition.id === "vega10-lite" ? "Public HTTP(S) WAV or MP3 audio reference URLs, max 15MB each. Audio must be paired with an image or video." : "Public HTTP(S) audio reference URLs. Audio must be paired with an image or video.", default: "[]" },
     { name: "resolution", type: "enum", required: "No", description: resolutions.map((item) => `\`${item}\``).join(", "), default: "1080P" },
     { name: "ratio", type: "enum", required: "No", description: ratios.map((item) => `\`${item}\``).join(", "), default: "16:9" },
     { name: "duration", type: "integer", required: "No", description: `Integer ${bounds.min}-${bounds.max} seconds${bounds.smart ? ", or -1 for smart duration" : ""}. Edit requires -1.`, default: String(bounds.fallback) },
@@ -484,7 +495,7 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
     { name: "videoQualityMode", type: "enum", required: "No", description: caps?.qualityMode === false ? "Not supported for this model." : "`Standard`, `Fast`, or `SuperFast`.", default: caps?.qualityMode === false ? "-" : "Standard" },
     { name: "outputFormat", type: "enum", required: "No", description: "`mp4` or `mov`.", default: "mp4" },
     { name: "pricing", type: "rule", required: "Yes", description: "Vega prices come from PostgreSQL admin pricing. Requests fail with HTTP 422 `MODEL_PRICING_UNAVAILABLE` before charging or calling upstream when a required rate is missing.", default: "-" },
-    { name: "media transport", type: "rule", required: "Yes", description: "Inputs are sent as `FileInfos` with `Usage` values `FirstFrame`, `LastFrame`, or `Reference`. Use public URLs only; never send asset IDs or data URLs.", default: "-" },
+    { name: "media transport", type: "rule", required: "Yes", description: `${mediaTransportDescription} Inputs use FileInfos Usage FirstFrame, LastFrame, or Reference. Use public URLs only; asset IDs and data URLs are rejected.`, default: "-" },
   ];
 }
 
@@ -749,6 +760,12 @@ function advancedGenerateConstraintsDoc() {
       promptEnhancement: "auto, enable, or disable through WandVegaParameters.EnhancePromptMode.",
       taskTypeRule: "edit requires a reference video, adaptive ratio, and duration -1; extend requires a reference video and adaptive ratio.",
       draftRule: "Draft requires 480P; Draft to Final uses draft_task_id with no prompt or media inputs.",
+      referenceLimits: {
+        "seedance20-vega": { images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15 },
+        "seedance25-vega": { images: 30, videos: 10, audios: 10, total: 50, perFileMinSeconds: 2, perFileMaxSeconds: 30, audioSeconds: 30 },
+        "h3-vega": { images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 },
+        "vega10-lite": { images: 9, videos: 3, audios: 3, total: 12, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 },
+      },
       mediaTransport: "Media: public HTTP(S) URLs only. Vega 1.0 Pro and 1.5 Pro URLs are imported into the Tencent VOD media library with PullUpload first, then submitted as FileInfos Type=File with FileId and InputRegion=Oversea. Vega 1.5 Lite and 1.0 Lite continue to submit FileInfos Type=Url. Asset IDs and data URLs are rejected.",
       extInfo: ["return_last_frame", "draft", "draft_task_id", "omni_reference_task_type", "asset_group_id", "output_format", "EnhancePromptMode", "ModerationMode", "ReturnVegaUsage", "GenerateMode", "VideoQualityMode"],
       pricing: "Vega prices are configured in PostgreSQL through the admin pricing API; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream when a required rate is missing.",

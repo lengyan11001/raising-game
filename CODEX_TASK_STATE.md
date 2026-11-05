@@ -1,3 +1,15 @@
+## Vega 1.5 Pro integration (2026-11-05)
+
+- Scope is limited to Vega 1.5 Pro (`seedance25-vega`): upstream `wand-vega-video / 1.5-pro`. Vega 1.0 Lite (`vega10-lite`) and Vega 1.5 Lite (`h3-vega`) behavior is unchanged.
+- Pro 1.0 and 1.5 use the Tencent VOD media-library flow before charging/generation: `PullUpload` -> poll `DescribeTaskDetail` -> require `Status=FINISH`, `ErrCode=0`, non-empty `FileId` -> send `FileInfos` as `Type=File` with `FileId` and top-level `InputRegion=Oversea`. Lite keeps `Type=Url`.
+- Model limits enforced server-side and in upload UI: 1.5 Pro 30 images / 10 videos / 10 audios / 50 total; each video/audio 2-30 seconds; no video total-duration cap; audio total <=30 seconds; upload max 30MB image / 200MB video / 15MB audio. 1.0 Pro remains 9/3/3/12 with video/audio totals <=15 seconds and max 30MB/50MB/15MB.
+- Output duration: 1.5 Pro 4-30 seconds or `-1`; draft requires 480P, and Draft to Final submits only `draft_task_id` plus output settings without prompt/media.
+- Default sale prices (credits/second): no-reference 480P=13.98, 720P/768P=27.42, 1080P=59.685, 2K=147, 4K=161.7; with reference video input/output 480P=8.385, 720P/768P=17.07, 1080P=36.465, 2K=89.07, 4K=97.98. Reference-video input bills at least `ceil(output billing seconds * 2/3)`; `duration=-1` estimates 30 seconds; no extra reference-image fee for 1.5 Pro.
+- API docs updated with all four Vega models, Pro media-library flow, Lite URL flow, and per-model count/duration/size limits.
+- Changed files: `platform.config.js`, `platform.create.parts/part-04.js`, `server.parts/part-01.js`, `part-02.js`, `part-11.js`, `part-14.js`, `part-30.js`, `part-31.js`, `part-38.js`, `part-39.js`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`, `test/advanced-pricing.test.js`.
+- Targeted verification: Vega tests 50 pass / 0 fail; pricing + source split 21 pass / 0 fail; syntax checks and `git diff --check` pass. Full suite has 22 pre-existing failures on both this change and HEAD; change has 647/669 pass (4 new tests added), baseline HEAD has 643/665 pass with the same failure set.
+- Pending: commit, build/push `platform-release`, deploy only `old-site`, verify `/api/health`.
+
 ## Vega regenerate media asset IDs (2026-11-05)
 
 - User reported that Regenerate did not populate media asset IDs into the new task.

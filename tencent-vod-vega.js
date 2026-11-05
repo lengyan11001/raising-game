@@ -45,7 +45,16 @@ const VEGA_MEDIA_MODES = Object.freeze({
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_COMMON_MODES = Object.freeze(["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video"]);
-const VEGA_15_PRO_LIMITS = Object.freeze({ images: 30, videos: 10, audios: 10, total: 50, videoSeconds: 0, audioSeconds: 30 });
+const VEGA_15_PRO_LIMITS = Object.freeze({
+  images: 30,
+  videos: 10,
+  audios: 10,
+  total: 50,
+  videoSeconds: 0,
+  audioSeconds: 30,
+  perFileMinSeconds: 2,
+  perFileMaxSeconds: 30,
+});
 const VEGA_15_LITE_LIMITS = Object.freeze({ images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 });
 const VEGA_10_PRO_LIMITS = Object.freeze({ images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15 });
 const VEGA_10_LITE_LIMITS = Object.freeze({ ...VEGA_10_PRO_LIMITS, perFileMinSeconds: 2, perFileMaxSeconds: 15 });
