@@ -53,6 +53,13 @@ test("advanced download eligibility does not require a pre-existing R2 copy", ()
   assert.match(explore, /download2 可下载/);
 });
 
+test("advanced result download2 button shows a save hint bubble", () => {
+  assert.match(create, /<button class="history-download advanced-result-r2-download[^>]*>[\s\S]*?<span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存<\/span>/);
+  assert.match(css, /\.advanced-result-r2-download \{\s*position: relative;\s*overflow: visible;/);
+  assert.match(css, /\.advanced-result-download-hint \{[\s\S]*?position: absolute;[\s\S]*?bottom: calc\(100% \+ 9px\);/);
+  assert.match(css, /\.advanced-result-download-hint::after \{/);
+});
+
 test("advanced download button exposes transferring and ready states", () => {
   const state = ui.slice(ui.indexOf("function setAdvancedDownloadButtonState"), ui.indexOf("function showAdvancedDownloadError"));
   assert.match(state, /status === "transferring"/);

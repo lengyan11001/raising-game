@@ -816,6 +816,7 @@ function renderAdvancedResultPanel() {
             ` : ""}
             ${videoUrl || imageUrl ? `
               <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+                <span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>
                 <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
               </button>
             ` : ""}

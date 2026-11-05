@@ -1,3 +1,10 @@
+## Result download2 save hint (2026-11-05)
+
+- Added a persistent speech-bubble hint inside the Result panel download2 button: “如果下载素材慢请点击我保存”.
+- The bubble is absolutely positioned above the button with a tail, warm download2 styling, responsive max width, and no pointer interception; existing transferring/ready/failed behavior is unchanged.
+- Updated `platform.create.parts/part-01.js`, `platform.css`, and `test/generated-assets-on-demand.test.js`.
+- Verification: `node --check platform.create.parts/part-01.js`, `git diff --check`, and targeted `test/generated-assets-on-demand.test.js` (12 pass / 0 fail).
+
 ## Generate prompt @ mention pink highlight (2026-11-05)
 
 - Added a textarea mirror layer behind `#advancedPrompt` so inserted `@Image 1`, `@Video 1`, `@Audio 1`, and document references display in pink without changing the native editing/selection behavior.
