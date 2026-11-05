@@ -8,6 +8,8 @@
 - Switched read-only admin config/pricing/geo/chat-live/creator/support/membership/home/scene/asset/generation detail and media handlers to lightweight auth where they do not consume `auth.db`.
 - Changed files: `db.js`, `server.parts/part-01.js`, `part-05.js`, `part-07.js`, `part-09.js`, `part-33.js`, `part-38.js`, `part-39.js`, `part-40.js`, `part-41.js`, `part-42.js`, `test/admin-generation-records-list.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: targeted admin/generation suites 41 pass, 0 fail; `node --check db.js`, `node --check server.js`, and `git diff --check` pass.
+- Deployment: `old-site` `d389969`, `platform-release` `b8d836e`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; Live was not deployed. Health returned `200 {"ok":true}`.
+- Production after fix: dashboard 186.6ms; exact `test01` generation search 317.7ms; users 18.2ms; ordinary generation list 44.4ms; assets 111.4ms; wallet 13.2ms. Additional audit: support 4.6ms, user characters 6.6ms, creator data 2.5ms, creator withdrawals 2.2ms, membership codes 3.0ms, recharge ledger 226.8ms.
 
 ## Vega frontend display labels (2026-11-05)
 
