@@ -9,7 +9,9 @@
 - Fixed admin/public pricing view bug: `768P` and the extra-reference-image row were collapsing to 0 during whole-table save. The view now preserves Vega 1.0 Lite-specific rate keys; regression added in `test/advanced-pricing.test.js`.
 - Tests for the integration and view fix: 62 pass, 0 fail (`advanced-pricing`, `vega-pricing-label`, `tencent-vod-vega`).
 - Production pricing persisted through authenticated `/api/admin/pricing` into PostgreSQL `app_kv.app_config.platform.advancedPricing`; all 11 Vega 1.0 Lite rows exist.
-- Production at `123vips.com` is release `b4d40c9` from integration `b1eeea1`; service active, health OK. Live was not deployed.
+- Production fix release `7f99e8c` was built from integration `711e328`, pushed to `platform-release`, and deployed to `123vips.com`; service active and health OK. Live was not deployed.
+- Production admin pricing GET verified all 11 Vega 1.0 Lite rows numerically: 480P 6.855, 768P 8.655, 1080P 11.535, 2K 14.43, 4K 17.31; input-video rows match; extra reference image after 5 is 4.5 credits.
+- Production real generation verified end to end on 2026-11-05: `cgt-20261105113839-bad741` / upstream `1524935253-AigcVideoTask-d335d5f9fcf1376c6a3f469bc168746ct`, text-to-video 480P x 4s, terminal `succeeded`, video URL present, billing settled at 27.42 credits.
 
 ## Vega Lite pricing label fix (deployed, 2026-11-05)
 
