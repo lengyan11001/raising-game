@@ -6,7 +6,7 @@
 - Validation errors now show in a red inline panel; API submission success/failure show accessible corner notices. Busy state is preserved against pricing rerenders.
 - Files: `platform.create.parts/part-03.js`, `platform.ui.parts/part-04.js`, `platform.html`, `platform.css`, `test/advanced-custom-ui.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: syntax and `git diff --check` pass; new submit-feedback contract passes; targeted tencent/Vega/result regressions 68/68 pass. `advanced-custom-ui` is 26 pass / 6 fail, with the same pre-existing Wan/pricing failures recorded above.
-- Deployment: pending.
+- Deployment: `old-site` `a37b95e`; `platform-release` `5b9d9fa`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production health is `{"ok":true}`, and the live page serves the busy state, submission notice code, and new CSS. `live-release` remained `6642e17`; Live was not deployed.
 
 ## Vega 1.0 Lite GenerateMode removal (2026-11-05)
 
