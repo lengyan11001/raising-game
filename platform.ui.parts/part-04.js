@@ -297,13 +297,18 @@ function advancedCostLabel(duration, provider = "seedance", resolution = "720p",
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
       ? state.advancedEstimate
-      : {
-          available: false,
-          credits: null,
-          code: "MODEL_PRICING_UNAVAILABLE",
-          message: `${advancedProviderLabel(normalizedProvider)} pricing is not configured. Generation was not started.`,
-        };
-    return advancedPricingUnavailableLabel(pricing);
+      : null;
+    if (pricing?.available === true) {
+      const suffix = ` - ${pricing.resolution || normalizeAdvancedResolution(resolution, normalizedProvider)}`;
+      const inputSuffix = Number(pricing.videoInputSeconds || 0) > 0
+        ? ` + input ${formatDurationSeconds(pricing.videoInputSeconds)}`
+        : "";
+      return `${t("cost.creditsDuration", { credits: formatCredits(pricing.credits), duration: formatDurationSeconds(pricing.duration) })}${inputSuffix}${suffix}`;
+    }
+    if (state.advancedEstimateFailureKey === key) {
+      return advancedPricingUnavailableLabel(state.advancedEstimate || {});
+    }
+    return t("cost.checking");
   }
   if (normalizeAdvancedProvider(provider) === "qwen-image3") {
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
@@ -731,6 +736,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
         error.code = "MODEL_PRICING_UNAVAILABLE";
         throw error;
       }
+      if (state.advancedEstimatePendingKey !== key) return;
       state.advancedEstimate = { ...(estimatedPricing || {}), available: true };
       state.advancedEstimateKey = key;
       state.advancedEstimateFailureKey = "";
@@ -739,6 +745,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
       updateAdvancedButtonCost();
       renderAdvancedAssetTargets();
     } catch (error) {
+      if (state.advancedEstimatePendingKey !== key) return;
       state.advancedEstimate = {
         available: false,
         credits: null,

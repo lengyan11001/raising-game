@@ -1,5 +1,14 @@
 # Codex Task State
 
+## Current issue (2026-11-05): Vega Lite button still shows pricing unavailable
+
+- Root cause: `advancedCostLabel()` treated a not-yet-returned Vega estimate as `MODEL_PRICING_UNAVAILABLE`, and successful estimates were also sent through the failure-label helper.
+- Fixed estimate display states: successful quote shows actual credits/duration/resolution; pending shows `Checking cost...`; failed shows the real server message; no fabricated `pricing unavailable`/`not configured` before a request completes.
+- Added stale-response guards so a slow old estimate cannot overwrite a newer model or reference-video selection.
+- Added `test/vega-pricing-label.test.js` behavioral tests.
+- Targeted tests (`vega-pricing-label`, `advanced-pricing`, `tencent-vod-vega`): 57 pass, 0 fail. Syntax and `git diff --check` pass.
+- Implemented in an isolated managed worktree because the original checkout was concurrently overwritten by another task.
+
 ## Current issue (2026-11-05)
 
 - User saw `Available balance: -2.835 credits, Minimum required: 0 credits`.
