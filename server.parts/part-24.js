@@ -1270,3 +1270,167 @@ function usesWan30AdaptiveDurationPricing(record = {}) {
     && Number(pricing.creditsPerSecond) > 0;
 }
 
+
+function vegaMediaUrls(value, keys = ["url"]) {
+  return arrayFromBody(value)
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+      return String(firstPresent(...keys.map((key) => item[key]), "") || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function vegaMediaAssetIds(value) {
+  return arrayFromBody(value)
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+      return String(firstPresent(item.userAssetId, item.assetId, item.id, "") || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function vegaMediaAssetUris(value) {
+  return arrayFromBody(value)
+    .flatMap((item) => {
+      if (typeof item === "string") return [item];
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      return [
+        item.assetUri,
+        item.referenceAssetUri,
+        item.seedanceAssetUri,
+        item.url,
+        item.imageUrl,
+        item.image_url?.url,
+        item.image_url,
+        item.videoUrl,
+        item.video_url?.url,
+        item.video_url,
+        item.audioUrl,
+        item.audio_url?.url,
+        item.audio_url,
+        item.Url,
+        item.URL,
+      ];
+    })
+    .map((uri) => String(uri || "").trim())
+    .filter((uri) => uri.startsWith("asset://"));
+}
+
+function vegaAssetUrisFromFileInfos(fileInfos = [], category = "", usage = "") {
+  return (Array.isArray(fileInfos) ? fileInfos : [])
+    .filter((item) => (!category || item?.Category === category) && (!usage || item?.Usage === usage))
+    .map((item) => String(item?.Url || "").trim())
+    .filter((uri) => uri.startsWith("asset://"));
+}
+
+function vegaRequestMedia(merged = {}) {
+  const firstFrameUrl = String(firstPresent(
+    merged.firstFrameUrl,
+    merged.first_frame_url,
+    merged.imageUrl,
+    merged.image_url,
+  ) || "").trim();
+  const lastFrameUrl = String(firstPresent(
+    merged.lastFrameUrl,
+    merged.last_frame_url,
+    merged.endImageUrl,
+    merged.end_image_url,
+  ) || "").trim();
+  const referenceImages = [...new Set([
+    ...vegaMediaUrls(merged.referenceImages, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.reference_images, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.referenceImageUrls, ["url", "imageUrl", "image_url"]),
+    ...vegaMediaUrls(merged.reference_image_urls, ["url", "imageUrl", "image_url"]),
+  ].map((url) => String(url || "").trim()).filter((url) => url && url !== firstFrameUrl && url !== lastFrameUrl))];
+  const referenceVideos = [...new Set([
+    ...vegaMediaUrls(merged.referenceVideos, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.reference_videos, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.referenceVideoUrls, ["url", "videoUrl", "video_url"]),
+    ...vegaMediaUrls(merged.reference_video_urls, ["url", "videoUrl", "video_url"]),
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  const referenceAudios = [...new Set([
+    ...vegaMediaUrls(merged.referenceAudios, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.reference_audios, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.referenceAudioUrls, ["url", "audioUrl", "audio_url"]),
+    ...vegaMediaUrls(merged.reference_audio_urls, ["url", "audioUrl", "audio_url"]),
+  ].map((url) => String(url || "").trim()).filter(Boolean))];
+  const firstFrameAssetId = String(firstPresent(
+    merged.firstFrameAssetId,
+    merged.first_frame_asset_id,
+    merged.firstFrameUserAssetId,
+    "",
+  ) || "").trim();
+  const lastFrameAssetId = String(firstPresent(
+    merged.lastFrameAssetId,
+    merged.last_frame_asset_id,
+    merged.lastFrameUserAssetId,
+    "",
+  ) || "").trim();
+  const firstFrameAssetUri = String(firstPresent(
+    merged.firstFrameAssetUri,
+    merged.first_frame_asset_uri,
+    vegaMediaAssetUris(merged.firstFrameUrl)[0],
+    vegaMediaAssetUris(merged.first_frame_url)[0],
+    vegaMediaAssetUris(merged.imageUrl)[0],
+    vegaMediaAssetUris(merged.image_url)[0],
+    "",
+  ) || "").trim();
+  const lastFrameAssetUri = String(firstPresent(
+    merged.lastFrameAssetUri,
+    merged.last_frame_asset_uri,
+    vegaMediaAssetUris(merged.lastFrameUrl)[0],
+    vegaMediaAssetUris(merged.last_frame_url)[0],
+    vegaMediaAssetUris(merged.endImageUrl)[0],
+    vegaMediaAssetUris(merged.end_image_url)[0],
+    "",
+  ) || "").trim();
+  const referenceImageAssetIds = [
+    ...arrayFromBody(merged.referenceImageAssetIds),
+    ...arrayFromBody(merged.reference_image_asset_ids),
+    ...vegaMediaAssetIds(firstPresent(merged.referenceImages, merged.reference_images)),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  const referenceVideoAssetIds = [
+    ...arrayFromBody(merged.referenceVideoAssetIds),
+    ...arrayFromBody(merged.reference_video_asset_ids),
+    ...vegaMediaAssetIds(firstPresent(merged.referenceVideos, merged.reference_videos)),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  const referenceAudioAssetIds = [
+    ...arrayFromBody(merged.referenceAudioAssetIds),
+    ...arrayFromBody(merged.reference_audio_asset_ids),
+    ...vegaMediaAssetIds(firstPresent(merged.referenceAudios, merged.reference_audios)),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  const referenceImageAssetUris = [...new Set([
+    ...arrayFromBody(merged.referenceImageAssetUris),
+    ...arrayFromBody(merged.reference_image_asset_uris),
+    ...vegaMediaAssetUris(firstPresent(merged.referenceImages, merged.reference_images)),
+  ])];
+  const referenceVideoAssetUris = [...new Set([
+    ...arrayFromBody(merged.referenceVideoAssetUris),
+    ...arrayFromBody(merged.reference_video_asset_uris),
+    ...vegaMediaAssetUris(firstPresent(merged.referenceVideos, merged.reference_videos)),
+  ])];
+  const referenceAudioAssetUris = [...new Set([
+    ...arrayFromBody(merged.referenceAudioAssetUris),
+    ...arrayFromBody(merged.reference_audio_asset_uris),
+    ...vegaMediaAssetUris(firstPresent(merged.referenceAudios, merged.reference_audios)),
+  ])];
+  return {
+    firstFrameUrl,
+    lastFrameUrl,
+    firstFrameAssetId,
+    lastFrameAssetId,
+    firstFrameAssetUri,
+    lastFrameAssetUri,
+    referenceImages,
+    referenceVideos,
+    referenceAudios,
+    referenceImageAssetIds,
+    referenceVideoAssetIds,
+    referenceAudioAssetIds,
+    referenceImageAssetUris,
+    referenceVideoAssetUris,
+    referenceAudioAssetUris,
+  };
+}
+

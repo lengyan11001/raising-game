@@ -1,3 +1,12 @@
+## Vega stale asset URI recovery (2026-11-05)
+
+- Failed task `cgt-20261105203512-9b9e6c` (`seedance25-vega`) submitted three `asset://` URIs absent from Tencent VOD (`asset-20261105195615-x2vfl`, `asset-20261105195616-49c7h`, `asset-20261105195616-snf4f`). Neither `app_vega_media_library` nor `DescribeAigcMaterial` could resolve them.
+- Root cause: `prepareVegaMediaLibraryFileInfos()` trusted any `asset://` URL, allowing stale browser/cache/template state to reach upstream.
+- Fix: `resolveVegaMediaAssetSources()` now recovers owned public source URLs from `app_vega_media_library`, then `app_user_assets` by `userAssetId`, before FileInfos submission. Unrecoverable assets fail with `VEGA_MEDIA_ASSET_UNAVAILABLE` instead of being submitted. Helpers moved from `part-26.js` to `part-24.js` to stay under the part line limit.
+- Changed: `tencent-vod-vega.js`, `server.parts/part-01.js`, `server.parts/part-24.js`, `server.parts/part-26.js`, `test/tencent-vod-vega.test.js`.
+- Verification: Vega Vega/media tests 61 pass / 0 fail; advanced pricing 20 pass / 0 fail; `node --check` and `git diff --check` pass. Full `source-split` remains blocked by pre-existing `part-29.js` length.
+- Deployment: pending commit, release build, push of `platform-release`, and `scripts/deploy_local.sh --site old`. Do not deploy Live.
+
 ## Vega user controls limited to first two rows (2026-11-05)
 
 - The four Vega models (`seedance20-vega`, `seedance25-vega`, `h3-vega`, `vega10-lite`) now expose only the first two control rows: model/mode/ratio and resolution/duration/audio.

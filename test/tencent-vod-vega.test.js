@@ -379,6 +379,59 @@ test("Vega Lite providers keep the URL FileInfos path and never call the asset A
   }
 });
 
+test("Vega Pro stale asset URIs are resolved from owned media before FileInfos submission", async () => {
+  const resolved = await vega.resolveVegaMediaAssetSources({
+    provider: "seedance25-vega",
+    userId: "user-1",
+    media: {
+      firstFrameUrl: "asset://asset-stale-first",
+      lastFrameUrl: "",
+      referenceImages: ["asset://asset-stale-ref", "asset://asset-stale-second"],
+      referenceVideos: [],
+      referenceAudios: [],
+      firstFrameAssetId: "asset-user-first",
+      referenceImageAssetIds: ["asset-user-ref", "asset-user-second"],
+      referenceImageAssetUris: ["asset://asset-stale-ref", "asset://asset-stale-second"],
+    },
+    lookupSourceUrls: async ({ userId, assetUris }) => {
+      assert.equal(userId, "user-1");
+      assert.deepEqual(assetUris, ["asset://asset-stale-first", "asset://asset-stale-ref", "asset://asset-stale-second"]);
+      return { "asset://asset-stale-ref": "https://media.example.com/ref.png" };
+    },
+    lookupAsset: async (assetId) => ({
+      "asset-user-first": { id: "asset-user-first", userId: "user-1", publicUrl: "https://media.example.com/first.png" },
+      "asset-user-second": { id: "asset-user-second", userId: "user-1", cdnUrl: "https://media.example.com/second.png" },
+    })[assetId],
+  });
+  assert.equal(resolved.firstFrameUrl, "https://media.example.com/first.png");
+  assert.deepEqual(resolved.referenceImages, [
+    "https://media.example.com/ref.png",
+    "https://media.example.com/second.png",
+  ]);
+  const files = vega.buildVegaFileInfos({
+    provider: "seedance25-vega",
+    mediaMode: "reference_video",
+    referenceImages: resolved.referenceImages,
+  });
+  assert.ok(files.every((file) => !String(file.Url).startsWith("asset://")));
+
+  await assert.rejects(
+    vega.resolveVegaMediaAssetSources({
+      provider: "seedance25-vega",
+      userId: "user-1",
+      media: {
+        firstFrameUrl: "asset://asset-unknown",
+        referenceImages: [],
+        referenceVideos: [],
+        referenceAudios: [],
+      },
+      lookupSourceUrls: async () => ({}),
+      lookupAsset: async () => null,
+    }),
+    (error) => error.code === "VEGA_MEDIA_ASSET_UNAVAILABLE",
+  );
+});
+
 test("Vega media-library cache avoids CreateAigcMaterial and failed imports preserve no asset URI", async () => {
   const lookups = [];
   const persisted = [];

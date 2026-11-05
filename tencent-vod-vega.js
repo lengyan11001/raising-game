@@ -806,6 +806,93 @@ function fileInfoFromMediaLibrary(entry = {}, fileInfo = {}) {
   };
 }
 
+function vegaUserAssetSourceUrl(asset = {}) {
+  for (const key of ["publicUrl", "cdnUrl", "wan30PublicUrl", "previewUrl", "url", "localUrl", "sourceImageUrl"]) {
+    const value = String(asset?.[key] || "").trim();
+    if (!value) continue;
+    try {
+      return publicVegaUrl(value, "User asset URL");
+    } catch {
+      // Ignore non-public fallback fields and keep looking for a durable URL.
+    }
+  }
+  return "";
+}
+
+// Browser state can retain an asset:// URI after the server-side media-library
+// row has expired or was created under another account. Never forward that
+// opaque value on trust: resolve it back to an owned public source URL first.
+async function resolveVegaMediaAssetSources({
+  provider = "",
+  media = {},
+  userId = "",
+  lookupSourceUrls,
+  lookupAsset,
+} = {}) {
+  if (!vegaProviderUsesMediaLibrary(provider)) return media;
+  const next = {
+    ...media,
+    referenceImages: Array.isArray(media.referenceImages) ? [...media.referenceImages] : [],
+    referenceVideos: Array.isArray(media.referenceVideos) ? [...media.referenceVideos] : [],
+    referenceAudios: Array.isArray(media.referenceAudios) ? [...media.referenceAudios] : [],
+  };
+  const assetUris = [...new Set([
+    next.firstFrameUrl,
+    next.lastFrameUrl,
+    ...(Array.isArray(media.referenceImageAssetUris) ? media.referenceImageAssetUris : []),
+    ...(Array.isArray(media.referenceVideoAssetUris) ? media.referenceVideoAssetUris : []),
+    ...(Array.isArray(media.referenceAudioAssetUris) ? media.referenceAudioAssetUris : []),
+    ...next.referenceImages,
+    ...next.referenceVideos,
+    ...next.referenceAudios,
+  ].map((value) => String(value || "").trim()).filter((value) => value.startsWith("asset://")))];
+  if (!assetUris.length) return next;
+  const sourceUrlsByAssetUri = lookupSourceUrls && userId
+    ? (await lookupSourceUrls({ userId, assetUris })) || {}
+    : {};
+  const assetCache = new Map();
+  const resolve = async (currentUrl, assetUri, assetId, label) => {
+    const url = String(currentUrl || "").trim();
+    const uri = String(assetUri || "").trim();
+    const id = String(assetId || "").trim();
+    if (!url.startsWith("asset://") && url) return url;
+    const sourceFromUri = String(sourceUrlsByAssetUri[uri] || "").trim();
+    if (sourceFromUri) return sourceFromUri;
+    if (id && lookupAsset) {
+      if (!assetCache.has(id)) assetCache.set(id, Promise.resolve(lookupAsset(id)));
+      const asset = await assetCache.get(id);
+      if (asset && String(asset.userId || "").trim() === String(userId || "").trim()) {
+        const sourceFromAsset = vegaUserAssetSourceUrl(asset);
+        if (sourceFromAsset) return sourceFromAsset;
+      }
+    }
+    throw Object.assign(new Error(`${label} no longer has an accessible source. Please select it again.`), {
+      statusCode: 400,
+      code: "VEGA_MEDIA_ASSET_UNAVAILABLE",
+      details: { assetUri: uri || url, userAssetId: id },
+    });
+  };
+  if (String(next.firstFrameUrl || "").trim().startsWith("asset://")) {
+    next.firstFrameUrl = await resolve(next.firstFrameUrl, media.firstFrameAssetUri || next.firstFrameUrl, media.firstFrameAssetId, "First frame image");
+  }
+  if (String(next.lastFrameUrl || "").trim().startsWith("asset://")) {
+    next.lastFrameUrl = await resolve(next.lastFrameUrl, media.lastFrameAssetUri || next.lastFrameUrl, media.lastFrameAssetId, "Last frame image");
+  }
+  for (const [key, uriKey, idKey, label] of [
+    ["referenceImages", "referenceImageAssetUris", "referenceImageAssetIds", "Reference image"],
+    ["referenceVideos", "referenceVideoAssetUris", "referenceVideoAssetIds", "Reference video"],
+    ["referenceAudios", "referenceAudioAssetUris", "referenceAudioAssetIds", "Reference audio"],
+  ]) {
+    const uris = Array.isArray(media[uriKey]) ? media[uriKey] : [];
+    const ids = Array.isArray(media[idKey]) ? media[idKey] : [];
+    for (let index = 0; index < next[key].length; index += 1) {
+      if (!String(next[key][index] || "").trim().startsWith("asset://")) continue;
+      next[key][index] = await resolve(next[key][index], uris[index] || next[key][index], ids[index], `${label} ${index + 1}`);
+    }
+  }
+  return next;
+}
+
 async function prepareVegaMediaLibraryFileInfos({
   provider = "",
   fileInfos = [],
@@ -960,6 +1047,7 @@ module.exports = {
   vegaProviderLabel,
   vegaProviderUsesMediaLibrary,
   prepareVegaMediaLibraryFileInfos,
+  resolveVegaMediaAssetSources,
   vegaTaskDetail,
   vegaTaskFailureMessage,
   vegaMediaSelection,

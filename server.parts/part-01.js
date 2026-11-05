@@ -328,6 +328,7 @@ const {
   buildVegaCreatePayload,
   callTencentVod,
   prepareVegaMediaLibraryFileInfos,
+  resolveVegaMediaAssetSources,
   isVegaProvider,
   normalizeVegaDuration,
   normalizeVegaMediaMode,
