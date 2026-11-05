@@ -8,7 +8,8 @@
 - API docs updated with all four Vega models, Pro media-library flow, Lite URL flow, and per-model count/duration/size limits.
 - Changed files: `platform.config.js`, `platform.create.parts/part-04.js`, `server.parts/part-01.js`, `part-02.js`, `part-11.js`, `part-14.js`, `part-30.js`, `part-31.js`, `part-38.js`, `part-39.js`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`, `test/advanced-pricing.test.js`.
 - Targeted verification: Vega tests 50 pass / 0 fail; pricing + source split 21 pass / 0 fail; syntax checks and `git diff --check` pass. Full suite has 22 pre-existing failures on both this change and HEAD; change has 647/669 pass (4 new tests added), baseline HEAD has 643/665 pass with the same failure set.
-- Pending: commit, build/push `platform-release`, deploy only `old-site`, verify `/api/health`.
+- `old-site`: `bf5df0c`, pushed. `platform-release`: `124de4b`, built from `bf5df0c`; pushed after refreshing the latest immutable release base.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; service is active and `/api/health` is `200 {"ok":true}`. Public `platform.create.parts/part-04.js` confirms the 1.5 Pro 200MB video limit and 30-image reference limit. Live was not deployed.
 
 ## Vega regenerate media asset IDs (2026-11-05)
 
