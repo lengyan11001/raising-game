@@ -6,7 +6,9 @@
 - Create-page payload construction omits `moderationMode` for `vega10-lite`, and the moderation control is hidden based on capability.
 - Added regression coverage for `vega10-lite` omission, preservation on Vega 1.0 Pro / 1.5 Pro / 1.5 Lite, and create-page conditional serialization.
 - Verification: syntax checks and `git diff --check` pass; targeted Vega/pricing/source-split suite 77 pass, 0 fail.
-- Deployment: pending commit, platform release snapshot, and `123vips.com` deploy.
+- Deployment: `old-site` `00c5985`; `platform-release` `f4b3b7f`, built from `00c5985` and pushed with lease protection.
+- Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; production checkout `f4b3b7f`, service active, health `200 {"ok":true}`. Live was not deployed and remains `6642e17`.
+- Production script verification confirmed `platform.create.parts/part-01.js` omits `moderationMode` when capability is false, `part-02.js` hides the moderation control for `vega10-lite`, and `platform.config.js` contains `moderation: false` on `vega10-lite`.
 
 ## Vega Pro public display alias consistency (2026-11-05)
 
