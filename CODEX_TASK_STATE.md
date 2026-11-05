@@ -1,3 +1,12 @@
+## Vega 1.0 Lite GenerateMode removal (2026-11-05)
+
+- User requested removing `GenerateMode` for Vega 1.0 Lite only (`vega10-lite`).
+- Backend and frontend capabilities now mark `generateMode: false`; the existing payload builder omits `GenerateMode`, and the existing control logic hides Generate Mode for this provider.
+- Regression coverage asserts the upstream `WandVegaParameters` omit `GenerateMode` while preserving `VideoQualityMode`, and that the frontend Lite capability remains disabled.
+- Verification: `tencent-vod-vega.test.js` 56/56; syntax and `git diff --check` pass.
+- Files: `tencent-vod-vega.js`, `platform.config.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
+- Deployment: pending release build and `123vips.com` deployment. Live must not be deployed.
+
 ## Generate Result six-per-page and compact controls (2026-11-05)
 
 - User corrected the previous implementation: parameters must remain single-column, not two columns; Result must show 6 records per page. The deployed version still had `ADVANCED_RESULT_PAGE_SIZE = 4`.

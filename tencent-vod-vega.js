@@ -108,6 +108,7 @@ const VEGA_CAPABILITIES = Object.freeze({
     durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
     frameRatioFromInput: true,
     moderation: false,
+    generateMode: false,
     returnLastFrame: false,
     limits: VEGA_10_LITE_LIMITS,
   }),

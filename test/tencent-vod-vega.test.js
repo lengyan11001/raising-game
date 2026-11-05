@@ -214,16 +214,19 @@ test("Vega models omit unsupported GenerateMode and VideoQualityMode", () => {
   assert.equal(vega.vegaProviderCapabilities("seedance20-vega").qualityMode, false);
 });
 
-test("Vega 1.0 Lite omits ModerationMode while other Vega models keep it", () => {
+test("Vega 1.0 Lite omits ModerationMode and GenerateMode while other Vega models keep them", () => {
   const lite = vega.buildVegaCreatePayload({
     provider: "vega10-lite",
     prompt: "test",
     mediaMode: "text_to_video",
     moderationMode: "Moderation_L2",
+    generateMode: "Fast",
   }, { subAppId: 123 });
   const liteWand = JSON.parse(JSON.parse(lite.ExtInfo).WandVegaParameters);
   assert.equal(vega.vegaProviderCapabilities("vega10-lite").moderation, false);
+  assert.equal(vega.vegaProviderCapabilities("vega10-lite").generateMode, false);
   assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "ModerationMode"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "GenerateMode"), false);
 
   for (const provider of ["seedance20-vega", "seedance25-vega", "h3-vega"]) {
     const payload = vega.buildVegaCreatePayload({
@@ -537,7 +540,7 @@ test("Vega 1.0 Lite exposes its exact model contract and suppresses undocumented
   const additional = JSON.parse(JSON.parse(payload.ExtInfo).AdditionalParameters || "{}");
   assert.equal(Object.prototype.hasOwnProperty.call(additional, "return_last_frame"), false);
   const wand = JSON.parse(JSON.parse(payload.ExtInfo).WandVegaParameters);
-  assert.equal(wand.GenerateMode, "Standard");
+  assert.equal(Object.prototype.hasOwnProperty.call(wand, "GenerateMode"), false);
   assert.equal(wand.VideoQualityMode, "Standard");
 });
 
@@ -667,6 +670,7 @@ test("Vega model upload limits keep Lite and Pro 1.0 behavior while allowing Pro
   assert.match(server, /VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES = 15 \* 1024 \* 1024/);
   assert.match(server, /normalized === "seedance25-vega"[\s\S]{0,240}VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES[\s\S]{0,120}VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES[\s\S]{0,120}VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES/);
   assert.match(config, /"seedance25-vega": Object\.freeze\(\{ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object\.freeze\(\["auto", "reference", "edit", "extend"\]\), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 \}\)/);
+  assert.match(config, /"vega10-lite": Object\.freeze\(\{[^\n]*moderation: false, generateMode: false[^\n]*\}\)/);
 });
 
 test("Vega 1.5 Pro dirty draft id with prompt and references is normalized into a normal generation", () => {
