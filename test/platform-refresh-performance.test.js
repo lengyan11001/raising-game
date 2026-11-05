@@ -117,5 +117,7 @@ test("service worker never intercepts API or non-GET requests", () => {
 test("service worker script remains registrable", () => {
   const staticServer = read("server.parts/part-42.js");
   assert.match(staticServer, /const isServiceWorker = pathname === "\/platform-sw\.js"/);
+  assert.match(staticServer, /const isNoStoreResponse = \(isFrontendNoStore \|\| isHtml\) && !isServiceWorker/);
   assert.match(staticServer, /isServiceWorker[\s\S]*?"no-cache, must-revalidate, max-age=0"/);
+  assert.doesNotMatch(staticServer, /isFrontendNoStore \|\| isHtml\s*\? "no-store/);
 });

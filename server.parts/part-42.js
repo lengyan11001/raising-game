@@ -160,6 +160,7 @@ async function serveStatic(req, res, url) {
      * the page already referenced a new ?v= build.
      */
     const isFrontendNoStore = isFrontendAsset && !isVersionedAsset;
+    const isNoStoreResponse = (isFrontendNoStore || isHtml) && !isServiceWorker;
     const isLongCacheAsset =
       isVersionedAsset ||
       contentType.startsWith("image/") ||
@@ -175,7 +176,7 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
-      "cache-control": isFrontendNoStore || isHtml
+      "cache-control": isNoStoreResponse
         ? "no-store, no-cache, must-revalidate, max-age=0"
         : isServiceWorker
           ? "no-cache, must-revalidate, max-age=0"
@@ -184,7 +185,7 @@ async function serveStatic(req, res, url) {
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
-      ...(isFrontendNoStore || isHtml ? {
+      ...(isNoStoreResponse ? {
         pragma: "no-cache",
         expires: "0",
         "cdn-cache-control": "no-store",
