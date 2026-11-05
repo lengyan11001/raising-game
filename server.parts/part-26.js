@@ -197,6 +197,31 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
   }
+  if (vegaProviderUsesMediaLibrary(provider) && Array.isArray(payload.FileInfos) && payload.FileInfos.length) {
+    try {
+      payload = {
+        ...payload,
+        InputRegion: "Oversea",
+        FileInfos: await prepareVegaMediaLibraryFileInfos({
+          provider,
+          fileInfos: payload.FileInfos,
+          subAppId,
+          userId: auth.user.id,
+          lookup: getVegaMediaLibraryEntryFromDb,
+          persist: upsertVegaMediaLibraryEntryInDb,
+        }),
+      };
+    } catch (error) {
+      const errorInfo = normalizeErrorPayload(error);
+      return sendJson(res, errorInfo.statusCode || 502, {
+        ok: false,
+        code: errorInfo.code || "VEGA_MEDIA_LIBRARY_IMPORT_FAILED",
+        message: errorInfo.message || "Tencent VOD media-library import failed. Generation was not started.",
+        provider,
+        details: errorInfo.details || null,
+      });
+    }
+  }
 
   const taskId = localGenerationTaskId("cgt");
   const requestParams = {

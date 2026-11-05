@@ -1,3 +1,13 @@
+## Vega Pro media-library import (2026-11-05)
+
+- Scope is limited to Vega 1.0 Pro (`seedance20-vega`) and Vega 1.5 Pro (`seedance25-vega`). Vega 1.0 Lite (`vega10-lite`) and Vega 1.5 Lite (`h3-vega`) keep the existing URL path and are not modified.
+- Tencent VOD Pro flow is now enforced before charging/generation: `PullUpload` every public media URL, poll `DescribeTaskDetail`, require `Status=FINISH`, `ErrCode=0`, and a non-empty `FileId`, then submit `FileInfos` as `Type=File` with `FileId` and top-level `InputRegion=Oversea`.
+- Import failure, timeout, missing task id, or missing `FileId` fails the request before deduction, generation-record creation, or `CreateAigcVideoTask`.
+- Successful and failed import metadata is stored in PostgreSQL table `app_vega_media_library`, keyed by `(user_id, source_url, sub_app_id)`; successful `FileId` entries are reused. No JSON or file fallback was added.
+- Updated public API docs and API response descriptions to distinguish Pro media-library import from Lite URL submission.
+- Changed files: `tencent-vod-vega.js`, `db.js`, `server.parts/part-01.js`, `server.parts/part-26.js`, `server.parts/part-30.js`, `server.parts/part-31.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: `test/tencent-vod-vega.test.js` 47 pass / 0 fail; `test/advanced-pricing.test.js test/source-split.test.js` 19 pass / 0 fail; `node --check server.js tencent-vod-vega.js db.js` and `git diff --check` pass.
+
 ## Vega 1.0 Pro parameter compatibility fix (2026-11-05)
 
 - Failed task `cgt-20261105130507-09ee17` was refunded after upstream returned `InvalidParameter: ModelVersion "1.0-pro" does not support WandAgent.Parameters.GenerateMode`.

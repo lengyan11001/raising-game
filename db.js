@@ -530,6 +530,33 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_vega_media_library (
+      user_id TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      sub_app_id BIGINT NOT NULL,
+      category TEXT NOT NULL DEFAULT '',
+      file_id TEXT NOT NULL DEFAULT '',
+      vod_task_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, source_url, sub_app_id)
+    );
+  `);
+  await query(`
+    ALTER TABLE app_vega_media_library
+      ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS file_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS vod_task_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_user_updated_idx ON app_vega_media_library (user_id, updated_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_file_id_idx ON app_vega_media_library (file_id) WHERE file_id <> '';`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_user_characters (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -2794,6 +2821,70 @@ async function getUserAssetFromDb(assetId = "") {
   await ensureSchema();
   const { rows } = await query(`SELECT * FROM app_user_assets WHERE id = $1 AND deleted_at IS NULL`, [id]);
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+function vegaMediaLibraryEntryFromRow(row = {}) {
+  return {
+    userId: String(row.user_id || ""),
+    sourceUrl: String(row.source_url || ""),
+    subAppId: Number(row.sub_app_id || 0),
+    category: String(row.category || ""),
+    fileId: String(row.file_id || ""),
+    vodTaskId: String(row.vod_task_id || ""),
+    status: String(row.status || ""),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function getVegaMediaLibraryEntryFromDb({ userId = "", sourceUrl = "", subAppId } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanSourceUrl = String(sourceUrl || "").trim();
+  const cleanSubAppId = Number(subAppId);
+  if (!cleanUserId || !cleanSourceUrl || !Number.isInteger(cleanSubAppId) || cleanSubAppId <= 0) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_vega_media_library WHERE user_id = $1 AND source_url = $2 AND sub_app_id = $3`,
+    [cleanUserId, cleanSourceUrl, cleanSubAppId],
+  );
+  return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
+}
+
+async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
+  if (!dbEnabled()) return null;
+  const userId = String(entry.userId || "").trim();
+  const sourceUrl = String(entry.sourceUrl || "").trim();
+  const subAppId = Number(entry.subAppId);
+  if (!userId || !sourceUrl || !Number.isInteger(subAppId) || subAppId <= 0) return null;
+  await ensureSchema();
+  const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+  const { rows } = await query(
+    `
+      INSERT INTO app_vega_media_library(user_id, source_url, sub_app_id, category, file_id, vod_task_id, status, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), NOW())
+      ON CONFLICT (user_id, source_url, sub_app_id) DO UPDATE SET
+        category = EXCLUDED.category,
+        file_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.file_id ELSE app_vega_media_library.file_id END,
+        vod_task_id = CASE WHEN EXCLUDED.vod_task_id <> '' THEN EXCLUDED.vod_task_id ELSE app_vega_media_library.vod_task_id END,
+        status = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.status ELSE EXCLUDED.status END,
+        payload = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.payload ELSE EXCLUDED.payload END,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [
+      userId,
+      sourceUrl,
+      subAppId,
+      String(entry.category || ""),
+      String(entry.fileId || ""),
+      String(entry.vodTaskId || ""),
+      String(entry.status || "pending"),
+      JSON.stringify(payload),
+    ],
+  );
+  return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
 }
 
 async function upsertUserCharacterInDb(character = {}) {
@@ -6777,6 +6868,8 @@ module.exports = {
   updateUserInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
+  getVegaMediaLibraryEntryFromDb,
+  upsertVegaMediaLibraryEntryInDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,

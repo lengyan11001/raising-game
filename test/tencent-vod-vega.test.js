@@ -191,6 +191,137 @@ test("Vega FileInfos use Usage and never ReferenceType", () => {
   assert.ok(payload.FileInfos.every((item) => !Object.prototype.hasOwnProperty.call(item, "ReferenceType")));
 });
 
+test("Vega Pro media-library import turns every public URL into a VOD FileId", async () => {
+  const requests = [];
+  const fetchImpl = async (url, options) => {
+    const action = options.headers["x-tc-action"];
+    const body = JSON.parse(options.body);
+    requests.push({ action, body });
+    const mediaName = action === "PullUpload"
+      ? new URL(body.MediaUrl).pathname.split("/").filter(Boolean).pop()
+      : String(body.TaskId).replace(/^pull-/, "");
+    const response = action === "PullUpload"
+      ? { Response: { TaskId: `pull-${mediaName}` } }
+      : { Response: { PullUploadTask: { Status: "FINISH", ErrCode: 0, FileId: `file-${mediaName}` } } };
+    return { ok: true, status: 200, text: async () => JSON.stringify(response) };
+  };
+  const sourceFiles = [
+    { Type: "Url", Category: "Image", Usage: "FirstFrame", Url: "https://cdn.example.com/first.png" },
+    { Type: "Url", Category: "Image", Usage: "LastFrame", Url: "https://cdn.example.com/last.png" },
+    { Type: "Url", Category: "Video", Usage: "Reference", Url: "https://cdn.example.com/ref.mp4" },
+  ];
+  for (const provider of ["seedance20-vega", "seedance25-vega"]) {
+    assert.equal(vega.vegaProviderUsesMediaLibrary(provider), true);
+    const files = await vega.prepareVegaMediaLibraryFileInfos({
+      provider,
+      fileInfos: sourceFiles,
+      subAppId: 123,
+      env: { TENCENTCLOUD_SECRET_ID: "secret-id", TENCENTCLOUD_SECRET_KEY: "secret-key" },
+      callVod: (args) => vega.callTencentVod({ ...args, fetchImpl, timestamp: 1_700_000_000 }),
+      timeoutMs: 0,
+      pollIntervalMs: 0,
+      now: () => 0,
+    });
+    assert.deepEqual(files.map(({ Type, Category, Usage, FileId }) => ({ Type, Category, Usage, FileId })), [
+      { Type: "File", Category: "Image", Usage: "FirstFrame", FileId: "file-first.png" },
+      { Type: "File", Category: "Image", Usage: "LastFrame", FileId: "file-last.png" },
+      { Type: "File", Category: "Video", Usage: "Reference", FileId: "file-ref.mp4" },
+    ]);
+    assert.ok(files.every((file) => !Object.prototype.hasOwnProperty.call(file, "Url")));
+  }
+  assert.equal(requests.filter((item) => item.action === "PullUpload").length, 6);
+  assert.equal(requests.filter((item) => item.action === "DescribeTaskDetail").length, 6);
+  assert.ok(requests.some((item) => item.action === "PullUpload" && item.body.MediaUrl === "https://cdn.example.com/first.png" && item.body.MediaName === "first.png"));
+  assert.ok(requests.some((item) => item.action === "DescribeTaskDetail" && item.body.TaskId === "pull-first.png"));
+});
+
+test("Vega Pro media-library import runs before charging and CreateAigcVideoTask", () => {
+  const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "async function handleAdvancedGenerate(");
+  const prepare = handler.indexOf("prepareVegaMediaLibraryFileInfos");
+  const charge = handler.indexOf("await chargeUserWithSubtoken");
+  const create = handler.indexOf('action: "CreateAigcVideoTask"');
+  assert.ok(prepare > 0 && charge > prepare && create > charge);
+  assert.match(handler, /if \(vegaProviderUsesMediaLibrary\(provider\) &&[\s\S]*payload = \{[\s\S]*InputRegion: "Oversea"[\s\S]*FileInfos: await prepareVegaMediaLibraryFileInfos/);
+  assert.match(handler, /lookup: getVegaMediaLibraryEntryFromDb/);
+  assert.match(handler, /persist: upsertVegaMediaLibraryEntryInDb/);
+  assert.match(handler, /code: errorInfo\.code \|\| "VEGA_MEDIA_LIBRARY_IMPORT_FAILED"/);
+});
+
+test("Vega Lite providers keep the URL FileInfos path and never call PullUpload", async () => {
+  for (const provider of ["h3-vega", "vega10-lite"]) {
+    assert.equal(vega.vegaProviderUsesMediaLibrary(provider), false);
+    let called = false;
+    const files = await vega.prepareVegaMediaLibraryFileInfos({
+      provider,
+      fileInfos: [{ Type: "Url", Category: "Image", Usage: "FirstFrame", Url: "https://cdn.example.com/first.png" }],
+      subAppId: 123,
+      callVod: async () => { called = true; throw new Error("must not run"); },
+    });
+    assert.equal(called, false);
+    assert.deepEqual(files, [{ Type: "Url", Category: "Image", Usage: "FirstFrame", Url: "https://cdn.example.com/first.png" }]);
+  }
+});
+
+test("Vega media-library cache avoids PullUpload and failed imports preserve no FileId", async () => {
+  const lookups = [];
+  const persisted = [];
+  const files = await vega.prepareVegaMediaLibraryFileInfos({
+    provider: "seedance20-vega",
+    fileInfos: [{ Type: "Url", Category: "Image", Usage: "Reference", Url: "https://cdn.example.com/cached.png" }],
+    subAppId: 123,
+    userId: "user-1",
+    lookup: async (args) => { lookups.push(args); return { status: "succeeded", fileId: "cached-file-id" }; },
+    persist: async (entry) => { persisted.push(entry); },
+  });
+  assert.deepEqual(files, [{ Type: "File", Category: "Image", Usage: "Reference", FileId: "cached-file-id" }]);
+  assert.deepEqual(lookups, [{ userId: "user-1", sourceUrl: "https://cdn.example.com/cached.png", subAppId: 123 }]);
+  assert.deepEqual(persisted, []);
+
+  await assert.rejects(
+    vega.prepareVegaMediaLibraryFileInfos({
+      provider: "seedance25-vega",
+      fileInfos: [{ Type: "Url", Category: "Video", Usage: "Reference", Url: "https://cdn.example.com/fail.mp4" }],
+      subAppId: 123,
+      userId: "user-1",
+      lookup: async () => null,
+      persist: async (entry) => { persisted.push(entry); },
+      importOptions: {},
+      callVod: async () => { throw Object.assign(new Error("upstream denied"), { code: "InvalidParameter" }); },
+    }),
+    (error) => error.code === "VEGA_MEDIA_LIBRARY_IMPORT_FAILED",
+  );
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].status, "failed");
+  assert.equal(persisted[0].fileId, undefined);
+});
+
+test("Vega media-library polling reports upstream errors, missing FileId, and timeout", async () => {
+  const base = {
+    fileInfo: { Type: "Url", Category: "Video", Usage: "Reference", Url: "https://cdn.example.com/ref.mp4" },
+    subAppId: 123,
+    timeoutMs: 0,
+    pollIntervalMs: 0,
+    now: () => 0,
+  };
+  const run = (task, extra = {}) => {
+    const defaultCallVod = async ({ action }) => action === "PullUpload"
+      ? { Response: { TaskId: "pull-1" } }
+      : { Response: { PullUploadTask: task } };
+    return vega.importVegaMediaLibraryFile({
+      ...base,
+      ...extra,
+      callVod: extra.callVod || defaultCallVod,
+    });
+  };
+  await assert.rejects(run({ Status: "PROCESSING", ErrCode: 70000, Message: "internal" }), (error) => error.code === "VEGA_MEDIA_LIBRARY_IMPORT_FAILED" && error.details.errCode === 70000);
+  await assert.rejects(run({ Status: "FINISH", ErrCode: 0 }), (error) => error.code === "VEGA_MEDIA_LIBRARY_FILE_ID_MISSING");
+  await assert.rejects(run({ Status: "PROCESSING", ErrCode: 0 }, { deadlineReached: () => true }), (error) => error.code === "VEGA_MEDIA_LIBRARY_TIMEOUT");
+  await assert.rejects(run({ Status: "PROCESSING", ErrCode: 0 }, { callVod: async ({ action }) => {
+    if (action === "PullUpload") return { Response: { TaskId: "pull-1" } };
+    throw Object.assign(new Error("poll failed"), { code: "InternalError" });
+  } }), (error) => error.code === "VEGA_MEDIA_LIBRARY_IMPORT_FAILED" && /polling failed/.test(error.message));
+});
+
 test("Vega media URL validation rejects local/private/credential URLs and preserves public URLs", () => {
   const publicUrls = [
     "https://cdn.example.com/a.png?x=1",
@@ -589,7 +720,7 @@ test("Vega public API docs expose all supported models and the full media contra
   ]) {
     assert.match(server, new RegExp(`${id}"[\\s\\S]{0,120}label: "${label}"[\\s\\S]{0,120}modelVersion: "${version}"`));
   }
-  assert.match(server, /Media: public HTTP\(S\) URLs only\. FileInfos use .*Usage/);
+  assert.match(server, /Media: public HTTP\(S\) URLs only\. Vega 1\.0 Pro and 1\.5 Pro URLs are imported[\s\S]*?FileId and InputRegion=Oversea\. Vega 1\.5 Lite and 1\.0 Lite continue to submit FileInfos Type=Url\./);
   assert.match(server, /Asset IDs and data URLs are rejected/);
   assert.match(server, /Vega pricing is not configured/);
   assert.match(server, /durationSeconds: \{ integer: true, min: 2, max: 30, smart: -1/);

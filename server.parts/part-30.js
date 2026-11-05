@@ -749,7 +749,7 @@ function advancedGenerateConstraintsDoc() {
       promptEnhancement: "auto, enable, or disable through WandVegaParameters.EnhancePromptMode.",
       taskTypeRule: "edit requires a reference video, adaptive ratio, and duration -1; extend requires a reference video and adaptive ratio.",
       draftRule: "Draft requires 480P; Draft to Final uses draft_task_id with no prompt or media inputs.",
-      mediaTransport: "Media: public HTTP(S) URLs only. FileInfos use Usage FirstFrame, LastFrame, or Reference. Asset IDs and data URLs are rejected.",
+      mediaTransport: "Media: public HTTP(S) URLs only. Vega 1.0 Pro and 1.5 Pro URLs are imported into the Tencent VOD media library with PullUpload first, then submitted as FileInfos Type=File with FileId and InputRegion=Oversea. Vega 1.5 Lite and 1.0 Lite continue to submit FileInfos Type=Url. Asset IDs and data URLs are rejected.",
       extInfo: ["return_last_frame", "draft", "draft_task_id", "omni_reference_task_type", "asset_group_id", "output_format", "EnhancePromptMode", "ModerationMode", "ReturnVegaUsage", "GenerateMode", "VideoQualityMode"],
       pricing: "Vega prices are configured in PostgreSQL through the admin pricing API; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream when a required rate is missing.",
     },

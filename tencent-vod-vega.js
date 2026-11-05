@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const VEGA_MODEL_NAME = "wand-vega-video";
 const TENCENT_VOD_INTERNATIONAL_HOST = "vod.intl.tencentcloudapi.com";
 const TENCENT_VOD_INTERNATIONAL_REGION = "ap-singapore";
+const VEGA_MEDIA_LIBRARY_PROVIDERS = Object.freeze(new Set(["seedance20-vega", "seedance25-vega"]));
 const VEGA_PROVIDERS = Object.freeze({
   "seedance20-vega": Object.freeze({
     id: "seedance20-vega",
@@ -121,6 +122,11 @@ function vegaProviderCapabilities(value = "") {
 
 function vegaProviderLabel(value = "") {
   return vegaProviderDefinition(value)?.label || "";
+}
+
+function vegaProviderUsesMediaLibrary(value = "") {
+  const id = vegaProviderDefinition(value)?.id || "";
+  return VEGA_MEDIA_LIBRARY_PROVIDERS.has(id);
 }
 
 function vegaDurationBounds(value = "") {
@@ -649,6 +655,157 @@ async function callTencentVod({ action, payload, env = process.env, fetchImpl = 
   return raw;
 }
 
+function vegaMediaLibraryError(message, code, details, statusCode = 502) {
+  return Object.assign(new Error(message), { statusCode, code, details });
+}
+
+function vegaPullUploadTask(response = {}) {
+  return response?.Response?.PullUploadTask && typeof response.Response.PullUploadTask === "object"
+    ? response.Response.PullUploadTask
+    : null;
+}
+
+function vegaMediaName(url = "", category = "") {
+  let basename = "";
+  try {
+    basename = decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || "");
+  } catch {
+    basename = "";
+  }
+  const safe = basename.replace(/[^\w.-]+/g, "_").slice(-100);
+  return safe || `vega-${String(category || "media").toLowerCase()}-${sha256Hex(url).slice(0, 16)}`;
+}
+
+async function importVegaMediaLibraryFile({
+  fileInfo = {},
+  subAppId,
+  env = process.env,
+  callVod = callTencentVod,
+  timeoutMs = Number(env.TENCENT_VOD_MEDIA_IMPORT_TIMEOUT_MS || 120000),
+  pollIntervalMs = Number(env.TENCENT_VOD_MEDIA_IMPORT_POLL_MS || 1500),
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  now = Date.now,
+  deadlineReached = () => false,
+} = {}) {
+  const sourceUrl = String(fileInfo.Url || "").trim();
+  const category = String(fileInfo.Category || "").trim();
+  if (fileInfo.Type !== "Url" || !sourceUrl) {
+    throw vegaMediaLibraryError("Vega Pro media must be a public URL before it can be imported into the VOD media library.", "VEGA_MEDIA_LIBRARY_INVALID_SOURCE", { fileInfo }, 400);
+  }
+  const appId = Number(subAppId);
+  if (!Number.isInteger(appId) || appId <= 0) throw new Error("TENCENT_VOD_SUB_APP_ID must be a positive integer.");
+
+  let uploadResponse;
+  try {
+    uploadResponse = await callVod({
+      action: "PullUpload",
+      payload: {
+        SubAppId: appId,
+        MediaUrl: sourceUrl,
+        MediaName: vegaMediaName(sourceUrl, category),
+      },
+      env,
+    });
+  } catch (error) {
+    throw vegaMediaLibraryError(`Tencent VOD could not import ${category || "media"} into the media library: ${error.message || "PullUpload failed"}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, upstreamCode: error.code || "", payload: error.payload || null });
+  }
+  const taskId = String(uploadResponse?.Response?.TaskId || "").trim();
+  if (!taskId) {
+    throw vegaMediaLibraryError("Tencent VOD PullUpload did not return a task id.", "VEGA_MEDIA_LIBRARY_TASK_ID_MISSING", { sourceUrl, category, payload: uploadResponse });
+  }
+
+  const deadline = now() + Math.max(0, Number(timeoutMs) || 0);
+  const interval = Math.max(0, Number(pollIntervalMs) || 0);
+  while (true) {
+    let detailResponse;
+    try {
+      detailResponse = await callVod({
+        action: "DescribeTaskDetail",
+        payload: { SubAppId: appId, TaskId: taskId },
+        env,
+      });
+    } catch (error) {
+      throw vegaMediaLibraryError(`Tencent VOD media-library import polling failed: ${error.message || "DescribeTaskDetail failed"}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, vodTaskId: taskId, upstreamCode: error.code || "", payload: error.payload || null });
+    }
+    const task = vegaPullUploadTask(detailResponse);
+    const errCode = Number(task?.ErrCode || 0);
+    const status = String(task?.Status || "").trim().toUpperCase();
+    if (errCode !== 0) {
+      throw vegaMediaLibraryError(`Tencent VOD media-library import failed: ${task?.Message || `error ${errCode}`}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, vodTaskId: taskId, errCode, message: task?.Message || "" });
+    }
+    if (status === "FINISH") {
+      const fileId = String(task?.FileId || "").trim();
+      if (!fileId) {
+        throw vegaMediaLibraryError("Tencent VOD media-library import finished without a FileId.", "VEGA_MEDIA_LIBRARY_FILE_ID_MISSING", { sourceUrl, category, vodTaskId: taskId, payload: detailResponse });
+      }
+      return { fileId, vodTaskId: taskId, status: "succeeded", payload: task };
+    }
+    if (deadlineReached(deadline) || now() >= deadline) {
+      throw vegaMediaLibraryError("Timed out while importing media into the Tencent VOD media library.", "VEGA_MEDIA_LIBRARY_TIMEOUT", { sourceUrl, category, vodTaskId: taskId, status, timeoutMs });
+    }
+    if (interval > 0) await sleepImpl(interval);
+  }
+}
+
+function fileInfoFromMediaLibrary(entry = {}, fileInfo = {}) {
+  return {
+    Type: "File",
+    Category: fileInfo.Category,
+    Usage: fileInfo.Usage,
+    FileId: entry.fileId,
+  };
+}
+
+async function prepareVegaMediaLibraryFileInfos({
+  provider = "",
+  fileInfos = [],
+  subAppId,
+  userId = "",
+  lookup,
+  persist,
+  ...importOptions
+} = {}) {
+  if (!vegaProviderUsesMediaLibrary(provider)) return fileInfos;
+  if (!Array.isArray(fileInfos) || !fileInfos.length) return [];
+  return Promise.all(fileInfos.map(async (fileInfo) => {
+    if (fileInfo?.Type === "File" && String(fileInfo.FileId || "").trim()) return fileInfo;
+    const sourceUrl = String(fileInfo?.Url || "").trim();
+    const category = String(fileInfo?.Category || "").trim();
+    if (lookup && userId && sourceUrl) {
+      const cached = await lookup({ userId, sourceUrl, subAppId });
+      if (cached?.status === "succeeded" && String(cached.fileId || "").trim()) return fileInfoFromMediaLibrary(cached, fileInfo);
+    }
+    try {
+      const imported = await importVegaMediaLibraryFile({ fileInfo, subAppId, ...importOptions });
+      if (persist && userId && sourceUrl) {
+        await persist({
+          userId,
+          sourceUrl,
+          subAppId,
+          category,
+          fileId: imported.fileId,
+          vodTaskId: imported.vodTaskId,
+          status: imported.status,
+          payload: imported.payload,
+        });
+      }
+      return fileInfoFromMediaLibrary(imported, fileInfo);
+    } catch (error) {
+      if (persist && userId && sourceUrl) {
+        await Promise.resolve(persist({
+          userId,
+          sourceUrl,
+          subAppId,
+          category,
+          status: "failed",
+          payload: { code: error.code || "", message: error.message || "", details: error.details || null },
+        })).catch(() => {});
+      }
+      throw error;
+    }
+  }));
+}
+
 function vegaCreateTaskId(response = {}) {
   return String(response?.Response?.TaskId || "").trim();
 }
@@ -706,6 +863,7 @@ module.exports = {
   TENCENT_VOD_INTERNATIONAL_REGION,
   VEGA_PROVIDERS,
   VEGA_PROVIDER_IDS,
+  VEGA_MEDIA_LIBRARY_PROVIDERS,
   VEGA_CAPABILITIES,
   VEGA_MEDIA_MODES,
   VEGA_ALL_RATIOS,
@@ -717,6 +875,7 @@ module.exports = {
   buildVegaExtInfo,
   buildVegaFileInfos,
   callTencentVod,
+  importVegaMediaLibraryFile,
   isVegaProvider,
   normalizeVegaAudioGeneration,
   normalizeVegaDuration,
@@ -746,6 +905,8 @@ module.exports = {
   vegaProviderCapabilities,
   vegaProviderDefinition,
   vegaProviderLabel,
+  vegaProviderUsesMediaLibrary,
+  prepareVegaMediaLibraryFileInfos,
   vegaTaskDetail,
   vegaTaskFailureMessage,
   vegaMediaSelection,
