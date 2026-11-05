@@ -39,6 +39,7 @@
 - History card and history detail download2 hints now stay inside the button as a compact in-flow second row instead of floating above and covering adjacent actions.
 - Added History-specific CSS so the Advanced Result panel bubble treatment remains unchanged.
 - Verification: desktop and mobile browser render checks show `position: static`, the button expands to about 45px, the hint stays inside the viewport, and overlap with the Add asset button is zero. Targeted save-hint test passes; `git diff --check` passes.
+- Release: `old-site` `cd813cd`; `platform-release` `13d72d7` built from it and pushed. Deployed only `123vips.com`; `/api/health` is `200 {"ok":true}`, production CSS hash matches the release, and the production browser check confirms zero overlap.
 
 ## Result tab download2 save hint (2026-11-05)
 
