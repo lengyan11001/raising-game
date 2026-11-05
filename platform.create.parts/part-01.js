@@ -838,12 +838,23 @@ function renderAdvancedResultPanel() {
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
+    button.addEventListener("click", async () => {
+      const cachedRecord = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();
-      restoreRecordToAdvancedCreate(record, button);
+      try {
+        const record = await refreshedRegenerationRecord(cachedRecord);
+        restoreRecordToAdvancedCreate(record, button);
+      } catch (error) {
+        if (!cachedRecord) {
+          button.disabled = false;
+          button.innerHTML = `<i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}`;
+          refreshIcons();
+          throw error;
+        }
+        restoreRecordToAdvancedCreate(cachedRecord, button);
+      }
     });
   });
   refreshIcons();

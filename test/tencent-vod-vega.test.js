@@ -636,13 +636,43 @@ test("Vega regeneration preserves exact provider and public media URLs", () => {
   assert.match(regenerate, /const provider = normalizeAdvancedProvider\(record\.provider \|\| params\.provider\)/);
   assert.match(regenerate, /if \(regeneratedMedia\.firstFrameUrl\) body\.firstFrameUrl = regeneratedMedia\.firstFrameUrl/);
   assert.match(regenerate, /if \(regeneratedMedia\.lastFrameUrl\) body\.lastFrameUrl = regeneratedMedia\.lastFrameUrl/);
-  assert.match(regenerate, /body\.referenceImages = regeneratedMedia\.referenceImages\.map\(\(url\) => \(\{ url \}\)\)/);
-  assert.match(regenerate, /body\.referenceVideos = regeneratedMedia\.referenceVideos\.map\(\(url\) => \(\{ url \}\)\)/);
-  assert.match(regenerate, /body\.referenceAudios = regeneratedMedia\.referenceAudios\.map\(\(url\) => \(\{ url \}\)\)/);
+  assert.match(regenerate, /body\.referenceImages = regeneratedMedia\.referenceImages\.map\(\(url, index\) => \(\{[\s\S]*?userAssetId: referenceImageAssetIds\[index\]/);
+  assert.match(regenerate, /body\.referenceVideos = regeneratedMedia\.referenceVideos\.map\(\(url, index\) => \(\{[\s\S]*?userAssetId: referenceVideoAssetIds\[index\]/);
+  assert.match(regenerate, /body\.referenceAudios = regeneratedMedia\.referenceAudios\.map\(\(url, index\) => \(\{[\s\S]*?userAssetId: referenceAudioAssetIds\[index\]/);
+  assert.match(regenerate, /if \(firstFrameAssetId\) body\.firstFrameAssetId = firstFrameAssetId/);
+  assert.match(regenerate, /if \(lastFrameAssetId\) body\.lastFrameAssetId = lastFrameAssetId/);
   for (const field of ["taskType", "draft", "draftTaskId", "assetGroupId", "generateAudio", "returnLastFrame", "returnVegaUsage", "enhancePromptMode", "moderationMode", "generateMode", "videoQualityMode", "outputFormat"]) {
     assert.match(regenerate, new RegExp(`body\\.${field}\\s*=`));
   }
   assert.doesNotMatch(regenerate, /reference_type|ReferenceType/);
+});
+
+test("Vega regeneration restores and persists user asset ids end to end", () => {
+  const restoreMedia = sourceBetween(create, "function restoreVegaRecordMedia(record = {}, params = {}) {", "async function refreshedRegenerationRecord");
+  assert.match(restoreMedia, /restoreMediaAssetId\(media\.firstFrame\)/);
+  assert.match(restoreMedia, /params\.firstFrameAssetId/);
+  assert.match(restoreMedia, /params\.lastFrameAssetId/);
+  assert.match(restoreMedia, /referenceImageAssetIds/);
+  assert.match(restoreMedia, /referenceVideoAssetIds/);
+  assert.match(restoreMedia, /referenceAudioAssetIds/);
+  const submit = sourceBetween(create, "const vegaPayload = {", "const vegaPendingTaskId =");
+  assert.match(submit, /firstFrameAssetId: state\.advancedSeedanceFirstFrameAssetId/);
+  assert.match(submit, /lastFrameAssetId: state\.advancedSeedanceLastFrameAssetId/);
+  assert.match(submit, /referenceImageAssetIds: vegaReferenceImageItems\.map/);
+  assert.match(submit, /referenceVideoAssetIds: vegaVideoItems\.map/);
+  assert.match(submit, /referenceAudioAssetIds: vegaAudioItems\.map/);
+  assert.match(submit, /firstFrameAssetId: state\.advancedSeedanceFirstFrameAssetId/);
+  const pending = sourceBetween(create, "const vegaPendingRecord = {", "state.advancedResultMediaKind = \"video\";");
+  assert.match(pending, /userAssetId: vegaPayload\.firstFrameAssetId/);
+  assert.match(pending, /userAssetId: vegaPayload\.referenceImageAssetIds\?\.\[index\]/);
+  const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "function advancedRuntimeForProvider(");
+  assert.match(handler, /mediaAssets: media\.mode === "first_frame"[\s\S]*?userAssetId: requestedMedia\.firstFrameAssetId/);
+  assert.match(handler, /type: "reference_image"[\s\S]*?userAssetId: requestedMedia\.referenceImageAssetIds\[index\]/);
+  assert.match(server, /async function hydrateVegaRecordMediaAssetIds\(record = \{\}, userId = ""\)/);
+  assert.match(server, /getUserAssetIdsByUrlsFromDb\(\{ userId, urls \}\)/);
+  assert.match(server, /let nextRecord = await hydrateVegaRecordMediaAssetIds\(record, auth\.user\.id\)/);
+  assert.match(create, /button\.addEventListener\("click", async \(\) => \{[\s\S]*?refreshedRegenerationRecord\(cachedRecord\)/);
+  assert.match(create, /record = await refreshedRegenerationRecord\(record\)/);
 });
 
 test("Vega UI options are appended after existing video models with exact labels", () => {

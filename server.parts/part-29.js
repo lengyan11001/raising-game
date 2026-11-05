@@ -957,6 +957,11 @@ function advancedRegenerateBody(record = {}) {
     const explicitMediaMode = firstPresent(record.mediaMode, params.mediaMode, params.seedanceMode, params.functionMode, "");
     const requestedDraftTaskId = String(firstPresent(params.draftTaskId, params.draft_task_id, "") || "").trim();
     const assetUrl = (asset, keys = []) => String(keys.map((key) => asset?.[key]).find(Boolean) || "").trim();
+    const assetId = (asset) => String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim();
+    const assetIdsByType = (type) => mediaAssets
+      .filter((asset) => asset?.type === type)
+      .map(assetId)
+      .filter(Boolean);
     const urlsByType = (type, keys) => mediaAssets
       .filter((asset) => asset?.type === type)
       .map((asset) => assetUrl(asset, keys))
@@ -979,6 +984,32 @@ function advancedRegenerateBody(record = {}) {
       ...(Array.isArray(params.referenceAudios) ? params.referenceAudios.map((item) => typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url) : []),
       ...(Array.isArray(params.referenceAudioUrls) ? params.referenceAudioUrls : []),
     ]);
+    const firstFrameAssetId = String(firstPresent(
+      params.firstFrameAssetId,
+      params.first_frame_asset_id,
+      params.firstFrameUserAssetId,
+      assetIdsByType("first_frame"),
+      "",
+    ) || "").trim();
+    const lastFrameAssetId = String(firstPresent(
+      params.lastFrameAssetId,
+      params.last_frame_asset_id,
+      params.lastFrameUserAssetId,
+      assetIdsByType("last_frame"),
+      "",
+    ) || "").trim();
+    const referenceImageAssetIds = [...new Set([
+      ...arrayFromBody(firstPresent(params.referenceImageAssetIds, params.reference_image_asset_ids)),
+      ...assetIdsByType("reference_image"),
+    ].map((id) => String(id || "").trim()).filter(Boolean))];
+    const referenceVideoAssetIds = [...new Set([
+      ...arrayFromBody(firstPresent(params.referenceVideoAssetIds, params.reference_video_asset_ids)),
+      ...assetIdsByType("reference_video"),
+    ].map((id) => String(id || "").trim()).filter(Boolean))];
+    const referenceAudioAssetIds = [...new Set([
+      ...arrayFromBody(firstPresent(params.referenceAudioAssetIds, params.reference_audio_asset_ids)),
+      ...assetIdsByType("reference_audio"),
+    ].map((id) => String(id || "").trim()).filter(Boolean))];
     const reconstructedMedia = { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
     let draftSelection;
     try {
@@ -1030,10 +1061,24 @@ function advancedRegenerateBody(record = {}) {
     if (["first_frame", "last_frame", "first_last_frame"].includes(regeneratedMedia.mode)) {
       if (regeneratedMedia.firstFrameUrl) body.firstFrameUrl = regeneratedMedia.firstFrameUrl;
       if (regeneratedMedia.lastFrameUrl) body.lastFrameUrl = regeneratedMedia.lastFrameUrl;
+      if (firstFrameAssetId) body.firstFrameAssetId = firstFrameAssetId;
+      if (lastFrameAssetId) body.lastFrameAssetId = lastFrameAssetId;
     } else if (regeneratedMedia.mode === "reference_video") {
-      body.referenceImages = regeneratedMedia.referenceImages.map((url) => ({ url }));
-      body.referenceVideos = regeneratedMedia.referenceVideos.map((url) => ({ url }));
-      body.referenceAudios = regeneratedMedia.referenceAudios.map((url) => ({ url }));
+      body.referenceImages = regeneratedMedia.referenceImages.map((url, index) => ({
+        url,
+        ...(referenceImageAssetIds[index] ? { userAssetId: referenceImageAssetIds[index] } : {}),
+      }));
+      body.referenceVideos = regeneratedMedia.referenceVideos.map((url, index) => ({
+        url,
+        ...(referenceVideoAssetIds[index] ? { userAssetId: referenceVideoAssetIds[index] } : {}),
+      }));
+      body.referenceAudios = regeneratedMedia.referenceAudios.map((url, index) => ({
+        url,
+        ...(referenceAudioAssetIds[index] ? { userAssetId: referenceAudioAssetIds[index] } : {}),
+      }));
+      if (referenceImageAssetIds.length) body.referenceImageAssetIds = referenceImageAssetIds;
+      if (referenceVideoAssetIds.length) body.referenceVideoAssetIds = referenceVideoAssetIds;
+      if (referenceAudioAssetIds.length) body.referenceAudioAssetIds = referenceAudioAssetIds;
     }
     if (regeneratedMedia.mode === "draft_followup") {
       body.prompt = "";

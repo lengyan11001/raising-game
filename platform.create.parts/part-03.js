@@ -407,15 +407,24 @@ async function submitAdvancedGenerate() {
       seed: vegaCurrentSeed(),
       mediaMode: vegaMediaMode,
       ...vegaOptions,
-      ...(vegaUsesFirstFrame ? { firstFrameUrl: vegaFirstFrameUrl } : {}),
-      ...(vegaUsesLastFrame ? { lastFrameUrl: vegaLastFrameUrl } : {}),
+      ...(vegaUsesFirstFrame ? {
+        firstFrameUrl: vegaFirstFrameUrl,
+        firstFrameAssetId: state.advancedSeedanceFirstFrameAssetId || "",
+      } : {}),
+      ...(vegaUsesLastFrame ? {
+        lastFrameUrl: vegaLastFrameUrl,
+        lastFrameAssetId: state.advancedSeedanceLastFrameAssetId || "",
+      } : {}),
       ...(vegaUsesReferences ? {
         referenceImages: vegaReferenceImages,
         referenceImageCount: vegaReferenceImages.length,
+        referenceImageAssetIds: vegaReferenceImageItems.map((item) => item.assetId || ""),
         referenceVideos: vegaReferenceVideos,
         referenceVideoDurations: vegaReferenceVideoDurations,
+        referenceVideoAssetIds: vegaVideoItems.map((item) => item.assetId || ""),
         referenceAudios: vegaReferenceAudios,
         referenceAudioDurations: vegaReferenceAudioDurations,
+        referenceAudioAssetIds: vegaAudioItems.map((item) => item.assetId || ""),
       } : {}),
     };
     if (vegaDraftFollowup) {
@@ -438,11 +447,34 @@ async function submitAdvancedGenerate() {
       seed: vegaPayload.seed,
       mediaMode: vegaMediaMode,
       mediaAssets: [
-        ...(vegaPayload.firstFrameUrl ? [{ type: "first_frame", url: vegaPayload.firstFrameUrl }] : []),
-        ...(vegaPayload.lastFrameUrl ? [{ type: "last_frame", url: vegaPayload.lastFrameUrl }] : []),
-        ...(vegaPayload.referenceImages || []).map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, url })),
-        ...(vegaPayload.referenceVideos || []).map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, videoUrl: url })),
-        ...(vegaPayload.referenceAudios || []).map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, audioUrl: url })),
+        ...(vegaPayload.firstFrameUrl ? [{
+          type: "first_frame",
+          url: vegaPayload.firstFrameUrl,
+          userAssetId: vegaPayload.firstFrameAssetId || "",
+        }] : []),
+        ...(vegaPayload.lastFrameUrl ? [{
+          type: "last_frame",
+          url: vegaPayload.lastFrameUrl,
+          userAssetId: vegaPayload.lastFrameAssetId || "",
+        }] : []),
+        ...(vegaPayload.referenceImages || []).map((url, index) => ({
+          type: "reference_image",
+          key: `image_${index + 1}`,
+          url,
+          userAssetId: vegaPayload.referenceImageAssetIds?.[index] || "",
+        })),
+        ...(vegaPayload.referenceVideos || []).map((url, index) => ({
+          type: "reference_video",
+          key: `video_${index + 1}`,
+          videoUrl: url,
+          userAssetId: vegaPayload.referenceVideoAssetIds?.[index] || "",
+        })),
+        ...(vegaPayload.referenceAudios || []).map((url, index) => ({
+          type: "reference_audio",
+          key: `audio_${index + 1}`,
+          audioUrl: url,
+          userAssetId: vegaPayload.referenceAudioAssetIds?.[index] || "",
+        })),
       ],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

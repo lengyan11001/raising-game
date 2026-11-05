@@ -8,6 +8,15 @@ function vegaMediaUrls(value, keys = ["url"]) {
     .filter(Boolean);
 }
 
+function vegaMediaAssetIds(value) {
+  return arrayFromBody(value)
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+      return String(firstPresent(item.userAssetId, item.assetId, item.id, "") || "").trim();
+    })
+    .filter(Boolean);
+}
+
 function vegaRequestMedia(merged = {}) {
   const firstFrameUrl = String(firstPresent(
     merged.firstFrameUrl,
@@ -39,7 +48,45 @@ function vegaRequestMedia(merged = {}) {
     ...vegaMediaUrls(merged.referenceAudioUrls, ["url", "audioUrl", "audio_url"]),
     ...vegaMediaUrls(merged.reference_audio_urls, ["url", "audioUrl", "audio_url"]),
   ].map((url) => String(url || "").trim()).filter(Boolean))];
-  return { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
+  const firstFrameAssetId = String(firstPresent(
+    merged.firstFrameAssetId,
+    merged.first_frame_asset_id,
+    merged.firstFrameUserAssetId,
+    "",
+  ) || "").trim();
+  const lastFrameAssetId = String(firstPresent(
+    merged.lastFrameAssetId,
+    merged.last_frame_asset_id,
+    merged.lastFrameUserAssetId,
+    "",
+  ) || "").trim();
+  const referenceImageAssetIds = [
+    ...arrayFromBody(merged.referenceImageAssetIds),
+    ...arrayFromBody(merged.reference_image_asset_ids),
+    ...vegaMediaAssetIds(firstPresent(merged.referenceImages, merged.reference_images)),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  const referenceVideoAssetIds = [
+    ...arrayFromBody(merged.referenceVideoAssetIds),
+    ...arrayFromBody(merged.reference_video_asset_ids),
+    ...vegaMediaAssetIds(firstPresent(merged.referenceVideos, merged.reference_videos)),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  const referenceAudioAssetIds = [
+    ...arrayFromBody(merged.referenceAudioAssetIds),
+    ...arrayFromBody(merged.reference_audio_asset_ids),
+    ...vegaMediaAssetIds(firstPresent(merged.referenceAudios, merged.reference_audios)),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  return {
+    firstFrameUrl,
+    lastFrameUrl,
+    firstFrameAssetId,
+    lastFrameAssetId,
+    referenceImages,
+    referenceVideos,
+    referenceAudios,
+    referenceImageAssetIds,
+    referenceVideoAssetIds,
+    referenceAudioAssetIds,
+  };
 }
 
 async function handleAdvancedVegaGenerate(req, res, context = {}) {
@@ -278,18 +325,33 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       params: requestParams,
       mediaMode: media.mode,
       mediaAssets: media.mode === "first_frame"
-        ? [{ type: "first_frame", url: media.firstFrameUrl }]
+        ? [{ type: "first_frame", url: media.firstFrameUrl, userAssetId: requestedMedia.firstFrameAssetId }]
         : media.mode === "last_frame"
-        ? [{ type: "last_frame", url: media.lastFrameUrl }]
+        ? [{ type: "last_frame", url: media.lastFrameUrl, userAssetId: requestedMedia.lastFrameAssetId }]
         : media.mode === "first_last_frame"
         ? [
-          { type: "first_frame", url: media.firstFrameUrl },
-          { type: "last_frame", url: media.lastFrameUrl },
+          { type: "first_frame", url: media.firstFrameUrl, userAssetId: requestedMedia.firstFrameAssetId },
+          { type: "last_frame", url: media.lastFrameUrl, userAssetId: requestedMedia.lastFrameAssetId },
         ]
         : [
-          ...media.referenceImages.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, url })),
-          ...media.referenceVideos.map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, videoUrl: url })),
-          ...media.referenceAudios.map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, audioUrl: url })),
+          ...media.referenceImages.map((url, index) => ({
+            type: "reference_image",
+            key: `image_${index + 1}`,
+            url,
+            userAssetId: requestedMedia.referenceImageAssetIds[index] || "",
+          })),
+          ...media.referenceVideos.map((url, index) => ({
+            type: "reference_video",
+            key: `video_${index + 1}`,
+            videoUrl: url,
+            userAssetId: requestedMedia.referenceVideoAssetIds[index] || "",
+          })),
+          ...media.referenceAudios.map((url, index) => ({
+            type: "reference_audio",
+            key: `audio_${index + 1}`,
+            audioUrl: url,
+            userAssetId: requestedMedia.referenceAudioAssetIds[index] || "",
+          })),
         ],
       ratio,
       resolution,

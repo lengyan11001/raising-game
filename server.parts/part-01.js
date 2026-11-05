@@ -205,6 +205,7 @@ const {
   getUserAssetFromDb,
   getVegaMediaLibraryEntryFromDb,
   upsertVegaMediaLibraryEntryInDb,
+  getUserAssetIdsByUrlsFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,

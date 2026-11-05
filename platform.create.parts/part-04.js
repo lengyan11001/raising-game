@@ -247,42 +247,102 @@ function restoreRecordMedia(record = {}) {
   };
 }
 
+function restoreVegaMediaItem(item = {}, index = 0, kind = "image") {
+  const source = typeof item === "string" ? { url: item } : (item && typeof item === "object" ? item : {});
+  const assetId = restoreMediaAssetId(source);
+  const url = vegaPublicHttpUrl(restoreMediaUrl(source) || source.publicUrl || source.cdnUrl || source.previewUrl || "");
+  if (!assetId && !url) return null;
+  const name = source.name || source.label || source.fileName || `${kind}-${index + 1}`;
+  return {
+    ...source,
+    assetId,
+    url,
+    publicUrl: url || source.publicUrl || "",
+    cdnUrl: url || source.cdnUrl || "",
+    previewUrl: url || source.previewUrl || "",
+    dataUrl: url,
+    fileName: source.fileName || name,
+    name,
+    fromLibrary: Boolean(assetId),
+    order: advancedReferenceOrderValue(source, index + 1),
+  };
+}
+
+function mergeVegaMediaItems(...lists) {
+  const merged = [];
+  const seen = new Set();
+  lists.flat().forEach((item, index) => {
+    const normalized = restoreVegaMediaItem(item, index, "reference");
+    if (!normalized) return;
+    const key = normalized.assetId ? `asset:${normalized.assetId}` : `url:${normalized.url}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  });
+  return merged;
+}
+
 function restoreVegaRecordMedia(record = {}, params = {}) {
   const media = restoreRecordMedia(record);
   const firstNonEmpty = (...values) => values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") || "";
-  const urlsFrom = (value, keys = ["url", "imageUrl", "image_url", "videoUrl", "video_url", "audioUrl", "audio_url"]) => [
-    ...arrayFrom(value).map((item) => (typeof item === "string" ? item : keys.map((key) => item?.[key]).find(Boolean))),
-    ...arrayFrom(value).map((item) => (typeof item === "string" ? "" : item?.publicUrl || item?.cdnUrl || item?.previewUrl || item?.dataUrl)),
-  ].map((url) => vegaPublicHttpUrl(url)).filter(Boolean);
-  const firstFrameUrl = vegaPublicHttpUrl(firstNonEmpty(
-    params.firstFrameUrl,
-    params.first_frame_url,
-    record.firstFrameUrl,
-    record.first_frame_url,
-    media.firstFrame?.url,
-    media.firstFrame?.dataUrl,
-  ));
-  const lastFrameUrl = vegaPublicHttpUrl(firstNonEmpty(
-    params.lastFrameUrl,
-    params.last_frame_url,
-    record.lastFrameUrl,
-    record.last_frame_url,
-    media.lastFrame?.url,
-    media.lastFrame?.dataUrl,
-  ));
-  const referenceImages = [...new Set([
-    ...urlsFrom(firstNonEmpty(params.referenceImages, params.reference_images, record.referenceImages)),
-    ...media.referenceImages.map((item) => vegaPublicHttpUrl(item.url || item.dataUrl)).filter(Boolean),
-  ])];
-  const referenceVideos = [...new Set([
-    ...urlsFrom(firstNonEmpty(params.referenceVideos, params.reference_videos, record.referenceVideos), ["url", "videoUrl", "video_url"]),
-    ...media.videos.map((item) => vegaPublicHttpUrl(item.url || item.videoUrl)).filter(Boolean),
-  ])];
-  const referenceAudios = [...new Set([
-    ...urlsFrom(firstNonEmpty(params.referenceAudios, params.reference_audios, record.referenceAudios), ["url", "audioUrl", "audio_url"]),
-    ...media.audios.map((item) => vegaPublicHttpUrl(item.url || item.audioUrl)).filter(Boolean),
-  ])];
-  return { firstFrameUrl, lastFrameUrl, referenceImages, referenceVideos, referenceAudios };
+  const firstFrame = restoreVegaMediaItem({
+    ...(media.firstFrame || {}),
+    assetId: restoreMediaAssetId(media.firstFrame) || firstNonEmpty(params.firstFrameAssetId, params.first_frame_asset_id, params.firstFrameUserAssetId),
+    url: firstNonEmpty(media.firstFrame?.url, media.firstFrame?.dataUrl, params.firstFrameUrl, params.first_frame_url, record.firstFrameUrl, record.first_frame_url),
+  }, 0, "first-frame");
+  const lastFrame = restoreVegaMediaItem({
+    ...(media.lastFrame || {}),
+    assetId: restoreMediaAssetId(media.lastFrame) || firstNonEmpty(params.lastFrameAssetId, params.last_frame_asset_id, params.lastFrameUserAssetId),
+    url: firstNonEmpty(media.lastFrame?.url, media.lastFrame?.dataUrl, params.lastFrameUrl, params.last_frame_url, record.lastFrameUrl, record.last_frame_url),
+  }, 0, "last-frame");
+  const imageAssetIds = arrayFrom(firstNonEmpty(params.referenceImageAssetIds, params.reference_image_asset_ids));
+  const videoAssetIds = arrayFrom(firstNonEmpty(params.referenceVideoAssetIds, params.reference_video_asset_ids));
+  const audioAssetIds = arrayFrom(firstNonEmpty(params.referenceAudioAssetIds, params.reference_audio_asset_ids));
+  const withAssetIds = (items, ids) => items.map((item, index) => ({
+    ...item,
+    assetId: item.assetId || String(ids[index] || "").trim(),
+  }));
+  const referenceImages = withAssetIds(mergeVegaMediaItems(
+    arrayFrom(firstNonEmpty(params.referenceImages, params.reference_images)),
+    arrayFrom(record.referenceImages),
+    media.referenceImages,
+  ), imageAssetIds);
+  const referenceVideos = withAssetIds(mergeVegaMediaItems(
+    arrayFrom(firstNonEmpty(params.referenceVideos, params.reference_videos)),
+    arrayFrom(record.referenceVideos),
+    media.videos,
+  ), videoAssetIds);
+  const referenceAudios = withAssetIds(mergeVegaMediaItems(
+    arrayFrom(firstNonEmpty(params.referenceAudios, params.reference_audios)),
+    arrayFrom(record.referenceAudios),
+    media.audios,
+  ), audioAssetIds);
+  return {
+    firstFrame,
+    lastFrame,
+    firstFrameAssetId: firstFrame?.assetId || "",
+    firstFrameUrl: firstFrame?.url || "",
+    lastFrameAssetId: lastFrame?.assetId || "",
+    lastFrameUrl: lastFrame?.url || "",
+    referenceImages,
+    referenceImageUrls: referenceImages.map((item) => item.url).filter(Boolean),
+    referenceVideos,
+    referenceVideoUrls: referenceVideos.map((item) => item.url).filter(Boolean),
+    referenceAudios,
+    referenceAudioUrls: referenceAudios.map((item) => item.url).filter(Boolean),
+  };
+}
+
+async function refreshedRegenerationRecord(record = {}) {
+  const taskId = String(record?.taskId || "").trim();
+  if (!taskId) return record;
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
+    if (payload.user) setUser(payload.user);
+    return payload.record || payload.generation || record;
+  } catch (_error) {
+    return record;
+  }
 }
 
 function restoreRecordToAdvancedCreate(record = {}, button = null) {
@@ -403,34 +463,40 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     setAdvancedSeedanceAudioReferences([]);
     state.advancedUploadDataUrl = "";
     if (vegaMediaMode === "first_frame" || vegaMediaMode === "first_last_frame") {
+      state.advancedSeedanceFirstFrameAssetId = media.firstFrameAssetId;
       state.advancedSeedanceFirstFrameDataUrl = media.firstFrameUrl;
+      state.advancedFirstFrameAssetId = media.firstFrameAssetId;
     }
     if (vegaMediaMode === "last_frame" || vegaMediaMode === "first_last_frame") {
+      state.advancedSeedanceLastFrameAssetId = media.lastFrameAssetId;
       state.advancedSeedanceLastFrameDataUrl = media.lastFrameUrl;
     }
     if (vegaMediaMode === "reference_video") {
-      state.advancedReferenceImages = media.referenceImages.map((url, index) => stampAdvancedReferenceOrder({
-        assetId: "",
-        dataUrl: url,
-        url,
-        fileName: `reference-${index + 1}`,
-        name: `Reference ${index + 1}`,
-        fromLibrary: false,
+      state.advancedReferenceImages = media.referenceImages.map((item, index) => stampAdvancedReferenceOrder({
+        ...item,
+        assetId: item.assetId || "",
+        dataUrl: item.url,
+        url: item.url,
+        fileName: item.fileName || `reference-${index + 1}`,
+        name: item.name || `Reference ${index + 1}`,
+        fromLibrary: Boolean(item.assetId),
       }));
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.url || "";
-      setAdvancedSeedanceVideoReferences(media.referenceVideos.map((url, index) => ({
-        assetId: "",
-        url,
-        previewUrl: url,
-        name: `Video ${index + 1}`,
-        fileName: `video-${index + 1}`,
+      setAdvancedSeedanceVideoReferences(media.referenceVideos.map((item, index) => ({
+        ...item,
+        assetId: item.assetId || "",
+        url: item.url,
+        previewUrl: item.url,
+        name: item.name || `Video ${index + 1}`,
+        fileName: item.fileName || `video-${index + 1}`,
       })));
-      setAdvancedSeedanceAudioReferences(media.referenceAudios.map((url, index) => ({
-        assetId: "",
-        url,
-        previewUrl: url,
-        name: `Audio ${index + 1}`,
-        fileName: `audio-${index + 1}`,
+      setAdvancedSeedanceAudioReferences(media.referenceAudios.map((item, index) => ({
+        ...item,
+        assetId: item.assetId || "",
+        url: item.url,
+        previewUrl: item.url,
+        name: item.name || `Audio ${index + 1}`,
+        fileName: item.fileName || `audio-${index + 1}`,
       })));
     }
     state.advancedAssetTarget = vegaModeNeedsFirstFrame(vegaMediaMode)

@@ -1,3 +1,14 @@
+## Vega regenerate media asset IDs (2026-11-05)
+
+- User reported that Regenerate did not populate media asset IDs into the new task.
+- Root cause: Vega restore/submit/pending/server flows reconstructed media from URLs and dropped `userAssetId`; list responses could also omit complete media metadata.
+- Fixed restore and submit paths for first frame, last frame, reference images, reference videos, and reference audio to preserve user asset IDs.
+- Regenerate buttons now refresh the authoritative task detail before restoring the form, falling back to the cached record only when detail refresh fails.
+- Existing Vega records without stored IDs are backfilled from PostgreSQL `app_user_assets` by the current user and matching media URL. No JSON/flat-file fallback was added.
+- Files changed: `db.js`, `platform.create.parts/part-01.js`, `part-03.js`, `part-04.js`, `part-05.js`, `server.parts/part-01.js`, `part-26.js`, `part-29.js`, `part-41.js`, and targeted tests.
+- Targeted Vega/pricing/refresh tests: 86 pass, 0 fail. Syntax checks and `git diff --check` pass.
+- Deployment status: pending at time of this entry; deploy only `123vips.com`, never Live.
+
 ## Vega Pro media-library import (2026-11-05)
 
 - Scope is limited to Vega 1.0 Pro (`seedance20-vega`) and Vega 1.5 Pro (`seedance25-vega`). Vega 1.0 Lite (`vega10-lite`) and Vega 1.5 Lite (`h3-vega`) keep the existing URL path and are not modified.

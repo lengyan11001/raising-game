@@ -2887,6 +2887,38 @@ async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
   return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
 }
 
+async function getUserAssetIdsByUrlsFromDb({ userId = "", urls = [] } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  const cleanUrls = [...new Set((Array.isArray(urls) ? urls : []).map((url) => String(url || "").trim()).filter(Boolean))].slice(0, 100);
+  if (!cleanUserId || !cleanUrls.length) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT id, payload
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+      AND (
+        payload->>'localUrl' = ANY($2::text[])
+        OR payload->>'publicUrl' = ANY($2::text[])
+        OR payload->>'cdnUrl' = ANY($2::text[])
+        OR payload->>'previewUrl' = ANY($2::text[])
+        OR payload->>'url' = ANY($2::text[])
+        OR payload->>'sourceImageUrl' = ANY($2::text[])
+      )
+    ORDER BY created_at DESC
+  `, [cleanUserId, cleanUrls]);
+  const idsByUrl = {};
+  rows.forEach((row) => {
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    ["localUrl", "publicUrl", "cdnUrl", "previewUrl", "url", "sourceImageUrl"].forEach((key) => {
+      const url = String(payload[key] || "").trim();
+      if (url && !idsByUrl[url]) idsByUrl[url] = String(row.id || payload.id || "").trim();
+    });
+  });
+  return idsByUrl;
+}
+
 async function upsertUserCharacterInDb(character = {}) {
   if (!dbEnabled()) return null;
   const id = String(character.id || "").trim();
@@ -6870,6 +6902,7 @@ module.exports = {
   getUserAssetFromDb,
   getVegaMediaLibraryEntryFromDb,
   upsertVegaMediaLibraryEntryInDb,
+  getUserAssetIdsByUrlsFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,

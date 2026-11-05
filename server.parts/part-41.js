@@ -261,6 +261,58 @@ async function handleListGenerationRecords(req, res, url) {
   });
 }
 
+function vegaRecordMediaUrlValues(value = []) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (!item || typeof item !== "object") return [];
+    return [item.url, item.imageUrl, item.image_url, item.videoUrl, item.video_url, item.audioUrl, item.audio_url, item.localUrl, item.publicUrl, item.cdnUrl, item.previewUrl];
+  }).map((value) => String(value || "").trim()).filter(Boolean);
+}
+
+async function hydrateVegaRecordMediaAssetIds(record = {}, userId = "") {
+  if (!record || !isVegaProvider(record.provider || record.params?.provider)) return record;
+  const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const params = record.params && typeof record.params === "object" ? record.params : {};
+  const hasMissingAssetId = mediaAssets.some((asset) => !String(asset?.userAssetId || asset?.assetId || asset?.id || "").trim() && vegaRecordMediaUrlValues(asset).length);
+  const hasOnlyUrlParams = !mediaAssets.length && [
+    params.firstFrameUrl || params.first_frame_url,
+    params.lastFrameUrl || params.last_frame_url,
+    params.referenceImages || params.reference_images,
+    params.referenceVideos || params.reference_videos,
+    params.referenceAudios || params.reference_audios,
+  ].some((value) => vegaRecordMediaUrlValues(value).length);
+  if (!hasMissingAssetId && !hasOnlyUrlParams) return record;
+  const urls = [
+    ...mediaAssets.flatMap((asset) => vegaRecordMediaUrlValues(asset)),
+    ...vegaRecordMediaUrlValues(params.firstFrameUrl || params.first_frame_url),
+    ...vegaRecordMediaUrlValues(params.lastFrameUrl || params.last_frame_url),
+    ...vegaRecordMediaUrlValues(params.referenceImages || params.reference_images),
+    ...vegaRecordMediaUrlValues(params.referenceVideos || params.reference_videos),
+    ...vegaRecordMediaUrlValues(params.referenceAudios || params.reference_audios),
+  ];
+  const assetIdsByUrl = await getUserAssetIdsByUrlsFromDb({ userId, urls });
+  if (!Object.keys(assetIdsByUrl).length) return record;
+  const assetIdFor = (asset) => String(
+    firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, assetIdsByUrl[String(asset?.url || asset?.imageUrl || asset?.videoUrl || asset?.audioUrl || asset?.localUrl || asset?.publicUrl || asset?.cdnUrl || asset?.previewUrl || "").trim()], "")
+    || "",
+  ).trim();
+  const nextAssets = mediaAssets.map((asset) => ({ ...asset, userAssetId: assetIdFor(asset) }));
+  const idsByType = (type) => nextAssets.filter((asset) => asset?.type === type && asset.userAssetId).map((asset) => asset.userAssetId);
+  const nextParams = { ...params };
+  const firstFrameAssetId = idsByType("first_frame")[0] || params.firstFrameAssetId || params.first_frame_asset_id || "";
+  const lastFrameAssetId = idsByType("last_frame")[0] || params.lastFrameAssetId || params.last_frame_asset_id || "";
+  const referenceImageAssetIds = idsByType("reference_image");
+  const referenceVideoAssetIds = idsByType("reference_video");
+  const referenceAudioAssetIds = idsByType("reference_audio");
+  if (firstFrameAssetId) nextParams.firstFrameAssetId = firstFrameAssetId;
+  if (lastFrameAssetId) nextParams.lastFrameAssetId = lastFrameAssetId;
+  if (referenceImageAssetIds.length) nextParams.referenceImageAssetIds = referenceImageAssetIds;
+  if (referenceVideoAssetIds.length) nextParams.referenceVideoAssetIds = referenceVideoAssetIds;
+  if (referenceAudioAssetIds.length) nextParams.referenceAudioAssetIds = referenceAudioAssetIds;
+  return { ...record, mediaAssets: nextAssets, params: nextParams };
+}
+
 async function handleGetGenerationRecord(req, res, taskId) {
   // Detail polling only needs the session/user row and the requested record.
   // Loading every application table here makes a single slow refresh block
@@ -272,34 +324,34 @@ async function handleGetGenerationRecord(req, res, taskId) {
     return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   }
 
-  let nextRecord = record;
-  if (isStalePreSubmitGenerationRecord(record)) {
-    nextRecord = await failStalePreSubmitGenerationRecord(record, "detail-stale-submit");
-  } else if (needsApizFailureRefund(record)) {
-    nextRecord = await settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "detail");
-  } else if (needsSeedanceFailureRefund(record)) {
-    nextRecord = await settleSeedanceGenerationRecord(record, "detail");
-  } else if (record.provider === "apiz" && (APIZ_API_KEY || record.upstreamSource === "gateway") && shouldRefreshGenerationRecord(record)) {
+  let nextRecord = await hydrateVegaRecordMediaAssetIds(record, auth.user.id);
+  if (isStalePreSubmitGenerationRecord(nextRecord)) {
+    nextRecord = await failStalePreSubmitGenerationRecord(nextRecord, "detail-stale-submit");
+  } else if (needsApizFailureRefund(nextRecord)) {
+    nextRecord = await settleApizGenerationRecord(nextRecord, { status: record.status || "failed", error: record.error || "" }, "detail");
+  } else if (needsSeedanceFailureRefund(nextRecord)) {
+    nextRecord = await settleSeedanceGenerationRecord(nextRecord, "detail");
+  } else if (nextRecord.provider === "apiz" && (APIZ_API_KEY || nextRecord.upstreamSource === "gateway") && shouldRefreshGenerationRecord(nextRecord)) {
     // Status/media refresh runs in the bounded background queue. Never make a
     // browser detail request wait for an upstream download or R2 upload.
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (record.provider === "seedance25" && SEEDANCE25_API_KEY && shouldRefreshGenerationRecord(record)) {
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (record.upstreamSource === "tencent-vod" && shouldRefreshGenerationRecord(record)) {
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (record.upstreamSource === "ignex" && shouldRefreshGenerationRecord(record)) {
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && (record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(record)) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (nextRecord.provider === "seedance25" && SEEDANCE25_API_KEY && shouldRefreshGenerationRecord(nextRecord)) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (nextRecord.upstreamSource === "tencent-vod" && shouldRefreshGenerationRecord(nextRecord)) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (nextRecord.upstreamSource === "gateway" && shouldRefreshGenerationRecord(nextRecord)) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (nextRecord.upstreamSource === "ignex" && shouldRefreshGenerationRecord(nextRecord)) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(nextRecord.provider) && (nextRecord.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(nextRecord)) {
     // Do not make a browser detail poll wait on the upstream request. The
     // status queue performs the query and schedules media download/R2 upload;
     // the current record is safe to return immediately (R2-gated below).
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (record.provider === "aliyun-wan27-image" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
-  } else if (ARK_API_KEY && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
-    queueGenerationRecordStatusRefresh(record, { priority: true, reason: "detail" });
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (nextRecord.provider === "aliyun-wan27-image" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(nextRecord)) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
+  } else if (ARK_API_KEY && shouldRefreshGenerationRecord(nextRecord) && !String(taskId).startsWith("demo-")) {
+    queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });
   }
 
   if (generationRecordNeedsPosterMaintenance(nextRecord)) {
