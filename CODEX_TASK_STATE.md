@@ -1,3 +1,11 @@
+## Result tab download2 save hint (2026-11-05)
+
+- Extended the save hint bubble from the Advanced Result panel to the top-level Result/history cards and the history detail dialog.
+- `setAdvancedDownloadButtonState()` now recreates the hint for transferring, ready, failed, and idle states so it remains visible after clicking download2.
+- Mobile bubbles anchor to the right edge to stay inside the viewport.
+- Updated `platform.create.parts/part-05.js`, `platform.explore.js`, `platform.ui.parts/part-02.js`, `platform.css`, and `test/generated-assets-on-demand.test.js`.
+- Verification: syntax checks, `git diff --check`, and targeted result/history/undress tests (37 pass / 0 fail).
+
 ## Result download2 save hint (2026-11-05)
 
 - Added a persistent speech-bubble hint inside the Result panel download2 button: “如果下载素材慢请点击我保存”.
