@@ -342,6 +342,7 @@ test("image regeneration restores original providers and input media without a n
 
 test("legacy regeneration recovers input images from old records without generating again", () => {
   const createUi = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.parts", "part-02.js"), "utf8");
+  const createRuntime = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-04.js"), "utf8");
   const regenerateSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-29.js"), "utf8");
   const extract = (source, name) => {
     const start = source.indexOf(`function ${name}(`);
@@ -405,6 +406,25 @@ test("legacy regeneration recovers input images from old records without generat
   assert.deepEqual(vegaImages.map((item) => item.type), ["first_frame", "last_frame", "reference_image", "reference_image"]);
   assert.doesNotMatch(JSON.stringify(vegaImages), /vega-generated-result/);
 
+
+  const runtimeHelpers = new Function([
+    extract(createRuntime, "recordParams"),
+    extract(createRuntime, "firstPresent"),
+    extract(createRuntime, "upstreamMediaUrl"),
+    extract(createRuntime, "upstreamMediaType"),
+    extract(createRuntime, "upstreamInputMediaItems"),
+    extract(createRuntime, "arrayFrom"),
+    "return { upstreamInputMediaItems };",
+  ].join("\n"))();
+  const runtimeItems = runtimeHelpers.upstreamInputMediaItems(vegaFileInfoRecord);
+  assert.deepEqual(runtimeItems.map((item) => item.url), [
+    "https://cdn.example.com/vega-first-frame.png",
+    "https://cdn.example.com/vega-last-frame.png",
+    "https://cdn.example.com/vega-reference.png",
+    "asset://asset-legacy-reference",
+  ]);
+  assert.deepEqual(runtimeItems.map((item) => item.type), ["first_frame", "last_frame", "reference_image", "reference_image"]);
+  assert.doesNotMatch(JSON.stringify(runtimeItems), /vega-generated-result/);
 
   const upstreamOnlyRecord = {
     mediaAssets: [],

@@ -128,6 +128,13 @@ function recordParams(record = {}) {
   return record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
 }
 
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return "";
+}
+
 function upstreamMediaUrl(item = {}) {
   if (!item || typeof item !== "object") return "";
   return item.Url
@@ -189,7 +196,7 @@ function upstreamInputMediaItems(record = {}) {
   const listKeys = ["referenceImages", "reference_images", "referenceImageUrls", "reference_image_urls", "referenceVideos", "reference_videos", "referenceVideoUrls", "reference_video_urls", "referenceAudios", "reference_audios", "referenceAudioUrls", "reference_audio_urls"];
   listKeys.forEach((key) => {
     const fallback = key.toLowerCase().includes("video") ? "reference_video" : key.toLowerCase().includes("audio") ? "reference_audio" : "reference_image";
-    arrayFrom(firstNonEmpty(params[key], payload[key])).forEach((item) => push(item, fallback));
+    arrayFrom(firstPresent(params[key], payload[key])).forEach((item) => push(item, fallback));
   });
   return items;
 }
