@@ -459,10 +459,10 @@ const VEGA_PROVIDER_IDS = Object.freeze([
   "vega10-lite",
 ]);
 const VEGA_MODEL_LABELS = Object.freeze({
-  "seedance20-vega": "Vega 1.0 Pro",
-  "seedance25-vega": "Vega 1.5 Pro",
-  "h3-vega": "Vega 1.5 Lite",
-  "vega10-lite": "Vega 1.0 Lite",
+  "seedance20-vega": "seedance2.0（vega）",
+  "seedance25-vega": "seedance2.5vega",
+  "h3-vega": "wan（vega）",
+  "vega10-lite": "h3（vega）",
 });
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);

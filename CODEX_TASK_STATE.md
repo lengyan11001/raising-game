@@ -1,3 +1,11 @@
+## Vega frontend display labels (2026-11-05)
+
+- User requested test-stage frontend labels only: `vega10-lite` -> `h3（vega）`, `h3-vega` -> `wan（vega）`, `seedance20-vega` -> `seedance2.0（vega）`, `seedance25-vega` -> `seedance2.5vega`.
+- Provider IDs, model versions, routing, pricing, and media limits are unchanged. Pro will later be routed behind a unified Seedance entry; this change only separates the test models in the UI.
+- Changed files: `platform.html`, `platform.config.js`, `test/tencent-vod-vega.test.js`.
+- Verification: Vega tests 50/50 pass; advanced-pricing + source-split 21/21 pass; syntax checks and `git diff --check` pass.
+- Deployment pending.
+
 ## Vega 1.5 Pro integration (2026-11-05)
 
 - Scope is limited to Vega 1.5 Pro (`seedance25-vega`): upstream `wand-vega-video / 1.5-pro`. Vega 1.0 Lite (`vega10-lite`) and Vega 1.5 Lite (`h3-vega`) behavior is unchanged.
