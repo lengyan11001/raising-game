@@ -5045,8 +5045,8 @@ dialog.tool-download-modal {
 .advanced-result-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  max-height: min(62vh, 720px);
+  gap: 8px;
+  max-height: min(68vh, 760px);
   overflow-y: auto;
   overscroll-behavior: contain;
   align-content: start;
@@ -5065,53 +5065,61 @@ dialog.tool-download-modal {
 }
 @media (min-width: 761px) {
   .advanced-workspace.is-create-custom .advanced-form-card {
-    max-height: calc(100vh - 96px);
+    max-height: calc(100vh - 76px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    gap: 9px;
-    padding: 14px;
+    gap: 6px;
+    padding: 11px 12px;
     scrollbar-gutter: stable;
   }
   .advanced-workspace.is-create-custom .advanced-create-switch {
-    gap: 7px;
+    gap: 5px;
   }
   .advanced-workspace.is-create-custom .advanced-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
   }
   .advanced-workspace.is-create-custom .advanced-fields .field {
-    gap: 4px;
+    gap: 2px;
+  }
+  .advanced-workspace.is-create-custom .advanced-fields .field > span {
+    min-height: 0;
+    font-size: .72rem;
+    line-height: 1.1;
   }
   .advanced-workspace.is-create-custom .advanced-fields select,
   .advanced-workspace.is-create-custom .advanced-fields input {
-    min-height: 34px;
-    padding-top: 6px;
-    padding-bottom: 6px;
+    min-height: 31px;
+    padding: 4px 9px;
   }
   .advanced-workspace.is-create-custom .advanced-fields .advanced-checkbox-control {
-    min-height: 34px;
-    padding: 5px 9px;
+    min-height: 31px;
+    padding: 4px 8px;
+  }
+  .advanced-workspace.is-create-custom .advanced-prompt-field {
+    gap: 3px;
   }
   .advanced-workspace.is-create-custom .advanced-prompt-field textarea {
-    min-height: 88px;
+    min-height: 68px;
+    padding: 7px 9px;
   }
   .advanced-workspace.is-create-custom .advanced-video-settings summary {
-    min-height: 36px;
-    padding: 0 10px;
+    min-height: 32px;
+    padding: 0 9px;
   }
   .advanced-workspace.is-create-custom .advanced-video-settings-grid {
-    gap: 8px;
-    padding: 0 10px 10px;
+    gap: 6px;
+    padding: 0 9px 8px;
   }
   .advanced-workspace.is-create-custom .advanced-video-setting {
-    gap: 5px;
+    gap: 4px;
   }
   .advanced-workspace.is-create-custom .advanced-video-choice {
-    min-width: 58px;
-    min-height: 32px;
+    min-width: 52px;
+    min-height: 29px;
   }
   .advanced-workspace.is-create-custom .generate-btn {
-    min-height: 42px;
+    min-height: 38px;
   }
 }
 .advanced-result-empty {
@@ -5135,11 +5143,11 @@ dialog.tool-download-modal {
 }
 .advanced-result-card {
   display: grid;
-  gap: 10px;
+  gap: 7px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
+  padding: 8px;
   background: rgba(255,255,255,.76);
   box-shadow: var(--soft-shadow);
 }
@@ -5188,7 +5196,7 @@ dialog.tool-download-modal {
   display: grid;
   place-items: center;
   width: 100%;
-  min-height: 190px;
+  min-height: 132px;
   border: 0;
   border-radius: 8px;
   padding: 0;
@@ -5201,7 +5209,7 @@ dialog.tool-download-modal {
 .advanced-result-media video {
   width: 100%;
   height: 100%;
-  max-height: 320px;
+  max-height: 210px;
   object-fit: contain;
   display: block;
 }
@@ -5275,6 +5283,19 @@ dialog.tool-download-modal {
 @media (min-width: 1440px) {
   .advanced-result-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1440px) and (max-height: 900px) {
+  .advanced-result-list {
+    max-height: min(64vh, 600px);
+  }
+  .advanced-result-media {
+    min-height: 96px;
+  }
+  .advanced-result-media img,
+  .advanced-result-media video {
+    max-height: 160px;
   }
 }
 .advanced-fields {

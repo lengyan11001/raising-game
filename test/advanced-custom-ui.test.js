@@ -124,12 +124,14 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /@media \(min-width: 1440px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(html, /id="advancedResultPager"/);
   assert.match(config, /advancedResultPage: 1/);
+  assert.match(config, /const ADVANCED_RESULT_PAGE_SIZE = 6;/);
   assert.match(create, /function advancedResultPageData\(/);
   assert.match(create, /renderSimplePager\(els\.advancedResultPager, pageData/);
   assert.match(create, /advancedResultPageRecord\(/);
   assert.match(css, /\.advanced-result-list \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: visible/);
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(create, /class="advanced-result-actions"/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
 });

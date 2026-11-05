@@ -161,22 +161,22 @@ test("successful history rows without media still participate in detail refresh"
 });
 
 test("result pagination slices by the active page and clamps stale pages", () => {
-  const state = { advancedResultPage: 1, advancedResultPageSize: 4 };
+  const state = { advancedResultPage: 1, advancedResultPageSize: 6 };
   const pageDataSource = create.match(/function advancedResultPageData\([\s\S]*?\n\}/)?.[0] || "";
   assert.ok(pageDataSource, "advancedResultPageData should exist");
   const pageData = new Function(
     "state",
     "ADVANCED_RESULT_PAGE_SIZE",
     `${pageDataSource}\nreturn advancedResultPageData;`,
-  )(state, 4);
+  )(state, 6);
   const records = Array.from({ length: 9 }, (_, index) => ({ taskId: `task-${index + 1}` }));
-  assert.deepEqual(pageData(records).records.map((record) => record.taskId), ["task-1", "task-2", "task-3", "task-4"]);
-  state.advancedResultPage = 3;
-  assert.deepEqual(pageData(records).records.map((record) => record.taskId), ["task-9"]);
+  assert.deepEqual(pageData(records).records.map((record) => record.taskId), ["task-1", "task-2", "task-3", "task-4", "task-5", "task-6"]);
+  state.advancedResultPage = 2;
+  assert.deepEqual(pageData(records).records.map((record) => record.taskId), ["task-7", "task-8", "task-9"]);
   state.advancedResultPage = 99;
   const clamped = pageData(records);
-  assert.equal(clamped.page, 3);
-  assert.deepEqual(clamped.records.map((record) => record.taskId), ["task-9"]);
+  assert.equal(clamped.page, 2);
+  assert.deepEqual(clamped.records.map((record) => record.taskId), ["task-7", "task-8", "task-9"]);
 });
 
 test("poster-only successful records render as video media", () => {
