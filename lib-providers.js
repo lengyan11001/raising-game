@@ -205,7 +205,10 @@ function publicPricingValue(value) {
   if (typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => {
       if (key === "provider") return [key, publicProviderId(item)];
-      if (key === "providerLabel") return [key, publicProviderLabel(value.provider || item)];
+      if (key === "providerLabel") {
+        const provider = value.provider || item;
+        return [key, publicGenerationDisplayLabel(provider) || publicProviderLabel(provider)];
+      }
       return [publicModelKey(key), publicPricingValue(item)];
     }));
   }

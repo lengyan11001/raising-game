@@ -1,13 +1,15 @@
 ## Vega Pro public display alias consistency (2026-11-05)
 
+- Status: completed and deployed to `123vips.com`; Live was not deployed.
 - User reported that a newly created Vega 1.5 Pro task reverted from `seedance2.5vega` to `Vega 1.5 Pro` after refresh and on the result card.
 - Root cause: the frontend dropdown/config label was correct, but `publicGenerationRecord()` returned the persisted `templateTitle` and `publicProviderLabel()`, while result/history/notification renderers preferred those raw values.
 - Added separate public display alias helpers in `lib-providers.js` and `platform.config.js`. They normalize both provider IDs and historical labels: Vega 1.5 Pro -> `seedance2.5vega`; Vega 1.0 Pro -> `seedance2.0（vega）`.
 - `publicGenerationRecord()` now applies the Pro alias to `templateTitle` and `providerLabel`, so new creates, `/api/generation-records` refreshes, and historical records all resolve consistently. Provider IDs, model versions, payloads, pricing rows, Lite labels/behavior, and media limits are unchanged.
 - Result-card titles, result previews, history previews, history detail titles, and completion notifications now use the shared frontend display-title helper.
-- Files changed: `lib-providers.js`, `server.parts/part-01.js`, `server.parts/part-20.js`, `server.parts/part-43.js`, `platform.config.js`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-05.js`, `platform.explore.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
-- Verification: Vega suite 54/54; advanced-pricing + source-split 21/21; generation-record-list-refresh + undress-tool 27/27; syntax checks and `git diff --check` pass.
-- Deployment pending at the time this note was written; deploy only `123vips.com` with `scripts/deploy_local.sh --site old`, never Live.
+- Pricing responses and the public price table now use the same display alias, while provider IDs, rate values, and internal labels remain unchanged.
+- Files changed: `lib-providers.js`, `server.parts/part-01.js`, `server.parts/part-20.js`, `server.parts/part-43.js`, `platform.config.js`, `platform.ui.parts/part-02.js`, `platform.ui.parts/part-04.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-05.js`, `platform.explore.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: Vega suite 55/55; advanced-pricing + Vega-pricing + source-split 29/29; generation-record-list-refresh + undress-tool 27/27; syntax checks and `git diff --check` pass.
+- Deployment baseline: `old-site` `8f52e3f`; `platform-release` `24185a5`; production health `200 {"ok":true}`. A subsequent status-only/pricing-display follow-up still needs its own commit, release snapshot, and old-site deployment if required.
 
 ## Admin page loading audit and fix (2026-11-05)
 

@@ -96,6 +96,34 @@ test("Vega Pro public display aliases normalize new and historical records", () 
   assert.equal(lite.templateTitle, "Vega 1.5 Lite");
 });
 
+test("Vega Pro pricing labels use the same public display aliases without changing provider ids", () => {
+  const pricing25 = providers.publicPricingValue({
+    provider: "seedance25-vega",
+    providerLabel: "Vega 1.5 Pro",
+    resolution: "1080p",
+    credits: 10,
+  });
+  assert.equal(pricing25.provider, "seedance25-vega");
+  assert.equal(pricing25.providerLabel, "seedance2.5vega");
+  assert.equal(pricing25.credits, 10);
+
+  const pricing20 = providers.publicPricingValue({
+    provider: "seedance20-vega",
+    providerLabel: "Vega 1.0 Pro",
+    resolution: "720p",
+  });
+  assert.equal(pricing20.provider, "seedance20-vega");
+  assert.equal(pricing20.providerLabel, "seedance2.0（vega）");
+
+  const lite = providers.publicPricingValue({
+    provider: "h3-vega",
+    providerLabel: "Vega 1.5 Lite",
+    resolution: "720p",
+  });
+  assert.equal(lite.providerLabel, "Vega 1.5 Lite");
+  assert.match(read("platform.ui.parts/part-04.js"), /model: publicGenerationDisplayLabel\(row\.provider\) \|\| String\(row\.providerLabel/);
+});
+
 test("Vega Pro result, history, preview, and completion labels use the shared display alias", () => {
   assert.match(ui, /function generationCompletionLabel\(record = \{\}\) \{\s*return publicGenerationDisplayTitle\(record, "生成记录"\);/);
   assert.match(create, /publicGenerationDisplayTitle\(record, "Generation"\)/);

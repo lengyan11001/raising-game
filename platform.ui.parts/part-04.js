@@ -426,7 +426,7 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
     const rate = Number(row.saleCreditsPerUnit ?? row.saleCreditsPerSecond ?? 0) || 0;
     return {
       category: rowCategory(row),
-      model: String(row.providerLabel || row.provider || row.model || "Model"),
+      model: publicGenerationDisplayLabel(row.provider) || String(row.providerLabel || row.provider || row.model || "Model"),
       modelId: String(row.model || ""),
       spec: String(row.resolution || "-"),
       unit: rowUnit(row, rate),
