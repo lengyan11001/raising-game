@@ -43,7 +43,7 @@ async function submitAdvancedGenerate() {
     const maxTokens = Math.max(1, Math.min(8192, Number(els.advancedQwen37MaxTokens?.value || 8192) || 8192));
     const temperature = Math.max(0, Math.min(2, Number(els.advancedQwen37Temperature?.value || 0.7)));
     const pendingTaskId = `pending-text-${Date.now().toString(36)}`;
-    state.advancedResultMediaKind = "conversation";
+    setAdvancedResultMediaKind("conversation");
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
       status: "submitting",
@@ -106,7 +106,7 @@ async function submitAdvancedGenerate() {
       els.advancedSubmitBtn.disabled = false;
       return;
     }
-    state.advancedResultMediaKind = "image";
+    setAdvancedResultMediaKind("image");
     const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
@@ -198,7 +198,7 @@ async function submitAdvancedGenerate() {
       els.advancedSubmitBtn.disabled = false;
       return;
     }
-    state.advancedResultMediaKind = "image";
+    setAdvancedResultMediaKind("image");
     const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
@@ -479,7 +479,7 @@ async function submitAdvancedGenerate() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    state.advancedResultMediaKind = "video";
+    setAdvancedResultMediaKind("video");
     mergeAdvancedResultRecord(vegaPendingRecord);
     setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
@@ -779,7 +779,7 @@ async function submitAdvancedGenerate() {
       return;
     }
   }
-  state.advancedResultMediaKind = "video";
+  setAdvancedResultMediaKind("video");
   const pendingTaskId = `pending-video-${Date.now().toString(36)}`;
   mergeAdvancedResultRecord({
     taskId: pendingTaskId,

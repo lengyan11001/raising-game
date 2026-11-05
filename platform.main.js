@@ -725,7 +725,7 @@ els.advancedCreateKindTabs?.addEventListener("click", (event) => {
 els.advancedResultKindTabs?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-advanced-result-kind]");
   if (!button) return;
-  state.advancedResultMediaKind = button.dataset.advancedResultKind || "video";
+  setAdvancedResultMediaKind(button.dataset.advancedResultKind || "video");
   renderAdvancedResultPanel();
 });
 els.advancedCreateModeTabs?.addEventListener("click", (event) => {

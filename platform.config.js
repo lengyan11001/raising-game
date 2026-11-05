@@ -35,6 +35,7 @@ const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
 const ADVANCED_QWEN_IMAGE3_PRO_2K_USD_PER_IMAGE = 0.068761;
 const ADVANCED_QWEN_IMAGE3_STANDARD_USD_PER_IMAGE = 0.024754;
 const ADVANCED_QWEN_IMAGE3_USD_PER_REFERENCE_IMAGE = 0.00275;
+const ADVANCED_RESULT_PAGE_SIZE = 4;
 // The Seedance 2.5 engine keeps its provider id; only its public name lost the
 // NSFW wording.
 const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw";
@@ -1029,6 +1030,7 @@ const state = {
   advancedResultRecords: [],
   advancedResultMediaKind: "video",
   advancedResultTaskId: "",
+  advancedResultPage: 1,
   advancedResultTimer: 0,
   advancedResultLoading: false,
   workflow: null,
@@ -1488,6 +1490,7 @@ const els = {
   advancedResultView: document.querySelector("#advancedResultView"),
   advancedResultList: document.querySelector("#advancedResultList"),
   advancedResultKindTabs: document.querySelector("#advancedResultKindTabs"),
+  advancedResultPager: document.querySelector("#advancedResultPager"),
   refreshAdvancedResultBtn: document.querySelector("#refreshAdvancedResultBtn"),
   workflowRoot: document.querySelector("#workflowRoot"),
   advancedAssetTargets: document.querySelector("#advancedAssetTargets"),

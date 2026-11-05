@@ -731,22 +731,48 @@ function advancedResultDisplayRecords() {
   return sortAdvancedResultRecords([...byTaskId.values()]);
 }
 
+function setAdvancedResultMediaKind(kind = "video") {
+  state.advancedResultMediaKind = kind;
+  state.advancedResultPage = 1;
+}
+
 function advancedResultVisibleRecords() {
   return advancedResultDisplayRecords()
     .filter((record) => advancedResultKind(record) === (state.advancedResultMediaKind || "video"));
 }
 
+function advancedResultPageData(visibleRecords = advancedResultVisibleRecords()) {
+  const pageSize = Math.max(1, Number(state.advancedResultPageSize || ADVANCED_RESULT_PAGE_SIZE) || ADVANCED_RESULT_PAGE_SIZE);
+  const total = visibleRecords.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(totalPages, Math.max(1, Number(state.advancedResultPage || 1)));
+  state.advancedResultPage = page;
+  return {
+    records: visibleRecords.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    totalPages,
+    total,
+  };
+}
+
+function advancedResultPageRecord(index) {
+  return advancedResultPageData().records[Number(index) || 0];
+}
+
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
-  const records = advancedResultVisibleRecords();
+  const visibleRecords = advancedResultVisibleRecords();
+  const pageData = advancedResultPageData(visibleRecords);
+  const records = pageData.records;
   els.advancedResultKindTabs?.querySelectorAll("[data-advanced-result-kind]").forEach((button) => {
     const active = button.dataset.advancedResultKind === (state.advancedResultMediaKind || "video");
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
-  if (!records.length) {
+  if (!visibleRecords.length) {
     const label = t(({ video: "advanced.createKindVideo", image: "advanced.createKindImage", conversation: "advanced.createKindConversation" })[state.advancedResultMediaKind || "video"]);
     els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>${escapeHtml(state.lang === "zh" ? `${label}暂无记录` : `No ${label.toLowerCase()} yet`)}</strong><p>${escapeHtml(state.lang === "zh" ? "该分类的生成结果会显示在这里。" : "Results for this type will appear here.")}</p></div>`;
+    if (els.advancedResultPager) els.advancedResultPager.innerHTML = "";
     refreshIcons();
     return;
   }
@@ -801,9 +827,13 @@ function renderAdvancedResultPanel() {
       </article>
     `;
   }).join("");
+  renderSimplePager(els.advancedResultPager, pageData, (page) => {
+    state.advancedResultPage = page;
+    renderAdvancedResultPanel();
+  }, { jump: true });
   els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultVideo || 0)];
+      const record = advancedResultPageRecord(button.dataset.advancedResultVideo);
       const videoUrl = generationVideoUrl(record);
       if (!videoUrl) return;
       playPreview({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
@@ -812,7 +842,7 @@ function renderAdvancedResultPanel() {
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
       const [recordIndex, imageIndex] = String(button.dataset.advancedResultImage || "0:0").split(":").map(Number);
-      const record = advancedResultVisibleRecords()[recordIndex || 0];
+      const record = advancedResultPageRecord(recordIndex);
       const imageUrl = generationImageResultUrls(record)[imageIndex || 0] || generationImageResultUrl(record);
       if (!imageUrl) return;
       previewImage({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), imageUrl });
@@ -820,7 +850,7 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultCopy || 0)];
+      const record = advancedResultPageRecord(button.dataset.advancedResultCopy);
       const textResult = String(record?.textResult || record?.responseText || "");
       if (!textResult) return;
       await navigator.clipboard.writeText(textResult);
@@ -830,13 +860,13 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultDownload || 0)];
+      const record = advancedResultPageRecord(button.dataset.advancedResultDownload);
       downloadGenerationRecord(record);
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-r2-download]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultR2Download || 0)];
+      const record = advancedResultPageRecord(button.dataset.advancedResultR2Download);
       setAdvancedDownloadButtonState(button, "transferring");
       const ok = await downloadGenerationRecord(record, { advanced: true });
       setAdvancedDownloadButtonState(button, ok ? "ready" : "failed");
@@ -844,7 +874,7 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const cachedRecord = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
+      const cachedRecord = advancedResultPageRecord(button.dataset.advancedResultRegenerate);
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();

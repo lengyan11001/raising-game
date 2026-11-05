@@ -5046,6 +5046,73 @@ dialog.tool-download-modal {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  max-height: min(62vh, 720px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-content: start;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+.advanced-result-pager {
+  margin-top: 2px;
+}
+@media (max-width: 760px) {
+  .advanced-result-list {
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+}
+@media (min-width: 761px) {
+  .advanced-workspace.is-create-custom .advanced-form-card {
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: 9px;
+    padding: 14px;
+    scrollbar-gutter: stable;
+  }
+  .advanced-workspace.is-create-custom .advanced-create-switch {
+    gap: 7px;
+  }
+  .advanced-workspace.is-create-custom .advanced-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .advanced-workspace.is-create-custom .advanced-fields .field {
+    gap: 4px;
+  }
+  .advanced-workspace.is-create-custom .advanced-fields select,
+  .advanced-workspace.is-create-custom .advanced-fields input {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .advanced-workspace.is-create-custom .advanced-fields .advanced-checkbox-control {
+    min-height: 34px;
+    padding: 5px 9px;
+  }
+  .advanced-workspace.is-create-custom .advanced-prompt-field textarea {
+    min-height: 88px;
+  }
+  .advanced-workspace.is-create-custom .advanced-video-settings summary {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+  .advanced-workspace.is-create-custom .advanced-video-settings-grid {
+    gap: 8px;
+    padding: 0 10px 10px;
+  }
+  .advanced-workspace.is-create-custom .advanced-video-setting {
+    gap: 5px;
+  }
+  .advanced-workspace.is-create-custom .advanced-video-choice {
+    min-width: 58px;
+    min-height: 32px;
+  }
+  .advanced-workspace.is-create-custom .generate-btn {
+    min-height: 42px;
+  }
 }
 .advanced-result-empty {
   min-height: 220px;

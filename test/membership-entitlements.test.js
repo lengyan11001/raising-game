@@ -142,9 +142,9 @@ test("non-members do not flash top-up bonus badges; redeeming membership refresh
 
 test("creating a result switches the result media tab to match task kind", () => {
   const create = read("platform.create.js");
-  assert.match(create, /state\.advancedResultMediaKind = "video";\s*const pendingTaskId = `pending-video/);
-  assert.match(create, /state\.advancedResultMediaKind = "image";\s*const pendingTaskId = `pending-image/);
-  assert.ok((create.match(/state\.advancedResultMediaKind = "image";/g) || []).length >= 2);
+  assert.match(create, /setAdvancedResultMediaKind\("video"\);[\s\S]{0,100}?const pendingTaskId = `pending-video/);
+  assert.match(create, /setAdvancedResultMediaKind\("image"\);[\s\S]{0,100}?const pendingTaskId = `pending-image/);
+  assert.ok((create.match(/setAdvancedResultMediaKind\("image"\);/g) || []).length >= 2);
 });
 test("admin membership code list exposes a persistent one-click copy button", () => {
   const admin = read("admin.js");

@@ -916,7 +916,7 @@ test("Vega regeneration restores and persists user asset ids end to end", () => 
   assert.match(submit, /referenceVideoAssetIds: vegaVideoItems\.map/);
   assert.match(submit, /referenceAudioAssetIds: vegaAudioItems\.map/);
   assert.match(submit, /firstFrameAssetId: state\.advancedSeedanceFirstFrameAssetId/);
-  const pending = sourceBetween(create, "const vegaPendingRecord = {", "state.advancedResultMediaKind = \"video\";");
+  const pending = sourceBetween(create, "const vegaPendingRecord = {", "setAdvancedResultMediaKind(\"video\");");
   assert.match(pending, /userAssetId: vegaPayload\.firstFrameAssetId/);
   assert.match(pending, /userAssetId: vegaPayload\.referenceImageAssetIds\?\.\[index\]/);
   const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "function advancedRuntimeForProvider(");

@@ -1,3 +1,13 @@
+## Generate Result pagination and compact controls (2026-11-05)
+
+- User reported the Create-page Result side grew without bound, forcing the whole page to scroll before the left submit control could be reached; new endpoint options also made the left form too tall.
+- Added client-side Result pagination at 4 records per page, reusing `renderSimplePager`; page resets on result-type changes and all new task entry points select the matching result category and page 1.
+- Result action handlers now resolve records from the current page rather than the global visible index, preventing page 2 previews/downloads/regeneration from targeting page 1 records.
+- Desktop Result list is independently scrollable with a capped height; mobile keeps natural flow. The custom Create form is independently scrollable and uses tighter desktop spacing, controls, and advanced-option gaps so Generate stays reachable in one viewport.
+- Verification: 86 focused Result/source tests pass; pagination slice regression passes; syntax and `git diff --check` pass. Six `advanced-custom-ui` Wan/pricing tests fail identically on the clean baseline and are pre-existing, not caused by this change.
+- Files: `platform.html`, `platform.css`, `platform.config.js`, `platform.main.js`, `platform.explore.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-03.js`, and related source-contract tests.
+- Deployment: pending.
+
 ## Vega 1.0 Lite ModerationMode removal (2026-11-05)
 
 - User requested removing the `ModerationMode` parameter for Vega 1.0 Lite only (`vega10-lite`).
