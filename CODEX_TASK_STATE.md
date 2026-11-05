@@ -249,3 +249,12 @@ CODEX_TASK_STATE.md
 - Production checkout confirmed at `0d59f566c6fb1e81d758c5f4baec01c8cbe01933`; `raising-game-demo` is active; `/api/health` returns `{"ok":true}`.
 - Verified the deployed refund fix (`pre_deducted` qualifies for refund) and 10-second Result polling are present.
 - Next: user will submit a new Vega 1.0 Lite generation; inspect that task only for terminal status, upstream parameters, pricing, and automatic refund on failure.
+
+## Admin generation username search fix (2026-11-05)
+
+- User reported that admin generation records no longer found data when searching by username `test01`.
+- Production verification found four active accounts with username `test01` across different tenants: `user-1777972853765-6da5a3f7` (main) 237 records, `user-1785989952997-cc30465c` (tool-undress-14vips) 13 records, `user-1784902608053-8303c73c` (tool-video-123tops) 11 records, and `user-1788749742388-95672d95` (tool-chat-5vips) 0 records.
+- Root cause: the optimized generation-record search resolved a username with `LIMIT 1`, so it selected one tenant-specific account and missed records belonging to the others.
+- Fixed `getAdminGenerationRecordsPageFromDb()` to resolve every matching non-deleted account and filter generation records with `userId = ANY(text[])`.
+- Also made username matching case-insensitive while preserving the fast indexed user-ID lookup.
+- Regression coverage updated in `test/admin-generation-records-list.test.js`.

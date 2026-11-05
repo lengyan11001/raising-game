@@ -5414,16 +5414,18 @@ async function getAdminGenerationRecordsPageFromDb({
     // User IDs and usernames are the common admin lookup. Resolve them to a
     // single indexed userId predicate instead of scanning every generation
     // payload and concatenating large JSON strings for a LIKE query.
-    const userMatch = await query(
+    const userMatches = await query(
       `SELECT id FROM app_users
-       WHERE id = $1 OR username = $1
-       ORDER BY (id = $1) DESC
-       LIMIT 1`,
+       WHERE (id = $1 OR username = $1 OR LOWER(username) = LOWER($1))
+         AND deleted_at IS NULL
+       ORDER BY (id = $1) DESC, created_at DESC`,
       [cleanSearch],
     );
-    const exactUserId = String(userMatch.rows[0]?.id || "").trim();
-    if (exactUserId) {
-      where.push(`records.payload->>'userId' = ${addParam(exactUserId)}`);
+    const exactUserIds = userMatches.rows.map((row) => String(row.id || "").trim()).filter(Boolean);
+    if (exactUserIds.length) {
+      // Usernames are not globally unique across tenants, so a username search
+      // must include every matching account instead of silently choosing one.
+      where.push(`records.payload->>'userId' = ANY(${addParam(exactUserIds)}::text[])`);
       exactSearchMatched = true;
     } else {
       // A full task ID is another high-frequency exact lookup and can use the
