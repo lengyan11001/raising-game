@@ -228,7 +228,10 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     : normalizedProvider === "happyhorse"
     ? normalized.happyhorseCreditsPerSecondByResolution
     : normalized.seedanceCreditsPerSecondByResolution;
-  return pricingNumber(table[normalizeAdvancedResolution(resolution)], 0);
+  const rateKey = normalizedProvider === "vega10-lite"
+    ? String(resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
+    : normalizeAdvancedResolution(resolution);
+  return pricingNumber(table[rateKey], 0);
 }
 
 function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {

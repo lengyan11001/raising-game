@@ -127,6 +127,18 @@ test("Vega 1.0 Lite pricing rows, defaults, validation, and reference-image fees
   assert.equal(sixImages.credits - fiveImages.credits, 4.5);
 });
 
+test("public Vega 1.0 Lite pricing rows keep 768P and extra-reference-image rates", () => {
+  const rows = application.publicAdvancedPricingRows({
+    vega10LiteCreditsPerSecondByResolution: { "480p": 6.855, "768p": 8.655, "1080p": 11.535, "2k": 14.43, "4k": 17.31 },
+    vega10LiteInputVideoCreditsPerSecondByResolution: { "480p": 6.855, "768p": 8.655, "1080p": 11.535, "2k": 14.43, "4k": 17.31 },
+    vega10LiteReferenceImageCreditsEach: 4.5,
+  });
+  const byKey = Object.fromEntries(rows.map((row) => [row.key, row]));
+  assert.equal(byKey["vega10-lite-768p"].saleCreditsPerUnit, 8.655);
+  assert.equal(byKey["vega10-lite-video-input-768p"].saleCreditsPerUnit, 8.655);
+  assert.equal(byKey["vega10-lite-reference-image"].saleCreditsPerUnit, 4.5);
+});
+
 test("Vega 1.5 Lite bills output and reference input video separately and fails closed at zero", () => {
   const pricingSource = server.slice(
     server.indexOf("function advancedModelPricing("),

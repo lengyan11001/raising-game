@@ -1,5 +1,16 @@
 # Codex Task State
 
+## Vega 1.0 Lite integration (2026-11-05)
+
+- Integration commit `b1eeea1` adds provider `vega10-lite` (`wand-vega-video / 1.0-lite`) with text, first frame, last frame, first+last frame, and multimodal reference modes; resolutions 480P/768P/1080P/2K/4K; duration 4-15 seconds without smart duration.
+- Limits: 9 images, 3 videos, 3 audios, 12 assets total; each video/audio 2-15 seconds; total video/audio each <=15 seconds; audio requires image/video input; prompt max 7000 characters. Draft-to-final and return-last-frame are unsupported.
+- International Tencent VOD only (`vod.intl.tencentcloudapi.com`, `ap-singapore`).
+- Default prices in `server.parts/part-01.js`: output and input-video USD/second x1.5 x100 = 6.855 / 8.655 / 11.535 / 14.43 / 17.31 credits; extra reference image after first 5 = 4.5 credits.
+- Fixed admin/public pricing view bug: `768P` and the extra-reference-image row were collapsing to 0 during whole-table save. The view now preserves Vega 1.0 Lite-specific rate keys; regression added in `test/advanced-pricing.test.js`.
+- Tests for the integration and view fix: 62 pass, 0 fail (`advanced-pricing`, `vega-pricing-label`, `tencent-vod-vega`).
+- Production pricing persisted through authenticated `/api/admin/pricing` into PostgreSQL `app_kv.app_config.platform.advancedPricing`; all 11 Vega 1.0 Lite rows exist.
+- Production at `123vips.com` is release `b4d40c9` from integration `b1eeea1`; service active, health OK. Live was not deployed.
+
 ## Vega Lite pricing label fix (deployed, 2026-11-05)
 
 - Commit `acd4a5a` fixes `platform.ui.parts/part-04.js`: pending estimates show `Checking cost...`; successful estimates show actual credits/duration/resolution; only matching failures show server error text. No fabricated `pricing unavailable` / `pricing is not configured` while an estimate is pending.
