@@ -1,3 +1,14 @@
+## Legacy regeneration direct input restore deployment (2026-11-05)
+
+- User asked whether an old generation must be regenerated once before its source media can be brought back. No new generation is required.
+- Frontend regenerated media restoration now reads original sources from `upstreamPayload.FileInfos`, `Content`, and nested image/video/audio URL fields, while retaining first-frame, last-frame, and reference typing. Generated result URLs remain excluded.
+- Backend Vega/image regeneration reconstructs original media and asset IDs from the same legacy fields.
+- Targeted checks passed: syntax for all changed JS files, `git diff --check`, legacy regeneration input test, and image regeneration provider/media test.
+- Commit `c4ec992` on `old-site`, pushed to origin.
+- Platform release `4448a3c`, built from `c4ec992`, pushed with lease protection and deployed to `123vips.com` only.
+- Production verification: `/api/health` returns `{"ok":true}`; deployed create/UI chunks contain `FileInfos`, `Content`, `upstreamInputMediaItems`, and `upstreamInputImageAssets`; homepage remains the platform site.
+- Live was not deployed.
+
 ## Legacy regeneration input recovery (2026-11-05)
 
 - User reported old generation records could not restore input media on “再次生成” and asked whether a new generation was required. It is not: old records are restored directly from their saved input fields.
