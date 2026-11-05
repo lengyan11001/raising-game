@@ -1,13 +1,20 @@
 # Codex Task State
 
-## Current issue (2026-11-05): Vega Lite button still shows pricing unavailable
+## Current issue (2026-11-05): Admin generation records slow for specific user
 
-- Root cause: `advancedCostLabel()` treated a not-yet-returned Vega estimate as `MODEL_PRICING_UNAVAILABLE`, and successful estimates were also sent through the failure-label helper.
-- Fixed estimate display states: successful quote shows actual credits/duration/resolution; pending shows `Checking cost...`; failed shows the real server message; no fabricated `pricing unavailable`/`not configured` before a request completes.
-- Added stale-response guards so a slow old estimate cannot overwrite a newer model or reference-video selection.
-- Added `test/vega-pricing-label.test.js` behavioral tests.
-- Targeted tests (`vega-pricing-label`, `advanced-pricing`, `tencent-vod-vega`): 57 pass, 0 fail. Syntax and `git diff --check` pass.
-- Implemented in an isolated managed worktree because the original checkout was concurrently overwritten by another task.
+- User reports querying all generation records is fast, but filtering by a specific user is slow.
+- Root cause: exact user searches still ran through a large LOWER(CONCAT_WS(...)) LIKE scan over record payloads; the list also loaded full request/response JSON and ran unnecessary total counts.
+- Fix in `db.js` `getAdminGenerationRecordsPageFromDb()`:
+  - Resolve exact user ID/username first and query the indexed `records.payload->>'userId'` predicate.
+  - Resolve full task ID through the primary key.
+  - Keep broad fuzzy search only as fallback.
+  - Select only list/thumbnail-needed payload fields; heavy details remain available through the click-time detail endpoint.
+  - Use one windowed page query for filtered count instead of a full-table total count.
+  - Stable order `created_at DESC, task_id DESC` so the existing `(payload->>'userId', created_at DESC)` index is usable.
+- Detail flow remains click-time in `admin.js` / `server.parts/part-41.js`; list is one lightweight page.
+- New regression test: `test/admin-generation-records-list.test.js`.
+- Verification: `node --require ./test/source-compat.js --test test/admin-generation-records-list.test.js test/generation-record-list-refresh.test.js test/history-pagination.test.js test/source-split.test.js` => 21 pass, 0 fail. `node --check db.js` and `git diff --check` pass.
+- Existing unrelated failure remains in `test/media-inputs.test.js` for the Seedance 2.5 dedupe source assertion; it predates this change and is not part of the deployed diff.
 
 ## Current issue (2026-11-05)
 

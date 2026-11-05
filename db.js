@@ -5366,7 +5366,7 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
     FROM app_generation_records
     WHERE payload->>'userId' = $1
       AND COALESCE(payload->>'deletedAt', '') = ''
-    ORDER BY created_at DESC, updated_at DESC
+    ORDER BY created_at DESC, task_id DESC
     LIMIT $2 OFFSET $3
   `, [cleanUserId, safeLimit, offset]);
   const total = Number(rows[0]?.total_count || 0);
@@ -5377,7 +5377,7 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
       SELECT payload, COUNT(*) OVER()::int AS total_count
       FROM app_generation_records
       WHERE payload->>'userId' = $1 AND COALESCE(payload->>'deletedAt', '') = ''
-      ORDER BY created_at DESC, updated_at DESC
+      ORDER BY created_at DESC, task_id DESC
       LIMIT $2 OFFSET $3
     `, [cleanUserId, safeLimit, (actualPage - 1) * safeLimit]);
     return { records: retry.rows.map((row) => row.payload), total: Number(retry.rows[0]?.total_count || total), page: actualPage, limit: safeLimit, totalPages };
@@ -5406,66 +5406,136 @@ async function getAdminGenerationRecordsPageFromDb({
     NULLIF(records.payload->>'provider', ''),
     CASE WHEN COALESCE(records.payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
   )`;
-  const cleanSearch = String(search || "").trim().toLowerCase();
+  const cleanSearch = String(search || "").trim();
+  const normalizedSearch = cleanSearch.toLowerCase();
+  let needsUserJoin = false;
+  let exactSearchMatched = false;
   if (cleanSearch) {
-    const placeholder = addParam(`%${cleanSearch}%`);
-    where.push(`LOWER(CONCAT_WS(' ',
-      records.task_id,
-      records.payload->>'upstreamTaskId',
-      records.payload->>'userId',
-      records.payload->>'username',
-      users.username,
-      records.payload->>'source',
-      records.payload->>'kind',
-      records.payload->>'provider',
-      records.payload->>'status',
-      records.payload->>'templateId',
-      records.payload->>'templateTitle',
-      records.payload->>'sceneId',
-      records.payload->>'sceneName',
-      records.payload->>'sceneEntryId',
-      records.payload->>'sceneEntryName',
-      records.payload->>'companionId',
-      records.payload->>'companionName',
-      records.payload->>'prompt',
-      records.payload->>'finalPrompt',
-      records.payload->>'model',
-      records.payload->>'error'
-    )) LIKE ${placeholder}`);
+    // User IDs and usernames are the common admin lookup. Resolve them to a
+    // single indexed userId predicate instead of scanning every generation
+    // payload and concatenating large JSON strings for a LIKE query.
+    const userMatch = await query(
+      `SELECT id FROM app_users
+       WHERE id = $1 OR username = $1
+       ORDER BY (id = $1) DESC
+       LIMIT 1`,
+      [cleanSearch],
+    );
+    const exactUserId = String(userMatch.rows[0]?.id || "").trim();
+    if (exactUserId) {
+      where.push(`records.payload->>'userId' = ${addParam(exactUserId)}`);
+      exactSearchMatched = true;
+    } else {
+      // A full task ID is another high-frequency exact lookup and can use the
+      // primary key directly.
+      const taskMatch = await query(`SELECT 1 FROM app_generation_records WHERE task_id = $1 LIMIT 1`, [cleanSearch]);
+      if (taskMatch.rowCount) {
+        where.push(`records.task_id = ${addParam(cleanSearch)}`);
+        exactSearchMatched = true;
+      }
+    }
+    if (!exactSearchMatched) {
+      needsUserJoin = true;
+      const placeholder = addParam(`%${normalizedSearch}%`);
+      where.push(`LOWER(CONCAT_WS(' ',
+        records.task_id,
+        records.payload->>'upstreamTaskId',
+        records.payload->>'userId',
+        records.payload->>'username',
+        users.username,
+        records.payload->>'source',
+        records.payload->>'kind',
+        records.payload->>'provider',
+        records.payload->>'status',
+        records.payload->>'templateId',
+        records.payload->>'templateTitle',
+        records.payload->>'sceneId',
+        records.payload->>'sceneName',
+        records.payload->>'sceneEntryId',
+        records.payload->>'sceneEntryName',
+        records.payload->>'companionId',
+        records.payload->>'companionName',
+        records.payload->>'prompt',
+        records.payload->>'finalPrompt',
+        records.payload->>'model',
+        records.payload->>'error'
+      )) LIKE ${placeholder}`);
+    }
   }
   if (provider) where.push(`${providerExpression} = ${addParam(String(provider))}`);
   if (status) where.push(`LOWER(COALESCE(records.payload->>'status', '')) = ${addParam(String(status).toLowerCase())}`);
   if (kind) where.push(`COALESCE(records.payload->>'kind', '') = ${addParam(String(kind))}`);
   const fromSql = `
     FROM app_generation_records records
-    LEFT JOIN app_users users ON users.id = records.payload->>'userId'
+    ${needsUserJoin ? "LEFT JOIN app_users users ON users.id = records.payload->>'userId'" : ""}
   `;
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const [totalResult, filteredResult] = await Promise.all([
-    query(`SELECT COUNT(*)::int AS count FROM app_generation_records`),
-    query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params),
-  ]);
-  const total = totalResult.rows[0]?.count || 0;
-  const filtered = filteredResult.rows[0]?.count || 0;
-  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
-  const safePage = Math.min(totalPages, Math.max(1, Number(page || 1)));
-  const pageParams = [...params, safeLimit, (safePage - 1) * safeLimit];
-  const rows = await query(
+  // The list only needs the fields that drive its columns and thumbnails.
+  // Request/response bodies and pricing snapshots routinely contain megabytes
+  // of JSON and are loaded by the detail endpoint when the admin opens a row.
+  const listPayloadSql = `((records.payload - ARRAY[
+    'upstreamPayload', 'createResponse', 'queryResponse', 'pricingEstimate',
+    'params', 'mediaAssets', 'usage', 'referenceMedia', 'inputMedia'
+  ]::text[]) || jsonb_build_object(
+    'pricingEstimate', jsonb_strip_nulls(jsonb_build_object(
+      'source', records.payload->'pricingEstimate'->'source'
+    )),
+    'params', CASE WHEN jsonb_typeof(records.payload->'params') = 'object' THEN jsonb_strip_nulls(jsonb_build_object(
+      'provider', records.payload->'params'->'provider',
+      'ratio', records.payload->'params'->'ratio',
+      'aspect_ratio', records.payload->'params'->'aspect_ratio',
+      'resolution', records.payload->'params'->'resolution',
+      'duration', records.payload->'params'->'duration',
+      'mediaMode', records.payload->'params'->'mediaMode',
+      'seed', records.payload->'params'->'seed'
+    )) ELSE NULL END
+  ))`;
+  const requestedPage = Math.max(1, Math.trunc(Number(page || 1)));
+  const pageParams = [...params, safeLimit, (requestedPage - 1) * safeLimit];
+  // Count and page rows in one pass. This is especially important for a user
+  // lookup: PostgreSQL can range-scan that user's index and return the first
+  // page immediately instead of first counting the entire table.
+  const pageResult = await query(
     `
-      SELECT records.payload
+      SELECT ${listPayloadSql} AS payload, COUNT(*) OVER()::int AS total_count
       ${fromSql}
       ${whereSql}
-      ORDER BY records.created_at DESC, records.updated_at DESC
+      ORDER BY records.created_at DESC, records.task_id DESC
       LIMIT $${params.length + 1}
       OFFSET $${params.length + 2}
     `,
     pageParams,
   );
+  let filtered = Number(pageResult.rows[0]?.total_count || 0);
+  if (!pageResult.rows.length && requestedPage > 1) {
+    const countResult = await query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params);
+    filtered = Number(countResult.rows[0]?.count || 0);
+  }
+  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+  const safePage = Math.min(totalPages, requestedPage);
+  let pageRows = pageResult.rows;
+  if (safePage !== requestedPage) {
+    const retryParams = [...params, safeLimit, (safePage - 1) * safeLimit];
+    pageRows = (await query(
+      `
+        SELECT ${listPayloadSql} AS payload, COUNT(*) OVER()::int AS total_count
+        ${fromSql}
+        ${whereSql}
+        ORDER BY records.created_at DESC, records.task_id DESC
+        LIMIT $${params.length + 1}
+        OFFSET $${params.length + 2}
+      `,
+      retryParams,
+    )).rows;
+    filtered = Number(pageRows[0]?.total_count || filtered);
+  }
   return {
-    records: rows.rows.map((row) => row.payload),
+    records: pageRows.map((row) => row.payload),
     page: safePage,
     limit: safeLimit,
-    total,
+    // The filtered count is the only count needed by the admin pager. Avoid a
+    // second full-table count on every filtered lookup.
+    total: filtered,
     filtered,
     totalPages,
   };
