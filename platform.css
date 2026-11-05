@@ -31,6 +31,10 @@
 .generation-completion-notice-close { display: grid; width: 24px; height: 24px; place-items: center; padding: 0; border: 0; border-radius: 6px; color: #aeb9b1; background: transparent; }
 .generation-completion-notice-close:hover { color: #fff; background: rgba(255,255,255,.1); }
 .generation-completion-notice-close svg { width: 16px; height: 16px; }
+.generation-completion-notice.is-failed { border-color: rgba(255,107,107,.42); background: rgba(35,23,25,.97); }
+.generation-completion-notice.is-failed::after { background: #ff6b6b; }
+.generation-completion-notice.is-failed .generation-completion-notice-icon { background: #ff6b6b; color: #2a0f12; }
+.generation-completion-notice.is-failed .generation-completion-notice-copy span { color: #d8b4b8; }
 @keyframes generation-completion-notice-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes generation-completion-notice-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @media (max-width: 720px) { .generation-completion-notices { right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); width: calc(100vw - 24px); } }

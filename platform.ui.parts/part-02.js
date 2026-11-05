@@ -694,9 +694,13 @@ function isSucceededGenerationStatus(status) {
 }
 
 function isCompletedGenerationRecord(record = {}) {
-  if (isSucceededGenerationStatus(record.status)) return true;
+  if (isTerminalGenerationStatus(record.status)) return true;
   return Boolean((generationVideoUrl(record) || generationImageResultUrl(record) || String(record.textResult || record.responseText || "").trim())
     && !isPendingGenerationRecord(record));
+}
+
+function isFailedGenerationRecord(record = {}) {
+  return statusClass(record.status) === "failed" || ["reference_failed", "rejected", "refunded"].includes(String(record.status || "").toLowerCase());
 }
 
 function generationCompletionLabel(record = {}) {
@@ -706,14 +710,18 @@ function generationCompletionLabel(record = {}) {
 function showGenerationCompletionNotice(record = {}) {
   const root = els.generationCompletionNotices;
   if (!root) return;
+  const failed = isFailedGenerationRecord(record);
+  const failureDetail = String(record.error || record.errorMessage || "").trim();
   const item = document.createElement("div");
-  item.className = "generation-completion-notice";
+  item.className = `generation-completion-notice${failed ? " is-failed" : ""}`;
   item.setAttribute("role", "status");
   item.innerHTML = `
-    <span class="generation-completion-notice-icon"><i data-lucide="check"></i></span>
+    <span class="generation-completion-notice-icon"><i data-lucide="${failed ? "alert-circle" : "check"}"></i></span>
     <div class="generation-completion-notice-copy">
-      <strong>${escapeHtml(state.lang === "zh" ? "🎉 生成完成" : "🎉 Generation complete")}</strong>
-      <span>${escapeHtml(generationCompletionLabel(record))} ${escapeHtml(state.lang === "zh" ? "记录生成成功" : "generated successfully")}</span>
+      <strong>${escapeHtml(failed ? (state.lang === "zh" ? "生成失败" : "Generation failed") : (state.lang === "zh" ? "🎉 生成完成" : "🎉 Generation complete"))}</strong>
+      <span>${escapeHtml(generationCompletionLabel(record))} ${escapeHtml(failed
+        ? (state.lang === "zh" ? `生成失败${failureDetail ? `：${failureDetail}` : ""}` : `failed${failureDetail ? `: ${failureDetail}` : ""}`)
+        : (state.lang === "zh" ? "记录生成成功" : "generated successfully"))}</span>
     </div>
     <button class="generation-completion-notice-close" type="button" aria-label="${escapeHtml(state.lang === "zh" ? "关闭通知" : "Close notification")}"><i data-lucide="x"></i></button>
   `;
@@ -735,24 +743,96 @@ function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = [
     .filter((record) => record?.taskId && isCompletedGenerationRecord(record))
     .filter((record) => {
       const previous = previousByTask.get(String(record.taskId));
-      return previous && !isCompletedGenerationRecord(previous);
+      return !previous || !isCompletedGenerationRecord(previous);
+    })
+    .filter((record) => {
+      const taskId = String(record.taskId);
+      if (state.generationCompletionNotified?.[taskId]) return false;
+      state.generationCompletionNotified = state.generationCompletionNotified || {};
+      state.generationCompletionNotified[taskId] = true;
+      return true;
     });
   completed.slice(0, 3).forEach(showGenerationCompletionNotice);
   if (completed.length > 3) showGenerationCompletionNotice({ taskId: `${completed.length} records`, modelLabel: state.lang === "zh" ? `还有 ${completed.length - 3} 条` : `${completed.length - 3} more` });
 }
 
+const GENERATION_COMPLETION_REFRESH_INTERVAL_MS = 10 * 1000;
+
+function mergeGenerationPollRecords(previousRecords = [], incomingRecords = []) {
+  const incomingByTask = new Map((incomingRecords || [])
+    .filter((record) => record?.taskId)
+    .map((record) => [String(record.taskId), record]));
+  const merged = (previousRecords || []).map((record) => incomingByTask.get(String(record?.taskId || "")) || record);
+  incomingRecords.forEach((record) => {
+    if (!record?.taskId || merged.some((item) => String(item?.taskId || "") === String(record.taskId))) return;
+    merged.push(record);
+  });
+  return merged;
+}
+
+async function refreshGenerationCompletionRecords() {
+  if (!state.user || state.generationCompletionRefreshInFlight) return;
+  state.generationCompletionRefreshInFlight = true;
+  try {
+    const payload = await requestJson("/api/generation-records?page=1&limit=20&refresh=1");
+    const records = Array.isArray(payload.records) ? payload.records : [];
+    const historyRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
+    const resultRecords = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+    const trackedRecords = mergeGenerationPollRecords(
+      mergeGenerationPollRecords(state.generationCompletionRecords || [], historyRecords),
+      resultRecords,
+    );
+    notifyGenerationCompletionChanges(trackedRecords, records);
+    state.generationCompletionRecords = records;
+    records.forEach((record) => {
+      if (record?.taskId && typeof mergeAdvancedResultRecord === "function") mergeAdvancedResultRecord(record);
+    });
+    const currentPage = Math.max(1, Number(state.historyRecordsPage || 1) || 1);
+    if (currentPage === 1) state.historyRecords = mergeGenerationPollRecords(historyRecords, records);
+    if (payload.user && JSON.stringify(payload.user) !== JSON.stringify(state.user)) {
+      setUser(payload.user, { skipReferralRefresh: true });
+    }
+    if (state.tab === "history" && currentPage === 1) {
+      renderHistory(state.historyRecords);
+      historyRecordsSignature = generationRecordsSignature(state.historyRecords);
+    }
+    if (state.tab === "advanced" && state.advancedSideTab === "result" && typeof renderAdvancedResultPanel === "function") {
+      renderAdvancedResultPanel();
+    }
+  } catch {
+    // Transient polling failures are retried by the next interval.
+  } finally {
+    state.generationCompletionRefreshInFlight = false;
+  }
+}
+
 function syncGenerationCompletionRefresh() {
-  // Completion is reflected by the one request made when History or Result is
-  // entered. Do not poll in the background; users can refresh explicitly.
+  if (!state.user) {
+    if (state.generationCompletionRefreshTimer) {
+      window.clearInterval(state.generationCompletionRefreshTimer);
+      state.generationCompletionRefreshTimer = 0;
+    }
+    state.generationCompletionRefreshInFlight = false;
+    return;
+  }
+  if (state.generationCompletionRefreshTimer) return;
+  state.generationCompletionRefreshTimer = window.setInterval(refreshGenerationCompletionRecords, GENERATION_COMPLETION_REFRESH_INTERVAL_MS);
+  // Prime notifications with the current list, then refresh immediately so a
+  // task that finished just before login is shown without waiting 10 seconds.
+  refreshGenerationCompletionRecords();
+}
+
+function stopGenerationCompletionRefresh() {
   if (state.generationCompletionRefreshTimer) {
     window.clearInterval(state.generationCompletionRefreshTimer);
     state.generationCompletionRefreshTimer = 0;
   }
+  state.generationCompletionRefreshInFlight = false;
 }
 
 function isTerminalGenerationStatus(status) {
   const value = String(status || "").toLowerCase();
-  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled"].includes(value);
+  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded"].includes(value);
 }
 
 function billingLabel(billing = {}) {

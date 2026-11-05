@@ -990,7 +990,11 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (userChanged && typeof stopAdvancedResultRefresh === "function") stopAdvancedResultRefresh();
   state.user = user || null;
   renderHomePanel();
-  if (userChanged) state.generationCompletionPrimed = false;
+  if (userChanged) {
+    state.generationCompletionPrimed = false;
+    state.generationCompletionNotified = {};
+    state.generationCompletionRecords = [];
+  }
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {
     if (state.billing) state.billing = { ...state.billing, subscription: null };

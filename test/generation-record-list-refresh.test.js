@@ -92,7 +92,7 @@ test("R2 upload delays do not downgrade completed upstream tasks to processing",
   assert.match(source, /return settleSeedanceGenerationRecord\(record, reason\)/);
 });
 
-test("result and history do not self-poll after the initial request", () => {
+test("generation completion polls at account level while result keeps only poster repair", () => {
   const create = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
   const ui = fs.readFileSync(path.join(__dirname, "..", "platform.ui.js"), "utf8");
   const explore = fs.readFileSync(path.join(__dirname, "..", "platform.explore.js"), "utf8");
@@ -100,7 +100,11 @@ test("result and history do not self-poll after the initial request", () => {
   assert.doesNotMatch(create, /scheduleHistoryRefresh\(\{ delayMs: 15000/);
   assert.match(create, /refreshAdvancedResultRecord\(\);/);
   const completion = ui.slice(ui.indexOf("function syncGenerationCompletionRefresh"), ui.indexOf("function isTerminalGenerationStatus"));
-  assert.doesNotMatch(completion, /setInterval/);
+  assert.match(completion, /setInterval\(refreshGenerationCompletionRecords/);
+  assert.match(ui, /notifyGenerationCompletionChanges\(trackedRecords, records\)/);
+  assert.match(ui, /generationCompletionNotified/);
+  assert.match(ui, /return !previous \|\| !isCompletedGenerationRecord\(previous\);/);
+  assert.match(ui, /is-failed/);
   assert.doesNotMatch(explore, /scheduleAdvancedResultRefresh/);
 });
 

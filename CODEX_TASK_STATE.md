@@ -12,6 +12,16 @@
 
 # Codex Task State
 
+## Account-level generation completion polling (2026-11-05)
+
+- User reported failed tasks remained `processing` until opening Result; completion notices previously depended on a History request and only recognized success.
+- Added a logged-in account-level 10-second poll of `/api/generation-records?page=1&limit=20&refresh=1`, independent of the active tab.
+- Poll updates History page 1 and Result cache; it does not force navigation. In-flight polling is guarded against overlap.
+- Notifications now cover terminal failures as well as success, render a red failure notice with error detail, and notify each taskId at most once.
+- Removed the duplicate Result pending-status loop. Result retains only bounded poster-repair retries; result entry still performs one authoritative detail refresh.
+- Targeted tests: 50 pass, 0 fail across refresh/history/Vega pricing suites. Full suite baseline and patched both 633 pass / 22 fail from pre-existing fixture/text assertions; new tests pass.
+- `node --check`, `git diff --check` pass.
+
 ## Vega 1.0 Lite button cost hotfix (2026-11-05)
 
 - User reported Vega 1.5 Lite 1080P × 6s = 162 credits and Vega 1.0 Lite 1080P × 6s = 300 credits.
@@ -231,3 +241,11 @@ CODEX_TASK_STATE.md
 - Applied the production repair for `cgt-20261105120518-1c9a87`; PostgreSQL now reports `status=failed`, `billingStatus=refunded`, `finalCredits=0`.
 - Targeted regression tests: 61 pass, 0 fail. `node --check` and `git diff --check` pass.
 - Full suite currently has 22 pre-existing failures outside these changed paths; the relevant Vega/result/refund suites pass.
+
+## Deployment before Vega 1.0 Lite retest (2026-11-05)
+
+- Redeployed only `123vips.com` through `scripts/deploy_local.sh --site old`.
+- `old-site`: `81cddd7`; `platform-release`: `0d59f566c6fb1e81d758c5f4baec01c8cbe01933`.
+- Production checkout confirmed at `0d59f566c6fb1e81d758c5f4baec01c8cbe01933`; `raising-game-demo` is active; `/api/health` returns `{"ok":true}`.
+- Verified the deployed refund fix (`pre_deducted` qualifies for refund) and 10-second Result polling are present.
+- Next: user will submit a new Vega 1.0 Lite generation; inspect that task only for terminal status, upstream parameters, pricing, and automatic refund on failure.

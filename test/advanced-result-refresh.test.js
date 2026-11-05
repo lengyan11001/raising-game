@@ -34,11 +34,13 @@ test("advanced result entry has no duplicate detail request", () => {
   assert.doesNotMatch(explore, /renderAdvancedResultPanel\(\);\s*if \(state\.advancedSideTab === "result" && state\.user && state\.advancedResultRecords\?\.length\) refreshAdvancedResultRecord\(\);/);
 });
 
-test("pending results use one bounded timeout instead of an interval", () => {
+test("pending results use the account-level interval instead of a second result loop", () => {
   assert.match(create, /const ADVANCED_RESULT_POLL_INTERVAL_MS = 10 \* 1000;/);
   assert.match(create, /function scheduleAdvancedResultRefresh\(\) \{/);
-  assert.match(create, /const pendingRecords = advancedResultPendingRecords\(\);/);
-  assert.match(create, /window\.setTimeout\(\(\) => \{[\s\S]*?refreshAdvancedResultRecord\(\);[\s\S]*?ADVANCED_RESULT_POLL_INTERVAL_MS/);
+  const schedule = create.match(/function scheduleAdvancedResultRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(schedule, /const posterRefreshRecords = advancedResultPosterRefreshRecords\(\);/);
+  assert.doesNotMatch(schedule, /advancedResultPendingRecords\(\)/);
+  assert.match(schedule, /ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS/);
   assert.doesNotMatch(create, /setInterval\([\s\S]{0,120}refreshAdvancedResultRecord/);
 });
 
@@ -48,11 +50,11 @@ test("pending history without media can seed the result panel and polling", () =
   assert.match(fallback, /isPendingGenerationRecord\(record\)/);
 });
 
-test("polling stops when the result has no pending tasks", () => {
+test("result poster polling stops when no poster repairs are pending", () => {
   const schedule = create.match(/function scheduleAdvancedResultRefresh\(\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(schedule, "scheduleAdvancedResultRefresh should exist");
-  assert.match(schedule, /const pendingRecords = advancedResultPendingRecords\(\);/);
-  assert.match(schedule, /if \(!pendingRecords\.length && !posterRefreshRecords\.length\) return;/);
+  assert.match(schedule, /const posterRefreshRecords = advancedResultPosterRefreshRecords\(\);/);
+  assert.match(schedule, /if \(!posterRefreshRecords\.length\) return;/);
   assert.match(schedule, /state\.advancedResultTimer = window\.setTimeout/);
 });
 

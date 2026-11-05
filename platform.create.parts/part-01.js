@@ -882,9 +882,11 @@ function stopAdvancedResultRefresh() {
 function scheduleAdvancedResultRefresh() {
   stopAdvancedResultRefresh();
   if (!state.user || state.tab !== "advanced" || state.advancedSideTab !== "result") return;
-  const pendingRecords = advancedResultPendingRecords();
-  const posterRefreshRecords = pendingRecords.length ? [] : advancedResultPosterRefreshRecords();
-  if (!pendingRecords.length && !posterRefreshRecords.length) return;
+  // Pending task status is polled by the account-level completion refresher.
+  // Result keeps only the bounded poster-repair retry so two status loops do
+  // not compete for the same generation records while the panel is open.
+  const posterRefreshRecords = advancedResultPosterRefreshRecords();
+  if (!posterRefreshRecords.length) return;
   posterRefreshRecords.forEach((record) => {
     const taskId = String(record?.taskId || "").trim();
     if (!taskId) return;
@@ -894,7 +896,7 @@ function scheduleAdvancedResultRefresh() {
   state.advancedResultTimer = window.setTimeout(() => {
     state.advancedResultTimer = 0;
     refreshAdvancedResultRecord();
-  }, pendingRecords.length ? ADVANCED_RESULT_POLL_INTERVAL_MS : ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS);
+  }, ADVANCED_RESULT_POSTER_RETRY_INTERVAL_MS);
 }
 
 async function refreshAdvancedResultRecord() {
