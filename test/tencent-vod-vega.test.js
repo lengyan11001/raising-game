@@ -214,6 +214,29 @@ test("Vega models omit unsupported GenerateMode and VideoQualityMode", () => {
   assert.equal(vega.vegaProviderCapabilities("seedance20-vega").qualityMode, false);
 });
 
+test("Vega 1.0 Lite omits ModerationMode while other Vega models keep it", () => {
+  const lite = vega.buildVegaCreatePayload({
+    provider: "vega10-lite",
+    prompt: "test",
+    mediaMode: "text_to_video",
+    moderationMode: "Moderation_L2",
+  }, { subAppId: 123 });
+  const liteWand = JSON.parse(JSON.parse(lite.ExtInfo).WandVegaParameters);
+  assert.equal(vega.vegaProviderCapabilities("vega10-lite").moderation, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "ModerationMode"), false);
+
+  for (const provider of ["seedance20-vega", "seedance25-vega", "h3-vega"]) {
+    const payload = vega.buildVegaCreatePayload({
+      provider,
+      prompt: "test",
+      mediaMode: "text_to_video",
+      moderationMode: "Moderation_L2",
+    }, { subAppId: 123 });
+    const wand = JSON.parse(JSON.parse(payload.ExtInfo).WandVegaParameters);
+    assert.equal(wand.ModerationMode, "Moderation_L2");
+  }
+});
+
 test("Vega duration validates boundaries, defaults, and integer seconds", () => {
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", 4), 4);
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1), -1);
@@ -951,6 +974,7 @@ test("Vega submit payload includes every required field", () => {
   }
   assert.match(options, /caps\?\.generateMode === false \? \{\} : \{ generateMode:/);
   assert.match(options, /caps\?\.qualityMode === false \? \{} : \{ videoQualityMode:/);
+  assert.match(options, /caps\?\.moderation === false \? \{\} : \{ moderationMode:/);
   assert.match(branch, /duration: vegaDraftFollowup \|\| \["edit", "extend"\]\.includes\(vegaTaskType\) \? -1 : vegaDuration/);
   assert.match(create, /requestJson\("\/api\/advanced\/generate", \{ method: "POST", body: vegaPayload \}\)/);
 });

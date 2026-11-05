@@ -107,6 +107,7 @@ const VEGA_CAPABILITIES = Object.freeze({
     resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]),
     durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
     frameRatioFromInput: true,
+    moderation: false,
     returnLastFrame: false,
     limits: VEGA_10_LITE_LIMITS,
   }),
@@ -517,9 +518,9 @@ function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
   if (input.outputFormat) additional.output_format = normalizeVegaOutputFormat(input.outputFormat);
   const wand = {
     EnhancePromptMode: normalizeVegaPromptEnhanceMode(input.enhancePromptMode, input.provider),
-    ModerationMode: normalizeVegaModerationMode(input.moderationMode),
     ReturnVegaUsage: Boolean(input.returnVegaUsage),
   };
+  if (!caps || caps.moderation !== false) wand.ModerationMode = normalizeVegaModerationMode(input.moderationMode);
   // Vega 1.0 Pro, Vega 1.5 Pro, and Vega 1.5 Lite reject both controls in production.
   // Vega 1.0 Lite documents and supports both model controls.
   if (!caps || caps.generateMode) wand.GenerateMode = normalizeVegaGenerateMode(input.generateMode);

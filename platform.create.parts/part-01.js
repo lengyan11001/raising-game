@@ -250,7 +250,7 @@ function advancedVegaPayloadOptions(provider = currentAdvancedProvider()) {
     returnLastFrame: caps?.returnLastFrame === false ? false : Boolean(els.advancedVegaReturnLastFrame?.checked),
     returnVegaUsage: Boolean(els.advancedVegaReturnUsage?.checked),
     enhancePromptMode: String(els.advancedVegaEnhancePromptMode?.value || "auto"),
-    moderationMode: String(els.advancedVegaModerationMode?.value || "Moderation_L1"),
+    ...(caps?.moderation === false ? {} : { moderationMode: String(els.advancedVegaModerationMode?.value || "Moderation_L1") }),
     ...(caps?.generateMode === false ? {} : { generateMode: String(els.advancedVegaGenerateMode?.value || "Standard") }),
     ...(caps?.qualityMode === false ? {} : { videoQualityMode: String(els.advancedVegaQualityMode?.value || "Standard") }),
     outputFormat: String(els.advancedVegaOutputFormat?.value || "mp4"),

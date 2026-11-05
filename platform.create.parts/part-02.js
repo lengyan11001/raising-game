@@ -785,6 +785,7 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-vega-option").forEach((item) => {
     item.hidden = !vegaProvider;
   });
+  els.advancedVegaModerationMode?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.moderation === false);
   els.advancedVegaReturnLastFrame?.closest(".advanced-vega-option")?.toggleAttribute("hidden", !vegaProvider || vegaCaps?.returnLastFrame === false);
   if (!vegaProvider || vegaCaps?.returnLastFrame === false) {
     if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = false;
