@@ -238,7 +238,8 @@
 - `server.parts/part-41.js` recognizes Vega media type from Usage/Role/Category/type, merges canonical and legacy arrays by position, preserves asset IDs and URIs, and excludes generated result URLs from regeneration inputs.
 - Regression file `test/vega-regeneration-media.test.js` covers legacy `upstreamPayload.FileInfos`, ordered reference images/videos/audios, asset-URI-only frames, canonical-versus-legacy array hydration, result-URL exclusion, the server regenerate payload, and frontend restoration.
 - Verification: `node --require ./test/source-compat.js --test test/media-inputs.test.js test/tencent-vod-vega.test.js test/advanced-pricing.test.js test/vega-pricing-label.test.js test/vega-regeneration-media.test.js` passes 114/114. `node --check tencent-vod-vega.js`, `node --check server.js`, `node --check platform.create.js`, and `git diff --check` pass.
-- Pending: commit, build `platform-release` from committed `old-site`, push, and deploy only `123vips.com` with `scripts/deploy_local.sh --site old`.
+- `old-site` commit `cd0198f`, pushed to origin. `platform-release` snapshot `410e34b` was built from it, pushed with lease protection, and deployed only to `123vips.com` using `scripts/deploy_local.sh --site old`.
+- Production `/api/health` returns `200 {"ok":true}`. Public `platform.create.parts/part-04.js` contains the null-safe restore and cross-identifier media merge functions. `live-release` remains `6642e17`; Live was not deployed.
 
 ## Vega 1.0 Pro integration (2026-11-05)
 
