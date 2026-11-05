@@ -1,5 +1,12 @@
 # Codex Task State
 
+## Vega Lite pricing label fix (deployed, 2026-11-05)
+
+- Commit `acd4a5a` fixes `platform.ui.parts/part-04.js`: pending estimates show `Checking cost...`; successful estimates show actual credits/duration/resolution; only matching failures show server error text. No fabricated `pricing unavailable` / `pricing is not configured` while an estimate is pending.
+- Stale estimate responses are ignored via matching pending-key guards.
+- Regression: `test/vega-pricing-label.test.js` plus `advanced-pricing` and `tencent-vod-vega` suites, 57 pass, 0 fail.
+- Included in production release `159c6dc` on `123vips.com`. Production asset contains the new guards; `/api/advanced/estimate` for Vega Lite 720P × 6s returns 81 credits; `/api/health` is OK. Live was not deployed.
+
 ## Current issue (2026-11-05): Admin generation records slow for specific user
 
 - User reports querying all generation records is fast, but filtering by a specific user is slow.
