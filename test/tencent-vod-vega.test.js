@@ -367,19 +367,13 @@ test("Vega frame modes are mutually exclusive and complete", () => {
   }, { subAppId: 1 }), "INVALID_MEDIA_COMBINATION");
 });
 
-test("Vega draft follow-up ignores stale media and keeps only draft output settings", () => {
+test("Vega draft follow-up uses only a draft id and output settings", () => {
   const payload = vega.buildVegaCreatePayload({
     provider: "seedance25-vega",
-    prompt: "stale prompt must not be sent",
     draftTaskId: "draft-task-123",
     duration: -1,
     resolution: "1080P",
-    mediaMode: "reference_video",
-    firstFrameUrl: "https://cdn.example.com/first.png",
-    lastFrameUrl: "https://cdn.example.com/last.png",
-    referenceImages: ["https://cdn.example.com/ref.png"],
-    referenceVideos: ["https://cdn.example.com/ref.mp4"],
-    referenceAudios: ["https://cdn.example.com/ref.mp3"],
+    mediaMode: "draft_followup",
   }, { subAppId: 123 });
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "Prompt"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "FileInfos"), false);
@@ -387,6 +381,17 @@ test("Vega draft follow-up ignores stale media and keeps only draft output setti
   assert.deepEqual(payload.OutputConfig, { StorageMode: "Temporary", Resolution: "1080P" });
   const extInfo = JSON.parse(payload.ExtInfo);
   assert.deepEqual(JSON.parse(extInfo.AdditionalParameters), { draft_task_id: "draft-task-123" });
+  const stale = vega.buildVegaCreatePayload({
+    provider: "seedance25-vega",
+    prompt: "stale prompt must become ordinary generation",
+    draftTaskId: "draft-task-123",
+    resolution: "1080P",
+    mediaMode: "draft_followup",
+    referenceImages: ["https://cdn.example.com/ref.png"],
+  }, { subAppId: 123 });
+  assert.equal(stale.Prompt, "stale prompt must become ordinary generation");
+  assert.equal(stale.FileInfos.length, 1);
+  assert.doesNotMatch(stale.ExtInfo, /draft_task_id/);
   assertCode(() => vega.buildVegaCreatePayload({
     provider: "h3-vega",
     draftTaskId: "draft-task-lite",
@@ -554,6 +559,63 @@ test("Vega model upload limits keep Lite and Pro 1.0 behavior while allowing Pro
   assert.match(config, /"seedance25-vega": Object\.freeze\(\{ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object\.freeze\(\["auto", "reference", "edit", "extend"\]\), draft: true, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 \}\)/);
 });
 
+test("Vega 1.5 Pro dirty draft id with prompt and references is normalized into a normal generation", () => {
+  for (const draftTaskId of ["undefined", "null", "NaN", "   "]) {
+    const input = {
+      provider: "seedance25-vega",
+      prompt: "@Image 1 把@Image 2 举在空中，鸡巴反复插入",
+      mediaMode: "draft_followup",
+      draftTaskId,
+      resolution: "1080P",
+      duration: 5,
+      referenceImages: [
+        "https://media.123vips.com/assets/user-uploads/user-1777972853765-6da5a3f7/asset-1792378136626-21ee3188.png",
+        "https://media.123vips.com/assets/user-uploads/user-1777972853765-6da5a3f7/asset-1790320007464-77ad159c.jpg",
+      ],
+    };
+    const selection = vega.resolveVegaDraftSelection({
+      provider: input.provider,
+      mediaMode: input.mediaMode,
+      prompt: input.prompt,
+      draftTaskId: input.draftTaskId,
+      media: { referenceImages: input.referenceImages },
+    });
+    assert.equal(selection.draftTaskId, "");
+    assert.equal(selection.mediaMode, "reference_video");
+    const payload = vega.buildVegaCreatePayload(input, { subAppId: 1524935253 });
+    assert.equal(payload.Prompt, input.prompt);
+    assert.equal(payload.FileInfos.length, 2);
+    assert.equal(payload.OutputConfig.Resolution, "1080P");
+    assert.doesNotMatch(payload.ExtInfo, /draft_task_id/);
+  }
+});
+
+test("Vega 1.5 Pro keeps a real draft-to-final request and requires an id for draft-only intent", () => {
+  const selection = vega.resolveVegaDraftSelection({
+    provider: "seedance25-vega",
+    mediaMode: "draft_followup",
+    draftTaskId: "1524935253-AigcVideoTask-draft",
+  });
+  assert.equal(selection.draftTaskId, "1524935253-AigcVideoTask-draft");
+  assert.equal(selection.mediaMode, "draft_followup");
+  assert.equal(vega.resolveVegaDraftSelection({
+    provider: "seedance25-vega",
+    draftTaskId: "1524935253-AigcVideoTask-draft",
+  }).mediaMode, "draft_followup");
+  const payload = vega.buildVegaCreatePayload({
+    provider: "seedance25-vega",
+    mediaMode: "draft_followup",
+    draftTaskId: "1524935253-AigcVideoTask-draft",
+    resolution: "1080P",
+  }, { subAppId: 123 });
+  assert.equal(payload.Prompt, undefined);
+  assert.deepEqual(JSON.parse(JSON.parse(payload.ExtInfo).AdditionalParameters), { draft_task_id: "1524935253-AigcVideoTask-draft" });
+  assertCode(() => vega.resolveVegaDraftSelection({
+    provider: "seedance25-vega",
+    mediaMode: "draft_followup",
+  }), "DRAFT_TASK_ID_REQUIRED");
+});
+
 test("Vega 1.5 Lite stale draft state is normalized into a normal generation", () => {
   const staleInput = {
     provider: "h3-vega",
@@ -668,6 +730,7 @@ test("Vega regenerated draft bodies discard reconstructed prompt and media befor
   assert.match(handler, /const effectiveMedia = draftTaskId[\s\S]*?firstFrameUrl: ""[\s\S]*?referenceImages: \[\]/);
   assert.match(handler, /const mediaMode = draftSelection\.mediaMode/);
   assert.match(create, /restoredDraftFollowup \? "draft_followup"/);
+  assert.match(create, /normalizeAdvancedVegaDraftTaskId/);
 });
 
 test("Vega task responses are extracted with the required status mapping", () => {

@@ -225,6 +225,11 @@ function advancedVegaDraftFollowup() {
   return Boolean(vegaCapabilities(currentAdvancedProvider())?.draft) && advancedVegaMediaMode() === "draft_followup";
 }
 
+function normalizeAdvancedVegaDraftTaskId(value = "") {
+  const normalized = String(value ?? "").trim();
+  return ["undefined", "null", "nan"].includes(normalized.toLowerCase()) ? "" : normalized;
+}
+
 function advancedVegaCurrentTaskType(provider = currentAdvancedProvider()) {
   const value = String(els.advancedVegaTaskType?.value || "auto").trim().toLowerCase();
   const allowed = vegaCapabilities(provider)?.taskTypes || ["auto", "reference"];
@@ -234,7 +239,7 @@ function advancedVegaCurrentTaskType(provider = currentAdvancedProvider()) {
 function advancedVegaPayloadOptions(provider = currentAdvancedProvider()) {
   if (!isVegaAdvancedProvider(provider)) return {};
   const caps = vegaCapabilities(provider);
-  const draftTaskId = String(els.advancedVegaDraftTaskId?.value || "").trim();
+  const draftTaskId = normalizeAdvancedVegaDraftTaskId(els.advancedVegaDraftTaskId?.value || "");
   const draftFollowup = Boolean(caps?.draft) && advancedVegaMediaMode() === "draft_followup";
   return {
     taskType: draftFollowup ? "auto" : advancedVegaCurrentTaskType(provider),

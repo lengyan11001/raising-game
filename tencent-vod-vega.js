@@ -155,6 +155,12 @@ function assertVegaPricingConfigured(provider = "", pricing = null) {
   return pricing;
 }
 
+function normalizeVegaDraftTaskId(value = "") {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return "";
+  return ["undefined", "null", "nan"].includes(normalized.toLowerCase()) ? "" : normalized;
+}
+
 function normalizeVegaMediaMode(value = "", input = {}) {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (["draft_followup", "draft_final", "draft_to_final"].includes(normalized)) return "draft_followup";
@@ -166,7 +172,7 @@ function normalizeVegaMediaMode(value = "", input = {}) {
   const hasFirst = Boolean(String(input.firstFrameUrl || "").trim());
   const hasLast = Boolean(String(input.lastFrameUrl || "").trim());
   const hasReferences = ["referenceImages", "referenceVideos", "referenceAudios"].some((key) => Array.isArray(input[key]) && input[key].length > 0);
-  if (String(input.draftTaskId || "").trim()) return "draft_followup";
+  if (normalizeVegaDraftTaskId(input.draftTaskId)) return "draft_followup";
   if (hasFirst && hasLast) return "first_last_frame";
   if (hasFirst) return "first_frame";
   if (hasLast) return "last_frame";
@@ -222,13 +228,18 @@ function resolveVegaDraftSelection(input = {}) {
   const provider = vegaProviderDefinition(input.provider)?.id || String(input.provider || "").trim();
   const caps = vegaProviderCapabilities(provider);
   if (!caps) throw new Error("Unknown Vega provider.");
-  const requestedMediaMode = normalizeVegaMediaMode(input.mediaMode || "", input.media);
-  const requestedDraftTaskId = String(input.draftTaskId || "").trim();
-  const templateDraftTaskId = String(input.templateDraftTaskId || "").trim();
+  const requestedDraftTaskId = normalizeVegaDraftTaskId(input.draftTaskId);
+  const templateDraftTaskId = normalizeVegaDraftTaskId(input.templateDraftTaskId);
+  const requestedMediaMode = normalizeVegaMediaMode(input.mediaMode || "", {
+    ...input.media,
+    draftTaskId: requestedDraftTaskId,
+  });
   const hasPrompt = Boolean(String(input.prompt || "").trim());
   const hasMedia = vegaMediaHasContent(input.media);
   const explicitDraftMode = requestedMediaMode === "draft_followup";
-  const draftRequested = explicitDraftMode || Boolean(requestedDraftTaskId);
+  const ordinaryGenerationRequested = hasPrompt || hasMedia;
+  const effectiveDraftMode = explicitDraftMode && !ordinaryGenerationRequested;
+  const draftRequested = effectiveDraftMode || Boolean(requestedDraftTaskId);
   if (!caps.draft) {
     if (draftRequested && !hasPrompt && !hasMedia) {
       throw vegaValidationError(`${vegaProviderLabel(provider)} does not support draft-to-final generation.`, "DRAFT_UNSUPPORTED");
@@ -240,18 +251,24 @@ function resolveVegaDraftSelection(input = {}) {
       mediaMode: draftRequested ? normalizeVegaMediaMode("", input.media) : requestedMediaMode,
     };
   }
-  const draftTaskId = requestedDraftTaskId || (explicitDraftMode ? templateDraftTaskId : "");
-  if ((explicitDraftMode || requestedDraftTaskId) && !draftTaskId) {
+  const draftOnly = !hasPrompt && !hasMedia;
+  const draftTaskId = draftOnly
+    ? (requestedDraftTaskId || (explicitDraftMode ? templateDraftTaskId : ""))
+    : "";
+  if (effectiveDraftMode && draftOnly && !draftTaskId) {
     throw Object.assign(new Error("Draft to Final requires the upstream draft task ID."), {
       statusCode: 400,
       code: "DRAFT_TASK_ID_REQUIRED",
     });
   }
+  const ignoredStaleDraft = !draftTaskId && draftRequested;
   return {
     draftTaskId,
-    explicitDraftMode,
-    ignoredStaleDraft: false,
-    mediaMode: draftTaskId ? "draft_followup" : requestedMediaMode,
+    explicitDraftMode: Boolean(draftTaskId),
+    ignoredStaleDraft,
+    mediaMode: draftTaskId
+      ? "draft_followup"
+      : normalizeVegaMediaMode("", { ...input.media, draftTaskId: "" }),
   };
 }
 
@@ -490,7 +507,8 @@ function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
   const additional = {};
   const caps = vegaProviderCapabilities(input.provider);
   if (caps?.returnLastFrame && (input.returnLastFrame === true || input.returnLastFrame === "true")) additional.return_last_frame = true;
-  if (draftTaskId) additional.draft_task_id = String(draftTaskId).trim();
+  const normalizedDraftTaskId = normalizeVegaDraftTaskId(draftTaskId);
+  if (normalizedDraftTaskId) additional.draft_task_id = normalizedDraftTaskId;
   else if (input.draft === true || input.draft === "true") additional.draft = true;
   if (taskType && !["auto", "reference"].includes(taskType)) additional.omni_reference_task_type = taskType;
   if (String(input.assetGroupId || "").trim()) additional.asset_group_id = String(input.assetGroupId).trim();
@@ -884,6 +902,7 @@ module.exports = {
   buildVegaExtInfo,
   buildVegaFileInfos,
   callTencentVod,
+  normalizeVegaDraftTaskId,
   importVegaMediaLibraryFile,
   isVegaProvider,
   normalizeVegaAudioGeneration,

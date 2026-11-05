@@ -201,6 +201,16 @@
 - Probe did not create a task, did not charge platform credits, and did not change MuleRouter routing.
 This file is the durable handoff for this task. After compaction, read this file first.
 
+## Vega 1.5 Pro invalid draft_task_id fix (2026-11-05)
+
+- Production task `cgt-20261105141752-25b773` failed with `InvalidInput: invalid draft_task_id`; the persisted payload contained `draftTaskId: "undefined"` along with a prompt and two reference images.
+- Root cause: the shared Vega Draft resolver treated any non-empty string, including `"undefined"`, as a valid Draft-to-Final ID and routed an ordinary image-reference request into Draft mode.
+- Fixed `normalizeVegaDraftTaskId()` to treat blank, `undefined`, `null`, and `NaN` as empty. Draft-to-Final now requires both a valid ID and a request with no prompt or media. Prompt/media with stale Draft state is normalized to ordinary generation; a genuine draft-only request remains Draft-to-Final and missing its ID fails with `DRAFT_TASK_ID_REQUIRED`.
+- Frontend payload, submit, and record restore paths use the same dirty-ID normalization so `"undefined"` is not written back to the Draft task ID field.
+- Added a regression test using the exact production prompt, 1080P/5-second settings, and two reference images; it asserts Prompt and two FileInfos are sent and `draft_task_id` is absent.
+- Verification: `test/tencent-vod-vega.test.js` 52 pass, 0 fail; advanced-pricing + source-split 21 pass, 0 fail; syntax checks and `git diff --check` pass.
+- No provider IDs, model versions, pricing, or media limits changed.
+
 ## Current live verification
 
 - Draft-to-Final bug fixed locally: stale `draftTaskId` / `draft_followup` from browser, template, or record state is normalized before pricing or upstream submission.

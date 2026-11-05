@@ -285,7 +285,7 @@ async function submitAdvancedGenerate() {
     const vegaUsesFirstFrame = vegaModeNeedsFirstFrame(vegaMediaMode);
     const vegaUsesLastFrame = vegaModeNeedsLastFrame(vegaMediaMode);
     const vegaUsesReferences = vegaModeUsesReferences(vegaMediaMode);
-    const vegaDraftTaskId = vegaDraftFollowup ? String(vegaOptions.draftTaskId || "").trim() : "";
+    const vegaDraftTaskId = vegaDraftFollowup ? normalizeAdvancedVegaDraftTaskId(vegaOptions.draftTaskId || "") : "";
     if (vegaDraftFollowup && !vegaDraftTaskId) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Draft to Final requires the upstream draft task ID.";
