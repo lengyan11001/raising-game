@@ -226,7 +226,8 @@ This file is the durable handoff for this task. After compaction, read this file
 - The fix removes both controls for `seedance25-vega`; Lite providers, pricing, provider IDs, and media limits are unchanged.
 - Backend and frontend capability tables now mark `generateMode: false` and `qualityMode: false` for `seedance25-vega`; payload tests assert both fields are absent.
 - Verification: `test/tencent-vod-vega.test.js` 52 pass, 0 fail; advanced-pricing + source-split 21 pass, 0 fail; syntax checks and `git diff --check` pass.
-- Next: commit, build the old-site release snapshot, deploy only `123vips.com`, then submit and poll a real safe-prompt Vega 1.5 Pro task.
+- Deployment: `old-site` `3215b99`; `platform-release` `bc541fe`, built from `3215b99`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production health is `200 {"ok":true}`. Live was not deployed.
+- Production probe results: `cgt-20261105144726-23f3da` failed on `GenerateMode` and was refunded; `cgt-20261105144818-651366` passed parameter validation but was blocked by reference-image person moderation and refunded; `cgt-20261105144942-1b583c` likewise failed reference-image person moderation; text-only `cgt-20261105145054-f5732b` succeeded with no `GenerateMode`/`VideoQualityMode`, final billing `298.425` settled, video `https://store.vod-qcloud.com/9ca6b0e1vodhk251000800/2185dfba5001834827022755451/aigcVideoGenFile_ag2.mp4`.
 - Production deployment is complete on `123vips.com` only; Live was not deployed.
 - Production verification request `cgt-20261105014851-6a45f4` included a stale `draftTaskId` and generated an ordinary Vega 1.5 Lite task.
 - It returned HTTP 200, reached upstream task `1524935253-AigcVideoTask-6d6fdc965814ceba1ec5171c3cc362b5t`, and finished at 100% with a video URL.
