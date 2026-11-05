@@ -9,7 +9,9 @@
 - Pricing responses and the public price table now use the same display alias, while provider IDs, rate values, and internal labels remain unchanged.
 - Files changed: `lib-providers.js`, `server.parts/part-01.js`, `server.parts/part-20.js`, `server.parts/part-43.js`, `platform.config.js`, `platform.ui.parts/part-02.js`, `platform.ui.parts/part-04.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-05.js`, `platform.explore.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: Vega suite 55/55; advanced-pricing + Vega-pricing + source-split 29/29; generation-record-list-refresh + undress-tool 27/27; syntax checks and `git diff --check` pass.
-- Deployment baseline: `old-site` `8f52e3f`; `platform-release` `24185a5`; production health `200 {"ok":true}`. A subsequent status-only/pricing-display follow-up still needs its own commit, release snapshot, and old-site deployment if required.
+- Deployment: `old-site` `fa265a2`; `platform-release` `03eafbd`, built from `fa265a2` and pushed. Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; production checkout is `03eafbd`, service is running, and `/api/health` returns `200 {"ok":true}`.
+- Release audit: `platform-release` differs from `24185a5` only in the four intended files (`CODEX_TASK_STATE.md`, `lib-providers.js`, `platform.ui.parts/part-04.js`, `test/tencent-vod-vega.test.js`); no Live paths. The deploy wrapper exited 27 after one transient homepage `Connection reset by peer` during its final verification, but immediate retries returned homepage `200`, health `200`, and `/live.html` `404`; production chunks `mw37h898` contain the unified result and pricing aliases.
+- Authenticated production record verification still requires a valid user session/token: the target record endpoint returned `401 LOGIN_REQUIRED` anonymously. Live was not deployed.
 
 ## Admin page loading audit and fix (2026-11-05)
 
