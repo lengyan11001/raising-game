@@ -991,9 +991,11 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   state.user = user || null;
   renderHomePanel();
   if (userChanged) {
-    state.generationCompletionPrimed = false;
     state.generationCompletionNotified = {};
     state.generationCompletionRecords = [];
+    state.generationCompletionStatuses = typeof readGenerationCompletionStatuses === "function"
+      ? readGenerationCompletionStatuses(nextUserId)
+      : {};
   }
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {

@@ -103,7 +103,11 @@ test("generation completion polls at account level while result keeps only poste
   assert.match(completion, /setInterval\(refreshGenerationCompletionRecords/);
   assert.match(ui, /notifyGenerationCompletionChanges\(trackedRecords, records\)/);
   assert.match(ui, /generationCompletionNotified/);
-  assert.match(ui, /return !previous \|\| !isCompletedGenerationRecord\(previous\);/);
+  assert.match(ui, /const previousStatus = rememberedStatus \|\| previousByTask\.get\(taskId\)\?\.status;/);
+  assert.match(ui, /if \(!previousStatus \|\| isTerminalGenerationStatus\(previousStatus\)\) return false;/);
+  assert.match(ui, /GENERATION_COMPLETION_STATUS_STORAGE_KEY/);
+  assert.match(ui, /if \(isTerminalGenerationStatus\(previousStatus\)\) return;/);
+  assert.doesNotMatch(ui, /generationCompletionPrimed/);
   assert.match(ui, /is-failed/);
   assert.doesNotMatch(explore, /scheduleAdvancedResultRefresh/);
 });
