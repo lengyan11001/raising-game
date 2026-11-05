@@ -9,6 +9,10 @@
 - Regression test: `test/mulerouter-balance.test.js` (2 pass).
 - Targeted regression suite: 58 pass, 0 fail.
 - Full suite currently has unrelated existing UI-source failures (22); do not attribute them to this fix without targeted evidence.
+- Deployed only `123vips.com`; production checkout `7f4eb18`.
+- Production live probe hit MuleRouter and returned:
+  `MULEROUTER_UPSTREAM_BALANCE_UNAVAILABLE`, status 503, availableBalance `-2.835`, minimumRequired `0`.
+- Probe did not create a task, did not charge platform credits, and did not change MuleRouter routing.
 This file is the durable handoff for this task. After compaction, read this file first.
 
 ## Current live verification
