@@ -9,6 +9,14 @@
 - Verification: `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js test/advanced-pricing.test.js test/vega-pricing-label.test.js` 85 pass / 0 fail; syntax and `git diff --check` pass.
 - Pending: commit, build `platform-release`, deploy `123vips.com` only, and submit a real Pro 1.5 task to verify the upstream asset path.
 
+## Legacy regeneration runtime helper fix (2026-11-05)
+
+- Production regression: every generation record click failed with `ReferenceError: firstNonEmpty is not defined` in `upstreamInputMediaItems`, preventing prompt/media restoration.
+- Root cause: the new frontend helper referenced a function local to another function. Fixed by defining `firstPresent` in `part-04.js` scope and adding a sandboxed regression that executes `upstreamInputMediaItems` with legacy `FileInfos` and `Content` data.
+- Checks passed: `git diff --check`, syntax checks, and two targeted regeneration tests (2/2).
+- Commit `0856a94` on `old-site`, pushed to origin. Platform release `c832c26` deployed to `123vips.com` only.
+- Production verification: health `{"ok":true}`; deployed `part-04.js` contains the scoped `firstPresent`, `upstreamInputMediaItems`, `FileInfos`, and `Content`, with the broken call absent.
+
 ## Legacy regeneration direct input restore deployment (2026-11-05)
 
 - User asked whether an old generation must be regenerated once before its source media can be brought back. No new generation is required.
