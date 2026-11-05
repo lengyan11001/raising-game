@@ -690,10 +690,16 @@ function vegaMediaLibraryError(message, code, details, statusCode = 502) {
   return Object.assign(new Error(message), { statusCode, code, details });
 }
 
-function vegaPullUploadTask(response = {}) {
-  return response?.Response?.PullUploadTask && typeof response.Response.PullUploadTask === "object"
-    ? response.Response.PullUploadTask
+function vegaMaterialTask(response = {}) {
+  return response?.Response?.CreateAigcMaterialTask && typeof response.Response.CreateAigcMaterialTask === "object"
+    ? response.Response.CreateAigcMaterialTask
     : null;
+}
+
+function vegaAssetUri(value = "") {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return normalized.startsWith("asset://") ? normalized : `asset://${normalized}`;
 }
 
 function vegaMediaName(url = "", category = "") {
@@ -710,6 +716,7 @@ function vegaMediaName(url = "", category = "") {
 async function importVegaMediaLibraryFile({
   fileInfo = {},
   subAppId,
+  assetGroupId = "",
   env = process.env,
   callVod = callTencentVod,
   timeoutMs = Number(env.TENCENT_VOD_MEDIA_IMPORT_TIMEOUT_MS || 120000),
@@ -721,28 +728,38 @@ async function importVegaMediaLibraryFile({
   const sourceUrl = String(fileInfo.Url || "").trim();
   const category = String(fileInfo.Category || "").trim();
   if (fileInfo.Type !== "Url" || !sourceUrl) {
-    throw vegaMediaLibraryError("Vega Pro media must be a public URL before it can be imported into the VOD media library.", "VEGA_MEDIA_LIBRARY_INVALID_SOURCE", { fileInfo }, 400);
+    throw vegaMediaLibraryError("Vega Pro media must be a public URL before it can be registered as a VOD asset.", "VEGA_MEDIA_LIBRARY_INVALID_SOURCE", { fileInfo }, 400);
   }
   const appId = Number(subAppId);
   if (!Number.isInteger(appId) || appId <= 0) throw new Error("TENCENT_VOD_SUB_APP_ID must be a positive integer.");
+  if (!["Image", "Video", "Audio"].includes(category)) {
+    throw vegaMediaLibraryError("Vega Pro media category must be Image, Video, or Audio.", "VEGA_MEDIA_LIBRARY_INVALID_CATEGORY", { sourceUrl, category }, 400);
+  }
+  const groupId = String(assetGroupId || env.TENCENT_VOD_VEGA_ASSET_GROUP_ID || "123vips-vega").trim();
+  if (!groupId) throw new Error("TENCENT_VOD_VEGA_ASSET_GROUP_ID must not be empty.");
 
-  let uploadResponse;
+  let materialResponse;
   try {
-    uploadResponse = await callVod({
-      action: "PullUpload",
+    materialResponse = await callVod({
+      action: "CreateAigcMaterial",
       payload: {
         SubAppId: appId,
-        MediaUrl: sourceUrl,
-        MediaName: vegaMediaName(sourceUrl, category),
+        FileInfo: { Type: "Url", Url: sourceUrl },
+        AssetType: category,
+        GroupId: groupId,
+        AssetName: vegaMediaName(sourceUrl, category),
+        IsRealPerson: "False",
+        GroupName: "123vips Vega",
+        GroupDescription: "123vips Vega generation references",
       },
       env,
     });
   } catch (error) {
-    throw vegaMediaLibraryError(`Tencent VOD could not import ${category || "media"} into the media library: ${error.message || "PullUpload failed"}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, upstreamCode: error.code || "", payload: error.payload || null });
+    throw vegaMediaLibraryError(`Tencent VOD could not register ${category || "media"} as an asset: ${error.message || "CreateAigcMaterial failed"}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, groupId, upstreamCode: error.code || "", payload: error.payload || null });
   }
-  const taskId = String(uploadResponse?.Response?.TaskId || "").trim();
+  const taskId = String(materialResponse?.Response?.TaskId || "").trim();
   if (!taskId) {
-    throw vegaMediaLibraryError("Tencent VOD PullUpload did not return a task id.", "VEGA_MEDIA_LIBRARY_TASK_ID_MISSING", { sourceUrl, category, payload: uploadResponse });
+    throw vegaMediaLibraryError("Tencent VOD CreateAigcMaterial did not return a task id.", "VEGA_MEDIA_LIBRARY_TASK_ID_MISSING", { sourceUrl, category, groupId, payload: materialResponse });
   }
 
   const deadline = now() + Math.max(0, Number(timeoutMs) || 0);
@@ -756,23 +773,24 @@ async function importVegaMediaLibraryFile({
         env,
       });
     } catch (error) {
-      throw vegaMediaLibraryError(`Tencent VOD media-library import polling failed: ${error.message || "DescribeTaskDetail failed"}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, vodTaskId: taskId, upstreamCode: error.code || "", payload: error.payload || null });
+      throw vegaMediaLibraryError(`Tencent VOD asset-registration polling failed: ${error.message || "DescribeTaskDetail failed"}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, groupId, vodTaskId: taskId, upstreamCode: error.code || "", payload: error.payload || null });
     }
-    const task = vegaPullUploadTask(detailResponse);
+    const task = vegaMaterialTask(detailResponse);
     const errCode = Number(task?.ErrCode || 0);
     const status = String(task?.Status || "").trim().toUpperCase();
     if (errCode !== 0) {
-      throw vegaMediaLibraryError(`Tencent VOD media-library import failed: ${task?.Message || `error ${errCode}`}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, vodTaskId: taskId, errCode, message: task?.Message || "" });
+      throw vegaMediaLibraryError(`Tencent VOD asset registration failed: ${task?.Message || `error ${errCode}`}`, "VEGA_MEDIA_LIBRARY_IMPORT_FAILED", { sourceUrl, category, groupId, vodTaskId: taskId, errCode, message: task?.Message || "" });
     }
     if (status === "FINISH") {
-      const fileId = String(task?.FileId || "").trim();
-      if (!fileId) {
-        throw vegaMediaLibraryError("Tencent VOD media-library import finished without a FileId.", "VEGA_MEDIA_LIBRARY_FILE_ID_MISSING", { sourceUrl, category, vodTaskId: taskId, payload: detailResponse });
+      const assetId = String(task?.Output?.AssetId || "").trim();
+      const assetUri = vegaAssetUri(assetId);
+      if (!assetUri) {
+        throw vegaMediaLibraryError("Tencent VOD asset registration finished without an AssetId.", "VEGA_MEDIA_LIBRARY_ASSET_ID_MISSING", { sourceUrl, category, groupId, vodTaskId: taskId, payload: detailResponse });
       }
-      return { fileId, vodTaskId: taskId, status: "succeeded", payload: task };
+      return { assetId, assetUri, vodTaskId: taskId, status: "succeeded", payload: task };
     }
     if (deadlineReached(deadline) || now() >= deadline) {
-      throw vegaMediaLibraryError("Timed out while importing media into the Tencent VOD media library.", "VEGA_MEDIA_LIBRARY_TIMEOUT", { sourceUrl, category, vodTaskId: taskId, status, timeoutMs });
+      throw vegaMediaLibraryError("Timed out while registering media as a Tencent VOD asset.", "VEGA_MEDIA_LIBRARY_TIMEOUT", { sourceUrl, category, groupId, vodTaskId: taskId, status, timeoutMs });
     }
     if (interval > 0) await sleepImpl(interval);
   }
@@ -780,10 +798,10 @@ async function importVegaMediaLibraryFile({
 
 function fileInfoFromMediaLibrary(entry = {}, fileInfo = {}) {
   return {
-    Type: "File",
+    Type: "Url",
     Category: fileInfo.Category,
     Usage: fileInfo.Usage,
-    FileId: entry.fileId,
+    Url: vegaAssetUri(entry.assetUri || entry.assetId),
   };
 }
 
@@ -799,12 +817,12 @@ async function prepareVegaMediaLibraryFileInfos({
   if (!vegaProviderUsesMediaLibrary(provider)) return fileInfos;
   if (!Array.isArray(fileInfos) || !fileInfos.length) return [];
   return Promise.all(fileInfos.map(async (fileInfo) => {
-    if (fileInfo?.Type === "File" && String(fileInfo.FileId || "").trim()) return fileInfo;
     const sourceUrl = String(fileInfo?.Url || "").trim();
     const category = String(fileInfo?.Category || "").trim();
+    if (sourceUrl.startsWith("asset://")) return fileInfo;
     if (lookup && userId && sourceUrl) {
       const cached = await lookup({ userId, sourceUrl, subAppId });
-      if (cached?.status === "succeeded" && String(cached.fileId || "").trim()) return fileInfoFromMediaLibrary(cached, fileInfo);
+      if (cached?.status === "succeeded" && (String(cached.assetUri || "").trim() || String(cached.assetId || "").trim())) return fileInfoFromMediaLibrary(cached, fileInfo);
     }
     try {
       const imported = await importVegaMediaLibraryFile({ fileInfo, subAppId, ...importOptions });
@@ -814,7 +832,8 @@ async function prepareVegaMediaLibraryFileInfos({
           sourceUrl,
           subAppId,
           category,
-          fileId: imported.fileId,
+          assetId: imported.assetId,
+          assetUri: imported.assetUri,
           vodTaskId: imported.vodTaskId,
           status: imported.status,
           payload: imported.payload,
@@ -908,6 +927,7 @@ module.exports = {
   callTencentVod,
   normalizeVegaDraftTaskId,
   importVegaMediaLibraryFile,
+  vegaAssetUri,
   isVegaProvider,
   normalizeVegaAudioGeneration,
   normalizeVegaDuration,

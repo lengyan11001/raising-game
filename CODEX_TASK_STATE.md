@@ -1,3 +1,14 @@
+## Vega Pro asset-library API correction (2026-11-05)
+
+- User supplied the upstream rule for Vega 1.0 Pro / 1.5 Pro: public URLs must first become VOD assets through `CreateAigcMaterial`, and the video request must reference `Type=Url`, `Url=asset://asset-...`. The previous `PullUpload` + `Type=File` + `FileId` + `InputRegion=Oversea` flow was incorrect.
+- Changed Pro-only media preparation to call `CreateAigcMaterial` with `FileInfo`, `AssetType`, user/env `GroupId`, and `IsRealPerson=False`, then poll `DescribeTaskDetail` for `CreateAigcMaterialTask.Output.AssetId`.
+- PostgreSQL cache `app_vega_media_library` now stores `asset_id` and `asset_uri` while retaining legacy `file_id`; successful asset entries are reused per user/source URL/sub-app. No file fallback was added.
+- `FileInfos` returned for Pro now use `Type=Url` with `Url=asset://asset-...`; `InputRegion` was removed. Vega Lite providers remain unchanged and still submit public URLs.
+- Create-page `assetGroupId` is passed into asset registration; `TENCENT_VOD_VEGA_ASSET_GROUP_ID` defaults to `123vips-vega`.
+- Changed files: `.env.example`, `db.js`, `server.parts/part-26.js`, `server.parts/part-30.js`, `tencent-vod-vega.js`, `test/tencent-vod-vega.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: `node --require ./test/source-compat.js --test test/tencent-vod-vega.test.js test/advanced-pricing.test.js test/vega-pricing-label.test.js` 85 pass / 0 fail; syntax and `git diff --check` pass.
+- Pending: commit, build `platform-release`, deploy `123vips.com` only, and submit a real Pro 1.5 task to verify the upstream asset path.
+
 ## Legacy regeneration direct input restore deployment (2026-11-05)
 
 - User asked whether an old generation must be regenerated once before its source media can be brought back. No new generation is required.

@@ -536,6 +536,8 @@ async function ensureSchemaInner() {
       sub_app_id BIGINT NOT NULL,
       category TEXT NOT NULL DEFAULT '',
       file_id TEXT NOT NULL DEFAULT '',
+      asset_id TEXT NOT NULL DEFAULT '',
+      asset_uri TEXT NOT NULL DEFAULT '',
       vod_task_id TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -548,6 +550,8 @@ async function ensureSchemaInner() {
     ALTER TABLE app_vega_media_library
       ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS file_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS asset_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS asset_uri TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS vod_task_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -556,6 +560,7 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_user_updated_idx ON app_vega_media_library (user_id, updated_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_file_id_idx ON app_vega_media_library (file_id) WHERE file_id <> '';`);
+  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_asset_id_idx ON app_vega_media_library (asset_id) WHERE asset_id <> '';`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_user_characters (
       id TEXT PRIMARY KEY,
@@ -2830,6 +2835,8 @@ function vegaMediaLibraryEntryFromRow(row = {}) {
     subAppId: Number(row.sub_app_id || 0),
     category: String(row.category || ""),
     fileId: String(row.file_id || ""),
+    assetId: String(row.asset_id || ""),
+    assetUri: String(row.asset_uri || ""),
     vodTaskId: String(row.vod_task_id || ""),
     status: String(row.status || ""),
     payload: row.payload && typeof row.payload === "object" ? row.payload : {},
@@ -2862,11 +2869,13 @@ async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
   const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
   const { rows } = await query(
     `
-      INSERT INTO app_vega_media_library(user_id, source_url, sub_app_id, category, file_id, vod_task_id, status, payload, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), NOW())
+      INSERT INTO app_vega_media_library(user_id, source_url, sub_app_id, category, file_id, asset_id, asset_uri, vod_task_id, status, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW())
       ON CONFLICT (user_id, source_url, sub_app_id) DO UPDATE SET
         category = EXCLUDED.category,
         file_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.file_id ELSE app_vega_media_library.file_id END,
+        asset_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.asset_id ELSE app_vega_media_library.asset_id END,
+        asset_uri = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.asset_uri ELSE app_vega_media_library.asset_uri END,
         vod_task_id = CASE WHEN EXCLUDED.vod_task_id <> '' THEN EXCLUDED.vod_task_id ELSE app_vega_media_library.vod_task_id END,
         status = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.status ELSE EXCLUDED.status END,
         payload = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.payload ELSE EXCLUDED.payload END,
@@ -2879,6 +2888,8 @@ async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
       subAppId,
       String(entry.category || ""),
       String(entry.fileId || ""),
+      String(entry.assetId || ""),
+      String(entry.assetUri || ""),
       String(entry.vodTaskId || ""),
       String(entry.status || "pending"),
       JSON.stringify(payload),

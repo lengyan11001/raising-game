@@ -248,11 +248,11 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
     try {
       payload = {
         ...payload,
-        InputRegion: "Oversea",
         FileInfos: await prepareVegaMediaLibraryFileInfos({
           provider,
           fileInfos: payload.FileInfos,
           subAppId,
+          assetGroupId: advancedOptions.assetGroupId,
           userId: auth.user.id,
           lookup: getVegaMediaLibraryEntryFromDb,
           persist: upsertVegaMediaLibraryEntryInDb,

@@ -466,7 +466,7 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
     ? "Up to 10 images, 5 videos, and 5 audios (20 references total). Reference video and audio durations must each total at most 15 seconds."
     : "Up to 9 images, 3 videos, and 3 audios (12 references total). Each video and audio must be 2-15 seconds, and each media type must total at most 15 seconds. Image max 30MB, video max 50MB, audio max 15MB.";
   const mediaTransportDescription = definition.id === "seedance20-vega" || definition.id === "seedance25-vega"
-    ? `${definition.label} first imports every public URL through VOD PullUpload, polls DescribeTaskDetail until the media is ready, then submits FileInfos Type=File with FileId and top-level InputRegion=Oversea. Import failure stops the request before charging.`
+    ? `${definition.label} first registers every public URL through VOD CreateAigcMaterial, polls DescribeTaskDetail until the AssetId is ready, then submits FileInfos Type=Url with Url=asset://asset-... Registration failure stops the request before charging.`
     : `${definition.label} submits public URLs as FileInfos Type=Url.`;
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: `Create an asynchronous ${definition.label} video task through Tencent VOD.`, default: "-" },
@@ -766,7 +766,7 @@ function advancedGenerateConstraintsDoc() {
         "h3-vega": { images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 },
         "vega10-lite": { images: 9, videos: 3, audios: 3, total: 12, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 },
       },
-      mediaTransport: "Media: public HTTP(S) URLs only. Vega 1.0 Pro and 1.5 Pro URLs are imported into the Tencent VOD media library with PullUpload first, then submitted as FileInfos Type=File with FileId and InputRegion=Oversea. Vega 1.5 Lite and 1.0 Lite continue to submit FileInfos Type=Url. Asset IDs and data URLs are rejected.",
+      mediaTransport: "Media: public HTTP(S) URLs only. Vega 1.0 Pro and 1.5 Pro URLs are registered with VOD CreateAigcMaterial first, then submitted as FileInfos Type=Url with Url=asset://asset-.... Vega 1.5 Lite and 1.0 Lite continue to submit public FileInfos Type=Url. Asset IDs and data URLs are rejected at the public API boundary.",
       extInfo: ["return_last_frame", "draft", "draft_task_id", "omni_reference_task_type", "asset_group_id", "output_format", "EnhancePromptMode", "ModerationMode", "ReturnVegaUsage", "GenerateMode", "VideoQualityMode"],
       pricing: "Vega prices are configured in PostgreSQL through the admin pricing API; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream when a required rate is missing.",
     },
