@@ -589,3 +589,15 @@ CODEX_TASK_STATE.md
 - Verification: targeted admin generation/media suites 13 pass, 0 fail; `node --check admin.js`, `node --check server.js`, `node --check server.parts/part-21.js`, `node --check server.parts/part-41.js`, and `git diff --check` pass.
 - Deployment: `old-site` `85ca673`; `platform-release` `8054ce5`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production `/api/health` returned `200 {"ok":true}`. Public `admin.html` now references the new content-hash asset version, and the deployed `admin.js` contains the forced full-detail fetch and audio/video reference handling. Live was not deployed.
 
+
+## Visual system refinement (2026-11-05)
+
+- Goal: close the visual precision gap with `ourdream.ai` through a unified layout/control scale rather than isolated styling.
+- Design audit at 1440x1000: ours had a 248px rail plus 38px content gutter and 5x10px grid gap; reference used roughly 204px rail, 40px content gutter, and 12px gaps. Cards also carried too many competing text layers.
+- Desktop changes: rail is now 216px at >=1400px and 208px from 1081-1399px; content starts at rail + 24px/padding-inline 24px (20px under 1400px); grid gap is 12px; card radius is 12px; controls share 38px/44px heights and 10px radii.
+- Sidebar changes: flat navigation list instead of isolated boxed buttons; quieter 38px rows, 16px icons, subtle active surface, no pink outline/inset stripe.
+- Gallery changes: search/filter controls unified; gallery card media is taller, title is emphasized, stats/profile are demoted, tags are one-line and smaller, LIVE badge is smaller/neutral. Card tags now use one tag from the JS renderer.
+- Cross-page polish: case library toolbar/cards and asset toolbar now share the same radius, height, spacing, and low-contrast surfaces. Mobile-only tag truncation was added; mobile layout remains two columns.
+- Previewed via CDP against production with local CSS injected at 1440x1000 and 390x844. Screenshots: `/tmp/raising-perf-shots/ours-visual-refined.png`, `visual-tab-cases.png`, `visual-tab-advanced.png`, `visual-tab-history.png`, `visual-mobile-gallery.png`.
+- Verification: syntax and `git diff --check` pass; targeted suite 76/82. The same 6 failures reproduce on HEAD without this change (`test/advanced-custom-ui.test.js`, pre-existing Vega/Wan pricing assertions).
+- Pending: commit, build `platform-release`, deploy only `123vips.com`, then verify production CSS/visuals.

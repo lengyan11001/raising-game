@@ -2173,11 +2173,11 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   const deletable = mine || custom;
   const imageReady = Boolean(characterUsableImage(item));
   const generating = isMyCharacterGenerating(item);
-  const tags = characterTags(item, 2);
+  const tags = characterTags(item, 1);
   const profileLine = characterProfileLine(item);
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
-    `${videoCount} videos`,
+    `${videoCount} ${videoCount === 1 ? "video" : "videos"}`,
   ]).join(" / ");
   const chatTenant = typeof isTenantTool === "function" && isTenantTool("chat");
   const actionMarkup = chatTenant
