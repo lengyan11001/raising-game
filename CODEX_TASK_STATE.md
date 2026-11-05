@@ -6,6 +6,7 @@
 - Targeted regression passes. Full `advanced-custom-ui.test.js`: 30 pass / 5 pre-existing unrelated failures. Syntax and `git diff --check` pass.
 - User reported multi-line typing did not grow the control. Root cause: input-time measurement ran before layout and a prior manual-resize flag could block later growth. Input now schedules a forced next-frame measurement, measurement resets to `0px` before reading `scrollHeight`, and only active drag resizing suppresses auto-growth; native `field-sizing: content` and `max-height` are also enabled as a progressive fallback.
 - Follow-up verification: Chrome headless check confirms 8 lines grow the textarea to 126px; targeted prompt regressions 2 pass / 0 fail; syntax and `git diff --check` pass.
+- Deployment: `old-site` `59f97d5`, `platform-release` `50ed276`; pushed and deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production health `200 {"ok":true}`. Public assets `platform.css` / `platform.js` are versioned `mw3ic4fr`; deployed `part-04.js`, `platform.main.js`, and CSS contain the forced next-frame autosize, `0px` remeasure, `field-sizing: content`, pink highlight layer, and scroll synchronization. Live was not deployed.
 
 ## Generate prompt auto-height (2026-11-05)
 
