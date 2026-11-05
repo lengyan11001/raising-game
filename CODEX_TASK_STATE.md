@@ -5,7 +5,7 @@
 - Fix: `resolveVegaMediaAssetSources()` now recovers owned public source URLs from `app_vega_media_library`, then `app_user_assets` by `userAssetId`, before FileInfos submission. Unrecoverable assets fail with `VEGA_MEDIA_ASSET_UNAVAILABLE` instead of being submitted. Helpers moved from `part-26.js` to `part-24.js` to stay under the part line limit.
 - Changed: `tencent-vod-vega.js`, `server.parts/part-01.js`, `server.parts/part-24.js`, `server.parts/part-26.js`, `test/tencent-vod-vega.test.js`.
 - Verification: Vega Vega/media tests 61 pass / 0 fail; advanced pricing 20 pass / 0 fail; `node --check` and `git diff --check` pass. Full `source-split` remains blocked by pre-existing `part-29.js` length.
-- Deployment: pending commit, release build, push of `platform-release`, and `scripts/deploy_local.sh --site old`. Do not deploy Live.
+- Deployment: `old-site` `8233799`; `platform-release` `07e2083` built from it and pushed with lease protection; deployed only with `scripts/deploy_local.sh --site old`. Production is active at `07e2083`, `/api/health` returns `200 {"ok":true}`, and both `resolveVegaMediaAssetSources` code markers are present. The deploy wrapper saw a transient 502 during restart and exited 27, so the final health/commit checks were repeated independently. Live was not deployed.
 
 ## Vega user controls limited to first two rows (2026-11-05)
 
