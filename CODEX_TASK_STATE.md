@@ -222,8 +222,9 @@ This file is the durable handoff for this task. After compaction, read this file
 ## Vega 1.5 Pro GenerateMode removal (2026-11-05)
 
 - Production task `cgt-20261105143223-6d9f9c` failed with `InvalidParameter: ModelVersion "1.5-pro" does not support WandAgent.Parameters.GenerateMode`.
-- The attached Tencent VOD document covers Lite only, so this fix removes only `GenerateMode` for `seedance25-vega`; `VideoQualityMode`, Lite providers, pricing, provider IDs, and media limits are unchanged.
-- Backend and frontend capability tables now mark `generateMode: false` for `seedance25-vega`; payload tests assert `GenerateMode` is absent while `VideoQualityMode` remains supported.
+- The attached Tencent VOD document covers Lite only. A real 1.5 Pro probe (`cgt-20261105144726-23f3da`) then showed both controls are unsupported: first `GenerateMode`, then `VideoQualityMode`; the probe was refunded in full.
+- The fix removes both controls for `seedance25-vega`; Lite providers, pricing, provider IDs, and media limits are unchanged.
+- Backend and frontend capability tables now mark `generateMode: false` and `qualityMode: false` for `seedance25-vega`; payload tests assert both fields are absent.
 - Verification: `test/tencent-vod-vega.test.js` 52 pass, 0 fail; advanced-pricing + source-split 21 pass, 0 fail; syntax checks and `git diff --check` pass.
 - Next: commit, build the old-site release snapshot, deploy only `123vips.com`, then submit and poll a real safe-prompt Vega 1.5 Pro task.
 - Production deployment is complete on `123vips.com` only; Live was not deployed.
