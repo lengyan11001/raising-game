@@ -92,6 +92,7 @@ const VEGA_CAPABILITIES = Object.freeze({
     durationSeconds: Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
     taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]),
     draft: true,
+    generateMode: false,
     limits: VEGA_15_PRO_LIMITS,
   }),
   "h3-vega": capability({
@@ -518,7 +519,7 @@ function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
     ModerationMode: normalizeVegaModerationMode(input.moderationMode),
     ReturnVegaUsage: Boolean(input.returnVegaUsage),
   };
-  // Vega 1.0 Pro and Vega 1.5 Lite reject these fields in production.
+  // Vega 1.0 Pro, Vega 1.5 Pro, and Vega 1.5 Lite reject GenerateMode in production.
   // Vega 1.0 Lite documents and supports both model controls.
   if (!caps || caps.generateMode) wand.GenerateMode = normalizeVegaGenerateMode(input.generateMode);
   if (!caps || caps.qualityMode) wand.VideoQualityMode = normalizeVegaQualityMode(input.videoQualityMode);

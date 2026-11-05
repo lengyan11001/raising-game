@@ -218,6 +218,14 @@ This file is the durable handoff for this task. After compaction, read this file
 - Lite requests with prompt or media are always treated as ordinary generation; stale draft state is discarded and `draft_task_id` is never sent.
 - Draft-only Lite intent is rejected explicitly with `DRAFT_UNSUPPORTED` before credentials, charging, or upstream submission.
 - Regression suite: 54 pass, 0 fail. Syntax checks and `git diff --check` pass.
+
+## Vega 1.5 Pro GenerateMode removal (2026-11-05)
+
+- Production task `cgt-20261105143223-6d9f9c` failed with `InvalidParameter: ModelVersion "1.5-pro" does not support WandAgent.Parameters.GenerateMode`.
+- The attached Tencent VOD document covers Lite only, so this fix removes only `GenerateMode` for `seedance25-vega`; `VideoQualityMode`, Lite providers, pricing, provider IDs, and media limits are unchanged.
+- Backend and frontend capability tables now mark `generateMode: false` for `seedance25-vega`; payload tests assert `GenerateMode` is absent while `VideoQualityMode` remains supported.
+- Verification: `test/tencent-vod-vega.test.js` 52 pass, 0 fail; advanced-pricing + source-split 21 pass, 0 fail; syntax checks and `git diff --check` pass.
+- Next: commit, build the old-site release snapshot, deploy only `123vips.com`, then submit and poll a real safe-prompt Vega 1.5 Pro task.
 - Production deployment is complete on `123vips.com` only; Live was not deployed.
 - Production verification request `cgt-20261105014851-6a45f4` included a stale `draftTaskId` and generated an ordinary Vega 1.5 Lite task.
 - It returned HTTP 200, reached upstream task `1524935253-AigcVideoTask-6d6fdc965814ceba1ec5171c3cc362b5t`, and finished at 100% with a video URL.
