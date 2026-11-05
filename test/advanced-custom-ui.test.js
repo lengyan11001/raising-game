@@ -508,3 +508,20 @@ test("custom media previews avoid retaining full-resolution image copies", () =>
   assert.match(create, /for \(let index = 0; index < selectedFiles.length; index \+= 1\)/);
   assert.match(create, /loading="lazy" decoding="async"/);
 });
+
+
+test("Create submit gives immediate, persistent and accessible feedback", () => {
+  assert.match(html, /id="advancedSubmitBtn"[^>]*aria-busy="false"/);
+  assert.match(html, /id="advancedNote"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(create, /function setAdvancedSubmitButtonBusy\(busy\)/);
+  assert.match(create, /正在创建\.\.\./);
+  assert.match(create, /Creating\.\.\./);
+  assert.match(create, /button\.setAttribute\("aria-busy", "true"\)/);
+  assert.match(create, /function showAdvancedSubmittedNotice\(\)/);
+  assert.match(create, /function showAdvancedSubmitFailure\(error\)/);
+  assert.match(create, /showAdvancedSubmittedNotice\(\)/);
+  assert.match(create, /showAdvancedSubmitFailure\(error\)/);
+  assert.match(ui, /function updateAdvancedButtonCost\(\) \{[\s\S]*?els\.advancedSubmitBtn\.classList\.contains\("is-busy"\)\) return;/);
+  assert.match(css, /\.generate-btn\.is-busy svg \{ animation: generate-button-spin/);
+  assert.match(css, /#advancedNote\.is-error:not\(:empty\)/);
+});

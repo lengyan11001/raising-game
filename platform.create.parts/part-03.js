@@ -1,5 +1,82 @@
 async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
+  if (els.advancedSubmitBtn?.getAttribute("aria-busy") === "true") return;
+  setAdvancedSubmitButtonBusy(true);
+  try {
+    await submitAdvancedGenerateInternal();
+  } finally {
+    setAdvancedSubmitButtonBusy(false);
+  }
+}
+
+function setAdvancedSubmitButtonBusy(busy) {
+  const button = els.advancedSubmitBtn;
+  if (!button) return;
+  if (busy) {
+    button.classList.add("is-busy");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.innerHTML = `<i data-lucide="loader-circle"></i><span>${escapeHtml(state.lang === "zh" ? "正在创建..." : "Creating...")}</span>`;
+    if (els.advancedNote) {
+      els.advancedNote.textContent = "";
+      els.advancedNote.classList.add("is-error");
+    }
+    refreshIcons();
+    return;
+  }
+  button.classList.remove("is-busy");
+  button.removeAttribute("aria-busy");
+  button.disabled = false;
+  if (!button.classList.contains("is-busy")) updateAdvancedButtonCost();
+}
+
+function showAdvancedSubmissionNotice(title, detail = "", failed = false) {
+  const root = els.generationCompletionNotices;
+  if (!root) return;
+  const item = document.createElement("div");
+  item.className = `generation-completion-notice is-submission${failed ? " is-failed" : ""}`;
+  item.setAttribute("role", failed ? "alert" : "status");
+  item.innerHTML = `
+    <span class="generation-completion-notice-icon"><i data-lucide="${failed ? "alert-circle" : "check"}"></i></span>
+    <div class="generation-completion-notice-copy">
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(detail)}</span>
+    </div>
+    <button class="generation-completion-notice-close" type="button" aria-label="${escapeHtml(state.lang === "zh" ? "关闭通知" : "Close notification")}"><i data-lucide="x"></i></button>
+  `;
+  item.querySelector(".generation-completion-notice-close")?.addEventListener("click", () => item.remove());
+  root.prepend(item);
+  refreshIcons();
+  window.setTimeout(() => item.remove(), 5200);
+}
+
+function showAdvancedSubmittedNotice() {
+  if (els.advancedNote) {
+    els.advancedNote.textContent = "";
+    els.advancedNote.classList.remove("is-error");
+  }
+  showAdvancedSubmissionNotice(
+    state.lang === "zh" ? "任务已提交" : "Generation submitted",
+    state.lang === "zh" ? "正在生成，可在 Result 查看进度。" : "Generation started. Track progress in Result.",
+  );
+}
+
+function showAdvancedSubmitFailure(error) {
+  const detail = String(error?.message || error || "").trim();
+  if (!detail) return;
+  if (els.advancedNote) {
+    els.advancedNote.textContent = detail;
+    els.advancedNote.classList.add("is-error");
+  }
+  showAdvancedSubmissionNotice(
+    state.lang === "zh" ? "提交失败" : "Submission failed",
+    detail,
+    true,
+  );
+}
+
+async function submitAdvancedGenerateInternal() {
+  if (!state.user) return openLogin();
   const promptInput = els.advancedPrompt?.value.trim() || "";
   const usingPresetFlow = advancedCreateModeUsesPresetBuilder();
   const autoPrompt = advancedCreateModeUsesAutoPrompt();
@@ -168,12 +245,13 @@ async function submitAdvancedGenerate() {
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
       clearAdvancedCreationInputs();
-      if (els.advancedNote) els.advancedNote.textContent = "";
+      showAdvancedSubmittedNotice();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
       await loadHistory({ silent: true, refresh: true, page: 1 }).catch(() => {});
     } catch (error) {
       if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
+      showAdvancedSubmitFailure(error);
       state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
         record.taskId === pendingTaskId
           ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
@@ -181,7 +259,6 @@ async function submitAdvancedGenerate() {
       ));
       if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
       renderAdvancedResultPanel();
-      if (els.advancedNote) els.advancedNote.textContent = "";
     } finally {
       els.advancedSubmitBtn.disabled = false;
       updateAdvancedButtonCost();
@@ -251,12 +328,13 @@ async function submitAdvancedGenerate() {
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
       clearAdvancedCreationInputs();
-      if (els.advancedNote) els.advancedNote.textContent = "";
+      showAdvancedSubmittedNotice();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
       if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
+      showAdvancedSubmitFailure(error);
       state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
         record.taskId === pendingTaskId
           ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
@@ -264,7 +342,6 @@ async function submitAdvancedGenerate() {
       ));
       if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
       renderAdvancedResultPanel();
-      if (els.advancedNote) els.advancedNote.textContent = "";
     } finally {
       els.advancedSubmitBtn.disabled = false;
       updateAdvancedButtonCost();
@@ -498,12 +575,13 @@ async function submitAdvancedGenerate() {
         mergeAdvancedResultRecord(submittedRecord);
       }
       clearAdvancedCreationInputs();
-      if (els.advancedNote) els.advancedNote.textContent = "";
+      showAdvancedSubmittedNotice();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
       if (handleAdvancedReferenceMissingError(error, vegaPendingTaskId)) return;
+      showAdvancedSubmitFailure(error);
       state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
         record.taskId === vegaPendingTaskId
           ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
@@ -511,7 +589,6 @@ async function submitAdvancedGenerate() {
       ));
       if (state.advancedResultTaskId === vegaPendingTaskId) state.advancedResultTaskId = "";
       renderAdvancedResultPanel();
-      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     } finally {
       els.advancedSubmitBtn.disabled = false;
       updateAdvancedButtonCost();
@@ -946,12 +1023,13 @@ async function submitAdvancedGenerate() {
       state.advancedResultTaskId = taskId;
       mergeAdvancedResultRecord(submittedRecord);
     }
-    if (els.advancedNote) els.advancedNote.textContent = "";
+    showAdvancedSubmittedNotice();
     clearAdvancedCreationInputs();
     setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
   } catch (error) {
     if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
+    showAdvancedSubmitFailure(error);
     state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
       record.taskId === pendingTaskId
         ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
@@ -959,7 +1037,6 @@ async function submitAdvancedGenerate() {
     ));
     if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
     renderAdvancedResultPanel();
-    if (els.advancedNote) els.advancedNote.textContent = "";
   } finally {
     els.advancedSubmitBtn.disabled = false;
     updateAdvancedButtonCost();

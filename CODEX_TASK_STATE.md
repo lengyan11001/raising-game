@@ -1,3 +1,13 @@
+## Create button submission feedback (2026-11-05)
+
+- User reported the Create/Generate button looked unresponsive after click.
+- Root cause: submit only set `disabled`; the shared button had no disabled/busy styling, and validation failures were rendered as low-contrast note text.
+- Added an immediate `aria-busy` loading state with spinner and `正在创建... / Creating...`, duplicate-submit guard, hover/active/focus/pressed feedback, and disabled/loading styles.
+- Validation errors now show in a red inline panel; API submission success/failure show accessible corner notices. Busy state is preserved against pricing rerenders.
+- Files: `platform.create.parts/part-03.js`, `platform.ui.parts/part-04.js`, `platform.html`, `platform.css`, `test/advanced-custom-ui.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: syntax and `git diff --check` pass; new submit-feedback contract passes; targeted tencent/Vega/result regressions 68/68 pass. `advanced-custom-ui` is 26 pass / 6 fail, with the same pre-existing Wan/pricing failures recorded above.
+- Deployment: pending.
+
 ## Vega 1.0 Lite GenerateMode removal (2026-11-05)
 
 - User requested removing `GenerateMode` for Vega 1.0 Lite only (`vega10-lite`).

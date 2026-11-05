@@ -764,7 +764,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
 }
 
 function updateAdvancedButtonCost() {
-  if (!els.advancedSubmitBtn) return;
+  if (!els.advancedSubmitBtn || els.advancedSubmitBtn.classList.contains("is-busy")) return;
   const rawDuration = Number(els.advancedDuration?.value || 5);
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const provider = currentAdvancedProvider();
