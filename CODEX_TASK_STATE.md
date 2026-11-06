@@ -11,7 +11,9 @@
 - Verification: targeted generation/media/OSS suite passes all tests; syntax checks and `git diff --check` pass.
 - Deployment: `old-site` `447de7e`, `platform-release` `c27e618`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`. Health returned `200 {"ok":true}`. Production is 4 vCPU / 7GB RAM / 49GB disk; at check time load was about 2.4, 5.5GB RAM available, disk 51% used.
 - Live queue observation after restart: exactly 4 processing remained, so the global cap is not yet authoritative. Root cause: `mediaIngestRunning` is per-process, but the old service instance was draining while the new instance started. Ensure a single production Node process before treating the live count as the global cap; also expire stale 403 retries so they do not consume slots.
-- Production host signal at queue sample: load average 3.67/2.27/2.30, 5.5GB RAM available, disk 51% used. Queue p50 completion 12.8s and p95 15.8s; queue wait p50 66.1s and p95 363.1s, dominated by retries of expired historical provider URLs after mass enqueue. Active stale-403 retries should be capped or aged out separately from fresh jobs.
+- Production host signal at queue sample: load average 1.90/1.78/2.04, 5.4GB RAM available, disk 51% used. Queue p50 completion 12.8s and p95 15.8s; queue wait p50 225.1s and p95 480.8s, dominated by retries of expired historical provider URLs after mass enqueue. The raw queue showed 23 queued / 8 processing, but only 2 processing rows belonged to the current process; 6 were stale rows from the previous process awaiting the 20-minute takeover window and were not consuming worker slots.
+- `db.js` now excludes `attempts >= 5` rows from `claimNextMediaIngestJobsInDb`, so exhausted stale jobs cannot be re-claimed. Regression test added.
+- Final verification: 126/126 targeted tests pass. Final deployment: `old-site` `14b731f`, `platform-release` `87f8ee7`, deployed only `123vips.com`; health `200 {"ok":true}`.
 
 ## Account menu email binding (2026-11-06)
 
