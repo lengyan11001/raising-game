@@ -1,3 +1,13 @@
+## Seedance Vega 768P correction (2026-11-06)
+
+- User reported Seedance Vega models should not offer 768P; 768P belongs to H3 (vega).
+- Frontend/backend capability matrices now omit 768P for seedance20-vega and seedance25-vega. vega10-lite (h3（vega）) retains 768P; h3-vega remains without 768P.
+- Seedance Vega default resolution is 1080P; vega10-lite defaults to 768P.
+- Removed Pro Vega 768P defaults, normalization, admin/public pricing rows, and pricing-key mappings. Lite 768P pricing remains.
+- API docs expose resolutionsByModel; page asset cache suffix bumped to advanced-parameters-20261106-11.
+- Tests: tencent-vod-vega 61/61; advanced-pricing + vega-pricing-label 29/29; syntax and git diff --check pass.
+- Pending: commit, release snapshot, old-site deployment.
+
 ## Same-style navigation runtime errors and cache fix (2026-11-06)
 
 - User reported `not defined` errors across many pages immediately after the same-style navigation deployment.

@@ -681,13 +681,16 @@ test("Vega 1.0 Lite enforces count, audio-pairing, per-file and total duration l
 
 test("Vega 1.0 Pro exposes its duration, reference limits, and model controls", () => {
   const caps = vega.vegaProviderCapabilities("seedance20-vega");
-  assert.deepEqual(caps.resolutions, ["480P", "720P", "768P", "1080P", "2K", "4K"]);
+  assert.deepEqual(caps.resolutions, ["480P", "720P", "1080P", "2K", "4K"]);
   assert.deepEqual(caps.durationSeconds, { min: 4, max: 15, fallback: 5, smart: false });
   assert.deepEqual(caps.limits, { images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15 });
   assert.equal(caps.returnLastFrame, true);
   assert.equal(caps.frameRatioFromInput, false);
   assert.equal(caps.perFileMinSeconds, undefined);
   assert.equal(caps.perFileMaxSeconds, undefined);
+  assertCode(() => vega.normalizeVegaResolution("768P", "seedance20-vega"), "INVALID_RESOLUTION");
+  assertCode(() => vega.normalizeVegaResolution("768P", "seedance25-vega"), "INVALID_RESOLUTION");
+  assert.equal(vega.normalizeVegaResolution("768P", "vega10-lite"), "768P");
 
   const payload = vega.buildVegaCreatePayload({
     provider: "seedance20-vega",
@@ -784,7 +787,7 @@ test("Vega model upload limits keep Lite and Pro 1.0 behavior while allowing Pro
   assert.match(server, /VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES = 200 \* 1024 \* 1024/);
   assert.match(server, /VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES = 15 \* 1024 \* 1024/);
   assert.match(server, /normalized === "seedance25-vega"[\s\S]{0,240}VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES[\s\S]{0,120}VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES[\s\S]{0,120}VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES/);
-  assert.match(config, /"seedance25-vega": Object\.freeze\(\{ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object\.freeze\(\["auto", "reference", "edit", "extend"\]\), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 \}\)/);
+  assert.match(config, /"seedance25-vega": Object\.freeze\(\{ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object\.freeze\(\["auto", "reference", "edit", "extend"\]\), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 \}\)/);
   assert.match(config, /"vega10-lite": Object\.freeze\(\{[^\n]*moderation: false, generateMode: false[^\n]*\}\)/);
 });
 
@@ -1072,6 +1075,10 @@ test("Vega UI exposes the full capability matrix and duration controls", () => {
     assert.match(config, new RegExp(`"${id}"`));
   }
   assert.match(config, /VEGA_ALL_RESOLUTIONS = Object\.freeze\(\["480P", "720P", "768P", "1080P", "2K", "4K"\]\)/);
+  assert.match(config, /SEEDANCE_VEGA_RESOLUTIONS = Object\.freeze\(\["480P", "720P", "1080P", "2K", "4K"\]\)/);
+  assert.match(config, /"seedance20-vega": Object\.freeze\(\{ resolutions: SEEDANCE_VEGA_RESOLUTIONS/);
+  assert.match(config, /"seedance25-vega": Object\.freeze\(\{ resolutions: SEEDANCE_VEGA_RESOLUTIONS/);
+  assert.match(config, /"vega10-lite": Object\.freeze\(\{ resolutions: Object\.freeze\(\["480P", "768P", "1080P", "2K", "4K"\]\)/);
   assert.match(config, /VEGA_ALL_RATIOS = Object\.freeze\(\["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"\]\)/);
   assert.match(config, /"seedance20-vega": Object\.freeze\(\{ min: 4, max: 15, fallback: 5, smart: false \}\)/);
   assert.match(config, /"seedance25-vega": Object\.freeze\(\{ min: 4, max: 30, fallback: 5, smart: true \}\)/);

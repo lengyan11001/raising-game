@@ -43,6 +43,7 @@ const VEGA_MEDIA_MODES = Object.freeze({
   draft_followup: Object.freeze({ id: "draft_followup", label: "Draft to Final" }),
 });
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
+const SEEDANCE_VEGA_RESOLUTIONS = Object.freeze(["480P", "720P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_COMMON_MODES = Object.freeze(["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video"]);
 const VEGA_15_PRO_LIMITS = Object.freeze({
@@ -83,12 +84,14 @@ function capability(overrides = {}) {
 
 const VEGA_CAPABILITIES = Object.freeze({
   "seedance20-vega": capability({
+    resolutions: SEEDANCE_VEGA_RESOLUTIONS,
     durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
     generateMode: false,
     qualityMode: false,
     limits: VEGA_10_PRO_LIMITS,
   }),
   "seedance25-vega": capability({
+    resolutions: SEEDANCE_VEGA_RESOLUTIONS,
     durationSeconds: Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
     taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]),
     draft: true,
@@ -1069,6 +1072,7 @@ module.exports = {
   VEGA_MEDIA_MODES,
   VEGA_ALL_RATIOS,
   VEGA_ALL_RESOLUTIONS,
+  SEEDANCE_VEGA_RESOLUTIONS,
   VEGA_RATIOS,
   VEGA_RESOLUTIONS,
   assertVegaPricingConfigured,

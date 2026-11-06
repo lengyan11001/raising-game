@@ -989,7 +989,6 @@ const DEFAULT_ADVANCED_PRICING = {
   vega10ProCreditsPerSecondByResolution: {
     "480p": 9.6,
     "720p": 18.345,
-    "768p": 18.345,
     "1080p": 39.93,
     "2k": 99.225,
     "4k": 113.07,
@@ -997,7 +996,6 @@ const DEFAULT_ADVANCED_PRICING = {
   vega10ProInputVideoCreditsPerSecondByResolution: {
     "480p": 6.03,
     "720p": 11.535,
-    "768p": 11.535,
     "1080p": 24.93,
     "2k": 61.62,
     "4k": 69.225,
@@ -1007,7 +1005,6 @@ const DEFAULT_ADVANCED_PRICING = {
   vega15ProCreditsPerSecondByResolution: {
     "480p": 13.98,
     "720p": 27.42,
-    "768p": 27.42,
     "1080p": 59.685,
     "2k": 147,
     "4k": 161.7,
@@ -1015,7 +1012,6 @@ const DEFAULT_ADVANCED_PRICING = {
   vega15ProInputVideoCreditsPerSecondByResolution: {
     "480p": 8.385,
     "720p": 17.07,
-    "768p": 17.07,
     "1080p": 36.465,
     "2k": 89.07,
     "4k": 97.98,

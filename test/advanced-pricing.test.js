@@ -151,17 +151,19 @@ test("Vega 1.0 Pro pricing rows cover every resolution with separate reference-v
     server.indexOf("const ADVANCED_PRICING_ROWS = ["),
     server.indexOf("const ADVANCED_PRICING_ROW_KEYS"),
   );
-  for (const resolution of ["480p", "720p", "768p", "1080p", "2k", "4k"]) {
+  for (const resolution of ["480p", "720p", "1080p", "2k", "4k"]) {
     assert.match(pricingRowsSource, new RegExp(`key: "vega10-pro-${resolution}"[^\\n]*provider: "seedance20-vega"[^\\n]*providerLabel: "Vega 1\\.0 Pro"[^\\n]*resolution: "${resolution}"`));
     assert.match(pricingRowsSource, new RegExp(`key: "vega10-pro-video-${resolution}"[^\\n]*provider: "seedance20-vega"[^\\n]*resolution: "${resolution}"[^\\n]*rateKind: "video_input"`));
     assert.match(server, new RegExp(`key === "vega10-pro-${resolution}"\\) next\\.vega10ProCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
     assert.match(server, new RegExp(`key === "vega10-pro-video-${resolution}"\\) next\\.vega10ProInputVideoCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
   }
-  assert.match(server, /vega10ProCreditsPerSecondByResolution: \{\s*"480p": 9\.6,\s*"720p": 18\.345,\s*"768p": 18\.345,\s*"1080p": 39\.93,\s*"2k": 99\.225,\s*"4k": 113\.07,?\s*\}/);
-  assert.match(server, /vega10ProInputVideoCreditsPerSecondByResolution: \{\s*"480p": 6\.03,\s*"720p": 11\.535,\s*"768p": 11\.535,\s*"1080p": 24\.93,\s*"2k": 61\.62,\s*"4k": 69\.225,?\s*\}/);
+  assert.match(server, /vega10ProCreditsPerSecondByResolution: \{\s*"480p": 9\.6,\s*"720p": 18\.345,\s*"1080p": 39\.93,\s*"2k": 99\.225,\s*"4k": 113\.07,?\s*\}/);
+  assert.match(server, /vega10ProInputVideoCreditsPerSecondByResolution: \{\s*"480p": 6\.03,\s*"720p": 11\.535,\s*"1080p": 24\.93,\s*"2k": 61\.62,\s*"4k": 69\.225,?\s*\}/);
 
   const publicRows = application.publicAdvancedPricingRows(application.DEFAULT_ADVANCED_PRICING);
   const byKey = Object.fromEntries(publicRows.map((row) => [row.key, row]));
+  assert.equal(byKey["vega10-pro-768p"], undefined);
+  assert.equal(byKey["vega10-pro-video-768p"], undefined);
   assert.equal(byKey["vega10-pro-1080p"].saleCreditsPerUnit, 39.93);
   assert.equal(byKey["vega10-pro-video-1080p"].saleCreditsPerUnit, 24.93);
 });
@@ -170,7 +172,6 @@ test("Vega 1.0 Pro bills no-reference, reference input, and reference output rat
   for (const [resolution, expected] of [
     ["480P", 9.6],
     ["720P", 18.345],
-    ["768P", 18.345],
     ["1080P", 39.93],
     ["2K", 99.225],
     ["4K", 113.07],
@@ -180,6 +181,10 @@ test("Vega 1.0 Pro bills no-reference, reference input, and reference output rat
     assert.equal(estimate.outputCreditsPerSecond, expected);
     assert.equal(estimate.outputCredits, expected * 4);
   }
+  assert.throws(
+    () => application.advancedModelPricing("seedance20-vega", { duration: 4, resolution: "768P" }),
+    (error) => error?.code === "INVALID_RESOLUTION",
+  );
   assert.throws(
     () => application.advancedModelPricing("seedance20-vega", { duration: -1, resolution: "1080P" }),
     (error) => error?.code === "INVALID_DURATION",
@@ -217,18 +222,19 @@ test("Vega 1.5 Pro pricing rows cover every resolution with separate reference-v
     server.indexOf("const ADVANCED_PRICING_ROWS = ["),
     server.indexOf("const ADVANCED_PRICING_ROW_KEYS"),
   );
-  for (const resolution of ["480p", "720p", "768p", "1080p", "2k", "4k"]) {
+  for (const resolution of ["480p", "720p", "1080p", "2k", "4k"]) {
     assert.match(pricingRowsSource, new RegExp(`key: "vega15-pro-${resolution}"[^\\n]*provider: "seedance25-vega"[^\\n]*providerLabel: "Vega 1\\.5 Pro"[^\\n]*resolution: "${resolution}"`));
     assert.match(pricingRowsSource, new RegExp(`key: "vega15-pro-video-${resolution}"[^\\n]*provider: "seedance25-vega"[^\\n]*resolution: "${resolution}"[^\\n]*rateKind: "video_input"`));
     assert.match(server, new RegExp(`key === "vega15-pro-${resolution}"\\) next\\.vega15ProCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
     assert.match(server, new RegExp(`key === "vega15-pro-video-${resolution}"\\) next\\.vega15ProInputVideoCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
   }
-  assert.match(server, /vega15ProCreditsPerSecondByResolution: \{\s*"480p": 13\.98,\s*"720p": 27\.42,\s*"768p": 27\.42,\s*"1080p": 59\.685,\s*"2k": 147,\s*"4k": 161\.7,?\s*\}/);
-  assert.match(server, /vega15ProInputVideoCreditsPerSecondByResolution: \{\s*"480p": 8\.385,\s*"720p": 17\.07,\s*"768p": 17\.07,\s*"1080p": 36\.465,\s*"2k": 89\.07,\s*"4k": 97\.98,?\s*\}/);
+  assert.match(server, /vega15ProCreditsPerSecondByResolution: \{\s*"480p": 13\.98,\s*"720p": 27\.42,\s*"1080p": 59\.685,\s*"2k": 147,\s*"4k": 161\.7,?\s*\}/);
+  assert.match(server, /vega15ProInputVideoCreditsPerSecondByResolution: \{\s*"480p": 8\.385,\s*"720p": 17\.07,\s*"1080p": 36\.465,\s*"2k": 89\.07,\s*"4k": 97\.98,?\s*\}/);
 
   const publicRows = application.publicAdvancedPricingRows(application.DEFAULT_ADVANCED_PRICING);
   const byKey = Object.fromEntries(publicRows.map((row) => [row.key, row]));
-  assert.equal(byKey["vega15-pro-768p"].saleCreditsPerUnit, 27.42);
+  assert.equal(byKey["vega15-pro-768p"], undefined);
+  assert.equal(byKey["vega15-pro-video-768p"], undefined);
   assert.equal(byKey["vega15-pro-video-1080p"].saleCreditsPerUnit, 36.465);
 });
 
@@ -236,7 +242,6 @@ test("Vega 1.5 Pro bills no-reference, reference input, and reference output rat
   for (const [resolution, expected] of [
     ["480P", 13.98],
     ["720P", 27.42],
-    ["768P", 27.42],
     ["1080P", 59.685],
     ["2K", 147],
     ["4K", 161.7],
@@ -248,6 +253,10 @@ test("Vega 1.5 Pro bills no-reference, reference input, and reference output rat
     assert.equal(estimate.referenceImageCredits, 0);
     assert.equal(estimate.source, "configured_vega15_pro_output_duration_rate");
   }
+  assert.throws(
+    () => application.advancedModelPricing("seedance25-vega", { duration: 5, resolution: "768P" }),
+    (error) => error?.code === "INVALID_RESOLUTION",
+  );
 
   const withReference = application.advancedModelPricing("seedance25-vega", {
     duration: 5,

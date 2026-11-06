@@ -1034,7 +1034,6 @@ function normalizeAdvancedPricing(pricing = {}) {
     vega10ProCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(vega10Pro["480p"], DEFAULT_ADVANCED_PRICING.vega10ProCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(vega10Pro["720p"], DEFAULT_ADVANCED_PRICING.vega10ProCreditsPerSecondByResolution["720p"], 6),
-      "768p": normalizeStoredCredits(vega10Pro["768p"], DEFAULT_ADVANCED_PRICING.vega10ProCreditsPerSecondByResolution["768p"], 6),
       "1080p": normalizeStoredCredits(vega10Pro["1080p"], DEFAULT_ADVANCED_PRICING.vega10ProCreditsPerSecondByResolution["1080p"], 6),
       "2k": normalizeStoredCredits(vega10Pro["2k"], DEFAULT_ADVANCED_PRICING.vega10ProCreditsPerSecondByResolution["2k"], 6),
       "4k": normalizeStoredCredits(vega10Pro["4k"], DEFAULT_ADVANCED_PRICING.vega10ProCreditsPerSecondByResolution["4k"], 6),
@@ -1042,7 +1041,6 @@ function normalizeAdvancedPricing(pricing = {}) {
     vega10ProInputVideoCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(vega10ProInputVideo["480p"], DEFAULT_ADVANCED_PRICING.vega10ProInputVideoCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(vega10ProInputVideo["720p"], DEFAULT_ADVANCED_PRICING.vega10ProInputVideoCreditsPerSecondByResolution["720p"], 6),
-      "768p": normalizeStoredCredits(vega10ProInputVideo["768p"], DEFAULT_ADVANCED_PRICING.vega10ProInputVideoCreditsPerSecondByResolution["768p"], 6),
       "1080p": normalizeStoredCredits(vega10ProInputVideo["1080p"], DEFAULT_ADVANCED_PRICING.vega10ProInputVideoCreditsPerSecondByResolution["1080p"], 6),
       "2k": normalizeStoredCredits(vega10ProInputVideo["2k"], DEFAULT_ADVANCED_PRICING.vega10ProInputVideoCreditsPerSecondByResolution["2k"], 6),
       "4k": normalizeStoredCredits(vega10ProInputVideo["4k"], DEFAULT_ADVANCED_PRICING.vega10ProInputVideoCreditsPerSecondByResolution["4k"], 6),
@@ -1050,7 +1048,6 @@ function normalizeAdvancedPricing(pricing = {}) {
     vega15ProCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(vega15Pro["480p"], DEFAULT_ADVANCED_PRICING.vega15ProCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(vega15Pro["720p"], DEFAULT_ADVANCED_PRICING.vega15ProCreditsPerSecondByResolution["720p"], 6),
-      "768p": normalizeStoredCredits(vega15Pro["768p"], DEFAULT_ADVANCED_PRICING.vega15ProCreditsPerSecondByResolution["768p"], 6),
       "1080p": normalizeStoredCredits(vega15Pro["1080p"], DEFAULT_ADVANCED_PRICING.vega15ProCreditsPerSecondByResolution["1080p"], 6),
       "2k": normalizeStoredCredits(vega15Pro["2k"], DEFAULT_ADVANCED_PRICING.vega15ProCreditsPerSecondByResolution["2k"], 6),
       "4k": normalizeStoredCredits(vega15Pro["4k"], DEFAULT_ADVANCED_PRICING.vega15ProCreditsPerSecondByResolution["4k"], 6),
@@ -1058,7 +1055,6 @@ function normalizeAdvancedPricing(pricing = {}) {
     vega15ProInputVideoCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(vega15ProInputVideo["480p"], DEFAULT_ADVANCED_PRICING.vega15ProInputVideoCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(vega15ProInputVideo["720p"], DEFAULT_ADVANCED_PRICING.vega15ProInputVideoCreditsPerSecondByResolution["720p"], 6),
-      "768p": normalizeStoredCredits(vega15ProInputVideo["768p"], DEFAULT_ADVANCED_PRICING.vega15ProInputVideoCreditsPerSecondByResolution["768p"], 6),
       "1080p": normalizeStoredCredits(vega15ProInputVideo["1080p"], DEFAULT_ADVANCED_PRICING.vega15ProInputVideoCreditsPerSecondByResolution["1080p"], 6),
       "2k": normalizeStoredCredits(vega15ProInputVideo["2k"], DEFAULT_ADVANCED_PRICING.vega15ProInputVideoCreditsPerSecondByResolution["2k"], 6),
       "4k": normalizeStoredCredits(vega15ProInputVideo["4k"], DEFAULT_ADVANCED_PRICING.vega15ProInputVideoCreditsPerSecondByResolution["4k"], 6),

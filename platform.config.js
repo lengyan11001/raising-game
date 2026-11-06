@@ -488,6 +488,7 @@ function publicGenerationDisplayTitle(record = {}, fallback = "") {
   return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || fallback || "").trim();
 }
 const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
+const SEEDANCE_VEGA_RESOLUTIONS = Object.freeze(["480P", "720P", "1080P", "2K", "4K"]);
 const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
 const VEGA_DURATION_BOUNDS = Object.freeze({
   "seedance20-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
@@ -496,8 +497,8 @@ const VEGA_DURATION_BOUNDS = Object.freeze({
   "vega10-lite": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
 });
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
-  "seedance20-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
-  "seedance25-vega": Object.freeze({ resolutions: VEGA_ALL_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 }),
+  "seedance20-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
+  "seedance25-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 }),
   "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false }),
   "vega10-lite": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true, moderation: false, generateMode: false, returnLastFrame: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
 });

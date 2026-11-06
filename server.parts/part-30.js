@@ -754,6 +754,12 @@ function advancedGenerateConstraintsDoc() {
       taskTypes: { "seedance25-vega": ["auto", "reference", "edit", "extend"], otherModels: ["auto", "reference"] },
       durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance20-vega": 5, "seedance25-vega": 5, "h3-vega": 6, "vega10-lite": 5 }, perModel: { "seedance20-vega": "4-15, no -1", "seedance25-vega": "4-30 or -1", "h3-vega": "2-30 or -1", "vega10-lite": "4-15, no -1" } },
       resolution: ["480P", "720P", "768P", "1080P", "2K", "4K"],
+      resolutionsByModel: {
+        "seedance20-vega": ["480P", "720P", "1080P", "2K", "4K"],
+        "seedance25-vega": ["480P", "720P", "1080P", "2K", "4K"],
+        "h3-vega": ["480P", "720P", "1080P", "2K", "4K"],
+        "vega10-lite": ["480P", "768P", "1080P", "2K", "4K"],
+      },
       ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
       fileInfoUsage: ["FirstFrame", "LastFrame", "Reference"],
       lastFrameRule: "FirstFrame, LastFrame, and first_last_frame are separate modes; LastFrame is not required to be paired with FirstFrame.",
