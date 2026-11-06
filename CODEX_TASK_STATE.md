@@ -1,3 +1,11 @@
+## Anime restricted to owner account (2026-11-06)
+
+- User clarified the Anime Same-style tab must be visible only to their account, not all users.
+- Kept the existing owner/test identity gate in `platform.config.js`: `canUseAnimeTemplates()` returns `isWorkflowTester()`, which currently matches `test01`.
+- Updated `test/workflow-access.test.js` to guard the owner-only Anime gate.
+- Verification: targeted Anime access assertion and PlayFlux template bootstrap regression test pass; anonymous production Chrome/CDP shows only `cases`, `playflux-video`, and `playflux-image` tabs with `animeAllowed=false`.
+- Deployment: `old-site` `c0d09e4`; `platform-release` `cbc4538`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`.
+
 ## Same-style tabs empty after config refresh (2026-11-06)
 
 - User reported the last three Same-style tabs had no visible cards, then clarified data arrived and disappeared again.
