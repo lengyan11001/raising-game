@@ -1,3 +1,11 @@
+## Video reference thumbnails restored in regeneration (2026-11-07)
+
+- User reported two videos restored into `cgt-20261106224218-1800a5` regeneration without thumbnails.
+- Server now generates/persists video first-frame posters, and `/api/user-assets/resolve` backfills posters for existing videos. Asset hydration preserves `posterUrl`/`thumbnailUrl`/`coverUrl`.
+- Final frontend bug: shared Seedance reference restore rebuilt video objects from a whitelist and dropped poster fields. Restore now spreads the hydrated item and carries all poster aliases into the rendered chips.
+- Verification: `node --test test/vega-regeneration-media.test.js` 12/12; syntax and diff checks pass. Production posters return `200 image/jpeg`. Chrome hard reload + Regenerate showed 3 chips and 2 video poster images, both `complete` with natural sizes `810x506` and `640x640`; screenshot `/tmp/video-posters-fixed.png`.
+- Deployment: old-site `7792415`; platform-release `8981092`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Live was not deployed.
+
 
 ## Canvas source-adoption stepwise work (2026-11-06)
 
