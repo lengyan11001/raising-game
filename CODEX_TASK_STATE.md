@@ -1041,3 +1041,15 @@ CODEX_TASK_STATE.md
 - Releases: `platform-release` `df4ddeb162b269a2618e898ddfd529921c0d391b`; `live-release` `9e3d09ac17e3e0965e89e97c9717d2b6c588492f`.
 - Deployment: deployed successfully via `scripts/deploy_local.sh --site old` and `scripts/deploy_local.sh --site live`.
 - Production verification: both sites return `active:true`, `started:true`, `visible:true`, `periodSeconds:259200`, with `startsAt=2026-11-05T17:00:00.000Z` and `endsAt=2026-11-08T17:00:00.000Z`; both `/api/health` endpoints return `200 {"ok":true}`. Anonymous SKU state returns `owned:false` and `purchased:false`, while inventory reflects the real PostgreSQL count.
+
+### 11.11 unlimited campaign display (2026-11-06)
+
+- User clarified that the campaign is not a physical product: remove all inventory, remaining-quantity, capacity, progress-bar, and sold-out concepts. Show only a social-proof sold count, which is intentionally mock presentation data rather than real inventory.
+- Display values: member `已售 896`; credits `已售 743`. Both cards show `不限量`; dialog headline is `限时特惠，不限量供应`.
+- The service status no longer returns `capacity`, `remaining`, `reserved`, or `soldOut`. Checkout no longer passes a capacity limit, and the inventory-cap path/error was removed. PostgreSQL still enforces one paid or active pending purchase per user per SKU.
+- Changed files: `server.parts/part-44.js`, `platform.ui.parts/part-07.js`, and the 11.11-only sections of `platform.html`; tests updated in `test/eleven-eleven-promo.test.js`. Concurrent workflow changes in `platform.css` and unrelated cache-version lines in `platform.html` were deliberately left uncommitted.
+- Verification: targeted 11.11 tests 8/8 pass; syntax and diff checks pass.
+- Integration: `old-site` commit `dbade60f6aafdc53862386247a9f833b43995310` (`Make 11.11 campaign unlimited with social-proof sold counts`).
+- Releases: `platform-release` `61c2fd642f8b026cb61dfb4e82186d8852ef2939`; `live-release` `090454a998d2ad8f860f54f9f2f30ca9bd87d828`.
+- Deployment: deployed successfully via `scripts/deploy_local.sh --site old` and `scripts/deploy_local.sh --site live`; both health endpoints return 200.
+- Production verification: both sites show `active:true`, `started:true`, member `sold:896`, credits `sold:743`, `owned:false`, `purchased:false`; both responses omit `capacity`, `remaining`, and `soldOut`.
