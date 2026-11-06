@@ -1198,3 +1198,11 @@ CODEX_TASK_STATE.md
 - Changed `platform.css` `.referral-card` width from `min(760px, 100%)` to `min(920px, 100%)`; bumped the page cache suffix to `membership-redesign-20261106-3`.
 - Verification: targeted membership/cases suite passes 12/12; layout assertions and `git diff --check` pass.
 - Deployment: pushed `old-site` `1760f68`; platform release `9c76c869e6b2cfedd258297940396c151c5e98d7`; `scripts/deploy_local.sh --site old` exited 0. Production health returns 200; served CSS resolves `.referral-card` to `width: min(920px, 100%)`. Live was not deployed.
+
+## Image result tab play-icon fix (2026-11-06)
+
+- User reported image cards in the Generate Result image tab still showed a video play button.
+- Cause: `posterUrl` falls back to the image URL, and the renderer checked `videoUrl || posterUrl` before `imageUrl`, so completed images entered the video button branch.
+- Fix: render `imageUrl` before `posterUrl`; image cards remain interactive preview buttons but contain no play icon. Video cards retain their play overlay. Cache suffix is `image-result-no-play-20261106-1`.
+- Changed files: `platform.create.parts/part-01.js`, `platform.html`, `test/advanced-result-kind.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: advanced result suites pass 22/22; syntax and `git diff --check` pass.

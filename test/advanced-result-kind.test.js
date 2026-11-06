@@ -52,3 +52,14 @@ test("all generated task entry points select the matching result tab", () => {
   assert.match(create, /setAdvancedResultMediaKind\("video"\);[\s\S]{0,100}?const pendingTaskId = `pending-video/);
   assert.match(explore, /setAdvancedResultMediaKind\(isVideo \? "video" : "image"\);\s*mergeAdvancedResultRecord\(playfluxTemplateRecordBase/);
 });
+
+test("image result cards are rendered before video posters and have no play icon", () => {
+  const body = create.match(/function renderAdvancedResultPanel\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(body, "renderAdvancedResultPanel should exist");
+  const imageBranch = body.indexOf(": imageUrl");
+  const videoBranch = body.indexOf(": videoUrl || posterUrl");
+  assert.ok(imageBranch >= 0, "image result branch should exist");
+  assert.ok(videoBranch > imageBranch, "image URLs must win over poster/video rendering");
+  const imageMarkup = body.slice(imageBranch, videoBranch);
+  assert.doesNotMatch(imageMarkup, /data-lucide="play"/);
+});
