@@ -2153,6 +2153,10 @@ body.creator-picker-open {
   box-shadow: none;
 }
 .gallery-top-tabs .gallery-mode-tab.is-active svg { color: #ff8bc5; }
+.gallery-top-tabs .gallery-mode-tab.is-active span {
+  color: inherit;
+  background: transparent;
+}
 .gallery-mode-tab {
   display: inline-flex;
   align-items: center;
