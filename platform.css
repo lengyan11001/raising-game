@@ -10561,11 +10561,14 @@ select:focus,
 }
 .advanced-parameter-shell {
   position: relative;
-  flex: 1 1 260px;
+  flex: 1 0 100%;
   min-width: 0;
 }
 .advanced-generator-toolbar > .generate-btn {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  min-width: 116px;
+  min-height: 40px;
+  padding: 0 18px;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -10881,9 +10884,6 @@ select:focus,
   display: none !important;
 }
 @media (max-width: 900px) {
-  .advanced-parameter-shell {
-    flex-basis: 100%;
-  }
   .advanced-generator-toolbar > .generate-btn {
     width: 100%;
     min-height: 46px;
