@@ -921,7 +921,6 @@ function applyTenantFeatures() {
       if (panel) panel.hidden = true;
     }
   });
-  if (typeof syncSideNavigationMore === "function") syncSideNavigationMore();
   document.querySelectorAll("[data-panel='access'], #accessTokenCard").forEach((element) => {
     element.hidden = !apiAccessEnabled || element.hidden;
   });

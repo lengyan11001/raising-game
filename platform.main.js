@@ -26,13 +26,6 @@ document.addEventListener("click", (event) => {
       .catch((error) => console.warn("video tool module unavailable", error.message || error));
     return;
   }
-  const closeMoreMenuAfterSelection = () => {
-    if (!event.target.closest("#sideNavMoreMenu")) return;
-    const menu = document.getElementById("sideNavMoreMenu");
-    const moreButton = document.getElementById("sideNavMoreBtn");
-    if (menu) menu.hidden = true;
-    moreButton?.setAttribute("aria-expanded", "false");
-  };
   const homeAction = event.target.closest("[data-home-action]");
   if (homeAction) {
     state.routeCharacterId = "";
@@ -51,7 +44,6 @@ document.addEventListener("click", (event) => {
     state.routeCharacterId = "";
     state.routeCharacterSource = "";
     state.activeGalleryCharacterId = "";
-    closeMoreMenuAfterSelection();
     if (mode === "cases") setTab("cases");
     else setGalleryMode(mode);
     return;
@@ -61,7 +53,6 @@ document.addEventListener("click", (event) => {
     state.routeCharacterId = "";
     state.routeCharacterSource = "";
     state.activeGalleryCharacterId = "";
-    closeMoreMenuAfterSelection();
     setTab(DEFAULT_PLATFORM_TAB);
     setGalleryMode(galleryShortcut.dataset.galleryShortcut || DEFAULT_GALLERY_MODE);
     return;
@@ -71,7 +62,6 @@ document.addEventListener("click", (event) => {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
-  closeMoreMenuAfterSelection();
   if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });
