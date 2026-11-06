@@ -3,7 +3,9 @@
 - Production SMTP configuration is present and `verifySmtp()` succeeds against Alibaba Direct Mail `smtpdm-ap-southeast-1.aliyuncs.com:465` over implicit TLS; `/api/config/public` reports `auth.email.enabled=true`.
 - Production login modal serves `emailLoginTab` selected and `passwordLoginPanel` hidden.
 - End-to-end production verification found `[email-challenge-db] crypto is not defined` during `/api/auth/email/verify`; `db.js` used `crypto` without importing it. Added `require("node:crypto")` and a regression assertion.
-- Targeted email tests pass 8/8; syntax and diff checks pass. Production redeployment and end-to-end retest follow this fix.
+- Targeted email tests pass 8/8; syntax and diff checks pass.
+- Deployment: `old-site` `c315dd6`; `platform-release` `0c0a053`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production health is `200 {"ok":true}`.
+- Production end-to-end retest passed: `/api/auth/email/request` returned 200; challenge existed in PostgreSQL; `/api/auth/email/verify` returned 200 with a session token; `/api/auth/me` returned the email user; reusing the same code returned 401. Controlled test challenge rows and the temporary email test user were cleaned up afterward.
 
 ## R2 credential repair and CDN DNS permission check (2026-11-06)
 
