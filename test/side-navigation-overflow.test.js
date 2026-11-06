@@ -54,3 +54,11 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.doesNotMatch(explore, /syncGalleryModeTabs/);
   assert.match(explore, /function syncGalleryShortcutNav\(\)[\s\S]*?renderGalleryModeTabs\(\);/);
 });
+
+test("recharge promotion entries stay out of the shared same-style layout", () => {
+  const html = read("platform.html");
+
+  assert.doesNotMatch(html, /id="doubleTopupBanner"/);
+  assert.doesNotMatch(html, /class="double-topup-banner double-topup-banner-home"/);
+  assert.match(html, /<section class="same-style-panel" id="sameStylePanel" hidden>/);
+});

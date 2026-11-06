@@ -1,3 +1,10 @@
+## Recharge activity entry removal (2026-11-06)
+
+- User confirmed the shared same-style tabs are no longer overlapping, and asked to remove the recharge activity entry for now.
+- Removed both the global recharge promotion banner and the home-page recharge promotion entry from `platform.html`; the existing same-style tabs remain in their normal layout flow.
+- Added a regression test ensuring the removed recharge promotion entries do not return to the shared same-style area. `node --test test/side-navigation-overflow.test.js` passes 3/3.
+- Pending: commit, platform release snapshot, old-site deployment.
+
 ## Custom editor height correction (2026-11-06)
 
 - User clarified the Custom/Generate editor needed more height, not more width.
