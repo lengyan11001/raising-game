@@ -13334,77 +13334,520 @@ body.wan30-launch-visible .site-head { top: 0; }
   }
 }
 
-/* React Flow handles: fixed visual dots with a usable pointer hit area. */
+/* React Flow canvas and native node surfaces. */
+.workflow-react-host {
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.workflow-react-host .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.workflow-react-host .react-flow__pane {
+  cursor: grab;
+}
+
+.workflow-react-host .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+.workflow-react-host .react-flow__background {
+  pointer-events: none;
+  z-index: 0;
+}
+
+.workflow-react-host .react-flow__edges {
+  z-index: 1;
+}
+
+.workflow-react-host .react-flow__nodes {
+  z-index: 2;
+}
+
+.workflow-react-host .react-flow__edge-path {
+  stroke: rgba(255, 111, 190, .7);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(255, 71, 173, .28));
+}
+
+.workflow-react-host .react-flow__edge.selected .react-flow__edge-path,
+.workflow-react-host .react-flow__edge:hover .react-flow__edge-path {
+  stroke: #ff79bd;
+  stroke-width: 2.5;
+}
+
+.workflow-react-host .react-flow__node {
+  border: 0;
+  background: transparent;
+}
+
+.workflow-react-host .workflow-react-node-shell {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: transparent;
+}
+
+.workflow-react-host .workflow-react-connector-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.workflow-react-host .workflow-react-connector-layer .workflow-react-handle {
+  z-index: 100;
+  pointer-events: all;
+}
+
 .workflow-react-host .react-flow__handle.workflow-react-handle {
+  z-index: 100;
   width: 12px;
   height: 12px;
   min-width: 12px;
   min-height: 12px;
   box-sizing: border-box;
-  border: 2px solid rgba(255, 255, 255, .88);
+  border: 2px solid #15151b;
+  border-radius: 999px;
   background: #ff47ad;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .62), 0 0 12px rgba(255, 71, 173, .42);
   pointer-events: all;
   cursor: crosshair;
 }
 
 .workflow-react-host .react-flow__handle.workflow-react-handle::before {
-  content: "";
+  display: none;
+}
+
+.workflow-react-host .react-flow__handle.workflow-react-handle::after {
   position: absolute;
-  inset: -8px;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
+  content: "";
+  transform: translate(-50%, -50%);
+  pointer-events: all;
 }
 
 .workflow-react-host .react-flow__handle.workflow-react-handle:hover,
 .workflow-react-host .react-flow__handle.workflow-react-handle.connectingfrom,
 .workflow-react-host .react-flow__handle.workflow-react-handle.connectingto {
   border-color: #fff;
-  background: #ff79bd;
-  filter: drop-shadow(0 0 8px rgba(255, 71, 173, .9));
+  background: #ff8ac9;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .9), 0 0 16px rgba(255, 71, 173, .92);
 }
 
-/* React Flow measures the wrapper, not the absolutely positioned legacy card. */
-.workflow-react-host .react-flow__node {
-  width: 520px;
-  min-width: 520px;
+.workflow-react-host .react-flow__handle-left.workflow-react-handle {
+  left: 0;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
-.workflow-react-host .workflow-react-node-shell {
+.workflow-react-host .react-flow__handle-right.workflow-react-handle {
+  right: 0;
+  top: 50%;
+  transform: translate(50%, -50%);
+}
+
+.workflow-react-host .workflow-react-card {
   position: relative;
+  box-sizing: border-box;
   width: 100%;
-  min-height: 368px;
+  overflow: visible;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 14px;
+  color: #f7f7fb;
+  background: linear-gradient(155deg, rgba(30, 30, 37, .98), rgba(14, 14, 19, .98));
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .04);
+  transition: border-color .16s ease, box-shadow .16s ease;
 }
 
-.workflow-react-host .workflow-react-node-content > .workflow-node {
+.workflow-react-host .workflow-react-card.is-selected,
+.workflow-react-host .react-flow__node.selected .workflow-react-card {
+  border-color: rgba(255, 71, 173, .92);
+  box-shadow: 0 0 0 1px rgba(139, 65, 255, .42), 0 22px 54px rgba(0, 0, 0, .42), 0 0 28px rgba(255, 71, 173, .13);
+}
+
+.workflow-react-host .workflow-react-card-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 14px 14px 0 0;
+  background: rgba(255, 255, 255, .035);
+}
+
+.workflow-react-host .workflow-react-card-header > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #f7f7fb;
+  font-size: .9rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-react-host .workflow-react-title-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(255, 71, 173, .32);
+  border-radius: 8px;
+  color: #ff75c2;
+  background: rgba(255, 71, 173, .1);
+}
+
+.workflow-react-host .workflow-react-title-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.workflow-react-host .workflow-react-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.workflow-react-host .workflow-react-icon-button,
+.workflow-react-host .workflow-react-run-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  color: #c9c9d2;
+  background: rgba(255, 255, 255, .045);
+  cursor: pointer;
+}
+
+.workflow-react-host .workflow-react-icon-button {
+  width: 30px;
+  padding: 0;
+}
+
+.workflow-react-host .workflow-react-run-button {
+  padding: 0 10px;
+  color: #fff;
+  border-color: rgba(255, 71, 173, .58);
+  background: linear-gradient(135deg, #ff62bf, #ff2dae);
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.workflow-react-host .workflow-react-icon-button:hover,
+.workflow-react-host .workflow-react-run-button:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 71, 173, .82);
+  background: rgba(255, 71, 173, .2);
+}
+
+.workflow-react-host .workflow-react-run-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ff78c9, #ff43ba);
+}
+
+.workflow-react-host .workflow-react-run-button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.workflow-react-host .workflow-react-icon-button svg,
+.workflow-react-host .workflow-react-run-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workflow-react-host .workflow-react-model-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px 0;
+  color: #9696a2;
+  font-size: .72rem;
+}
+
+.workflow-react-host .workflow-react-model-line strong {
+  color: #ff6cbc;
+  font-size: .73rem;
+}
+
+.workflow-react-host .workflow-react-result {
+  padding: 10px 12px;
+  background: rgba(8, 8, 11, .38);
+}
+
+.workflow-react-host .workflow-react-empty-result {
+  display: grid;
+  min-height: 116px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed rgba(255, 255, 255, .12);
+  border-radius: 10px;
+  color: #858591;
+  background:
+    radial-gradient(circle at 50% 25%, rgba(255, 71, 173, .09), transparent 48%),
+    rgba(7, 7, 10, .56);
+  font-size: .76rem;
+  text-align: center;
+}
+
+.workflow-react-host .workflow-react-empty-result svg {
+  width: 24px;
+  height: 24px;
+  color: #ff65b8;
+}
+
+.workflow-react-host .workflow-react-result-media {
   position: relative;
-  inset: auto;
+  display: block;
   width: 100%;
-  min-height: 368px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 10px;
+  background: #08080b;
+  cursor: zoom-in;
 }
 
-.workflow-react-host .react-flow__node:has(.workflow-node-prompt) {
-  width: 360px;
-  min-width: 360px;
+.workflow-react-host .workflow-react-result-media img,
+.workflow-react-host .workflow-react-result-media video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: #08080b;
 }
 
-.workflow-react-host .react-flow__node:has(.workflow-node-output) {
-  width: 360px;
-  min-width: 360px;
-}
-
-/* Keep the canvas background behind interactive nodes and handles. */
-.workflow-react-host .react-flow__background {
-  pointer-events: none;
-  z-index: 0;
-}
-
-.workflow-react-host .react-flow__nodes,
-.workflow-react-host .react-flow__edges {
-  z-index: 2;
-}
-
-.workflow-react-host .react-flow__node,
-.workflow-react-host .react-flow__handle {
+.workflow-react-host .workflow-react-result-badge {
   position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(8, 8, 11, .72);
+  font-size: .66rem;
+  font-weight: 800;
+  backdrop-filter: blur(8px);
+}
+
+.workflow-react-host .workflow-react-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  background: rgba(12, 12, 16, .72);
+}
+
+.workflow-react-host .workflow-react-prompt-field,
+.workflow-react-host .workflow-react-field {
+  display: grid;
+  gap: 6px;
+  color: #9c9ca7;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.workflow-react-host .workflow-react-prompt-field textarea,
+.workflow-react-host .workflow-react-field select {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 9px;
+  outline: none;
+  color: #f5f5f8;
+  background: rgba(7, 7, 10, .82);
+  font: inherit;
+  font-size: .78rem;
+}
+
+.workflow-react-host .workflow-react-prompt-field textarea {
+  min-height: 70px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.workflow-react-host .workflow-react-field select {
+  min-height: 34px;
+  padding: 6px 9px;
+}
+
+.workflow-react-host .workflow-react-prompt-field textarea:focus,
+.workflow-react-host .workflow-react-field select:focus {
+  border-color: rgba(255, 71, 173, .72);
+  box-shadow: 0 0 0 3px rgba(255, 71, 173, .11);
+}
+
+.workflow-react-host .workflow-react-prompt-field textarea::placeholder {
+  color: #63636e;
+}
+
+.workflow-react-host .workflow-react-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workflow-react-host .workflow-react-inline-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workflow-react-host .workflow-react-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  color: #b7b7c1;
+  background: rgba(255, 255, 255, .035);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.workflow-react-host .workflow-react-check input {
+  accent-color: #ff47ad;
+}
+
+.workflow-react-host .workflow-react-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #878792;
+  font-size: .7rem;
+}
+
+.workflow-react-host .workflow-react-editor-actions strong {
+  color: #ff6cbc;
+}
+
+.workflow-react-host .workflow-react-card-footer,
+.workflow-react-host .workflow-react-reference-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  color: #8f8f9a;
+  background: rgba(255, 255, 255, .025);
+  font-size: .7rem;
+}
+
+.workflow-react-host .workflow-react-card-footer strong,
+.workflow-react-host .workflow-react-reference-meta strong {
+  color: #ff6cbc;
+}
+
+.workflow-react-host .workflow-react-dropzone {
+  position: relative;
+  display: grid;
+  min-height: 210px;
+  margin: 12px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px dashed rgba(255, 255, 255, .15);
+  border-radius: 10px;
+  color: #92929d;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 71, 173, .08), transparent 52%),
+    rgba(7, 7, 10, .58);
+  cursor: pointer;
+}
+
+.workflow-react-host .workflow-react-dropzone:hover {
+  border-color: rgba(255, 71, 173, .64);
+  color: #fff;
+  background-color: rgba(255, 71, 173, .07);
+}
+
+.workflow-react-host .workflow-react-dropzone > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.workflow-react-host .workflow-react-dropzone > img,
+.workflow-react-host .workflow-react-dropzone > video {
+  display: block;
+  width: 100%;
+  height: 210px;
+  object-fit: contain;
+  background: #08080b;
+}
+
+.workflow-react-host .workflow-react-upload-copy {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 18px;
+  text-align: center;
+}
+
+.workflow-react-host .workflow-react-upload-copy svg {
+  width: 24px;
+  height: 24px;
+  color: #ff65b8;
+}
+
+.workflow-react-host .workflow-react-upload-copy strong {
+  color: #f0f0f4;
+  font-size: .8rem;
+}
+
+.workflow-react-host .workflow-react-upload-copy small {
+  color: #70707b;
+  font-size: .68rem;
+}
+
+.workflow-react-host .workflow-react-output-list {
+  display: grid;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+.workflow-react-host .workflow-react-output-list button {
+  min-height: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 8px;
+  color: #d8d8df;
+  background: rgba(255, 255, 255, .045);
+  font-size: .72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workflow-react-host .workflow-react-output-list button:hover {
+  color: #fff;
+  border-color: rgba(255, 71, 173, .48);
+  background: rgba(255, 71, 173, .1);
+}
+
+.workflow-react-host .workflow-react-output-list > span {
+  padding: 8px 2px;
+  color: #777782;
+  font-size: .72rem;
 }
 
 /* 11.11 limited campaign */
@@ -13709,151 +14152,6 @@ body.wan30-launch-visible .site-head { top: 0; }
   .site-head { padding-right: 154px; }
   .topup-head-trigger { display: none !important; }
   .mobile-header-actions { position: fixed; top: 13px; right: 14px; z-index: 46; display: flex; max-width: none; }
-}
-
-/* Final React Flow node theme: use the site dark glass surface, never legacy white cards. */
-.workflow-react-host .workflow-react-node-shell {
-  background: transparent;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node {
-  color: #f8f8fb !important;
-  background: linear-gradient(160deg, rgba(30, 30, 36, .97), rgba(16, 16, 20, .97)) !important;
-  border-color: rgba(255, 255, 255, .1) !important;
-  box-shadow: 0 18px 42px rgba(0, 0, 0, .34) !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node.is-selected {
-  border-color: rgba(255, 71, 173, .92) !important;
-  box-shadow: 0 0 0 1px rgba(139, 65, 255, .46), 0 24px 58px rgba(86, 52, 205, .24) !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node > header {
-  color: #f8f8fb !important;
-  background: rgba(255, 255, 255, .045) !important;
-  border-color: rgba(255, 255, 255, .09) !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node > header strong {
-  color: #f8f8fb !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-model-label {
-  color: #a3a3ad !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node > header > button {
-  color: #b7b7c2 !important;
-  background: transparent !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node > header > button:hover {
-  color: #fff !important;
-  background: rgba(255, 71, 173, .16) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-result,
-.workflow-react-host .workflow-react-node-content .workflow-node-result-media,
-.workflow-react-host .workflow-react-node-content .workflow-node-preview-button {
-  color: #a3a3ad !important;
-  background: rgba(10, 10, 13, .72) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-empty-result {
-  color: #a3a3ad !important;
-  background:
-    radial-gradient(circle at 50% 30%, rgba(255, 71, 173, .08), transparent 42%),
-    rgba(10, 10, 13, .72) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-empty-result svg {
-  color: #ff65b8 !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-editor {
-  color: #d7d7df !important;
-  background: rgba(17, 17, 21, .96) !important;
-  border-color: rgba(255, 255, 255, .09) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-editor-reference-note,
-.workflow-react-host .workflow-react-node-content .workflow-editor-input-summary,
-.workflow-react-host .workflow-react-node-content .workflow-editor-fields label,
-.workflow-react-host .workflow-react-node-content .workflow-editor-check,
-.workflow-react-host .workflow-react-node-content .workflow-editor-cost {
-  color: #a3a3ad !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-editor-prompt textarea,
-.workflow-react-host .workflow-react-node-content .workflow-editor-fields select {
-  color: #f8f8fb !important;
-  background: rgba(8, 8, 11, .82) !important;
-  border-color: rgba(255, 255, 255, .12) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-editor-prompt textarea::placeholder {
-  color: #71717c !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-editor-prompt textarea:focus,
-.workflow-react-host .workflow-react-node-content .workflow-editor-fields select:focus {
-  border-color: rgba(255, 71, 173, .72) !important;
-  box-shadow: 0 0 0 3px rgba(255, 71, 173, .12) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-reference-picker,
-.workflow-react-host .workflow-react-node-content .workflow-reference-chip {
-  color: #d7d7df !important;
-  background: rgba(255, 255, 255, .05) !important;
-  border-color: rgba(255, 255, 255, .12) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-reference-picker:hover {
-  color: #fff !important;
-  background: rgba(255, 71, 173, .12) !important;
-  border-color: rgba(255, 71, 173, .58) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-reference-dropzone,
-.workflow-react-host .workflow-react-node-content .workflow-output-box,
-.workflow-react-host .workflow-react-node-content .workflow-node-media {
-  color: #a3a3ad !important;
-  background: rgba(10, 10, 13, .72) !important;
-  border-color: rgba(255, 255, 255, .12) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-reference-dropzone:hover,
-.workflow-react-host .workflow-react-node-content .workflow-reference-dropzone:focus-within {
-  color: #fff !important;
-  background: rgba(255, 71, 173, .1) !important;
-  border-color: rgba(255, 71, 173, .62) !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-prompt .workflow-field,
-.workflow-react-host .workflow-react-node-content .workflow-node-prompt .workflow-field span {
-  color: #a3a3ad !important;
-}
-
-.workflow-react-host .workflow-react-node-content .workflow-node-prompt .workflow-field textarea {
-  color: #f8f8fb !important;
-  background: rgba(8, 8, 11, .8) !important;
-  border-color: rgba(255, 255, 255, .12) !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node > footer {
-  color: #a3a3ad !important;
-  background: rgba(255, 255, 255, .045) !important;
-  border-color: rgba(255, 255, 255, .09) !important;
-  border-radius: 0 0 10px 10px !important;
-}
-
-.workflow-react-host .workflow-react-node-content > .workflow-node > footer strong {
-  color: #ff5fbd !important;
-}
-
-/* React Flow supplies the real handles; hide legacy connector dots inside its host. */
-.workflow-react-host .workflow-react-node-content .workflow-node-connect {
-  display: none !important;
 }
 
 /* React Flow chrome in the site palette: quiet minimap and controls. */

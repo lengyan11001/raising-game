@@ -172,7 +172,7 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   const adapter = read("platform.workflow-react.js");
   const css = read("platform.css");
 
-  assert.match(adapter, /function CanvasInner\(props\)/);
+  assert.match(adapter, /function CanvasInner()/);
   assert.match(adapter, /flow\.screenToFlowPosition/);
   assert.match(adapter, /function onDrop\(event\)/);
   assert.match(adapter, /function connectionEndpointId\(value\)/);
@@ -183,14 +183,21 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(adapter, /function deleteBusinessElements\(elements\)/);
   assert.match(adapter, /if \(typeof window\.removeWorkflowNode === "function"\) window\.removeWorkflowNode\(nodeId\)/);
   assert.match(adapter, /mounted\.deleteElements = deleteBusinessElements/);
+  assert.match(adapter, /\.filter\(function \(edge\) \{ return !edgeKeys\.has\(workflowEdgeKey\(edge\)\); \}\)/);
+  assert.match(adapter, /minZoom: 0\.1/);
+  assert.match(adapter, /maxZoom: 2/);
+  assert.match(adapter, /elevateNodesOnSelect: false/);
+  assert.match(adapter, /function nodeWidth\(node\)[\s\S]*?return 300;[\s\S]*?return 360;[\s\S]*?return 520;/);
   assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
   assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
   assert.match(ui, /const point = position \? workflowAvailableNodePosition\(position\) : workflowNewNodePosition\(\)/);
   assert.match(ui, /function syncWorkflowStatusText\(\)/);
-  assert.match(css, /\.workflow-react-host \.workflow-react-node-content > \.workflow-node[\s\S]*?position: relative/);
+  assert.match(css, /\.workflow-react-host \.workflow-react-card[\s\S]*?border-radius: 14px/);
   assert.match(css, /\.workflow-react-host \.react-flow__background[\s\S]*?pointer-events: none/);
   assert.match(css, /\.workflow-react-host \.react-flow__handle\.workflow-react-handle[\s\S]*?pointer-events: all/);
-  assert.match(css, /\.workflow-react-host \.workflow-react-node-shell[\s\S]*?min-height: 368px/);
+  assert.match(css, /\.workflow-react-host \.react-flow__handle-right\.workflow-react-handle[\s\S]*?right: 0/);
+  assert.match(css, /\.workflow-react-host \.react-flow__handle\.workflow-react-handle::after[\s\S]*?width: 30px[\s\S]*?height: 30px/);
+  assert.match(css, /\.workflow-react-host \.workflow-react-connector-layer[\s\S]*?pointer-events: none/);
 });
 
 test("workflow palette supports click, drag, and empty-canvas prompt creation", () => {

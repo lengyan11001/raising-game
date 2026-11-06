@@ -1057,6 +1057,27 @@ window.workflowNodeAcceptsInput = workflowNodeAcceptsInput;
 window.workflowNodeAcceptsOutput = workflowNodeAcceptsOutput;
 window.selectedWorkflowNode = selectedWorkflowNode;
 window.workflowNodeModel = workflowNodeModel;
+window.workflowNodeRunState = workflowNodeRunState;
+window.workflowNodeResultImage = workflowNodeResultImage;
+window.workflowNodeResultVideo = workflowNodeResultVideo;
+window.workflowNodePoster = workflowNodePoster;
+window.workflowNodeReferences = workflowNodeReferences;
+window.workflowNodeIncomingMedia = workflowNodeIncomingMedia;
+window.workflowCostLabel = workflowCostLabel;
+window.workflowImageModelById = workflowImageModelById;
+window.workflowVideoModelById = workflowVideoModelById;
+window.workflowImageModelOptions = workflowImageModelOptions;
+window.workflowImageResolutionOptions = workflowImageResolutionOptions;
+window.workflowVideoResolutionOptions = workflowVideoResolutionOptions;
+window.workflowVideoRatioOptions = workflowVideoRatioOptions;
+window.workflowVideoDurationOptions = workflowVideoDurationOptions;
+window.workflowVideoModeOptions = workflowVideoModeOptions;
+window.workflowVideoMode = workflowVideoMode;
+window.uploadWorkflowFile = uploadWorkflowFile;
+window.clearWorkflowExecutionResults = clearWorkflowExecutionResults;
+window.updateWorkflowNodeFromControl = updateWorkflowNodeFromControl;
+window.WORKFLOW_IMAGE_MODEL_LIBRARY = WORKFLOW_IMAGE_MODEL_LIBRARY;
+window.WORKFLOW_VIDEO_MODEL_LIBRARY = WORKFLOW_VIDEO_MODEL_LIBRARY;
 
 function updateWorkflowNodeFromControl(control) {
   const nodeId = control.dataset.workflowPrompt

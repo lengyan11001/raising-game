@@ -234,6 +234,7 @@ window.removeWorkflowNode = removeWorkflowNode;
 window.deleteSelectedWorkflowNodes = deleteSelectedWorkflowNodes;
 window.connectWorkflowNodes = connectWorkflowNodes;
 window.reconnectWorkflowEdge = reconnectWorkflowEdge;
+window.runWorkflowSingleNode = runWorkflowSingleNode;
 
 function workflowConnectionRuleMatches(from = {}, to = {}) {
   const source = from?.type || "";
