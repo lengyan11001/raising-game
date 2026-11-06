@@ -1,3 +1,12 @@
+## Same-style selected tab white text only (2026-11-06)
+
+- User requested the original wide four-tab strip, with only the selected label turning white.
+- Restored the long pill strip and raised selected text to `#fff`; removed the active fill, active border, pink icon, and white inner label background.
+- Isolated the staged CSS to the Same-style tab block so unrelated workflow/canvas dirty changes were not included.
+- Verification: `test/side-navigation-overflow.test.js` passes 3/3; `git diff --check` clean; staged diff contains no workflow changes.
+- Deployment: old-site `8cbf3ac`; platform-release `cfef8fc`; deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`.
+- Production runtime CSS key `mw4u5p3w` confirms `background: transparent`, `color: #fff`, `border-color: transparent`; health is `200 {"ok":true}`.
+
 ## Same-style tabs restored to larger size (2026-11-06)
 
 - User approved the Case-matching neutral color treatment and requested the earlier larger tab size.
