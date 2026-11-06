@@ -3,7 +3,7 @@
 - Confirmed `123vip.fans` and `www.123vip.fans` resolve to the shared `/platform.html`; they do not have a separate Generate implementation.
 - Added a regression test in `test/platform-site-profile.test.js` that requires the shared Generate workspace, parameter chips, and submit button, and rejects profile-CSS overrides for shared Generate selectors.
 - Verification: `node --check platform.create.parts/part-02.js`, `node --check platform.main.js`, `git diff --check`, and `test/platform-site-profile.test.js` all pass (14/14).
-- Deployment: not deployed; this change only protects parity with the Generate update already staged in the worktree.
+- Deployment: `old-site` `6a0fb47`; `platform-release` `8d8d388`, built from `6a0fb47` and pushed. Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; service restarted successfully and `/api/health` recovered to `200 {"ok":true}` after the restart window. Production serves asset version `mw4kals0`, and both `123vips.com` and `123vip.fans` return the shared parameter-chip HTML and updated JS/CSS. Headless Chrome loaded the production page successfully; only expected headless display-link warnings appeared.
 
 ## Generate key-parameter picker (2026-11-06)
 
