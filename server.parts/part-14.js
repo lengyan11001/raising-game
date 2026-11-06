@@ -560,16 +560,30 @@ function publicSceneVideo(entry = {}) {
   const posterUrl = String(DISABLE_GENERATED_R2_STORAGE
     ? (entry.remotePosterUrl || entry.posterUrl || entry.cdnPosterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "")
     : (entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "")).trim();
+  const signedVideoUrl = signedOssCdnUrlForDelivery(videoUrl, {
+    key: entry.storageKey || entry.objectStorageKey || entry.r2Key || "",
+  }) || videoUrl;
+  const signedPosterUrl = signedOssCdnUrlForDelivery(posterUrl, {
+    key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
+  }) || posterUrl;
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
-    videoUrl,
-    posterUrl,
-    cdnVideoUrl: entry.cdnVideoUrl || "",
-    cdnPosterUrl: entry.cdnPosterUrl || "",
-    localPosterUrl: entry.localPosterUrl || posterUrl || "",
-    coverUrl: entry.coverUrl || posterUrl || "",
-    thumbnailUrl: entry.thumbnailUrl || posterUrl || "",
+    videoUrl: signedVideoUrl,
+    posterUrl: signedPosterUrl,
+    cdnVideoUrl: signedOssCdnUrlForDelivery(entry.cdnVideoUrl, {
+      key: entry.storageKey || entry.objectStorageKey || entry.r2Key || "",
+    }) || entry.cdnVideoUrl || "",
+    cdnPosterUrl: signedOssCdnUrlForDelivery(entry.cdnPosterUrl, {
+      key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
+    }) || entry.cdnPosterUrl || "",
+    localPosterUrl: entry.localPosterUrl || signedPosterUrl || "",
+    coverUrl: signedOssCdnUrlForDelivery(entry.coverUrl, {
+      key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
+    }) || entry.coverUrl || signedPosterUrl || "",
+    thumbnailUrl: signedOssCdnUrlForDelivery(entry.thumbnailUrl, {
+      key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
+    }) || entry.thumbnailUrl || signedPosterUrl || "",
     taskId: entry.taskId || "",
     status: entry.status || "",
     sceneEntryId: entry.sceneEntryId || "default",
@@ -727,7 +741,7 @@ function makeArkOpenApiAuth({ action, body }) {
 
 async function uploadBufferToR2({ userId, assetId, bytes, mime, extension = "" }) {
   const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
-  return uploadStaticAssetToR2({
+  return uploadStaticAssetToObjectStorage({
     key: objectStoragePath("users", userId, fileName),
     bytes,
     mime,
@@ -740,7 +754,15 @@ function r2Enabled() {
 }
 
 function objectStorageEnabled() {
-  return r2Enabled();
+  return Boolean(OBJECT_STORAGE_PROVIDER) || r2Enabled();
+}
+
+function objectStorageProvider() {
+  return OBJECT_STORAGE_PROVIDER || (r2Enabled() ? "r2" : "");
+}
+
+function objectStoragePublicDomain() {
+  return objectStorageProvider() === "oss" ? String(OSS.cdnBaseUrl || "") : String(R2.publicDomain || "");
 }
 
 function generatedOutputStorageEnabled() {
@@ -1023,6 +1045,10 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
   });
 }
 async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
+  if (objectStorageProvider() === "oss") {
+    const uploaded = await uploadOssObject({ key, bytes, mime, config: OSS });
+    return { ...uploaded, provider: "oss", publicUrl: uploaded.publicUrl || uploaded.url || "" };
+  }
   return uploadStaticAssetToR2({ key, bytes, mime });
 }
 

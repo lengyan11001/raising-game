@@ -121,6 +121,15 @@ const {
   sendSmtpMail,
 } = require("./email-smtp");
 const {
+  ossConfig,
+  ossConfigured: ossStorageConfigured,
+  ossEnabled: ossStorageEnabled,
+  uploadObject: uploadOssObject,
+  deleteObject: deleteOssObject,
+  signedDownloadUrl: makeOssSignedDownloadUrl,
+  signedCdnUrl: makeOssSignedCdnUrl,
+} = require("./oss-storage");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -294,6 +303,11 @@ const {
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,
+  enqueueMediaIngestJobInDb,
+  claimMediaIngestJobInDb,
+  claimNextMediaIngestJobsInDb,
+  completeMediaIngestJobInDb,
+  failMediaIngestJobInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,
@@ -1268,6 +1282,25 @@ const R2 = {
     process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
     process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
 };
+// OSS configuration is validated eagerly. Selecting OSS with incomplete or
+// mainland-China settings must fail startup instead of silently using R2.
+const OSS = ossConfig(process.env);
+const OSS_STORAGE_CONFIGURED = ossStorageConfigured(OSS);
+const OSS_STORAGE_ENABLED = ossStorageEnabled(OSS);
+const OBJECT_STORAGE_PROVIDER = (() => {
+  const requested = String(process.env.STORAGE_PROVIDER || OSS.provider || "auto").trim().toLowerCase();
+  if (requested === "oss") {
+    if (!OSS_STORAGE_ENABLED) {
+      throw Object.assign(new Error("STORAGE_PROVIDER=oss requires complete OSS configuration."), {
+        code: "OSS_NOT_CONFIGURED",
+        statusCode: 503,
+      });
+    }
+    return "oss";
+  }
+  if (requested === "r2") return "";
+  return OSS_STORAGE_ENABLED ? "oss" : "";
+})();
 const R2_UPLOAD_TIMEOUT_MS = Math.max(25000, Number(process.env.R2_UPLOAD_TIMEOUT_MS || 120000) || 120000);
 const R2_UPLOAD_MAX_TIMEOUT_MS = Math.max(R2_UPLOAD_TIMEOUT_MS, Number(process.env.R2_UPLOAD_MAX_TIMEOUT_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const R2_UPLOAD_MIN_BYTES_PER_SECOND = Math.max(64 * 1024, Number(process.env.R2_UPLOAD_MIN_BYTES_PER_SECOND || 256 * 1024) || 256 * 1024);
@@ -1288,7 +1321,7 @@ const SITE_STORAGE_SLUG = storagePathSegment(
   "raising-game",
 );
 const OBJECT_STORAGE_KEY_PREFIX = storageKeyPrefix(
-  process.env.R2_KEY_PREFIX || process.env.STORAGE_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
+  process.env.STORAGE_KEY_PREFIX || process.env.OSS_KEY_PREFIX || process.env.R2_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
 );
 
 function defaultStorageSlug() {

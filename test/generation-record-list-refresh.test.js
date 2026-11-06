@@ -63,7 +63,8 @@ test("completed records stay complete while R2 publication catches up", () => {
   const start = server.indexOf("function publicGenerationRecord");
   const end = server.indexOf("function generationRecordTime", start + 1);
   const source = server.slice(start, end);
-  assert.match(source, /const publicVideoUrl = .*?cdnUrl \|\| providerVideoUrl \|\| localUrl/s);
+  assert.match(source, /const deliveryVideoUrl = signedOssCdnUrlForDelivery\(cdnUrl/s);
+  assert.match(source, /const publicVideoUrl = .*?deliveryVideoUrl \|\| providerVideoUrl \|\| localUrl/s);
   assert.match(source, /r2DownloadReady:/);
   assert.doesNotMatch(source, /publicRecord\.status = "running"/);
   assert.doesNotMatch(source, /publicRecord\.videoUrl = ""/);
@@ -77,7 +78,7 @@ test("advanced downloads stay R2-only while browser results expose the durable C
   );
   assert.match(targetSource, /r2Only/);
   assert.match(targetSource, /r2Only \? cdnVideoUrl : generationRecordVideoUrl\(record, \{ preferProviderVideoUrl: true \}\)/);
-  assert.match(server, /cdnVideoUrl: includeStoredVideoUrls \? cdnUrl : ""/);
+  assert.match(server, /cdnVideoUrl: includeStoredVideoUrls \? deliveryVideoUrl : ""/);
   assert.match(server, /r2Only \? 409 : 404/);
   assert.match(server, /const fallbackUrl = `\/api\/generation-records\/\$\{encodeURIComponent\(taskId\)\}\/download\$\{r2Only \? "\?quality=r2" : ""\}`/);
 });
@@ -117,5 +118,5 @@ test("external API results still expose the matching provider URL first", () => 
   const end = server.indexOf("const includeStoredVideoUrls", start);
   const source = server.slice(start, end);
   assert.match(source, /providerOnlyOutputs \|\| providerOnlyVideoUrl/);
-  assert.match(source, /providerVideoUrl \|\| cdnUrl \|\| localUrl/);
+  assert.match(source, /providerVideoUrl \|\| deliveryVideoUrl \|\| localUrl/);
 });

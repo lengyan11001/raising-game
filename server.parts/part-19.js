@@ -940,19 +940,25 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
 }
 
 function publicUrlForLocalAsset(asset = {}) {
-  if (isPublicHttpUrl(asset.publicUrl)) return asset.publicUrl;
-  return publicUrlForAssetPath(asset.localUrl);
+  const storedUrl = isPublicHttpUrl(asset.wan30PublicUrl)
+    ? asset.wan30PublicUrl
+    : (isPublicHttpUrl(asset.publicUrl) ? asset.publicUrl : publicUrlForAssetPath(asset.localUrl));
+  return signedOssCdnUrlForDelivery(storedUrl, {
+    key: isPublicHttpUrl(asset.wan30PublicUrl)
+      ? (asset.wan30R2Key || asset.wan30StorageKey || "")
+      : (asset.storageKey || asset.objectStorageKey || asset.r2Key || ""),
+  }) || storedUrl;
 }
 
 async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {
   if (!userAsset?.localUrl) return userAsset;
-  if (!r2Enabled()) {
-    const error = new Error("Cloudflare R2 object storage is not configured.");
+  if (!objectStorageEnabled()) {
+    const error = new Error("Object storage is not configured.");
     error.statusCode = 503;
     throw error;
   }
-  if (publicUrlMatchesStorageBase(userAsset.wan30PublicUrl, R2.publicDomain)) return userAsset;
-  if (publicUrlMatchesStorageBase(userAsset.publicUrl, R2.publicDomain)) {
+  if (publicUrlMatchesStorageBase(userAsset.wan30PublicUrl, objectStoragePublicDomain())) return userAsset;
+  if (publicUrlMatchesStorageBase(userAsset.publicUrl, objectStoragePublicDomain())) {
     userAsset.wan30PublicUrl = userAsset.publicUrl;
     userAsset.wan30R2Key = userAsset.objectStorageKey || userAsset.r2Key || "";
     userAsset.wan30SourceSizeBytes = Number(userAsset.sizeBytes || 0);
@@ -1000,7 +1006,7 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
   }
   const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasConfiguredObjectStorageMirror(userAsset);
   if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) {
-    if (publicUrlMatchesStorageBase(userAsset.publicUrl, R2.publicDomain) && !await waitForR2PublicObject(userAsset.publicUrl)) {
+    if (publicUrlMatchesStorageBase(userAsset.publicUrl, objectStoragePublicDomain()) && objectStorageProvider() === "r2" && !await waitForR2PublicObject(userAsset.publicUrl)) {
       const error = new Error("R2 public media is not ready yet. Please retry shortly.");
       error.statusCode = 502;
       error.code = "R2_PUBLIC_NOT_READY";

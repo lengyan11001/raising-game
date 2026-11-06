@@ -154,7 +154,12 @@ async function handleWan27ImageEdit(req, res) {
     for (const asset of sourceAssets) {
       preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
     }
-    const preparedAssetUrls = preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset) || "");
+    const preparedAssetUrls = preparedAssets.map((asset) => {
+      const value = asset.publicUrl || publicUrlForLocalAsset(asset) || "";
+      return signedOssCdnUrlForDelivery(value, {
+        key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
+      }) || publicHttpUrlForUpstream(value);
+    });
     if (preparedAssetUrls.some((url) => !url)) {
       const error = new Error("Failed to prepare all source images for Wan2.7 image edit.");
       error.statusCode = 502;
@@ -482,8 +487,9 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       sourceImageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
       status: "running",
     }, "asset-image-modify-reference-ready");
+    const upstreamImageUrl = publicHttpUrlForUpstream(publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset));
     const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
-      imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
+      imageUrl: upstreamImageUrl,
       prompt,
       ratio,
       resolution,
@@ -491,7 +497,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       input: imageOptions.input,
       parameters: imageOptions.parameters,
     }) : await submitWan27ImageModify({
-      imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
+      imageUrl: upstreamImageUrl,
       prompt,
       ratio,
       resolution,
@@ -785,7 +791,9 @@ function characterImageUrlsFromPayload(payload = {}) {
     ...collectOutputImageUrls(payload),
     ...collectImageUrls(payload),
   ];
-  return [...new Set(urls.map(gatewayAbsoluteAssetUrl).filter(Boolean))];
+  return [...new Set(urls
+    .map((url) => signedOssCdnUrlForDelivery(url) || gatewayAbsoluteAssetUrl(url))
+    .filter(Boolean))];
 }
 
 async function updateMyCharacterImageGenerationRecord(auth, record, updates = {}, reason = "my-character-image") {

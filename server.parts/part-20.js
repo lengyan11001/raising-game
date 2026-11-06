@@ -1061,18 +1061,32 @@ function publicGenerationRecord(record = {}, options = {}) {
   // the durable R2 mirror catches up. R2 readiness controls the advanced
   // download action only; it must not rewrite task status to processing or
   // hide a result that the upstream has already completed.
+  const deliveryVideoUrl = signedOssCdnUrlForDelivery(cdnUrl, {
+    key: record.storageKey || "",
+  }) || cdnUrl;
   const publicVideoUrl = providerOnlyOutputs || providerOnlyVideoUrl
-    ? (providerVideoUrl || cdnUrl || localUrl)
-    : (cdnUrl || providerVideoUrl || localUrl);
+    ? (providerVideoUrl || deliveryVideoUrl || localUrl)
+    : (deliveryVideoUrl || providerVideoUrl || localUrl);
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
   const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
-  const preferredPosterUrl = String(record.cdnPosterUrl || providerPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const preferredPosterUrl = String(
+    signedOssCdnUrlForDelivery(record.cdnPosterUrl, { key: record.posterStorageKey || "" })
+    || record.cdnPosterUrl
+    || providerPosterUrl
+    || record.localPosterUrl
+    || record.posterUrl
+    || "",
+  ).trim();
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
+  const storedImageUrl = generationRecordImageUrl(record);
+  const deliveryImageUrl = signedOssCdnUrlForDelivery(storedImageUrl, {
+    key: record.storageKey || "",
+  }) || storedImageUrl;
   const publicImageUrl = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrl
     ? providerImageUrl
-    : generationRecordImageUrl(record);
+    : deliveryImageUrl;
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
   const providerImageUrls = [...new Set([
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
@@ -1085,9 +1099,10 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(Boolean))];
+  const deliveryImageUrls = storedImageUrls.map((url) => signedOssCdnUrlForDelivery(url) || url);
   const publicImageUrls = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrls.length
     ? providerImageUrls
-    : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
+    : (deliveryImageUrls.length ? deliveryImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const recordError = generationRecordR2Expired(record)
     ? ""
@@ -1123,7 +1138,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
     posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
     posterPending: generationRecordNeedsPosterMaintenance(record),
-    cdnPosterUrl: includeStoredVideoUrls ? (String(record.cdnPosterUrl || "").trim() || preferredPosterUrl) : "",
+    cdnPosterUrl: includeStoredVideoUrls ? preferredPosterUrl : "",
     localPosterUrl: includeStoredVideoUrls ? (String(record.localPosterUrl || "").trim() || "") : "",
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
@@ -1137,9 +1152,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     quality: String(record.quality || ""),
     videoUrl: publicVideoUrl,
     downloadUrl: publicDownloadUrl,
-    cdnVideoUrl: includeStoredVideoUrls ? cdnUrl : "",
-    cdnImageUrl: includeStoredImageUrls ? String(record.cdnImageUrl || "").trim() : "",
-    cdnImageUrls: includeStoredImageUrls && Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [],
+    cdnVideoUrl: includeStoredVideoUrls ? deliveryVideoUrl : "",
+    cdnImageUrl: includeStoredImageUrls ? deliveryImageUrl : "",
+    cdnImageUrls: includeStoredImageUrls ? deliveryImageUrls : [],
     providerVideoUrl,
     upstreamVideoUrl: providerVideoUrl,
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
@@ -1177,16 +1192,13 @@ function publicGenerationRecord(record = {}, options = {}) {
   };
   if (gateNewR2 && !generationRecordIsApiTask(record) && !isChatCompletionGenerationRecord(record)) {
     if (generationRecordIsVideoOutput(record) && !r2PublicationPending) {
-      publicRecord.videoUrl = cdnUrl;
-      publicRecord.downloadUrl = cdnUrl;
+      publicRecord.videoUrl = deliveryVideoUrl;
+      publicRecord.downloadUrl = deliveryVideoUrl;
       publicRecord.providerVideoUrl = "";
       publicRecord.upstreamVideoUrl = "";
       publicRecord.remoteVideoUrl = "";
     } else if (isImageGenerationRecord(record) && !r2PublicationPending) {
-      const readyImages = [...new Set([
-        ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
-        record.cdnImageUrl,
-      ].map((item) => String(item || "").trim()).filter(Boolean))];
+      const readyImages = deliveryImageUrls;
       publicRecord.imageResultUrl = readyImages[0] || "";
       publicRecord.imageResultUrls = readyImages;
       publicRecord.downloadUrl = readyImages[0] || "";
@@ -1198,15 +1210,15 @@ function publicGenerationRecord(record = {}, options = {}) {
   }
   if (includeStoredVideoUrls) {
     publicRecord.localVideoUrl = providerOnlyOutputs ? "" : String(record.localVideoUrl || "");
-    publicRecord.cdnVideoUrl = providerOnlyOutputs ? "" : String(record.cdnVideoUrl || "");
+    publicRecord.cdnVideoUrl = providerOnlyOutputs ? "" : deliveryVideoUrl;
     publicRecord.localPosterUrl = providerOnlyOutputs ? "" : String(record.localPosterUrl || "");
-    publicRecord.cdnPosterUrl = providerOnlyOutputs ? "" : String(record.cdnPosterUrl || "");
+    publicRecord.cdnPosterUrl = providerOnlyOutputs ? "" : preferredPosterUrl;
   }
   if (includeStoredImageUrls) {
     publicRecord.localImageUrl = providerOnlyOutputs ? "" : String(record.localImageUrl || "");
-    publicRecord.cdnImageUrl = providerOnlyOutputs ? "" : String(record.cdnImageUrl || "");
+    publicRecord.cdnImageUrl = providerOnlyOutputs ? "" : deliveryImageUrl;
     publicRecord.localImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : []);
-    publicRecord.cdnImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.map(String) : []);
+    publicRecord.cdnImageUrls = providerOnlyOutputs ? [] : deliveryImageUrls;
   }
   if (options.includeUpstreamPayload === true && (record.resultLocked !== true || options.includeLockedMedia === true)) {
     publicRecord.upstreamPayload = listGenerationRecordValue(record.upstreamPayload || null);

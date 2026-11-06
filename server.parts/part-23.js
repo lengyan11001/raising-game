@@ -732,10 +732,14 @@ async function cleanupStaleLocalMedia() {
   }
 }
 
-async function deleteStoredGeneratedObject(key = "") {
+async function deleteStoredGeneratedObject(key = "", provider = objectStorageProvider()) {
   const clean = String(key || "").replace(/^\/+/, "");
   if (!clean.includes("/generated/") && !clean.startsWith("generated/")) return false;
   if (!objectStorageEnabled()) return false;
+  if (provider === "oss") {
+    await deleteOssObject({ key: clean, config: OSS });
+    return true;
+  }
   const auth = makeR2Auth({
     method: "DELETE",
     key: clean,
@@ -778,9 +782,9 @@ async function expireGeneratedR2Objects() {
         ...(Array.isArray(payload.cdnImageUrls) ? payload.cdnImageUrls : []),
       ];
       for (const url of urls) {
-        const key = r2KeyFromPublicDownloadUrl(url);
-        if (!key) continue;
-        await deleteStoredGeneratedObject(key).catch((error) => {
+        const storage = objectStorageDownloadKey({ objectStorageUrl: url });
+        if (!storage.key) continue;
+        await deleteStoredGeneratedObject(storage.key, storage.provider).catch((error) => {
           console.warn("[generated-r2-delete-failed]", row.task_id, error.message || error);
         });
       }
@@ -817,6 +821,11 @@ function startLocalMediaCleanupScheduler() {
   setInterval(() => cleanupStaleLocalMedia(), 5 * 60 * 1000).unref?.();
   setTimeout(() => expireGeneratedR2Objects().catch(() => {}), 60000).unref?.();
   setInterval(() => expireGeneratedR2Objects().catch(() => {}), 60 * 60 * 1000).unref?.();
+}
+
+function startMediaIngestWorkerScheduler() {
+  setTimeout(() => scanMediaIngestQueue(), 5000).unref?.();
+  setInterval(() => scanMediaIngestQueue(), 15 * 1000).unref?.();
 }
 
 function startChatLiveSettlementScheduler() {

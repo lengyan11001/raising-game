@@ -460,6 +460,8 @@ function configuredPublicBaseUrl() {
 function publicUrlForAssetPath(localUrl = "") {
   const value = String(localUrl || "").trim();
   if (!value) return "";
+  // Legacy /assets URLs are still hosted by R2. Switching uploads to OSS must
+  // not rewrite those historical files to the OSS CDN host.
   const r2BaseUrl = !DISABLE_R2_STORAGE && R2.publicDomain ? String(R2.publicDomain || "").replace(/\/+$/, "") : "";
   if (isPublicHttpUrl(value)) {
     try {
@@ -500,7 +502,11 @@ function publicAssetUrlsForClient(value, key = "") {
   if (typeof value === "string") {
     const text = value.trim();
     if (shouldRewritePublicAssetField(key, text)) {
+      // OSS is private. Serialization must mint a fresh CDN signature instead
+      // of exposing a stale or unsigned stored URL. Key fields remain untouched.
       const publicUrl = publicUrlForAssetPath(text);
+      const deliveryUrl = signedOssCdnUrlForDelivery(publicUrl || text);
+      if (deliveryUrl) return deliveryUrl;
       if (publicUrl && publicUrl !== text) return publicUrl;
     }
     return value;

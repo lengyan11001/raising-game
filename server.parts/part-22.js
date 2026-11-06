@@ -75,7 +75,15 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 }
 
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "", force = false } = {}) {
-  const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
+  const result = {
+    cdnVideoUrl: "",
+    cdnPosterUrl: "",
+    cdnError: "",
+    storageProvider: objectStorageProvider(),
+    storageKey: "",
+    posterStorageProvider: "",
+    posterStorageKey: "",
+  };
   if (!objectStorageEnabled() || (!force && !generatedOutputStorageEnabled())) return result;
   const errors = [];
   if (localVideoPath) {
@@ -88,6 +96,8 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
         mime: videoMimeFromPath(localVideoPath),
       });
       result.cdnVideoUrl = videoUpload.publicUrl;
+      result.storageKey = videoUpload.key || "";
+      result.storageProvider = videoUpload.provider || objectStorageProvider();
       const marker = await markPublishedFileSafely(localVideoPath);
       if (!marker) console.warn("[generated-video-r2-ready-marker-failed]", taskId, localVideoPath);
     } catch (error) {
@@ -104,6 +114,9 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
         mime: "image/jpeg",
       });
       result.cdnPosterUrl = posterUpload.publicUrl;
+      result.posterStorageProvider = posterUpload.provider || objectStorageProvider();
+      result.posterStorageKey = posterUpload.key || "";
+      if (!result.storageKey) result.storageProvider = posterUpload.provider || objectStorageProvider();
       const marker = await markPublishedFileSafely(localPosterPath);
       if (!marker) console.warn("[generated-poster-r2-ready-marker-failed]", taskId, localPosterPath);
     } catch (error) {
@@ -244,6 +257,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
       localPosterUrl: existing?.localPosterUrl || "",
       cdnVideoUrl: existing?.cdnVideoUrl || "",
       cdnPosterUrl: existing?.cdnPosterUrl || "",
+      storageProvider: existing?.storageProvider || "",
+      storageKey: existing?.storageKey || "",
+      posterStorageProvider: existing?.posterStorageProvider || "",
+      posterStorageKey: existing?.posterStorageKey || "",
       cdnError: existing?.cdnError || "",
       playbackOptimizedAt: existing?.playbackOptimizedAt || "",
     };
@@ -271,6 +288,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
       localPosterUrl: poster.localPosterUrl || "",
       cdnVideoUrl: existing?.cdnVideoUrl || "",
       cdnPosterUrl: existing?.cdnPosterUrl || "",
+      storageProvider: existing?.storageProvider || "",
+      storageKey: existing?.storageKey || "",
+      posterStorageProvider: existing?.posterStorageProvider || "",
+      posterStorageKey: existing?.posterStorageKey || "",
       cdnError: existing?.cdnError || "",
       playbackOptimizedAt: existing?.playbackOptimizedAt || "",
     };
@@ -314,6 +335,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
             ...existing,
             cdnVideoUrl: cdn.cdnVideoUrl || existing.cdnVideoUrl || "",
             cdnPosterUrl: cdn.cdnPosterUrl || existing.cdnPosterUrl || "",
+            storageProvider: cdn.storageProvider || existing.storageProvider || "",
+            storageKey: cdn.storageKey || existing.storageKey || "",
+            posterStorageProvider: cdn.posterStorageProvider || existing.posterStorageProvider || "",
+            posterStorageKey: cdn.posterStorageKey || existing.posterStorageKey || "",
             cdnError: cdn.cdnError || existing.cdnError || "",
           };
           if (optimized.cdnVideoUrl || optimized.cdnPosterUrl || optimized.cdnError !== existing.cdnError) {
@@ -321,6 +346,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
               taskId,
               cdnVideoUrl: optimized.cdnVideoUrl,
               cdnPosterUrl: optimized.cdnPosterUrl,
+              storageProvider: optimized.storageProvider,
+              storageKey: optimized.storageKey,
+              posterStorageProvider: optimized.posterStorageProvider,
+              posterStorageKey: optimized.posterStorageKey,
               cdnError: optimized.cdnError,
             });
           }
@@ -333,6 +362,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
           localPosterUrl: optimized.localPosterUrl || "",
           cdnVideoUrl: optimized.cdnVideoUrl || "",
           cdnPosterUrl: optimized.cdnPosterUrl || "",
+          storageProvider: optimized.storageProvider || "",
+          storageKey: optimized.storageKey || "",
+          posterStorageProvider: optimized.posterStorageProvider || "",
+          posterStorageKey: optimized.posterStorageKey || "",
           cdnError: optimized.cdnError || "",
           playbackOptimizedAt: optimized.playbackOptimizedAt || "",
         };
@@ -353,6 +386,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
       localPosterUrl: existing?.localPosterUrl || "",
       cdnVideoUrl: existing?.cdnVideoUrl || "",
       cdnPosterUrl: existing?.cdnPosterUrl || "",
+      storageProvider: existing?.storageProvider || "",
+      storageKey: existing?.storageKey || "",
+      posterStorageProvider: existing?.posterStorageProvider || "",
+      posterStorageKey: existing?.posterStorageKey || "",
       cdnError: existing?.cdnError || "",
       playbackOptimizedAt: existing?.playbackOptimizedAt || "",
     };
@@ -411,13 +448,31 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
     })
     : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
 
-  return {
+  const result = {
     localVideoPath,
     localVideoUrl,
     playbackOptimizedAt: fastStartReady ? new Date().toISOString() : "",
     ...poster,
     ...cdn,
   };
+  // Persist storage metadata at the point of publication. Callers historically
+  // copied only the CDN URLs and discarded the keys, which made private OSS
+  // media impossible to sign correctly on later requests.
+  if (taskId && (result.storageKey || result.posterStorageKey || result.cdnVideoUrl || result.cdnPosterUrl)) {
+    await upsertGenerationRecord({
+      taskId,
+      cdnVideoUrl: result.cdnVideoUrl || "",
+      cdnPosterUrl: result.cdnPosterUrl || "",
+      storageProvider: result.storageProvider || objectStorageProvider(),
+      storageKey: result.storageKey || "",
+      posterStorageProvider: result.posterStorageProvider || result.storageProvider || objectStorageProvider(),
+      posterStorageKey: result.posterStorageKey || "",
+      cdnError: result.cdnError || "",
+    }).catch((error) => {
+      console.warn("[generated-media-storage-metadata-save-failed]", taskId, error.message || error);
+    });
+  }
+  return result;
 }
 
 function imageFileName(taskId, mime = "image/png") {
@@ -430,6 +485,8 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
       localImagePath: "",
       localImageUrl: "",
       cdnImageUrl: "",
+      storageProvider: "",
+      storageKey: "",
       cdnError: "",
     };
   }
@@ -443,6 +500,8 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
     localImagePath,
     localImageUrl,
     cdnImageUrl: "",
+    storageProvider: "",
+    storageKey: "",
     cdnError: "",
   };
   if (publish && !GENERATED_ASSETS_ON_DEMAND && generatedOutputStorageEnabled()) {
@@ -453,6 +512,8 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
         mime: imageMime,
       });
       result.cdnImageUrl = upload.publicUrl || "";
+      result.storageProvider = upload.provider || objectStorageProvider();
+      result.storageKey = upload.key || objectStorageKeyFromPublicUrl(upload.publicUrl, upload.provider || "oss").key || "";
       const marker = await markPublishedFileSafely(localImagePath);
       if (!marker) console.warn("[generated-image-r2-ready-marker-failed]", taskId, localImagePath);
     } catch (error) {
@@ -472,6 +533,8 @@ async function saveRemoteGeneratedImage(taskId, imageUrl, { mime = "image/png", 
       localImagePath: "",
       localImageUrl: "",
       cdnImageUrl: "",
+      storageProvider: "",
+      storageKey: "",
       cdnError: "",
     };
   }

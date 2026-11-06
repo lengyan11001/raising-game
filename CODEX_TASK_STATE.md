@@ -1,3 +1,15 @@
+## Private Alibaba OSS + CDN integration and production cutover (2026-11-06)
+
+- Goal: add private overseas Alibaba OSS storage and CDN delivery for `123vips.com`, while preserving Cloudflare R2 historical media and `media.123vips.com`.
+- Implemented `oss-storage.js` with Singapore/US-only validation, virtual-hosted OSS addressing, private object ACLs, signed CDN URLs, signed Range support, multipart uploads, and R2 fallback for historical records.
+- Added PostgreSQL-backed media ingest jobs for asynchronous advanced downloads; no JSON or flat-file runtime fallback was introduced.
+- Real Singapore OSS/CDN smoke test succeeded: upload to `vipeak-media-sg`; signed CDN GET `200`; signed Range GET `206`; unsigned GET `403`; `x-oss-cdn-auth: success`; test object deleted afterward. Do not print credentials or signed URLs.
+- Production `/etc/raising-game-demo.env` had no OSS variables yet and remained R2-only before cutover. Existing R2 bucket/domain values must remain unchanged for historical media.
+- Cloudflare DNS recheck after the latest permission change still fails: `GET /zones/41e25cbb1bf382751976fa374ebe9644/dns_records` returns `403` / `10000 Authentication error`; the supplied `cfat_` token is not functioning as a Zone DNS Edit token. `assets-cdn.123vips.com` therefore still resolves through Cloudflare proxy, not the required DNS-only CNAME.
+- Required DNS cutover after a valid Zone -> DNS -> Edit token is supplied: CNAME `assets-cdn` to `assets-cdn.123vips.com.queniuaa.com`, Proxy **DNS only**, TTL Auto. Do not touch `media.123vips.com`.
+- Verification: OSS-focused suite passes 120/120; syntax checks pass; `git diff --check` passes.
+- Deployment: pending final release/deploy of this OSS commit.
+
 ## Same-style selected tab white text only (2026-11-06)
 
 - User requested the original wide four-tab strip, with only the selected label turning white.

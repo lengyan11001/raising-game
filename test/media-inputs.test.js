@@ -99,7 +99,7 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /imageMinDimension: wan30 \? 240/);
   assert.match(server, /if \(wan30\) asset = await ensureWan30R2MirrorForUserMediaAsset\(db, asset\)/);
   assert.match(server, /userAsset\.wan30PublicUrl = uploaded\.publicUrl/);
-  assert.match(server, /if \(!r2Enabled\(\)\) \{/);
+  assert.match(server, /if \(!objectStorageEnabled\(\)\) \{/);
   assert.match(server, /userAsset\.wan30R2Key = uploaded\.key/);
   assert.doesNotMatch(server, /\bTOS\b|TOS_|makeTosAuth|uploadStaticAssetToTos|uploadBufferToTos/);
   assert.doesNotMatch(officialPresets, /\bTOS\b|TOS_|makeTosAuth/);
@@ -126,7 +126,7 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.match(server, /uploadError\.retryable = false/);
   assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?generated-video-r2-upload-failed/);
   assert.match(server, /storableRecord\.error = ""/);
-  assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, R2\.publicDomain\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
+  assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, objectStoragePublicDomain\(\)\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
 });
 
 test("generated image R2 failures preserve the successful generation status", () => {

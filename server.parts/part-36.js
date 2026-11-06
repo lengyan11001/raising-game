@@ -605,6 +605,10 @@ function publicUserAsset(asset = {}) {
   const mime = String(asset.mime || "").toLowerCase();
   const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : (WAN30_DOCUMENT_MIMES.has(mime) || documentMimeFromKnownPath(asset.name || asset.fileName)) ? "document" : "image";
   const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
+  const storedUrl = asset.publicUrl || asset.cdnUrl || "";
+  const deliveryUrl = signedOssCdnUrlForDelivery(storedUrl, {
+    key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
+  }) || storedUrl;
   return {
     id: asset.id,
     userId: asset.userId,
@@ -612,9 +616,9 @@ function publicUserAsset(asset = {}) {
     kind,
     mime: asset.mime || "",
     localUrl: asset.localUrl || "",
-    publicUrl: asset.publicUrl || "",
-    cdnUrl: asset.cdnUrl || "",
-    previewUrl: asset.localUrl || asset.publicUrl || asset.cdnUrl || "",
+    publicUrl: deliveryUrl,
+    cdnUrl: deliveryUrl,
+    previewUrl: asset.localUrl || deliveryUrl || asset.cdnUrl || "",
     durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.duration)),
     assetUri: kind === "image" ? asset.assetUri || "" : "",
     seedanceAssetUri: kind === "video" ? asset.seedanceVideoAssetUri || "" : kind === "audio" ? asset.seedanceAudioAssetUri || "" : asset.assetUri || "",

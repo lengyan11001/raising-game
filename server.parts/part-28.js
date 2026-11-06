@@ -522,6 +522,8 @@ async function runQwenImage3GenerationJob(job = {}) {
       localImageUrls: savedImages.map((item) => item.localImageUrl).filter(Boolean),
       cdnImageUrl: savedImages[0]?.cdnImageUrl || "",
       cdnImageUrls: savedImages.map((item) => item.cdnImageUrl).filter(Boolean),
+      storageProvider: savedImages[0]?.storageProvider || "",
+      storageKey: savedImages[0]?.storageKey || "",
       remoteImageUrl: remoteImageUrls[0] || "",
       remoteImageUrls,
       finalCredits: cost,

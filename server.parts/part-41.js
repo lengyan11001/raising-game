@@ -692,6 +692,8 @@ function generationRecordDownloadTarget(record = {}, { r2Only = false } = {}) {
       url: videoUrl,
       localPath: r2Only ? "" : localDownloadPathFromRecord(record, true, videoUrl),
       objectStorageUrl: cdnVideoUrl,
+      storageProvider: record.storageProvider || "",
+      storageKey: record.storageKey || "",
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
@@ -704,6 +706,8 @@ function generationRecordDownloadTarget(record = {}, { r2Only = false } = {}) {
       url: imageUrl,
       localPath: r2Only ? "" : localDownloadPathFromRecord(record, false, imageUrl),
       objectStorageUrl: cdnImageUrl,
+      storageProvider: record.storageProvider || "",
+      storageKey: record.storageKey || "",
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
@@ -760,28 +764,83 @@ function queueGenerationRecordAdvancedDownload(record = {}) {
   advancedDownloadPreparationQueued.add(taskId);
   setImmediate(() => Promise.resolve().then(async () => {
     try {
+      await enqueueMediaIngestJobInDb(taskId, {
+        userId: record.userId || "",
+        kind: "advanced_download",
+        sourceUrl: generationRecordProviderDownloadTarget(record)?.url || "",
+      });
       await updateGenerationRecordAdvancedDownloadInDb(taskId, {
         advancedDownloadStatus: "preparing",
         advancedDownloadError: "",
       });
-      const latest = await getGenerationRecord(taskId) || record;
-      const prepared = await prepareGenerationRecordAdvancedDownload(latest);
-      if (!generationRecordHasR2Download(prepared)) {
-        const error = new Error("The source media is no longer available for transfer.");
-        error.code = "ADVANCED_DOWNLOAD_SOURCE_UNAVAILABLE";
-        throw error;
-      }
+      await runMediaIngestJob(taskId);
     } catch (error) {
-      await updateGenerationRecordAdvancedDownloadInDb(taskId, {
-        advancedDownloadStatus: "failed",
-        advancedDownloadError: advancedDownloadFailureMessage(error),
-      }).catch(() => {});
-      console.warn("[advanced-download-preparation-failed]", taskId, error?.message || error);
+      console.warn("[advanced-download-enqueue-failed]", taskId, error?.message || error);
     } finally {
       advancedDownloadPreparationQueued.delete(taskId);
     }
   }));
   return true;
+}
+
+async function runMediaIngestJob(taskId = "") {
+  const job = await claimMediaIngestJobInDb(taskId, { staleMinutes: 20 });
+  if (!job) return null;
+  return runClaimedMediaIngestJob(job);
+}
+
+let mediaIngestWorkerRunning = false;
+
+async function scanMediaIngestQueue() {
+  if (mediaIngestWorkerRunning || !dbEnabled()) return;
+  mediaIngestWorkerRunning = true;
+  try {
+    const jobs = await claimNextMediaIngestJobsInDb(3, { staleMinutes: 20 });
+    for (const job of jobs) {
+      // claimNextMediaIngestJobsInDb already owns these rows. Process one at a
+      // time so large video transfers cannot exhaust disk or upstream limits.
+      await runClaimedMediaIngestJob(job);
+    }
+  } catch (error) {
+    console.warn("[media-ingest-worker-failed]", error?.message || error);
+  } finally {
+    mediaIngestWorkerRunning = false;
+  }
+}
+
+async function runClaimedMediaIngestJob(job = {}) {
+  const id = String(job.task_id || "").trim();
+  if (!id) return null;
+  try {
+    const record = await getGenerationRecord(id);
+    if (!record) throw new Error("Generation record not found for media ingest.");
+    const prepared = await prepareGenerationRecordAdvancedDownload(record);
+    const target = generationRecordDownloadTarget(prepared, { r2Only: true });
+    if (!target?.url) {
+      const error = new Error("The source media is no longer available for transfer.");
+      error.code = "ADVANCED_DOWNLOAD_SOURCE_UNAVAILABLE";
+      throw error;
+    }
+    await completeMediaIngestJobInDb(id, {
+      storageProvider: target.storageProvider || objectStorageProvider(),
+      storageKey: target.storageKey || "",
+      cdnUrl: target.objectStorageUrl || target.url || "",
+    });
+    return prepared;
+  } catch (error) {
+    const failed = await failMediaIngestJobInDb(id, advancedDownloadFailureMessage(error), {
+      retryAfterSeconds: Math.min(15 * 60, 30 * Math.max(1, Number(job.attempts) || 1)),
+      maxAttempts: 5,
+    }).catch(() => null);
+    if (failed?.status === "failed") {
+      await updateGenerationRecordAdvancedDownloadInDb(id, {
+        advancedDownloadStatus: "failed",
+        advancedDownloadError: advancedDownloadFailureMessage(error),
+      }).catch(() => {});
+    }
+    console.warn("[advanced-download-preparation-failed]", id, error?.message || error);
+    return null;
+  }
 }
 
 async function prepareGenerationRecordAdvancedDownload(record = {}) {
@@ -819,6 +878,10 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       playbackOptimizedAt: localVideo.playbackOptimizedAt || new Date().toISOString(),
       cdnVideoUrl: cdn.cdnVideoUrl,
       cdnPosterUrl: cdn.cdnPosterUrl,
+      storageProvider: cdn.storageProvider || objectStorageProvider(),
+      storageKey: cdn.storageKey || objectStorageKeyFromPublicUrl(cdn.cdnVideoUrl, cdn.storageProvider || objectStorageProvider()).key || "",
+      posterStorageProvider: cdn.posterStorageProvider || cdn.storageProvider || objectStorageProvider(),
+      posterStorageKey: cdn.posterStorageKey || objectStorageKeyFromPublicUrl(cdn.cdnPosterUrl, cdn.posterStorageProvider || cdn.storageProvider || objectStorageProvider()).key || "",
       cdnError: "",
       advancedDownloadPreparedAt: new Date().toISOString(),
       advancedDownloadStatus: "ready",
@@ -847,6 +910,8 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     imageResultUrl: upload.publicUrl,
     cdnImageUrl: upload.publicUrl,
     cdnImageUrls: [upload.publicUrl],
+    storageProvider: upload.provider || objectStorageProvider(),
+    storageKey: upload.key || objectStorageKeyFromPublicUrl(upload.publicUrl, upload.provider || objectStorageProvider()).key || "",
     cdnError: "",
     advancedDownloadPreparedAt: new Date().toISOString(),
     advancedDownloadStatus: "ready",
@@ -888,23 +953,89 @@ function awsCanonicalQuery(params = []) {
     .join("&");
 }
 
-function r2KeyFromPublicDownloadUrl(value = "") {
+function objectStorageKeyFromPublicUrl(value = "", provider = "") {
   const text = String(value || "").trim();
-  if (!text || !R2.publicDomain) return "";
+  if (!text) return { provider: "", key: "" };
   try {
-    const publicBase = new URL(String(R2.publicDomain || "").replace(/\/+$/, ""));
     const parsed = new URL(text, configuredPublicBaseUrl() || "https://123vips.com");
-    if (parsed.host === publicBase.host) return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+    const hostname = parsed.hostname.toLowerCase();
+    const bucket = String(OSS.bucket || "").trim().toLowerCase();
+    const ossRegion = String(OSS.region || "").trim().toLowerCase();
+    const ossOriginSuffix = ossRegion
+      ? `${ossRegion.startsWith("oss-") ? ossRegion : `oss-${ossRegion}`}.aliyuncs.com`.toLowerCase()
+      : "";
+    let key = "";
+    if (bucket && ossOriginSuffix && hostname === `${bucket}.${ossOriginSuffix}`) {
+      key = parsed.pathname.replace(/^\/+/, "");
+    } else if (bucket && ossOriginSuffix && hostname === ossOriginSuffix && parsed.pathname.toLowerCase().startsWith(`/${bucket}/`)) {
+      key = parsed.pathname.slice(bucket.length + 2);
+    }
+    if (key) return { provider: "oss", key: decodeURIComponent(key) };
+
+    const publicBaseUrl = provider === "oss"
+      ? String(OSS.cdnBaseUrl || "")
+      : provider === "r2"
+        ? String(R2.publicDomain || "")
+        : "";
+    if (publicBaseUrl) {
+      const publicBase = new URL(publicBaseUrl.replace(/\/+$/, ""));
+      const basePath = publicBase.pathname.replace(/\/+$/, "");
+      if (parsed.host === publicBase.host && (!basePath || parsed.pathname.startsWith(`${basePath}/`))) {
+        return {
+          provider,
+          key: decodeURIComponent(parsed.pathname.slice(basePath.length).replace(/^\/+/, "")),
+        };
+      }
+    }
+    // Backward compatibility: historical lookups did not always pass a
+    // provider. Recognize both configured public domains in that case.
+    if (!provider) {
+      for (const [candidate, configuredBase] of [["oss", OSS.cdnBaseUrl], ["r2", R2.publicDomain]]) {
+        if (!configuredBase) continue;
+        const base = new URL(String(configuredBase).replace(/\/+$/, ""));
+        const basePath = base.pathname.replace(/\/+$/, "");
+        if (parsed.host === base.host && (!basePath || parsed.pathname.startsWith(`${basePath}/`))) {
+          return { provider: candidate, key: decodeURIComponent(parsed.pathname.slice(basePath.length).replace(/^\/+/, "")) };
+        }
+      }
+    }
     const siteBase = configuredPublicBaseUrl();
     if (siteBase) {
       const site = new URL(siteBase);
-      if (parsed.host === site.host && parsed.pathname.startsWith("/assets/")) return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+      if (parsed.host === site.host && parsed.pathname.startsWith("/assets/")) {
+        return { provider: "r2", key: decodeURIComponent(parsed.pathname.replace(/^\/+/, "")) };
+      }
     }
   } catch {
-    if (text.startsWith("/assets/")) return text.replace(/^\/+/, "");
+    // Handle relative /assets paths below.
   }
-  if (text.startsWith("/assets/")) return text.replace(/^\/+/, "");
+  if (text.startsWith("/assets/")) return { provider: "r2", key: text.replace(/^\/+/, "") };
+  return { provider: "", key: "" };
+}
+
+function r2KeyFromPublicDownloadUrl(value = "") {
+  const match = objectStorageKeyFromPublicUrl(value, "r2");
+  return match.provider === "r2" ? match.key : "";
+}
+
+function inferObjectStorageProviderFromUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = objectStorageKeyFromPublicUrl(text);
+  if (match.provider) return match.provider;
+  if (publicUrlMatchesStorageBase(text, OSS.cdnBaseUrl)) return "oss";
+  if (publicUrlMatchesStorageBase(text, R2.publicDomain)) return "r2";
   return "";
+}
+
+function objectStorageDownloadKey(target = {}) {
+  const declaredProvider = String(target.storageProvider || "").trim().toLowerCase();
+  const urlProvider = inferObjectStorageProviderFromUrl(target.objectStorageUrl);
+  const provider = declaredProvider || urlProvider || objectStorageProvider();
+  const declaredKey = String(target.storageKey || "").trim();
+  if (declaredKey) return { provider, key: declaredKey };
+  const fromUrl = objectStorageKeyFromPublicUrl(target.objectStorageUrl, provider);
+  return fromUrl.provider ? fromUrl : { provider: "", key: "" };
 }
 
 function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/octet-stream", expiresSeconds = 600 }) {
@@ -932,17 +1063,27 @@ function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/
 }
 
 function generationRecordDownloadUrlPayload(target = {}, fallbackUrl = "") {
-  const key = r2KeyFromPublicDownloadUrl(target.objectStorageUrl);
-  const signedUrl = key ? makeR2PresignedDownloadUrl({
-    key,
-    fileName: target.fileName,
-    contentType: target.mime,
-  }) : "";
+  const storage = objectStorageDownloadKey(target);
+  const signedUrl = storage.provider === "r2" && storage.key
+    ? makeR2PresignedDownloadUrl({
+      key: storage.key,
+      fileName: target.fileName,
+      contentType: target.mime,
+    })
+    : storage.provider === "oss" && storage.key
+      ? makeOssSignedCdnUrl({
+        key: storage.key,
+        fileName: target.fileName,
+        contentType: target.mime,
+        download: true,
+        config: OSS,
+      })
+      : "";
   return {
     url: signedUrl || fallbackUrl || "",
     fileName: target.fileName || "generation",
-    expiresIn: signedUrl ? 600 : 0,
-    source: signedUrl ? "r2_signed" : "authenticated_proxy",
+    expiresIn: signedUrl ? (storage.provider === "oss" ? OSS.signedUrlTtlSeconds : 600) : 0,
+    source: signedUrl ? `${storage.provider}_signed` : "authenticated_proxy",
   };
 }
 
@@ -972,6 +1113,7 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
     // "preparing" while no local job exists. Requeue in that case instead of
     // leaving the record stuck forever.
     const queued = queueGenerationRecordAdvancedDownload(record);
+    void scanMediaIngestQueue();
     if (queued || advancedDownloadPreparationQueued.has(taskId)) {
       return sendJson(res, 202, {
         ok: true,

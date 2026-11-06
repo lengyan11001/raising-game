@@ -153,7 +153,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
 async function ensureCharacterReferenceForRecord(record) {
   if (record.referenceAssetUri) {
     const reusableGatewayReference = USE_GATEWAY_UPSTREAM
-      && (String(record.referenceAssetUri).startsWith("asset://") || publicUrlMatchesStorageBase(record.referenceAssetUri, R2.publicDomain));
+      && (String(record.referenceAssetUri).startsWith("asset://") || publicUrlMatchesStorageBase(record.referenceAssetUri, objectStoragePublicDomain()));
     const reusableDirectReference = !USE_GATEWAY_UPSTREAM
       && (!localPublicAssetStorageEnabled() || isLocalPublicAssetUrl(record.publicImageUrl));
     if (reusableGatewayReference || reusableDirectReference) return record;
@@ -251,9 +251,15 @@ async function ensureCharacterReferenceForRecord(record) {
       mime: record.imageMime || imageMimeFromPath(localPath),
     });
   }
+  const upstreamUrl = publicHttpUrlForUpstream(uploadedRef.publicUrl);
+  if (!isPublicHttpUrl(upstreamUrl)) {
+    const error = new Error("Character reference could not be published as a readable upstream URL.");
+    error.statusCode = 502;
+    throw error;
+  }
   const created = await arkOpenApiAction("CreateAsset", {
     GroupId: ARK_OPENAPI.groupId,
-    URL: uploadedRef.publicUrl,
+    URL: upstreamUrl,
     AssetType: "Image",
     Moderation: { Strategy: "Skip" },
     Name: storageObjectName("user", record.id),

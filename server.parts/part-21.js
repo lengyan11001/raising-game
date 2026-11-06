@@ -999,6 +999,8 @@ async function refreshGenerationRecordStatus(record = {}) {
           localImagePath: savedImage?.localImagePath || record.localImagePath || "",
           cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
           cdnImageUrls,
+          storageProvider: savedImage?.storageProvider || record.storageProvider || "",
+          storageKey: savedImage?.storageKey || record.storageKey || "",
           cdnError: savedImages.map((item) => item.cdnError).filter(Boolean).join("; ") || record.cdnError || "",
           remoteImageUrl: imageUrl,
           remoteImageUrls,

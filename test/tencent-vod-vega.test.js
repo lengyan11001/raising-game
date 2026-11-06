@@ -1288,7 +1288,7 @@ test("Vega resolve and upload require a real public mirror without local fallbac
   assert.match(publicUrlBranch, /let userAsset = await createUserMediaAssetFromPublicUrl/);
   assert.match(publicUrlBranch, /if \(isVegaProvider\(uploadProvider\)\) \{[\s\S]*ensureVegaPublicUrlForUserAsset\(auth\.db, userAsset\)/);
   const publicAsset = sourceBetween(server, "function publicUserAsset(asset = {})", "function wan27ImageModifyPricing(");
-  assert.match(publicAsset, /cdnUrl: asset\.cdnUrl \|\| ""/);
+  assert.match(publicAsset, /cdnUrl: deliveryUrl/);
 });
 
 test("Vega model refresh preserves selected provider and model settings", () => {

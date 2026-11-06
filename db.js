@@ -946,6 +946,30 @@ async function ensureSchemaInner() {
       ON app_generation_records ((payload->>'userId'), created_at DESC);
   `);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (
+      task_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'advanced_download',
+      source_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      storage_provider TEXT NOT NULL DEFAULT '',
+      storage_key TEXT NOT NULL DEFAULT '',
+      cdn_url TEXT NOT NULL DEFAULT '',
+      bytes BIGINT NOT NULL DEFAULT 0,
+      error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_media_ingest_jobs_status_available_idx
+      ON app_media_ingest_jobs (status, available_at, created_at);
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_web_vitals (
       event_id TEXT PRIMARY KEY,
       hostname TEXT NOT NULL,
@@ -5949,6 +5973,152 @@ async function upsertGenerationRecordInDb(nextRecord) {
   return rows[0]?.payload || null;
 }
 
+async function enqueueMediaIngestJobInDb(taskId = "", {
+  userId = "",
+  kind = "advanced_download",
+  sourceUrl = "",
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) throw new Error("Media ingest taskId is required");
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      INSERT INTO app_media_ingest_jobs(task_id, user_id, kind, source_url, status, available_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'queued', NOW(), NOW())
+      ON CONFLICT (task_id) DO UPDATE SET
+        user_id = CASE WHEN EXCLUDED.user_id <> '' THEN EXCLUDED.user_id ELSE app_media_ingest_jobs.user_id END,
+        kind = EXCLUDED.kind,
+        source_url = CASE WHEN EXCLUDED.source_url <> '' THEN EXCLUDED.source_url ELSE app_media_ingest_jobs.source_url END,
+        status = CASE
+          WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.status
+          ELSE 'queued'
+        END,
+        available_at = CASE
+          WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.available_at
+          ELSE NOW()
+        END,
+        error = CASE WHEN app_media_ingest_jobs.status = 'ready' THEN app_media_ingest_jobs.error ELSE '' END,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [id, String(userId || ""), String(kind || "advanced_download"), String(sourceUrl || "")],
+  );
+  return rows[0] || null;
+}
+
+async function claimMediaIngestJobInDb(taskId = "", { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'processing',
+          attempts = attempts + 1,
+          started_at = NOW(),
+          updated_at = NOW(),
+          error = ''
+      WHERE task_id = $1
+        AND (
+          status = 'queued'
+          OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          OR (status = 'failed' AND available_at <= NOW())
+        )
+      RETURNING *
+    `,
+    [id, stale],
+  );
+  return rows[0] || null;
+}
+
+async function claimNextMediaIngestJobsInDb(limit = 1, { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const count = Math.max(1, Math.min(10, Number(limit) || 1));
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  const { rows } = await query(
+    `
+      WITH candidates AS (
+        SELECT task_id
+        FROM app_media_ingest_jobs
+        WHERE (
+          status = 'queued'
+          OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          OR (status = 'failed' AND available_at <= NOW())
+        )
+        ORDER BY available_at ASC, created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT $1
+      )
+      UPDATE app_media_ingest_jobs jobs
+      SET status = 'processing',
+          attempts = attempts + 1,
+          started_at = NOW(),
+          updated_at = NOW(),
+          error = ''
+      FROM candidates
+      WHERE jobs.task_id = candidates.task_id
+      RETURNING jobs.*
+    `,
+    [count, stale],
+  );
+  return rows;
+}
+
+async function completeMediaIngestJobInDb(taskId = "", {
+  storageProvider = "",
+  storageKey = "",
+  cdnUrl = "",
+  bytes = 0,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'ready',
+          completed_at = NOW(),
+          updated_at = NOW(),
+          error = '',
+          storage_provider = $2,
+          storage_key = $3,
+          cdn_url = $4,
+          bytes = $5
+      WHERE task_id = $1
+      RETURNING *
+    `,
+    [id, String(storageProvider || ""), String(storageKey || ""), String(cdnUrl || ""), Math.max(0, Number(bytes) || 0)],
+  );
+  return rows[0] || null;
+}
+
+async function failMediaIngestJobInDb(taskId = "", error = "", { retryAfterSeconds = 60, maxAttempts = 5 } = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const delay = Math.max(5, Math.min(24 * 60 * 60, Number(retryAfterSeconds) || 60));
+  const max = Math.max(1, Math.min(20, Number(maxAttempts) || 5));
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = CASE WHEN attempts >= $3 THEN 'failed' ELSE 'queued' END,
+          available_at = NOW() + ($2::int * INTERVAL '1 second'),
+          updated_at = NOW(),
+          error = $4
+      WHERE task_id = $1
+      RETURNING *
+    `,
+    [id, delay, max, String(error || "").slice(0, 1000)],
+  );
+  return rows[0] || null;
+}
+
 async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates = {}) {
   if (!dbEnabled()) return null;
   const id = String(taskId || "").trim();
@@ -5961,6 +6131,10 @@ async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates =
     "playbackOptimizedAt",
     "cdnVideoUrl",
     "cdnPosterUrl",
+    "storageProvider",
+    "storageKey",
+    "posterStorageProvider",
+    "posterStorageKey",
     "cdnImageUrl",
     "cdnImageUrls",
     "localImageUrl",
@@ -7210,6 +7384,11 @@ module.exports = {
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,
+  enqueueMediaIngestJobInDb,
+  claimMediaIngestJobInDb,
+  claimNextMediaIngestJobsInDb,
+  completeMediaIngestJobInDb,
+  failMediaIngestJobInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,

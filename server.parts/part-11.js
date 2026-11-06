@@ -85,20 +85,42 @@ function seedanceIgnexModelForRequest(model = "", seedanceTier = "standard") {
   return kind === "fast" ? IGNEX_SEEDANCE_FAST_MODEL : IGNEX_SEEDANCE_QUALITY_MODEL;
 }
 
+function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", download = false } = {}) {
+  const text = String(value || "").trim();
+  if (!OSS_STORAGE_ENABLED || !text) return "";
+  const inferred = objectStorageKeyFromPublicUrl(text, "oss");
+  // Prefer the object key encoded in the URL. Multi-image records can contain
+  // several different keys while carrying only one record-level storageKey.
+  const objectKey = String(inferred.key || key || "").trim();
+  if (!objectKey || (inferred.provider && inferred.provider !== "oss")) return "";
+  return makeOssSignedCdnUrl({
+    key: objectKey,
+    fileName,
+    download,
+    config: OSS,
+  });
+}
+
 function publicHttpUrlForUpstream(value = "") {
   const text = String(value || "").trim();
   if (!text) return "";
-  if (isPublicHttpUrl(text)) return text;
+  if (isPublicHttpUrl(text)) {
+    return signedOssCdnUrlForDelivery(text) || text;
+  }
   if (text.startsWith("/")) {
     const configured = publicUrlForAssetPath(text);
-    if (configured) return configured;
-    return `https://123vips.com/${text.replace(/^\/+/, "")}`;
+    if (!configured) return `https://123vips.com/${text.replace(/^\/+/, "")}`;
+    return signedOssCdnUrlForDelivery(configured) || configured;
   }
   return "";
 }
 
 function publicHttpUrlForUserAsset(asset = {}, fallback = "") {
-  return publicHttpUrlForUpstream(asset.publicUrl || asset.localUrl || fallback || "");
+  const value = asset.publicUrl || asset.localUrl || fallback || "";
+  const signed = signedOssCdnUrlForDelivery(value, {
+    key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
+  });
+  return signed || publicHttpUrlForUpstream(value);
 }
 
 function normalizeAdvancedResolution(value = "") {

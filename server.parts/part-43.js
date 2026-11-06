@@ -415,6 +415,7 @@ async function bootstrap() {
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
   startLocalMediaCleanupScheduler();
+  startMediaIngestWorkerScheduler();
   startGenerationRecordMediaRecoveryScheduler();
   startChatLiveSettlementScheduler();
 
@@ -437,6 +438,9 @@ module.exports = {
   advancedModelPricing,
   publicAdvancedPricingRows,
   publicGenerationRecord,
+  publicUserAsset,
+  signedOssCdnUrlForDelivery,
+  objectStorageKeyFromPublicUrl,
   handleAdvancedVegaGenerate,
   repairStalledGenerationRecords,
   listStalledGenerationRecordsForRepair,

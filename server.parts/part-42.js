@@ -95,7 +95,8 @@ async function serveStatic(req, res, url) {
     !pathname.startsWith("/assets/generated/") &&
     !pathname.startsWith("/assets/admin/voice-preview/") &&
     !DISABLE_R2_STORAGE &&
-    R2.publicDomain;
+    R2.publicDomain &&
+    !OSS_STORAGE_ENABLED;
   if (shouldRedirectAssetToR2) {
     const target = `${String(R2.publicDomain || "").replace(/\/+$/, "")}${pathname}${url.search || ""}`;
     res.writeHead(302, {
