@@ -7,7 +7,7 @@
 - Changed files: `platform.css`, `platform.create.parts/part-05.js`, `test/advanced-custom-ui.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: targeted prompt tests 3/3 pass; syntax and `git diff --check` pass; Chrome CDP confirmed multiline Backspace removes the expected character and auto-height updates; CDP confirmed removing/renaming an earlier @ label keeps the caret mapped and the next Backspace removes the intended character.
 - Full `advanced-custom-ui.test.js` currently has 7 pre-existing failures from unrelated stale assertions/source compatibility (`isVegaProviderId` missing in extracted helpers, stale upload/pricing/cache regexes); no prompt-editing test fails.
-- Deployment: not yet deployed.
+- Deployment: `old-site` `f896f84`; `platform-release` `8d96eda`, built from `f896f84` and pushed with lease protection. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`. Live was not deployed.
 
 ## Main-site refresh performance (2026-11-05)
 
