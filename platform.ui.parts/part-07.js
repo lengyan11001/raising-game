@@ -325,24 +325,18 @@ function setupElevenElevenPromo() {
       const sku = (promo?.skus || []).find((item) => item.id === card.dataset.elevenSku);
       const rib = card.querySelector(".eleven-eleven-rib");
       const sold = card.querySelector("[data-eleven-sold]");
-      const left = card.querySelector("[data-eleven-left]");
-      const bar = card.querySelector("[data-eleven-bar]");
-      const disabled = !sku || sku.soldOut || sku.purchased || sku.owned || !promo?.active;
+      const disabled = !sku || sku.purchased || sku.owned || !promo?.active;
       card.classList.toggle("is-disabled", disabled);
       card.classList.toggle("is-selected", Boolean(sku) && !disabled && selected === sku.id);
       card.setAttribute("aria-disabled", disabled ? "true" : "false");
-      const shownSold = Number(sku?.displaySold ?? sku?.sold ?? 0);
-      const shownRemaining = Number(sku?.displayRemaining ?? sku?.remaining ?? 0);
-      if (sold) sold.textContent = `已售 ${shownSold.toLocaleString()} / ${Number(sku?.capacity || 1111).toLocaleString()}`;
-      if (left) left.textContent = `剩 ${shownRemaining.toLocaleString()} 份`;
-      if (bar) bar.style.width = `${Math.max(0, Math.min(100, (shownSold / Math.max(1, Number(sku?.capacity || 1))) * 100))}%`;
+      if (sold) sold.textContent = `已售 ${Number(sku?.sold || 0).toLocaleString()}`;
       if (rib) {
-        rib.hidden = !sku || (!sku.soldOut && !sku.purchased && !sku.owned);
-        rib.textContent = sku?.purchased ? "已购买" : sku?.owned ? "已拥有" : "本档已售完";
+        rib.hidden = !sku || (!sku.purchased && !sku.owned);
+        rib.textContent = sku?.purchased ? "已购买" : "已拥有";
       }
     });
     const sku = currentSku();
-    if (!sku || sku.soldOut || sku.purchased || sku.owned || !promo?.active) {
+    if (!sku || sku.purchased || sku.owned || !promo?.active) {
       selected = "";
       buyBtn.disabled = true;
       buyBtn.textContent = !promo?.started ? "活动尚未开始" : !promo?.active ? "本次活动已结束" : "选择一档立即购买";
@@ -384,8 +378,8 @@ function setupElevenElevenPromo() {
   };
   const select = (id) => {
     const sku = (promo?.skus || []).find((item) => item.id === id);
-    if (!promo?.active || !sku || sku.soldOut || sku.purchased || sku.owned) {
-      setError(sku?.owned ? "您已开通创作者终身权益，无需重复购买。" : sku?.purchased ? "每个账号每档限购一次，本档已购买。" : sku?.soldOut ? "本档已售完。" : !promo?.started ? "活动尚未开始。" : "本次活动已结束。");
+    if (!promo?.active || !sku || sku.purchased || sku.owned) {
+      setError(sku?.owned ? "您已开通创作者终身权益，无需重复购买。" : sku?.purchased ? "每个账号每档限购一次，本档已购买。" : !promo?.started ? "活动尚未开始。" : "本次活动已结束。");
       return;
     }
     selected = id;
@@ -466,7 +460,7 @@ function setupElevenElevenPromo() {
         return;
       }
       setError(error.message || "支付未完成，请重试或更换支付方式。");
-      if (["PROMO_SOLD_OUT", "PROMO_ALREADY_PURCHASED", "PROMO_CLOSED", "MEMBERSHIP_ALREADY_ACTIVE"].includes(error.code)) await refresh().catch(() => {});
+      if (["PROMO_ALREADY_PURCHASED", "PROMO_CLOSED", "MEMBERSHIP_ALREADY_ACTIVE"].includes(error.code)) await refresh().catch(() => {});
     } finally {
       paying = false;
       paintCards();
@@ -479,7 +473,7 @@ function setupElevenElevenPromo() {
       pollForSettlement();
     } else if (isCancelledCheckout) {
       await open();
-      selected = (promo?.skus || []).some((item) => item.id === returningSkuId && !item.soldOut && !item.purchased && !item.owned) ? returningSkuId : "";
+      selected = (promo?.skus || []).some((item) => item.id === returningSkuId && !item.purchased && !item.owned) ? returningSkuId : "";
       paintCards();
       setError("支付未完成，请重试或更换支付方式。");
     }

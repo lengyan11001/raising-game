@@ -37,6 +37,8 @@ test("top-bar and mobile entries expose the redesigned 11.11 campaign", () => {
   assert.ok(html.indexOf("eleven-eleven-entry-desktop") < html.indexOf('id="topupHeadBtn"'), "desktop campaign entry must sit left of Buy credits");
   assert.match(html, /id="elevenElevenDialog" class="eleven-eleven-dialog"/);
   assert.match(html, /id="elevenElevenCloseBtn"/);
+  assert.match(html, /限时特惠，不限量供应/);
+  assert.doesNotMatch(html, /限量 1,111|剩 1,111 份|eleven-eleven-bar/);
   assert.match(html, /data-eleven-sku="member"[\s\S]*?\$99[\s\S]*?\$29\.9[\s\S]*?终身有效/);
   assert.match(html, /data-eleven-sku="credits"[\s\S]*?\$66[\s\S]*?9,000[\s\S]*?多拿 80%/);
   assert.match(html, /class="eleven-eleven-rib" hidden>已购买/);
@@ -58,8 +60,10 @@ test("promotion dialog handles countdown, sold-out, purchased, payment return, a
   assert.match(ui, /距结束/);
   assert.match(ui, /refresh\("refresh"\)/);
   assert.match(ui, /11\.11 新一期活动已开始/);
-  assert.match(ui, /sku\.soldOut \|\| sku\.purchased \|\| sku\.owned \|\| !promo\?\.active/);
-  assert.match(ui, /rib\.textContent = sku\?\.purchased \? "已购买" : sku\?\.owned \? "已拥有" : "本档已售完"/);
+  assert.match(ui, /!sku \|\| sku\.purchased \|\| sku\.owned \|\| !promo\?\.active/);
+  assert.match(ui, /rib\.textContent = sku\?\.purchased \? "已购买" : "已拥有"/);
+  assert.match(ui, /已售 \$\{Number\(sku\?\.sold \|\| 0\)\.toLocaleString\(\)\}/);
+  assert.doesNotMatch(ui, /sku\.capacity|sku\.remaining|sku\.soldOut|data-eleven-left|data-eleven-bar/);
   assert.match(ui, /每个账号每档限购一次/);
   assert.match(ui, /支付未完成，请重试或更换支付方式/);
   assert.match(ui, /if \(paying\) return;/);
@@ -77,7 +81,8 @@ test("server defines the two campaign SKUs with authoritative price and credit v
   assert.deepEqual(Object.keys(helpers.ELEVEN_ELEVEN_PROMO.skus), ["member", "credits"]);
   assert.equal(helpers.elevenElevenSku("member").amount, 29.9);
   assert.equal(helpers.elevenElevenSku("member").originalAmount, 99);
-  assert.equal(helpers.elevenElevenSku("member").capacity, 1111);
+  assert.equal(helpers.elevenElevenSku("member").displaySold, 896);
+  assert.equal(helpers.elevenElevenSku("member").capacity, undefined);
   assert.equal(helpers.elevenElevenSku("credits").amount, 66);
   assert.equal(helpers.elevenElevenSku("credits").originalAmount, 90);
   assert.equal(helpers.elevenElevenSku("credits").credits, 9000);
@@ -107,10 +112,6 @@ test("promotion status reports inventory and per-user purchase state from the se
   assert.equal(elevenElevenCampaignWindow(afterFirstPeriod).endsAt, ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 * 2);
 
   const promo = elevenElevenPublicPromo({
-    inventory: [
-      { sku: "member", paid: 1100, pending: 11 },
-      { sku: "credits", paid: 1111, pending: 0 },
-    ],
     purchases: [
       { sku: "member", status: "paid", orderId: "stripe_member" },
       { sku: "credits", status: "failed", orderId: "stripe_credits" },
@@ -120,43 +121,31 @@ test("promotion status reports inventory and per-user purchase state from the se
   const credits = promo.skus.find((sku) => sku.id === "credits");
 
   assert.equal(promo.active, true);
-  assert.equal(member.sold, 1100);
-  assert.equal(member.displaySold, 1100);
-  assert.equal(member.reserved, 11);
-  assert.equal(member.remaining, 0);
-  assert.equal(member.soldOut, true);
+  assert.equal(member.sold, 896);
   assert.equal(member.purchased, true);
   assert.equal(member.owned, false);
-  assert.equal(credits.soldOut, true);
+  assert.equal(credits.sold, 743);
   assert.equal(credits.purchased, false);
+  assert.equal(member.capacity, undefined);
+  assert.equal(member.remaining, undefined);
+  assert.equal(member.soldOut, undefined);
 
-  const initialPromo = elevenElevenPublicPromo({ inventory: [], purchases: [] }, during);
-  const initialMember = initialPromo.skus.find((sku) => sku.id === "member");
-  const initialCredits = initialPromo.skus.find((sku) => sku.id === "credits");
-  assert.equal(initialMember.sold, 0);
-  assert.equal(initialMember.displaySold, 896);
-  assert.equal(initialMember.displayRemaining, 215);
-  assert.equal(initialCredits.sold, 0);
-  assert.equal(initialCredits.displaySold, 743);
-  assert.equal(initialCredits.displayRemaining, 368);
-
-  const memberViewerPromo = elevenElevenPublicPromo({ inventory: [], purchases: [] }, during, { memberActive: true });
+  const memberViewerPromo = elevenElevenPublicPromo({ purchases: [] }, during, { memberActive: true });
   assert.equal(memberViewerPromo.skus.find((sku) => sku.id === "member").owned, true);
   assert.equal(memberViewerPromo.skus.find((sku) => sku.id === "credits").owned, false);
 });
 
-test("checkout reserves PostgreSQL capacity and returns explicit campaign errors", () => {
+test("checkout reserves PostgreSQL purchases without an inventory cap", () => {
   const source = promotionServerSource();
   const db = read("db.js");
 
   assert.match(source, /if \(!dbEnabled\(\)\) return sendJson\(res, 503,[\s\S]*?DATABASE_REQUIRED/);
   assert.match(source, /if \(!elevenElevenCampaignStarted\(\)\)[\s\S]*?PROMO_CLOSED/);
   assert.match(source, /reservePromotionPurchaseInDb\(\{/);
-  assert.match(source, /capacity: sku\.capacity/);
+  assert.doesNotMatch(source, /capacity: sku\.capacity|PROMO_SOLD_OUT/);
   assert.match(source, /reservationSeconds: ELEVEN_ELEVEN_PROMO\.reservationSeconds/);
   assert.match(source, /PROMO_ALREADY_PURCHASED/);
   assert.match(source, /MEMBERSHIP_ALREADY_ACTIVE/);
-  assert.match(source, /PROMO_SOLD_OUT/);
   assert.match(source, /PROMO_CHECKOUT_BUSY/);
   assert.match(source, /reused: true/);
   assert.match(source, /markPromotionPurchaseFailedInDb/);
@@ -165,7 +154,6 @@ test("checkout reserves PostgreSQL capacity and returns explicit campaign errors
   assert.match(db, /PRIMARY KEY \(campaign_id, sku, user_id\)/);
   assert.match(db, /CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx[\s\S]*?WHERE order_id <> ''/);
   assert.match(db, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
-  assert.match(db, /COUNT\(\*\)::int AS used[\s\S]*?status = 'paid' OR \(status = 'pending' AND reserved_until > NOW\(\)\)/);
   assert.match(db, /WHERE app_promotion_purchases\.status <> 'paid'/);
 });
 

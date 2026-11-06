@@ -1,4 +1,4 @@
-// 11.11 promotion campaign: server-authoritative SKUs, capacity reservations, and Stripe checkout.
+// 11.11 promotion campaign: server-authoritative SKUs, purchase reservations, and Stripe checkout.
 const ELEVEN_ELEVEN_PROMO = Object.freeze({
   id: "eleven-eleven-2026",
   startsAt: Date.parse(process.env.ELEVEN_ELEVEN_STARTS_AT || "2026-11-06T00:00:00+07:00"),
@@ -7,7 +7,6 @@ const ELEVEN_ELEVEN_PROMO = Object.freeze({
   skus: Object.freeze({
     member: Object.freeze({
       id: "member",
-      capacity: 1111,
       displaySold: 896,
       amount: 29.9,
       originalAmount: 99,
@@ -17,7 +16,6 @@ const ELEVEN_ELEVEN_PROMO = Object.freeze({
     }),
     credits: Object.freeze({
       id: "credits",
-      capacity: 1111,
       displaySold: 743,
       amount: 66,
       originalAmount: 90,
@@ -64,7 +62,6 @@ function elevenElevenCampaignRenewed(now = Date.now(), previousPeriodStartedAt =
 }
 
 function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
-  const inventory = new Map((state.inventory || []).map((item) => [item.sku, item]));
   const purchases = new Map((state.purchases || []).map((item) => [item.sku, item]));
   const memberOwned = Boolean(viewer.memberActive);
   const window = elevenElevenCampaignWindow(now);
@@ -78,13 +75,6 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
     endsAt: new Date(window.endsAt).toISOString(),
     currency: STRIPE_CURRENCY.toUpperCase(),
     skus: Object.values(ELEVEN_ELEVEN_PROMO.skus).map((sku) => {
-      const usage = inventory.get(sku.id) || {};
-      const sold = Number(usage.paid || 0);
-      const reserved = Number(usage.pending || 0);
-      const remaining = Math.max(0, sku.capacity - sold - reserved);
-      // Social-proof display only: never used by checkout, capacity checks, or sold-out state.
-      const displaySold = Math.min(sku.capacity, Math.max(sold, Number(sku.displaySold || 0)));
-      const displayRemaining = Math.max(0, sku.capacity - displaySold - reserved);
       const purchase = purchases.get(sku.id) || null;
       const owned = sku.id === "member" && memberOwned;
       return {
@@ -93,13 +83,8 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
         amount: sku.amount,
         originalAmount: sku.originalAmount,
         credits: sku.credits,
-        capacity: sku.capacity,
-        sold,
-        reserved,
-        remaining,
-        displaySold,
-        displayRemaining,
-        soldOut: remaining <= 0,
+        // Social-proof presentation only; not inventory or a purchase limit.
+        sold: Number(sku.displaySold || 0),
         owned,
         purchased: purchase?.status === "paid",
         pending: purchase?.status === "pending" && Date.parse(purchase.reservedUntil || "") > now,
@@ -150,14 +135,10 @@ async function createElevenElevenCheckout(req, res) {
     sku: sku.id,
     userId,
     orderId,
-    capacity: sku.capacity,
     reservationSeconds: ELEVEN_ELEVEN_PROMO.reservationSeconds,
   });
   if (reserved.status === "purchased") {
     return sendJson(res, 409, { ok: false, code: "PROMO_ALREADY_PURCHASED", message: "每个账号限购一次，本档已购买。" });
-  }
-  if (reserved.status === "sold_out") {
-    return sendJson(res, 409, { ok: false, code: "PROMO_SOLD_OUT", message: "本档已售完。" });
   }
   if (reserved.status === "pending") {
     const pendingOrder = reserved.purchase?.orderId ? await getWalletOrderByIdInDb(reserved.purchase.orderId) : null;
