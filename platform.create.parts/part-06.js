@@ -574,15 +574,31 @@ function openLogin() {
   });
 }
 
-function openAccount() {
+function openAccount({ focusEmail = false } = {}) {
+  if (!state.user) return openLogin();
   prepareModalOpen();
   renderTokenDisplays();
-  if (els.accountEmail) els.accountEmail.value = state.user?.email || "";
+  const boundEmail = String(state.user?.email || "").trim();
+  if (els.accountEmail) els.accountEmail.readOnly = Boolean(boundEmail);
+  if (els.accountEmail) els.accountEmail.value = boundEmail;
+  if (els.accountEmailStatus) {
+    els.accountEmailStatus.textContent = boundEmail
+      ? "Email login is enabled for this account."
+      : "Bind an email to sign in with a code or reset your password.";
+  }
+  if (els.accountEmailBoundNote) els.accountEmailBoundNote.hidden = !boundEmail;
+  if (els.accountEmailCode) els.accountEmailCode.value = "";
   if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "";
   const securityBox = els.accountEmail?.closest(".account-security-box");
   if (securityBox) securityBox.hidden = !Boolean(state.config?.auth?.email?.enabled);
+  const bindingForm = els.requestAccountEmailCodeBtn?.closest(".auth-email-row");
+  if (bindingForm) bindingForm.hidden = Boolean(boundEmail);
+  if (els.accountEmailCode?.parentElement) els.accountEmailCode.parentElement.hidden = Boolean(boundEmail);
+  if (els.accountCurrentPassword) els.accountCurrentPassword.hidden = Boolean(boundEmail);
+  if (els.accountCurrentPassword) els.accountCurrentPassword.value = "";
   els.accountDialog?.showModal();
   refreshIcons();
+  if (focusEmail && !boundEmail) window.requestAnimationFrame(() => els.accountEmail?.focus());
 }
 
 function logout() {
@@ -763,7 +779,13 @@ async function requestAccountEmailCode() {
 }
 
 async function verifyAccountEmail() {
-  try { const payload = await requestJson("/api/account/email/verify", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", code: els.accountEmailCode?.value.trim() || "" } }); if (payload.user) setUser(payload.user); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Email bound successfully."; }
+  try {
+    const payload = await requestJson("/api/account/email/verify", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", code: els.accountEmailCode?.value.trim() || "" } });
+    if (payload.user) {
+      setUser(payload.user);
+      openAccount();
+    }
+  }
   catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
 }
 

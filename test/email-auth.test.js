@@ -17,6 +17,11 @@ const create = [
   "part-06.js",
 ].map((file) => fs.readFileSync(path.join(__dirname, "..", "platform.create.parts", file), "utf8")).join("\n");
 const config = fs.readFileSync(path.join(__dirname, "..", "platform.config.js"), "utf8");
+const main = fs.readFileSync(path.join(__dirname, "..", "platform.main.js"), "utf8");
+const ui = [
+  "part-01.js",
+  "part-02.js",
+].map((file) => fs.readFileSync(path.join(__dirname, "..", "platform.ui.parts", file), "utf8")).join("\n");
 
 test("email authentication supports SMTP code login, binding and password reset", () => {
   assert.match(server, /sendEmailMessage\(/);
@@ -64,4 +69,14 @@ test("email verification challenges are persisted in PostgreSQL with expiry and 
   assert.match(database, /code_hash = \$2/);
   assert.match(database, /DATABASE_URL is required for email verification codes/);
   assert.match(database, /const crypto = require\("node:crypto"\)/);
+});
+
+test("avatar account menu shows bound email and allows password accounts to bind one", () => {
+  assert.match(html, /id="menuEmailBindBtn"[^>]*hidden[^>]*>绑定邮箱<\/button>/);
+  assert.match(config, /menuEmailBindBtn: document\.querySelector\("#menuEmailBindBtn"\)/);
+  assert.match(ui, /String\(state\.user\.email \|\| state\.user\.username \|\| ""\)\.trim\(\)/);
+  assert.match(ui, /els\.menuEmailBindBtn\.hidden = !loggedIn \|\| !state\.config\?\.auth\?\.email\?\.enabled \|\| Boolean\(String\(state\.user\?\.email \|\| ""\)\.trim\(\)\)/);
+  assert.match(main, /openAccount\(\{ focusEmail: true \}\)/);
+  assert.match(create, /function openAccount\(\{ focusEmail = false \} = \{\}\)/);
+  assert.match(create, /if \(payload\.user\) \{\s*setUser\(payload\.user\);\s*openAccount\(\);\s*\}/);
 });

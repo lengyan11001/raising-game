@@ -1049,7 +1049,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     if (typeof resetCaseLibrary === "function") resetCaseLibrary();
   }
   const accountLabel = state.user
-    ? state.user.username
+    ? String(state.user.email || state.user.username || "").trim() || t("nav.login")
     : t("nav.login");
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   applyTenantFeatures();

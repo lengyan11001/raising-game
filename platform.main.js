@@ -1392,6 +1392,10 @@ els.menuLoginBtn?.addEventListener("click", () => {
   closeAccountMenu();
   openLogin();
 });
+els.menuEmailBindBtn?.addEventListener("click", () => {
+  closeAccountMenu();
+  openAccount({ focusEmail: true });
+});
 els.toggleAccountTokenBtn?.addEventListener("click", () => {
   state.showAccountToken = !state.showAccountToken;
   renderTokenDisplays();

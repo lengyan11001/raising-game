@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=nav-spacing-20261106-1" />
+    <link rel="stylesheet" href="./platform.css?v=email-menu-20261106-1" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
       (function () {
@@ -200,6 +200,7 @@
             <strong id="menuBalanceValue">0</strong>
           </div>
           <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
+          <button class="menu-item" id="menuEmailBindBtn" type="button" hidden>绑定邮箱</button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
@@ -1083,7 +1084,8 @@
           </div>
           <div class="account-security-box">
             <strong>Account security</strong>
-            <p class="adm-muted">Bind an email to sign in with a code or reset your password.</p>
+            <p class="adm-muted" id="accountEmailStatus">Bind an email to sign in with a code or reset your password.</p>
+            <p class="adm-muted" id="accountEmailBoundNote" hidden>This email can be used for verification-code login and password reset.</p>
             <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
             <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
             <input id="accountCurrentPassword" type="password" autocomplete="current-password" placeholder="Current password" />
@@ -1432,6 +1434,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=pink-tabs-20261106-1"></script>
+    <script src="./platform.js?v=email-menu-20261106-1"></script>
   </body>
 </html>

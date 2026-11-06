@@ -342,6 +342,9 @@ function renderAccountMenu() {
     button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && !publicTab);
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
+  if (els.menuEmailBindBtn) {
+    els.menuEmailBindBtn.hidden = !loggedIn || !state.config?.auth?.email?.enabled || Boolean(String(state.user?.email || "").trim());
+  }
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !loggedIn;
   if (els.menuLogoutBtn) {
