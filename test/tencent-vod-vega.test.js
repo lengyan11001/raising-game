@@ -357,7 +357,7 @@ test("Vega Pro media-library import runs before charging and CreateAigcVideoTask
   const charge = handler.indexOf("await chargeUserWithSubtoken");
   const create = handler.indexOf('action: "CreateAigcVideoTask"');
   assert.ok(prepare > 0 && charge > prepare && create > charge);
-  assert.match(handler, /if \(vegaProviderUsesMediaLibrary\(provider\) &&[\s\S]*payload = \{[\s\S]*FileInfos: await prepareVegaMediaLibraryFileInfos[\s\S]*assetGroupId: advancedOptions\.assetGroupId/);
+  assert.match(handler, /const usesVegaMediaLibrary = vegaProviderUsesMediaLibrary\(provider\);[\s\S]*if \(usesVegaMediaLibrary &&[\s\S]*payload = \{[\s\S]*FileInfos: await prepareVegaMediaLibraryFileInfos[\s\S]*assetGroupId: advancedOptions\.assetGroupId/);
   assert.doesNotMatch(handler, /InputRegion: "Oversea"/);
   assert.match(handler, /lookup: getVegaMediaLibraryEntryFromDb/);
   assert.match(handler, /persist: upsertVegaMediaLibraryEntryInDb/);
@@ -377,6 +377,56 @@ test("Vega Lite providers keep the URL FileInfos path and never call the asset A
     assert.equal(called, false);
     assert.deepEqual(files, [{ Type: "Url", Category: "Image", Usage: "FirstFrame", Url: "https://cdn.example.com/first.png" }]);
   }
+});
+
+test("Vega Lite never sends media-library asset URIs and resolves public URLs", async () => {
+  assertCode(() => vega.buildVegaFileInfos({
+    provider: "h3-vega",
+    mediaMode: "reference_video",
+    referenceImages: ["asset://asset-lite-only"],
+  }), "INVALID_MEDIA_URL");
+
+  const resolved = await vega.resolveVegaMediaAssetSources({
+    provider: "h3-vega",
+    userId: "user-1",
+    media: {
+      referenceImages: ["asset://asset-lite-source"],
+      referenceImageAssetIds: ["asset-user-lite"],
+      referenceImageAssetUris: ["asset://asset-lite-source"],
+      referenceVideos: [],
+      referenceAudios: [],
+    },
+    lookupSourceUrls: async () => ({ "asset://asset-lite-source": "https://media.example.com/lite.png" }),
+    lookupAsset: async () => null,
+  });
+  const files = vega.buildVegaFileInfos({
+    provider: "h3-vega",
+    mediaMode: "reference_video",
+    referenceImages: resolved.referenceImages,
+  });
+  assert.deepEqual(files, [{ Type: "Url", Category: "Image", Usage: "Reference", Url: "https://media.example.com/lite.png" }]);
+
+  const proFiles = vega.buildVegaFileInfos({
+    provider: "seedance20-vega",
+    mediaMode: "reference_video",
+    referenceImages: ["asset://asset-pro-only"],
+  });
+  assert.deepEqual(proFiles, [{ Type: "Url", Category: "Image", Usage: "Reference", Url: "asset://asset-pro-only" }]);
+
+  await assert.rejects(
+    vega.resolveVegaMediaAssetSources({
+      provider: "vega10-lite",
+      userId: "user-1",
+      media: { referenceImages: ["asset://asset-lite-unknown"], referenceVideos: [], referenceAudios: [] },
+      lookupSourceUrls: async () => ({}),
+      lookupAsset: async () => null,
+    }),
+    (error) => error.code === "VEGA_MEDIA_ASSET_UNAVAILABLE" && error.details.provider === "vega10-lite",
+  );
+
+  const mediaSource = sourceBetween(create, "function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {", "function applyResolvedVegaMediaSource");
+  assert.match(mediaSource, /vegaProviderUsesMediaLibrary\(provider\) && assetUri\.startsWith\("asset:\/\/"\)/);
+  assert.match(mediaSource, /const publicUrl = vegaPublicHttpUrl/);
 });
 
 test("Vega Pro stale asset URIs are resolved from owned media before FileInfos submission", async () => {

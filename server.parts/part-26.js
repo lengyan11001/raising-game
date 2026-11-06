@@ -164,7 +164,8 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
   }
-  if (vegaProviderUsesMediaLibrary(provider) && Array.isArray(payload.FileInfos) && payload.FileInfos.length) {
+  const usesVegaMediaLibrary = vegaProviderUsesMediaLibrary(provider);
+  if (usesVegaMediaLibrary && Array.isArray(payload.FileInfos) && payload.FileInfos.length) {
     try {
       payload = {
         ...payload,
@@ -190,14 +191,18 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
     }
   }
 
-  const firstFrameAssetUri = vegaAssetUrisFromFileInfos(payload.FileInfos, "Image", "FirstFrame")[0] || requestedMedia.firstFrameAssetUri || "";
-  const lastFrameAssetUri = vegaAssetUrisFromFileInfos(payload.FileInfos, "Image", "LastFrame")[0] || requestedMedia.lastFrameAssetUri || "";
-  const referenceImageAssetUris = vegaAssetUrisFromFileInfos(payload.FileInfos, "Image", "Reference");
-  const referenceVideoAssetUris = vegaAssetUrisFromFileInfos(payload.FileInfos, "Video", "Reference");
-  const referenceAudioAssetUris = vegaAssetUrisFromFileInfos(payload.FileInfos, "Audio", "Reference");
-  if (!referenceImageAssetUris.length) referenceImageAssetUris.push(...requestedMedia.referenceImageAssetUris);
-  if (!referenceVideoAssetUris.length) referenceVideoAssetUris.push(...requestedMedia.referenceVideoAssetUris);
-  if (!referenceAudioAssetUris.length) referenceAudioAssetUris.push(...requestedMedia.referenceAudioAssetUris);
+  const firstFrameAssetUri = usesVegaMediaLibrary
+    ? (vegaAssetUrisFromFileInfos(payload.FileInfos, "Image", "FirstFrame")[0] || requestedMedia.firstFrameAssetUri || "")
+    : "";
+  const lastFrameAssetUri = usesVegaMediaLibrary
+    ? (vegaAssetUrisFromFileInfos(payload.FileInfos, "Image", "LastFrame")[0] || requestedMedia.lastFrameAssetUri || "")
+    : "";
+  const referenceImageAssetUris = usesVegaMediaLibrary ? vegaAssetUrisFromFileInfos(payload.FileInfos, "Image", "Reference") : [];
+  const referenceVideoAssetUris = usesVegaMediaLibrary ? vegaAssetUrisFromFileInfos(payload.FileInfos, "Video", "Reference") : [];
+  const referenceAudioAssetUris = usesVegaMediaLibrary ? vegaAssetUrisFromFileInfos(payload.FileInfos, "Audio", "Reference") : [];
+  if (usesVegaMediaLibrary && !referenceImageAssetUris.length) referenceImageAssetUris.push(...requestedMedia.referenceImageAssetUris);
+  if (usesVegaMediaLibrary && !referenceVideoAssetUris.length) referenceVideoAssetUris.push(...requestedMedia.referenceVideoAssetUris);
+  if (usesVegaMediaLibrary && !referenceAudioAssetUris.length) referenceAudioAssetUris.push(...requestedMedia.referenceAudioAssetUris);
   const taskId = localGenerationTaskId("cgt");
   const requestParams = {
     ...caseParams,
@@ -216,6 +221,18 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
     ...(referenceAudioAssetUris.length ? { referenceAudioAssetUris } : {}),
     ...(payload.Seed !== undefined ? { seed: payload.Seed } : {}),
   };
+  if (!usesVegaMediaLibrary) {
+    delete requestParams.firstFrameAssetUri;
+    delete requestParams.lastFrameAssetUri;
+    delete requestParams.referenceImageAssetUris;
+    delete requestParams.referenceVideoAssetUris;
+    delete requestParams.referenceAudioAssetUris;
+    delete requestParams.first_frame_asset_uri;
+    delete requestParams.last_frame_asset_uri;
+    delete requestParams.reference_image_asset_uris;
+    delete requestParams.reference_video_asset_uris;
+    delete requestParams.reference_audio_asset_uris;
+  }
   const requestTrace = requestTraceForGeneration(req);
   let charged = false;
   try {

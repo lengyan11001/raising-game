@@ -323,10 +323,17 @@ function isPrivateVegaHostname(hostname = "") {
     || (firstGroup & 0xff00) === 0xff00;
 }
 
-function publicVegaUrl(value = "", label = "media") {
+function publicVegaUrl(value = "", label = "media", { allowAssetUri = false } = {}) {
   const raw = String(value || "").trim();
   if (!raw) return "";
-  if (/^asset:\/\/asset-[A-Za-z0-9._-]+$/.test(raw)) return raw;
+  if (/^asset:\/\/asset-[A-Za-z0-9._-]+$/.test(raw)) {
+    if (allowAssetUri) return raw;
+    throw Object.assign(new Error(`${label} must be a public HTTP(S) URL. Media-library asset URIs are only valid for Vega Pro models.`), {
+      statusCode: 400,
+      code: "INVALID_MEDIA_URL",
+      details: { url: raw, allowAssetUri },
+    });
+  }
   let parsed;
   try { parsed = new URL(raw); } catch { parsed = null; }
   if (!parsed || !["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || isPrivateVegaHostname(parsed.hostname)) {
@@ -388,8 +395,9 @@ function buildVegaFileInfos(input = {}) {
   validateVegaMediaCounts(input.provider, media, input);
   const files = [];
   const seen = new Set();
+  const allowAssetUri = vegaProviderUsesMediaLibrary(input.provider);
   const add = (category, url, usage, label) => {
-    const publicUrl = publicVegaUrl(url, label);
+    const publicUrl = publicVegaUrl(url, label, { allowAssetUri });
     if (!publicUrl) return;
     if (!VEGA_USAGES.has(usage)) throw new Error(`Invalid Vega media usage: ${usage}`);
     const key = `${category}\u0000${publicUrl}\u0000${usage}`;
@@ -829,7 +837,6 @@ async function resolveVegaMediaAssetSources({
   lookupSourceUrls,
   lookupAsset,
 } = {}) {
-  if (!vegaProviderUsesMediaLibrary(provider)) return media;
   const next = {
     ...media,
     referenceImages: Array.isArray(media.referenceImages) ? [...media.referenceImages] : [],
@@ -866,10 +873,10 @@ async function resolveVegaMediaAssetSources({
         if (sourceFromAsset) return sourceFromAsset;
       }
     }
-    throw Object.assign(new Error(`${label} no longer has an accessible source. Please select it again.`), {
+    throw Object.assign(new Error(`${label} no longer has an accessible public source. Please select it again.`), {
       statusCode: 400,
       code: "VEGA_MEDIA_ASSET_UNAVAILABLE",
-      details: { assetUri: uri || url, userAssetId: id },
+      details: { assetUri: uri || url, userAssetId: id, provider },
     });
   };
   if (String(next.firstFrameUrl || "").trim().startsWith("asset://")) {

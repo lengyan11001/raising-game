@@ -18,14 +18,20 @@ function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvid
   return ADVANCED_WAN_CLIP_MAX_BYTES;
 }
 
-function vegaMediaSource(item = {}) {
+function vegaProviderUsesMediaLibrary(provider = currentAdvancedProvider()) {
+  return ["seedance20-vega", "seedance25-vega"].includes(normalizeAdvancedProvider(provider));
+}
+
+function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {
   const assetUri = String(item.assetUri || item.referenceAssetUri || "").trim();
-  if (assetUri.startsWith("asset://")) return assetUri;
-  return vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || item.sourceUrl || "");
+  if (vegaProviderUsesMediaLibrary(provider) && assetUri.startsWith("asset://")) return assetUri;
+  const publicUrl = vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || item.sourceUrl || "");
+  if (publicUrl) return publicUrl;
+  return vegaProviderUsesMediaLibrary(provider) && assetUri.startsWith("asset://") ? assetUri : "";
 }
 
 function applyResolvedVegaMediaSource(item = {}, resolved = {}) {
-  const sourceUrl = vegaMediaSource(resolved);
+  const sourceUrl = vegaMediaSource(resolved, currentAdvancedProvider());
   if (!sourceUrl) return "";
   item.publicUrl = sourceUrl;
   item.cdnUrl = sourceUrl;
@@ -575,7 +581,14 @@ function restoreVegaRecordMedia(record = {}, params = {}) {
     arrayFrom(record.referenceAudios),
     media.audios,
   ), audioAssetIds);
-  const mediaSourceValue = (item) => item?.sourceUrl || item?.url || item?.assetUri || item?.referenceAssetUri || "";
+  const mediaSourceValue = (item) => {
+    const publicCandidates = [item?.sourceUrl, item?.publicUrl, item?.cdnUrl, item?.previewUrl, item?.dataUrl, item?.url].map((value) => String(value || "").trim());
+    for (const candidate of publicCandidates) {
+      const publicUrl = vegaPublicHttpUrl(candidate);
+      if (publicUrl) return publicUrl;
+    }
+    return String(item?.assetUri || item?.referenceAssetUri || "").trim();
+  };
   return {
     firstFrame,
     lastFrame,
