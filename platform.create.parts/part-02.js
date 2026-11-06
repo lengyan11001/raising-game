@@ -1107,11 +1107,22 @@ function positionAdvancedParameterPanel() {
   const chip = els.advancedParameterChips?.querySelector(`[data-advanced-parameter-open="${state.advancedParameterOpen}"]`);
   if (!panel || panel.hidden || !chip) return;
   const chipRect = chip.getBoundingClientRect();
-  const panelRect = panel.getBoundingClientRect();
-  const spaceBelow = window.innerHeight - chipRect.bottom - 12;
-  const spaceAbove = chipRect.top - 12;
-  const openUp = panelRect.height > spaceBelow && spaceAbove > spaceBelow;
+  const viewportGap = 12;
+  const spaceBelow = Math.max(0, window.innerHeight - chipRect.bottom - viewportGap);
+  const spaceAbove = Math.max(0, chipRect.top - viewportGap);
+  const previousMaxHeight = panel.style.maxHeight;
+  panel.style.maxHeight = "none";
+  const neededHeight = Math.ceil(panel.getBoundingClientRect().height);
+  const fitsBelow = neededHeight <= spaceBelow;
+  const fitsAbove = neededHeight <= spaceAbove;
+  const openUp = !fitsBelow && (fitsAbove || spaceAbove > spaceBelow);
+  const available = openUp ? spaceAbove : spaceBelow;
   panel.dataset.advancedParameterPlacement = openUp ? "up" : "down";
+  if (neededHeight > available) {
+    panel.style.maxHeight = `${Math.max(0, Math.floor(available))}px`;
+  } else {
+    panel.style.maxHeight = previousMaxHeight;
+  }
 }
 
 function renderAdvancedParameterPanel(kind = "") {

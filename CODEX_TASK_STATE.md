@@ -1,3 +1,13 @@
+## Generate wider editor and viewport-height dialogs (2026-11-06)
+
+- Goal: widen the Generate left editor and let preset/asset dialogs use the available viewport height, removing redundant inner scrolling while preserving Target category filtering and video Add behavior.
+- Changed `platform.css`: Custom Generate desktop columns use `1.45fr / .55fr` with a 320px minimum side panel; preset dialog and form use `100dvh - 28px`; modal body flexes to remaining height; removed its stable scrollbar gutter; Generate form card no longer nests its own scrollbar; parameter chips wrap.
+- Changed `platform.create.parts/part-02.js`: parameter popover measures its natural height and caps only when neither side fits, avoiding a hard 160px minimum beyond tiny viewports.
+- Updated `test/advanced-custom-ui.test.js` to guard the wider columns, viewport-height dialog structure, and non-nested editor scrolling.
+- Verification: syntax and `git diff --check` pass; focused tests pass except 6 pre-existing Wan/pricing failures. Headless Chrome verified 1440x1000, 1280x900, 756x469, and 390x844: dialogs stay in viewport, use 972/872/441/816px respectively, and only the modal body scrolls when populated content exceeds available height.
+- Concurrent same-style navigation work was moved to `/tmp/codex-concurrent-same-style-20261106.patch` and is not part of this change.
+- Deployment: pending.
+
 ## Generate parameter capsules and adaptive popover (2026-11-06)
 
 - Goal: parameter popovers contain only pickable values, use compact capsule controls, and prefer opening downward while staying inside the viewport.

@@ -93,7 +93,7 @@ test("Custom is a main navigation entry backed by the Advanced workspace", () =>
   assert.match(platformExploreSource, /const customAdvancedRoute = isAdvancedCustomRoute\(tab\)/);
   assert.match(platformExploreSource, /nextTab === "advanced" && state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id[\s\S]*?"#custom"/);
   assert.match(css, /\.advanced-workspace \{[\s\S]*?grid-template-columns: minmax\(320px, 420px\) minmax\(0, 1fr\)/);
-  assert.match(css, /\.advanced-workspace\.is-create-custom \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-workspace\.is-create-custom \{[\s\S]*?grid-template-columns: minmax\(0, 1\.45fr\) minmax\(320px, \.55fr\)/);
   assert.match(css, /\.advanced-create-kind-tabs \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.advanced-workspace\.is-create-custom \.advanced-create-switch \{[\s\S]*?display: none !important/);
   assert.match(css, /@media \(max-width: 1080px\)[\s\S]*?\.copy-card, \.advanced-workspace, \.topup-strip \{ grid-template-columns: 1fr; \}/);
@@ -130,10 +130,19 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(create, /advancedResultPageRecord\(/);
   assert.match(css, /\.advanced-result-list \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: visible/);
-  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(create, /class="advanced-result-actions"/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
+});
+
+test("Generate dialogs expand to the available viewport without redundant scrolling", () => {
+  assert.match(css, /\.modal\.advanced-preset-modal \{[\s\S]*?max-height: calc\(100dvh - 28px\)[\s\S]*?overflow: hidden/);
+  assert.match(css, /\.advanced-preset-modal form \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?max-height: calc\(100dvh - 28px\)/);
+  assert.match(css, /\.advanced-preset-modal \.modal-body \{[\s\S]*?flex: 1 1 auto;[\s\S]*?min-height: 0;[\s\S]*?max-height: none;[\s\S]*?overflow-y: auto/);
+  const presetBodyRule = css.match(/\.advanced-preset-modal \.modal-body \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.doesNotMatch(presetBodyRule, /scrollbar-gutter: stable/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
 });
 
 test("Advanced engine list contains English model families, not task modes", () => {
