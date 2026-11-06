@@ -1163,3 +1163,13 @@ CODEX_TASK_STATE.md
 - Required fix: make the Wan 3.0 payload sign every `assets-cdn`/OSS object URL immediately before submission (or publish to a truly public URL), and add a regression test asserting the sent reference URL contains a valid signature rather than the bare CDN URL.
 - Fix applied in `server.parts/part-17.js`: Wan 3.0 capabilities now sign OSS/CDN media at the final upstream boundary, and both the MuleRouter decision and Alibaba request receive that signed media array. Lite and other capabilities keep their existing media flow.
 - Regression: `test/wan30-upstream-signed-media.test.js` verifies private `assets-cdn` media gains `OSSAccessKeyId`/`Signature`/`Expires`, preserves media metadata, leaves external public URLs and the input array unchanged, and confirms both upstream call sites use signed media. `node --test test/oss-storage.test.js test/wan30-upstream-signed-media.test.js` passes 11/11; syntax and targeted `git diff --check` pass.
+
+## Complete $99 membership page redesign (2026-11-06)
+
+- User clarified that the supplied `/Users/x042/Desktop/会员权益页_优化稿.html` must be implemented across the whole membership experience, not only the card header.
+- Implemented the full design: `$99` lifetime benefits header, explicit no-credits note, Explore/top-up benefit cards, `$100/$200/$500` top-up examples, referral and case-library rows, interactive payback calculator with dynamic chart marker, payback progress, comparison table, pink purchase action, activation-code redemption, fine print, and desktop/tablet/mobile layouts.
+- Membership business values remain `$99`, lifetime, `0` included credits, up to `20%` future top-up bonus, break-even `$495`. Extra credits use `amount * 100 * 0.20`; net value uses `amount * 0.20 - 99`.
+- Checkout opens in the correct membership state (`$99 / lifetime / no credits`) and clears any ordinary top-up package selection.
+- Changed files: `platform.html`, `platform.copy.js`, `platform.config.js`, `platform.create.parts/part-06.js`, `platform.css`, `test/membership-entitlements.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: targeted suite passes 12/12; syntax checks and `git diff --check` pass. Chrome visual checks at 1440/768/390 showed no horizontal overflow; calculator interactions and membership checkout state were exercised. Screenshots: `/tmp/membership-final-en-1440.png`, `/tmp/membership-final-en-390.png`, `/tmp/membership-final-zh-1440.png`, `/tmp/membership-modal-stub-zh-1440.png`, `/tmp/membership-modal-stub-zh-390.png`.
+- Deployment: not deployed; awaiting an explicit deployment request.

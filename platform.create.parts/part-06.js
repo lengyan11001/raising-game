@@ -224,6 +224,98 @@ function renderReferral() {
   refreshIcons();
 }
 
+const MEMBERSHIP_PRICE_USD = 99;
+const MEMBERSHIP_TOPUP_BONUS_RATE = 0.2;
+const MEMBERSHIP_CALCULATOR_MAX = 5000;
+
+function membershipCalculatorValues(amount) {
+  const total = Math.max(0, Math.min(MEMBERSHIP_CALCULATOR_MAX, Number(amount) || 0));
+  const extra = Math.round(total * 100 * MEMBERSHIP_TOPUP_BONUS_RATE);
+  const net = total * MEMBERSHIP_TOPUP_BONUS_RATE - MEMBERSHIP_PRICE_USD;
+  const effective = total > 0 ? 1 / (1 + MEMBERSHIP_TOPUP_BONUS_RATE) : 1;
+  const payback = (total * MEMBERSHIP_TOPUP_BONUS_RATE / MEMBERSHIP_PRICE_USD) * 100;
+  return { total, extra, net, effective, payback };
+}
+
+function drawMembershipCalculatorCurve(current) {
+  const svg = els.membershipCalculatorCurve;
+  if (!svg) return;
+  const width = 640;
+  const height = 130;
+  const pad = 6;
+  const points = [];
+  for (let amount = 0; amount <= MEMBERSHIP_CALCULATOR_MAX; amount += 50) {
+    points.push([amount, membershipCalculatorValues(amount).net]);
+  }
+  const maxNet = Math.max(50, ...points.map(([, net]) => net));
+  const minNet = -MEMBERSHIP_PRICE_USD;
+  const sx = (amount) => pad + (amount / MEMBERSHIP_CALCULATOR_MAX) * (width - pad * 2);
+  const sy = (net) => height - pad - ((net - minNet) / (maxNet - minNet)) * (height - pad * 2);
+  const zeroY = sy(0);
+  const curve = points.map(([amount, net], index) => `${index ? "L" : "M"}${sx(amount).toFixed(1)} ${sy(net).toFixed(1)}`).join(" ");
+  const currentNet = membershipCalculatorValues(current).net;
+  const currentX = sx(current);
+  const currentY = sy(currentNet);
+  const area = `${curve} L${sx(MEMBERSHIP_CALCULATOR_MAX)} ${zeroY} L${sx(0)} ${zeroY} Z`;
+  svg.innerHTML = `
+    <defs><linearGradient id="membershipCurveGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FFC24D" stop-opacity=".34"/><stop offset="100%" stop-color="#FFC24D" stop-opacity="0"/></linearGradient></defs>
+    <line x1="${pad}" y1="${zeroY}" x2="${width - pad}" y2="${zeroY}" stroke="rgba(255,255,255,.18)" stroke-width="1" stroke-dasharray="3 3"/>
+    <path d="${area}" fill="url(#membershipCurveGradient)"/>
+    <path d="${curve}" fill="none" stroke="#FFC24D" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="${currentX.toFixed(1)}" cy="${currentY.toFixed(1)}" r="11" fill="#F04496" opacity=".22"/>
+    <circle cx="${currentX.toFixed(1)}" cy="${currentY.toFixed(1)}" r="5" fill="#fff" stroke="#F04496" stroke-width="2.5"/>
+    <text x="${Math.min(currentX + 12, width - 90).toFixed(1)}" y="${Math.max(currentY - 9, 12).toFixed(1)}" fill="#FFD9A8" font-size="12" font-weight="700">${currentNet >= 0 ? "+" : "−"}$${Math.abs(currentNet).toFixed(0)}</text>`;
+}
+
+function renderMembershipCalculator() {
+  const range = els.membershipCalculatorRange;
+  if (!range) return;
+  const values = membershipCalculatorValues(range.value);
+  const paybackLabel = t("membership.calculatorPayback");
+  const breakEven = Math.ceil(MEMBERSHIP_PRICE_USD / MEMBERSHIP_TOPUP_BONUS_RATE);
+  if (els.membershipCalculatorAmount) els.membershipCalculatorAmount.textContent = `$${formatCredits(values.total)}`;
+  if (els.membershipCalculatorExtra) {
+    els.membershipCalculatorExtra.innerHTML = `${escapeHtml(formatCredits(values.extra))} <small>${escapeHtml(t("common.credits"))}</small>`;
+  }
+  if (els.membershipCalculatorDiscount) {
+    els.membershipCalculatorDiscount.innerHTML = `${escapeHtml((values.effective * 100).toFixed(1).replace(/\.0$/, ""))}<small>%</small>`;
+  }
+  if (els.membershipCalculatorNet) {
+    els.membershipCalculatorNet.textContent = `${values.net >= 0 ? "+" : "−"}$${formatCredits(Math.abs(values.net).toFixed(0))}`;
+    els.membershipCalculatorNet.classList.toggle("is-positive", values.net >= 0);
+    els.membershipCalculatorNet.classList.toggle("is-pending", values.net < 0);
+  }
+  if (els.membershipCalculatorProgressText) {
+    const progress = Math.round(values.payback);
+    els.membershipCalculatorProgressText.textContent = values.net >= 0
+      ? `${Math.round(MEMBERSHIP_PRICE_USD + values.net)} / $${MEMBERSHIP_PRICE_USD} · ${progress}%`
+      : `$${formatCredits(values.total)} / $${breakEven} · ${Math.max(0, progress)}%`;
+    els.membershipCalculatorProgressText.dataset.label = paybackLabel;
+  }
+  if (els.membershipCalculatorProgressFill) {
+    els.membershipCalculatorProgressFill.style.width = `${Math.max(0, Math.min(100, values.payback))}%`;
+    els.membershipCalculatorProgressFill.closest(".membership-calculator-progress")?.classList.toggle("is-complete", values.net >= 0);
+  }
+  if (els.membershipCalculatorVerdict) {
+    els.membershipCalculatorVerdict.textContent = values.net >= 0
+      ? t("membership.calculatorVerdictReturned", { amount: `$${breakEven}`, net: formatCredits(values.net.toFixed(0)) })
+      : t("membership.calculatorVerdictPending", { amount: `$${breakEven}`, remaining: formatCredits((MEMBERSHIP_PRICE_USD - values.net).toFixed(0)) });
+  }
+  range.style.setProperty("--membership-progress", `${((values.total - Number(range.min || 50)) / (Number(range.max || MEMBERSHIP_CALCULATOR_MAX) - Number(range.min || 50))) * 100}%`);
+  drawMembershipCalculatorCurve(values.total);
+}
+
+function bindMembershipCalculator() {
+  const range = els.membershipCalculatorRange;
+  if (!range || range.dataset.membershipCalculatorBound === "1") {
+    renderMembershipCalculator();
+    return;
+  }
+  range.dataset.membershipCalculatorBound = "1";
+  range.addEventListener("input", renderMembershipCalculator);
+  renderMembershipCalculator();
+}
+
 function renderMembershipCard() {
   if (!els.membershipCard) return;
   els.membershipCard.hidden = !membershipProgramEnabled();
@@ -240,6 +332,7 @@ function renderMembershipCard() {
   }
   if (els.membershipCodeForm) els.membershipCodeForm.hidden = active;
   if (els.membershipNote && active) els.membershipNote.textContent = t("membership.activeNote");
+  bindMembershipCalculator();
 }
 
 async function startEntitlementCheckout(body = {}, statusElement = null) {

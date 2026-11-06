@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=membership-checkout-20261106-1" />
+    <link rel="stylesheet" href="./platform.css?v=membership-redesign-20261106-2" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
       (function () {
@@ -905,42 +905,80 @@
 
       <section class="referral-panel" data-panel="referral" hidden>
         <section class="membership-card" id="membershipCard">
-          <div class="membership-card-head">
+          <header class="membership-card-head">
             <div class="membership-card-icon"><i data-lucide="crown"></i></div>
             <div class="membership-card-title">
               <span data-i18n="membership.eyebrow">Creator Membership</span>
               <strong><b>$99</b> <span data-i18n="membership.lifetime">lifetime benefits</span></strong>
+              <p data-i18n="membership.heroDescription">No credits included. You get lifetime Explore access and up to 20% extra on every future top-up.</p>
             </div>
             <span class="membership-state" id="membershipState" data-i18n="membership.notActive">Not active</span>
-          </div>
+          </header>
           <div class="membership-intro">
             <span data-i18n="membership.onceOnly">One-time purchase. Lifetime access.</span>
             <strong data-i18n="membership.noCredits">No credits included</strong>
             <p data-i18n="membership.noCreditsHint">Membership unlocks site benefits only. Your credits balance is not changed by this purchase.</p>
           </div>
+          <div class="membership-section-label"><span data-i18n="membership.whatYouGet">What you unlock</span></div>
           <div class="membership-benefits">
             <span class="membership-benefit membership-benefit-primary">
               <span class="membership-benefit-icon"><i data-lucide="play"></i></span>
               <strong data-i18n="membership.benefitExploreTitle">Explore, unlocked</strong>
               <span class="membership-benefit-copy" data-i18n="membership.benefitExplore">Watch and download Explore videos</span>
-              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Free</em>
+              <span class="membership-benefit-compare"><span data-i18n="membership.withoutLabel">Without</span><span data-i18n="membership.exploreWithout">Preview only, no downloads</span><span data-i18n="membership.withLabel">With membership</span><span data-i18n="membership.exploreWith">Watch and download everything, no credits used</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Permanent</em>
             </span>
             <span class="membership-benefit membership-benefit-primary is-hot">
               <span class="membership-benefit-icon"><i data-lucide="gift"></i></span>
               <strong data-i18n="membership.benefitTopupTitle">Permanent top-up bonus</strong>
               <span class="membership-benefit-copy" data-i18n="membership.benefitTopup">Receive top-up package bonuses</span>
+              <span class="membership-bonus-table">
+                <span><span data-i18n="membership.bonusTopup100">Top up $100</span><strong>12,000 <small data-i18n="common.credits">credits</small> <em>+2,000</em></strong></span>
+                <span><span data-i18n="membership.bonusTopup200">Top up $200</span><strong>24,000 <small data-i18n="common.credits">credits</small> <em>+4,000</em></strong></span>
+                <span><span data-i18n="membership.bonusTopup500">Top up $500</span><strong>60,000 <small data-i18n="common.credits">credits</small> <em>+10,000</em></strong></span>
+              </span>
               <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
             </span>
-            <span class="membership-benefit membership-benefit-compact">
-              <span class="membership-benefit-icon"><i data-lucide="layout-grid"></i></span>
-              <span class="membership-benefit-text"><strong data-i18n="membership.benefitCasesTitle">Case library</strong><span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span></span>
-              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
-            </span>
-            <span class="membership-benefit membership-benefit-compact">
+            <span class="membership-benefit membership-benefit-row">
               <span class="membership-benefit-icon"><i data-lucide="users-round"></i></span>
               <span class="membership-benefit-text"><strong data-i18n="membership.benefitReferralTitle">Referral rewards</strong><span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span></span>
               <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
             </span>
+            <span class="membership-benefit membership-benefit-row">
+              <span class="membership-benefit-icon"><i data-lucide="layout-grid"></i></span>
+              <span class="membership-benefit-text"><strong data-i18n="membership.benefitCasesTitle">Case library</strong><span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
+            </span>
+          </div>
+          <section class="membership-calculator" aria-labelledby="membershipCalculatorTitle">
+            <div class="membership-calculator-head">
+              <div><b id="membershipCalculatorTitle" data-i18n="membership.calculatorTitle">When does it pay for itself?</b><span data-i18n="membership.calculatorHint">Drag to estimate your future top-ups</span></div>
+              <strong id="membershipCalculatorAmount">$1000</strong>
+            </div>
+            <label class="membership-calculator-slider">
+              <span class="sr-only" data-i18n="membership.calculatorQuestion">How much do you expect to top up?</span>
+              <input id="membershipCalculatorRange" type="range" min="50" max="5000" step="50" value="1000" />
+            </label>
+            <div class="membership-calculator-results">
+              <div><span data-i18n="membership.calculatorExtra">Extra credits</span><strong id="membershipCalculatorExtra">20,000</strong></div>
+              <div><span data-i18n="membership.calculatorEffective">Effective price</span><strong id="membershipCalculatorDiscount">83%</strong></div>
+              <div><span data-i18n="membership.calculatorNet">Net value</span><strong id="membershipCalculatorNet">+$101</strong></div>
+            </div>
+            <div class="membership-calculator-progress"><span><span data-i18n="membership.calculatorPayback">Payback progress</span><b id="membershipCalculatorProgressText">202%</b></span><i><b id="membershipCalculatorProgressFill"></b></i></div>
+            <div class="membership-calculator-chart"><svg id="membershipCalculatorCurve" viewBox="0 0 640 130" role="img" aria-label="Membership value curve"></svg><div><span>$0</span><span data-i18n="membership.calculatorAxis">Cumulative top-ups</span><span>$5,000</span></div></div>
+            <p class="membership-calculator-verdict" id="membershipCalculatorVerdict"></p>
+          </section>
+          <div class="membership-section-label"><span data-i18n="membership.compareLabel">Pay as you go vs. lifetime membership</span></div>
+          <div class="membership-compare-wrap">
+            <table class="membership-compare">
+              <thead><tr><th data-i18n="membership.compareSameSpend">Same $99</th><th data-i18n="membership.compareRegular">Regular top-up</th><th data-i18n="membership.compareMember">Lifetime membership</th></tr></thead>
+              <tbody>
+                <tr><td data-i18n="membership.compareNow">What you get now</td><td data-i18n="membership.compareNowRegular">9,900 credits, gone when used</td><td data-i18n="membership.compareNowMember">Explore unlocked + permanent top-up bonus</td></tr>
+                <tr><td data-i18n="membership.compare500">Later top up $500</td><td>50,000</td><td data-i18n="membership.compare500Member">60,000 credits (+10,000)</td></tr>
+                <tr><td data-i18n="membership.compare1000">Later top up 1,000 USD</td><td>100,000</td><td data-i18n="membership.compare1000Member">120,000 credits (+20,000)</td></tr>
+                <tr><td data-i18n="membership.compareYear">After one year</td><td data-i18n="membership.compareYearRegular">Credits run out</td><td data-i18n="membership.compareYearMember">Still saving on every top-up, permanently</td></tr>
+              </tbody>
+            </table>
           </div>
           <div class="membership-actions">
             <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Get lifetime benefits · $99</span></button>
@@ -950,6 +988,7 @@
             </form>
           </div>
           <p class="job-note" id="membershipNote"></p>
+          <p class="membership-fine"><span data-i18n="membership.fine1">Membership does not include credits.</span><span data-i18n="membership.fine2">Top-up bonus varies by package, up to 20%.</span><span data-i18n="membership.fine3">Benefits are lifetime.</span></p>
         </section>
         <div class="referral-card" id="referralCard">
           <div class="referral-copy">
@@ -1532,6 +1571,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=membership-checkout-20261106-1"></script>
+    <script src="./platform.js?v=membership-redesign-20261106-2"></script>
   </body>
 </html>
