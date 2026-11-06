@@ -1037,10 +1037,19 @@ els.advancedPresetDialog?.addEventListener("close", () => {
 function handleAdvancedDurationSelection() {
   syncAdvancedVideoSettingsControls();
   updateAdvancedButtonCost();
+  syncAdvancedParameterChips();
+  if (els.advancedParameterPanel?.matches(":not([hidden])")) renderAdvancedParameterPanel(state.advancedParameterOpen);
 }
 els.advancedDuration?.addEventListener("input", handleAdvancedDurationSelection);
 // iOS Safari reliably emits change, but not input, for native select pickers.
 els.advancedDuration?.addEventListener("change", handleAdvancedDurationSelection);
+els.advancedParameterTrigger?.addEventListener("click", handleAdvancedParameterTriggerClick);
+els.advancedParameterChips?.addEventListener("click", handleAdvancedParameterChipClick);
+els.advancedParameterPanel?.addEventListener("click", handleAdvancedParameterPanelClick);
+els.advancedParameterPanel?.addEventListener("input", handleAdvancedParameterPanelInput);
+els.advancedParameterPanel?.addEventListener("change", handleAdvancedParameterPanelChange);
+document.addEventListener("click", handleAdvancedParameterDocumentClick);
+document.addEventListener("keydown", handleAdvancedParameterKeydown);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   const provider = currentAdvancedProvider();
@@ -1226,7 +1235,10 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
     updateAdvancedButtonCost();
   });
 });
-els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
+els.advancedRatio?.addEventListener("change", () => {
+  updateAdvancedButtonCost();
+  syncAdvancedParameterChips();
+});
 els.advancedResolution?.addEventListener("change", () => {
   updateAdvancedModelControls();
   updateAdvancedButtonCost();

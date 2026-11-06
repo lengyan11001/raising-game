@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=completion-poll-20261105-1" />
+    <link rel="stylesheet" href="./platform.css?v=advanced-parameters-20261106-7" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
       (function () {
@@ -624,7 +624,7 @@
                 </label>
               </div>
             </div>
-            <div class="advanced-fields">
+            <div class="advanced-fields advanced-native-fields" aria-hidden="true">
               <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
                 <optgroup label="Video">
                   <option value="seedance-nsfw" selected>Seedance 2.5</option>
@@ -691,7 +691,13 @@
               <label class="field advanced-vega-option" hidden><span>Asset group ID</span><input id="advancedVegaAssetGroupId" type="text" autocomplete="off" placeholder="Optional" /></label>
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="1" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
-            <button class="generate-btn" id="advancedSubmitBtn" type="button" aria-busy="false"><i data-lucide="sparkles"></i>Generate</button>
+            <div class="advanced-generator-toolbar">
+              <div class="advanced-parameter-shell" id="advancedParameterShell">
+                <div class="advanced-parameter-chips" id="advancedParameterChips" role="group" aria-label="Generation parameters"></div>
+                <div class="advanced-parameter-panel" id="advancedParameterPanel" role="dialog" aria-label="Generation parameter options" hidden></div>
+              </div>
+              <button class="generate-btn" id="advancedSubmitBtn" type="button" aria-busy="false"><i data-lucide="sparkles"></i>Generate</button>
+            </div>
             <p class="job-note" id="advancedNote" role="status" aria-live="polite"></p>
           </section>
           <section class="advanced-case-panel advanced-side-panel">
@@ -1447,6 +1453,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=completion-poll-20261105-1"></script>
+    <script src="./platform.js?v=advanced-parameters-20261106-7"></script>
   </body>
 </html>

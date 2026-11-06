@@ -981,6 +981,255 @@ function updateAdvancedModelControls() {
   updateAdvancedReferenceSummary();
   if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceFirstFrameDataUrl || advancedSeedanceVideoReferences().length || advancedSeedanceAudioReferences().length)) els.advancedNote.textContent = "";
   updateAdvancedButtonCost();
+  syncAdvancedParameterChips();
+}
+
+function advancedParameterNativeSelect(kind = "") {
+  const provider = currentAdvancedProvider();
+  if (kind === "model") return els.advancedProvider;
+  if (kind === "mode") {
+    if (els.advancedVideoCapability?.options.length > 1) return els.advancedVideoCapability;
+    const seedanceModeProvider = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)
+      || isVegaAdvancedProvider(provider);
+    if (seedanceModeProvider && els.advancedSeedanceMediaMode?.options.length > 1) return els.advancedSeedanceMediaMode;
+    return null;
+  }
+  if (kind === "ratio") return els.advancedRatio;
+  if (kind === "resolution") return els.advancedResolution;
+  if (kind === "duration") return els.advancedDuration;
+  return null;
+}
+
+function advancedParameterVisibleOptions(kind = "") {
+  const select = advancedParameterNativeSelect(kind);
+  if (!select) return [];
+  return Array.from(select.options)
+    .filter((option) => !option.hidden && !option.disabled && !option.closest("optgroup")?.hidden)
+    .map((option) => ({
+      value: String(option.value ?? ""),
+      label: String(option.textContent || option.value || "").trim(),
+      group: String(option.closest("optgroup")?.label || "").trim(),
+    }));
+}
+
+function advancedParameterFieldVisible(kind = "", select = null) {
+  if (!select) return false;
+  if (kind === "model" || kind === "mode") return true;
+  const field = select.closest(".field");
+  return Boolean(field && !field.hidden);
+}
+
+function advancedParameterValueLabel(kind = "", select = advancedParameterNativeSelect(kind)) {
+  if (!select) return "";
+  const selected = select.options[select.selectedIndex];
+  const raw = String(selected?.textContent || select.value || "").trim();
+  if (kind === "ratio" && String(select.value).toLowerCase() === "adaptive") return "Adaptive";
+  if (kind === "resolution") return advancedVideoResolutionLabel(select.value);
+  return raw || String(select.value || "");
+}
+
+function advancedParameterChipIcon(kind = "") {
+  return {
+    model: "sparkles",
+    mode: "sliders-horizontal",
+    ratio: "ratio",
+    resolution: "scan",
+    duration: "timer",
+  }[kind] || "settings-2";
+}
+
+function advancedParameterChipLabel(kind = "") {
+  return {
+    model: t("field.model"),
+    mode: "Mode",
+    ratio: t("field.ratio"),
+    resolution: t("field.resolution"),
+    duration: t("field.duration"),
+  }[kind] || kind;
+}
+
+function advancedParameterChipItems() {
+  const items = [];
+  const providerSelect = advancedParameterNativeSelect("model");
+  const providerOptions = advancedParameterVisibleOptions("model");
+  if (providerSelect && providerOptions.length) items.push({ kind: "model", valueLabel: advancedParameterValueLabel("model", providerSelect) });
+  const modeSelect = advancedParameterNativeSelect("mode");
+  const modeOptions = advancedParameterVisibleOptions("mode");
+  if (modeSelect && modeOptions.length > 1) items.push({ kind: "mode", valueLabel: advancedParameterValueLabel("mode", modeSelect) });
+  ["ratio", "resolution", "duration"].forEach((kind) => {
+    const select = advancedParameterNativeSelect(kind);
+    const options = advancedParameterVisibleOptions(kind);
+    if (select && options.length && advancedParameterFieldVisible(kind, select)) {
+      items.push({ kind, valueLabel: advancedParameterValueLabel(kind, select) });
+    }
+  });
+  return items;
+}
+
+function syncAdvancedParameterChips() {
+  if (!els.advancedParameterChips) return;
+  const items = advancedParameterChipItems();
+  const summary = items.filter((item) => item.kind !== "model").map((item) => item.valueLabel).filter(Boolean).join(" · ");
+  if (els.advancedParameterSummary) els.advancedParameterSummary.textContent = summary;
+  els.advancedParameterChips.innerHTML = items.map(({ kind, valueLabel }) => `
+    <button class="advanced-parameter-chip" type="button" data-parameter-kind="${escapeHtml(kind)}" data-advanced-parameter-open="${escapeHtml(kind)}" aria-expanded="${state.advancedParameterOpen === kind ? "true" : "false"}" title="${escapeHtml(`${advancedParameterChipLabel(kind)}: ${valueLabel}`)}">
+      <i data-lucide="${advancedParameterChipIcon(kind)}"></i>
+      <span class="advanced-parameter-chip-label">${escapeHtml(kind === "model" ? "" : advancedParameterChipLabel(kind))}</span>
+      <span class="advanced-parameter-chip-value">${escapeHtml(valueLabel)}</span>
+      <i class="advanced-parameter-chip-caret" data-lucide="chevron-down"></i>
+    </button>
+  `).join("");
+  const open = state.advancedParameterOpen;
+  els.advancedParameterChips.hidden = false;
+  if (open && !items.some((item) => item.kind === open)) {
+    closeAdvancedParameterPanel();
+  } else if (open) {
+    renderAdvancedParameterPanel(open);
+  }
+  refreshIcons();
+}
+
+function closeAdvancedParameterPanel() {
+  state.advancedParameterOpen = "";
+  if (els.advancedParameterPanel) {
+    els.advancedParameterPanel.hidden = true;
+    els.advancedParameterPanel.innerHTML = "";
+  }
+  if (els.advancedParameterChips) els.advancedParameterChips.hidden = false;
+  els.advancedParameterChips?.querySelectorAll("[data-advanced-parameter-open]").forEach((button) => {
+    button.setAttribute("aria-expanded", "false");
+  });
+}
+
+function renderAdvancedParameterPanel(kind = "") {
+  const select = advancedParameterNativeSelect(kind);
+  const options = advancedParameterVisibleOptions(kind);
+  if (!els.advancedParameterPanel || !select || !options.length) {
+    closeAdvancedParameterPanel();
+    return;
+  }
+  const current = String(select.value || "");
+  let body = "";
+  if (kind === "duration") {
+    const numeric = options.map((item) => Number(item.value)).filter((value) => Number.isFinite(value) && value >= 0);
+    const min = numeric.length ? Math.min(...numeric) : 0;
+    const max = numeric.length ? Math.max(...numeric) : 0;
+    const selectedNumber = Number(current);
+    const hasAuto = options.some((item) => Number(item.value) === -1);
+    const sliderValue = Number.isFinite(selectedNumber) && selectedNumber >= min && selectedNumber <= max ? selectedNumber : min;
+    body = `
+      <div class="advanced-parameter-duration">
+        <div class="advanced-parameter-duration-readout">
+          <strong data-advanced-parameter-duration-value>${escapeHtml(advancedParameterValueLabel(kind, select))}</strong>
+          <span>${escapeHtml(advancedParameterChipLabel(kind))}</span>
+        </div>
+        ${max > min ? `<input class="advanced-parameter-range" type="range" min="${min}" max="${max}" step="1" value="${sliderValue}" data-advanced-parameter-duration-range aria-label="${escapeHtml(advancedParameterChipLabel(kind))}" />` : ""}
+        <div class="advanced-parameter-duration-shortcuts">
+          ${hasAuto ? `<button class="advanced-video-choice ${current === "-1" ? "is-active" : ""}" type="button" data-advanced-parameter-option-kind="duration" data-advanced-parameter-option-value="-1">Auto</button>` : ""}
+          ${numeric.map((value) => `<button class="advanced-video-choice ${String(value) === current ? "is-active" : ""}" type="button" data-advanced-parameter-option-kind="duration" data-advanced-parameter-option-value="${value}">${value}s</button>`).join("")}
+        </div>
+      </div>
+    `;
+  } else {
+    const compact = ["ratio", "resolution"].includes(kind);
+    body = `<div class="advanced-parameter-options ${compact ? "is-compact" : ""}">
+      ${options.map((item) => `
+        <button class="advanced-parameter-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
+          <strong>${escapeHtml(item.value === "adaptive" ? "Adaptive" : item.label)}</strong>
+          ${item.group ? `<span class="advanced-parameter-option-check">${item.value === current ? '<i data-lucide="check"></i>' : ""}</span><small>${escapeHtml(item.group)}</small>` : `<span class="advanced-parameter-option-check">${item.value === current ? '<i data-lucide="check"></i>' : ""}</span>`}
+        </button>
+      `).join("")}
+    </div>`;
+  }
+  els.advancedParameterPanel.hidden = false;
+  els.advancedParameterPanel.innerHTML = `
+    <div class="advanced-parameter-panel-head">
+      <strong>${escapeHtml(advancedParameterChipLabel(kind))}</strong>
+      <button class="advanced-parameter-panel-close" type="button" data-advanced-parameter-close aria-label="${escapeHtml(t("common.close"))}"><i data-lucide="x"></i></button>
+    </div>
+    ${body}
+  `;
+  refreshIcons();
+}
+
+function openAdvancedParameterPanel(kind = "") {
+  if (!kind) return;
+  state.advancedParameterOpen = kind;
+  syncAdvancedParameterChips();
+  renderAdvancedParameterPanel(kind);
+}
+
+function setAdvancedParameterValue(kind = "", value = "") {
+  const select = advancedParameterNativeSelect(kind);
+  if (!select) return;
+  const keepPanelOpen = !["model", "mode"].includes(kind);
+  select.value = String(value);
+  if (!keepPanelOpen) closeAdvancedParameterPanel();
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  syncAdvancedParameterChips();
+  if (keepPanelOpen && state.advancedParameterOpen === kind) renderAdvancedParameterPanel(kind);
+}
+
+function handleAdvancedParameterTriggerClick(event) {
+  event.preventDefault();
+  if (state.advancedParameterOpen) {
+    closeAdvancedParameterPanel();
+    return;
+  }
+  const firstKind = els.advancedParameterChips?.querySelector("[data-advanced-parameter-open]")?.dataset.advancedParameterOpen;
+  if (firstKind) openAdvancedParameterPanel(firstKind);
+}
+
+function handleAdvancedParameterChipClick(event) {
+  const button = event.target.closest("[data-advanced-parameter-open]");
+  if (!button) return;
+  event.preventDefault();
+  openAdvancedParameterPanel(button.dataset.advancedParameterOpen || "");
+}
+
+function handleAdvancedParameterPanelClick(event) {
+  const closeButton = event.target.closest("[data-advanced-parameter-close]");
+  if (closeButton) {
+    event.preventDefault();
+    closeAdvancedParameterPanel();
+    return;
+  }
+  const option = event.target.closest("[data-advanced-parameter-option-kind]");
+  if (!option) return;
+  event.preventDefault();
+  setAdvancedParameterValue(option.dataset.advancedParameterOptionKind || "", option.dataset.advancedParameterOptionValue || "");
+}
+
+function handleAdvancedParameterPanelInput(event) {
+  const range = event.target.closest("[data-advanced-parameter-duration-range]");
+  if (!range || !els.advancedDuration) return;
+  els.advancedDuration.value = range.value;
+  const readout = els.advancedParameterPanel?.querySelector("[data-advanced-parameter-duration-value]");
+  if (readout) readout.textContent = `${range.value}s`;
+  const chipValue = els.advancedParameterChips?.querySelector('[data-advanced-parameter-open="duration"] .advanced-parameter-chip-value');
+  if (chipValue) chipValue.textContent = `${range.value}s`;
+}
+
+function handleAdvancedParameterPanelChange(event) {
+  const range = event.target.closest("[data-advanced-parameter-duration-range]");
+  if (!range || !els.advancedDuration) return;
+  els.advancedDuration.value = range.value;
+  els.advancedDuration.dispatchEvent(new Event("change", { bubbles: true }));
+  syncAdvancedParameterChips();
+}
+
+function handleAdvancedParameterDocumentClick(event) {
+  if (!state.advancedParameterOpen) return;
+  // Rendering the chips/options replaces the clicked node. The composed path is
+  // captured at dispatch time, so it still identifies this click as internal.
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  if (els.advancedParameterShell && path.includes(els.advancedParameterShell)) return;
+  if (event.target.closest?.("#advancedParameterShell")) return;
+  closeAdvancedParameterPanel();
+}
+
+function handleAdvancedParameterKeydown(event) {
+  if (event.key === "Escape" && state.advancedParameterOpen) closeAdvancedParameterPanel();
 }
 
 function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = {}) {

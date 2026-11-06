@@ -42,6 +42,27 @@ test("only 123vipeak.com uses the standalone landing page", () => {
   assert.equal(tenantRuntime.defaultPageForHostname("667zui.video"), "/platform.html");
 });
 
+test("123vip.fans reuses the shared Generate surface without profile overrides", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+  const profileCss = fs.readFileSync(path.resolve(__dirname, "..", "site-123vipfans.css"), "utf8");
+
+  assert.equal(tenantRuntime.defaultPageForHostname("123vip.fans"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("www.123vip.fans"), "/platform.html");
+  assert.match(html, /id="advancedWorkspace"/);
+  assert.match(html, /id="advancedParameterChips"/);
+  assert.match(html, /id="advancedSubmitBtn"/);
+
+  for (const selector of [
+    "advanced-generator-toolbar",
+    "advanced-parameter",
+    "advanced-form-card",
+    "advanced-workspace",
+    "advancedSubmitBtn",
+  ]) {
+    assert.doesNotMatch(profileCss, new RegExp(selector), `profile CSS must not override shared Generate selector: ${selector}`);
+  }
+});
+
 test("the www host serves the same site profile as the apex", () => {
   const lookup = tenantRuntime.platformSiteProfileForHostname;
   const profile = tenantRuntime.PLATFORM_SITE_PROFILE;

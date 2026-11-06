@@ -1,3 +1,20 @@
+## 123vip.fans Generate parity guard (2026-11-06)
+
+- Confirmed `123vip.fans` and `www.123vip.fans` resolve to the shared `/platform.html`; they do not have a separate Generate implementation.
+- Added a regression test in `test/platform-site-profile.test.js` that requires the shared Generate workspace, parameter chips, and submit button, and rejects profile-CSS overrides for shared Generate selectors.
+- Verification: `node --check platform.create.parts/part-02.js`, `node --check platform.main.js`, `git diff --check`, and `test/platform-site-profile.test.js` all pass (14/14).
+- Deployment: not deployed; this change only protects parity with the Generate update already staged in the worktree.
+
+## Generate key-parameter picker (2026-11-06)
+
+- Goal: match the approved Generate prototype by replacing the visible native parameter fields with model/mode/ratio/resolution/duration chips that open pickers, without modifying the prototype file.
+- Implemented the picker in the real Generate surface. The hidden native selects remain the sole submission/data source; no duplicate model capability table was added. Model and Mode close after selection; Ratio, Resolution, and Duration keep the picker open and update the Generate estimate immediately.
+- Fixed chip clicks closing immediately: rendering replaced the clicked node, so document-click detection now uses `event.composedPath()` and recognizes the stable parameter shell.
+- Layout: labels are visible for ratio/resolution/duration, long model/mode values truncate, chips scroll horizontally when space is tight, and the Generate button wraps below the chips at <=900px instead of squeezing them into vertical icons.
+- Verification: syntax and `git diff --check` pass; source split/performance tests 11/12, with the sole failure being the pre-existing `server.parts/part-29.js` line-count threshold (unchanged file, 1728 lines at HEAD). Chrome CDP verified all five chips, model/mode/ratio/resolution/duration updates, estimate refresh, close button, outside click, and 756px/390px layouts without page overflow.
+- Changed files: `platform.html`, `platform.config.js`, `platform.css`, `platform.create.parts/part-02.js`, `platform.main.js`, `CODEX_TASK_STATE.md`.
+- Deployment: not deployed; user has not requested deployment.
+
 ## Generate prompt caret deletion fix (2026-11-06)
 
 - Goal: fix prompt editing where deleting at the visible caret removed an earlier character, especially with Chinese/multiline text and @ asset references.
