@@ -6,7 +6,7 @@
 - Changed the prompt editor minimum/default height from 68px to 136px in `platform.create.parts/part-04.js` and `platform.css`.
 - Updated `test/platform-site-profile.test.js` to guard the capsule-only contents and adaptive placement.
 - Verification: targeted platform/Vega tests pass (76/76); syntax and `git diff --check` pass. Headless Chrome at 1280x900 confirmed downward placement; at 756x469 confirmed automatic upward fallback, zero headings/close controls, capsule radii, option selection closure, and duration slider readout/native value synchronization.
-- Deployment: pending.
+- Deployment: `old-site` `6b0caf9`; `platform-release` `4084786`, built from `6b0caf9` and pushed. Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; service restarted successfully and `/api/health` returned `200 {"ok":true}`. Production serves asset version `mw4l1zy2`; the deployed prompt chunk has minimum height `136`, and the picker chunk/CSS contain adaptive placement without the removed heading/close markup.
 
 ## Generate picker auto-close and duration slider (2026-11-06)
 
