@@ -89,9 +89,13 @@ function frontendRuntime() {
     "upstreamMediaType",
     "upstreamInputMediaItems",
     "restoreMediaUrl",
+    "restoreMediaPreviewUrl",
     "restoreMediaAssetUri",
     "restoreMediaAssetId",
     "restoreReferenceFromMedia",
+    "restoreRecordMediaAssetIds",
+    "hydrateRecordMediaAssetEntries",
+    "hydrateRecordMediaUserAssetPreviews",
     "restoreVegaMediaItem",
     "mergeVegaMediaItems",
     "mergeRecordMediaByKind",
@@ -110,7 +114,7 @@ function frontendRuntime() {
     `function restoreRecordProvider(record = {}) { return String(record.params?.advancedProviderId || record.provider || ""); }`,
     `function restoreRecordImageLimit() { return 30; }`,
     extractFunction(createSource, "restoreRecordMedia"),
-    "return { restoreRecordMedia, restoreVegaRecordMedia };",
+    "return { restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews };",
   ].join("\n"))();
 }
 
@@ -311,21 +315,9 @@ function seedanceNsfwRegenerationRecord() {
     prompt: "keep the three references",
     mediaMode: "omini",
     mediaAssets: [
-      {
-        type: "reference_image",
-        userAssetId: "asset-1792378136626-21ee3188",
-        url: "https://cdn.example.com/reference-image.png",
-      },
-      {
-        type: "reference_video",
-        userAssetId: "asset-1793895814730-cea3b134",
-        url: "https://cdn.example.com/reference-video-1.mp4",
-      },
-      {
-        type: "reference_video",
-        userAssetId: "asset-1793940603600-bec2f1f1",
-        url: "https://cdn.example.com/reference-video-2.mp4",
-      },
+      { type: "reference_image", userAssetId: "asset-1792378136626-21ee3188" },
+      { type: "reference_video", userAssetId: "asset-1793895814730-cea3b134" },
+      { type: "reference_video", userAssetId: "asset-1793940603600-bec2f1f1" },
     ],
     params: {
       provider: "seedance-nsfw",
@@ -346,10 +338,15 @@ function seedanceNsfwRegenerationRecord() {
   };
 }
 
-test("Seedance regenerated records merge database media with internal asset references without black duplicates", () => {
-  const { restoreRecordMedia, restoreVegaRecordMedia } = frontendRuntime();
+test("Seedance regenerated records resolve user asset previews and retain internal references", async () => {
+  const { restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews } = frontendRuntime();
   const record = seedanceNsfwRegenerationRecord();
-  const restored = restoreRecordMedia(record);
+  const hydrated = await hydrateRecordMediaUserAssetPreviews(record, async (assetIds) => new Map([
+    [assetIds[0], { id: assetIds[0], publicUrl: "https://cdn.example.com/reference-image.png" }],
+    [assetIds[1], { id: assetIds[1], cdnUrl: "https://cdn.example.com/reference-video-1.mp4" }],
+    [assetIds[2], { id: assetIds[2], previewUrl: "https://cdn.example.com/reference-video-2.mp4" }],
+  ]));
+  const restored = restoreRecordMedia(hydrated);
 
   assert.equal(restored.referenceImages.length, 1);
   assert.deepEqual(restored.videos.map((item) => [item.url, item.assetUri, item.assetId]), [
@@ -365,8 +362,11 @@ test("Seedance regenerated records merge database media with internal asset refe
     ],
   ]);
   assert.equal(restored.videos.filter((item) => String(item.url || "").startsWith("asset://")).length, 0);
+  assert.equal(restored.referenceImages[0].dataUrl, "https://cdn.example.com/reference-image.png");
+  assert.equal(restored.referenceImages[0].url, "");
+  assert.ok(restored.videos.every((item) => /^https:\/\//.test(item.url)));
 
-  const vegaRestored = restoreVegaRecordMedia(record, record.params);
+  const vegaRestored = restoreVegaRecordMedia(hydrated, hydrated.params);
   assert.equal(vegaRestored.referenceImages.length, 1);
   assert.equal(vegaRestored.referenceVideos.length, 2);
   assert.deepEqual(vegaRestored.referenceVideoUrls, [
@@ -374,6 +374,19 @@ test("Seedance regenerated records merge database media with internal asset refe
     "https://cdn.example.com/reference-video-2.mp4",
   ]);
   assert.deepEqual(vegaRestored.referenceVideos.map((item) => item.assetUri), [
+    "asset://asset-20261106224219-hpbpw",
+    "asset://asset-20261106224219-pddlv",
+  ]);
+});
+
+test("Unresolved media never exposes an internal asset URI as a preview source", async () => {
+  const { restoreRecordMedia, hydrateRecordMediaUserAssetPreviews } = frontendRuntime();
+  const hydrated = await hydrateRecordMediaUserAssetPreviews(seedanceNsfwRegenerationRecord(), async () => new Map());
+  const restored = restoreRecordMedia(hydrated);
+  assert.ok(restored.referenceImages.every((item) => !String(item.dataUrl || "").startsWith("asset://")));
+  assert.ok(restored.videos.every((item) => !String(item.url || "").startsWith("asset://")));
+  assert.deepEqual(restored.videos.map((item) => item.url), ["", ""]);
+  assert.deepEqual(restored.videos.map((item) => item.assetUri), [
     "asset://asset-20261106224219-hpbpw",
     "asset://asset-20261106224219-pddlv",
   ]);
@@ -389,4 +402,6 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /data-advanced-preview-media/);
   assert.match(previewSource, /addEventListener\("error"/);
   assert.match(previewSource, /advanced-reference-unavailable/);
+  assert.match(previewSource, /kind === "video"[\s\S]*?url[\s\S]*?data-advanced-preview-media/);
+  assert.match(previewSource, /素材不可用/);
 });

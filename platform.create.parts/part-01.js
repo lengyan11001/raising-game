@@ -961,7 +961,7 @@ function renderAdvancedResultPanel() {
       refreshIcons();
       try {
         const record = await refreshedRegenerationRecord(cachedRecord);
-        restoreRecordToAdvancedCreate(record, button);
+        await restoreRecordToAdvancedCreate(record, button);
       } catch (error) {
         if (!cachedRecord) {
           button.disabled = false;
@@ -969,7 +969,7 @@ function renderAdvancedResultPanel() {
           refreshIcons();
           throw error;
         }
-        restoreRecordToAdvancedCreate(cachedRecord, button);
+        await restoreRecordToAdvancedCreate(cachedRecord, button);
       } finally {
         state.advancedRegenerationRestoreInFlight = false;
       }

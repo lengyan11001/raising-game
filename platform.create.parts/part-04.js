@@ -240,22 +240,106 @@ function restoreMediaAssetId(item = {}) {
   return String(item.userAssetId || item.assetId || item.id || "").trim();
 }
 
+function restoreMediaPreviewUrl(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  const candidates = [
+    item.dataUrl,
+    item.url,
+    item.publicUrl,
+    item.cdnUrl,
+    item.previewUrl,
+    item.sourceImageUrl,
+    item.localUrl,
+    upstreamMediaUrl(item),
+  ];
+  const preview = candidates.find((value) => {
+    const text = String(value || "").trim();
+    return text && !text.startsWith("asset://") && !text.startsWith("javascript:");
+  });
+  return preview ? String(preview).trim() : "";
+}
+
 function restoreReferenceFromMedia(item = {}, index = 0) {
   const assetId = restoreMediaAssetId(item);
   const assetUri = restoreMediaAssetUri(item);
-  const url = restoreMediaUrl(item);
+  const url = restoreMediaPreviewUrl(item);
   if (!assetId && !assetUri && !url) return null;
   return {
     assetId,
     assetUri,
     referenceAssetUri: assetUri,
-    dataUrl: url && !String(url).startsWith("asset://") ? url : "",
+    dataUrl: url,
     url: assetId || assetUri ? "" : url,
     fileName: item.fileName || item.name || item.label || `image-${index + 1}`,
     name: item.name || item.label || `Image ${index + 1}`,
     fromLibrary: Boolean(assetId),
     order: advancedReferenceOrderValue(item, index + 1),
   };
+}
+
+function restoreRecordMediaAssetIds(record = {}) {
+  const params = recordParams(record);
+  const ids = [];
+  const add = (id) => {
+    const value = String(id || "").trim();
+    if (value && !ids.includes(value)) ids.push(value);
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).forEach((item) => add(restoreMediaAssetId(item)));
+  [
+    params.referenceImageAssetIds,
+    params.referenceVideoAssetIds,
+    params.referenceAudioAssetIds,
+    params.firstFrameAssetId,
+    params.lastFrameAssetId,
+  ].forEach((list) => arrayFrom(list).forEach((item) => add(typeof item === "object" ? restoreMediaAssetId(item) : item)));
+  upstreamInputMediaItems(record).forEach((item) => add(restoreMediaAssetId(item)));
+  return ids.slice(0, 50);
+}
+
+function hydrateRecordMediaAssetEntries(record = {}, resolvedAssets = new Map()) {
+  const params = recordParams(record);
+  const entries = (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).map((item) => ({ ...item }));
+  const existing = new Set(entries.map((item) => restoreMediaAssetId(item)).filter(Boolean));
+  const appendMissing = (list, type) => arrayFrom(list).forEach((item) => {
+    const assetId = typeof item === "object" ? restoreMediaAssetId(item) : String(item || "").trim();
+    if (!assetId || existing.has(assetId)) return;
+    existing.add(assetId);
+    entries.push({ type, userAssetId: assetId });
+  });
+  appendMissing(params.referenceImageAssetIds, "reference_image");
+  appendMissing(params.referenceVideoAssetIds, "reference_video");
+  appendMissing(params.referenceAudioAssetIds, "reference_audio");
+  appendMissing(params.firstFrameAssetId, "first_frame");
+  appendMissing(params.lastFrameAssetId, "last_frame");
+  return entries.map((item) => {
+    const asset = resolvedAssets.get(restoreMediaAssetId(item));
+    if (!asset) return item;
+    const previewUrl = restoreMediaPreviewUrl(asset);
+    const assetUri = restoreMediaAssetUri(item) || String(asset.assetUri || asset.seedanceAssetUri || "").trim();
+    return {
+      ...item,
+      ...(previewUrl ? {
+        url: previewUrl,
+        publicUrl: asset.publicUrl || previewUrl,
+        cdnUrl: asset.cdnUrl || previewUrl,
+        previewUrl: asset.previewUrl || previewUrl,
+      } : {}),
+      ...(assetUri ? { assetUri, referenceAssetUri: item.referenceAssetUri || assetUri } : {}),
+    };
+  });
+}
+
+async function hydrateRecordMediaUserAssetPreviews(record = {}, resolveAssets = null) {
+  const ids = restoreRecordMediaAssetIds(record);
+  if (!ids.length) return record;
+  try {
+    const resolver = resolveAssets || ((assetIds) => resolveAdvancedVegaAssets(assetIds));
+    const resolved = await resolver(ids);
+    if (!(resolved instanceof Map) || !resolved.size) return record;
+    return { ...record, mediaAssets: hydrateRecordMediaAssetEntries(record, resolved) };
+  } catch (_error) {
+    return record;
+  }
 }
 
 function advancedPromptHeightLimits() {
@@ -531,12 +615,12 @@ function restoreRecordMedia(record = {}) {
     .filter(Boolean);
   const videoItems = mergeRecordMediaByKind(mediaAssets, upstreamItems, "video");
   const videos = dedupeRecordMediaItems(videoItems
-    .filter((item) => restoreMediaUrl(item))
-    .map((item, index) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) })));
+    .filter((item) => restoreMediaAssetId(item) || restoreMediaAssetUri(item) || restoreMediaPreviewUrl(item))
+    .map((item, index) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaPreviewUrl(item), order: advancedReferenceOrderValue(item, index + 1) })));
   const audioItems = mergeRecordMediaByKind(mediaAssets, upstreamItems, "audio");
   const audios = dedupeRecordMediaItems(audioItems
-    .filter((item) => restoreMediaUrl(item))
-    .map((item, index) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) })));
+    .filter((item) => restoreMediaAssetId(item) || restoreMediaAssetUri(item) || restoreMediaPreviewUrl(item))
+    .map((item, index) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaPreviewUrl(item), order: advancedReferenceOrderValue(item, index + 1) })));
   if (!references.length) {
     recordImageAssets(record).forEach((item, index) => {
       const ref = restoreReferenceFromMedia(item, index);
@@ -566,11 +650,11 @@ function restoreVegaMediaItem(item = {}, index = 0, kind = "image") {
     assetId,
     assetUri,
     referenceAssetUri: assetUri,
-    sourceUrl: url || assetUri || sourceUrl,
+    sourceUrl: url,
     url,
-    publicUrl: url || source.publicUrl || "",
-    cdnUrl: url || source.cdnUrl || "",
-    previewUrl: url || source.previewUrl || "",
+    publicUrl: url,
+    cdnUrl: url,
+    previewUrl: url,
     dataUrl: url,
     fileName: source.fileName || name,
     name,
@@ -650,7 +734,7 @@ function restoreVegaRecordMedia(record = {}, params = {}) {
       const publicUrl = vegaPublicHttpUrl(candidate);
       if (publicUrl) return publicUrl;
     }
-    return String(item?.assetUri || item?.referenceAssetUri || "").trim();
+    return "";
   };
   return {
     firstFrame,
@@ -680,8 +764,9 @@ async function refreshedRegenerationRecord(record = {}) {
   }
 }
 
-function restoreRecordToAdvancedCreate(record = {}, button = null) {
+async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (!record?.taskId && !record?.prompt && !record?.params) return;
+  record = await hydrateRecordMediaUserAssetPreviews(record);
   const params = recordParams(record);
   const provider = restoreRecordProvider(record);
   const { references, videos, audios } = restoreRecordMedia(record);

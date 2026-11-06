@@ -292,7 +292,9 @@ function renderAdvancedReferencePreviews() {
       : pending
         ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
-      ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
+      ? (url
+        ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" data-advanced-preview-media></video>`
+        : `<div class="advanced-reference-unavailable">${escapeHtml(state.lang === "zh" ? "素材不可用" : "Media unavailable")}</div>`)
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
         : kind === "document"
@@ -1091,7 +1093,7 @@ async function regenerateHistoryRecord(taskId, button) {
       record = await refreshedRegenerationRecord(record);
     }
     if (!record) throw new Error(t("history.loadFailed", { message: "record not found" }));
-    restoreRecordToAdvancedCreate(record, button);
+    await restoreRecordToAdvancedCreate(record, button);
     button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
     refreshIcons();
   } catch (error) {
