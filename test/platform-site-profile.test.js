@@ -42,6 +42,49 @@ test("only 123vipeak.com uses the standalone landing page", () => {
   assert.equal(tenantRuntime.defaultPageForHostname("667zui.video"), "/platform.html");
 });
 
+test("123vip.fans reuses the shared Generate surface without profile overrides", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+  const profileCss = fs.readFileSync(path.resolve(__dirname, "..", "site-123vipfans.css"), "utf8");
+
+  assert.equal(tenantRuntime.defaultPageForHostname("123vip.fans"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("www.123vip.fans"), "/platform.html");
+  assert.match(html, /id="advancedWorkspace"/);
+  assert.match(html, /id="advancedParameterChips"/);
+  assert.match(html, /id="advancedSubmitBtn"/);
+
+  for (const selector of [
+    "advanced-generator-toolbar",
+    "advanced-parameter",
+    "advanced-form-card",
+    "advanced-workspace",
+    "advancedSubmitBtn",
+  ]) {
+    assert.doesNotMatch(profileCss, new RegExp(selector), `profile CSS must not override shared Generate selector: ${selector}`);
+  }
+});
+
+test("Generate parameter pickers close after selection and duration uses a slider", () => {
+  const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-02.js"), "utf8");
+  const start = createSource.indexOf("function renderAdvancedParameterPanel(");
+  const end = createSource.indexOf("function openAdvancedParameterPanel(", start);
+  assert.ok(start >= 0 && end > start);
+  const picker = createSource.slice(start, end);
+  assert.match(picker, /data-advanced-parameter-duration-range/);
+  assert.doesNotMatch(picker, /advanced-parameter-duration-shortcuts/);
+  assert.doesNotMatch(picker, /data-advanced-parameter-option-kind="duration"/);
+  assert.doesNotMatch(picker, /advanced-parameter-panel-head/);
+  assert.doesNotMatch(picker, /advanced-parameter-panel-close/);
+  assert.doesNotMatch(picker, /advanced-parameter-option-check/);
+  assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
+
+  const setter = createSource.slice(
+    createSource.indexOf("function setAdvancedParameterValue("),
+    createSource.indexOf("function handleAdvancedParameterTriggerClick("),
+  );
+  assert.match(setter, /select\.value = String\(value\);\s*closeAdvancedParameterPanel\(\);/);
+  assert.doesNotMatch(setter, /keepPanelOpen/);
+});
+
 test("the www host serves the same site profile as the apex", () => {
   const lookup = tenantRuntime.platformSiteProfileForHostname;
   const profile = tenantRuntime.PLATFORM_SITE_PROFILE;

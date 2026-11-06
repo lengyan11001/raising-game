@@ -35,6 +35,7 @@ const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
 const ADVANCED_QWEN_IMAGE3_PRO_2K_USD_PER_IMAGE = 0.068761;
 const ADVANCED_QWEN_IMAGE3_STANDARD_USD_PER_IMAGE = 0.024754;
 const ADVANCED_QWEN_IMAGE3_USD_PER_REFERENCE_IMAGE = 0.00275;
+const ADVANCED_RESULT_PAGE_SIZE = 6;
 // The Seedance 2.5 engine keeps its provider id; only its public name lost the
 // NSFW wording.
 const DEFAULT_ADVANCED_PROVIDER = "seedance-nsfw";
@@ -64,6 +65,12 @@ const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_CLIENT_IMAGE_MAX_PIXELS = 2000000;
 const ADVANCED_CLIENT_IMAGE_JPEG_QUALITY = 0.88;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_VEGA10_LITE_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const ADVANCED_VEGA10_LITE_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
+const ADVANCED_VEGA15_PRO_IMAGE_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+const ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
 const OURDREAM_PRESET_URL = "/api/ourdream/presets";
@@ -446,6 +453,120 @@ const ADVANCED_CREATE_MODES = {
   custom: [ADVANCED_CUSTOM_MODE],
 };
 
+const VEGA_PROVIDER_IDS = Object.freeze([
+  "seedance20-vega",
+  "seedance25-vega",
+  "h3-vega",
+  "vega10-lite",
+]);
+const VEGA_MODEL_LABELS = Object.freeze({
+  "seedance20-vega": "seedance2.0（vega）",
+  "seedance25-vega": "seedance2.5vega",
+  "h3-vega": "wan（vega）",
+  "vega10-lite": "h3（vega）",
+});
+
+function publicGenerationDisplayLabel(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return "";
+  if (normalized === "seedance25vega" || normalized === "seedance2.5vega" || normalized.includes("vega1.5pro") || normalized.includes("wandvegavideo1.5pro")) return VEGA_MODEL_LABELS["seedance25-vega"];
+  if (normalized === "seedance20vega" || normalized === "seedance2.0vega" || normalized.includes("vega1.0pro") || normalized.includes("wandvegavideo1.0pro")) return VEGA_MODEL_LABELS["seedance20-vega"];
+  if (normalized === "h3vega" || normalized.includes("vega1.5lite") || normalized.includes("wandvegavideo1.5lite")) return VEGA_MODEL_LABELS["h3-vega"];
+  if (normalized === "vega10lite" || normalized.includes("vega1.0lite") || normalized.includes("wandvegavideo1.0lite")) return VEGA_MODEL_LABELS["vega10-lite"];
+  return "";
+}
+
+function publicGenerationDisplayTitle(record = {}, fallback = "") {
+  if (!record || typeof record !== "object") return String(record || fallback || "").trim();
+  const provider = record.provider || record.params?.provider || "";
+  const alias = publicGenerationDisplayLabel(provider)
+    || publicGenerationDisplayLabel(record.templateTitle)
+    || publicGenerationDisplayLabel(record.modelLabel)
+    || publicGenerationDisplayLabel(record.model);
+  if (alias) return alias;
+  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || fallback || "").trim();
+}
+const VEGA_ALL_RESOLUTIONS = Object.freeze(["480P", "720P", "768P", "1080P", "2K", "4K"]);
+const SEEDANCE_VEGA_RESOLUTIONS = Object.freeze(["480P", "720P", "1080P", "2K", "4K"]);
+const VEGA_ALL_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
+const VEGA_DURATION_BOUNDS = Object.freeze({
+  "seedance20-vega": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
+  "seedance25-vega": Object.freeze({ min: 4, max: 30, fallback: 5, smart: true }),
+  "h3-vega": Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
+  "vega10-lite": Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
+});
+const VEGA_MODEL_CAPABILITIES = Object.freeze({
+  "seedance20-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
+  "seedance25-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 }),
+  "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false }),
+  "vega10-lite": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true, moderation: false, generateMode: false, returnLastFrame: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
+});
+const VEGA_REFERENCE_LIMITS = Object.freeze({
+  "seedance20-vega": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
+  "seedance25-vega": Object.freeze({ images: 30, videos: 10, audios: 10, total: 50 }),
+  "h3-vega": Object.freeze({ images: 10, videos: 5, audios: 5, total: 20 }),
+  "vega10-lite": Object.freeze({ images: 9, videos: 3, audios: 3, total: 12 }),
+});
+
+function isVegaProviderId(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VEGA_PROVIDER_IDS.includes(normalized);
+}
+
+function vegaCapabilities(provider = "") {
+  return VEGA_MODEL_CAPABILITIES[String(provider || "").trim().toLowerCase()] || null;
+}
+
+function vegaReferenceLimits(provider = "") {
+  return VEGA_REFERENCE_LIMITS[String(provider || "").trim().toLowerCase()] || VEGA_REFERENCE_LIMITS["seedance25-vega"];
+}
+
+function advancedVegaMediaDurationError(provider = "", videoDurations = [], audioDurations = [], videoCount = 0, audioCount = 0) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  if (!isVegaProviderId(normalizedProvider)) return "";
+  const limits = vegaReferenceLimits(normalizedProvider);
+  const caps = vegaCapabilities(normalizedProvider) || {};
+  const min = Number(caps.perFileMinSeconds || 0);
+  const max = Number(caps.perFileMaxSeconds || 0);
+  const videos = (Array.isArray(videoDurations) ? videoDurations : []).map(Number).filter((value) => value > 0);
+  const audios = (Array.isArray(audioDurations) ? audioDurations : []).map(Number).filter((value) => value > 0);
+  if (min > 0 && max > 0) {
+    if (videos.length !== Number(videoCount || 0)) return "Each Vega reference video must have a readable duration.";
+    if (audios.length !== Number(audioCount || 0)) return "Each Vega reference audio must have a readable duration.";
+    if (videos.some((seconds) => seconds < min || seconds > max)) return `Each Vega reference video must be ${min}-${max} seconds.`;
+    if (audios.some((seconds) => seconds < min || seconds > max)) return `Each Vega reference audio must be ${min}-${max} seconds.`;
+  }
+  const videoSeconds = videos.reduce((sum, seconds) => sum + seconds, 0);
+  const audioSeconds = audios.reduce((sum, seconds) => sum + seconds, 0);
+  if (Number(caps.videoSeconds || 0) > 0 && videoSeconds > Number(caps.videoSeconds)) return `Vega reference videos must total ${caps.videoSeconds} seconds or less.`;
+  if (Number(caps.audioSeconds || 0) > 0 && audioSeconds > Number(caps.audioSeconds)) return `Vega reference audio must total ${caps.audioSeconds} seconds or less.`;
+  return "";
+}
+
+function normalizeVegaUiMediaMode(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["draft_followup", "draft_final", "draft_to_final"].includes(normalized)) return "draft_followup";
+  if (["text_to_video", "text2video", "t2v", "text"].includes(normalized)) return "text_to_video";
+  if (["first_frame", "first", "i2v", "image_to_video"].includes(normalized)) return "first_frame";
+  if (["last_frame", "last", "end_frame", "last_frame_only"].includes(normalized)) return "last_frame";
+  if (["first_last_frame", "first_last", "first_and_last", "start_end"].includes(normalized)) return "first_last_frame";
+  if (["reference_video", "multimodal", "multi_modal", "references", "reference", "reference_images", "multi_reference", "omni", "omini"].includes(normalized)) return "reference_video";
+  return "reference_video";
+}
+
+function vegaModeNeedsFirstFrame(mode = "") {
+  return ["first_frame", "first_last_frame"].includes(normalizeVegaUiMediaMode(mode));
+}
+
+function vegaModeNeedsLastFrame(mode = "") {
+  return ["last_frame", "first_last_frame"].includes(normalizeVegaUiMediaMode(mode));
+}
+
+function vegaModeUsesReferences(mode = "") {
+  return normalizeVegaUiMediaMode(mode) === "reference_video";
+}
+
 function normalizeSeedanceMediaMode(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (["omini", "omni"].includes(normalized)) return "omini";
@@ -521,7 +642,14 @@ function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
   return !(state.advancedCreateKind === "video" && mode === "video-edit");
 }
 
-function advancedCreateModeAllowsManualReferenceUpload(mode = state.advancedCreateMode) {
+function advancedCreateModeAllowsManualReferenceUpload(
+  mode = state.advancedCreateMode,
+  provider = typeof currentAdvancedProvider === "function" ? currentAdvancedProvider() : "",
+) {
+  const normalizedProvider = typeof normalizeAdvancedProvider === "function"
+    ? normalizeAdvancedProvider(provider)
+    : String(provider || "").toLowerCase();
+  if (isVegaProviderId(normalizedProvider)) return true;
   return !(state.advancedCreateKind === "video" && ["video-image", "video-extend", "video-replace"].includes(mode));
 }
 
@@ -798,6 +926,7 @@ const state = {
   advancedCasePages: { hot: 1, extend: 1, replace: 1 },
   advancedCreateKind: isAdvancedCustomRoute(window.location.hash) ? "custom" : "video",
   advancedCreateMode: isAdvancedCustomRoute(window.location.hash) ? ADVANCED_CUSTOM_MODE.id : "video-image",
+  advancedParameterOpen: "",
   advancedCustomMediaKind: "video",
   advancedMobileTab: "create",
   advancedEstimate: null,
@@ -836,6 +965,17 @@ const state = {
   advancedSeedanceVideoReferences: [],
   advancedSeedanceAudioReferences: [],
   advancedSeedanceGenerateAudio: true,
+  advancedVegaTaskType: "auto",
+  advancedVegaGenerateMode: "Standard",
+  advancedVegaQualityMode: "Standard",
+  advancedVegaOutputFormat: "mp4",
+  advancedVegaEnhancePromptMode: "auto",
+  advancedVegaModerationMode: "Moderation_L1",
+  advancedVegaReturnLastFrame: false,
+  advancedVegaReturnUsage: false,
+  advancedVegaDraft: false,
+  advancedVegaDraftTaskId: "",
+  advancedVegaAssetGroupId: "",
   advancedPendingReferences: [],
   advancedReferenceOrderCounter: 0,
   advancedSeedanceFirstFrameDataUrl: "",
@@ -877,8 +1017,11 @@ const state = {
   referralLoadedUserId: "",
   referralLoadedAt: 0,
   historyRecords: [],
-  generationCompletionPrimed: false,
   generationCompletionRefreshTimer: 0,
+  generationCompletionRefreshInFlight: false,
+  generationCompletionNotified: {},
+  generationCompletionStatuses: {},
+  generationCompletionRecords: [],
   historyRecordsPage: 1,
   historyRecordsLimit: 8,
   historyRecordsTotal: 0,
@@ -889,6 +1032,7 @@ const state = {
   advancedResultRecords: [],
   advancedResultMediaKind: "video",
   advancedResultTaskId: "",
+  advancedResultPage: 1,
   advancedResultTimer: 0,
   advancedResultLoading: false,
   workflow: null,
@@ -922,6 +1066,7 @@ const state = {
   advancedAssetTotal: 0,
   advancedAssetTotalPages: 1,
   advancedAssetsLoaded: false,
+  advancedAssetLoadSeq: 0,
   advancedAudioAssetId: "",
   topupRefreshTimer: 0,
   topupRefreshInFlight: false,
@@ -959,10 +1104,6 @@ function membershipProgramEnabled() {
 
 function creatorMembershipActive() {
   return Boolean(state.user?.membershipActive || state.user?.membership?.active || state.billing?.membership?.active);
-}
-
-function apiDocsAccessActive() {
-  return Boolean(state.user?.apiDocsAccess || state.user?.apiDocs?.active || state.billing?.apiDocs?.active);
 }
 
 function canUseWorkflow() {
@@ -1090,6 +1231,7 @@ const els = {
   ageGateDeclineBtn: document.querySelector("#ageGateDeclineBtn"),
   ageForbidden: document.querySelector("#ageForbidden"),
   categoryRow: document.querySelector("#categoryRow"),
+  sameStylePanel: document.querySelector("#sameStylePanel"),
   galleryModeTabs: document.querySelector("#galleryModeTabs"),
   templateGrid: document.querySelector("#templateGrid"),
   characterPageTabs: document.querySelector("#characterPageTabs"),
@@ -1138,10 +1280,7 @@ const els = {
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
   accessSubtokens: document.querySelector("#accessSubtokens"),
-  apiDocsPurchaseCard: document.querySelector("#apiDocsPurchaseCard"),
   apiDocsUnlockedContent: document.querySelector("#apiDocsUnlockedContent"),
-  buyApiDocsBtn: document.querySelector("#buyApiDocsBtn"),
-  apiDocsPurchaseStatus: document.querySelector("#apiDocsPurchaseStatus"),
   apiDocsCenter: document.querySelector("#apiDocsCenter"),
   accessTokenDisplay: document.querySelector("#accessTokenDisplay"),
   accessTokenHint: document.querySelector("#accessTokenHint"),
@@ -1284,6 +1423,8 @@ const els = {
   advancedPresetSearch: document.querySelector("#advancedPresetSearch"),
   advancedPresetGrid: document.querySelector("#advancedPresetGrid"),
   advancedPrompt: document.querySelector("#advancedPrompt"),
+  advancedPromptHighlight: document.querySelector("#advancedPromptHighlight"),
+  advancedPromptResizeHandle: document.querySelector("#advancedPromptResizeHandle"),
   advancedPromptMentions: document.querySelector("#advancedPromptMentions"),
   advancedImage: document.querySelector("#advancedImage"),
   advancedUploadBox: document.querySelector("#advancedUploadBox"),
@@ -1307,6 +1448,11 @@ const els = {
   advancedVideoSettings: document.querySelector("#advancedVideoSettings"),
   advancedVideoResolutionChoices: document.querySelector("#advancedVideoResolutionChoices"),
   advancedVideoDurationChoices: document.querySelector("#advancedVideoDurationChoices"),
+  advancedParameterShell: document.querySelector("#advancedParameterShell"),
+  advancedParameterTrigger: document.querySelector("#advancedParameterTrigger"),
+  advancedParameterSummary: document.querySelector("#advancedParameterSummary"),
+  advancedParameterChips: document.querySelector("#advancedParameterChips"),
+  advancedParameterPanel: document.querySelector("#advancedParameterPanel"),
   advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
   advancedSeedanceMediaPanel: document.querySelector("#advancedSeedanceMediaPanel"),
   advancedFrameEngineLabel: document.querySelector("#advancedFrameEngineLabel"),
@@ -1318,6 +1464,17 @@ const els = {
   advancedSeedanceVideoUrls: document.querySelector("#advancedSeedanceVideoUrls"),
   advancedSeedanceAudioUrls: document.querySelector("#advancedSeedanceAudioUrls"),
   advancedSeedanceGenerateAudio: document.querySelector("#advancedSeedanceGenerateAudio"),
+  advancedVegaTaskType: document.querySelector("#advancedVegaTaskType"),
+  advancedVegaGenerateMode: document.querySelector("#advancedVegaGenerateMode"),
+  advancedVegaQualityMode: document.querySelector("#advancedVegaQualityMode"),
+  advancedVegaOutputFormat: document.querySelector("#advancedVegaOutputFormat"),
+  advancedVegaEnhancePromptMode: document.querySelector("#advancedVegaEnhancePromptMode"),
+  advancedVegaModerationMode: document.querySelector("#advancedVegaModerationMode"),
+  advancedVegaReturnLastFrame: document.querySelector("#advancedVegaReturnLastFrame"),
+  advancedVegaReturnUsage: document.querySelector("#advancedVegaReturnUsage"),
+  advancedVegaDraft: document.querySelector("#advancedVegaDraft"),
+  advancedVegaDraftTaskId: document.querySelector("#advancedVegaDraftTaskId"),
+  advancedVegaAssetGroupId: document.querySelector("#advancedVegaAssetGroupId"),
   advancedWanSeed: document.querySelector("#advancedWanSeed"),
   advancedWanMediaPanel: document.querySelector("#advancedWanMediaPanel"),
   advancedWanMediaMode: document.querySelector("#advancedWanMediaMode"),
@@ -1337,6 +1494,7 @@ const els = {
   advancedCaseGrid: document.querySelector("#advancedCaseGrid"),
   advancedAssetSearch: document.querySelector("#advancedAssetSearch"),
   advancedAssetTypeFilter: document.querySelector("#advancedAssetTypeFilter"),
+  advancedAssetTargets: document.querySelector("#advancedAssetTargets"),
   advancedAssetUploadInput: document.querySelector("#advancedAssetUploadInput"),
   refreshAdvancedAssetsBtn: document.querySelector("#refreshAdvancedAssetsBtn"),
   advancedSideTabs: document.querySelector("#advancedSideTabs"),
@@ -1344,9 +1502,9 @@ const els = {
   advancedResultView: document.querySelector("#advancedResultView"),
   advancedResultList: document.querySelector("#advancedResultList"),
   advancedResultKindTabs: document.querySelector("#advancedResultKindTabs"),
+  advancedResultPager: document.querySelector("#advancedResultPager"),
   refreshAdvancedResultBtn: document.querySelector("#refreshAdvancedResultBtn"),
   workflowRoot: document.querySelector("#workflowRoot"),
-  advancedAssetTargets: document.querySelector("#advancedAssetTargets"),
   advancedAssetNote: document.querySelector("#advancedAssetNote"),
   advancedAssetGrid: document.querySelector("#advancedAssetGrid"),
   advancedAssetPager: document.querySelector("#advancedAssetPager"),
@@ -1385,6 +1543,10 @@ const els = {
   googleLoginBtn: document.querySelector("#googleLoginBtn"),
   googleLoginStatus: document.querySelector("#googleLoginStatus"),
   telegramLoginStatus: document.querySelector("#telegramLoginStatus"),
+  emailLoginTab: document.querySelector("#emailLoginTab"),
+  passwordLoginTab: document.querySelector("#passwordLoginTab"),
+  emailLoginPanel: document.querySelector("#emailLoginPanel"),
+  passwordLoginPanel: document.querySelector("#passwordLoginPanel"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
   loginEmail: document.querySelector("#loginEmail"),

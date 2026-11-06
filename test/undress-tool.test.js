@@ -46,7 +46,7 @@ test("tool public requests avoid loading the full home catalog and anonymous dat
   assert.match(publicConfigHandler, /const isToolOnly = Boolean\(tenantOptions\.toolOnly\)/);
   assert.match(publicConfigHandler, /if \(!isToolOnly\) \{[\s\S]*?ensureSceneEntriesPersisted[\s\S]*?refreshCompletedHomeVideoItems/);
   assert.match(publicConfigHandler, /const auth = getBearerToken\(req\) \? await getAuth\(req(?:, \{ loadDb: false \})?\) : \{ user: null \}/);
-  assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) await recordGeoVisitStats\(req, url\)/);
+  assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) \{[\s\S]*?recordGeoVisitStats\(req, url\)\.catch\(/);
 });
 
 test("the first image claim is atomic, persistent, and released only after a failed claim", () => {
@@ -267,7 +267,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(server, /source: signedUrl \? "r2_signed" : "authenticated_proxy"/);
   assert.match(ui, /href = payload\.url/);
   assert.match(ui, /download-url\?quality=r2/);
-  assert.match(ui, /await saveDownloadFromFetch\(href, fileName\)/);
+  assert.match(ui, /triggerBrowserDownload\(href, fileName\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, "transferring"\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, ok \? "ready" : "failed"\)/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);

@@ -21,6 +21,50 @@ test("side navigation keeps its full-size buttons and moves overflow into More",
   assert.match(explore, /function syncSideNavigationMore\(\)/);
   assert.match(explore, /tabs\.classList\.add\("is-nav-overflowing"\)/);
   assert.match(explore, /menu\.appendChild\(clone\)/);
-  assert.match(main, /#sideNavMoreMenu \[data-tab\]/);
+  assert.match(main, /event\.target\.closest\("#sideNavMoreMenu"\)/);
   assert.doesNotMatch(css, /\.top-tab \{ padding: 4px 9px; \}/);
+});
+
+test("same-style is a top-level entry with Case-first in-page tabs", () => {
+  const html = read("platform.html");
+  const css = read("platform.css");
+  const main = read("platform.main.js");
+  const explore = read("platform.explore.js");
+
+  assert.doesNotMatch(html, /data-nav-group="same-style"/);
+  assert.doesNotMatch(html, /data-nav-group-toggle/);
+  assert.match(html, /<button class="top-tab" data-tab="cases" data-same-style-entry/);
+  assert.match(html, /class="i18n-en">Same style<\/span>/);
+  assert.match(html, /class="i18n-zh">同款<\/span>/);
+  assert.match(html, /<section class="same-style-panel" id="sameStylePanel" hidden>/);
+  assert.match(html, /class="gallery-mode-tabs gallery-top-tabs" id="galleryModeTabs"/);
+  assert.match(html, /document\.documentElement\.classList\.add\(`i18n-\$\{lang\}`\)/);
+  assert.match(main, /data-gallery-top-tab/);
+  assert.match(main, /if \(mode === "cases"\) setTab\("cases"\);\s*else setGalleryMode\(mode\);/);
+  assert.match(explore, /function galleryTopTabItems\(\)/);
+  const caseIndex = explore.indexOf('id: "cases"');
+  const videoIndex = explore.indexOf('id: "playflux-video"');
+  const animeIndex = explore.indexOf('id: "playflux-anime"');
+  const imageIndex = explore.indexOf('id: "playflux-image"');
+  assert.ok(caseIndex > -1 && caseIndex < videoIndex && videoIndex < animeIndex && animeIndex < imageIndex);
+  assert.match(explore, /active: state\.tab === "cases"/);
+  assert.match(explore, /els\.sameStylePanel\.hidden = nextTab !== "cases"/);
+  assert.match(css, /\.gallery-top-tabs \{/);
+  assert.match(css, /\.gallery-top-tabs \{[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?gap:\s*4px;[\s\S]*?padding:\s*5px;[\s\S]*?border-radius:\s*999px;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*8px 15px;[\s\S]*?border-radius:\s*999px;[\s\S]*?font-size:\s*\.84rem;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab svg \{\s*width:\s*16px;\s*height:\s*16px;\s*\}/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*transparent;[\s\S]*?color:\s*#fff;[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
+  assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab[^}]*rgba\(255,79,163/);
+  assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[^}]*background:\s*(?:#fff|white|rgba\(255,\s*255,\s*255,\s*(?:\.\d+|1)\));/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active span \{[\s\S]*?color:\s*inherit;[\s\S]*?background:\s*transparent;/);
+  assert.doesNotMatch(explore, /syncGalleryModeTabs/);
+  assert.match(explore, /function syncGalleryShortcutNav\(\)[\s\S]*?renderGalleryModeTabs\(\);/);
+});
+
+test("recharge promotion entries stay out of the shared same-style layout", () => {
+  const html = read("platform.html");
+
+  assert.doesNotMatch(html, /id="doubleTopupBanner"/);
+  assert.doesNotMatch(html, /class="double-topup-banner double-topup-banner-home"/);
+  assert.match(html, /<section class="same-style-panel" id="sameStylePanel" hidden>/);
 });

@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const { Pool } = require("pg");
 
 const DEFAULT_TENANT_ID = "main";
@@ -169,6 +170,20 @@ async function ensureSchemaInner() {
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_google_uidx ON app_users (tenant_id, (payload->>'googleId')) WHERE deleted_at IS NULL AND COALESCE(payload->>'googleId', '') <> '';`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_email_challenges (
+      challenge_key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_email_challenges_expires_idx ON app_email_challenges (expires_at);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_sessions (
       token TEXT PRIMARY KEY,
@@ -529,6 +544,38 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_vega_media_library (
+      user_id TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      sub_app_id BIGINT NOT NULL,
+      category TEXT NOT NULL DEFAULT '',
+      file_id TEXT NOT NULL DEFAULT '',
+      asset_id TEXT NOT NULL DEFAULT '',
+      asset_uri TEXT NOT NULL DEFAULT '',
+      vod_task_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, source_url, sub_app_id)
+    );
+  `);
+  await query(`
+    ALTER TABLE app_vega_media_library
+      ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS file_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS asset_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS asset_uri TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS vod_task_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_user_updated_idx ON app_vega_media_library (user_id, updated_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_file_id_idx ON app_vega_media_library (file_id) WHERE file_id <> '';`);
+  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_asset_id_idx ON app_vega_media_library (asset_id) WHERE asset_id <> '';`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_user_characters (
       id TEXT PRIMARY KEY,
@@ -897,6 +944,30 @@ async function ensureSchemaInner() {
   await query(`
     CREATE INDEX IF NOT EXISTS app_generation_records_user_created_idx
       ON app_generation_records ((payload->>'userId'), created_at DESC);
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (
+      task_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'advanced_download',
+      source_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      storage_provider TEXT NOT NULL DEFAULT '',
+      storage_key TEXT NOT NULL DEFAULT '',
+      cdn_url TEXT NOT NULL DEFAULT '',
+      bytes BIGINT NOT NULL DEFAULT 0,
+      error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_media_ingest_jobs_status_available_idx
+      ON app_media_ingest_jobs (status, available_at, created_at);
   `);
   await query(`
     CREATE TABLE IF NOT EXISTS app_web_vitals (
@@ -1774,6 +1845,98 @@ async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID
     [cleanTenantId, cleanUsername],
   );
   return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+function emailChallengeDbKey(kind, email, tenantId) {
+  return `${String(kind || "login").trim()}:${normalizeTenantId(tenantId)}:${String(email || "").trim().toLowerCase()}`;
+}
+
+async function upsertEmailChallengeInDb({
+  kind = "login",
+  email = "",
+  tenantId = DEFAULT_TENANT_ID,
+  codeHash = "",
+  sentAt = new Date(),
+  expiresAt,
+  minimumIntervalMs = 60_000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for email verification codes.");
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  const effectiveSentAt = sentAt instanceof Date ? sentAt : new Date(sentAt);
+  const effectiveExpiresAt = expiresAt instanceof Date ? expiresAt : new Date(expiresAt || effectiveSentAt.getTime() + 10 * 60_000);
+  const intervalMs = Math.max(0, Number(minimumIntervalMs) || 0);
+  const result = await query(
+    `
+      INSERT INTO app_email_challenges(challenge_key, kind, tenant_id, email, code_hash, attempts, sent_at, expires_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 0, $6::timestamptz, $7::timestamptz, NOW())
+      ON CONFLICT (challenge_key) DO UPDATE SET
+        kind = EXCLUDED.kind,
+        tenant_id = EXCLUDED.tenant_id,
+        email = EXCLUDED.email,
+        code_hash = EXCLUDED.code_hash,
+        attempts = 0,
+        sent_at = EXCLUDED.sent_at,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = NOW()
+      WHERE app_email_challenges.sent_at <= $6::timestamptz - ($8::double precision * INTERVAL '1 millisecond')
+    `,
+    [challengeKey, String(kind), normalizeTenantId(tenantId), String(email).trim().toLowerCase(), String(codeHash), effectiveSentAt, effectiveExpiresAt, intervalMs],
+  );
+  if (!result.rowCount) return null;
+  return { key: challengeKey, sentAt: effectiveSentAt.getTime(), expiresAt: effectiveExpiresAt.getTime() };
+}
+
+async function consumeEmailChallengeInDb({ kind = "login", email = "", tenantId = DEFAULT_TENANT_ID, code = "" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for email verification codes.");
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT * FROM app_email_challenges WHERE challenge_key = $1 AND expires_at > NOW() FOR UPDATE`,
+      [challengeKey],
+    );
+    if (!rows.length) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const challenge = rows[0];
+    const attempts = Number(challenge.attempts || 0);
+    if (attempts >= 5) {
+      await client.query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+      await client.query("COMMIT");
+      return false;
+    }
+    const actual = crypto.createHash("sha256").update(String(code || "").trim()).digest("hex");
+    const expected = String(challenge.code_hash || "");
+    const matches = actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+    if (!matches) {
+      await client.query(`UPDATE app_email_challenges SET attempts = attempts + 1, updated_at = NOW() WHERE challenge_key = $1`, [challengeKey]);
+      await client.query("COMMIT");
+      return false;
+    }
+    await client.query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteEmailChallengeInDb({ kind = "login", email = "", tenantId = DEFAULT_TENANT_ID, codeHash = "" } = {}) {
+  if (!dbEnabled()) return;
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  if (codeHash) {
+    await query(`DELETE FROM app_email_challenges WHERE challenge_key = $1 AND code_hash = $2`, [challengeKey, String(codeHash)]);
+    return;
+  }
+  await query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
 }
 
 async function getUserByTelegramIdInDb(telegramUserId = "", tenantId = DEFAULT_TENANT_ID) {
@@ -2794,6 +2957,134 @@ async function getUserAssetFromDb(assetId = "") {
   await ensureSchema();
   const { rows } = await query(`SELECT * FROM app_user_assets WHERE id = $1 AND deleted_at IS NULL`, [id]);
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+function vegaMediaLibraryEntryFromRow(row = {}) {
+  return {
+    userId: String(row.user_id || ""),
+    sourceUrl: String(row.source_url || ""),
+    subAppId: Number(row.sub_app_id || 0),
+    category: String(row.category || ""),
+    fileId: String(row.file_id || ""),
+    assetId: String(row.asset_id || ""),
+    assetUri: String(row.asset_uri || ""),
+    vodTaskId: String(row.vod_task_id || ""),
+    status: String(row.status || ""),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function getVegaMediaLibraryEntryFromDb({ userId = "", sourceUrl = "", subAppId } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanSourceUrl = String(sourceUrl || "").trim();
+  const cleanSubAppId = Number(subAppId);
+  if (!cleanUserId || !cleanSourceUrl || !Number.isInteger(cleanSubAppId) || cleanSubAppId <= 0) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_vega_media_library WHERE user_id = $1 AND source_url = $2 AND sub_app_id = $3`,
+    [cleanUserId, cleanSourceUrl, cleanSubAppId],
+  );
+  return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
+}
+
+async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
+  if (!dbEnabled()) return null;
+  const userId = String(entry.userId || "").trim();
+  const sourceUrl = String(entry.sourceUrl || "").trim();
+  const subAppId = Number(entry.subAppId);
+  if (!userId || !sourceUrl || !Number.isInteger(subAppId) || subAppId <= 0) return null;
+  await ensureSchema();
+  const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+  const { rows } = await query(
+    `
+      INSERT INTO app_vega_media_library(user_id, source_url, sub_app_id, category, file_id, asset_id, asset_uri, vod_task_id, status, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW())
+      ON CONFLICT (user_id, source_url, sub_app_id) DO UPDATE SET
+        category = EXCLUDED.category,
+        file_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.file_id ELSE app_vega_media_library.file_id END,
+        asset_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.asset_id ELSE app_vega_media_library.asset_id END,
+        asset_uri = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.asset_uri ELSE app_vega_media_library.asset_uri END,
+        vod_task_id = CASE WHEN EXCLUDED.vod_task_id <> '' THEN EXCLUDED.vod_task_id ELSE app_vega_media_library.vod_task_id END,
+        status = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.status ELSE EXCLUDED.status END,
+        payload = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.payload ELSE EXCLUDED.payload END,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [
+      userId,
+      sourceUrl,
+      subAppId,
+      String(entry.category || ""),
+      String(entry.fileId || ""),
+      String(entry.assetId || ""),
+      String(entry.assetUri || ""),
+      String(entry.vodTaskId || ""),
+      String(entry.status || "pending"),
+      JSON.stringify(payload),
+    ],
+  );
+  return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
+}
+
+async function getVegaMediaLibrarySourceUrlsByAssetUrisFromDb({ userId = "", assetUris = [] } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  const cleanAssetUris = [...new Set((Array.isArray(assetUris) ? assetUris : [])
+    .map((assetUri) => String(assetUri || "").trim())
+    .filter(Boolean))].slice(0, 100);
+  if (!cleanUserId || !cleanAssetUris.length) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT asset_uri, source_url
+    FROM app_vega_media_library
+    WHERE user_id = $1
+      AND asset_uri = ANY($2::text[])
+      AND status = 'succeeded'
+      AND source_url <> ''
+    ORDER BY updated_at DESC
+  `, [cleanUserId, cleanAssetUris]);
+  const sourceUrlsByAssetUri = {};
+  rows.forEach((row) => {
+    const assetUri = String(row?.asset_uri || "").trim();
+    const sourceUrl = String(row?.source_url || "").trim();
+    if (assetUri && sourceUrl && !sourceUrlsByAssetUri[assetUri]) sourceUrlsByAssetUri[assetUri] = sourceUrl;
+  });
+  return sourceUrlsByAssetUri;
+}
+
+async function getUserAssetIdsByUrlsFromDb({ userId = "", urls = [] } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  const cleanUrls = [...new Set((Array.isArray(urls) ? urls : []).map((url) => String(url || "").trim()).filter(Boolean))].slice(0, 100);
+  if (!cleanUserId || !cleanUrls.length) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT id, payload
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+      AND (
+        payload->>'localUrl' = ANY($2::text[])
+        OR payload->>'publicUrl' = ANY($2::text[])
+        OR payload->>'cdnUrl' = ANY($2::text[])
+        OR payload->>'previewUrl' = ANY($2::text[])
+        OR payload->>'url' = ANY($2::text[])
+        OR payload->>'sourceImageUrl' = ANY($2::text[])
+      )
+    ORDER BY created_at DESC
+  `, [cleanUserId, cleanUrls]);
+  const idsByUrl = {};
+  rows.forEach((row) => {
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    ["localUrl", "publicUrl", "cdnUrl", "previewUrl", "url", "sourceImageUrl"].forEach((key) => {
+      const url = String(payload[key] || "").trim();
+      if (url && !idsByUrl[url]) idsByUrl[url] = String(row.id || payload.id || "").trim();
+    });
+  });
+  return idsByUrl;
 }
 
 async function upsertUserCharacterInDb(character = {}) {
@@ -5288,6 +5579,46 @@ async function getGenerationRecordsForScheduledMaintenanceFromDb({ maxAgeMs = 24
   return rows.map((row) => row.payload).filter(Boolean);
 }
 
+async function getGenerationRecordsNeedingPosterMaintenanceFromDb({
+  limit = 4,
+  maxAttempts = 3,
+  retryDelayMs = 30 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(20, Math.trunc(Number(limit || 4) || 4)));
+  const safeMaxAttempts = Math.max(1, Math.min(10, Math.trunc(Number(maxAttempts || 3) || 3)));
+  const safeRetryDelayMs = Math.max(60000, Number(retryDelayMs || 30 * 60 * 1000));
+  const retryBefore = new Date(Date.now() - safeRetryDelayMs).toISOString();
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'r2PurgedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND COALESCE(payload->>'cdnPosterUrl', '') = ''
+      AND COALESCE(payload->>'localPosterUrl', '') = ''
+      AND (
+        COALESCE(payload->>'remoteVideoUrl', '') <> ''
+        OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+        OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+        OR COALESCE(payload->>'localVideoUrl', '') <> ''
+      )
+      AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+      AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+      AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < $1
+      AND (
+        COALESCE(payload->>'posterMaintenanceRetryAt', '') = ''
+        OR payload->>'posterMaintenanceRetryAt' <= $2
+      )
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $3
+  `, [safeMaxAttempts, retryBefore, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
 async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -5326,7 +5657,7 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
     FROM app_generation_records
     WHERE payload->>'userId' = $1
       AND COALESCE(payload->>'deletedAt', '') = ''
-    ORDER BY created_at DESC, updated_at DESC
+    ORDER BY created_at DESC, task_id DESC
     LIMIT $2 OFFSET $3
   `, [cleanUserId, safeLimit, offset]);
   const total = Number(rows[0]?.total_count || 0);
@@ -5337,12 +5668,48 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
       SELECT payload, COUNT(*) OVER()::int AS total_count
       FROM app_generation_records
       WHERE payload->>'userId' = $1 AND COALESCE(payload->>'deletedAt', '') = ''
-      ORDER BY created_at DESC, updated_at DESC
+      ORDER BY created_at DESC, task_id DESC
       LIMIT $2 OFFSET $3
     `, [cleanUserId, safeLimit, (actualPage - 1) * safeLimit]);
     return { records: retry.rows.map((row) => row.payload), total: Number(retry.rows[0]?.total_count || total), page: actualPage, limit: safeLimit, totalPages };
   }
   return { records: rows.map((row) => row.payload), total, page: actualPage, limit: safeLimit, totalPages };
+}
+
+async function getAdminDashboardStatsFromDb() {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL) AS users,
+      (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND role = 'admin') AS admins,
+      (SELECT COALESCE(SUM(credits), 0) FROM app_users WHERE deleted_at IS NULL) AS total_credits,
+      (SELECT COUNT(*)::int FROM app_user_characters WHERE deleted_at IS NULL) AS user_characters,
+      (SELECT COALESCE(SUM(
+        CASE WHEN jsonb_typeof(payload->'sceneVideos') = 'object'
+          THEN (SELECT COUNT(*) FROM jsonb_object_keys(payload->'sceneVideos'))
+          ELSE 0
+        END
+      ), 0)::int FROM app_user_characters WHERE deleted_at IS NULL) AS user_scene_videos,
+      (SELECT COUNT(*)::int FROM app_wallet_orders) AS wallet_orders,
+      (SELECT COUNT(*)::int FROM app_wallet_orders WHERE status = 'pending') AS pending_orders,
+      (SELECT COUNT(*)::int FROM app_generation_records) AS generation_records,
+      (SELECT COUNT(*)::int FROM app_sessions) AS sessions,
+      (SELECT COUNT(*)::int FROM app_user_assets WHERE deleted_at IS NULL) AS user_assets
+  `);
+  const row = rows[0] || {};
+  return {
+    users: Number(row.users || 0),
+    admins: Number(row.admins || 0),
+    totalCredits: Number(row.total_credits || 0),
+    userCharacters: Number(row.user_characters || 0),
+    userSceneVideos: Number(row.user_scene_videos || 0),
+    walletOrders: Number(row.wallet_orders || 0),
+    pendingOrders: Number(row.pending_orders || 0),
+    generationRecords: Number(row.generation_records || 0),
+    sessions: Number(row.sessions || 0),
+    userAssets: Number(row.user_assets || 0),
+  };
 }
 
 async function getAdminGenerationRecordsPageFromDb({
@@ -5366,66 +5733,171 @@ async function getAdminGenerationRecordsPageFromDb({
     NULLIF(records.payload->>'provider', ''),
     CASE WHEN COALESCE(records.payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
   )`;
-  const cleanSearch = String(search || "").trim().toLowerCase();
+  const cleanSearch = String(search || "").trim();
+  const normalizedSearch = cleanSearch.toLowerCase();
+  let needsUserJoin = false;
+  let exactSearchMatched = false;
+  let exactUserIds = [];
   if (cleanSearch) {
-    const placeholder = addParam(`%${cleanSearch}%`);
-    where.push(`LOWER(CONCAT_WS(' ',
-      records.task_id,
-      records.payload->>'upstreamTaskId',
-      records.payload->>'userId',
-      records.payload->>'username',
-      users.username,
-      records.payload->>'source',
-      records.payload->>'kind',
-      records.payload->>'provider',
-      records.payload->>'status',
-      records.payload->>'templateId',
-      records.payload->>'templateTitle',
-      records.payload->>'sceneId',
-      records.payload->>'sceneName',
-      records.payload->>'sceneEntryId',
-      records.payload->>'sceneEntryName',
-      records.payload->>'companionId',
-      records.payload->>'companionName',
-      records.payload->>'prompt',
-      records.payload->>'finalPrompt',
-      records.payload->>'model',
-      records.payload->>'error'
-    )) LIKE ${placeholder}`);
+    // User IDs and usernames are the common admin lookup. Resolve them to a
+    // single indexed userId predicate instead of scanning every generation
+    // payload and concatenating large JSON strings for a LIKE query.
+    const userMatches = await query(
+      `SELECT id FROM app_users
+       WHERE (id = $1 OR username = $1 OR LOWER(username) = LOWER($1))
+         AND deleted_at IS NULL
+       ORDER BY (id = $1) DESC, created_at DESC`,
+      [cleanSearch],
+    );
+    exactUserIds = userMatches.rows.map((row) => String(row.id || "").trim()).filter(Boolean);
+    if (exactUserIds.length) {
+      // Usernames are not globally unique across tenants, so a username search
+      // must include every matching account instead of silently choosing one.
+      where.push(`records.payload->>'userId' = ANY(${addParam(exactUserIds)}::text[])`);
+      exactSearchMatched = true;
+    } else {
+      // A full task ID is another high-frequency exact lookup and can use the
+      // primary key directly.
+      const taskMatch = await query(`SELECT 1 FROM app_generation_records WHERE task_id = $1 LIMIT 1`, [cleanSearch]);
+      if (taskMatch.rowCount) {
+        where.push(`records.task_id = ${addParam(cleanSearch)}`);
+        exactSearchMatched = true;
+      }
+    }
+    if (!exactSearchMatched) {
+      needsUserJoin = true;
+      const placeholder = addParam(`%${normalizedSearch}%`);
+      where.push(`LOWER(CONCAT_WS(' ',
+        records.task_id,
+        records.payload->>'upstreamTaskId',
+        records.payload->>'userId',
+        records.payload->>'username',
+        users.username,
+        records.payload->>'source',
+        records.payload->>'kind',
+        records.payload->>'provider',
+        records.payload->>'status',
+        records.payload->>'templateId',
+        records.payload->>'templateTitle',
+        records.payload->>'sceneId',
+        records.payload->>'sceneName',
+        records.payload->>'sceneEntryId',
+        records.payload->>'sceneEntryName',
+        records.payload->>'companionId',
+        records.payload->>'companionName',
+        records.payload->>'prompt',
+        records.payload->>'finalPrompt',
+        records.payload->>'model',
+        records.payload->>'error'
+      )) LIKE ${placeholder}`);
+    }
   }
   if (provider) where.push(`${providerExpression} = ${addParam(String(provider))}`);
   if (status) where.push(`LOWER(COALESCE(records.payload->>'status', '')) = ${addParam(String(status).toLowerCase())}`);
   if (kind) where.push(`COALESCE(records.payload->>'kind', '') = ${addParam(String(kind))}`);
   const fromSql = `
     FROM app_generation_records records
-    LEFT JOIN app_users users ON users.id = records.payload->>'userId'
+    ${needsUserJoin ? "LEFT JOIN app_users users ON users.id = records.payload->>'userId'" : ""}
   `;
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const [totalResult, filteredResult] = await Promise.all([
-    query(`SELECT COUNT(*)::int AS count FROM app_generation_records`),
-    query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params),
-  ]);
-  const total = totalResult.rows[0]?.count || 0;
-  const filtered = filteredResult.rows[0]?.count || 0;
-  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
-  const safePage = Math.min(totalPages, Math.max(1, Number(page || 1)));
-  const pageParams = [...params, safeLimit, (safePage - 1) * safeLimit];
-  const rows = await query(
+  // The list only needs the fields that drive its columns and thumbnails.
+  // Request/response bodies and pricing snapshots routinely contain megabytes
+  // of JSON and are loaded by the detail endpoint when the admin opens a row.
+  const listPayloadSql = `((records.payload - ARRAY[
+    'upstreamPayload', 'createResponse', 'queryResponse', 'pricingEstimate',
+    'params', 'mediaAssets', 'usage', 'referenceMedia', 'inputMedia'
+  ]::text[]) || jsonb_build_object(
+    'pricingEstimate', jsonb_strip_nulls(jsonb_build_object(
+      'source', records.payload->'pricingEstimate'->'source'
+    )),
+    'params', CASE WHEN jsonb_typeof(records.payload->'params') = 'object' THEN jsonb_strip_nulls(jsonb_build_object(
+      'provider', records.payload->'params'->'provider',
+      'ratio', records.payload->'params'->'ratio',
+      'aspect_ratio', records.payload->'params'->'aspect_ratio',
+      'resolution', records.payload->'params'->'resolution',
+      'duration', records.payload->'params'->'duration',
+      'mediaMode', records.payload->'params'->'mediaMode',
+      'seed', records.payload->'params'->'seed'
+    )) ELSE NULL END
+  ))`;
+  const requestedPage = Math.max(1, Math.trunc(Number(page || 1)));
+  // Exact user lookups are common in admin support work. Do not use a window
+  // count here: PostgreSQL otherwise scans every matching row and builds the
+  // stripped payload before it can return the first page. Counting and paging
+  // separately lets both queries use the (userId, createdAt) index.
+  if (exactSearchMatched && exactUserIds.length > 0 && provider === "" && status === "" && kind === "") {
+    const countResult = await query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params);
+    const filtered = Number(countResult.rows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+    const safePage = Math.min(totalPages, requestedPage);
+    let pageRows = [];
+    if (safePage === requestedPage || requestedPage > 1) {
+      pageRows = (await query(
+        `
+          SELECT ${listPayloadSql} AS payload
+          ${fromSql}
+          ${whereSql}
+          ORDER BY records.created_at DESC, records.task_id DESC
+          LIMIT $${params.length + 1}
+          OFFSET $${params.length + 2}
+        `,
+        [...params, safeLimit, (safePage - 1) * safeLimit],
+      )).rows;
+    }
+    return {
+      records: pageRows.map((row) => row.payload),
+      page: safePage,
+      limit: safeLimit,
+      total: filtered,
+      filtered,
+      totalPages,
+    };
+  }
+  const pageParams = [...params, safeLimit, (requestedPage - 1) * safeLimit];
+  // Count and page rows in one pass. This is especially important for a user
+  // lookup: PostgreSQL can range-scan that user's index and return the first
+  // page immediately instead of first counting the entire table.
+  const pageResult = await query(
     `
-      SELECT records.payload
+      SELECT ${listPayloadSql} AS payload, COUNT(*) OVER()::int AS total_count
       ${fromSql}
       ${whereSql}
-      ORDER BY records.created_at DESC, records.updated_at DESC
+      ORDER BY records.created_at DESC, records.task_id DESC
       LIMIT $${params.length + 1}
       OFFSET $${params.length + 2}
     `,
     pageParams,
   );
+  let filtered = Number(pageResult.rows[0]?.total_count || 0);
+  if (!pageResult.rows.length && requestedPage > 1) {
+    const countResult = await query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params);
+    filtered = Number(countResult.rows[0]?.count || 0);
+  }
+  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+  const safePage = Math.min(totalPages, requestedPage);
+  let pageRows = pageResult.rows;
+  if (safePage !== requestedPage) {
+    const retryParams = [...params, safeLimit, (safePage - 1) * safeLimit];
+    pageRows = (await query(
+      `
+        SELECT ${listPayloadSql} AS payload, COUNT(*) OVER()::int AS total_count
+        ${fromSql}
+        ${whereSql}
+        ORDER BY records.created_at DESC, records.task_id DESC
+        LIMIT $${params.length + 1}
+        OFFSET $${params.length + 2}
+      `,
+      retryParams,
+    )).rows;
+    filtered = Number(pageRows[0]?.total_count || filtered);
+  }
   return {
-    records: rows.rows.map((row) => row.payload),
+    records: pageRows.map((row) => row.payload),
     page: safePage,
     limit: safeLimit,
-    total,
+    // The filtered count is the only count needed by the admin pager. Avoid a
+    // second full-table count on every filtered lookup.
+    total: filtered,
     filtered,
     totalPages,
   };
@@ -5501,6 +5973,152 @@ async function upsertGenerationRecordInDb(nextRecord) {
   return rows[0]?.payload || null;
 }
 
+async function enqueueMediaIngestJobInDb(taskId = "", {
+  userId = "",
+  kind = "advanced_download",
+  sourceUrl = "",
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) throw new Error("Media ingest taskId is required");
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      INSERT INTO app_media_ingest_jobs(task_id, user_id, kind, source_url, status, available_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'queued', NOW(), NOW())
+      ON CONFLICT (task_id) DO UPDATE SET
+        user_id = CASE WHEN EXCLUDED.user_id <> '' THEN EXCLUDED.user_id ELSE app_media_ingest_jobs.user_id END,
+        kind = EXCLUDED.kind,
+        source_url = CASE WHEN EXCLUDED.source_url <> '' THEN EXCLUDED.source_url ELSE app_media_ingest_jobs.source_url END,
+        status = CASE
+          WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.status
+          ELSE 'queued'
+        END,
+        available_at = CASE
+          WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.available_at
+          ELSE NOW()
+        END,
+        error = CASE WHEN app_media_ingest_jobs.status = 'ready' THEN app_media_ingest_jobs.error ELSE '' END,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [id, String(userId || ""), String(kind || "advanced_download"), String(sourceUrl || "")],
+  );
+  return rows[0] || null;
+}
+
+async function claimMediaIngestJobInDb(taskId = "", { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'processing',
+          attempts = attempts + 1,
+          started_at = NOW(),
+          updated_at = NOW(),
+          error = ''
+      WHERE task_id = $1
+        AND (
+          status = 'queued'
+          OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          OR (status = 'failed' AND available_at <= NOW())
+        )
+      RETURNING *
+    `,
+    [id, stale],
+  );
+  return rows[0] || null;
+}
+
+async function claimNextMediaIngestJobsInDb(limit = 1, { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const count = Math.max(1, Math.min(10, Number(limit) || 1));
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  const { rows } = await query(
+    `
+      WITH candidates AS (
+        SELECT task_id
+        FROM app_media_ingest_jobs
+        WHERE (
+          status = 'queued'
+          OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          OR (status = 'failed' AND available_at <= NOW())
+        )
+        ORDER BY available_at ASC, created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT $1
+      )
+      UPDATE app_media_ingest_jobs jobs
+      SET status = 'processing',
+          attempts = attempts + 1,
+          started_at = NOW(),
+          updated_at = NOW(),
+          error = ''
+      FROM candidates
+      WHERE jobs.task_id = candidates.task_id
+      RETURNING jobs.*
+    `,
+    [count, stale],
+  );
+  return rows;
+}
+
+async function completeMediaIngestJobInDb(taskId = "", {
+  storageProvider = "",
+  storageKey = "",
+  cdnUrl = "",
+  bytes = 0,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'ready',
+          completed_at = NOW(),
+          updated_at = NOW(),
+          error = '',
+          storage_provider = $2,
+          storage_key = $3,
+          cdn_url = $4,
+          bytes = $5
+      WHERE task_id = $1
+      RETURNING *
+    `,
+    [id, String(storageProvider || ""), String(storageKey || ""), String(cdnUrl || ""), Math.max(0, Number(bytes) || 0)],
+  );
+  return rows[0] || null;
+}
+
+async function failMediaIngestJobInDb(taskId = "", error = "", { retryAfterSeconds = 60, maxAttempts = 5 } = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const delay = Math.max(5, Math.min(24 * 60 * 60, Number(retryAfterSeconds) || 60));
+  const max = Math.max(1, Math.min(20, Number(maxAttempts) || 5));
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = CASE WHEN attempts >= $3 THEN 'failed' ELSE 'queued' END,
+          available_at = NOW() + ($2::int * INTERVAL '1 second'),
+          updated_at = NOW(),
+          error = $4
+      WHERE task_id = $1
+      RETURNING *
+    `,
+    [id, delay, max, String(error || "").slice(0, 1000)],
+  );
+  return rows[0] || null;
+}
+
 async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates = {}) {
   if (!dbEnabled()) return null;
   const id = String(taskId || "").trim();
@@ -5513,6 +6131,10 @@ async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates =
     "playbackOptimizedAt",
     "cdnVideoUrl",
     "cdnPosterUrl",
+    "storageProvider",
+    "storageKey",
+    "posterStorageProvider",
+    "posterStorageKey",
     "cdnImageUrl",
     "cdnImageUrls",
     "localImageUrl",
@@ -6604,6 +7226,9 @@ module.exports = {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  upsertEmailChallengeInDb,
+  consumeEmailChallengeInDb,
+  deleteEmailChallengeInDb,
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
@@ -6665,6 +7290,10 @@ module.exports = {
   updateUserInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
+  getVegaMediaLibraryEntryFromDb,
+  getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
+  upsertVegaMediaLibraryEntryInDb,
+  getUserAssetIdsByUrlsFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,
@@ -6747,12 +7376,19 @@ module.exports = {
   getGenerationRecordsFromDb,
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
+  getGenerationRecordsNeedingPosterMaintenanceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
+  getAdminDashboardStatsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,
+  enqueueMediaIngestJobInDb,
+  claimMediaIngestJobInDb,
+  claimNextMediaIngestJobsInDb,
+  completeMediaIngestJobInDb,
+  failMediaIngestJobInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,

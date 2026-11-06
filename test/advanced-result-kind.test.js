@@ -47,8 +47,8 @@ test("pending video and conversation tasks keep their own result tabs", () => {
 });
 
 test("all generated task entry points select the matching result tab", () => {
-  assert.match(create, /const pendingTaskId = `pending-text-[\s\S]{0,120}?state\.advancedResultMediaKind = "conversation";/);
-  assert.match(create, /state\.advancedResultMediaKind = "image";\s*const pendingTaskId = `pending-image/);
-  assert.match(create, /state\.advancedResultMediaKind = "video";\s*const pendingTaskId = `pending-video/);
-  assert.match(explore, /state\.advancedResultMediaKind = isVideo \? "video" : "image";\s*mergeAdvancedResultRecord\(playfluxTemplateRecordBase/);
+  assert.match(create, /const pendingTaskId = `pending-text-[\s\S]{0,120}?setAdvancedResultMediaKind\("conversation"\);/);
+  assert.match(create, /setAdvancedResultMediaKind\("image"\);[\s\S]{0,100}?const pendingTaskId = `pending-image/);
+  assert.match(create, /setAdvancedResultMediaKind\("video"\);[\s\S]{0,100}?const pendingTaskId = `pending-video/);
+  assert.match(explore, /setAdvancedResultMediaKind\(isVideo \? "video" : "image"\);\s*mergeAdvancedResultRecord\(playfluxTemplateRecordBase/);
 });

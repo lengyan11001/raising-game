@@ -1864,10 +1864,24 @@ function recordResultPosterUrl(record = {}) {
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+  return [
+    asset.adminPreviewUrl,
+    asset.imageUrl,
+    asset.sourceImageUrl,
+    asset.localImageUrl,
+    asset.thumbnailUrl,
+    asset.posterUrl,
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.localUrl,
+    asset.sourceUrl,
+    asset.previewUrl,
+    asset.url,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
 }
 
 function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  if (asset.adminDownloadUrl) return asset.adminDownloadUrl;
   const index = Number(asset.referenceIndex);
   if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
   return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
@@ -1892,6 +1906,11 @@ function isPreviewableVideoUrl(url = "") {
   return Boolean(value) && !isInternalAssetUrl(value) && isVideoUrl(value);
 }
 
+function isPreviewableAudioUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && /\.(mp3|wav|m4a|aac|ogg|opus|flac)(?:[?#]|$)/i.test(value);
+}
+
 function recordMediaAssetLabel(asset = {}, index = 0) {
   if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
   if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
@@ -1909,12 +1928,14 @@ function recordImageAssets(record = {}) {
     seen.add(url);
     images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
   };
+  const nonImageTypes = ["driving_audio", "reference_audio", "first_clip", "reference_video"];
+  const isAudio = (asset) => String(asset?.mime || "").startsWith("audio/") || nonImageTypes.includes(asset?.type);
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
   upstreamMedia
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
@@ -1941,6 +1962,36 @@ function recordReferenceVideoAssets(record = {}) {
   return videos;
 }
 
+function recordMediaAssetAudioUrl(asset = {}) {
+  const candidates = [asset.audioUrl, asset.localAudioUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return candidates.find((url) => isPreviewableAudioUrl(url))
+    || (String(asset.mime || "").startsWith("audio/") || ["driving_audio", "reference_audio"].includes(asset.type)
+      ? candidates.find((url) => !isInternalAssetUrl(url))
+      : "")
+    || "";
+}
+
+function recordReferenceAudioAssets(record = {}) {
+  const audios = [];
+  const seen = new Set();
+  const pushAudio = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetAudioUrl(asset);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    audios.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, audios.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  return audios;
+}
+
 function recordPrimaryImageUrl(record = {}) {
   const images = recordImageAssets(record);
   return toAbsoluteHttpUrl(images[0] ? recordMediaAssetPreviewUrl(images[0]) : "")
@@ -1948,13 +1999,11 @@ function recordPrimaryImageUrl(record = {}) {
 }
 
 function recordMediaAssetVideoUrl(asset = {}) {
-  const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
+  const candidates = [asset.videoUrl, asset.localVideoUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  const adminUrl = String(asset.adminPreviewUrl || "").trim();
-  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
-    || candidates.find((url) => isPreviewableVideoUrl(url))
-    || candidates.find((url) => !isInternalAssetUrl(url))
+  return candidates.find((url) => isPreviewableVideoUrl(url))
+    || (String(asset.mime || "").startsWith("video/") ? candidates.find((url) => !isInternalAssetUrl(url)) : "")
     || "";
 }
 
@@ -1978,7 +2027,8 @@ function recordInputVideoPosterUrl(record = {}) {
 function recordImageAssetsHtml(record = {}) {
   const images = recordImageAssets(record);
   const videos = recordReferenceVideoAssets(record);
-  if (!images.length && !videos.length) return "";
+  const audios = recordReferenceAudioAssets(record);
+  if (!images.length && !videos.length && !audios.length) return "";
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
@@ -1995,6 +2045,13 @@ function recordImageAssetsHtml(record = {}) {
           <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
             <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
           </button>
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>
+      `).join("")}
+      ${audios.map((asset) => `
+        <figure class="adm-record-reference-audio" data-reference-item>
+          <audio src="${escapeHtml(recordMediaAssetAudioUrl(asset))}" controls preload="metadata"></audio>
           <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
@@ -2743,6 +2800,7 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
   const referenceByIndex = new Map([
     ...recordImageAssets(record),
     ...recordReferenceVideoAssets(record),
+    ...recordReferenceAudioAssets(record),
   ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
   const referenceUrl = (index, download = false) => {
     const asset = referenceByIndex.get(String(index));
@@ -2795,7 +2853,6 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
 
 async function fetchAdminGenerationRecordDetail(record = {}) {
   if (!record?.taskId) return record;
-  if (record.adminResultPreviewUrl && (record.upstreamPayload || record.createResponse || record.queryResponse)) return record;
   const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
   return payload.record || record;
 }
@@ -3203,7 +3260,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员 / API文档</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
@@ -3211,7 +3268,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
                   <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
-                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}<br/><span class="adm-muted">文档 ${u.apiDocs?.active ? "已解锁" : "未解锁"}</span></td>
+                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}</td>
                   <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
@@ -3272,7 +3329,6 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>API 文档接口权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} style="width:18px;height:18px;" /><span>${user.apiDocs?.active ? "已解锁，可调用外部 API" : "未解锁，外部 API 不可用"}</span></label><small class="adm-muted">只影响 Bearer API Token / 子 Token，不影响网站前端登录后的生成。</small></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
@@ -3283,7 +3339,6 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
-      const apiDocsAccess = Boolean(tpl.querySelector("#editApiDocsAccess")?.checked);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -3294,7 +3349,7 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
-      const body = { role, apiDocsAccess };
+      const body = { role };
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });

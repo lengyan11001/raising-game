@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -35,6 +37,10 @@ PLATFORM_PATTERNS = (
     "platform.html",
     "platform.css",
     "platform*.js",
+    "server-source.js",
+    "server.parts/**",
+    "platform.ui.parts/**",
+    "platform.create.parts/**",
     "admin.html",
     "admin.css",
     "admin.js",
@@ -138,7 +144,8 @@ def write_release_tree(root: Path, source_ref: str, profile: str, parent: str | 
     paths = release_paths(source_ref, profile, root)
     wanted = set(paths)
     entries = [entry for entry in source_entries(root, source_ref) if entry[2] in wanted]
-    index_path = root / ".git" / f"release-index-{os.getpid()}"
+    index_dir = Path(tempfile.mkdtemp(prefix="release-index-"))
+    index_path = index_dir / "index"
     env = os.environ.copy()
     env["GIT_INDEX_FILE"] = str(index_path)
     try:
@@ -156,7 +163,7 @@ def write_release_tree(root: Path, source_ref: str, profile: str, parent: str | 
             ["git", "write-tree"], cwd=root, env=env, check=True, capture_output=True, text=True
         ).stdout.strip()
     finally:
-        index_path.unlink(missing_ok=True)
+        shutil.rmtree(index_dir, ignore_errors=True)
     parent_args = ["-p", parent] if parent else []
     message = f"Build {profile} release snapshot from {source_ref}"
     return run(["git", "commit-tree", tree, *parent_args, "-m", message], root)
@@ -184,19 +191,31 @@ def main() -> None:
         if profile == "platform":
             forbidden = [path for path in base_paths if matches_any(path, LIVE_PATTERNS)]
         else:
-            forbidden = [path for path in base_paths if not matches_any(path, LIVE_RELEASE_PATHS) and path not in RELEASE_TOOLS]
+            forbidden = [path for path in base_paths if not matches_any(path, LIVE_RELEASE_PATHS)]
         if forbidden:
             raise SystemExit(f"{profile} snapshot would contain foreign paths: {forbidden[:5]}")
-        base_commit = write_release_tree(root, source_ref, profile, None)
-        subprocess.run(
-            ["git", "update-ref", f"refs/heads/{base_branch}", base_commit, "0" * 40],
-            cwd=root,
-            check=True,
-        )
+
+        base_ref = f"refs/heads/{base_branch}"
+        try:
+            base_commit = run(["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"], root)
+            print(f"{profile}: preserving immutable base={base_commit}")
+        except subprocess.CalledProcessError:
+            base_commit = write_release_tree(root, source_ref, profile, None)
+            subprocess.run(["git", "update-ref", base_ref, base_commit, "0" * 40], cwd=root, check=True)
+            print(f"{profile}: created immutable base={base_commit}")
+
         release_commit = write_release_tree(root, source_ref, profile, base_commit)
         release_branch = args.platform_branch if profile == "platform" else args.live_branch
+        release_ref = f"refs/heads/{release_branch}"
+        old_release = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{release_ref}^{{commit}}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        expected_old = old_release.stdout.strip() if old_release.returncode == 0 else "0" * 40
         subprocess.run(
-            ["git", "update-ref", f"refs/heads/{release_branch}", release_commit, "0" * 40],
+            ["git", "update-ref", release_ref, release_commit, expected_old],
             cwd=root,
             check=True,
         )

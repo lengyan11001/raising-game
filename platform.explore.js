@@ -108,6 +108,10 @@ function setTab(tab) {
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
+  if (els.sameStylePanel) {
+    els.sameStylePanel.hidden = nextTab !== "cases"
+      && !(nextTab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  }
   if (typeof syncUndressAmbientVideo === "function") syncUndressAmbientVideo(nextTab === DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-history-expiry-info]").forEach((control) => {
     control.hidden = nextTab !== "history";
@@ -144,6 +148,7 @@ function setTab(tab) {
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
     renderAdvanced();
+    scheduleAutoSizeAdvancedPrompt();
     if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
     // renderAdvanced/setAdvancedSideTab schedules one authoritative detail
@@ -152,7 +157,21 @@ function setTab(tab) {
   if (nextTab === "workflow") {
     renderWorkflowPanel();
     loadWorkflowPresets();
-    loadWorkflowCanvases();
+    // Workflow canvases are a deferred module. Render the shell immediately,
+    // then hydrate it as soon as the module is available. This covers a fast
+    // click before the idle loader has finished.
+    const loadCanvases = () => {
+      if (state.tab !== "workflow") return;
+      if (typeof loadWorkflowCanvases === "function") {
+        Promise.resolve(loadWorkflowCanvases()).catch((error) => {
+          state.workflowCanvasMessage = error.message || String(error);
+          renderWorkflowPanel();
+        });
+      }
+    };
+    const deferred = window.PlatformDeferredModules?.load?.();
+    if (deferred?.then) deferred.then(loadCanvases).catch(() => {});
+    else loadCanvases();
   }
   closeAccountMenu();
   closeMobileDrawer();
@@ -162,7 +181,7 @@ function setTab(tab) {
 function syncMainTabState() {
   const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
   document.body.classList.toggle("home-active", state.tab === "home");
-  document.querySelectorAll("[data-tab]").forEach((button) => {
+  document.querySelectorAll(".top-tabs [data-tab]").forEach((button) => {
     const buttonTab = button.dataset.tab || "";
     const active = buttonTab === "custom"
       ? customActive
@@ -170,6 +189,11 @@ function syncMainTabState() {
         && !(buttonTab === "advanced" && customActive)
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
+  });
+  const sameStyleActive = state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  document.querySelectorAll("[data-same-style-entry]").forEach((entry) => {
+    entry.classList.toggle("is-active", sameStyleActive);
   });
   syncSideNavigationMore();
 }
@@ -192,7 +216,7 @@ function syncSideNavigationMore() {
     tabs.classList.remove("is-nav-overflowing");
     return;
   }
-  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more)")).filter((item) => !item.hidden);
+  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more), .top-nav-group")).filter((item) => !item.hidden);
   if (!candidates.length) return;
   const tabHeights = candidates.map((item) => item.getBoundingClientRect().height || 44);
   const navRow = tabs.closest(".side-rail") || tabs;
@@ -223,10 +247,11 @@ function syncSideNavigationMore() {
   overflow.forEach((item) => {
     const clone = item.cloneNode(true);
     clone.removeAttribute("id");
-    clone.classList.remove("is-nav-overflow-item", "is-active");
+    clone.classList.remove("is-nav-overflow-item", "is-active", "has-active-child");
     clone.removeAttribute("hidden");
-    clone.setAttribute("type", "button");
+    if (clone.matches(".top-tab")) clone.setAttribute("type", "button");
     clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
+    if (clone.matches(".top-nav-group")) clone.querySelector(".top-nav-group-children")?.setAttribute("hidden", "");
     menu.appendChild(clone);
   });
   menu.hidden = true;
@@ -290,6 +315,10 @@ function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  if (state.tab !== DEFAULT_PLATFORM_TAB) {
+    setTab(DEFAULT_PLATFORM_TAB);
+    return;
+  }
   const nextHash = galleryModeHash(state.galleryMode);
   window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
@@ -1184,7 +1213,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  state.advancedResultMediaKind = isVideo ? "video" : "image";
+  setAdvancedResultMediaKind(isVideo ? "video" : "image");
   mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
@@ -1485,7 +1514,10 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedResolution) els.advancedResolution.value = "1K";
     if (els.advancedRatio) els.advancedRatio.value = "9:16";
   }
-  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || "";
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = template.prompt || "";
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   setTab("advanced");
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -2155,11 +2187,11 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   const deletable = mine || custom;
   const imageReady = Boolean(characterUsableImage(item));
   const generating = isMyCharacterGenerating(item);
-  const tags = characterTags(item, 2);
+  const tags = characterTags(item, 1);
   const profileLine = characterProfileLine(item);
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
-    `${videoCount} videos`,
+    `${videoCount} ${videoCount === 1 ? "video" : "videos"}`,
   ]).join(" / ");
   const chatTenant = typeof isTenantTool === "function" && isTenantTool("chat");
   const actionMarkup = chatTenant
@@ -3550,6 +3582,7 @@ async function useHomeCharacter(characterId = "") {
   state.advancedUploadDataUrl = imageUrl || "";
   if (els.advancedPrompt) {
     els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   setTab("advanced");
   updateAdvancedModelControls();
@@ -3807,7 +3840,7 @@ function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
   prepareModalOpen();
-  const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
+  const title = publicModelText(publicGenerationDisplayTitle(record, t("history.detailTitle")));
   const videoUrl = generationVideoUrl(record);
   // The local generated copy is served by the site's optimized static
   // handler and supports byte ranges. Prefer it for the detail preview when
@@ -3836,6 +3869,7 @@ function openHistoryDetail(index) {
         ` : ""}
         ${videoUrl || imageResultUrl ? `
           <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+            <span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>
             <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
           </button>
         ` : ""}
@@ -3977,13 +4011,51 @@ function syncGalleryShortcutNav() {
       countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
+  renderGalleryModeTabs();
+}
+
+function galleryTopTabsVisible() {
+  return state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+}
+
+function galleryTopTabItems() {
+  const items = [{
+    id: "cases",
+    label: state.lang === "zh" ? "案例" : "Case",
+    icon: "layout-grid",
+    active: state.tab === "cases",
+  }];
+  [
+    { id: "playflux-video", labelKey: "playflux.videoTab", fallback: "Video", icon: "film" },
+    { id: "playflux-anime", labelKey: "playflux.animeTab", fallback: "Anime", icon: "sparkles" },
+    { id: "playflux-image", labelKey: "playflux.imageTab", fallback: "Image", icon: "image" },
+  ].forEach((item) => {
+    if (!isGalleryModeAllowed(item.id)) return;
+    items.push({
+      ...item,
+      label: t(item.labelKey, {}, item.fallback),
+      active: state.tab === DEFAULT_PLATFORM_TAB && normalizeGalleryMode(state.galleryMode) === item.id,
+    });
+  });
+  return items;
 }
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  els.galleryModeTabs.hidden = true;
-  els.galleryModeTabs.innerHTML = "";
-  syncGalleryShortcutNav();
+  const visible = galleryTopTabsVisible();
+  els.galleryModeTabs.hidden = !visible;
+  if (!visible) {
+    els.galleryModeTabs.innerHTML = "";
+    return;
+  }
+  els.galleryModeTabs.innerHTML = galleryTopTabItems().map((item) => `
+    <button class="gallery-mode-tab${item.active ? " is-active" : ""}" type="button" role="tab"
+      aria-selected="${item.active ? "true" : "false"}" data-gallery-top-tab="${escapeHtml(item.id)}">
+      <i data-lucide="${escapeHtml(item.icon)}"></i><span>${escapeHtml(item.label)}</span>
+    </button>
+  `).join("");
+  refreshIcons();
 }
 
 function advancedCaseOutputVideo(item = {}) {
@@ -4059,6 +4131,7 @@ function fillAdvancedCasePrompt(item = {}) {
   }
   if (els.advancedPrompt) {
     els.advancedPrompt.value = prompt;
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
     els.advancedPrompt.focus?.();
   }
   state.activeAdvancedCaseId = "";
@@ -4565,7 +4638,7 @@ function renderTopupSummary() {
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
   if (els.topupSelectedPackage) {
     els.topupSelectedPackage.textContent = selectedProduct
-      ? `${selectedProduct.name || "API Documentation Access"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
+      ? `${selectedProduct.name || "Billing product"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
       : selectedPlan
       ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
       : selectedPackage
@@ -4856,23 +4929,10 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  const enabled = tenantFeature("apiAccess", true) && membershipProgramEnabled();
-  const active = apiDocsAccessActive();
-  if (els.apiDocsPurchaseCard) els.apiDocsPurchaseCard.hidden = !enabled || active;
-  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled || !active;
-  if (els.buyApiDocsBtn) {
-    els.buyApiDocsBtn.disabled = !state.user || active;
-    els.buyApiDocsBtn.innerHTML = state.user
-      ? '<i data-lucide="lock-keyhole-open"></i>Unlock docs'
-      : '<i data-lucide="log-in"></i>Sign in to unlock';
-  }
-  if (els.apiDocsPurchaseStatus) {
-    els.apiDocsPurchaseStatus.textContent = active
-      ? "API documentation access is active."
-      : state.user ? "" : "Sign in before purchasing access.";
-  }
+  const enabled = tenantFeature("apiAccess", true);
+  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled;
   ensureActiveAccessGuide();
-  if (!enabled || !active || !state.user) {
+  if (!enabled) {
     if (state.apiDocsCenter) {
       state.apiDocsCenter = null;
       state.apiDocsCenterActiveId = "";
@@ -4901,7 +4961,7 @@ function renderAccessGuides() {
     els.accessDocs.hidden = true;
     els.accessDocs.innerHTML = "";
   }
-  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled || !active;
+  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled;
   renderTokenDisplays();
   renderApiSubtokens();
   refreshIcons();

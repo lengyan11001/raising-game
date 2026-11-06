@@ -9,7 +9,8 @@ const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8
 const admin = fs.readFileSync(path.resolve(__dirname, "..", "admin.js"), "utf8");
 const app = fs.readFileSync(path.resolve(__dirname, "..", "app.js"), "utf8");
 
-test("generation record previews prefer R2, then upstream, then local media", () => {
+test("generation record previews prefer signed CDN, then upstream, then local media", () => {
+  assert.match(server, /const deliveryVideoUrl = signedOssCdnUrlForDelivery\(cdnUrl/);
   assert.match(server, /return cdnUrl \|\| providerUrl \|\| localUrl/);
   assert.match(admin, /record\.cdnVideoUrl \|\|\s*record\.remoteVideoUrl \|\|\s*record\.providerVideoUrl/);
   assert.match(app, /record\?\.cdnVideoUrl \|\|\s*record\?\.remoteVideoUrl \|\|\s*record\?\.providerVideoUrl/);
@@ -17,7 +18,8 @@ test("generation record previews prefer R2, then upstream, then local media", ()
 
 test("image and poster previews also prefer stored R2 URLs", () => {
   assert.match(server, /record\.cdnImageUrl \|\|[\s\S]*record\.remoteImageUrl/);
-  assert.match(server, /record\.cdnPosterUrl \|\| providerPosterUrl \|\| record\.localPosterUrl/);
+  assert.match(server, /signedOssCdnUrlForDelivery\(record\.cdnPosterUrl/);
+  assert.match(server, /\|\| providerPosterUrl[\s\S]*?\|\| record\.localPosterUrl/);
   assert.match(admin, /record\.cdnImageUrl \|\| record\.remoteImageUrl/);
   assert.match(admin, /record\.cdnPosterUrl \|\| record\.cdnCoverUrl \|\| record\.providerPosterUrl/);
 });
