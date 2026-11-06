@@ -1,3 +1,10 @@
+## Same-style active tab highlight refinement (2026-11-06)
+
+- User asked to remove the red outline/white-text state from the selected Same-style tab and rely only on the soft highlight fill.
+- Active tabs now keep `border-color: transparent`, `box-shadow: none`, and the normal muted text color while retaining the pink-tinted background.
+- Cache suffix bumped to `advanced-parameters-20261106-16`; `test/side-navigation-overflow.test.js` passes 3/3, including assertions against the red inset bar and white active text.
+- Deployment: old-site `c0a5222`; platform-release `ce350fa`; deployed only to `123vips.com`. Health returned `200 {"ok":true}` and production CSS confirms the transparent border and disabled box shadow.
+
 ## Generate button/tabs polish and deployment (2026-11-06)
 
 - User asked for the Generate submit button to be centered in the left panel, the parameter area to sit lower with visible spacing, and the four Same-style tabs to be smaller like the Case sub-tabs.
