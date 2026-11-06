@@ -609,3 +609,25 @@ CODEX_TASK_STATE.md
 - Verification: syntax and `git diff --check` pass; targeted suite 76/82. The same 6 failures reproduce on HEAD without this change (`test/advanced-custom-ui.test.js`, pre-existing Vega/Wan pricing assertions).
 - Release: `old-site` `e634055`; `platform-release` `ae53a85` built from it and pushed with lease protection. Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; Live was not deployed.
 - Production verification: `/api/health` is `200 {"ok":true}`; production `platform.css` SHA-256 exactly matches `platform-release`; browser at 1440x1000 reports 216px rail, 240px content origin, 44px search, 12px grid gap, and 12px card radius. Cases/Advanced/History render without new console errors; mobile gallery remains two columns.
+
+## Generate conversational redesign plan (2026-11-05)
+
+- User asked to stop and plan first, show a design mock, then execute in stages. No production/business source files have been changed in this phase.
+- Direction: desktop shell keeps the 216px navigation, adds a 62px header, a centered conversation stream (max 860px), a fixed bottom Composer, and a collapsible 356px right drawer. History is the default drawer tab.
+- Composer: attachment chips above a contenteditable prompt, model/@assets/parameters/preset/upload icons below, Generate action at right. Prompt grows from 38px to 180px and scrolls internally beyond that. Mention spans are rendered pink.
+- Conversation: newest turn at the bottom, only the most recent 5 turns inline. History mini cards use a click-time action bar so the `download2` tooltip does not cover other actions.
+- Unified model system: one shell for all models; model-specific parameters are shown only when meaningful and hidden controls continue using existing server defaults.
+- Interactive mock: `/Users/x042/.codex/visualizations/2026/11/05/01a1ab8c-4aa5-7a33-82cd-78be1dd6cb1f/generate-redesign.html`
+- Screenshots: `generate-desktop.png`, `generate-model-modal.png`, `generate-mobile.png`, `generate-mobile-closed.png` in the same directory.
+- Planned phases: (1) layout shell and responsive drawer; (2) unified model/params modals and capability mapping; (3) Composer attachments/@ mentions/autogrow; (4) conversationized history plus drawer Result/History; (5) result actions and cross-model regression; (6) release only after user approval, build `platform-release`, deploy `--site old`, verify production.
+- Decision gate: wait for design approval before editing `platform.html`, `platform.css`, or Generate JS.
+
+## Vega Lite TOS-only media flow (2026-11-06)
+
+- User clarified that Vega Lite models must never use the Tencent VOD media library. Their uploaded files are already stored in TOS/object storage, and the public HTTP(S) URL should be sent directly in `FileInfos`.
+- Only `seedance20-vega` (Vega 1.0 Pro) and `seedance25-vega` (Vega 1.5 Pro) use `asset://` via `CreateAigcMaterial` / `DescribeTaskDetail`.
+- Fixed a missing `resolveVegaLiteMediaAssetSources` import in `server.parts/part-01.js`; the server had been returning `INVALID_ADVANCED_REQUEST` at runtime.
+- Lite public URLs now bypass both VOD media-library lookup and database asset lookup. A stale `asset://` is only resolved through an owned user-asset public URL fallback; if unavailable it fails with `VEGA_MEDIA_ASSET_UNAVAILABLE`, never upstream.
+- Lite frontend validation text now requests a public HTTP(S) TOS URL, while Pro keeps public HTTP(S) or `asset://`.
+- Pro still imports media before charging/CreateAigcVideoTask; Lite still uses URL `FileInfos` and never calls the asset API.
+- Verification: `test/tencent-vod-vega.test.js`, `test/vega-regeneration-media.test.js`, and `test/advanced-pricing.test.js`: 82 pass / 0 fail; syntax checks and `git diff --check` pass.

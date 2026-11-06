@@ -329,6 +329,7 @@ const {
   callTencentVod,
   prepareVegaMediaLibraryFileInfos,
   resolveVegaMediaAssetSources,
+  resolveVegaLiteMediaAssetSources,
   isVegaProvider,
   normalizeVegaDuration,
   normalizeVegaMediaMode,

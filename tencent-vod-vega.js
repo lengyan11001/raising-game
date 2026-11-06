@@ -827,6 +827,60 @@ function vegaUserAssetSourceUrl(asset = {}) {
   return "";
 }
 
+// Lite models never use the Tencent VOD media library. The browser normally
+// submits their public object-storage URL directly; this fallback only maps an
+// owned user asset id to that public URL and never touches the media library.
+async function resolveVegaLiteMediaAssetSources({
+  provider = "",
+  media = {},
+  userId = "",
+  lookupAsset,
+} = {}) {
+  const next = {
+    ...media,
+    referenceImages: Array.isArray(media.referenceImages) ? [...media.referenceImages] : [],
+    referenceVideos: Array.isArray(media.referenceVideos) ? [...media.referenceVideos] : [],
+    referenceAudios: Array.isArray(media.referenceAudios) ? [...media.referenceAudios] : [],
+  };
+  const assetCache = new Map();
+  const resolve = async (currentUrl, assetId, label) => {
+    const url = String(currentUrl || "").trim();
+    const id = String(assetId || "").trim();
+    if (!url.startsWith("asset://")) return url;
+    if (id && lookupAsset) {
+      if (!assetCache.has(id)) assetCache.set(id, Promise.resolve(lookupAsset(id)));
+      const asset = await assetCache.get(id);
+      if (asset && String(asset.userId || "").trim() === String(userId || "").trim()) {
+        const sourceFromAsset = vegaUserAssetSourceUrl(asset);
+        if (sourceFromAsset) return sourceFromAsset;
+      }
+    }
+    throw Object.assign(new Error(`${label} no longer has an accessible public source. Please select it again.`), {
+      statusCode: 400,
+      code: "VEGA_MEDIA_ASSET_UNAVAILABLE",
+      details: { assetUri: url, userAssetId: id, provider },
+    });
+  };
+  if (String(next.firstFrameUrl || "").trim().startsWith("asset://")) {
+    next.firstFrameUrl = await resolve(next.firstFrameUrl, media.firstFrameAssetId, "First frame image");
+  }
+  if (String(next.lastFrameUrl || "").trim().startsWith("asset://")) {
+    next.lastFrameUrl = await resolve(next.lastFrameUrl, media.lastFrameAssetId, "Last frame image");
+  }
+  for (const [key, idKey, label] of [
+    ["referenceImages", "referenceImageAssetIds", "Reference image"],
+    ["referenceVideos", "referenceVideoAssetIds", "Reference video"],
+    ["referenceAudios", "referenceAudioAssetIds", "Reference audio"],
+  ]) {
+    const ids = Array.isArray(media[idKey]) ? media[idKey] : [];
+    for (let index = 0; index < next[key].length; index += 1) {
+      if (!String(next[key][index] || "").trim().startsWith("asset://")) continue;
+      next[key][index] = await resolve(next[key][index], ids[index], `${label} ${index + 1}`);
+    }
+  }
+  return next;
+}
+
 // Browser state can retain an asset:// URI after the server-side media-library
 // row has expired or was created under another account. Never forward that
 // opaque value on trust: resolve it back to an owned public source URL first.
@@ -854,7 +908,9 @@ async function resolveVegaMediaAssetSources({
     ...next.referenceAudios,
   ].map((value) => String(value || "").trim()).filter((value) => value.startsWith("asset://")))];
   if (!assetUris.length) return next;
-  const sourceUrlsByAssetUri = lookupSourceUrls && userId
+  // Lite models submit public object-storage URLs directly. Only Pro models
+  // may resolve an asset URI through the Tencent VOD media-library cache.
+  const sourceUrlsByAssetUri = vegaProviderUsesMediaLibrary(provider) && lookupSourceUrls && userId
     ? (await lookupSourceUrls({ userId, assetUris })) || {}
     : {};
   const assetCache = new Map();
@@ -1054,6 +1110,7 @@ module.exports = {
   vegaProviderLabel,
   vegaProviderUsesMediaLibrary,
   prepareVegaMediaLibraryFileInfos,
+  resolveVegaLiteMediaAssetSources,
   resolveVegaMediaAssetSources,
   vegaTaskDetail,
   vegaTaskFailureMessage,

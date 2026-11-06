@@ -436,7 +436,9 @@ async function submitAdvancedGenerateInternal() {
       || vegaReferenceAudios.some((url) => !url);
     if (invalidVegaMedia) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Vega requires a public HTTP(S) URL or an existing asset:// URI.";
+      if (els.advancedNote) els.advancedNote.textContent = vegaProviderUsesMediaLibrary(provider)
+        ? "Vega Pro requires a public HTTP(S) URL or an existing asset:// URI."
+        : "Vega Lite requires a public HTTP(S) URL from object storage.";
       return;
     }
     if (vegaUsesFirstFrame && !vegaFirstFrameUrl) {

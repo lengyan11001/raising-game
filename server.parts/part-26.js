@@ -9,6 +9,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   const bodyParams = context.bodyParams || requestParamsFromBody(body);
   const caseParams = context.caseParams || {};
   const selectedCase = context.selectedCase || null;
+  const usesVegaMediaLibrary = vegaProviderUsesMediaLibrary(provider);
   const merged = mergedRequestForMedia(body, caseParams);
   const requestedMediaMode = firstPresent(
     body.mediaMode,
@@ -52,17 +53,29 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   let media;
   try {
     media = vegaMediaSelection({ ...effectiveMedia, mediaMode, draftTaskId });
-    // A stale browser/template/regeneration record may contain an asset:// URI
-    // that is absent from this account's media library. Resolve owned public
-    // source URLs before building FileInfos so invalid opaque assets are never
-    // submitted to Tencent VOD.
-    media = await resolveVegaMediaAssetSources({
-      provider,
-      media: { ...effectiveMedia, ...media },
-      userId: auth.user.id,
-      lookupSourceUrls: getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
-      lookupAsset: getUserAssetFromDb,
-    });
+    const ownedLiteAssetPublicUrl = async (assetId) => {
+      const owned = (auth.db?.userAssets || []).find((asset) => (
+        asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)
+      )) || await getUserAssetFromDb(assetId);
+      if (!owned || String(owned.userId || "").trim() !== String(auth.user.id || "").trim()) return null;
+      return ensureVegaPublicUrlForUserAsset(auth.db, owned);
+    };
+    // Pro resolves asset:// through the media library. Lite always uses the
+    // public object-storage URL and never queries or creates library entries.
+    media = usesVegaMediaLibrary
+      ? await resolveVegaMediaAssetSources({
+        provider,
+        media: { ...effectiveMedia, ...media },
+        userId: auth.user.id,
+        lookupSourceUrls: getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
+        lookupAsset: getUserAssetFromDb,
+      })
+      : await resolveVegaLiteMediaAssetSources({
+        provider,
+        media: { ...effectiveMedia, ...media },
+        userId: auth.user.id,
+        lookupAsset: ownedLiteAssetPublicUrl,
+      });
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} media is invalid.`);
   }
@@ -164,7 +177,6 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
   }
-  const usesVegaMediaLibrary = vegaProviderUsesMediaLibrary(provider);
   if (usesVegaMediaLibrary && Array.isArray(payload.FileInfos) && payload.FileInfos.length) {
     try {
       payload = {
