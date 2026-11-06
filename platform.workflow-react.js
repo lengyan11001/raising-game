@@ -44,10 +44,15 @@
   }
 
   function nodeData(node) {
-    var data = node && node.data || {};
-    if (!data.sourceNode) data.sourceNode = node;
-    data.inputUsed = typeof window.workflowIncomingEdges === "function" && window.workflowIncomingEdges(node.id).length > 0;
-    return data;
+    var source = node && node.data || {};
+    return Object.assign({}, source, {
+      inputUsed: typeof window.workflowIncomingEdges === "function" && window.workflowIncomingEdges(node.id).length > 0,
+    });
+  }
+
+  function workflowNodeReference(nodeId) {
+    var workflow = workflowSnapshot();
+    return (workflow.nodes || []).find(function (node) { return String(node.id || "") === String(nodeId || ""); }) || null;
   }
 
   function mapNodes(options) {
@@ -329,17 +334,29 @@
         var file = event.target.files && event.target.files[0];
         if (!file || typeof window.uploadWorkflowFile !== "function") return;
         event.stopPropagation();
+        var canvasId = typeof window.activeWorkflowCanvasId === "function" ? window.activeWorkflowCanvasId() : "";
         setBusy(true);
+        if (node.data) node.data.uploadPending = true;
+        if (typeof window.persistWorkflowState === "function") window.persistWorkflowState();
         window.uploadWorkflowFile(file, node.id).then(function (uploaded) {
+          if (canvasId && typeof window.activeWorkflowCanvasId === "function" && window.activeWorkflowCanvasId() !== canvasId) return;
           var patch = {};
           patch[fieldName] = uploaded.url || "";
           patch[fieldName + "AssetId"] = uploaded.assetId || "";
+          patch.uploadPending = false;
+          patch.error = "";
           persistNode(node, patch);
           if (typeof window.clearWorkflowExecutionResults === "function") {
             window.clearWorkflowExecutionResults({ fromNodeId: node.id, message: "Input updated. Run downstream nodes again.", render: false });
           }
           refreshCanvas();
         }).catch(function (error) {
+          if (node.data) {
+            node.data.uploadPending = false;
+            node.data.error = error && error.message ? error.message : "Upload failed.";
+            if (typeof window.persistWorkflowState === "function") window.persistWorkflowState();
+            refreshCanvas();
+          }
           console.error("Workflow upload failed", error);
         }).finally(function () {
           setBusy(false);
@@ -351,7 +368,7 @@
       ? kind === "video"
         ? h("video", { src: value, controls: true, playsInline: true, preload: "metadata", className: "nodrag nowheel", onPointerDown: stopNodeEvent })
         : h("img", { src: value, alt: "", loading: "lazy", decoding: "async" })
-      : h("span", { className: "workflow-react-upload-copy" }, icon("upload"), h("strong", null, busy ? "Uploading..." : "Add " + kind), h("small", null, "Click or drop a file"));
+      : h("span", { className: "workflow-react-upload-copy" }, icon("upload"), h("strong", null, busy || (node.data && node.data.uploadPending) ? "Uploading..." : "Add " + kind), h("small", null, node.data && node.data.error ? node.data.error : "Click or drop a file"));
     return h("article", { className: "workflow-react-card is-reference is-" + kind + " " + (node.id === window.__workflowReactSelectedNodeId ? "is-selected" : ""), "data-workflow-react-node": node.id },
       Header(node, node.title, kind === "video" ? "video" : "image", deleteAction(node)),
       h("label", { className: "nodrag workflow-react-dropzone", onPointerDown: stopNodeEvent }, fileInput, media),
@@ -484,8 +501,9 @@
   }
 
   function WorkflowNode(props) {
-    var node = props.data && props.data.sourceNode || props.node || props;
-    node.id = props.id || node.id || (props.node && props.node.id) || "";
+    var nodeId = String(props.id || "");
+    var node = workflowNodeReference(nodeId);
+    if (!node) return h("div", { className: "workflow-react-node-shell", "data-workflow-react-node": nodeId });
     var acceptsInput = typeof window.workflowNodeAcceptsInput === "function" && window.workflowNodeAcceptsInput(node);
     var acceptsOutput = typeof window.workflowNodeAcceptsOutput === "function" && window.workflowNodeAcceptsOutput(node);
     var inputUsed = Boolean(props.data && props.data.inputUsed);
@@ -550,13 +568,15 @@
         mounted.setEdges = setEdges;
         mounted.screenToFlowPosition = flow.screenToFlowPosition;
         mounted.fitView = flow.fitView;
+        mounted.getViewport = flow.getViewport;
+        mounted.setViewport = flow.setViewport;
         mounted.deleteElements = deleteBusinessElements;
         mounted.getNodes = function () { return nodes; };
         mounted.getEdges = function () { return edges; };
       }
       window.__workflowReactApi = mounted;
       window.dispatchEvent(new CustomEvent("workflow-react-ready"));
-    }, [flow.screenToFlowPosition, flow.fitView, nodes, edges, setNodes, setEdges]);
+    }, [flow.screenToFlowPosition, flow.fitView, flow.getViewport, flow.setViewport, nodes, edges, setNodes, setEdges]);
 
     React.useEffect(function () {
       if (typeof window.refreshIcons === "function") window.refreshIcons();
@@ -745,6 +765,24 @@
     return true;
   }
 
+  function captureViewport() {
+    if (!mounted || typeof mounted.getViewport !== "function") return savedViewport;
+    try {
+      savedViewport = mounted.getViewport();
+    } catch (_) {}
+    return savedViewport;
+  }
+
+  function restoreViewport(viewport) {
+    if (!viewport || !mounted) return false;
+    savedViewport = { x: Number(viewport.x || 0), y: Number(viewport.y || 0), zoom: Number(viewport.zoom || 1) };
+    if (typeof mounted.setViewport === "function") {
+      mounted.setViewport(savedViewport, { duration: 0 });
+      return true;
+    }
+    return false;
+  }
+
   function screenToFlowPosition(point) {
     if (mounted && mounted.screenToFlowPosition) return mounted.screenToFlowPosition(point);
     return { x: Number(point && point.x || 0), y: Number(point && point.y || 0) };
@@ -764,6 +802,8 @@
     syncExisting: syncExisting,
     remountPendingHost: remountPendingHost,
     selectNode: selectNode,
+    captureViewport: captureViewport,
+    restoreViewport: restoreViewport,
     screenToFlowPosition: screenToFlowPosition,
     buildOptions: buildOptions,
   };

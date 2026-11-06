@@ -1016,6 +1016,7 @@ window.syncWorkflowStatusText = syncWorkflowStatusText;
 
 function renderWorkflowPanel({ focusNodeId = "" } = {}) {
   if (!els.workflowRoot) return;
+  if (typeof window.WorkflowReactCanvas?.captureViewport === "function") window.WorkflowReactCanvas.captureViewport();
   const viewport = captureWorkflowCanvasViewport();
   const workflow = ensureWorkflowState();
   els.workflowRoot.innerHTML = `
@@ -1148,7 +1149,10 @@ async function uploadWorkflowMediaDataUrl(dataUrl = "", { name = "Workflow media
   return { assetId: asset.id, url };
 }
 
+window.activeWorkflowCanvasId = () => String(state.workflowActiveCanvasId || "");
+
 async function uploadWorkflowFile(file, nodeId = "") {
+  if (typeof window.markWorkflowCanvasLocalEdit === "function") window.markWorkflowCanvasLocalEdit();
   const dataUrl = await readFileAsDataUrl(file);
   return uploadWorkflowMediaDataUrl(dataUrl, {
     name: file.name || "Workflow media",

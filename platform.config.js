@@ -1051,6 +1051,8 @@ const state = {
   workflowCanvases: [],
   workflowCanvasesLoaded: false,
   workflowCanvasesLoading: false,
+  workflowCanvasLoadSeq: 0,
+  workflowLocalRevision: 0,
   workflowActiveCanvasId: "",
   workflowCanvasMessage: "",
   workflowCanvasSaveTimer: 0,

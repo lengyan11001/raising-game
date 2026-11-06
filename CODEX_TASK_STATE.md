@@ -1115,3 +1115,14 @@ CODEX_TASK_STATE.md
 - Verification: `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 19/19; syntax checks and `git diff --check` pass.
 - Deployment hardening: deploy now resolves `refs/remotes/origin/<branch>` explicitly and retries the health endpoint across the normal restart window. Deployment checks pass 7/7.
 - Final deployment: `old-site` `a1b5b80`, `platform-release` `3008d70`; `scripts/deploy_local.sh --site old` exited 0 after all health/page/commit checks. Production `https://123vips.com` has the acceleration-status UI and `advancedDownloadStatus` workflow handling.
+
+## Workflow canvas upload race and stale node fix (2026-11-06)
+
+- User report: after adding nodes/edges, uploading an image made the other nodes disappear.
+- Root cause 1: an in-flight workflow canvas GET could replace the newer local workflow with the older server snapshot.
+- Root cause 2: React Flow node data held a stale business-node object, so post-upload rerenders could resolve the wrong/old node snapshot.
+- Fix: canvas load sequence guards, local-edit revision, local-authoritative merge during an in-flight load, and save-after-merge once loading completes. React node rendering now looks up the current node by ID from `ensureWorkflowState()`.
+- Changed files: `platform.config.js`, `platform.ui.parts/part-04.js`, `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.workflow-canvases.js`, `platform.workflow-react.js`, `test/workflow-canvases.test.js`.
+- Real Chrome/CDP race reproduction: held the older canvas response, added 4 nodes/3 edges, uploaded through the actual React file input, then released the stale response. After the response: 5 business/DOM nodes (4 local + 1 server addition), 3 business/DOM edges, uploaded URL and asset ID intact, active canvas `canvas-race`, and viewport transform unchanged. Runtime errors: none.
+- Verification: `test/workflow-canvases.test.js` 18/18 pass; syntax and `git diff --check` pass. `test/advanced-custom-ui.test.js` has 6 documented unrelated failures (`isVegaProviderId` eval context), not caused by this change.
+- Deployment: pending commit/build/deploy.

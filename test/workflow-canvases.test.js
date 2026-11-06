@@ -167,6 +167,121 @@ test("workflow toolbar exposes only real controls", () => {
   assert.doesNotMatch(ui, /data-workflow-action="physics"/);
 });
 
+test("workflow canvas loading cannot overwrite edits made while the request is in flight", () => {
+  const manager = read("platform.workflow-canvases.js");
+  const ui = read("platform.ui.parts/part-04.js");
+  const part = read("platform.ui.parts/part-05.js");
+  const drop = read("platform.ui.parts/part-06.js");
+  const adapter = read("platform.workflow-react.js");
+
+  assert.match(ui, /function markWorkflowCanvasLocalEdit\(\)/);
+  assert.match(ui, /state\.workflowLocalRevision = Number\(state\.workflowLocalRevision \|\| 0\) \+ 1/);
+  assert.match(ui, /function persistWorkflowState[\s\S]*?markWorkflowCanvasLocalEdit\(\)/);
+  assert.match(manager, /function beginWorkflowCanvasLoad\(\)[\s\S]*?state\.workflowCanvasLoadSeq = loadSeq/);
+  assert.match(manager, /function workflowCanvasLoadIsCurrent\(loadSeq = 0\)/);
+  assert.match(manager, /const startRevision = Number\(state\.workflowLocalRevision \|\| 0\)/);
+  assert.match(manager, /if \(!workflowCanvasLoadIsCurrent\(loadSeq\)\) return/);
+  assert.match(manager, /const preserveLocalEdits = Number\(state\.workflowLocalRevision \|\| 0\) !== startRevision/);
+  assert.match(manager, /preservedLocalEdits = preserveLocalEdits/);
+  assert.match(manager, /if \(preservedLocalEdits && !migrated\) \{\s*scheduleWorkflowCanvasSave\(\);/);
+  assert.match(manager, /mergeWorkflowCanvasWithLocalEdits\(canvas\.workflow, previousWorkflow, baselineWorkflow\)/);
+  assert.match(manager, /requestSeq: loadSeq/);
+  assert.match(manager, /if \(requestSeq && !workflowCanvasLoadIsCurrent\(requestSeq\)\) return false/);
+  assert.match(manager, /switchSeq = beginWorkflowCanvasLoad\(\)/);
+  assert.match(manager, /const deleteSeq = beginWorkflowCanvasLoad\(\)/);
+  assert.match(part, /window\.markWorkflowCanvasLocalEdit\(\)/);
+  assert.match(part, /WorkflowReactCanvas\?\.captureViewport/);
+  assert.match(drop, /uploadPending: true/);
+  assert.match(drop, /workflow\.nodes\.push\(node\)[\s\S]*?uploadWorkflowFile\(file, node\.id\)/);
+  assert.match(adapter, /function captureViewport\(\)/);
+  assert.match(adapter, /mounted\.getViewport = flow\.getViewport/);
+  assert.match(adapter, /canvasId && typeof window\.activeWorkflowCanvasId === "function" && window\.activeWorkflowCanvasId\(\) !== canvasId/);
+});
+
+test("workflow canvas merge preserves local uploads, new nodes, and new edges", () => {
+  const vm = require("node:vm");
+  const source = read("platform.workflow-canvases.js");
+  const context = vm.createContext({
+    state: {
+      user: { id: "test-user" },
+      workflowCanvases: [],
+      workflowActiveCanvasId: "canvas-1",
+      workflowCanvasLoadSeq: 2,
+      workflowCanvasSaveTimer: 0,
+      workflowCanvasSaveQueued: false,
+      workflowViewportSaveTimer: 0,
+      workflow: null,
+    },
+    window: { clearTimeout() {} },
+    localStorage: { getItem() { return ""; }, setItem() {}, removeItem() {} },
+    WORKFLOW_STORAGE_KEY: "raisingGameWorkflowState",
+    WORKFLOW_NODE_LAYOUT_VERSION: 7,
+    WORKFLOW_NODE_WIDTH: 300,
+    WORKFLOW_NODE_GAP: 60,
+    WORKFLOW_CANVAS_BASE_WIDTH: 3200,
+    WORKFLOW_CANVAS_BASE_HEIGHT: 720,
+    normalizeWorkflowZoom(value) { return Number(value || 1); },
+    captureWorkflowCanvasViewport() { return { left: 0, top: 0 }; },
+    ensureWorkflowState() { return context.state.workflow; },
+    cloneWorkflowDefault() { return { nodes: [], edges: [] }; },
+    persistWorkflowState() {},
+    renderWorkflowPanel() {},
+  });
+  vm.runInContext(`${source}\nthis.mergeWorkflowCanvasWithLocalEdits = mergeWorkflowCanvasWithLocalEdits;\nthis.setActiveWorkflowCanvas = setActiveWorkflowCanvas;\nthis.workflowCanvasGraphSignature = workflowCanvasGraphSignature;`, context);
+
+  const baseline = {
+    layoutVersion: 7,
+    nodes: [
+      { id: "source", type: "imageReference", title: "Image", x: 10, y: 20, data: { imageUrl: "" } },
+      { id: "generation", type: "imageGenerate", title: "Image generation", x: 400, y: 20, data: {} },
+    ],
+    edges: [{ from: "source", to: "generation" }],
+  };
+  const server = JSON.parse(JSON.stringify(baseline));
+  const local = {
+    ...baseline,
+    nodes: [
+      { ...baseline.nodes[0], data: { imageUrl: "https://cdn.example/upload.png", imageUrlAssetId: "asset-1", uploadPending: false } },
+      baseline.nodes[1],
+      { id: "prompt", type: "prompt", title: "Prompt", x: 400, y: 320, data: { prompt: "hello" } },
+    ],
+    edges: [
+      ...baseline.edges,
+      { from: "prompt", to: "generation" },
+    ],
+  };
+
+  const merged = context.mergeWorkflowCanvasWithLocalEdits(server, local, baseline);
+  assert.equal(merged.nodes.length, 3);
+  assert.deepEqual(Array.from(merged.edges, (edge) => ({ from: edge.from, to: edge.to })), local.edges);
+  assert.equal(merged.nodes.find((node) => node.id === "source").data.imageUrl, "https://cdn.example/upload.png");
+  assert.equal(merged.nodes.find((node) => node.id === "source").data.imageUrlAssetId, "asset-1");
+  assert.ok(merged.nodes.some((node) => node.id === "prompt"));
+
+  const localAfterDelete = {
+    ...local,
+    nodes: local.nodes.filter((node) => node.id !== "source"),
+    edges: [],
+  };
+  const deleted = context.mergeWorkflowCanvasWithLocalEdits(server, localAfterDelete, baseline);
+  assert.ok(!deleted.nodes.some((node) => node.id === "source"));
+  assert.equal(deleted.edges.length, 0);
+
+  const serverWithRemoteAddition = {
+    ...server,
+    nodes: [...server.nodes, { id: "remote", type: "prompt", title: "Remote", x: 800, y: 20, data: {} }],
+    edges: [...server.edges, { from: "remote", to: "generation" }],
+  };
+  const mergedRemote = context.mergeWorkflowCanvasWithLocalEdits(serverWithRemoteAddition, local, baseline);
+  assert.ok(mergedRemote.nodes.some((node) => node.id === "remote"));
+  assert.ok(mergedRemote.edges.some((edge) => edge.from === "remote" && edge.to === "generation"));
+
+  context.state.workflowActiveCanvasId = "canvas-current";
+  context.state.workflow = { nodes: [], edges: [] };
+  assert.equal(context.setActiveWorkflowCanvas({ id: "stale-canvas", workflow: server }, { requestSeq: 1 }), false);
+  assert.equal(context.state.workflowActiveCanvasId, "canvas-current");
+});
+
 test("workflow React Flow adapter owns creation, connection, and business deletion", () => {
   const ui = read("platform.ui.js");
   const adapter = read("platform.workflow-react.js");
@@ -188,6 +303,10 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(adapter, /maxZoom: 2/);
   assert.match(adapter, /elevateNodesOnSelect: false/);
   assert.match(adapter, /function nodeWidth\(node\)[\s\S]*?return 300;[\s\S]*?return 360;[\s\S]*?return 520;/);
+  assert.match(adapter, /function workflowNodeReference\(nodeId\)[\s\S]*?workflow\.nodes/);
+  assert.match(adapter, /var node = workflowNodeReference\(nodeId\)/);
+  assert.doesNotMatch(adapter, /sourceNode: node/);
+  assert.doesNotMatch(adapter, /data\.sourceNode = node/);
   assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
   assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
   assert.match(ui, /const point = position \? workflowAvailableNodePosition\(position\) : workflowNewNodePosition\(\)/);

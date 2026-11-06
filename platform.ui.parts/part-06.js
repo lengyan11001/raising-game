@@ -16,24 +16,43 @@ async function handleWorkflowDrop(event) {
     const isImage = mime.startsWith("image/");
     const isVideo = mime.startsWith("video/");
     if (!isImage && !isVideo) continue;
-    const uploaded = await uploadWorkflowFile(file, `workflow-drop-${Date.now().toString(36)}-${offset}`);
+    const workflow = ensureWorkflowState();
+    const canvasId = String(state.workflowActiveCanvasId || "");
     const node = {
       id: `${isImage ? "image-reference" : "video-reference"}-${Date.now().toString(36)}-${offset}`,
       type: isImage ? "imageReference" : "videoReference",
       title: `${isImage ? "Image" : "Video"} input`,
       x: point.x + offset,
       y: point.y + offset,
-      data: isImage
-        ? { imageUrl: uploaded.url, imageUrlAssetId: uploaded.assetId }
-        : { videoUrl: uploaded.url, videoUrlAssetId: uploaded.assetId },
+      data: isImage ? { imageUrl: "", uploadPending: true } : { videoUrl: "", uploadPending: true },
     };
-    ensureWorkflowState().nodes.push(node);
+    workflow.nodes.push(node);
     state.workflowSelectedNodeId = node.id;
-    offset += 34;
-  }
-  if (offset) {
     persistWorkflowState();
-    renderWorkflowPanel({ focusNodeId: state.workflowSelectedNodeId });
+    if (window.WorkflowReactCanvas?.sync?.()) window.WorkflowReactCanvas.selectNode(node.id);
+    else renderWorkflowPanel({ focusNodeId: node.id });
+    offset += 34;
+    uploadWorkflowFile(file, node.id).then((uploaded) => {
+      const current = ensureWorkflowState();
+      const pending = current.nodes.find((item) => item.id === node.id);
+      if (!pending || String(state.workflowActiveCanvasId || "") !== canvasId) return;
+      pending.data = {
+        ...(pending.data || {}),
+        ...(isImage
+          ? { imageUrl: uploaded.url, imageUrlAssetId: uploaded.assetId }
+          : { videoUrl: uploaded.url, videoUrlAssetId: uploaded.assetId }),
+        uploadPending: false,
+      };
+      clearWorkflowExecutionResults({ fromNodeId: node.id, message: "Input updated. Run downstream nodes again.", render: false });
+      persistWorkflowState();
+      if (!window.WorkflowReactCanvas?.sync?.()) renderWorkflowPanel({ focusNodeId: node.id });
+    }).catch((error) => {
+      const pending = ensureWorkflowState().nodes.find((item) => item.id === node.id);
+      if (!pending || String(state.workflowActiveCanvasId || "") !== canvasId) return;
+      pending.data = { ...(pending.data || {}), uploadPending: false, error: error.message || "Upload failed." };
+      persistWorkflowState();
+      if (!window.WorkflowReactCanvas?.sync?.()) renderWorkflowPanel({ focusNodeId: node.id });
+    });
   }
 }
 

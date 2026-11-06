@@ -935,7 +935,12 @@ function ensureWorkflowState() {
   return state.workflow;
 }
 
+function markWorkflowCanvasLocalEdit() {
+  state.workflowLocalRevision = Number(state.workflowLocalRevision || 0) + 1;
+}
+
 function persistWorkflowState({ skipServer = false } = {}) {
+  markWorkflowCanvasLocalEdit();
   try {
     const workflow = ensureWorkflowState();
     localStorage.setItem(workflowUserStorageKey(), JSON.stringify({
@@ -961,6 +966,7 @@ function workflowNodeById(nodeId = "") {
 window.refreshIcons = refreshIcons;
 window.ensureWorkflowState = ensureWorkflowState;
 window.persistWorkflowState = persistWorkflowState;
+window.markWorkflowCanvasLocalEdit = markWorkflowCanvasLocalEdit;
 window.workflowNodeById = workflowNodeById;
 
 function normalizeWorkflowZoom(value = 1) {

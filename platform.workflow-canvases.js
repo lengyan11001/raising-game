@@ -127,7 +127,76 @@ function updateWorkflowCanvasSaveStatus() {
 
 window.updateWorkflowCanvasSaveStatus = updateWorkflowCanvasSaveStatus;
 
-function setActiveWorkflowCanvas(canvas = {}) {
+function workflowCanvasGraphSignature(workflow = {}) {
+  const nodes = (Array.isArray(workflow.nodes) ? workflow.nodes : []).map((node) => ({
+    id: String(node.id || ""),
+    type: String(node.type || ""),
+    x: Number(node.x || 0),
+    y: Number(node.y || 0),
+  }));
+  const edges = (Array.isArray(workflow.edges) ? workflow.edges : []).map((edge) => `${edge.from || ""}->${edge.to || ""}`);
+  return JSON.stringify({ nodes, edges });
+}
+
+function beginWorkflowCanvasLoad() {
+  const loadSeq = Number(state.workflowCanvasLoadSeq || 0) + 1;
+  state.workflowCanvasLoadSeq = loadSeq;
+  return loadSeq;
+}
+
+function workflowCanvasLoadIsCurrent(loadSeq = 0) {
+  return Number(loadSeq || 0) === Number(state.workflowCanvasLoadSeq || 0);
+}
+
+function workflowCanvasJson(value) {
+  try {
+    return JSON.stringify(value == null ? null : value);
+  } catch (_) {
+    return "";
+  }
+}
+
+function workflowCanvasNodeChanged(current = null, baseline = null) {
+  if (!current || !baseline) return Boolean(current) !== Boolean(baseline);
+  return workflowCanvasJson(current) !== workflowCanvasJson(baseline);
+}
+
+function mergeWorkflowCanvasWithLocalEdits(serverWorkflow = {}, localWorkflow = null, baselineWorkflow = null) {
+  const server = workflowCanvasStateFromPayload(serverWorkflow);
+  if (!localWorkflow || !Array.isArray(localWorkflow.nodes)) return server;
+  const local = workflowCanvasStateFromPayload(localWorkflow);
+  const baseline = baselineWorkflow && Array.isArray(baselineWorkflow.nodes) ? baselineWorkflow : { nodes: [], edges: [] };
+  const baselineNodes = new Set((baseline.nodes || []).map((node) => String(node.id || "")));
+  const nodeIds = new Set(local.nodes.map((node) => String(node.id || "")));
+  const nodes = [...local.nodes];
+  server.nodes.forEach((node) => {
+    const id = String(node.id || "");
+    if (!id || baselineNodes.has(id) || nodeIds.has(id)) return;
+    nodes.push(node);
+    nodeIds.add(id);
+  });
+  const baselineEdges = new Set((baseline.edges || []).map((edge) => `${edge.from || ""}->${edge.to || ""}`));
+  const edgeKeys = new Set();
+  const edges = [];
+  const appendEdge = (edge) => {
+    const key = `${edge.from || ""}->${edge.to || ""}`;
+    if (!edge.from || !edge.to || !nodeIds.has(String(edge.from)) || !nodeIds.has(String(edge.to)) || edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    edges.push(edge);
+  };
+  local.edges.forEach(appendEdge);
+  server.edges.forEach((edge) => {
+    if (!baselineEdges.has(`${edge.from || ""}->${edge.to || ""}`)) appendEdge(edge);
+  });
+  return {
+    ...local,
+    nodes,
+    edges,
+  };
+}
+
+function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, baselineWorkflow = null, requestSeq = 0 } = {}) {
+  if (requestSeq && !workflowCanvasLoadIsCurrent(requestSeq)) return false;
   window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = 0;
   state.workflowCanvasSaveQueued = false;
@@ -138,9 +207,12 @@ function setActiveWorkflowCanvas(canvas = {}) {
     summary,
     ...(state.workflowCanvases || []).filter((item) => item.id !== summary.id),
   ].sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+  const previousWorkflow = state.workflow;
   state.workflowActiveCanvasId = summary.id;
   state.workflow = canvas.workflow && Array.isArray(canvas.workflow.nodes)
-    ? workflowCanvasStateFromPayload(canvas.workflow)
+    ? (preserveLocalEdits
+      ? mergeWorkflowCanvasWithLocalEdits(canvas.workflow, previousWorkflow, baselineWorkflow)
+      : workflowCanvasStateFromPayload(canvas.workflow))
     : cloneWorkflowDefault();
   state.workflowSelectedNodeId = state.workflow.nodes[0]?.id || "";
   state.workflowPickerNodeId = "";
@@ -149,6 +221,7 @@ function setActiveWorkflowCanvas(canvas = {}) {
   state.workflowLogs = [];
   localStorage.setItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY), summary.id);
   persistWorkflowState({ skipServer: true });
+  return true;
 }
 
 async function fetchWorkflowCanvas(canvasId = "") {
@@ -166,19 +239,36 @@ async function loadWorkflowCanvases({ force = false } = {}) {
     return;
   }
   if (state.workflowCanvasesLoading || (state.workflowCanvasesLoaded && !force)) return;
+  const loadSeq = beginWorkflowCanvasLoad();
+  const startRevision = Number(state.workflowLocalRevision || 0);
+  const baselineWorkflow = state.workflow && Array.isArray(state.workflow.nodes)
+    ? workflowCanvasStateFromPayload(workflowCanvasSnapshot())
+    : null;
   state.workflowCanvasesLoading = true;
   state.workflowCanvasMessage = "Loading...";
   if (state.tab === "workflow") renderWorkflowPanel();
   try {
     const payload = await requestJson("/api/workflow/canvases");
+    if (!workflowCanvasLoadIsCurrent(loadSeq)) return;
     state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
     const preferredId = localStorage.getItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY)) || "";
     const selected = state.workflowCanvases.find((canvas) => canvas.id === preferredId) || state.workflowCanvases[0];
+    let preservedLocalEdits = false;
     if (selected) {
       const canvas = await fetchWorkflowCanvas(selected.id);
+      if (!workflowCanvasLoadIsCurrent(loadSeq)) return;
       if (!canvas) throw new Error("Workflow could not be loaded.");
-      setActiveWorkflowCanvas(canvas);
+      const preserveLocalEdits = Number(state.workflowLocalRevision || 0) !== startRevision;
+      preservedLocalEdits = preserveLocalEdits;
+      const renderViewport = typeof window.WorkflowReactCanvas?.captureViewport === "function"
+        ? window.WorkflowReactCanvas.captureViewport()
+        : null;
+      if (!setActiveWorkflowCanvas(canvas, { preserveLocalEdits, baselineWorkflow, requestSeq: loadSeq })) return;
+      if (renderViewport && typeof window.WorkflowReactCanvas?.restoreViewport === "function") {
+        window.WorkflowReactCanvas.restoreViewport(renderViewport);
+      }
     } else {
+      if (Number(state.workflowLocalRevision || 0) !== startRevision) return;
       state.workflowActiveCanvasId = "";
       state.workflow = cloneWorkflowDefault();
       state.workflowSelectedNodeId = "";
@@ -188,11 +278,15 @@ async function loadWorkflowCanvases({ force = false } = {}) {
       ? await migrateWorkflowEmbeddedMedia()
       : false;
     if (migrated) await saveWorkflowCanvas({ quiet: true });
-    state.workflowCanvasMessage = "Saved";
+    if (preservedLocalEdits && !migrated) {
+      scheduleWorkflowCanvasSave();
+    } else {
+      state.workflowCanvasMessage = "Saved";
+    }
   } catch (error) {
-    state.workflowCanvasMessage = error.message || String(error);
+    if (workflowCanvasLoadIsCurrent(loadSeq)) state.workflowCanvasMessage = error.message || String(error);
   } finally {
-    state.workflowCanvasesLoading = false;
+    if (workflowCanvasLoadIsCurrent(loadSeq)) state.workflowCanvasesLoading = false;
     if (state.tab === "workflow") renderWorkflowPanel();
   }
 }
@@ -263,22 +357,26 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
 async function switchWorkflowCanvas(canvasId = "") {
   const nextId = String(canvasId || "").trim();
   if (!nextId || nextId === state.workflowActiveCanvasId || state.workflowCanvasesLoading) return;
+  let switchSeq = 0;
   try {
     await saveWorkflowCanvas({ quiet: true });
+    switchSeq = beginWorkflowCanvasLoad();
     state.workflowCanvasesLoading = true;
     state.workflowCanvasMessage = "Loading...";
     renderWorkflowPanel();
     const canvas = await fetchWorkflowCanvas(nextId);
-    if (canvas) setActiveWorkflowCanvas(canvas);
+    if (!workflowCanvasLoadIsCurrent(switchSeq)) return;
+    if (canvas && !setActiveWorkflowCanvas(canvas, { requestSeq: switchSeq })) return;
     const migrated = typeof migrateWorkflowEmbeddedMedia === "function"
       ? await migrateWorkflowEmbeddedMedia()
       : false;
+    if (!workflowCanvasLoadIsCurrent(switchSeq)) return;
     if (migrated) await saveWorkflowCanvas({ quiet: true });
     state.workflowCanvasMessage = "Saved";
   } catch (error) {
     state.workflowCanvasMessage = error.message || String(error);
   } finally {
-    state.workflowCanvasesLoading = false;
+    if (!switchSeq || workflowCanvasLoadIsCurrent(switchSeq)) state.workflowCanvasesLoading = false;
     renderWorkflowPanel();
   }
 }
@@ -292,11 +390,13 @@ async function createWorkflowCanvas() {
     onOpen: (root) => root.querySelector("[data-workflow-new-name]")?.select(),
     onConfirm: async (root) => {
       const name = root.querySelector("[data-workflow-new-name]")?.value || "Untitled workflow";
+      const createSeq = beginWorkflowCanvasLoad();
       const payload = await requestJson("/api/workflow/canvases", {
         method: "POST",
         body: { name, workflow: cloneWorkflowDefault() },
       });
-      if (payload.canvas) setActiveWorkflowCanvas(payload.canvas);
+      if (!workflowCanvasLoadIsCurrent(createSeq)) return;
+      if (payload.canvas) setActiveWorkflowCanvas(payload.canvas, { requestSeq: createSeq });
       state.workflowCanvasesLoaded = true;
       state.workflowCanvasMessage = "Saved";
     },
@@ -316,11 +416,22 @@ async function deleteWorkflowCanvas() {
       window.clearTimeout(state.workflowCanvasSaveTimer);
       state.workflowCanvasSaveTimer = 0;
       state.workflowCanvasSaveQueued = false;
+      const deleteSeq = beginWorkflowCanvasLoad();
       const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(current.id)}`, { method: "DELETE" });
+      if (!workflowCanvasLoadIsCurrent(deleteSeq)) return;
       state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
       const next = state.workflowCanvases[0];
       const canvas = next ? await fetchWorkflowCanvas(next.id) : null;
-      if (canvas) setActiveWorkflowCanvas(canvas);
+      if (!workflowCanvasLoadIsCurrent(deleteSeq)) return;
+      if (canvas) {
+        if (!setActiveWorkflowCanvas(canvas, { requestSeq: deleteSeq })) return;
+      } else {
+        state.workflowActiveCanvasId = "";
+        state.workflow = cloneWorkflowDefault();
+        state.workflowSelectedNodeId = "";
+        localStorage.removeItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY));
+        persistWorkflowState({ skipServer: true });
+      }
       state.workflowCanvasMessage = "Saved";
     },
   });
