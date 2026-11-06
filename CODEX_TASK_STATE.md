@@ -1,3 +1,11 @@
+## Generate button/tabs polish and deployment (2026-11-06)
+
+- User asked for the Generate submit button to be centered in the left panel, the parameter area to sit lower with visible spacing, and the four Same-style tabs to be smaller like the Case sub-tabs.
+- Generate toolbar now has a 10px top gap and centers the submit button with `margin-inline: auto`; mobile full-width behavior is unchanged.
+- Same-style tabs now use the compact Case-tab treatment: 34px height, 7px/11px padding, 8px radius, 14px icons, transparent track, and a compact active-state inset bar on desktop and mobile.
+- Cache suffix bumped to `advanced-parameters-20261106-15`. Targeted relevant tests pass: Create prompt/busy states 2/2; platform profile + side navigation 18/18; syntax/diff checks pass.
+- Deployment: old-site `483b33c`; platform-release `481291c`, pushed with lease protection. Deployed only to `123vips.com`; health check returned `200 {"ok":true}`. Production CSS contains the compact 34px tabs and centered Generate toolbar; production HTML still has the shared tabs and no removed recharge promotion entries.
+
 ## Email login production verification and crypto hotfix (2026-11-06)
 
 - Production SMTP configuration is present and `verifySmtp()` succeeds against Alibaba Direct Mail `smtpdm-ap-southeast-1.aliyuncs.com:465` over implicit TLS; `/api/config/public` reports `auth.email.enabled=true`.
