@@ -237,6 +237,7 @@ async function ensureSchemaInner() {
   await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_promotion_purchases (
+      id BIGSERIAL PRIMARY KEY,
       campaign_id TEXT NOT NULL,
       sku TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -244,10 +245,37 @@ async function ensureSchemaInner() {
       status TEXT NOT NULL DEFAULT 'pending',
       reserved_until TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (campaign_id, sku, user_id)
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await query(`
+    DO $$
+    DECLARE
+      primary_key_name text;
+      primary_key_columns text[];
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'app_promotion_purchases' AND column_name = 'id'
+      ) THEN
+        ALTER TABLE app_promotion_purchases ADD COLUMN id BIGSERIAL;
+      END IF;
+      SELECT c.conname, array_agg(a.attname ORDER BY key_column.ordinality)
+      INTO primary_key_name, primary_key_columns
+      FROM pg_constraint c
+      CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key_column(attnum, ordinality)
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = key_column.attnum
+      WHERE c.conrelid = 'app_promotion_purchases'::regclass AND c.contype = 'p'
+      GROUP BY c.conname;
+      IF primary_key_name IS NULL THEN
+        ALTER TABLE app_promotion_purchases ADD PRIMARY KEY (id);
+      ELSIF primary_key_columns IS DISTINCT FROM ARRAY['id']::text[] THEN
+        EXECUTE format('ALTER TABLE app_promotion_purchases DROP CONSTRAINT %I', primary_key_name);
+        ALTER TABLE app_promotion_purchases ADD PRIMARY KEY (id);
+      END IF;
+    END $$;
+  `);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_member_once_uidx ON app_promotion_purchases (campaign_id, user_id) WHERE sku = 'member' AND status = 'paid';`);
   await query(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx ON app_promotion_purchases (order_id) WHERE order_id <> '';`);
   await query(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_campaign_status_idx ON app_promotion_purchases (campaign_id, sku, status, reserved_until);`);
   await query(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_user_idx ON app_promotion_purchases (user_id, campaign_id);`);
@@ -2939,52 +2967,51 @@ async function reservePromotionPurchaseInDb({ campaignId = "", sku = "", userId 
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`promotion-purchase:${cleanCampaignId}:${cleanSku}`]);
+    // Purchases are row-per-order. Only the lifetime member SKU is limited to one paid purchase per account.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`promotion-purchase:${cleanCampaignId}:${cleanSku}:${cleanUserId}`]);
     await client.query(`
       UPDATE app_promotion_purchases
       SET status = 'expired', updated_at = NOW()
-      WHERE campaign_id = $1 AND sku = $2
+      WHERE campaign_id = $1 AND sku = $2 AND user_id = $3
         AND status = 'pending' AND reserved_until IS NOT NULL AND reserved_until <= NOW()
-    `, [cleanCampaignId, cleanSku]);
+    `, [cleanCampaignId, cleanSku, cleanUserId]);
     const existingResult = await client.query(
-      `SELECT * FROM app_promotion_purchases WHERE campaign_id = $1 AND sku = $2 AND user_id = $3 FOR UPDATE`,
+      `SELECT * FROM app_promotion_purchases
+       WHERE campaign_id = $1 AND sku = $2 AND user_id = $3 AND status IN ('paid', 'pending')
+       ORDER BY status = 'paid' DESC, created_at DESC`,
       [cleanCampaignId, cleanSku, cleanUserId],
     );
-    const existing = existingResult.rows[0] ? promotionPurchaseFromRow(existingResult.rows[0]) : null;
-    if (existing?.status === "paid") {
+    const rows = existingResult.rows.map(promotionPurchaseFromRow);
+    const paid = rows.find((item) => item.status === "paid") || null;
+    const pending = rows.find((item) => item.status === "pending" && Date.parse(item.reservedUntil || "") > Date.now()) || null;
+    if (cleanSku === "member" && paid) {
       await client.query("COMMIT");
-      return { status: "purchased", purchase: existing };
+      return { status: "purchased", purchase: paid };
     }
-    if (existing?.status === "pending" && Date.parse(existing.reservedUntil || "") > Date.now()) {
+    if (pending) {
       await client.query("COMMIT");
-      return { status: "pending", purchase: existing };
+      return { status: "pending", purchase: pending };
     }
-    const countResult = await client.query(`
-      SELECT COUNT(*)::int AS used
-      FROM app_promotion_purchases
-      WHERE campaign_id = $1 AND sku = $2
-        AND (status = 'paid' OR (status = 'pending' AND reserved_until > NOW()))
-    `, [cleanCampaignId, cleanSku]);
-    if (Number(countResult.rows[0]?.used || 0) >= maxInventory) {
-      await client.query("COMMIT");
-      return { status: "sold_out", purchase: existing };
+    if (maxInventory > 0) {
+      const countResult = await client.query(`
+        SELECT COUNT(*)::int AS used
+        FROM app_promotion_purchases
+        WHERE campaign_id = $1 AND sku = $2
+          AND (status = 'paid' OR (status = 'pending' AND reserved_until > NOW()))
+      `, [cleanCampaignId, cleanSku]);
+      if (Number(countResult.rows[0]?.used || 0) >= maxInventory) {
+        await client.query("COMMIT");
+        return { status: "sold_out", purchase: paid };
+      }
     }
     const reservedUntil = new Date(Date.now() + holdSeconds * 1000).toISOString();
     const saved = await client.query(`
       INSERT INTO app_promotion_purchases(campaign_id, sku, user_id, order_id, status, reserved_until, created_at, updated_at)
       VALUES ($1, $2, $3, $4, 'pending', $5::timestamptz, NOW(), NOW())
-      ON CONFLICT (campaign_id, sku, user_id) DO UPDATE SET
-        order_id = EXCLUDED.order_id,
-        status = 'pending',
-        reserved_until = EXCLUDED.reserved_until,
-        updated_at = NOW()
-      WHERE app_promotion_purchases.status <> 'paid'
       RETURNING *
     `, [cleanCampaignId, cleanSku, cleanUserId, cleanOrderId, reservedUntil]);
     await client.query("COMMIT");
-    return saved.rows[0]
-      ? { status: "reserved", purchase: promotionPurchaseFromRow(saved.rows[0]) }
-      : { status: "purchased", purchase: existing };
+    return { status: "reserved", purchase: promotionPurchaseFromRow(saved.rows[0]) };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;

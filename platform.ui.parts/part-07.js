@@ -379,7 +379,7 @@ function setupElevenElevenPromo() {
   const select = (id) => {
     const sku = (promo?.skus || []).find((item) => item.id === id);
     if (!promo?.active || !sku || sku.purchased || sku.owned) {
-      setError(sku?.owned ? "您已开通创作者终身权益，无需重复购买。" : sku?.purchased ? "每个账号每档限购一次，本档已购买。" : !promo?.started ? "活动尚未开始。" : "本次活动已结束。");
+      setError(sku?.owned ? "您已开通创作者终身权益，无需重复购买。" : sku?.purchased ? "创作者终身权益每个账号限购一次，本档已购买。" : !promo?.started ? "活动尚未开始。" : "本次活动已结束。");
       return;
     }
     selected = id;
@@ -388,11 +388,11 @@ function setupElevenElevenPromo() {
   };
   const finish = async () => {
     const latest = await refresh().catch(() => promo);
-    const purchased = (latest?.skus || []).find((item) => returningSkuId && item.id === returningSkuId && item.purchased)
+    const completed = (latest?.skus || []).find((item) => item.id === returningSkuId && (item.purchased || item.orderStatus === "paid"))
       || (latest?.skus || []).find((item) => item.purchased)
       || currentSku();
-    if (!purchased?.purchased) return false;
-    if (purchased.id === "credits") {
+    if (!completed || (!completed.purchased && completed.orderStatus !== "paid")) return false;
+    if (completed.id === "credits") {
       try {
         const payload = await requestJson("/api/auth/me");
         if (payload.user && typeof setUser === "function") setUser(payload.user);
@@ -402,13 +402,13 @@ function setupElevenElevenPromo() {
     const title = document.querySelector("#elevenElevenDoneTitle");
     const body = document.querySelector("#elevenElevenDoneBody");
     const balance = document.querySelector("#elevenElevenDoneBalance");
-    if (purchased.id === "member") {
+    if (completed.id === "member") {
       if (title) title.textContent = "开通成功";
       if (body) body.textContent = "创作者终身权益已生效";
       if (balance) balance.innerHTML = `有效期　<b>终身</b>`;
     } else {
       if (title) title.textContent = "支付成功";
-      if (body) body.textContent = `${Number(purchased.credits || 9000).toLocaleString()} 积分已到账`;
+      if (body) body.textContent = `${Number(completed.credits || 9000).toLocaleString()} 积分已到账`;
       if (balance) balance.innerHTML = `当前积分余额　<b>${Number(state.user?.credits || 0).toLocaleString()}</b>`;
     }
     return true;

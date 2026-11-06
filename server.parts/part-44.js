@@ -75,6 +75,8 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
     endsAt: new Date(window.endsAt).toISOString(),
     currency: STRIPE_CURRENCY.toUpperCase(),
     skus: Object.values(ELEVEN_ELEVEN_PROMO.skus).map((sku) => {
+      // Return the latest order so checkout return polling can confirm a one-off credits purchase,
+      // while only the lifetime member SKU is exposed as owned/purchased.
       const purchase = purchases.get(sku.id) || null;
       const owned = sku.id === "member" && memberOwned;
       return {
@@ -86,7 +88,7 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
         // Social-proof presentation only; not inventory or a purchase limit.
         sold: Number(sku.displaySold || 0),
         owned,
-        purchased: purchase?.status === "paid",
+        purchased: sku.id === "member" && purchase?.status === "paid",
         pending: purchase?.status === "pending" && Date.parse(purchase.reservedUntil || "") > now,
         orderId: purchase?.orderId || "",
         orderStatus: purchase?.status || "",
@@ -121,14 +123,6 @@ async function createElevenElevenCheckout(req, res) {
   const stripeConfig = stripeConfigForHost(cashierBaseUrl);
   if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const userId = auth.user.id;
-  const existingState = await getPromotionPurchaseStateInDb(ELEVEN_ELEVEN_PROMO.id, userId, [sku.id]);
-  const existing = existingState.purchases.find((item) => item.sku === sku.id) || null;
-  if (existing?.status === "pending" && Date.parse(existing.reservedUntil || "") > Date.now()) {
-    const pendingOrder = await getWalletOrderByIdInDb(existing.orderId);
-    if (pendingOrder && pendingOrder.userId === userId && pendingOrder.status === "pending" && !stripeCheckoutSessionExpired(pendingOrder)) {
-      return sendJson(res, 200, { ok: true, reused: true, checkoutUrl: stripeCheckoutUrl(pendingOrder.id, cashierBaseUrl), sku: sku.id });
-    }
-  }
   const orderId = randomId("stripe");
   const reserved = await reservePromotionPurchaseInDb({
     campaignId: ELEVEN_ELEVEN_PROMO.id,
@@ -138,7 +132,7 @@ async function createElevenElevenCheckout(req, res) {
     reservationSeconds: ELEVEN_ELEVEN_PROMO.reservationSeconds,
   });
   if (reserved.status === "purchased") {
-    return sendJson(res, 409, { ok: false, code: "PROMO_ALREADY_PURCHASED", message: "每个账号限购一次，本档已购买。" });
+    return sendJson(res, 409, { ok: false, code: "PROMO_ALREADY_PURCHASED", message: "创作者终身权益每个账号限购一次，本档已购买。" });
   }
   if (reserved.status === "pending") {
     const pendingOrder = reserved.purchase?.orderId ? await getWalletOrderByIdInDb(reserved.purchase.orderId) : null;

@@ -64,12 +64,13 @@ test("promotion dialog handles countdown, sold-out, purchased, payment return, a
   assert.match(ui, /rib\.textContent = sku\?\.purchased \? "已购买" : "已拥有"/);
   assert.match(ui, /已售 \$\{Number\(sku\?\.sold \|\| 0\)\.toLocaleString\(\)\}/);
   assert.doesNotMatch(ui, /sku\.capacity|sku\.remaining|sku\.soldOut|data-eleven-left|data-eleven-bar/);
-  assert.match(ui, /每个账号每档限购一次/);
+  assert.match(ui, /创作者终身权益每个账号限购一次/);
   assert.match(ui, /支付未完成，请重试或更换支付方式/);
   assert.match(ui, /if \(paying\) return;/);
   assert.match(ui, /buyBtn\.disabled = paying/);
   assert.match(ui, /\[\"#elevenElevenCloseBtn\", \"#elevenElevenEndedBtn\", \"#elevenElevenDoneBtn\"\]/);
   assert.match(ui, /requestJson\("\/api\/auth\/me"\)/);
+  assert.match(ui, /item\.orderStatus === "paid"/);
   assert.match(ui, /attempt < 20/);
 });
 
@@ -114,7 +115,7 @@ test("promotion status reports inventory and per-user purchase state from the se
   const promo = elevenElevenPublicPromo({
     purchases: [
       { sku: "member", status: "paid", orderId: "stripe_member" },
-      { sku: "credits", status: "failed", orderId: "stripe_credits" },
+      { sku: "credits", status: "paid", orderId: "stripe_credits" },
     ],
   }, during);
   const member = promo.skus.find((sku) => sku.id === "member");
@@ -125,7 +126,9 @@ test("promotion status reports inventory and per-user purchase state from the se
   assert.equal(member.purchased, true);
   assert.equal(member.owned, false);
   assert.equal(credits.sold, 743);
-  assert.equal(credits.purchased, false);
+  assert.equal(credits.purchased, false, "credits remain repurchasable even after a paid purchase");
+  assert.equal(credits.orderStatus, "paid", "checkout return polling still sees the latest credits order status");
+  assert.equal(credits.orderId, "stripe_credits");
   assert.equal(member.capacity, undefined);
   assert.equal(member.remaining, undefined);
   assert.equal(member.soldOut, undefined);
@@ -135,7 +138,7 @@ test("promotion status reports inventory and per-user purchase state from the se
   assert.equal(memberViewerPromo.skus.find((sku) => sku.id === "credits").owned, false);
 });
 
-test("checkout reserves PostgreSQL purchases without an inventory cap", () => {
+test("checkout allows unlimited credits purchases while the member SKU stays once per account", () => {
   const source = promotionServerSource();
   const db = read("db.js");
 
@@ -146,15 +149,17 @@ test("checkout reserves PostgreSQL purchases without an inventory cap", () => {
   assert.match(source, /reservationSeconds: ELEVEN_ELEVEN_PROMO\.reservationSeconds/);
   assert.match(source, /PROMO_ALREADY_PURCHASED/);
   assert.match(source, /MEMBERSHIP_ALREADY_ACTIVE/);
+  assert.doesNotMatch(source, /existingState|existing\?\.status === "pending"/);
   assert.match(source, /PROMO_CHECKOUT_BUSY/);
   assert.match(source, /reused: true/);
   assert.match(source, /markPromotionPurchaseFailedInDb/);
 
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_promotion_purchases/);
-  assert.match(db, /PRIMARY KEY \(campaign_id, sku, user_id\)/);
+  assert.match(db, /id BIGSERIAL PRIMARY KEY/);
+  assert.match(db, /CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_member_once_uidx[\s\S]*?WHERE sku = 'member' AND status = 'paid'/);
   assert.match(db, /CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx[\s\S]*?WHERE order_id <> ''/);
+  assert.match(db, /if \(cleanSku === "member" && paid\)/);
   assert.match(db, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
-  assert.match(db, /WHERE app_promotion_purchases\.status <> 'paid'/);
 });
 
 test("Stripe return URL identifies the purchased SKU and cancellation releases the UI state", () => {
