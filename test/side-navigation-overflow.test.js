@@ -50,12 +50,12 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.match(explore, /active: state\.tab === "cases"/);
   assert.match(explore, /els\.sameStylePanel\.hidden = nextTab !== "cases"/);
   assert.match(css, /\.gallery-top-tabs \{/);
-  assert.match(css, /\.gallery-top-tabs \{[\s\S]*?gap:\s*6px;[\s\S]*?padding:\s*0;/);
-  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*8px 13px;[\s\S]*?border:\s*1px solid transparent;[\s\S]*?border-radius:\s*8px;[\s\S]*?font-size:\s*\.86rem;/);
+  assert.match(css, /\.gallery-top-tabs \{[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?gap:\s*4px;[\s\S]*?padding:\s*5px;[\s\S]*?border-radius:\s*999px;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*8px 15px;[\s\S]*?border-radius:\s*999px;[\s\S]*?font-size:\s*\.84rem;/);
   assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab svg \{\s*width:\s*16px;\s*height:\s*16px;\s*\}/);
-  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*transparent;[\s\S]*?background:\s*rgba\(255,255,255,\.10\);[\s\S]*?box-shadow:\s*none;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*transparent;[\s\S]*?color:\s*#fff;[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
   assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab[^}]*rgba\(255,79,163/);
-  assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[^}]*color:\s*#fff;/);
+  assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[^}]*background:\s*(?:#fff|white|rgba\(255,\s*255,\s*255,\s*(?:\.\d+|1)\));/);
   assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active span \{[\s\S]*?color:\s*inherit;[\s\S]*?background:\s*transparent;/);
   assert.doesNotMatch(explore, /syncGalleryModeTabs/);
   assert.match(explore, /function syncGalleryShortcutNav\(\)[\s\S]*?renderGalleryModeTabs\(\);/);
