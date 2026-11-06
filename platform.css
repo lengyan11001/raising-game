@@ -2148,8 +2148,8 @@ body.creator-picker-open {
 }
 .gallery-top-tabs .gallery-mode-tab.is-active {
   border-color: transparent;
-  color: rgba(255,255,255,.68);
-  background: rgba(255,79,163,.17);
+  color: rgba(255,255,255,.62);
+  background: transparent;
   box-shadow: none;
 }
 .gallery-top-tabs .gallery-mode-tab.is-active svg { color: #ff8bc5; }

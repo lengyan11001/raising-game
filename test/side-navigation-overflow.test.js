@@ -52,7 +52,7 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.match(css, /\.gallery-top-tabs \{/);
   assert.match(css, /\.gallery-top-tabs \{[\s\S]*?gap:\s*6px;[\s\S]*?padding:\s*0;/);
   assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*34px;[\s\S]*?padding:\s*7px 11px;[\s\S]*?border-radius:\s*8px;/);
-  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*transparent;[\s\S]*?background:\s*rgba\(255,79,163,\.17\);[\s\S]*?box-shadow:\s*none;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*transparent;[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
   assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[^}]*color:\s*#fff;/);
   assert.doesNotMatch(explore, /syncGalleryModeTabs/);
   assert.match(explore, /function syncGalleryShortcutNav\(\)[\s\S]*?renderGalleryModeTabs\(\);/);
