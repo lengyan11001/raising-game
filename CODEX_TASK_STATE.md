@@ -631,3 +631,12 @@ CODEX_TASK_STATE.md
 - Lite frontend validation text now requests a public HTTP(S) TOS URL, while Pro keeps public HTTP(S) or `asset://`.
 - Pro still imports media before charging/CreateAigcVideoTask; Lite still uses URL `FileInfos` and never calls the asset API.
 - Verification: `test/tencent-vod-vega.test.js`, `test/vega-regeneration-media.test.js`, and `test/advanced-pricing.test.js`: 82 pass / 0 fail; syntax checks and `git diff --check` pass.
+
+## Vega Lite TOS-only deployment (2026-11-06)
+
+- Deployment source: `old-site` `a59b64a`.
+- Release snapshot: `platform-release` `c359a95`.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; Live was not deployed.
+- Production checkout: `c359a950a845e3c85c310fea6843b344b96a1817`.
+- Production verification: `/api/health` returned `200 {"ok":true}`; public `tencent-vod-vega.js` has `VEGA_MEDIA_LIBRARY_PROVIDERS = seedance20-vega, seedance25-vega`, exports `resolveVegaLiteMediaAssetSources`, and public `platform.create.parts/part-03.js` contains distinct Pro/Lite validation messages.
+- Unrelated local asset-target auto-routing work was stashed as `asset target local work before Vega Lite TOS deploy`, excluded from this release, then restored to the working tree after deployment.
