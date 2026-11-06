@@ -7,6 +7,14 @@
 - Replaced old `NodeLayout-container` shell with `site-generation-card`; left/right handles now directly border the card with no label/duplicate control. Updated bridge drag handle to `.site-generation-drag-handle`.
 - Step 1 pending verification: rebuild workflow-react bundle and confirm node count, handle count, and center-point hit testing in browser.
 
+- Connection fix: React Flow had node dimensions but empty `internals.handleBounds`, so pointer-down bailed before starting a connection. `Canvas.js` now calls official `useUpdateNodeInternals` after node DOM measurement; real drag from image output to video input creates the business edge and DOM edge.
+- Result drag fix: dropping generated result media on a target generation node writes `referenceImages`/`referenceVideos` (and asset IDs when available), persists the graph, syncs React Flow, then calls `connectWorkflowNodes`. `useSiteNode` now returns fresh node/data snapshots so in-place business updates trigger React rendering instead of leaving stale result cards.
+- Result reader fix: `SiteImageGenerationNode` and `SiteVideoGenerationNode` resolve result data through `workflowNodeById(id)` before calling the site result helpers, preventing React Flow wrapper nodes from producing `"undefined"` result URLs.
+- Verification: `/tmp/workflow-react-verify/step-result-drag.out` shows two result URLs render and dropping the first gives target `referenceImages: ["https://cdn.example.test/result-a.png"]` with 1 business/DOM edge. `/tmp/workflow-react-verify/fresh-final-after-result-fix.out` shows project list/detail navigation, 3 nodes and 1 edge retained through upload/control updates, handle-to-border deltas of +/-1px, viewport `{x:0,y:0,zoom:1}`, and no console errors.
+- Build: production webpack succeeds with only the existing bundle-size warnings.
+- Cleanup (2026-11-07): removed unused copied `workflow-react/src/api/ApiService.js`, `LogService.js`, and `utils/taskRecord.js`; normalized trailing whitespace; `git diff --cached --check` passes. Production webpack rebuild succeeds.
+- Re-verification after cleanup: `/tmp/workflow-react-verify/step-result-drag-after-cleanup.out` confirms 2 results, correct first-result reference, 1 business/DOM edge. `/tmp/workflow-react-verify/fresh-final-after-cleanup.out` confirms 3 nodes/1 edge retained through upload and controls, handle-to-border delta +/-1px, viewport zoom 1, no console errors.
+
 ## Seedance regeneration expired signed URL fix (2026-11-06)
 
 ### Canonical media hydration and address planning follow-up

@@ -1,0 +1,213 @@
+/* NodeLayout 样式 */
+.NodeLayout-container {
+  position: relative; /* 为复制按钮定位做准备 */
+  background: white;
+  border: 2px solid #ddd;
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 200px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.NodeLayout-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: monospace;
+}
+
+.NodeLayout-content {
+  /* 内容区域 */
+}
+
+.NodeLayout-handle {
+  width: 12px;
+  height: 12px;
+  background: #667eea;
+  border: 2px solid white;
+  transition: all 0.2s ease;
+}
+
+.NodeLayout-handle:hover {
+  width: 16px;
+  height: 16px;
+  border-width: 3px;
+}
+
+.NodeLayout-handle-input {
+  background: #667eea;
+  border-color: #667eea;
+}
+
+.NodeLayout-handle-output {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+/* Handle 标签 */
+.NodeLayout-handle-label {
+  position: absolute;
+  left: -70px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  letter-spacing: 0.025em;
+  z-index: 100;
+}
+
+.NodeLayout-handle:hover .NodeLayout-handle-label {
+  opacity: 1;
+  transform: translateY(-50%) translateX(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+}
+
+.NodeLayout-handle:hover .NodeLayout-handle-label::before {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid #3b82f6;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  filter: drop-shadow(0 1px 2px rgba(59, 130, 246, 0.2));
+}
+
+.NodeLayout-handle-input .NodeLayout-handle-label {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
+}
+
+.NodeLayout-handle-input:hover .NodeLayout-handle-label {
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+}
+
+.NodeLayout-handle-input:hover .NodeLayout-handle-label::before {
+  border-left-color: #667eea;
+  filter: drop-shadow(0 1px 2px rgba(102, 126, 234, 0.2));
+}
+
+/* 节点被选中时，一直显示标签 */
+.react-flow__node.selected .NodeLayout-handle .NodeLayout-handle-label {
+  opacity: 1;
+  transform: translateY(-50%) translateX(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+}
+
+.react-flow__node.selected .NodeLayout-handle-input .NodeLayout-handle-label {
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+}
+
+/* 标签出现动画 */
+@keyframes NodeLayout-labelFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) translateX(-2px);
+  }
+}
+
+.NodeLayout-handle:hover .NodeLayout-handle-label,
+.react-flow__node.selected .NodeLayout-handle .NodeLayout-handle-label {
+  animation: NodeLayout-labelFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 可点击的 Handle 标签 */
+.NodeLayout-handle-label-clickable {
+  pointer-events: auto;  /* 改为可交互 */
+  cursor: pointer;       /* 显示手型光标 */
+  user-select: none;     /* 禁止文本选择 */
+}
+
+/* 可点击标签的悬停效果 */
+.NodeLayout-handle-label-clickable:hover {
+  transform: translateY(-50%) translateX(-4px) scale(1.05);
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.45);
+}
+
+/* 可点击标签的按下效果 */
+.NodeLayout-handle-label-clickable:active {
+  transform: translateY(-50%) translateX(-2px) scale(0.98);
+}
+
+/* 添加点击提示图标 */
+.NodeLayout-handle-label-clickable::after {
+  content: ' +';
+  font-weight: 700;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.NodeLayout-handle-label-clickable:hover::after {
+  opacity: 1;
+}
+
+/* 复制按钮样式 */
+.NodeLayout-duplicate-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 鼠标悬停在节点上时显示复制按钮 */
+.NodeLayout-container:hover .NodeLayout-duplicate-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 复制按钮悬停效果 */
+.NodeLayout-duplicate-button:hover {
+  background: #f0f0f0;
+  border-color: #3b82f6;
+  color: #3b82f6;
+  transform: scale(1.05);
+}
+
+/* 复制按钮点击效果 */
+.NodeLayout-duplicate-button:active {
+  transform: scale(0.95);
+}
+
+/* 节点被选中时，始终显示复制按钮 */
+.react-flow__node.selected .NodeLayout-duplicate-button {
+  opacity: 1;
+  pointer-events: auto;
+}

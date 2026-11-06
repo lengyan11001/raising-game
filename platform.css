@@ -13578,7 +13578,66 @@ body.wan30-launch-visible .site-head { top: 0; }
 }
 
 /* React Flow canvas and native node surfaces. */
+.workflow-shell:has(> .workflow-canvas-detail-bar + .workflow-layout) {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workflow-shell > .workflow-canvas-detail-bar + .workflow-layout {
+  min-height: 0;
+  height: 100%;
+}
+
+.workflow-shell > .workflow-layout {
+  position: relative;
+}
+
+.workflow-canvas-empty-actions {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px;
+  background: rgba(10, 10, 14, .92);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .34);
+  transform: translateX(-50%);
+}
+
+.workflow-canvas-empty-actions span {
+  padding: 0 8px;
+  color: rgba(255, 255, 255, .58);
+  font-size: .76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workflow-canvas-empty-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 71, 173, .44);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(255, 71, 173, .15);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workflow-canvas-empty-actions button:hover {
+  background: rgba(255, 71, 173, .28);
+}
+
+.workflow-layout:has(.react-flow__node) .workflow-canvas-empty-actions {
+  display: none;
+}
+
 .workflow-react-host {
+  min-height: 0;
   overflow: hidden;
   isolation: isolate;
 }
@@ -13662,18 +13721,6 @@ body.wan30-launch-visible .site-head { top: 0; }
 
 .workflow-react-host .react-flow__handle.workflow-react-handle::before {
   display: none;
-}
-
-.workflow-react-host .react-flow__handle.workflow-react-handle::after {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  content: "";
-  transform: translate(-50%, -50%);
-  pointer-events: all;
 }
 
 .workflow-react-host .react-flow__handle.workflow-react-handle:hover,

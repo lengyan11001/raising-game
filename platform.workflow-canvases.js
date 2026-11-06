@@ -1,5 +1,6 @@
 const WORKFLOW_CANVAS_ACTIVE_KEY = `${WORKFLOW_STORAGE_KEY}:active`;
 const WORKFLOW_CANVAS_SAVE_DELAY_MS = 1200;
+let savedWorkflowViewport = null;
 
 function workflowCanvasUserSuffix() {
   return String(state.user?.id || state.user?.username || "guest").trim().toLowerCase() || "guest";
@@ -81,6 +82,7 @@ function workflowCanvasStateFromPayload(value = {}) {
       canvasHeight: Number(WORKFLOW_CANVAS_BASE_HEIGHT),
       scrollLeft: 0,
       scrollTop: 0,
+      viewport: null,
     };
   }
   return {
@@ -94,6 +96,9 @@ function workflowCanvasStateFromPayload(value = {}) {
     canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
     scrollLeft: Number(workflow.scrollLeft || 0),
     scrollTop: Number(workflow.scrollTop || 0),
+    viewport: workflow.viewport && Number.isFinite(Number(workflow.viewport.zoom))
+      ? { x: Number(workflow.viewport.x || 0), y: Number(workflow.viewport.y || 0), zoom: Number(workflow.viewport.zoom) }
+      : null,
   };
 }
 
@@ -113,6 +118,9 @@ function workflowCanvasSnapshot() {
     canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
     scrollLeft: Number(workflow.scrollLeft || 0),
     scrollTop: Number(workflow.scrollTop || 0),
+    viewport: workflow.viewport && Number.isFinite(Number(workflow.viewport.zoom))
+      ? { x: Number(workflow.viewport.x || 0), y: Number(workflow.viewport.y || 0), zoom: Number(workflow.viewport.zoom) }
+      : null,
   };
 }
 
@@ -235,54 +243,22 @@ async function loadWorkflowCanvases({ force = false } = {}) {
     state.workflowCanvases = [];
     state.workflowCanvasesLoaded = true;
     state.workflowCanvasesLoading = false;
+    state.workflowCanvasView = "list";
     if (state.tab === "workflow") renderWorkflowPanel();
     return;
   }
   if (state.workflowCanvasesLoading || (state.workflowCanvasesLoaded && !force)) return;
   const loadSeq = beginWorkflowCanvasLoad();
-  const startRevision = Number(state.workflowLocalRevision || 0);
-  const baselineWorkflow = state.workflow && Array.isArray(state.workflow.nodes)
-    ? workflowCanvasStateFromPayload(workflowCanvasSnapshot())
-    : null;
   state.workflowCanvasesLoading = true;
-  state.workflowCanvasMessage = "Loading...";
+  state.workflowCanvasMessage = "加载中...";
   if (state.tab === "workflow") renderWorkflowPanel();
   try {
     const payload = await requestJson("/api/workflow/canvases");
     if (!workflowCanvasLoadIsCurrent(loadSeq)) return;
     state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
-    const preferredId = localStorage.getItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY)) || "";
-    const selected = state.workflowCanvases.find((canvas) => canvas.id === preferredId) || state.workflowCanvases[0];
-    let preservedLocalEdits = false;
-    if (selected) {
-      const canvas = await fetchWorkflowCanvas(selected.id);
-      if (!workflowCanvasLoadIsCurrent(loadSeq)) return;
-      if (!canvas) throw new Error("Workflow could not be loaded.");
-      const preserveLocalEdits = Number(state.workflowLocalRevision || 0) !== startRevision;
-      preservedLocalEdits = preserveLocalEdits;
-      const renderViewport = typeof window.WorkflowReactCanvas?.captureViewport === "function"
-        ? window.WorkflowReactCanvas.captureViewport()
-        : null;
-      if (!setActiveWorkflowCanvas(canvas, { preserveLocalEdits, baselineWorkflow, requestSeq: loadSeq })) return;
-      if (renderViewport && typeof window.WorkflowReactCanvas?.restoreViewport === "function") {
-        window.WorkflowReactCanvas.restoreViewport(renderViewport);
-      }
-    } else {
-      if (Number(state.workflowLocalRevision || 0) !== startRevision) return;
-      state.workflowActiveCanvasId = "";
-      state.workflow = cloneWorkflowDefault();
-      state.workflowSelectedNodeId = "";
-    }
     state.workflowCanvasesLoaded = true;
-    const migrated = typeof migrateWorkflowEmbeddedMedia === "function"
-      ? await migrateWorkflowEmbeddedMedia()
-      : false;
-    if (migrated) await saveWorkflowCanvas({ quiet: true });
-    if (preservedLocalEdits && !migrated) {
-      scheduleWorkflowCanvasSave();
-    } else {
-      state.workflowCanvasMessage = "Saved";
-    }
+    state.workflowCanvasView = "list";
+    state.workflowCanvasMessage = "";
   } catch (error) {
     if (workflowCanvasLoadIsCurrent(loadSeq)) state.workflowCanvasMessage = error.message || String(error);
   } finally {
@@ -292,12 +268,10 @@ async function loadWorkflowCanvases({ force = false } = {}) {
 }
 
 function scheduleWorkflowCanvasSave() {
-  if (!state.user || !state.workflowCanvasesLoaded || !state.workflowActiveCanvasId) return;
-  window.clearTimeout(state.workflowCanvasSaveTimer);
-  state.workflowCanvasSaveQueued = true;
-  state.workflowCanvasMessage = "Unsaved";
+  if (!state.user || !state.workflowActiveCanvasId || state.workflowCanvasView !== "detail") return;
+  state.workflowCanvasMessage = "未保存";
   updateWorkflowCanvasSaveStatus();
-  if (state.workflowCanvasSaving) return;
+  window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = window.setTimeout(() => {
     state.workflowCanvasSaveTimer = 0;
     saveWorkflowCanvas({ quiet: true }).catch(() => {});
@@ -309,25 +283,25 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
     openLogin();
     return null;
   }
-  const canvasId = state.workflowActiveCanvasId;
-  const current = activeWorkflowCanvasSummary();
-  if (!canvasId || !current) return null;
-  if (name) current.name = String(name).trim().slice(0, 80) || "Untitled workflow";
+  if (state.workflowCanvasSavePromise) {
+    state.workflowCanvasSaveQueued = true;
+    return state.workflowCanvasSavePromise;
+  }
+  const canvasId = String(state.workflowActiveCanvasId || "");
+  if (!canvasId) return null;
   window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = 0;
-  state.workflowCanvasSaveQueued = true;
-  if (state.workflowCanvasSavePromise) return state.workflowCanvasSavePromise;
   state.workflowCanvasSaving = true;
-  state.workflowCanvasMessage = "Saving...";
+  state.workflowCanvasMessage = "保存中...";
   updateWorkflowCanvasSaveStatus();
-  if (!quiet && state.tab === "workflow") renderWorkflowPanel();
   state.workflowCanvasSavePromise = (async () => {
-    let savedCanvas = null;
     try {
-      while (state.workflowCanvasSaveQueued && state.workflowActiveCanvasId === canvasId) {
+      let savedCanvas = null;
+      do {
         state.workflowCanvasSaveQueued = false;
         const latest = activeWorkflowCanvasSummary();
-        const nextName = String(latest?.name || "Untitled workflow").trim().slice(0, 80) || "Untitled workflow";
+        if (name) latest && (latest.name = String(name).trim().slice(0, 80) || latest.name);
+        const nextName = String(latest?.name || "未命名画布").trim().slice(0, 80) || "未命名画布";
         const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`, {
           method: "PUT",
           body: { name: nextName, workflow: workflowCanvasSnapshot() },
@@ -337,8 +311,8 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
           const updated = workflowCanvasSummary(savedCanvas);
           state.workflowCanvases = (state.workflowCanvases || []).map((canvas) => canvas.id === canvasId ? updated : canvas);
         }
-      }
-      if (state.workflowActiveCanvasId === canvasId) state.workflowCanvasMessage = "Saved";
+      } while (state.workflowCanvasSaveQueued && state.workflowActiveCanvasId === canvasId);
+      if (state.workflowActiveCanvasId === canvasId) state.workflowCanvasMessage = "已保存";
       updateWorkflowCanvasSaveStatus();
       return savedCanvas;
     } catch (error) {
@@ -354,64 +328,90 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
   return state.workflowCanvasSavePromise;
 }
 
-async function switchWorkflowCanvas(canvasId = "") {
+async function openWorkflowCanvas(canvasId = "") {
   const nextId = String(canvasId || "").trim();
-  if (!nextId || nextId === state.workflowActiveCanvasId || state.workflowCanvasesLoading) return;
+  if (!nextId) return false;
   let switchSeq = 0;
   try {
-    await saveWorkflowCanvas({ quiet: true });
+    if (state.workflowActiveCanvasId && state.workflowActiveCanvasId !== nextId) {
+      await saveWorkflowCanvas({ quiet: true });
+    }
     switchSeq = beginWorkflowCanvasLoad();
+    const startRevision = Number(state.workflowLocalRevision || 0);
+    const baselineWorkflow = state.workflow && Array.isArray(state.workflow.nodes)
+      ? workflowCanvasStateFromPayload(workflowCanvasSnapshot())
+      : null;
     state.workflowCanvasesLoading = true;
-    state.workflowCanvasMessage = "Loading...";
+    state.workflowCanvasMessage = "加载中...";
     renderWorkflowPanel();
     const canvas = await fetchWorkflowCanvas(nextId);
-    if (!workflowCanvasLoadIsCurrent(switchSeq)) return;
-    if (canvas && !setActiveWorkflowCanvas(canvas, { requestSeq: switchSeq })) return;
-    const migrated = typeof migrateWorkflowEmbeddedMedia === "function"
-      ? await migrateWorkflowEmbeddedMedia()
-      : false;
-    if (!workflowCanvasLoadIsCurrent(switchSeq)) return;
+    if (!workflowCanvasLoadIsCurrent(switchSeq)) return false;
+    if (!canvas) throw new Error("画布不存在或无权访问");
+    const preserveLocalEdits = Number(state.workflowLocalRevision || 0) !== startRevision;
+    if (!setActiveWorkflowCanvas(canvas, { preserveLocalEdits, baselineWorkflow, requestSeq: switchSeq })) return false;
+    state.workflowCanvasView = "detail";
+    state.workflowCanvasMessage = "已保存";
+    savedWorkflowViewport = null;
+    const migrated = typeof migrateWorkflowEmbeddedMedia === "function" ? await migrateWorkflowEmbeddedMedia() : false;
+    if (!workflowCanvasLoadIsCurrent(switchSeq)) return false;
     if (migrated) await saveWorkflowCanvas({ quiet: true });
-    state.workflowCanvasMessage = "Saved";
+    return true;
   } catch (error) {
-    state.workflowCanvasMessage = error.message || String(error);
+    if (workflowCanvasLoadIsCurrent(switchSeq)) state.workflowCanvasMessage = error.message || String(error);
+    return false;
   } finally {
     if (!switchSeq || workflowCanvasLoadIsCurrent(switchSeq)) state.workflowCanvasesLoading = false;
     renderWorkflowPanel();
   }
 }
 
+function switchWorkflowCanvas(canvasId = "") {
+  return openWorkflowCanvas(canvasId);
+}
+
+function closeWorkflowCanvas() {
+  window.clearTimeout(state.workflowCanvasSaveTimer);
+  state.workflowCanvasSaveTimer = 0;
+  state.workflowCanvasView = "list";
+  state.workflowCanvasMessage = "";
+  renderWorkflowPanel();
+}
+
 async function createWorkflowCanvas() {
   if (!state.user) return openLogin();
   await showInlineDialog({
-    title: "New workflow",
-    body: `<label class="field"><span>Name</span><input data-workflow-new-name maxlength="80" value="Untitled workflow" autocomplete="off" /></label><p class="job-note"></p>`,
-    confirmText: "Create",
+    title: "新增画布项目",
+    body: `<label class="field"><span>项目名称</span><input data-workflow-new-name maxlength="80" value="未命名画布" autocomplete="off" /></label><p class="job-note">创建后会进入干净的画布详情。</p>`,
+    confirmText: "创建",
     onOpen: (root) => root.querySelector("[data-workflow-new-name]")?.select(),
     onConfirm: async (root) => {
-      const name = root.querySelector("[data-workflow-new-name]")?.value || "Untitled workflow";
+      const name = String(root.querySelector("[data-workflow-new-name]")?.value || "").trim().slice(0, 80) || "未命名画布";
       const createSeq = beginWorkflowCanvasLoad();
       const payload = await requestJson("/api/workflow/canvases", {
         method: "POST",
         body: { name, workflow: cloneWorkflowDefault() },
       });
       if (!workflowCanvasLoadIsCurrent(createSeq)) return;
-      if (payload.canvas) setActiveWorkflowCanvas(payload.canvas, { requestSeq: createSeq });
+      if (payload.canvas) {
+        setActiveWorkflowCanvas(payload.canvas, { requestSeq: createSeq });
+        state.workflowCanvasView = "detail";
+        state.workflowCanvasMessage = "已保存";
+        savedWorkflowViewport = null;
+      }
       state.workflowCanvasesLoaded = true;
-      state.workflowCanvasMessage = "Saved";
     },
   });
   renderWorkflowPanel();
 }
 
-async function deleteWorkflowCanvas() {
+async function deleteWorkflowCanvas(canvasId = "") {
   if (!state.user) return openLogin();
-  const current = activeWorkflowCanvasSummary();
+  const current = (state.workflowCanvases || []).find((canvas) => canvas.id === String(canvasId || state.workflowActiveCanvasId || "")) || activeWorkflowCanvasSummary();
   if (!current) return;
   await showInlineDialog({
-    title: "Delete workflow?",
-    body: `<p class="job-note">${escapeHtml(current.name)} will be permanently deleted.</p>`,
-    confirmText: "Delete",
+    title: "删除画布项目？",
+    body: `<p class="job-note">“${escapeHtml(current.name)}”将被永久删除，此操作无法撤销。</p>`,
+    confirmText: "删除",
     onConfirm: async () => {
       window.clearTimeout(state.workflowCanvasSaveTimer);
       state.workflowCanvasSaveTimer = 0;
@@ -420,43 +420,85 @@ async function deleteWorkflowCanvas() {
       const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(current.id)}`, { method: "DELETE" });
       if (!workflowCanvasLoadIsCurrent(deleteSeq)) return;
       state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
-      const next = state.workflowCanvases[0];
-      const canvas = next ? await fetchWorkflowCanvas(next.id) : null;
-      if (!workflowCanvasLoadIsCurrent(deleteSeq)) return;
-      if (canvas) {
-        if (!setActiveWorkflowCanvas(canvas, { requestSeq: deleteSeq })) return;
-      } else {
+      if (state.workflowActiveCanvasId === current.id) {
         state.workflowActiveCanvasId = "";
         state.workflow = cloneWorkflowDefault();
         state.workflowSelectedNodeId = "";
+        state.workflowCanvasView = "list";
         localStorage.removeItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY));
         persistWorkflowState({ skipServer: true });
       }
-      state.workflowCanvasMessage = "Saved";
+      state.workflowCanvasMessage = "";
     },
   });
   renderWorkflowPanel();
 }
 
+function workflowCanvasDisplayTime(value = "") {
+  const time = Date.parse(String(value || ""));
+  if (!Number.isFinite(time)) return "";
+  try {
+    return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(time);
+  } catch (_) {
+    return new Date(time).toLocaleString();
+  }
+}
+
+function renderWorkflowCanvasList() {
+  const loading = !state.workflowCanvasesLoaded || state.workflowCanvasesLoading;
+  const canvases = state.workflowCanvases || [];
+  return `<section class="workflow-canvas-list-page" aria-label="画布项目列表">
+    <header class="workflow-canvas-list-head">
+      <div><span class="workflow-canvas-kicker">CANVAS</span><h2>画布</h2><p>创建、打开和管理你的生成画布项目。</p></div>
+      <div class="workflow-canvas-list-actions">
+        <button type="button" data-workflow-canvas-action="new" ${!state.user || state.workflowCanvasesLoading ? "disabled" : ""}><i data-lucide="plus"></i><span>新增项目</span></button>
+        <button type="button" class="is-danger" data-workflow-canvas-action="delete" ${canvases.length ? "" : "disabled"}><i data-lucide="trash-2"></i><span>删除</span></button>
+      </div>
+    </header>
+    ${state.user ? "" : `<div class="workflow-canvas-empty"><i data-lucide="log-in"></i><strong>登录后使用画布</strong><p>画布项目会保存到你的账号。</p></div>`}
+    ${state.user && loading ? `<div class="workflow-canvas-loading"><i data-lucide="loader-circle"></i><span>加载画布项目...</span></div>` : ""}
+    ${state.user && !loading && !canvases.length ? `<div class="workflow-canvas-empty"><i data-lucide="layout-dashboard"></i><strong>还没有画布项目</strong><p>点击“新增项目”开始。</p></div>` : ""}
+    ${canvases.length ? `<div class="workflow-canvas-grid">${canvases.map((canvas) => `
+      <article class="workflow-canvas-project" data-workflow-open-canvas="${escapeHtml(canvas.id)}" tabindex="0" role="button">
+        <div class="workflow-canvas-project-preview"><i data-lucide="frames"></i><span>${escapeHtml(String(canvas.name || "画").slice(0, 1))}</span></div>
+        <div class="workflow-canvas-project-copy"><strong>${escapeHtml(canvas.name)}</strong><small>${escapeHtml(workflowCanvasDisplayTime(canvas.updatedAt || canvas.createdAt) || "刚刚")}</small></div>
+        <button type="button" class="workflow-canvas-project-delete" data-workflow-delete-canvas="${escapeHtml(canvas.id)}" title="删除项目" aria-label="删除 ${escapeHtml(canvas.name)}"><i data-lucide="trash-2"></i></button>
+      </article>
+    `).join("")}</div>` : ""}
+    <span class="workflow-canvas-save-status" aria-live="polite">${escapeHtml(state.workflowCanvasMessage || "")}</span>
+  </section>`;
+}
+
 function renderWorkflowCanvasManager() {
-  const disabled = !state.user || !state.workflowCanvasesLoaded || state.workflowCanvasesLoading || state.workflowCanvasSaving;
+  if (state.workflowCanvasView !== "detail") return renderWorkflowCanvasList();
   const current = activeWorkflowCanvasSummary();
-  const options = state.user
-    ? (state.workflowCanvases || []).map((canvas) => `<option value="${escapeHtml(canvas.id)}" ${canvas.id === state.workflowActiveCanvasId ? "selected" : ""}>${escapeHtml(canvas.name)}</option>`).join("")
-    : `<option value="">Sign in to save workflows</option>`;
-  return `
-    <div class="workflow-canvas-manager">
-      <select data-workflow-canvas-select aria-label="Saved workflow" ${disabled ? "disabled" : ""}>${options}</select>
-      <input data-workflow-canvas-name maxlength="80" value="${escapeHtml(current?.name || "Untitled workflow")}" aria-label="Workflow name" ${disabled ? "disabled" : ""} />
-      <button type="button" data-workflow-canvas-action="new" title="New workflow" aria-label="New workflow" ${disabled ? "disabled" : ""}><i data-lucide="plus"></i></button>
-      <button type="button" data-workflow-canvas-action="save" title="Save workflow" aria-label="Save workflow" ${disabled ? "disabled" : ""}><i data-lucide="save"></i></button>
-      <button class="is-danger" type="button" data-workflow-canvas-action="delete" title="Delete workflow" aria-label="Delete workflow" ${disabled ? "disabled" : ""}><i data-lucide="trash-2"></i></button>
-      <span class="workflow-canvas-save-status">${escapeHtml(state.workflowCanvasMessage || (state.user ? "Saved" : "Local only"))}</span>
+  const disabled = !state.user || state.workflowCanvasesLoading || state.workflowCanvasSaving;
+  return `<div class="workflow-canvas-detail-bar">
+    <button type="button" class="workflow-canvas-back" data-workflow-canvas-action="back"><i data-lucide="arrow-left"></i><span>返回</span></button>
+    <div class="workflow-canvas-title"><span>画布</span><strong>${escapeHtml(current?.name || "未命名画布")}</strong></div>
+    <div class="workflow-canvas-detail-actions">
+      <span class="workflow-canvas-save-status" aria-live="polite">${escapeHtml(state.workflowCanvasMessage || "已保存")}</span>
+      <button type="button" data-workflow-canvas-action="save" ${disabled ? "disabled" : ""}><i data-lucide="save"></i><span>保存</span></button>
+      <button type="button" data-workflow-canvas-action="new" ${disabled ? "disabled" : ""}><i data-lucide="plus"></i><span>新建</span></button>
     </div>
-  `;
+  </div>`;
 }
 
 function handleWorkflowCanvasClick(event) {
+  const openProject = event.target.closest("[data-workflow-open-canvas]");
+  const deleteProject = event.target.closest("[data-workflow-delete-canvas]");
+  if (deleteProject) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!deleteProject.disabled) deleteWorkflowCanvas(deleteProject.dataset.workflowDeleteCanvas || "").catch((error) => { state.workflowCanvasMessage = error.message || String(error); renderWorkflowPanel(); });
+    return true;
+  }
+  if (openProject) {
+    event.preventDefault();
+    event.stopPropagation();
+    openWorkflowCanvas(openProject.dataset.workflowOpenCanvas || "").catch(() => {});
+    return true;
+  }
   const button = event.target.closest("[data-workflow-canvas-action]");
   if (!button) return false;
   if (button.disabled) return true;
@@ -464,30 +506,33 @@ function handleWorkflowCanvasClick(event) {
   event.stopPropagation();
   const action = button.dataset.workflowCanvasAction || "";
   if (action === "new") createWorkflowCanvas().catch((error) => { state.workflowCanvasMessage = error.message || String(error); renderWorkflowPanel(); });
-  if (action === "save") {
-    const name = els.workflowRoot?.querySelector("[data-workflow-canvas-name]")?.value || "";
-    saveWorkflowCanvas({ name }).catch(() => {});
+  if (action === "back") closeWorkflowCanvas();
+  if (action === "save") saveWorkflowCanvas().catch(() => {});
+  if (action === "delete") {
+    const selected = state.workflowCanvases.find((canvas) => canvas.id === state.workflowActiveCanvasId) || state.workflowCanvases[0];
+    deleteWorkflowCanvas(selected?.id || "").catch((error) => { state.workflowCanvasMessage = error.message || String(error); renderWorkflowPanel(); });
   }
-  if (action === "delete") deleteWorkflowCanvas().catch((error) => { state.workflowCanvasMessage = error.message || String(error); renderWorkflowPanel(); });
+  return true;
+}
+
+function handleWorkflowCanvasKeydown(event) {
+  const project = event.target.closest("[data-workflow-open-canvas]");
+  if (!project || !["Enter", " "].includes(event.key)) return false;
+  event.preventDefault();
+  openWorkflowCanvas(project.dataset.workflowOpenCanvas || "").catch(() => {});
   return true;
 }
 
 function handleWorkflowCanvasInput(event) {
   const target = event.target;
-  if (target.matches("[data-workflow-canvas-select]")) {
-    switchWorkflowCanvas(target.value).catch(() => {});
-    return true;
-  }
   if (target.matches("[data-workflow-canvas-name]")) {
     const current = activeWorkflowCanvasSummary();
     if (current) {
       current.name = String(target.value || "").slice(0, 80);
-      const option = els.workflowRoot?.querySelector(`[data-workflow-canvas-select] option[value="${CSS.escape(current.id)}"]`);
-      if (option) option.textContent = current.name || "Untitled workflow";
+      state.workflowCanvasMessage = "未保存";
+      scheduleWorkflowCanvasSave();
+      updateWorkflowCanvasSaveStatus();
     }
-    state.workflowCanvasMessage = "Unsaved";
-    updateWorkflowCanvasSaveStatus();
-    scheduleWorkflowCanvasSave();
     return true;
   }
   return false;

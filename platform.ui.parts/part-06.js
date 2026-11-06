@@ -1,58 +1,31 @@
 async function handleWorkflowDrop(event) {
   const canvas = event.target.closest?.(".workflow-canvas");
-  if (canvas?.closest?.(".workflow-react-host") || canvas?.classList?.contains("workflow-react-host")) return;
+  if (!canvas) return;
+  const files = Array.from(event.dataTransfer?.files || []).filter((file) => /^(image|video)\//i.test(String(file.type || "")));
+  if (canvas.closest?.(".workflow-react-host") || canvas.classList?.contains("workflow-react-host")) {
+    if (!files.length) return;
+    event.preventDefault();
+    const target = event.target.closest?.(".react-flow__node");
+    const nodeId = String(target?.dataset?.id || target?.getAttribute?.("data-id") || "");
+    if (nodeId && typeof window.uploadWorkflowFilesToNode === "function") {
+      await window.uploadWorkflowFilesToNode(files, nodeId);
+    }
+    return;
+  }
   const paletteAction = event.dataTransfer?.getData("application/x-workflow-node") || "";
-  const files = Array.from(event.dataTransfer?.files || []);
-  if (!canvas || (!files.length && !paletteAction)) return;
+  if (!files.length && !paletteAction) return;
   event.preventDefault();
   const point = workflowCanvasPointFromEvent(event);
   if (paletteAction) {
     addWorkflowNodeAt(paletteAction, point);
     return;
   }
-  let offset = 0;
-  for (const file of files) {
-    const mime = String(file.type || "").toLowerCase();
-    const isImage = mime.startsWith("image/");
-    const isVideo = mime.startsWith("video/");
-    if (!isImage && !isVideo) continue;
-    const workflow = ensureWorkflowState();
-    const canvasId = String(state.workflowActiveCanvasId || "");
-    const node = {
-      id: `${isImage ? "image-reference" : "video-reference"}-${Date.now().toString(36)}-${offset}`,
-      type: isImage ? "imageReference" : "videoReference",
-      title: `${isImage ? "Image" : "Video"} input`,
-      x: point.x + offset,
-      y: point.y + offset,
-      data: isImage ? { imageUrl: "", uploadPending: true } : { videoUrl: "", uploadPending: true },
-    };
-    workflow.nodes.push(node);
-    state.workflowSelectedNodeId = node.id;
-    persistWorkflowState();
-    if (window.WorkflowReactCanvas?.sync?.()) window.WorkflowReactCanvas.selectNode(node.id);
-    else renderWorkflowPanel({ focusNodeId: node.id });
-    offset += 34;
-    uploadWorkflowFile(file, node.id).then((uploaded) => {
-      const current = ensureWorkflowState();
-      const pending = current.nodes.find((item) => item.id === node.id);
-      if (!pending || String(state.workflowActiveCanvasId || "") !== canvasId) return;
-      pending.data = {
-        ...(pending.data || {}),
-        ...(isImage
-          ? { imageUrl: uploaded.url, imageUrlAssetId: uploaded.assetId }
-          : { videoUrl: uploaded.url, videoUrlAssetId: uploaded.assetId }),
-        uploadPending: false,
-      };
-      clearWorkflowExecutionResults({ fromNodeId: node.id, message: "Input updated. Run downstream nodes again.", render: false });
-      persistWorkflowState();
-      if (!window.WorkflowReactCanvas?.sync?.()) renderWorkflowPanel({ focusNodeId: node.id });
-    }).catch((error) => {
-      const pending = ensureWorkflowState().nodes.find((item) => item.id === node.id);
-      if (!pending || String(state.workflowActiveCanvasId || "") !== canvasId) return;
-      pending.data = { ...(pending.data || {}), uploadPending: false, error: error.message || "Upload failed." };
-      persistWorkflowState();
-      if (!window.WorkflowReactCanvas?.sync?.()) renderWorkflowPanel({ focusNodeId: node.id });
-    });
+  if (files.length && typeof window.uploadWorkflowFilesToNode === "function") {
+    const selected = selectedWorkflowNode();
+    const target = selected && ["imageGenerate", "unifiedVideoGen", "video"].includes(selected.type)
+      ? selected
+      : workflowImageNodes()[0] || workflowVideoNodes()[0];
+    if (target) await window.uploadWorkflowFilesToNode(files, target.id);
   }
 }
 
@@ -116,30 +89,10 @@ function insertWorkflowNodeAfter(node = {}, previous = null) {
   renderWorkflowPanel({ focusNodeId: node.id });
 }
 
-function addWorkflowPromptNode() {
-  addWorkflowNodeAt("add-prompt");
-}
-
-function addWorkflowVideoNode() {
-  addWorkflowNodeAt("add-video");
-}
-
-function addWorkflowReferenceNode(kind = "image") {
-  addWorkflowNodeAt(kind === "video" ? "add-video-reference" : "add-image-reference");
-}
-
-function addWorkflowOutputNode() {
-  addWorkflowNodeAt("add-output");
-}
-
 function workflowNodePaletteItem(action = "") {
   return {
-    "add-image-reference": { type: "imageReference", icon: "image-plus", label: "图片输入", hint: "上传或拖入图片" },
-    "add-video-reference": { type: "videoReference", icon: "file-video", label: "视频输入", hint: "上传或拖入视频" },
-    "add-prompt": { type: "prompt", icon: "notebook-pen", label: "提示词", hint: "描述画面与动作" },
     "add-image": { type: "imageGenerate", icon: "wand-sparkles", label: "图片生成", hint: "使用我们的图片模型" },
     "add-video": { type: "unifiedVideoGen", icon: "clapperboard", label: "视频生成", hint: "使用我们的视频模型" },
-    "add-output": { type: "output", icon: "panel-top", label: "输出", hint: "汇总生成结果" },
   }[action] || null;
 }
 
@@ -152,8 +105,8 @@ function selectWorkflowNode(nodeId = "", { render = true } = {}) {
 }
 
 function workflowNodePositionIsFree(candidate = {}, workflow = ensureWorkflowState()) {
-  const width = 300;
-  const height = 250;
+  const width = 440;
+  const height = 620;
   return !(workflow.nodes || []).some((node) => (
     Math.abs(Number(node.x || 0) - Number(candidate.x || 0)) < width
     && Math.abs(Number(node.y || 0) - Number(candidate.y || 0)) < height
@@ -182,17 +135,11 @@ function createWorkflowNode(action = "", position = null) {
   const point = position ? workflowAvailableNodePosition(position) : workflowNewNodePosition();
   const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   let node = null;
-  if (action === "add-prompt") {
-    node = { id: `prompt-${stamp}`, type: "prompt", title: "Prompt", x: point.x, y: point.y, data: { prompt: "" } };
-  } else if (action === "add-image-reference") {
-    node = { id: `image-reference-${stamp}`, type: "imageReference", title: "Image input", x: point.x, y: point.y, data: { imageUrl: "" } };
-  } else if (action === "add-video-reference") {
-    node = { id: `video-reference-${stamp}`, type: "videoReference", title: "Video input", x: point.x, y: point.y, data: { videoUrl: "" } };
-  } else if (action === "add-image") {
+  if (action === "add-image") {
     node = {
       id: `image-${stamp}`,
       type: "imageGenerate",
-      title: `Image generation ${workflowImageNodes().length + 1}`,
+      title: `图片生成 ${workflowImageNodes().length + 1}`,
       x: point.x,
       y: point.y,
       data: { modelId: "qwen-image3", prompt: "", ratio: "1:1", resolution: "2K", referenceImages: [] },
@@ -201,13 +148,11 @@ function createWorkflowNode(action = "", position = null) {
     node = {
       id: `video-${stamp}`,
       type: "unifiedVideoGen",
-      title: `Video generation ${workflowVideoNodes().length + 1}`,
+      title: `视频生成 ${workflowVideoNodes().length + 1}`,
       x: point.x,
       y: point.y,
       data: { modelId: "seedance", prompt: "", ratio: "16:9", resolution: "720p", duration: 5, referenceImages: [], referenceVideos: [], referenceAudios: [], addSound: true },
     };
-  } else if (action === "add-output") {
-    node = { id: `output-${stamp}`, type: "output", title: "Output", x: point.x, y: point.y, data: {} };
   }
   if (!node) return null;
   workflow.nodes.push(node);
@@ -221,8 +166,8 @@ function workflowVisibleCenterPosition() {
   if (canvas.classList.contains("workflow-react-host") && window.WorkflowReactCanvas?.screenToFlowPosition) {
     const rect = canvas.getBoundingClientRect();
     return window.WorkflowReactCanvas.screenToFlowPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
+      x: rect.left + Math.max(180, rect.width * 0.32),
+      y: rect.top + Math.max(160, rect.height * 0.28),
     });
   }
   const zoom = workflowZoom();
@@ -232,8 +177,21 @@ function workflowVisibleCenterPosition() {
   );
 }
 
+function workflowVisibleNodePosition() {
+  const canvas = els.workflowRoot?.querySelector(".workflow-react-host");
+  if (!canvas || typeof window.WorkflowReactCanvas?.screenToFlowPosition !== "function") return workflowVisibleCenterPosition();
+  const rect = canvas.getBoundingClientRect();
+  const index = workflowImageNodes().length + workflowVideoNodes().length;
+  const column = index % 2;
+  const row = Math.floor(index / 2) % 3;
+  return window.WorkflowReactCanvas.screenToFlowPosition({
+    x: rect.left + Math.min(rect.width - 480, 150 + column * Math.min(470, rect.width * 0.42)),
+    y: rect.top + 92 + row * 360,
+  });
+}
+
 function addWorkflowNodeAt(action = "", position = null) {
-  const node = createWorkflowNode(action, position || workflowVisibleCenterPosition());
+  const node = createWorkflowNode(action, position || workflowVisibleNodePosition());
   if (!node) return "";
   persistWorkflowState();
   if (window.WorkflowReactCanvas?.sync?.()) {
@@ -247,7 +205,6 @@ function addWorkflowNodeAt(action = "", position = null) {
 window.createWorkflowNode = createWorkflowNode;
 window.selectWorkflowNode = selectWorkflowNode;
 window.addWorkflowNodeAt = addWorkflowNodeAt;
-window.createWorkflowInputNodeAndConnect = createWorkflowInputNodeAndConnect;
 window.workflowCanConnectNodes = workflowCanConnectNodes;
 window.removeWorkflowNode = removeWorkflowNode;
 window.deleteSelectedWorkflowNodes = deleteSelectedWorkflowNodes;
@@ -256,14 +213,8 @@ window.reconnectWorkflowEdge = reconnectWorkflowEdge;
 window.runWorkflowSingleNode = runWorkflowSingleNode;
 
 function workflowConnectionRuleMatches(from = {}, to = {}) {
-  const source = from?.type || "";
-  const target = to?.type || "";
-  if (["imageReference", "image", "upload"].includes(source)) return ["imageGenerate", "unifiedVideoGen", "video"].includes(target);
-  if (source === "videoReference") return ["unifiedVideoGen", "video"].includes(target);
-  if (source === "prompt") return ["imageGenerate", "unifiedVideoGen", "video"].includes(target);
-  if (["imageDisplay", "imageGenerate"].includes(source)) return ["unifiedVideoGen", "video", "output"].includes(target);
-  if (["unifiedVideoGen", "video"].includes(source)) return target === "output";
-  return false;
+  const generationTypes = new Set(["imageGenerate", "unifiedVideoGen"]);
+  return generationTypes.has(from?.type || "") && generationTypes.has(to?.type || "");
 }
 
 function workflowCanConnectNodes(fromId = "", toId = "", ignoredEdge = null) {
@@ -292,40 +243,12 @@ function workflowGraphReachesWithoutEdge(startId = "", targetId = "", ignoredEdg
   return false;
 }
 
-function workflowAutoInputAction(target = {}) {
-  const targetType = target.type || "";
-  if (targetType === "output") return "add-video";
-  if (targetType === "imageGenerate") {
-    return workflowIncomingEdges(target.id).some((edge) => workflowNodeById(edge.from)?.type === "prompt") ? "add-image-reference" : "add-prompt";
-  }
-  if (["unifiedVideoGen", "video"].includes(targetType)) {
-    const incomingTypes = new Set(workflowIncomingEdges(target.id).map((edge) => workflowNodeById(edge.from)?.type).filter(Boolean));
-    if (!incomingTypes.has("prompt")) return "add-prompt";
-    if (!incomingTypes.has("imageReference") && !incomingTypes.has("imageGenerate") && !incomingTypes.has("imageDisplay")) return "add-image-reference";
-  }
+function workflowAutoInputAction() {
   return "";
 }
 
-function createWorkflowInputNodeAndConnect(targetId = "") {
-  const target = workflowNodeById(targetId);
-  const action = workflowAutoInputAction(target || {});
-  if (!target || !action) return false;
-  const sourceX = Math.max(0, Number(target.x || 0) - (workflowNodePaletteItem(action)?.type === "prompt" ? 360 : 300) - 72);
-  const sourceY = Math.max(0, Number(target.y || 0) + 20);
-  const node = createWorkflowNode(action, { x: sourceX, y: sourceY });
-  if (!node) return false;
-  const workflow = ensureWorkflowState();
-  if (!workflow.edges.some((edge) => edge.from === node.id && edge.to === target.id)) {
-    workflow.edges.push({ from: node.id, to: target.id });
-  }
-  state.workflowSelectedNodeId = target.id;
-  persistWorkflowState();
-  if (window.WorkflowReactCanvas?.sync?.()) {
-    window.WorkflowReactCanvas.selectNode(target.id);
-  } else {
-    renderWorkflowPanel({ focusNodeId: target.id });
-  }
-  return true;
+function createWorkflowInputNodeAndConnect() {
+  return false;
 }
 
 function workflowCanceledError() {
@@ -984,7 +907,7 @@ function handleWorkflowCanvasDoubleClick(event) {
   const canvas = event.target.closest?.(".workflow-canvas");
   if (!canvas || canvas.classList.contains("workflow-react-host") || event.target.closest?.("[data-workflow-node]") || workflowControlInteractionTarget(event.target)) return;
   event.preventDefault();
-  addWorkflowNodeAt("add-prompt", workflowCanvasPointFromEvent(event));
+  addWorkflowNodeAt(event.shiftKey ? "add-video" : "add-image", workflowCanvasPointFromEvent(event));
 }
 
 function workflowCanvasPointFromEvent(event) {
@@ -1213,11 +1136,7 @@ function connectWorkflowNodes(fromId = "", toId = "") {
   if (!workflow.edges.some((edge) => edge.from === fromId && edge.to === toId)) workflow.edges.push({ from: fromId, to: toId });
   state.workflowSelectedNodeId = toId;
   persistWorkflowState();
-  if (window.WorkflowReactCanvas?.sync?.()) {
-    window.WorkflowReactCanvas.selectNode(toId);
-  } else {
-    renderWorkflowPanel();
-  }
+  if (window.WorkflowReactCanvas?.sync?.()) window.WorkflowReactCanvas.selectNode(toId);
   return true;
 }
 
@@ -1227,11 +1146,7 @@ function reconnectWorkflowEdge(oldFromId = "", oldToId = "", nextFromId = "", ne
   workflow.edges = workflow.edges.filter((edge) => !(edge.from === oldFromId && edge.to === oldToId));
   if (!workflow.edges.some((edge) => edge.from === nextFromId && edge.to === nextToId)) workflow.edges.push({ from: nextFromId, to: nextToId });
   persistWorkflowState();
-  if (window.WorkflowReactCanvas?.sync?.()) {
-    window.WorkflowReactCanvas.selectNode(nextToId);
-  } else {
-    renderWorkflowPanel();
-  }
+  if (window.WorkflowReactCanvas?.sync?.()) window.WorkflowReactCanvas.selectNode(nextToId);
   return true;
 }
 
@@ -1253,7 +1168,6 @@ function deleteSelectedWorkflowNodes() {
   if (!selected.length) return false;
   selected.forEach((nodeId) => removeWorkflowNode(nodeId));
   if (window.WorkflowReactCanvas?.sync?.()) window.WorkflowReactCanvas.selectNode(state.workflowSelectedNodeId);
-  else renderWorkflowPanel();
   return true;
 }
 

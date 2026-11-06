@@ -46,6 +46,7 @@
   function nodeData(node) {
     var source = node && node.data || {};
     return Object.assign({}, source, {
+      sourceNode: node,
       inputUsed: typeof window.workflowIncomingEdges === "function" && window.workflowIncomingEdges(node.id).length > 0,
     });
   }
@@ -502,8 +503,8 @@
 
   function WorkflowNode(props) {
     var nodeId = String(props.id || "");
-    var node = workflowNodeReference(nodeId);
-    if (!node) return h("div", { className: "workflow-react-node-shell", "data-workflow-react-node": nodeId });
+    var node = props.data && props.data.sourceNode || workflowNodeReference(nodeId);
+    if (!node || !node.type) return h("div", { className: "workflow-react-node-shell", "data-workflow-react-node": nodeId });
     var acceptsInput = typeof window.workflowNodeAcceptsInput === "function" && window.workflowNodeAcceptsInput(node);
     var acceptsOutput = typeof window.workflowNodeAcceptsOutput === "function" && window.workflowNodeAcceptsOutput(node);
     var inputUsed = Boolean(props.data && props.data.inputUsed);

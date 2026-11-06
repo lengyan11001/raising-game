@@ -58,6 +58,7 @@ PLATFORM_PATTERNS = (
     "assets/user-uploads/**",
     "assets/user-characters/**",
     "assets/admin/**",
+    "workflow-react/**",
 )
 LIVE_SHARED_PATHS = (
     "chat-live.js",

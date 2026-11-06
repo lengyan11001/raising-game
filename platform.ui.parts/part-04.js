@@ -954,6 +954,11 @@ function persistWorkflowState({ skipServer = false } = {}) {
       canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
       scrollLeft: Number(workflow.scrollLeft || 0),
       scrollTop: Number(workflow.scrollTop || 0),
+      viewport: workflow.viewport && Number.isFinite(Number(workflow.viewport.zoom)) ? {
+        x: Number(workflow.viewport.x || 0),
+        y: Number(workflow.viewport.y || 0),
+        zoom: Number(workflow.viewport.zoom),
+      } : null,
     }));
   } catch (_) {}
   if (!skipServer && typeof scheduleWorkflowCanvasSave === "function") scheduleWorkflowCanvasSave();
@@ -972,7 +977,7 @@ window.workflowNodeById = workflowNodeById;
 function normalizeWorkflowZoom(value = 1) {
   const numeric = Number(value || 1);
   if (!Number.isFinite(numeric)) return 1;
-  return Math.max(0.55, Math.min(1.8, Math.round(numeric * 100) / 100));
+  return Math.max(0.25, Math.min(1.6, Math.round(numeric * 100) / 100));
 }
 
 function workflowZoom() {
@@ -1083,12 +1088,12 @@ function workflowVideoReferenceNodes() {
 
 function workflowGenerationNodes() {
   return ensureWorkflowState().nodes
-    .filter((node) => ["imageDisplay", "unifiedVideoGen", "imageGenerate", "video"].includes(node.type))
+    .filter((node) => ["imageDisplay", "unifiedVideoGen", "imageGenerate", "video", "imageResult", "videoResult"].includes(node.type))
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
 }
 
 function workflowSourceNodes() {
-  return ensureWorkflowState().nodes.filter((node) => ["imageReference", "image", "upload", "videoReference", "prompt"].includes(node.type));
+  return ensureWorkflowState().nodes.filter((node) => ["imageGenerate", "unifiedVideoGen", "video"].includes(node.type));
 }
 
 function workflowOutputNodes() {

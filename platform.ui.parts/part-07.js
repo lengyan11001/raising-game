@@ -1,9 +1,12 @@
 function handleWorkflowClick(event) {
+  // Canvas project list/detail actions are site-shell operations. They must be
+  // handled before the React Flow guard because the host can remain mounted
+  // while the project manager is shown above it.
+  if (typeof handleWorkflowCanvasClick === "function" && handleWorkflowCanvasClick(event)) return;
   // React Flow owns every pointer interaction inside its canvas. The old
   // canvas click handler used to rerender the whole panel here, which
   // unmounted the reference canvas mid-gesture and left stale nodes in view.
   if (event.target.closest?.(".workflow-react-host")) return;
-  if (typeof handleWorkflowCanvasClick === "function" && handleWorkflowCanvasClick(event)) return;
   const clickedNodeId = event.target.closest("[data-workflow-node]")?.dataset.workflowNode || "";
   if (Date.now() < suppressWorkflowClickUntil && clickedNodeId && clickedNodeId === suppressWorkflowClickNodeId) {
     event.preventDefault();
