@@ -17,7 +17,7 @@ test("main old and new2 sites expose Workflow to every user while tool tenants k
   assert.match(ui, /const workflowEnabled = canUseWorkflow\(\);/);
   assert.match(tenants, /tenantId: "tool-undress-14vips"[\s\S]*?disabledTabs: \[[^\]]*"workflow"/);
   assert.match(tenants, /tenantId: "tool-video-123tops"[\s\S]*?disabledTabs: \[[^\]]*"workflow"/);
-  assert.match(config, /function canUseAnimeTemplates\(\) \{[\s\S]*?return true;/);
+  assert.match(config, /function canUseAnimeTemplates\(\) \{[\s\S]*?return isWorkflowTester\(\);/);
 });
 
 test("workflow wheel zoom only runs over empty canvas space", () => {
