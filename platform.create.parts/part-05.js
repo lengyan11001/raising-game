@@ -1,46 +1,71 @@
 function syncAdvancedPromptMentionLabels(previousRefs = [], nextRefs = advancedPromptMentionSnapshot()) {
   const textarea = els.advancedPrompt;
-  if (!textarea || !previousRefs.length) return;
-  let value = String(textarea.value || "");
-  if (!value.includes("@")) return;
+  if (!textarea || !previousRefs.length) return false;
+  const originalValue = String(textarea.value || "");
+  if (!originalValue.includes("@")) return false;
   const nextLabelByKey = new Map();
   nextRefs.forEach((entry) => {
     if (entry.key && entry.label) nextLabelByKey.set(entry.key, entry.label);
   });
-  let changed = false;
-  const boundary = "(?=$|[^A-Za-z0-9_-])";
-  const replacements = [];
+  const replacementByToken = new Map();
   previousRefs
     .filter((entry) => entry.label && entry.key)
     .forEach((entry) => {
       const nextLabel = nextLabelByKey.get(entry.key) || "";
       const from = `@${entry.label}`;
       const to = nextLabel ? `@${nextLabel}` : "";
-      if (from === to) return;
-      replacements.push({ from, to });
+      if (from !== to) replacementByToken.set(from.toLowerCase(), to);
     });
-  replacements
-    .sort((left, right) => right.from.length - left.from.length)
-    .forEach((entry, index) => {
-      const token = `\u0000MENTION${index}\u0000`;
-      const pattern = new RegExp(`${escapeAdvancedPromptMentionRegExp(entry.from)}${boundary}`, "gi");
-      value = value.replace(pattern, () => {
-        changed = true;
-        return token;
-      });
-      entry.token = token;
-    });
-  replacements.forEach((entry) => {
-    value = value.split(entry.token).join(entry.to);
+  if (!replacementByToken.size) return false;
+
+  const tokens = [...replacementByToken.keys()].sort((left, right) => right.length - left.length);
+  const pattern = new RegExp(`(?:${tokens.map(escapeAdvancedPromptMentionRegExp).join("|")})(?=$|[^A-Za-z0-9_-])`, "gi");
+  const edits = [];
+  originalValue.replace(pattern, (match, offset) => {
+    const replacement = replacementByToken.get(match.toLowerCase());
+    if (replacement !== undefined && replacement !== match) {
+      edits.push({ start: offset, end: offset + match.length, replacement });
+    }
+    return match;
   });
-  if (!changed) return;
-  const cursor = Number(textarea.selectionStart || 0);
-  textarea.value = value
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/[ \t]+([.,;:!?\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001])/g, "$1");
-  const nextCursor = Math.min(cursor, textarea.value.length);
-  textarea.setSelectionRange?.(nextCursor, nextCursor);
+  if (!edits.length) return false;
+
+  const selectionStart = Number.isFinite(textarea.selectionStart) ? textarea.selectionStart : originalValue.length;
+  const selectionEnd = Number.isFinite(textarea.selectionEnd) ? textarea.selectionEnd : selectionStart;
+  const selectionDirection = textarea.selectionDirection || "none";
+  const mapSelectionPoint = (point) => {
+    let delta = 0;
+    const target = Math.max(0, Math.min(Number(point) || 0, originalValue.length));
+    for (const edit of edits) {
+      if (target <= edit.start) break;
+      if (target >= edit.end) {
+        delta += edit.replacement.length - (edit.end - edit.start);
+        continue;
+      }
+      return edit.start + delta + Math.min(target - edit.start, edit.replacement.length);
+    }
+    return target + delta;
+  };
+  const nextSelectionStart = mapSelectionPoint(selectionStart);
+  const nextSelectionEnd = mapSelectionPoint(selectionEnd);
+
+  let value = "";
+  let lastIndex = 0;
+  edits.forEach((edit) => {
+    value += originalValue.slice(lastIndex, edit.start) + edit.replacement;
+    lastIndex = edit.end;
+  });
+  value += originalValue.slice(lastIndex);
+
+  textarea.value = value;
+  const maxLength = value.length;
+  textarea.setSelectionRange?.(
+    Math.min(nextSelectionStart, maxLength),
+    Math.min(nextSelectionEnd, maxLength),
+    selectionDirection,
+  );
   textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  return true;
 }
 
 function advancedPromptMentionContext(textarea = els.advancedPrompt) {

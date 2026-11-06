@@ -1,3 +1,14 @@
+## Generate prompt caret deletion fix (2026-11-06)
+
+- Goal: fix prompt editing where deleting at the visible caret removed an earlier character, especially with Chinese/multiline text and @ asset references.
+- Root cause 1: the transparent textarea and pink-highlight mirror used different wrapping rules (`word-break: normal` vs `break-word`), so the visible caret could diverge from the native editing caret on wrapped text.
+- Root cause 2: `syncAdvancedPromptMentionLabels()` rewrote the whole prompt when an @ label changed/removed, reused the old numeric selection position, collapsed multi-space whitespace, and lost selection ranges.
+- Fix: aligned textarea/highlight padding, font, line height, white-space, overflow-wrap, word-break, tab size, and scrollbar gutter. Reworked mention label sync to perform offset-aware single-pass token edits, preserve collapsed carets and selection ranges/direction, and leave unrelated whitespace untouched.
+- Changed files: `platform.css`, `platform.create.parts/part-05.js`, `test/advanced-custom-ui.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: targeted prompt tests 3/3 pass; syntax and `git diff --check` pass; Chrome CDP confirmed multiline Backspace removes the expected character and auto-height updates; CDP confirmed removing/renaming an earlier @ label keeps the caret mapped and the next Backspace removes the intended character.
+- Full `advanced-custom-ui.test.js` currently has 7 pre-existing failures from unrelated stale assertions/source compatibility (`isVegaProviderId` missing in extracted helpers, stale upload/pricing/cache regexes); no prompt-editing test fails.
+- Deployment: not yet deployed.
+
 ## Main-site refresh performance (2026-11-05)
 
 - Goal: reduce first-load and repeat-refresh latency on `123vips.com` without changing Live or adding file-based runtime storage.

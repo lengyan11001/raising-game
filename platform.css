@@ -5398,7 +5398,9 @@ dialog.tool-download-modal {
   line-height: inherit;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  word-break: break-word;
+  word-break: normal;
+  tab-size: 4;
+  scrollbar-gutter: stable;
   pointer-events: none;
 }
 .advanced-prompt-mention-token {
@@ -5411,10 +5413,17 @@ dialog.tool-download-modal {
   display: block;
   min-height: 68px;
   max-height: min(62vh, 520px);
-  padding-right: 38px;
+  padding: 11px 38px 11px 12px;
   color: transparent;
   caret-color: var(--text);
   background: transparent;
+  font: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 4;
+  scrollbar-gutter: stable;
   resize: none;
   field-sizing: content;
 }

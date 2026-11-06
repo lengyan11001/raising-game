@@ -402,9 +402,93 @@ test("prompt image paste and @ mentions follow the shared upload control for eve
   assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);
 });
 
+test("prompt mention label changes preserve the native editing caret and selection", () => {
+  class TestEvent {
+    constructor(type, options = {}) {
+      this.type = type;
+      this.bubbles = Boolean(options.bubbles);
+    }
+  }
+  const textarea = {
+    value: "@Image 1 前面文字，后面文字",
+    selectionStart: 0,
+    selectionEnd: 0,
+    selectionDirection: "none",
+    dispatchCount: 0,
+    setSelectionRange(start, end, direction) {
+      this.selectionStart = start;
+      this.selectionEnd = end;
+      this.selectionDirection = direction;
+    },
+    dispatchEvent() {
+      this.dispatchCount += 1;
+    },
+  };
+  const sync = new Function(
+    "els",
+    "advancedPromptMentionSnapshot",
+    "escapeAdvancedPromptMentionRegExp",
+    "Event",
+    `${extractFunction(create, "syncAdvancedPromptMentionLabels")}
+return syncAdvancedPromptMentionLabels;`,
+  )(
+    { advancedPrompt: textarea },
+    () => [],
+    (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    TestEvent,
+  );
+
+  const marker = "前面文字";
+  textarea.selectionStart = textarea.value.indexOf(marker) + marker.length;
+  textarea.selectionEnd = textarea.selectionStart;
+  assert.equal(sync(
+    [{ key: "image:one", label: "Image 1" }],
+    [{ key: "image:one", label: "Image" }],
+  ), true);
+  assert.equal(textarea.value, "@Image 前面文字，后面文字");
+  assert.equal(textarea.value[textarea.selectionStart - 1], "字");
+  assert.equal(textarea.selectionStart, textarea.value.indexOf(marker) + marker.length);
+  assert.equal(textarea.selectionEnd, textarea.selectionStart);
+  assert.equal(textarea.dispatchCount, 1);
+
+  const selectionStart = textarea.value.indexOf("前面");
+  const selectionEnd = textarea.value.indexOf("，");
+  textarea.selectionStart = selectionStart;
+  textarea.selectionEnd = selectionEnd;
+  textarea.selectionDirection = "backward";
+  assert.equal(sync(
+    [{ key: "image:two", label: "Video 12" }],
+    [{ key: "image:two", label: "V" }],
+  ), false);
+  assert.equal(textarea.value, "@Image 前面文字，后面文字");
+
+  textarea.value = "@Video 12 前面文字，后面文字";
+  textarea.selectionStart = textarea.value.indexOf("前面");
+  textarea.selectionEnd = textarea.value.indexOf("文");
+  assert.equal(sync(
+    [{ key: "image:two", label: "Video 12" }],
+    [{ key: "image:two", label: "V" }],
+  ), true);
+  assert.equal(textarea.value, "@V 前面文字，后面文字");
+  assert.equal(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd), "前面");
+  assert.equal(textarea.selectionDirection, "backward");
+
+  textarea.value = "@Image 1 前面 两个空格";
+  textarea.selectionStart = textarea.value.length;
+  textarea.selectionEnd = textarea.selectionStart;
+  assert.equal(sync(
+    [{ key: "image:one", label: "Image 1" }],
+    [{ key: "image:one", label: "Image" }],
+  ), true);
+  assert.equal(textarea.value, "@Image 前面 两个空格");
+  assert.equal(textarea.selectionStart, textarea.value.length);
+});
+
 test("prompt editor exposes a large keyboard-accessible resize handle", () => {
   assert.match(html, /id="advancedPromptResizeHandle"[^>]+role="separator"[^>]+tabindex="0"/);
   assert.match(css, /\.advanced-prompt-resize \{[\s\S]*?width: 30px;[\s\S]*?height: 30px;[\s\S]*?cursor: nwse-resize;/);
+  assert.match(css, /\.advanced-prompt-highlight \{[\s\S]*?padding: 11px 38px 11px 12px;[\s\S]*?word-break: normal;/);
+  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?padding: 11px 38px 11px 12px;[\s\S]*?word-break: normal;/);
   assert.match(create, /function bindAdvancedPromptResizeHandle\(\)/);
   assert.match(create, /startHeight \+ event\.clientY - startY/);
   assert.match(main, /bindAdvancedPromptResizeHandle\(\);/);
