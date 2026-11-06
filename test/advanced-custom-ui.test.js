@@ -647,5 +647,7 @@ test("Create submit gives immediate, persistent and accessible feedback", () => 
   assert.match(create, /showAdvancedSubmitFailure\(error\)/);
   assert.match(ui, /function updateAdvancedButtonCost\(\) \{[\s\S]*?els\.advancedSubmitBtn\.classList\.contains\("is-busy"\)\) return;/);
   assert.match(css, /\.generate-btn\.is-busy svg \{ animation: generate-button-spin/);
+  assert.match(css, /\.advanced-generator-toolbar \{[\s\S]*?margin-top:\s*10px;/);
+  assert.match(css, /\.advanced-generator-toolbar > \.generate-btn \{[\s\S]*?margin-inline:\s*auto;/);
   assert.match(css, /#advancedNote\.is-error:not\(:empty\)/);
 });
