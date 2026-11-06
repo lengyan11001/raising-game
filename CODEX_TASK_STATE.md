@@ -1206,3 +1206,5 @@ CODEX_TASK_STATE.md
 - Fix: render `imageUrl` before `posterUrl`; image cards remain interactive preview buttons but contain no play icon. Video cards retain their play overlay. Cache suffix is `image-result-no-play-20261106-1`.
 - Changed files: `platform.create.parts/part-01.js`, `platform.html`, `test/advanced-result-kind.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: advanced result suites pass 22/22; syntax and `git diff --check` pass.
+- Integration and release: pushed `old-site` at `365c1fe`; built and pushed platform release `cdda822` with lease protection.
+- Deployment: `scripts/deploy_local.sh --site old` exited 0. Production `/api/health` returns `200 {"ok":true}`; served `platform.create.parts/part-01.js` renders the image branch before the video/poster branch, and the image branch has no play icon. Live was not deployed.
