@@ -5,7 +5,8 @@
 - Updated the Custom UI regression to assert equal columns and the taller desktop editor. Cache suffix bumped to `advanced-parameters-20261106-12`.
 - Targeted Custom/result/dialog tests pass 3/3; syntax and `git diff --check` pass. The full Custom test file still has the documented 6 unrelated Wan/pricing failures.
 - Headless 1440x1000 production measurement with local CSS injected: left width 838 -> 579px (equal to right), height 484.5 -> 900px; editor client scroll height matched its rendered height, so no inner scrollbar was introduced.
-- Pending: commit, platform release snapshot, old-site deployment.
+- Deployment: old-site `dbc5437`; platform-release `b2ba5a8`; deployed only to `123vips.com`. Production health ok.
+- Production verification at 1440x1000: equal 579px columns; left editor height 900px; rendered/client scroll height match, so no new inner scrollbar.
 
 ## Seedance Vega 768P correction (2026-11-06)
 
