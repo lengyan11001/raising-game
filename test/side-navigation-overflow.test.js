@@ -51,4 +51,6 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.match(explore, /els\.sameStylePanel\.hidden = nextTab !== "cases"/);
   assert.match(css, /\.gallery-top-tabs \{/);
   assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{/);
+  assert.doesNotMatch(explore, /syncGalleryModeTabs/);
+  assert.match(explore, /function syncGalleryShortcutNav\(\)[\s\S]*?renderGalleryModeTabs\(\);/);
 });

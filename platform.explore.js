@@ -4011,7 +4011,7 @@ function syncGalleryShortcutNav() {
       countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
-  syncGalleryModeTabs();
+  renderGalleryModeTabs();
 }
 
 function galleryTopTabsVisible() {
