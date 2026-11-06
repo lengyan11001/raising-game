@@ -651,3 +651,16 @@ CODEX_TASK_STATE.md
 - Regression: `test/platform-refresh-performance.test.js` locks network-first navigation/platform chunks, no-store SW CDN headers, and `updateViaCache`.
 - Verification: syntax checks, `git diff --check`, and cache + Vega targeted suites: 104 pass / 0 fail.
 - Release: `old-site` `c10d1c7`, `platform-release` `d679d5f`; deployed only `123vips.com`. Production `/api/health` is OK; `/platform-sw.js` is now `cf-cache-status: BYPASS` with CDN no-store; production loader references fresh `platform.js?v=mw4gzc3o`; Pro/Lite messages remain distinct.
+
+## Same-style navigation group (2026-11-06)
+
+- User requested Cases, Video, Anime, and Image move under a collapsed first-level navigation named `同款`, with Cases first.
+- `platform.html`: added `data-nav-group="same-style"` parent using `nav.sameStyle`; child order is Cases, Video, Anime, Image; child panel starts `hidden`.
+- `platform.main.js`: toggles `aria-expanded`, `is-expanded`, and panel visibility; closes the overflow menu after a child selection.
+- `platform.explore.js`: syncs only main navigation tabs, propagates active state to the parent, and treats the group as one overflow unit.
+- `platform.ui.parts/part-01.js`: hides and collapses the parent when all four children are unavailable under tenant permissions.
+- `platform.css`: parent/child/chevron/active-child/overflow styles; mobile submenu keeps `width: auto` to avoid clipping.
+- `platform.copy.js`: Chinese `同款`; other locales use `Same style` placeholder.
+- Verification: `node --require ./test/source-compat.js --test test/side-navigation-overflow.test.js test/platform-refresh-performance.test.js test/cases-membership.test.js test/platform-site-profile.test.js`: 28 pass, 0 fail. Chrome desktop/mobile visual checks passed; tenant policy currently hides Anime (expected).
+- Commits: `ed9ce20` and mobile width fix `b22b5fc`, pushed `old-site`. `platform-release`: `a9df239`, built from `b22b5fc` and pushed.
+- Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; production checkout `a9df239...`; service active; `/api/health` returned `200 {"ok":true}`. Live was not deployed.
