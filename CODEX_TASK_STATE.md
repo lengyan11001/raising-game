@@ -664,3 +664,21 @@ CODEX_TASK_STATE.md
 - Verification: `node --require ./test/source-compat.js --test test/side-navigation-overflow.test.js test/platform-refresh-performance.test.js test/cases-membership.test.js test/platform-site-profile.test.js`: 28 pass, 0 fail. Chrome desktop/mobile visual checks passed; tenant policy currently hides Anime (expected).
 - Commits: `ed9ce20` and mobile width fix `b22b5fc`, pushed `old-site`. `platform-release`: `a9df239`, built from `b22b5fc` and pushed.
 - Deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; production checkout `a9df239...`; service active; `/api/health` returned `200 {"ok":true}`. Live was not deployed.
+
+## Generate assets target filtering and video Add fix (2026-11-06)
+
+- Goal: keep the Assets Target categories, make clicking them actually filter the asset list, and stop video Add from reporting success without adding a reference.
+- Asset filters now clear the old list, show loading immediately, request `/api/user-assets?type=...`, and use a monotonic request sequence so stale responses cannot overwrite a newer category selection.
+- Target categories remain available, but video/audio targets are shown only when the active provider has a nonzero reference limit. Image targets remain unchanged.
+- Video/audio library Add now verifies that the reference was actually stored. Unsupported modes return a clear error instead of showing `Added`.
+- Changed files: `platform.config.js`, `platform.copy.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-02.js`, `platform.create.parts/part-04.js`, `platform.main.js`, `platform.ui.parts/part-01.js`, `test/tencent-vod-vega.test.js`.
+- Verification: `test/tencent-vod-vega.test.js` 60 pass / 0 fail; `node --check` on all changed JS; `git diff --check` pass. `test/advanced-custom-ui.test.js` has 6 pre-existing failures also reproduced from clean HEAD, unrelated to this change.
+- Status: not committed and not deployed; production `123vips.com` does not yet contain this fix. Live was not touched.
+
+## Same-style navigation language flash fix (2026-11-06)
+
+- User reported refresh first paints Chinese `同款`, then switches to English `Same style`.
+- Root cause: `platform.html` shipped a Chinese static fallback while default language was English; generic i18n rewrote the label after chunks loaded.
+- Fix: a tiny inline head script reads `raisingGameLanguage`, sets `html.lang` and `i18n-<lang>` before body paint. The label contains sibling `i18n-en` / `i18n-zh` spans, selected by CSS, and is excluded from generic `data-i18n` rewriting.
+- Verification: 28 targeted navigation/performance/profile tests passed. Production Chrome sampling (431 English frames, 349 Chinese frames) showed exactly one visible label throughout each load: `Same style` for en and `同款` for zh.
+- Commit `57469a8`; release `f28057c`; deployed only `123vips.com`; service active and `/api/health` returned `200 {"ok":true}`. Live was not deployed.
