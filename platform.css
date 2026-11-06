@@ -13016,3 +13016,316 @@ body.wan30-launch-visible .site-head { top: 0; }
     font-weight: 600;
   }
 }
+/* Unified pink tab system across navigation and page sub-tabs. */
+:root {
+  --tab-border: rgba(255, 255, 255, .1);
+  --tab-surface: rgba(255, 255, 255, .055);
+  --tab-surface-hover: rgba(255, 255, 255, .095);
+  --tab-pink: #ff4fa3;
+  --tab-pink-strong: #ff79bd;
+  --tab-pink-border: rgba(255, 79, 163, .72);
+  --tab-pink-surface: rgba(255, 79, 163, .2);
+  --tab-pink-glow: 0 8px 22px rgba(255, 79, 163, .13);
+}
+
+/* Every primary and secondary tab uses the Character page's pink selected state. */
+:is(
+  .top-tabs .top-tab,
+  .top-tabs .top-tab-child,
+  .top-tabs .top-tab-more,
+  .top-nav-group-toggle,
+  .gallery-mode-tabs .gallery-mode-tab,
+  .case-category-tab,
+  .advanced-create-kind,
+  .advanced-create-mode,
+  .advanced-preset-source-tab,
+  .advanced-case-tab,
+  .advanced-mobile-tab,
+  .advanced-side-tab,
+  .advanced-asset-target,
+  .auth-method-tab,
+  .topup-method-tab,
+  .chat-settings-tabs button,
+  .playflux-template-tab,
+  .playflux-source-modes button,
+  .creator-segment button,
+  .access-mode-tab,
+  .access-tab,
+  .workflow-node-tabs button,
+  .undress-case-tab
+) {
+  border: 1px solid var(--tab-border);
+  border-radius: 999px;
+  color: rgba(247, 247, 251, .7);
+  background: var(--tab-surface);
+  font-weight: 750;
+  box-shadow: none;
+  transition: border-color .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+:is(
+  .top-tabs .top-tab,
+  .top-tabs .top-tab-child,
+  .top-tabs .top-tab-more,
+  .top-nav-group-toggle,
+  .gallery-mode-tabs .gallery-mode-tab,
+  .case-category-tab,
+  .advanced-create-kind,
+  .advanced-create-mode,
+  .advanced-preset-source-tab,
+  .advanced-case-tab,
+  .advanced-mobile-tab,
+  .advanced-side-tab,
+  .advanced-asset-target,
+  .auth-method-tab,
+  .topup-method-tab,
+  .chat-settings-tabs button,
+  .playflux-template-tab,
+  .playflux-source-modes button,
+  .creator-segment button,
+  .access-mode-tab,
+  .access-tab,
+  .workflow-node-tabs button,
+  .undress-case-tab
+):hover {
+  border-color: rgba(255, 79, 163, .34);
+  color: #fff;
+  background: var(--tab-surface-hover);
+}
+
+:is(
+  .top-tabs .top-tab,
+  .top-tabs .top-tab-child,
+  .top-tabs .top-tab-more,
+  .top-nav-group-toggle,
+  .gallery-mode-tabs .gallery-mode-tab,
+  .case-category-tab,
+  .advanced-create-kind,
+  .advanced-create-mode,
+  .advanced-preset-source-tab,
+  .advanced-case-tab,
+  .advanced-mobile-tab,
+  .advanced-side-tab,
+  .advanced-asset-target,
+  .auth-method-tab,
+  .topup-method-tab,
+  .chat-settings-tabs button,
+  .playflux-template-tab,
+  .playflux-source-modes button,
+  .creator-segment button,
+  .access-mode-tab,
+  .access-tab,
+  .workflow-node-tabs button,
+  .undress-case-tab
+).is-active {
+  border-color: var(--tab-pink-border);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255, 79, 163, .28), var(--tab-pink-surface));
+  box-shadow: var(--tab-pink-glow);
+}
+
+:is(
+  .top-tabs .top-tab,
+  .top-tabs .top-tab-child,
+  .top-tabs .top-tab-more,
+  .top-nav-group-toggle,
+  .gallery-mode-tabs .gallery-mode-tab,
+  .case-category-tab,
+  .advanced-create-kind,
+  .advanced-create-mode,
+  .advanced-preset-source-tab,
+  .advanced-case-tab,
+  .advanced-mobile-tab,
+  .advanced-side-tab,
+  .advanced-asset-target,
+  .auth-method-tab,
+  .topup-method-tab,
+  .chat-settings-tabs button,
+  .playflux-template-tab,
+  .playflux-source-modes button,
+  .creator-segment button,
+  .access-mode-tab,
+  .access-tab,
+  .workflow-node-tabs button,
+  .undress-case-tab
+).is-active svg {
+  color: var(--tab-pink-strong);
+}
+
+/* Normalise the segmented containers without changing their existing layout. */
+:is(
+  .advanced-create-kind-tabs,
+  .advanced-result-kind-tabs,
+  .advanced-mobile-tabs,
+  .advanced-side-tabs,
+  .advanced-case-tabs,
+  .advanced-preset-source-tabs,
+  .auth-method-tabs,
+  .chat-settings-tabs,
+  .topup-method-tabs,
+  .playflux-source-modes,
+  .workflow-node-tabs,
+  .creator-segment,
+  .undress-case-tabs,
+  .access-mode-tabs
+) {
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 999px;
+  background: rgba(18, 18, 21, .82);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+
+/* Keep grouped navigation and overflow menus visually aligned with primary tabs. */
+.top-nav-group {
+  border-radius: 12px;
+}
+
+.top-nav-group.is-expanded {
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  background: rgba(18, 18, 21, .72);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .16);
+}
+
+.top-nav-group.is-expanded > .top-nav-group-toggle {
+  border-radius: 999px;
+}
+
+.side-nav-more-menu {
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 16px;
+  background: rgba(18, 18, 21, .96);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .42);
+}
+
+/* Keep the same active indicator on grouped navigation entries. */
+.top-nav-group.has-active-child > .top-nav-group-toggle {
+  border-color: var(--tab-pink-border);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255, 79, 163, .22), rgba(255, 79, 163, .12));
+  box-shadow: var(--tab-pink-glow);
+}
+
+/* Preserve the large Same-style tab row while sharing the same selected state. */
+.gallery-top-tabs {
+  gap: 6px;
+  padding: 5px;
+  border-color: rgba(255, 255, 255, .09);
+  background: rgba(18, 18, 21, .82);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+
+.gallery-top-tabs .gallery-mode-tab {
+  min-height: 40px;
+  padding: 9px 16px;
+  border-color: transparent;
+  color: rgba(247, 247, 251, .66);
+  background: transparent;
+  font-size: .86rem;
+  font-weight: 750;
+  box-shadow: none;
+}
+
+.gallery-top-tabs .gallery-mode-tab:hover {
+  border-color: rgba(255, 79, 163, .28);
+  color: #fff;
+  background: rgba(255, 79, 163, .1);
+}
+
+.gallery-top-tabs .gallery-mode-tab.is-active {
+  border-color: var(--tab-pink-border);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255, 79, 163, .28), rgba(255, 79, 163, .16));
+  box-shadow: var(--tab-pink-glow);
+}
+
+/* Compact sub-tabs share the same language without competing with primary tabs. */
+.advanced-create-kind,
+.advanced-create-mode,
+.advanced-preset-source-tab,
+.advanced-case-tab,
+.advanced-asset-target,
+.case-category-tab {
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: .82rem;
+}
+
+.advanced-mobile-tab,
+.advanced-side-tab,
+.auth-method-tab,
+.topup-method-tab,
+.chat-settings-tabs button,
+.playflux-template-tab {
+  min-height: 38px;
+  padding: 8px 13px;
+}
+
+.playflux-source-modes button,
+.creator-segment button,
+.workflow-node-tabs button,
+.undress-case-tab {
+  min-height: 34px;
+  padding: 7px 11px;
+  font-size: .8rem;
+}
+
+.character-page-tabs {
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.character-page-tabs .gallery-mode-tab {
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: .84rem;
+}
+
+/* Counters follow the selected state without changing label spans. */
+.top-tab strong,
+.top-tab-child strong,
+.gallery-mode-tab span,
+.case-category-tab small,
+.advanced-case-tab span,
+.advanced-preset-source-tab span,
+.playflux-template-tab small {
+  color: rgba(247, 247, 251, .62);
+  background: rgba(255, 255, 255, .08);
+}
+
+.top-tab.is-active strong,
+.top-tab-child.is-active strong,
+.gallery-mode-tab.is-active span,
+.case-category-tab.is-active small,
+.advanced-case-tab.is-active span,
+.advanced-preset-source-tab.is-active span,
+.playflux-template-tab.is-active small {
+  color: #18181c;
+  background: #fff;
+}
+
+.case-category-tab.is-active small {
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .gallery-top-tabs {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .gallery-top-tabs .gallery-mode-tab {
+    min-height: 38px;
+    padding: 8px 13px;
+    font-size: .8rem;
+  }
+
+  .case-category-tab,
+  .advanced-create-mode,
+  .advanced-preset-source-tab,
+  .advanced-case-tab,
+  .advanced-asset-target {
+    min-height: 34px;
+    padding-inline: 10px;
+  }
+}

@@ -1,3 +1,14 @@
+## Unified pink tabs across navigation and sub-tabs (2026-11-06)
+
+- User goal: unify the top navigation, page-level tabs and secondary tabs with the Character page's pink selected style.
+- Added the final shared tab layer at the end of `platform.css` so it overrides older page-specific selectors. Covered navigation and grouped navigation, Same-style, Case, Generate, Assets/Result, auth/top-up, chat settings, PlayFlux, creator, access, workflow and Undress.
+- Normalized containers and selected states to capsule geometry, pink border `rgba(255,79,163,.72)`, white text, pink gradient and pink glow. Kept larger Same-style tabs and compact secondary tabs.
+- Added theme-level overrides in `tool-video.css`, `tool-undress.css` and `site-123vipfans.css`; also unified the Undress case and type tabs.
+- Bumped `platform.html` public CSS/JS cache suffix to `pink-tabs-20261106-1`.
+- Added regression assertions in `test/platform-site-profile.test.js`.
+- Verification: targeted pink-tab assertions pass; CSS brace balance is 0; `git diff --check` passes; headless Chrome confirms identical computed selected styles. The full legacy tests are currently blocked by the pre-existing `server.js` split/test-helper state, unrelated to this CSS task.
+- Pending: partial-stage only this tab work, commit, build release snapshot, deploy old site and verify production.
+
 ## Anime restricted to owner account (2026-11-06)
 
 - User clarified the Anime Same-style tab must be visible only to their account, not all users.
