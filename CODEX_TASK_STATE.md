@@ -1,3 +1,12 @@
+## Advanced download2 asynchronous transfer (2026-11-06)
+
+- User reported `Request failed: 524` from download2 and asked whether transfer is synchronous. It was: the download-url handler awaited remote download, poster generation, R2 upload, and DB update behind Cloudflare.
+- `GET /api/generation-records/:taskId/download-url?quality=r2` now queues preparation and returns `202 {status:"preparing"}` immediately. Failed preparation is persisted as `advancedDownloadStatus=failed` with a retryable message; `?retry=1` requeues it.
+- The UI polls with 30-second per-request timeouts and a 16-minute total limit, then triggers the signed R2 browser download when ready. Stale `preparing` records with no live in-process job are requeued, covering service restarts.
+- Files: `server.parts/part-41.js`, `platform.ui.parts/part-02.js`, `platform.html`, `test/generated-assets-on-demand.test.js`.
+- Checks: syntax 4/4, targeted regression 13/13, `git diff --check` pass. Deployment pending.
+- Unrelated dirty files remain unstaged: `db.js`, `package.json`, `package-lock.json`, `email-smtp.js`.
+
 ## Recharge activity entry removal (2026-11-06)
 
 - User confirmed the shared same-style tabs are no longer overlapping, and asked to remove the recharge activity entry for now.

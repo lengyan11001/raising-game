@@ -745,6 +745,45 @@ function generationRecordProviderDownloadTarget(record = {}) {
   };
 }
 
+const advancedDownloadPreparationQueued = new Set();
+
+function advancedDownloadFailureMessage(error = {}) {
+  const message = String(error?.message || error || "").trim();
+  if (!message) return "Advanced download preparation failed.";
+  if (/abort|timeout/i.test(message)) return "Source media download timed out. Please retry download2.";
+  return message.slice(0, 500);
+}
+
+function queueGenerationRecordAdvancedDownload(record = {}) {
+  const taskId = String(record?.taskId || "").trim();
+  if (!taskId || advancedDownloadPreparationQueued.has(taskId)) return false;
+  advancedDownloadPreparationQueued.add(taskId);
+  setImmediate(() => Promise.resolve().then(async () => {
+    try {
+      await updateGenerationRecordAdvancedDownloadInDb(taskId, {
+        advancedDownloadStatus: "preparing",
+        advancedDownloadError: "",
+      });
+      const latest = await getGenerationRecord(taskId) || record;
+      const prepared = await prepareGenerationRecordAdvancedDownload(latest);
+      if (!generationRecordHasR2Download(prepared)) {
+        const error = new Error("The source media is no longer available for transfer.");
+        error.code = "ADVANCED_DOWNLOAD_SOURCE_UNAVAILABLE";
+        throw error;
+      }
+    } catch (error) {
+      await updateGenerationRecordAdvancedDownloadInDb(taskId, {
+        advancedDownloadStatus: "failed",
+        advancedDownloadError: advancedDownloadFailureMessage(error),
+      }).catch(() => {});
+      console.warn("[advanced-download-preparation-failed]", taskId, error?.message || error);
+    } finally {
+      advancedDownloadPreparationQueued.delete(taskId);
+    }
+  }));
+  return true;
+}
+
 async function prepareGenerationRecordAdvancedDownload(record = {}) {
   if (!objectStorageEnabled() || !isSucceededStatus(record.status)) return record;
   const providerTarget = generationRecordProviderDownloadTarget(record);
@@ -919,15 +958,35 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
     return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
   }
   if (r2Only && !generationRecordHasR2Download(record)) {
-    try {
-      record = await prepareGenerationRecordAdvancedDownload(record);
-    } catch (error) {
-      return sendJson(res, Number(error.statusCode) || 502, {
-        ok: false,
-        code: error.code || "ADVANCED_DOWNLOAD_FAILED",
-        message: error.message || "Advanced download preparation failed.",
+    const taskId = String(record.taskId || "");
+    const retry = ["1", "true", "yes"].includes(String(url?.searchParams?.get("retry") || "").toLowerCase());
+    const preparationStatus = String(record.advancedDownloadStatus || "").toLowerCase();
+    if (preparationStatus === "failed" && !retry) {
+      return sendJson(res, 202, {
+        ok: true,
+        status: "failed",
+        message: record.advancedDownloadError || "Advanced download preparation failed. Retry download2.",
       });
     }
+    // If the process restarted mid-transfer, the database can still say
+    // "preparing" while no local job exists. Requeue in that case instead of
+    // leaving the record stuck forever.
+    const queued = queueGenerationRecordAdvancedDownload(record);
+    if (queued || advancedDownloadPreparationQueued.has(taskId)) {
+      return sendJson(res, 202, {
+        ok: true,
+        status: "preparing",
+        message: "Advanced download is being prepared.",
+      });
+    }
+    const error = new Error("Advanced download preparation could not be queued.");
+    error.statusCode = 503;
+    error.code = "ADVANCED_DOWNLOAD_QUEUE_UNAVAILABLE";
+    return sendJson(res, error.statusCode, {
+      ok: false,
+      code: error.code,
+      message: error.message,
+    });
   }
   const target = generationRecordDownloadTarget(record, { r2Only });
   if (!target?.url && !target?.localPath) {

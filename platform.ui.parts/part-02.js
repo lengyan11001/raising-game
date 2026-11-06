@@ -535,15 +535,34 @@ async function downloadGenerationRecordInternal(record = {}, { advanced = false 
   // the record is not a durable download and must never bypass the on-demand
   // R2 preparation step.
   if (advanced && taskId && !taskId.startsWith("pending-")) {
-    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url?quality=r2`);
-    href = String(payload.url || "").trim();
-    fileName = payload.fileName || fileName;
-    if (!href) throw new Error(payload.message || "高级下载暂时不可用。");
-    // R2 returns an attachment with CORS headers. Send the browser straight to
-    // the signed URL instead of buffering the whole video with fetch()+blob.
-    // The old path reported an unhelpful "Failed to fetch" after long videos.
-    triggerBrowserDownload(href, fileName);
-    return;
+    // On-demand R2 preparation may take several minutes. Keep each request
+    // short and poll the lightweight status endpoint so Cloudflare cannot
+    // time out while the server downloads and uploads the media.
+    const startedAt = Date.now();
+    const maxWaitMs = 16 * 60 * 1000;
+    let retry = true;
+    while (Date.now() - startedAt < maxWaitMs) {
+      const query = new URLSearchParams({ quality: "r2" });
+      if (retry) query.set("retry", "1");
+      retry = false;
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url?${query}`, { timeoutMs: 30000 });
+      href = String(payload.url || "").trim();
+      fileName = payload.fileName || fileName;
+      if (href) {
+        // R2 returns an attachment with CORS headers. Send the browser straight
+        // to the signed URL instead of buffering the whole video with fetch()+blob.
+        triggerBrowserDownload(href, fileName);
+        return;
+      }
+      if (String(payload.status || "") === "failed") {
+        throw new Error(payload.message || "高级下载转存失败，请重试。");
+      }
+      if (String(payload.status || "") !== "preparing") {
+        throw new Error(payload.message || "高级下载暂时不可用。");
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    }
+    throw new Error("高级下载转存超时，请稍后重试。");
   }
 
   // Standard downloads intentionally use the provider asset whenever it is

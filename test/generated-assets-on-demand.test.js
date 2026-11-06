@@ -44,6 +44,24 @@ test("advanced download preparation forces a local transient copy and R2 upload"
   assert.doesNotMatch(prepare, /return upsertGenerationRecord\(\{\s*taskId: existing\.taskId/);
 });
 
+test("advanced download preparation is queued so the download-url request cannot hit proxy timeout", () => {
+  const handler = server.slice(
+    server.indexOf("async function handleGenerationRecordDownloadUrl"),
+    server.indexOf("async function handleDownloadGenerationRecord"),
+  );
+  assert.match(server, /const advancedDownloadPreparationQueued = new Set\(\)/);
+  assert.match(server, /function queueGenerationRecordAdvancedDownload\(record = \{\}\)/);
+  assert.match(server, /advancedDownloadPreparationQueued\.has\(taskId\)/);
+  assert.match(server, /advancedDownloadStatus: "preparing"/);
+  assert.match(server, /advancedDownloadStatus: "failed"/);
+  assert.match(server, /advancedDownloadError: advancedDownloadFailureMessage\(error\)/);
+  assert.match(handler, /queueGenerationRecordAdvancedDownload\(record\)/);
+  assert.match(handler, /status: "preparing"/);
+  assert.match(handler, /preparationStatus === "failed" && !retry/);
+  assert.doesNotMatch(handler, /preparationStatus === "preparing"/);
+  assert.doesNotMatch(handler, /await prepareGenerationRecordAdvancedDownload\(/);
+});
+
 test("advanced download eligibility does not require a pre-existing R2 copy", () => {
   assert.match(server, /advancedDownloadAvailable: Boolean\(/);
   assert.match(ui, /record\?\.r2DownloadReady \|\| record\?\.advancedDownloadAvailable/);
@@ -78,10 +96,15 @@ test("advanced download button exposes transferring and ready states", () => {
   assert.match(css, /\.history-r2-download\.is-ready/);
 });
 
-test("advanced downloads always request an R2 transfer before direct browser download", () => {
+test("advanced downloads poll a short R2 preparation request before direct browser download", () => {
   const download = ui.slice(ui.indexOf("async function downloadGenerationRecordInternal"), ui.indexOf("function stripModelParams"));
-  assert.match(download, /download-url\?quality=r2/);
-  assert.ok(download.indexOf("download-url?quality=r2") < download.indexOf("triggerBrowserDownload(href, fileName)"));
+  assert.match(download, /new URLSearchParams\(\{ quality: "r2" \}\)/);
+  assert.match(download, /query\.set\("retry", "1"\)/);
+  assert.match(download, /timeoutMs: 30000/);
+  assert.match(download, /window\.setTimeout\(resolve, 2500\)/);
+  assert.match(download, /payload\.status/);
+  assert.match(download, /maxWaitMs = 16 \* 60 \* 1000/);
+  assert.ok(download.indexOf("download-url") < download.indexOf("triggerBrowserDownload(href, fileName)"));
   assert.doesNotMatch(download, /saveDownloadFromFetch|response\.blob\(\)/);
 });
 
