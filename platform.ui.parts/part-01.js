@@ -911,6 +911,16 @@ function applyTenantFeatures() {
       || !isGalleryModeAllowed(shortcut)
       || (shortcut === "playflux-anime" && !animeEnabled);
   });
+  document.querySelectorAll("[data-nav-group]").forEach((group) => {
+    const children = Array.from(group.querySelectorAll(".top-nav-group-children > :not([hidden])"));
+    group.hidden = children.length === 0;
+    if (group.hidden) {
+      group.querySelector("[data-nav-group-toggle]")?.setAttribute("aria-expanded", "false");
+      group.classList.remove("is-expanded");
+      const panel = group.querySelector(".top-nav-group-children");
+      if (panel) panel.hidden = true;
+    }
+  });
   if (typeof syncSideNavigationMore === "function") syncSideNavigationMore();
   document.querySelectorAll("[data-panel='access'], #accessTokenCard").forEach((element) => {
     element.hidden = !apiAccessEnabled || element.hidden;

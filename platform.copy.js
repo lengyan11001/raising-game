@@ -2,6 +2,7 @@ const I18N = {
   en: {
     "nav.gallery": "Explore",
     "nav.cases": "Cases",
+    "nav.sameStyle": "Same style",
     "playflux.galleryTab": "Video templates",
     "playflux.videoTab": "Video",
     "playflux.imageTab": "Image",
@@ -618,6 +619,7 @@ const I18N = {
   },
   vi: {
     "nav.gallery": "Thư viện",
+    "nav.sameStyle": "Same style",
     "nav.advanced": "Nâng cao",
     "nav.workflow": "Workflow",
     "nav.access": "Truy cập API",
@@ -916,6 +918,7 @@ const I18N = {
   },
   ja: {
     "nav.gallery": "ギャラリー",
+    "nav.sameStyle": "Same style",
     "nav.advanced": "高度設定",
     "nav.workflow": "Workflow",
     "nav.access": "API アクセス",
@@ -1213,6 +1216,7 @@ const I18N = {
   },
   ko: {
     "nav.gallery": "갤러리",
+    "nav.sameStyle": "Same style",
     "nav.advanced": "고급",
     "nav.workflow": "Workflow",
     "nav.access": "API 접근",
@@ -1510,6 +1514,7 @@ const I18N = {
   },
   id: {
     "nav.gallery": "Galeri",
+    "nav.sameStyle": "Same style",
     "nav.advanced": "Lanjutan",
     "nav.workflow": "Workflow",
     "nav.access": "Akses API",
@@ -3037,6 +3042,7 @@ I18N.zh = {
   "advanced.wanPromptOptimize": "Wan3 \u63d0\u793a\u8bcd\u4f18\u5316",
   "nav.gallery": "探索",
   "nav.cases": "案例",
+  "nav.sameStyle": "同款",
   "playflux.galleryTab": "视频模板",
   "nav.characters": "角色",
   "nav.advanced": "高级",

@@ -177,7 +177,7 @@ function setTab(tab) {
 function syncMainTabState() {
   const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
   document.body.classList.toggle("home-active", state.tab === "home");
-  document.querySelectorAll("[data-tab]").forEach((button) => {
+  document.querySelectorAll(".top-tabs [data-tab]").forEach((button) => {
     const buttonTab = button.dataset.tab || "";
     const active = buttonTab === "custom"
       ? customActive
@@ -185,6 +185,10 @@ function syncMainTabState() {
         && !(buttonTab === "advanced" && customActive)
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
+  });
+  document.querySelectorAll(".top-nav-group").forEach((group) => {
+    const childActive = Boolean(group.querySelector(".top-tab.is-active, [data-gallery-shortcut].is-active"));
+    group.classList.toggle("has-active-child", childActive);
   });
   syncSideNavigationMore();
 }
@@ -207,7 +211,7 @@ function syncSideNavigationMore() {
     tabs.classList.remove("is-nav-overflowing");
     return;
   }
-  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more)")).filter((item) => !item.hidden);
+  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more), .top-nav-group")).filter((item) => !item.hidden);
   if (!candidates.length) return;
   const tabHeights = candidates.map((item) => item.getBoundingClientRect().height || 44);
   const navRow = tabs.closest(".side-rail") || tabs;
@@ -238,10 +242,11 @@ function syncSideNavigationMore() {
   overflow.forEach((item) => {
     const clone = item.cloneNode(true);
     clone.removeAttribute("id");
-    clone.classList.remove("is-nav-overflow-item", "is-active");
+    clone.classList.remove("is-nav-overflow-item", "is-active", "has-active-child");
     clone.removeAttribute("hidden");
-    clone.setAttribute("type", "button");
+    if (clone.matches(".top-tab")) clone.setAttribute("type", "button");
     clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
+    if (clone.matches(".top-nav-group")) clone.querySelector(".top-nav-group-children")?.setAttribute("hidden", "");
     menu.appendChild(clone);
   });
   menu.hidden = true;
@@ -3996,6 +4001,9 @@ function syncGalleryShortcutNav() {
     if (countEl) {
       countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
+  });
+  document.querySelectorAll(".top-nav-group").forEach((group) => {
+    group.classList.toggle("has-active-child", Boolean(group.querySelector(".top-tab.is-active, [data-gallery-shortcut].is-active")));
   });
 }
 

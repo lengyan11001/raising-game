@@ -26,12 +26,25 @@ document.addEventListener("click", (event) => {
       .catch((error) => console.warn("video tool module unavailable", error.message || error));
     return;
   }
-  if (event.target.closest("#sideNavMoreMenu [data-tab]")) {
+  const navGroupToggle = event.target.closest("[data-nav-group-toggle]");
+  if (navGroupToggle) {
+    const group = navGroupToggle.closest("[data-nav-group]");
+    const children = group?.querySelector(".top-nav-group-children");
+    if (group && children) {
+      const expanded = navGroupToggle.getAttribute("aria-expanded") === "true";
+      navGroupToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+      group.classList.toggle("is-expanded", !expanded);
+      children.hidden = expanded;
+    }
+    return;
+  }
+  const closeMoreMenuAfterSelection = () => {
+    if (!event.target.closest("#sideNavMoreMenu")) return;
     const menu = document.getElementById("sideNavMoreMenu");
     const moreButton = document.getElementById("sideNavMoreBtn");
     if (menu) menu.hidden = true;
     moreButton?.setAttribute("aria-expanded", "false");
-  }
+  };
   const homeAction = event.target.closest("[data-home-action]");
   if (homeAction) {
     state.routeCharacterId = "";
@@ -49,6 +62,7 @@ document.addEventListener("click", (event) => {
     state.routeCharacterId = "";
     state.routeCharacterSource = "";
     state.activeGalleryCharacterId = "";
+    closeMoreMenuAfterSelection();
     setTab(DEFAULT_PLATFORM_TAB);
     setGalleryMode(galleryShortcut.dataset.galleryShortcut || DEFAULT_GALLERY_MODE);
     return;
@@ -58,6 +72,7 @@ document.addEventListener("click", (event) => {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  closeMoreMenuAfterSelection();
   if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });

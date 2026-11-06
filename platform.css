@@ -1103,6 +1103,41 @@ body.tenant-tool-shell .launch-banner + .site-head {
   border-color: rgba(255, 79, 163, 0.62);
   background: rgba(255, 79, 163, 0.16);
 }
+.top-nav-group {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.top-nav-group-toggle {
+  width: 100%;
+}
+.top-nav-group-chevron {
+  width: 14px !important;
+  height: 14px !important;
+  margin-left: auto;
+  color: rgba(247,247,251,.46) !important;
+  transition: transform .18s ease, color .18s ease;
+}
+.top-nav-group.is-expanded .top-nav-group-chevron {
+  color: rgba(255,79,163,.9) !important;
+  transform: rotate(180deg);
+}
+.top-nav-group.has-active-child > .top-nav-group-toggle {
+  color: #fff;
+  border-color: rgba(255,79,163,.34);
+  background: rgba(255,79,163,.09);
+}
+.top-nav-group-children {
+  display: grid;
+  gap: 3px;
+  padding-left: 8px;
+}
+.top-nav-group-children[hidden] {
+  display: none;
+}
+.top-nav-group-children .top-tab-child {
+  width: 100%;
+}
 .top-tab-more { display: none; }
 .top-tabs.is-nav-overflowing .top-tab-more { display: flex; }
 .side-nav-more-menu {
@@ -1123,7 +1158,8 @@ body.tenant-tool-shell .launch-banner + .site-head {
 }
 .side-nav-more-menu[hidden] { display: none; }
 .top-tabs.is-nav-overflowing .top-tab.is-nav-overflow-item,
-.top-tabs.is-nav-overflowing .top-tab[data-gallery-shortcut].is-nav-overflow-item { display: none; }
+.top-tabs.is-nav-overflowing .top-tab[data-gallery-shortcut].is-nav-overflow-item,
+.top-tabs.is-nav-overflowing .top-nav-group.is-nav-overflow-item { display: none; }
 .head-actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .account-menu-wrap { position: relative; min-width: 0; }
 .account-menu-trigger {

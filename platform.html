@@ -87,21 +87,34 @@
           <i data-lucide="message-circle-heart"></i>
           <span>Chat</span>
         </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
-          <i data-lucide="film"></i>
-          <span data-i18n="playflux.videoTab">Video</span>
-          <strong data-gallery-shortcut-count>0</strong>
-        </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-anime" type="button">
-          <i data-lucide="sparkles"></i>
-          <span data-i18n="playflux.animeTab">Anime</span>
-          <strong data-gallery-shortcut-count>0</strong>
-        </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-image" type="button">
-          <i data-lucide="image"></i>
-          <span data-i18n="playflux.imageTab">Image</span>
-          <strong data-gallery-shortcut-count>0</strong>
-        </button>
+        <div class="top-nav-group" data-nav-group="same-style">
+          <button class="top-tab top-nav-group-toggle" data-nav-group-toggle type="button" aria-expanded="false">
+            <i data-lucide="shapes"></i>
+            <span data-i18n="nav.sameStyle">同款</span>
+            <i class="top-nav-group-chevron" data-lucide="chevron-down"></i>
+          </button>
+          <div class="top-nav-group-children" hidden>
+            <button class="top-tab top-tab-child" data-tab="cases" type="button">
+              <i data-lucide="layout-grid"></i>
+              <span data-i18n="nav.cases">Cases</span>
+            </button>
+            <button class="top-tab top-tab-child" data-gallery-shortcut="playflux-video" type="button">
+              <i data-lucide="film"></i>
+              <span data-i18n="playflux.videoTab">Video</span>
+              <strong data-gallery-shortcut-count>0</strong>
+            </button>
+            <button class="top-tab top-tab-child" data-gallery-shortcut="playflux-anime" type="button">
+              <i data-lucide="sparkles"></i>
+              <span data-i18n="playflux.animeTab">Anime</span>
+              <strong data-gallery-shortcut-count>0</strong>
+            </button>
+            <button class="top-tab top-tab-child" data-gallery-shortcut="playflux-image" type="button">
+              <i data-lucide="image"></i>
+              <span data-i18n="playflux.imageTab">Image</span>
+              <strong data-gallery-shortcut-count>0</strong>
+            </button>
+          </div>
+        </div>
         <button class="top-tab" data-tab="advanced" type="button">
           <i data-lucide="wand-sparkles"></i>
           <span data-i18n="nav.advanced">Advanced</span>
@@ -109,10 +122,6 @@
         <button class="top-tab" data-tab="custom" type="button">
           <i data-lucide="sliders-horizontal"></i>
           <span data-i18n="advanced.modeCustom">Generate</span>
-        </button>
-        <button class="top-tab" data-tab="cases" type="button">
-          <i data-lucide="layout-grid"></i>
-          <span data-i18n="nav.cases">Cases</span>
         </button>
         <button class="top-tab" data-tab="workflow" type="button" hidden>
           <i data-lucide="workflow"></i>
