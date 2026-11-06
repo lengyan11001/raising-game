@@ -650,3 +650,4 @@ CODEX_TASK_STATE.md
 - `server.parts/part-42.js`: `/platform-sw.js` now also gets CDN no-store headers, preventing Cloudflare from serving a stale worker for four hours.
 - Regression: `test/platform-refresh-performance.test.js` locks network-first navigation/platform chunks, no-store SW CDN headers, and `updateViaCache`.
 - Verification: syntax checks, `git diff --check`, and cache + Vega targeted suites: 104 pass / 0 fail.
+- Release: `old-site` `c10d1c7`, `platform-release` `d679d5f`; deployed only `123vips.com`. Production `/api/health` is OK; `/platform-sw.js` is now `cf-cache-status: BYPASS` with CDN no-store; production loader references fresh `platform.js?v=mw4gzc3o`; Pro/Lite messages remain distinct.
