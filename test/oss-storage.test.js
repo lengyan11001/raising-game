@@ -153,6 +153,21 @@ test("private OSS origin URLs are converted to signed CDN delivery URLs", () => 
   assert.equal(pathStyle.pathname, "/generated/videos/path.mp4");
   assert.ok(pathStyle.searchParams.get("Signature"));
 
+  // Historical R2 media must stay on media.123vips.com even when a caller
+  // still passes a record-level key alongside the URL.
+  const historicalR2Asset = isolatedServer.publicUserAsset({
+    id: "historical-r2",
+    name: "old.png",
+    mime: "image/png",
+    publicUrl: "https://media.123vips.com/seedance-assets/raising-game/users/old.png",
+    r2Key: "seedance-assets/raising-game/users/old.png",
+  });
+  assert.equal(historicalR2Asset.publicUrl, "https://media.123vips.com/seedance-assets/raising-game/users/old.png");
+  assert.equal(isolatedServer.signedOssCdnUrlForDelivery(
+    "https://media.123vips.com/seedance-assets/raising-game/users/old.png",
+    { key: "seedance-assets/raising-game/users/old.png" },
+  ), "");
+
   const publicRecord = isolatedServer.publicGenerationRecord({
     taskId: "oss-origin",
     status: "succeeded",

@@ -88,10 +88,19 @@ function seedanceIgnexModelForRequest(model = "", seedanceTier = "standard") {
 function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", download = false } = {}) {
   const text = String(value || "").trim();
   if (!OSS_STORAGE_ENABLED || !text) return "";
+  // A record-level storage key may belong to OSS while its display URL still
+  // points at historical R2 media. Never sign an R2/other public URL with the
+  // OSS credentials merely because a key was supplied.
+  const urlProvider = inferObjectStorageProviderFromUrl(text);
+  if (urlProvider && urlProvider !== "oss") return "";
+  // Recognized OSS origin/CDN URLs are safe to sign. For any other public URL,
+  // only use an explicitly supplied key when the caller has no URL-derived
+  // provider. This keeps arbitrary external/R2 URLs from being rewritten.
+  const hasPublicUrl = isPublicHttpUrl(text);
   const inferred = objectStorageKeyFromPublicUrl(text, "oss");
   // Prefer the object key encoded in the URL. Multi-image records can contain
   // several different keys while carrying only one record-level storageKey.
-  const objectKey = String(inferred.key || key || "").trim();
+  const objectKey = String(inferred.key || (!hasPublicUrl ? key : "") || "").trim();
   if (!objectKey || (inferred.provider && inferred.provider !== "oss")) return "";
   return makeOssSignedCdnUrl({
     key: objectKey,
