@@ -309,7 +309,7 @@
 - Changed `platform.css`: replaced duration shortcut styling with slider and endpoint label styling.
 - Added regression coverage in `test/platform-site-profile.test.js`.
 - Verification: targeted platform/Vega tests pass (76/76); syntax and `git diff --check` pass. Headless Chrome verified ratio selection closes the picker, the duration picker renders one slider with zero duration buttons, drag updates readout/chip, release saves the native value and closes the picker.
-- Deployment: pending.
+- Deployment: old-site `bbb4a68`; platform-release `4c89031`, pushed with lease protection. Deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`; deployment verified commit `4c89031`, health returned `{"ok":true}`, and production `platform.create.parts/part-01.js`, `platform.ui.parts/part-02.js`, and `platform.css` contain no slow-save hint markup or styles. Live was not deployed.
 
 ## 123vip.fans Generate parity guard (2026-11-06)
 
