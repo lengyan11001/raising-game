@@ -1217,6 +1217,18 @@ async function queryAliyunOrMulerouterTask(taskId, dashscopeOptions = {}) {
   return aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(taskId)}`, dashscopeOptions);
 }
 
+function signedWan30MediaForUpstream(media = []) {
+  return (Array.isArray(media) ? media : []).map((item) => {
+    const url = String(item?.url || "").trim();
+    if (!url) return item;
+    // The OSS bucket is private. The upstream downloader receives the URL
+    // directly, so sign it at the final submission boundary rather than
+    // relying on display-time URL conversion elsewhere in the app.
+    const signedUrl = signedOssCdnUrlForDelivery(url);
+    return signedUrl ? { ...item, url: signedUrl } : item;
+  });
+}
+
 async function submitAliyunVideoTask({ provider = "wan27", capability = "", prompt, imageUrl = "", media = [], body = {}, user = null, userId = "" }) {
   const source = { ...requestParamsFromBody(body), ...body };
   const normalizedMedia = Array.isArray(media) && media.length
@@ -1229,6 +1241,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
   const followInputDuration = resolvedCapability === "wan27-video-edit"
     && boolFromRequest(source.followInputDuration, false);
   const isWan30Capability = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(resolvedCapability);
+  const upstreamMedia = isWan30Capability ? signedWan30MediaForUpstream(normalizedMedia) : normalizedMedia;
   const parameters = {
     ...parameterExtras,
     resolution: firstPresent(parameterExtras.resolution, source.resolution, isWan30Capability ? "1080p" : "720p"),
@@ -1255,7 +1268,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     capability: resolvedCapability,
     model: aliyunVideoModelForCapability(resolvedCapability, source.model),
     prompt,
-    media: normalizedMedia,
+    media: upstreamMedia,
     duration: source.duration,
     resolution: parameters.resolution,
     ratio: source.ratio,
@@ -1276,7 +1289,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
   const mulerouterDecision = await mulerouterAliyun.decideVideo({
     user: routeUser,
     capability: resolvedCapability,
-    media: normalizedMedia,
+    media: upstreamMedia,
     parameters,
     prompt,
   });
@@ -1317,8 +1330,8 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
   console.log("[aliyun-video-submit-advanced]", JSON.stringify({
     capability: resolvedCapability,
     model: payload.model,
-    mediaTypes: normalizedMedia.map((item) => item.type),
-    mediaHosts: normalizedMedia.map((item) => {
+    mediaTypes: upstreamMedia.map((item) => item.type),
+    mediaHosts: upstreamMedia.map((item) => {
       try {
         return new URL(item.url).host;
       } catch {

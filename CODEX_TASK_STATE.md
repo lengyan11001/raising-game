@@ -1153,3 +1153,13 @@ CODEX_TASK_STATE.md
 - Browser verification: desktop checkout measured 720 x 694.9 with no vertical overflow; mobile 390 x 844 checkout measured 354 x 808 with no horizontal/content overflow. `9,900` is absent; screenshots are `/tmp/membership-checkout-desktop.png` and `/tmp/membership-checkout-mobile.png`.
 - Tests: `node --check` for the three changed scripts, `git diff --check`, and `node --require ./test/source-compat.js --test test/membership-entitlements.test.js test/cases-membership.test.js` (12/12 pass).
 - Deployment: not deployed yet; awaiting explicit deployment request.
+
+## Wan 3.0 upstream 502 investigation (2026-11-06)
+
+- Production `app_generation_records`: 19 `Failed to download file: HTTP 502` failures in the last 24h, all from `advanced-wan30` (`wan3.0-video-prime`: 15 observed plus latest; `wan3.0-video` failures); no Vega 502 in the same window. Pre-deducted credits are refunded.
+- MuleRouter reports `4002 Infrastructure operation failed / Failed to download file: HTTP 502`. Failure records send unsigned `https://assets-cdn.123vips.com/assets/user-uploads/...` reference image URLs.
+- Direct unsigned CDN requests return `403` (`x-oss-cdn-auth: success`, `x-oss-ec: 0003-00000001`). The same object with a correctly signed OSS CDN URL returns `200` and the exact expected byte size. `media.123vips.com/<key>` returns 404 because these uploaded objects are in Singapore OSS, not the historical R2 mirror.
+- Root cause: the Wan 3.0 submission path is still passing stored unsigned `assets-cdn` URLs upstream. The upstream downloader masks the origin 403 as HTTP 502. Production OSS credentials and CDN signing are valid; the bug is the media URL used in the Wan 3.0 payload, not the public site API or OSS service.
+- Required fix: make the Wan 3.0 payload sign every `assets-cdn`/OSS object URL immediately before submission (or publish to a truly public URL), and add a regression test asserting the sent reference URL contains a valid signature rather than the bare CDN URL.
+- Fix applied in `server.parts/part-17.js`: Wan 3.0 capabilities now sign OSS/CDN media at the final upstream boundary, and both the MuleRouter decision and Alibaba request receive that signed media array. Lite and other capabilities keep their existing media flow.
+- Regression: `test/wan30-upstream-signed-media.test.js` verifies private `assets-cdn` media gains `OSSAccessKeyId`/`Signature`/`Expires`, preserves media metadata, leaves external public URLs and the input array unchanged, and confirms both upstream call sites use signed media. `node --test test/oss-storage.test.js test/wan30-upstream-signed-media.test.js` passes 11/11; syntax and targeted `git diff --check` pass.
