@@ -17,7 +17,7 @@
 - Preview elements use the ordered `assetUrls` candidate chain and advance to the next browser-safe URL on `error`, exposing `素材不可用` only after all candidates fail.
 - Changed files for this follow-up: `db.js`, `server.parts/part-01.js` (import only), `server.parts/part-41.js`, `platform.create.parts/part-04.js`, `platform.create.parts/part-05.js`, `platform.ui.parts/part-02.js`, `platform.explore.js`, `test/vega-regeneration-media.test.js`.
 - Verification: `node --test test/vega-regeneration-media.test.js` passes 12/12; all changed files pass `node --check`; `git diff --check` passes. Broader direct Node tests still show pre-existing source-wrapper failures unrelated to this change.
-- Deployment status: committed as `8e27b6a`; deployment pending.
+- Deployment status: committed as `8e27b6a` (follow-up status commit `859f9a1`); built `platform-release` as `aa19eff` and deployed to `123vips.com`. Production `/api/health` returned `200 {"ok":true}`; deployed frontend/server files contain canonical `mediaAssets`/`assetUrls` hydration and candidate fallback logic. Live was not deployed.
 
 - Production record `cgt-20261106230001-147d65` has a valid `userAssetId` and internal `asset://` identity, but both `mediaAssets.url` and `params.referenceImages[].url` retain an expired OSS/CDN signature. The previous preview fallback did not overwrite the stale parameter URL, so Regenerate showed `素材不可用`.
 - Changed `platform.create.parts/part-04.js` so user-asset resolution hydrates both `mediaAssets` and matching `params` preview fields (`referenceImages`, video/audio lists, URL arrays, and first/last-frame URLs). Fresh delivery/local HTTP URLs replace stale signed URLs while `assetUri` remains available for generation.
