@@ -1027,3 +1027,17 @@ CODEX_TASK_STATE.md
 - Integration: `old-site` commit `bb06217b13b04fc91159e10540a245833df30ad8` (`Add 11.11 campaign and React Flow workflow canvas`).
 - Releases: `platform-release` `a043ac20daa8e5858b785905c46b60cb3e47ad87`; `live-release` `fb188448833c998b9685e99770b82f85b556d1e4`.
 - Deployment status: deployed successfully to `123vips.com` and `live.123vipeak.com` via `scripts/deploy_local.sh --site old` and `--site live`; both `/api/health` endpoints returned `200 {"ok":true}`. Production campaign status is visible but inactive until `2026-11-10 00:00 +07:00`, as designed.
+
+### 11.11 rolling three-day countdown and production verification (2026-11-06)
+
+- User requested that the campaign start today and that the three-day countdown restart automatically when it reaches zero.
+- Server behavior: campaign starts at `2026-11-06T00:00:00+07:00`; each round is exactly 3 days. The current window is computed from the server clock, with `ELEVEN_ELEVEN_PERIOD_SECONDS=259200` overridable subject to a 3600-second minimum.
+- Frontend behavior: when the displayed countdown reaches its end, the UI refreshes promotion status and shows `11.11 新一期活动已开始`; the new round's countdown is calculated from the server-provided window.
+- Rollover does not reset inventory and does not reset the per-account, per-SKU purchase limit. PostgreSQL remains authoritative for inventory and owned/purchased state.
+- `test01` “already owned” is real data, not a hard-coded/demo state. In the `main` tenant, production PostgreSQL has `membership.status=active`, `source=activation_code`, `activatedAt=2026-10-29T04:23:37.597Z`, and `planId=plan-main-creator`; other `test01` accounts in other tenants have no membership record. Anonymous promotion status returns `owned:false`, confirming ownership is resolved from the authenticated database record.
+- Changed files: `server.parts/part-44.js`, `platform.ui.parts/part-07.js`, `test/eleven-eleven-promo.test.js`.
+- Verification: targeted 11.11 tests 8/8 pass; `node --check` passes for both changed scripts; `git diff --check` passes.
+- Integration: `old-site` commit `85b2e7d195f42116ceccb9bd8073bab3c7dcf61b` (`Roll 11.11 countdown every three days`).
+- Releases: `platform-release` `df4ddeb162b269a2618e898ddfd529921c0d391b`; `live-release` `9e3d09ac17e3e0965e89e97c9717d2b6c588492f`.
+- Deployment: deployed successfully via `scripts/deploy_local.sh --site old` and `scripts/deploy_local.sh --site live`.
+- Production verification: both sites return `active:true`, `started:true`, `visible:true`, `periodSeconds:259200`, with `startsAt=2026-11-05T17:00:00.000Z` and `endsAt=2026-11-08T17:00:00.000Z`; both `/api/health` endpoints return `200 {"ok":true}`. Anonymous SKU state returns `owned:false` and `purchased:false`, while inventory reflects the real PostgreSQL count.
