@@ -214,6 +214,7 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /syncChatViewportHeight/);
   assert.match(chat, /data-chat-branch/);
   assert.match(chat, /data-chat-delete/);
+  assert.match(chat, /const liveCharacter = \(hasConversation && window\.ChatLive\?\.available\?\.\(\)/);
 });
 
 test("character chat supports generated media, state tracking and conversation branching", () => {

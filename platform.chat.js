@@ -182,7 +182,7 @@ function renderChatPanel() {
     els.chatMainHead.querySelector("[data-chat-mobile-list]")?.addEventListener("click", () => els.chatShell?.classList.toggle("mobile-list-open"));
     els.chatMainHead.querySelector("[data-chat-mobile-settings]")?.addEventListener("click", () => els.chatShell?.classList.toggle("mobile-settings-open"));
     /* 在线聊天（Vidu 实时数字人）：和角色聊天按钮并排的实时视频入口 */
-    const liveCharacter = (window.ChatLive?.available?.() && window.ChatLive.characters().find((item) => (
+    const liveCharacter = (hasConversation && window.ChatLive?.available?.() && window.ChatLive.characters().find((item) => (
       String(item.id) === String(conversation.characterId || conversation.character?.id || "")
       || String(item.linkName || "").toLowerCase() === String(conversation.title || conversation.character?.name || "").toLowerCase()
       || String(item.name || "").toLowerCase() === String(conversation.title || conversation.character?.name || "").toLowerCase()
