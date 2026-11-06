@@ -1055,3 +1055,16 @@ CODEX_TASK_STATE.md
 - Releases: `platform-release` `61c2fd642f8b026cb61dfb4e82186d8852ef2939`; `live-release` `090454a998d2ad8f860f54f9f2f30ca9bd87d828`.
 - Deployment: deployed successfully via `scripts/deploy_local.sh --site old` and `scripts/deploy_local.sh --site live`; both health endpoints return 200.
 - Production verification: both sites show `active:true`, `started:true`, member `sold:896`, credits `sold:743`, `owned:false`, `purchased:false`; both responses omit `capacity`, `remaining`, and `soldOut`.
+
+### 11.11 unlimited credits repurchase (2026-11-06)
+
+- User clarified that the `$66` credits SKU must be purchasable repeatedly by the same account during the campaign; the `$29.9` lifetime membership SKU remains limited to one paid purchase per account.
+- PostgreSQL `app_promotion_purchases` now stores one row per order with an `id BIGSERIAL` primary key. An idempotent migration detects the legacy `(campaign_id, sku, user_id)` primary key and replaces it; a partial unique index enforces only one paid member purchase per campaign/account.
+- Checkout reservation uses an account+campaign+SKU advisory lock. `member` returns `purchased` after a paid row; `credits` creates a new pending row per order and ignores prior paid rows.
+- Public promotion state exposes `purchased` only for `member`. The latest credits order still exposes `orderStatus=paid` so Stripe return polling can confirm the just-completed purchase without disabling future credits purchases.
+- Changed files: `db.js`, `server.parts/part-44.js`, `platform.ui.parts/part-07.js`, `test/eleven-eleven-promo.test.js`.
+- Verification: 11.11 tests 8/8 pass; `node --check` passes for all three changed scripts; `git diff --check` passes. Production old-site restart completed with PostgreSQL configured and no schema-migration error.
+- Integration: `old-site` `88ff9fb5615a299cc9e1b766e50027c9a937bff6` (`Allow unlimited 11.11 credits purchases`), pushed to origin.
+- Releases: `platform-release` `f19c4d684270f4866dbb5d4868c145b6637e80ed`; `live-release` `0596a80dd157752e781b800466a7de31012cf4ea`, both built from `88ff9fb` and pushed with lease protection.
+- Deployment: both sites deployed successfully via `scripts/deploy_local.sh --site old` and `scripts/deploy_local.sh --site live`. Both site health checks return 200.
+- Production verification: both public promotion responses show `active:true`, member `sold:896`, credits `sold:743`; neither SKU returns a capacity/remaining/sold-out limit. The deployed promo code returns `purchased:false` for credits while preserving its latest order status for checkout-return confirmation.
