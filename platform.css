@@ -10918,6 +10918,7 @@ select:focus,
     display: none;
   }
   .top-tab-child {
+    width: auto;
     margin: 0 0 0 16px;
     padding: 7px 10px;
   }
