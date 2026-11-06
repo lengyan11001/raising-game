@@ -492,18 +492,17 @@ function setAdvancedDownloadButtonState(button, status = "idle") {
   button.dataset.downloadState = status;
   button.classList.toggle("is-transferring", status === "transferring");
   button.classList.toggle("is-ready", status === "ready");
-  const hint = `<span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>`;
   if (status === "transferring") {
     button.disabled = true;
-    button.innerHTML = `${hint}<i data-lucide="loader-circle"></i>${escapeHtml(zh ? "download2 转存中" : "Preparing download2")}`;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(zh ? "download2 转存中" : "Preparing download2")}`;
   } else if (status === "ready") {
     button.disabled = false;
-    button.innerHTML = `${hint}<i data-lucide="cloud-download"></i>${escapeHtml(zh ? "download2 可下载" : "download2 available")}`;
+    button.innerHTML = `<i data-lucide="cloud-download"></i>${escapeHtml(zh ? "download2 可下载" : "download2 available")}`;
   } else if (status === "failed") {
     button.disabled = false;
-    button.innerHTML = `${hint}<i data-lucide="circle-alert"></i>${escapeHtml(zh ? "download2 重试" : "Retry download2")}`;
+    button.innerHTML = `<i data-lucide="circle-alert"></i>${escapeHtml(zh ? "download2 重试" : "Retry download2")}`;
   } else {
-    button.innerHTML = `${hint}<i data-lucide="cloud-download"></i>${escapeHtml(t("history.advancedDownload"))}`;
+    button.innerHTML = `<i data-lucide="cloud-download"></i>${escapeHtml(t("history.advancedDownload"))}`;
   }
   refreshIcons();
 }

@@ -894,7 +894,6 @@ function renderAdvancedResultPanel() {
             ` : ""}
             ${videoUrl || imageUrl ? `
               <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
-                <span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>
                 <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
               </button>
             ` : ""}

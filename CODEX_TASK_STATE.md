@@ -1154,6 +1154,13 @@ CODEX_TASK_STATE.md
 - Tests: `node --check` for the three changed scripts, `git diff --check`, and `node --require ./test/source-compat.js --test test/membership-entitlements.test.js test/cases-membership.test.js` (12/12 pass).
 - Deployment: not deployed yet; awaiting explicit deployment request.
 
+## Download2 slow-save bubble removal (2026-11-06)
+
+- User asked to remove the “如果下载素材慢请点击我保存” bubble above every Result/history download2 button.
+- Removed the hint markup from advanced Result cards, history cards, and history detail; removed the dynamic hint inserted by `setAdvancedDownloadButtonState`; removed the now-unused bubble CSS.
+- Regression: `test/generated-assets-on-demand.test.js` now asserts no hint markup remains in Create/Explore/UI or CSS. Targeted suite passes 19/19; changed scripts pass syntax checks.
+- Deployment: pending.
+
 ## Wan 3.0 upstream 502 investigation (2026-11-06)
 
 - Production `app_generation_records`: 19 `Failed to download file: HTTP 502` failures in the last 24h, all from `advanced-wan30` (`wan3.0-video-prime`: 15 observed plus latest; `wan3.0-video` failures); no Vega 502 in the same window. Pre-deducted credits are refunded.
