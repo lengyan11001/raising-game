@@ -1,3 +1,12 @@
+## Same-style navigation runtime errors and cache fix (2026-11-06)
+
+- User reported `not defined` errors across many pages immediately after the same-style navigation deployment.
+- Root cause: `syncGalleryShortcutNav()` still called removed helper `syncGalleryModeTabs()`. Every non-home tab switch reached it and threw `ReferenceError`; cached old chunks also caused a stale version to persist after the first repair.
+- Fixed `platform.explore.js` to call `renderGalleryModeTabs()`, updated the side-navigation regression test to forbid the removed symbol, and bumped the page asset suffix to `advanced-parameters-20261106-11` so all split scripts cache-bust.
+- Headless full-page tab audit also exposed a separate empty-chat null dereference in `platform.chat.js`; guarded ChatLive lookup with `hasConversation` and added a regression assertion.
+- Verification: navigation/chat tests pass; production console audit across `/`, `/platform.html`, `#cases`, `#history`, `#assets`, `#custom`, `#pricing`, `#chat`, `#topups`, `#spending`, `#referral`, and `#characters` reports zero errors.
+- Deployment: `old-site` `748c733`; `platform-release` `35bdc93`, built from it and deployed only to `123vips.com`. Production health `200 {"ok":true}`; production JS contains the corrected calls and empty-chat guard.
+
 ## Same-style top-level navigation and Case-first in-page tabs (2026-11-06)
 
 - Goal: keep “Same style / 同款” as a top-level navigation entry, remove its dropdown, and show Case / Video / Anime / Image as top in-page tabs in the right content area. Case must be first and selected by default.
