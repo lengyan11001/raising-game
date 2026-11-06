@@ -1089,3 +1089,29 @@ CODEX_TASK_STATE.md
 - Releases: `platform-release` `f19c4d684270f4866dbb5d4868c145b6637e80ed`; `live-release` `0596a80dd157752e781b800466a7de31012cf4ea`, both built from `88ff9fb` and pushed with lease protection.
 - Deployment: both sites deployed successfully via `scripts/deploy_local.sh --site old` and `scripts/deploy_local.sh --site live`. Both site health checks return 200.
 - Production verification: both public promotion responses show `active:true`, member `sold:896`, credits `sold:743`; neither SKU returns a capacity/remaining/sold-out limit. The deployed promo code returns `purchased:false` for credits while preserving its latest order status for checkout-return confirmation.
+
+## Platform user profile audit (2026-11-06)
+
+- User asked for platform user characteristics: terminal, behavior, region, etc. Read-only production audit only; no code or deployment changes.
+- Source: production PostgreSQL `raising_game` via `/etc/raising-game-demo.env`; credentials and DATABASE_URL were not printed.
+- Snapshot at 2026-11-06 21:14 Asia/Bangkok: 674 accounts, 673 active (1 soft-deleted). Main tenant 532 users, tool-undress-14vips 115, tool-chat-5vips 17, tool-video-123tops 7, admins 2.
+- Growth: 138 new in 7d, 268 in 30d. Monthly new: Apr 1, May 33, Jun 45, Jul 40, Aug 135, Sep 132, Oct 166, Nov (partial) 121.
+- Auth: 146 Google, 5 Telegram, 2 verified email, 673 password hashes; 520 password-only (Google/Telegram/email fields absent). Most legacy/current accounts are password-based; email login still nascent.
+- Lifecycle: 306/673 ever generated; 367 never generated (54.5%). 237 activated on registration day; 145 generated in last 7d, 201 in last 30d. 30-day cohort: 268 users, day-0 generation 83 (31.0%), D1 48 (17.9%), D7 18 (6.7% of all cohort; latest cohorts cannot reach D7).
+- Generation: 28,286 records; 14,006 in last 30d, 4,330 last 7d, 672 last 24h. Last-30d kinds: video 10,276 / 187 users, advanced image 2,084 / 87, asset image 1,146 / 86, text 419 / 7. Video dominates. Last-14d generating DAU 36-60, 2026-11-05 peak 60. Failure last 30d: video 10.0%, advanced image 4.8%, asset image 4.9%, text 1.0%.
+- Payment: 436 paid orders, 171 payers, 25.5% of 671 normal users. Payable/received snapshot about $14,909.70 recorded, Stripe received $14,379; 165/171 payers generated, avg 102.8 lifetime generations, median 32. Top packages usd-20 (185 orders/103 users), double-topup (92), usd-30 (69), usd-50 (41).
+- Terminal (last 30d, server-rendered document requests, bots/API-heavy noise filtered): 32,958 samples / 6,411 IPs; desktop 55.3%, mobile 44.3%, tablet 0.4%; Chrome 64.1%, Safari 18.0%, Other 10.2%, Edge 3.9%, Firefox 3.3%; Windows 30.8%, Android 25.5%, iOS/iPadOS 19.2%, macOS 8.9%, Linux 7.0%.
+- Web Vitals hostname-specific `123vips.com` last 30d: 20,482 events, desktop 10,356 (50.6%), mobile 9,087 (44.4%), tablet 1,039 (5.1%). Overall 30d: LCP p75 6,784ms / good 29.8%, INP p75 248ms / good 70.2%, CLS p75 0.01 / good 96.3%.
+- Region table (GEO) is stale: last_seen 2026-10-30 22:03; 75,817 visits / 21,288 IP hashes, UNKNOWN 11,503. Top US 19,964, UNKNOWN 11,503, CN 7,566, JP 6,062, SG 5,052, DE 4,480, HK 4,157. Treat as historical visit geography, not current registered-user geography. Crawlers were separate: FacebookExternalHit 7,466, Bingbot 4,358, Applebot 4,256, Googlebot 1,812.
+- Gaps: no reliable current country per account; no per-user browser/OS column; Nginx combined logs omit Host; GEO summary stopped updating after 2026-10-30. Recommend adding host-aware access logs and account country/source attribution, but do not infer missing data.
+
+## Media transfer status in generation UI (2026-11-06)
+
+- User requested a distinct state between generation success and accelerated-media readiness.
+- Added public `advancedDownloadStatus` to generation records without exposing `advancedDownloadError`. Generation, billing, and error state remain unchanged by media transfer.
+- Result, history, and history detail now show `素材加速中…` / `素材加速失败` pills. `download2` shows `加速中` and is temporarily disabled while preparing, then changes to `可下载`; failed shows `重试`.
+- Workflow result cards show `已完成 · 素材加速中…` or `已完成 · 素材加速失败，可重试 download2` until the CDN copy is ready.
+- Working tree contains unrelated workflow-canvas work; this feature's workflow `statusText()` hunk is staged separately. Cache suffix is `media-transfer-status-20261106-1`.
+- Verification: `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 19/19; syntax checks and `git diff --check` pass.
+- Deployment hardening: deploy now resolves `refs/remotes/origin/<branch>` explicitly and retries the health endpoint across the normal restart window. Deployment checks pass 7/7.
+- Final deployment: `old-site` `a1b5b80`, `platform-release` `3008d70`; `scripts/deploy_local.sh --site old` exited 0 after all health/page/commit checks. Production `https://123vips.com` has the acceleration-status UI and `advancedDownloadStatus` workflow handling.
