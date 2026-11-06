@@ -4,8 +4,8 @@
 - `GET /api/generation-records/:taskId/download-url?quality=r2` now queues preparation and returns `202 {status:"preparing"}` immediately. Failed preparation is persisted as `advancedDownloadStatus=failed` with a retryable message; `?retry=1` requeues it.
 - The UI polls with 30-second per-request timeouts and a 16-minute total limit, then triggers the signed R2 browser download when ready. Stale `preparing` records with no live in-process job are requeued, covering service restarts.
 - Files: `server.parts/part-41.js`, `platform.ui.parts/part-02.js`, `platform.html`, `test/generated-assets-on-demand.test.js`.
-- Checks: syntax 4/4, targeted regression 13/13, `git diff --check` pass. Deployment pending.
-- Unrelated dirty files remain unstaged: `db.js`, `package.json`, `package-lock.json`, `email-smtp.js`.
+- Checks: syntax 4/4, targeted regression 13/13, `git diff --check` pass.
+- Deployment: old-site `a2012f7`; platform-release `157eb4c`; deployed only to `123vips.com`. Health returned `{"ok":true}` and production `platform.ui.parts/part-02.js` contains the 30-second polling request and 16-minute limit.
 
 ## Recharge activity entry removal (2026-11-06)
 
