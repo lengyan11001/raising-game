@@ -1,3 +1,11 @@
+## Same-style tabs use outlined button states (2026-11-06)
+
+- User requested Case-child-tab-like borders and a clear selected state for all four Same-style tabs.
+- Same-style tabs now each have a 1px neutral border and subtle dark fill; the active tab uses a pink border with a 10% pink fill and muted text. The inner label remains transparent, so no white pill returns.
+- Cache suffix bumped to `advanced-parameters-20261106-19`; production runtime resource key is `mw4tryqw`.
+- `test/side-navigation-overflow.test.js` passes 3/3 and `git diff --check` is clean.
+- Deployment: old-site `b92685b`; platform-release `54efed2`; deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`. Health is `200 {"ok":true}` and production CSS contains both neutral and active outlined tab states.
+
 ## Same-style active tab label white fill removed (2026-11-06)
 
 - User clarified the selected Same-style tab still had a white label background because generic `.gallery-mode-tab.is-active span` rules overrode the outer transparent state.
