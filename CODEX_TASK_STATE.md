@@ -1,3 +1,12 @@
+## Same-style tabs empty after config refresh (2026-11-06)
+
+- User reported the last three Same-style tabs had no visible cards, then clarified data arrived and disappeared again.
+- Root cause: `/api/platform/playflux-templates` loaded the 493-template catalog, then `installBootstrapConfig()` treated the intentionally omitted `config.playfluxTemplates` field as an empty catalog and overwrote state while leaving `playfluxTemplatesLoaded=true`, preventing retry.
+- Fix: preserve an already loaded PlayFlux catalog when later public/session config snapshots omit it; enable Anime templates for all users; bump runtime cache suffix to `advanced-parameters-20261106-23`.
+- Added `test/playflux-template-bootstrap.test.js`. Targeted tests pass 4/4; `git diff --check` clean.
+- Production Chrome/CDP verified tabs `cases`, `playflux-video`, `playflux-anime`, `playflux-image`; cards are 103 Video, 265 Anime, 125 Image. Reload keeps 493 templates and 103 Video cards.
+- Deployment: old-site `428dc0f`; platform-release `5365d42`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Initial health poll briefly returned 502 during restart, then `/api/health` returned `200 {"ok":true}`. Production runtime key is `mw4uqr3z`.
+
 ## Private Alibaba OSS + CDN integration and production cutover (2026-11-06)
 
 - Goal: add private overseas Alibaba OSS storage and CDN delivery for `123vips.com`, while preserving Cloudflare R2 historical media and `media.123vips.com`.
