@@ -14,6 +14,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.webkit.CookieManager;
@@ -43,6 +44,7 @@ public final class MainActivity extends Activity {
     private static final String START_URL = "https://live.123vipeak.com/?channel=android-app";
     private static final int FILE_CHOOSER_REQUEST = 4102;
     private static final int MEDIA_PERMISSION_REQUEST = 4104;
+    private static final long EXIT_BACK_INTERVAL_MS = 2000L;
 
     private static final Set<String> APP_HOSTS = new HashSet<String>(Arrays.asList(
             "live.123vipeak.com",
@@ -60,6 +62,7 @@ public final class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> fileChooserCallback;
     private PermissionRequest pendingPermissionRequest;
+    private long lastBackPressedAt;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -341,11 +344,30 @@ public final class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
+        if (webView == null) {
+            super.onBackPressed();
             return;
         }
-        super.onBackPressed();
+        webView.evaluateJavascript(
+                "(function(){try{return !!(window.VipeakLiveBack && window.VipeakLiveBack());}catch(e){return false;}})()",
+                value -> {
+                    if ("true".equals(value)) {
+                        lastBackPressedAt = 0;
+                        return;
+                    }
+                    handleRootBack();
+                }
+        );
+    }
+
+    private void handleRootBack() {
+        long now = SystemClock.elapsedRealtime();
+        if (lastBackPressedAt > 0 && now - lastBackPressedAt <= EXIT_BACK_INTERVAL_MS) {
+            finish();
+            return;
+        }
+        lastBackPressedAt = now;
+        Toast.makeText(this, "再按一次退出", Toast.LENGTH_SHORT).show();
     }
 
     @Override
