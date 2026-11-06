@@ -35,6 +35,19 @@ function ossEnv(overrides = {}) {
   };
 }
 
+test("OSS large-file upload streams bounded parts instead of buffering the whole file", () => {
+  assert.match(fs.readFileSync(path.join(root, "oss-storage.js"), "utf8"), /async function uploadFileObject\(/);
+  assert.match(server, /uploadFileObject: uploadOssFileObject/);
+  assert.match(server, /uploadStaticAssetToObjectStorage\(\{[^}]*filePath = ""/);
+  assert.match(server, /uploadOssFileObject\(\{ key, filePath, mime, config: OSS \}\)/);
+  const generatedVideoUpload = server.slice(
+    server.indexOf("async function uploadGeneratedMediaToObjectStorage"),
+    server.indexOf("function pipeFileStream"),
+  );
+  assert.match(generatedVideoUpload, /filePath: localVideoPath/);
+  assert.doesNotMatch(generatedVideoUpload, /const videoBytes = await fs\.readFile\(localVideoPath\)/);
+});
+
 test("OSS accepts only Singapore and US regions", () => {
   assert.equal(ossRegionAllowed("oss-ap-southeast-1"), true);
   assert.equal(ossRegionAllowed("oss-us-west-1"), true);

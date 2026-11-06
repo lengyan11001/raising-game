@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs/promises");
 
 const DEFAULT_PART_SIZE = 8 * 1024 * 1024;
 const DEFAULT_MULTIPART_THRESHOLD = 8 * 1024 * 1024;
@@ -380,7 +381,7 @@ async function abortMultipart({ key, uploadId, config = ossConfig() }) {
 async function uploadMultipart({ key, bytes, mime, config = ossConfig() }) {
   const body = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   const uploadId = await initiateMultipart({ key, mime, config });
-  const parts = [];
+  const parts = new Array(Math.ceil(body.length / config.partSize));
   try {
     const partCount = Math.ceil(body.length / config.partSize);
     let next = 0;
@@ -389,13 +390,13 @@ async function uploadMultipart({ key, bytes, mime, config = ossConfig() }) {
         const index = next++;
         if (index >= partCount) return;
         const partNumber = index + 1;
-        parts.push(await uploadPart({
+        parts[partNumber - 1] = await uploadPart({
           key,
           uploadId,
           partNumber,
           body: body.subarray(index * config.partSize, Math.min(body.length, (index + 1) * config.partSize)),
           config,
-        }));
+        });
       }
     };
     await Promise.all(Array.from({ length: Math.min(config.concurrency, partCount) }, () => worker()));
@@ -410,6 +411,44 @@ async function uploadObject({ key, bytes, mime = "application/octet-stream", con
   const body = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   if (body.length >= config.multipartThreshold) return uploadMultipart({ key, bytes: body, mime, config });
   return putObject({ key, bytes: body, mime, config });
+}
+
+async function uploadFileObject({ key, filePath, mime = "application/octet-stream", config = ossConfig() }) {
+  const file = await fs.open(filePath, "r");
+  try {
+    const stat = await file.stat();
+    if (stat.size < config.multipartThreshold) {
+      const body = await file.readFile();
+      return putObject({ key, bytes: body, mime, config });
+    }
+    const uploadId = await initiateMultipart({ key, mime, config });
+    const parts = new Array(Math.ceil(stat.size / config.partSize));
+    try {
+      const partCount = Math.ceil(stat.size / config.partSize);
+      let next = 0;
+      const worker = async () => {
+        while (true) {
+          const index = next++;
+          if (index >= partCount) return;
+          const partNumber = index + 1;
+          const start = index * config.partSize;
+          const length = Math.min(config.partSize, stat.size - start);
+          const body = Buffer.allocUnsafe(length);
+          const { bytesRead } = await file.read(body, 0, length, start);
+          if (bytesRead !== length) throw new Error(`Short read for OSS part ${partNumber}: expected ${length}, got ${bytesRead}`);
+          const uploaded = await uploadPart({ key, uploadId, partNumber, body, config });
+          parts[partNumber - 1] = uploaded;
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(config.concurrency, partCount) }, () => worker()));
+      return await completeMultipart({ key, uploadId, parts, config });
+    } catch (error) {
+      await abortMultipart({ key, uploadId, config });
+      throw error;
+    }
+  } finally {
+    await file.close().catch(() => {});
+  }
 }
 
 function publicUrlForKey(key = "", config = ossConfig()) {
@@ -491,6 +530,7 @@ module.exports = {
   ossEndpointRegion,
   assertOssCdnRegionAllowed,
   uploadObject,
+  uploadFileObject,
   putObject,
   uploadMultipart,
   signedDownloadUrl,

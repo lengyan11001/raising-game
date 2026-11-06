@@ -88,11 +88,10 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
   const errors = [];
   if (localVideoPath) {
     try {
-      const videoBytes = await fs.readFile(localVideoPath);
       const videoExt = path.extname(localVideoPath) || ".mp4";
       const videoUpload = await uploadStaticAssetToObjectStorage({
         key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
-        bytes: videoBytes,
+        filePath: localVideoPath,
         mime: videoMimeFromPath(localVideoPath),
       });
       result.cdnVideoUrl = videoUpload.publicUrl;
@@ -409,8 +408,8 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
       if (!response.ok) {
         throw new Error(`Failed to download generated video: ${response.status}`);
       }
-      const bytes = Buffer.from(await response.arrayBuffer());
-      await fs.writeFile(temporaryPath, bytes);
+      if (!response.body) throw new Error("Generated video download returned no response body.");
+      await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(temporaryPath));
       downloadedDurationSeconds = expectedDurationSeconds > 0
         ? await probeLocalVideoDurationSeconds(temporaryPath)
         : 0;

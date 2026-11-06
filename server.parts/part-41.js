@@ -731,6 +731,8 @@ function generationRecordProviderDownloadTarget(record = {}) {
   const providerImageUrls = [...new Set([
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
     ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
+    ...collectOutputImageUrls(record.queryResponse),
+    ...collectOutputImageUrls(record.createResponse),
     record.remoteImageUrl,
     record.providerImageUrl,
     record.upstreamImageUrl,
@@ -749,6 +751,18 @@ function generationRecordProviderDownloadTarget(record = {}) {
   };
 }
 
+function generationRecordProviderImageUrls(record = {}) {
+  return [...new Set([
+    ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
+    ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
+    ...collectOutputImageUrls(record.queryResponse),
+    ...collectOutputImageUrls(record.createResponse),
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.upstreamImageUrl,
+  ].map((item) => String(item || "").trim()).filter((item) => isPublicHttpUrl(item)))];
+}
+
 const advancedDownloadPreparationQueued = new Set();
 
 function advancedDownloadFailureMessage(error = {}) {
@@ -760,7 +774,15 @@ function advancedDownloadFailureMessage(error = {}) {
 
 function queueGenerationRecordAdvancedDownload(record = {}) {
   const taskId = String(record?.taskId || "").trim();
-  if (!taskId || advancedDownloadPreparationQueued.has(taskId)) return false;
+  if (
+    !taskId
+    || !dbEnabled()
+    || !generatedOutputStorageEnabled()
+    || !isSucceededStatus(record?.status)
+    || !generationRecordProviderDownloadTarget(record)?.url
+    || generationRecordHasR2Download(record)
+    || advancedDownloadPreparationQueued.has(taskId)
+  ) return false;
   advancedDownloadPreparationQueued.add(taskId);
   setImmediate(() => Promise.resolve().then(async () => {
     try {
@@ -773,7 +795,7 @@ function queueGenerationRecordAdvancedDownload(record = {}) {
         advancedDownloadStatus: "preparing",
         advancedDownloadError: "",
       });
-      await runMediaIngestJob(taskId);
+      void scanMediaIngestQueue();
     } catch (error) {
       console.warn("[advanced-download-enqueue-failed]", taskId, error?.message || error);
     } finally {
@@ -783,28 +805,34 @@ function queueGenerationRecordAdvancedDownload(record = {}) {
   return true;
 }
 
-async function runMediaIngestJob(taskId = "") {
-  const job = await claimMediaIngestJobInDb(taskId, { staleMinutes: 20 });
-  if (!job) return null;
-  return runClaimedMediaIngestJob(job);
-}
-
-let mediaIngestWorkerRunning = false;
+const MEDIA_INGEST_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.MEDIA_INGEST_CONCURRENCY || 2) || 2));
+const mediaIngestRunning = new Set();
+let mediaIngestScanRunning = false;
 
 async function scanMediaIngestQueue() {
-  if (mediaIngestWorkerRunning || !dbEnabled()) return;
-  mediaIngestWorkerRunning = true;
+  if (mediaIngestScanRunning || !dbEnabled()) return;
+  mediaIngestScanRunning = true;
   try {
-    const jobs = await claimNextMediaIngestJobsInDb(3, { staleMinutes: 20 });
+    const slots = MEDIA_INGEST_CONCURRENCY - mediaIngestRunning.size;
+    if (slots <= 0) return;
+    // Claim only as many rows as we can start immediately. Claiming a batch
+    // would leave unclaimed-but-processing rows stuck until stale recovery.
+    const jobs = await claimNextMediaIngestJobsInDb(slots, { staleMinutes: 20 });
     for (const job of jobs) {
-      // claimNextMediaIngestJobsInDb already owns these rows. Process one at a
-      // time so large video transfers cannot exhaust disk or upstream limits.
-      await runClaimedMediaIngestJob(job);
+      const id = String(job.task_id || "").trim();
+      if (!id || mediaIngestRunning.has(id)) continue;
+      mediaIngestRunning.add(id);
+      void runClaimedMediaIngestJob(job).finally(() => {
+        mediaIngestRunning.delete(id);
+        // Completion is the only event that can free a slot. Do not spin when
+        // the queue is empty; enqueue and the 15s safety scan provide wakeups.
+        void scanMediaIngestQueue();
+      });
     }
   } catch (error) {
     console.warn("[media-ingest-worker-failed]", error?.message || error);
   } finally {
-    mediaIngestWorkerRunning = false;
+    mediaIngestScanRunning = false;
   }
 }
 
@@ -889,34 +917,67 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     });
   }
 
-  const downloaded = await downloadRemoteFileToBuffer(providerTarget.url, { label: "advanced download image", maxBytes: 30 * 1024 * 1024 });
-  const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : providerTarget.mime;
-  const saved = await saveGeneratedImageFile(existing.taskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
-  const upload = await uploadStaticAssetToObjectStorage({
-    key: objectStoragePath("generated", "images", path.basename(saved.localImagePath)),
-    bytes: downloaded.bytes,
-    mime,
+  const imageUrls = generationRecordProviderImageUrls(existing);
+  const sources = imageUrls.length ? imageUrls : [providerTarget.url];
+  const savedImages = [];
+  const uploads = [];
+  const errors = [];
+  for (let index = 0; index < sources.length; index += 1) {
+    const sourceUrl = sources[index];
+    try {
+      const downloaded = await downloadRemoteFileToBuffer(sourceUrl, { label: "advanced download image", maxBytes: 30 * 1024 * 1024 });
+      const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : providerTarget.mime;
+      const imageTaskId = index === 0 ? existing.taskId : `${existing.taskId}-${index + 1}`;
+      const saved = await saveGeneratedImageFile(imageTaskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
+      const upload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "images", path.basename(saved.localImagePath)),
+        bytes: downloaded.bytes,
+        mime,
+      });
+      if (!upload.publicUrl) {
+        const error = new Error("Object storage upload completed without a public URL.");
+        error.statusCode = 502;
+        error.code = "R2_UPLOAD_FAILED";
+        throw error;
+      }
+      await markPublishedFileSafely(saved.localImagePath);
+      savedImages.push(saved);
+      uploads.push(upload);
+      await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
+        localImageUrl: savedImages[0]?.localImageUrl || "",
+        localImagePath: savedImages[0]?.localImagePath || "",
+        imageResultUrl: uploads[0]?.publicUrl || "",
+        cdnImageUrl: uploads[0]?.publicUrl || "",
+        cdnImageUrls: uploads.map((item) => item.publicUrl).filter(Boolean),
+        storageProvider: uploads[0]?.provider || objectStorageProvider(),
+        storageKey: uploads[0]?.key || objectStorageKeyFromPublicUrl(uploads[0]?.publicUrl || "", uploads[0]?.provider || objectStorageProvider()).key || "",
+        cdnError: errors.join("; "),
+        advancedDownloadStatus: "preparing",
+        advancedDownloadError: errors.join("; "),
+      });
+    } catch (error) {
+      errors.push(`Image ${index + 1}: ${error.message || error}`);
+    }
+  }
+  const updated = await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
+    localImageUrl: savedImages[0]?.localImageUrl || "",
+    localImagePath: savedImages[0]?.localImagePath || "",
+    imageResultUrl: uploads[0]?.publicUrl || "",
+    cdnImageUrl: uploads[0]?.publicUrl || "",
+    cdnImageUrls: uploads.map((item) => item.publicUrl).filter(Boolean),
+    storageProvider: uploads[0]?.provider || objectStorageProvider(),
+    storageKey: uploads[0]?.key || objectStorageKeyFromPublicUrl(uploads[0]?.publicUrl || "", uploads[0]?.provider || objectStorageProvider()).key || "",
+    cdnError: errors.join("; "),
+    advancedDownloadPreparedAt: new Date().toISOString(),
+    advancedDownloadStatus: errors.length ? "preparing" : "ready",
+    advancedDownloadError: errors.join("; "),
   });
-  if (!upload.publicUrl) {
-    const error = new Error("R2 upload completed without a public URL.");
-    error.statusCode = 502;
+  if (errors.length) {
+    const error = new Error(errors.join("; "));
     error.code = "R2_UPLOAD_FAILED";
     throw error;
   }
-  await markPublishedFileSafely(saved.localImagePath);
-  return updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-    localImageUrl: saved.localImageUrl,
-    localImagePath: saved.localImagePath,
-    imageResultUrl: upload.publicUrl,
-    cdnImageUrl: upload.publicUrl,
-    cdnImageUrls: [upload.publicUrl],
-    storageProvider: upload.provider || objectStorageProvider(),
-    storageKey: upload.key || objectStorageKeyFromPublicUrl(upload.publicUrl, upload.provider || objectStorageProvider()).key || "",
-    cdnError: "",
-    advancedDownloadPreparedAt: new Date().toISOString(),
-    advancedDownloadStatus: "ready",
-    advancedDownloadError: "",
-  });
+  return updated;
 }
 
 function generationImageResultUrl(record = {}, savedImage = null) {
@@ -934,6 +995,18 @@ function generationImageResultUrl(record = {}, savedImage = null) {
 }
 
 function generationRecordHasR2Download(record = {}) {
+  const providerTarget = generationRecordProviderDownloadTarget(record);
+  if (providerTarget?.kind === "video") {
+    return Boolean(String(record.cdnVideoUrl || "").trim());
+  }
+  if (providerTarget?.kind === "image") {
+    const expected = generationRecordProviderImageUrls(record);
+    const stored = [...new Set([
+      ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+      record.cdnImageUrl,
+    ].map((item) => String(item || "").trim()).filter(Boolean))];
+    return expected.length > 0 && stored.length >= expected.length;
+  }
   return Boolean(generationRecordDownloadTarget(record, { r2Only: true })?.url);
 }
 

@@ -759,6 +759,7 @@ async function upsertGenerationRecord(nextRecord) {
   }
   if (dbEnabled()) {
     const record = await upsertGenerationRecordInDb(storableRecord);
+    if (isSucceededStatus(record?.status)) queueGenerationRecordAdvancedDownload(record);
     void notifyTelegramGenerationRecord(record).catch((error) => {
       console.warn("[telegram-generation-notify-queue-failed]", record?.taskId || storableRecord.taskId, error.message || error);
     });
@@ -795,6 +796,7 @@ async function upsertGenerationRecord(nextRecord) {
     await writeGenerationRecords(records.slice(0, 500));
     return record;
   });
+  if (isSucceededStatus(record?.status)) queueGenerationRecordAdvancedDownload(record);
   void notifyTelegramGenerationRecord(record).catch((error) => {
     console.warn("[telegram-generation-notify-queue-failed]", record?.taskId || storableRecord.taskId, error.message || error);
   });

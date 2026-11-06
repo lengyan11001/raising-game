@@ -1044,11 +1044,14 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
     throw lastError || new Error("R2 upload failed.");
   });
 }
-async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
+async function uploadStaticAssetToObjectStorage({ key, bytes, mime, filePath = "" }) {
   if (objectStorageProvider() === "oss") {
-    const uploaded = await uploadOssObject({ key, bytes, mime, config: OSS });
+    const uploaded = filePath
+      ? await uploadOssFileObject({ key, filePath, mime, config: OSS })
+      : await uploadOssObject({ key, bytes, mime, config: OSS });
     return { ...uploaded, provider: "oss", publicUrl: uploaded.publicUrl || uploaded.url || "" };
   }
+  if (!bytes && filePath) bytes = await fs.readFile(filePath);
   return uploadStaticAssetToR2({ key, bytes, mime });
 }
 

@@ -8,6 +8,7 @@ const tls = require("node:tls");
 const chatLiveComponent = require("./chat-live-component");
 const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const { URL } = require("node:url");
 const {
   CAPABILITIES: ALIYUN_VIDEO_CAPABILITIES,
@@ -125,6 +126,7 @@ const {
   ossConfigured: ossStorageConfigured,
   ossEnabled: ossStorageEnabled,
   uploadObject: uploadOssObject,
+  uploadFileObject: uploadOssFileObject,
   deleteObject: deleteOssObject,
   signedDownloadUrl: makeOssSignedDownloadUrl,
   signedCdnUrl: makeOssSignedCdnUrl,

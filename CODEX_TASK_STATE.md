@@ -1,3 +1,15 @@
+## Automatic media transfer concurrency and large-file safety (2026-11-06)
+
+- User goal: after upstream generation succeeds, persist success first and immediately transfer every generated video/image asset to overseas OSS/CDN without waiting for `download2`; transfer failure must never rewrite generation success/billing.
+- `server.parts/part-20.js` enqueues the transfer after a succeeded record is persisted. `server.parts/part-41.js` uses the PostgreSQL `app_media_ingest_jobs` queue and an event-driven global worker pool. `download2` remains a retry/legacy fallback.
+- Added a hard global cap through `MEDIA_INGEST_CONCURRENCY`, default 2 on the current 4-vCPU/7GB host, accepted maximum 8. Workers claim only free slots with `FOR UPDATE SKIP LOCKED`; completion frees a slot and wakes the scanner. Empty queues no longer spin.
+- Large OSS uploads now use `uploadFileObject`: 8MB bounded reads with at most `OSS_MULTIPART_CONCURRENCY=3` parts in flight per task instead of reading the whole video into RAM. Generated video downloads stream to disk. Two tasks therefore use roughly 48MiB of upload-part buffers plus runtime/stream overhead.
+- Capacity planning at observed traffic (about 430 successes/day, peak 90/hour, 43 video-like/hour, peak minute 12): current video rate is about 0.72/min. Two workers support 4 videos/min at 30s average, 2/min at 60s, 1/min at 120s, and 0.4/min at 300s. At 3x traffic (about 2.15 videos/min), two workers require an average transfer under about 56s; use three only after sustained queue wait and host headroom justify it, and move to a dedicated worker host for sustained four or more.
+- Keep `MEDIA_INGEST_CONCURRENCY=2` until p95 queue wait is consistently below 30s, CPU below 65%, available RAM above 1.5GB, disk free above 20%, and transfer success remains high. Scale to 3 only for a sustained backlog with those gauges still healthy. Do not exceed 4 concurrent transfers on this host for sustained video load.
+- Estimated generated-media volume at 430 successes/day and 60% video is about 5–15GB/day at 20–60MB average, or about 10–26GB/day at 40–100MB average. Plan upstream ingress plus OSS egress as roughly two copies; user download traffic is separate CDN egress.
+- Verification: targeted generation/media/OSS suite passes 124/124; syntax checks and `git diff --check` pass.
+- Deployment status: pending release snapshot and `scripts/deploy_local.sh --site old`.
+
 ## Account menu email binding (2026-11-06)
 
 - User goal: keep the Price list entry, show the bound email in the top-right avatar menu for email-login accounts, and let username/password accounts bind an email so they can later use verification-code login.

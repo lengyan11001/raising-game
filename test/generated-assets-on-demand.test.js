@@ -34,14 +34,73 @@ test("advanced download preparation forces a local transient copy and R2 upload"
   );
   assert.match(prepare, /providerTarget = generationRecordProviderDownloadTarget\(record\)/);
   assert.match(prepare, /downloadGeneratedVideo\(existing\.taskId, providerTarget\.url, \{ forceLocal: true \}\)/);
-  assert.match(prepare, /downloadRemoteFileToBuffer\(providerTarget\.url/);
-  assert.match(prepare, /saveGeneratedImageFile\(existing\.taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
+  assert.match(prepare, /generationRecordProviderImageUrls\(existing\)/);
+  assert.match(prepare, /downloadRemoteFileToBuffer\(sourceUrl, \{ label: "advanced download image"/);
+  assert.match(prepare, /saveGeneratedImageFile\(imageTaskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
   assert.match(prepare, /uploadStaticAssetToObjectStorage\(/);
   assert.match(prepare, /markPublishedFileSafely\(saved\.localImagePath\)/);
   assert.match(prepare, /if \(!objectStorageEnabled\(\) \|\| !isSucceededStatus\(record\.status\)\) return record;/);
   assert.match(prepare, /force: true,/);
   assert.match(prepare, /updateGenerationRecordAdvancedDownloadInDb\(existing\.taskId, \{/);
   assert.doesNotMatch(prepare, /return upsertGenerationRecord\(\{\s*taskId: existing\.taskId/);
+});
+
+test("successful generation immediately queues background transfer without waiting for download2", () => {
+  const upsert = server.slice(
+    server.indexOf("async function upsertGenerationRecord"),
+    server.indexOf("async function updateGenerationRecord"),
+  );
+  assert.match(upsert, /const record = await upsertGenerationRecordInDb\(storableRecord\);\n    if \(isSucceededStatus\(record\?\.status\)\) queueGenerationRecordAdvancedDownload\(record\);/);
+  assert.match(upsert, /if \(isSucceededStatus\(record\?\.status\)\) queueGenerationRecordAdvancedDownload\(record\);/);
+  assert.match(upsert, /await writeGenerationRecords\(records\.slice\(0, 500\)\);\n    return record;\n  \}\);\n  if \(isSucceededStatus\(record\?\.status\)\) queueGenerationRecordAdvancedDownload\(record\);/);
+  const queue = server.slice(
+    server.indexOf("function queueGenerationRecordAdvancedDownload"),
+    server.indexOf("async function runMediaIngestJob"),
+  );
+  assert.match(queue, /enqueueMediaIngestJobInDb\(taskId/);
+  assert.match(queue, /advancedDownloadStatus: "preparing"/);
+  assert.match(queue, /void scanMediaIngestQueue\(\)/);
+  assert.doesNotMatch(queue, /runMediaIngestJob\(taskId\)/);
+  assert.match(queue, /!dbEnabled\(\)/);
+  assert.match(queue, /!generatedOutputStorageEnabled\(\)/);
+  assert.match(queue, /generationRecordHasR2Download\(record\)/);
+});
+
+test("background media transfer uses a global bounded worker pool", () => {
+  assert.match(server, /const MEDIA_INGEST_CONCURRENCY = Math\.max\(1, Math\.min\(8/);
+  assert.match(server, /const mediaIngestRunning = new Set\(\)/);
+  const scan = server.slice(
+    server.indexOf("async function scanMediaIngestQueue"),
+    server.indexOf("async function runClaimedMediaIngestJob"),
+  );
+  assert.match(scan, /MEDIA_INGEST_CONCURRENCY - mediaIngestRunning\.size/);
+  assert.match(scan, /claimNextMediaIngestJobsInDb\(slots/);
+  assert.match(scan, /mediaIngestRunning\.add\(id\)/);
+  assert.match(scan, /mediaIngestRunning\.delete\(id\)/);
+  assert.doesNotMatch(scan, /await runClaimedMediaIngestJob\(job\)/);
+  assert.match(read(".env.example"), /MEDIA_INGEST_CONCURRENCY=2/);
+});
+
+test("background media transfer never rewrites generation status and deduplicates images", () => {
+  const prepare = server.slice(
+    server.indexOf("async function prepareGenerationRecordAdvancedDownload"),
+    server.indexOf("function generationImageResultUrl"),
+  );
+  const worker = server.slice(
+    server.indexOf("async function runClaimedMediaIngestJob"),
+    server.indexOf("async function prepareGenerationRecordAdvancedDownload"),
+  );
+  assert.doesNotMatch(prepare, /status:\s*["'](?:succeeded|failed|processing)["']/);
+  assert.doesNotMatch(worker, /status:\s*["'](?:succeeded|failed|processing)["']/);
+  assert.match(prepare, /cdnImageUrls: uploads\.map\(\(item\) => item\.publicUrl\)/);
+  assert.match(prepare, /advancedDownloadStatus: errors\.length \? "preparing" : "ready"/);
+  const hasDownload = server.slice(
+    server.indexOf("function generationRecordHasR2Download"),
+    server.indexOf("function awsQueryEncode"),
+  );
+  assert.match(hasDownload, /stored\.length >= expected\.length/);
+  const db = read("db.js");
+  assert.match(db, /ON CONFLICT \(task_id\) DO UPDATE SET/);
 });
 
 test("advanced download preparation is queued so the download-url request cannot hit proxy timeout", () => {
