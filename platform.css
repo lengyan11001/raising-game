@@ -2147,10 +2147,10 @@ body.creator-picker-open {
   line-height: 1;
 }
 .gallery-top-tabs .gallery-mode-tab.is-active {
-  border-color: rgba(255,79,163,.55);
-  color: #fff;
+  border-color: transparent;
+  color: rgba(255,255,255,.68);
   background: rgba(255,79,163,.17);
-  box-shadow: inset 2px 0 0 rgba(255,79,163,.8);
+  box-shadow: none;
 }
 .gallery-top-tabs .gallery-mode-tab.is-active svg { color: #ff8bc5; }
 .gallery-mode-tab {
