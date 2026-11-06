@@ -51,8 +51,8 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.match(explore, /els\.sameStylePanel\.hidden = nextTab !== "cases"/);
   assert.match(css, /\.gallery-top-tabs \{/);
   assert.match(css, /\.gallery-top-tabs \{[\s\S]*?gap:\s*6px;[\s\S]*?padding:\s*0;/);
-  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*34px;[\s\S]*?padding:\s*7px 11px;[\s\S]*?border-radius:\s*8px;/);
-  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*transparent;[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*34px;[\s\S]*?padding:\s*7px 11px;[\s\S]*?border:\s*1px solid rgba\(255,255,255,\.13\);[\s\S]*?border-radius:\s*8px;/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[\s\S]*?border-color:\s*rgba\(255,79,163,\.72\);[\s\S]*?background:\s*rgba\(255,79,163,\.10\);/);
   assert.doesNotMatch(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{[^}]*color:\s*#fff;/);
   assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active span \{[\s\S]*?color:\s*inherit;[\s\S]*?background:\s*transparent;/);
   assert.doesNotMatch(explore, /syncGalleryModeTabs/);
