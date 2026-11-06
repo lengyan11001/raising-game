@@ -2121,17 +2121,17 @@ body.creator-picker-open {
   flex: 0 0 auto;
   min-height: 34px;
   padding: 7px 11px;
-  border: 1px solid rgba(255,255,255,.13);
+  border: 1px solid transparent;
   border-radius: 8px;
   color: rgba(255,255,255,.62);
-  background: rgba(255,255,255,.035);
+  background: transparent;
   font-size: .82rem;
   font-weight: 800;
 }
 .gallery-top-tabs .gallery-mode-tab:hover {
   color: #fff;
-  border-color: rgba(255,255,255,.22);
-  background: rgba(255,255,255,.065);
+  border-color: transparent;
+  background: rgba(255,255,255,.06);
 }
 .gallery-top-tabs .gallery-mode-tab svg {
   width: 14px;
@@ -2148,10 +2148,10 @@ body.creator-picker-open {
   line-height: 1;
 }
 .gallery-top-tabs .gallery-mode-tab.is-active {
-  border-color: rgba(255,79,163,.72);
-  color: rgba(255,255,255,.78);
-  background: rgba(255,79,163,.10);
-  box-shadow: inset 0 0 0 1px rgba(255,79,163,.10);
+  border-color: transparent;
+  color: rgba(255,255,255,.88);
+  background: rgba(255,255,255,.10);
+  box-shadow: none;
 }
 .gallery-top-tabs .gallery-mode-tab.is-active svg { color: #ff8bc5; }
 .gallery-top-tabs .gallery-mode-tab.is-active span {
