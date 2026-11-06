@@ -1174,3 +1174,9 @@ CODEX_TASK_STATE.md
 - Changed files: `platform.html`, `platform.copy.js`, `platform.config.js`, `platform.create.parts/part-06.js`, `platform.css`, `test/membership-entitlements.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: targeted suite passes 12/12; syntax checks and `git diff --check` pass. Chrome visual checks at 1440/768/390 showed no horizontal overflow; calculator interactions and membership checkout state were exercised. Screenshots: `/tmp/membership-final-en-1440.png`, `/tmp/membership-final-en-390.png`, `/tmp/membership-final-zh-1440.png`, `/tmp/membership-modal-stub-zh-1440.png`, `/tmp/membership-modal-stub-zh-390.png`.
 - Deployment: not deployed; awaiting an explicit deployment request.
+
+### Complete membership redesign deployment (2026-11-06)
+
+- Integration: pushed `old-site` at `1014a92` to origin.
+- Platform release: `e65b33702a0c9c125fad097ee142a98eff34859b`, built from `1014a92` and pushed with lease protection.
+- Deployment: `scripts/deploy_local.sh --site old` exited 0. `https://123vips.com/api/health` returns `200 {"ok":true}`, deployed HTML contains the calculator and membership checkout markers, and served `platform.create.parts/part-06.js` contains the calculator implementation. Live was not deployed.
