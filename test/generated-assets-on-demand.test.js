@@ -81,6 +81,21 @@ test("background media transfer uses a global bounded worker pool", () => {
   assert.match(read(".env.example"), /MEDIA_INGEST_CONCURRENCY=2/);
 });
 
+test("stale media jobs stop being claimed at the retry limit", () => {
+  const db = read("db.js");
+  const claimNext = db.slice(
+    db.indexOf("async function claimNextMediaIngestJobsInDb"),
+    db.indexOf("async function completeMediaIngestJobInDb"),
+  );
+  assert.match(claimNext, /AND attempts < 5/);
+  const fail = db.slice(
+    db.indexOf("async function failMediaIngestJobInDb"),
+    db.indexOf("async function updateGenerationRecordAdvancedDownloadInDb"),
+  );
+  assert.match(fail, /maxAttempts = 5/);
+  assert.match(fail, /SET status = CASE WHEN attempts >= \$3 THEN 'failed'/);
+});
+
 test("background media transfer never rewrites generation status and deduplicates images", () => {
   const prepare = server.slice(
     server.indexOf("async function prepareGenerationRecordAdvancedDownload"),

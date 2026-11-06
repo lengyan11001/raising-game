@@ -6271,6 +6271,7 @@ async function claimNextMediaIngestJobsInDb(limit = 1, { staleMinutes = 20 } = {
           OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
           OR (status = 'failed' AND available_at <= NOW())
         )
+        AND attempts < 5
         ORDER BY available_at ASC, created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT $1
