@@ -1312,6 +1312,8 @@ els.loginForm?.addEventListener("submit", (event) => {
   submitLogin();
 });
 els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
+els.emailLoginTab?.addEventListener("click", () => setLoginMethod("email"));
+els.passwordLoginTab?.addEventListener("click", () => setLoginMethod("password"));
 els.requestEmailLoginCodeBtn?.addEventListener("click", requestEmailLoginCode);
 els.verifyEmailLoginBtn?.addEventListener("click", verifyEmailLogin);
 els.forgotPasswordBtn?.addEventListener("click", forgotPassword);

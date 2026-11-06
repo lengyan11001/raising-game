@@ -170,6 +170,20 @@ async function ensureSchemaInner() {
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_email_challenges (
+      challenge_key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_email_challenges_expires_idx ON app_email_challenges (expires_at);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -1806,6 +1820,98 @@ async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID
     [cleanTenantId, cleanUsername],
   );
   return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+function emailChallengeDbKey(kind, email, tenantId) {
+  return `${String(kind || "login").trim()}:${normalizeTenantId(tenantId)}:${String(email || "").trim().toLowerCase()}`;
+}
+
+async function upsertEmailChallengeInDb({
+  kind = "login",
+  email = "",
+  tenantId = DEFAULT_TENANT_ID,
+  codeHash = "",
+  sentAt = new Date(),
+  expiresAt,
+  minimumIntervalMs = 60_000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for email verification codes.");
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  const effectiveSentAt = sentAt instanceof Date ? sentAt : new Date(sentAt);
+  const effectiveExpiresAt = expiresAt instanceof Date ? expiresAt : new Date(expiresAt || effectiveSentAt.getTime() + 10 * 60_000);
+  const intervalMs = Math.max(0, Number(minimumIntervalMs) || 0);
+  const result = await query(
+    `
+      INSERT INTO app_email_challenges(challenge_key, kind, tenant_id, email, code_hash, attempts, sent_at, expires_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 0, $6::timestamptz, $7::timestamptz, NOW())
+      ON CONFLICT (challenge_key) DO UPDATE SET
+        kind = EXCLUDED.kind,
+        tenant_id = EXCLUDED.tenant_id,
+        email = EXCLUDED.email,
+        code_hash = EXCLUDED.code_hash,
+        attempts = 0,
+        sent_at = EXCLUDED.sent_at,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = NOW()
+      WHERE app_email_challenges.sent_at <= $6::timestamptz - ($8::double precision * INTERVAL '1 millisecond')
+    `,
+    [challengeKey, String(kind), normalizeTenantId(tenantId), String(email).trim().toLowerCase(), String(codeHash), effectiveSentAt, effectiveExpiresAt, intervalMs],
+  );
+  if (!result.rowCount) return null;
+  return { key: challengeKey, sentAt: effectiveSentAt.getTime(), expiresAt: effectiveExpiresAt.getTime() };
+}
+
+async function consumeEmailChallengeInDb({ kind = "login", email = "", tenantId = DEFAULT_TENANT_ID, code = "" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for email verification codes.");
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT * FROM app_email_challenges WHERE challenge_key = $1 AND expires_at > NOW() FOR UPDATE`,
+      [challengeKey],
+    );
+    if (!rows.length) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const challenge = rows[0];
+    const attempts = Number(challenge.attempts || 0);
+    if (attempts >= 5) {
+      await client.query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+      await client.query("COMMIT");
+      return false;
+    }
+    const actual = crypto.createHash("sha256").update(String(code || "").trim()).digest("hex");
+    const expected = String(challenge.code_hash || "");
+    const matches = actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+    if (!matches) {
+      await client.query(`UPDATE app_email_challenges SET attempts = attempts + 1, updated_at = NOW() WHERE challenge_key = $1`, [challengeKey]);
+      await client.query("COMMIT");
+      return false;
+    }
+    await client.query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteEmailChallengeInDb({ kind = "login", email = "", tenantId = DEFAULT_TENANT_ID, codeHash = "" } = {}) {
+  if (!dbEnabled()) return;
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  if (codeHash) {
+    await query(`DELETE FROM app_email_challenges WHERE challenge_key = $1 AND code_hash = $2`, [challengeKey, String(codeHash)]);
+    return;
+  }
+  await query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
 }
 
 async function getUserByTelegramIdInDb(telegramUserId = "", tenantId = DEFAULT_TENANT_ID) {
@@ -6945,6 +7051,9 @@ module.exports = {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  upsertEmailChallengeInDb,
+  consumeEmailChallengeInDb,
+  deleteEmailChallengeInDb,
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,

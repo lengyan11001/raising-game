@@ -541,6 +541,28 @@ async function exportLedger(kind) {
   }
 }
 
+function setLoginMethod(method = "email") {
+  const emailEnabled = Boolean(state.config?.auth?.email?.enabled);
+  const next = method === "password" || !emailEnabled ? "password" : "email";
+  if (els.emailLoginTab) {
+    const active = next === "email";
+    els.emailLoginTab.classList.toggle("is-active", active);
+    els.emailLoginTab.setAttribute("aria-selected", active ? "true" : "false");
+  }
+  if (els.passwordLoginTab) {
+    const active = next === "password";
+    els.passwordLoginTab.classList.toggle("is-active", active);
+    els.passwordLoginTab.setAttribute("aria-selected", active ? "true" : "false");
+  }
+  if (els.emailLoginPanel) els.emailLoginPanel.hidden = next !== "email";
+  if (els.passwordLoginPanel) els.passwordLoginPanel.hidden = next !== "password";
+  if (els.loginMessage) els.loginMessage.textContent = "";
+  window.requestAnimationFrame(() => {
+    if (next === "email") els.loginEmail?.focus();
+    else els.loginUsername?.focus();
+  });
+}
+
 function openLogin() {
   if (state.user) return openAccount();
   prepareModalOpen();
@@ -548,7 +570,7 @@ function openLogin() {
   els.loginDialog.showModal();
   window.requestAnimationFrame(() => {
     renderGoogleLoginButton();
-    els.loginUsername?.focus();
+    setLoginMethod("email");
   });
 }
 
@@ -602,9 +624,10 @@ function renderLoginForm() {
   }
   if (els.loginMessage) els.loginMessage.textContent = "";
   const emailEnabled = Boolean(state.config?.auth?.email?.enabled);
-  if (els.loginEmail) els.loginEmail.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
-  if (els.loginEmailCode) els.loginEmailCode.closest(".auth-email-row")?.toggleAttribute("hidden", !emailEnabled);
+  if (els.emailLoginTab) els.emailLoginTab.hidden = !emailEnabled;
+  if (els.emailLoginPanel) els.emailLoginPanel.hidden = !emailEnabled;
   if (els.forgotPasswordBtn) els.forgotPasswordBtn.hidden = !emailEnabled;
+  if (!emailEnabled) setLoginMethod("password");
 }
 
 function formatReferralUsd(value) {
@@ -692,16 +715,40 @@ async function submitLogin() {
 
 async function requestEmailLoginCode() {
   const email = els.loginEmail?.value.trim() || "";
-  try { await requestJson("/api/auth/email/request", { method: "POST", body: { email } }); if (els.loginMessage) els.loginMessage.textContent = "Verification code sent."; }
-  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+  if (els.requestEmailLoginCodeBtn) els.requestEmailLoginCodeBtn.disabled = true;
+  try {
+    await requestJson("/api/auth/email/request", { method: "POST", body: { email } });
+    if (els.loginMessage) els.loginMessage.textContent = "Verification code sent. Check your inbox and spam folder.";
+    els.loginEmailCode?.focus();
+  } catch (error) {
+    if (els.loginMessage) els.loginMessage.textContent = error.message;
+  } finally {
+    if (els.requestEmailLoginCodeBtn) els.requestEmailLoginCodeBtn.disabled = false;
+  }
 }
 
 async function verifyEmailLogin() {
-  const email = els.loginEmail?.value.trim() || ""; const code = els.loginEmailCode?.value.trim() || "";
+  const email = els.loginEmail?.value.trim() || "";
+  const code = els.loginEmailCode?.value.trim() || "";
   let registrationAttribution = {};
-    try { registrationAttribution = JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {}; } catch { registrationAttribution = {}; }
-    try { await completeLogin(await requestJson("/api/auth/email/verify", { method: "POST", body: { email, code, referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "", channel: registrationAttribution.channel || "direct", attribution: registrationAttribution } })); }
-  catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
+  try { registrationAttribution = JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {}; } catch { registrationAttribution = {}; }
+  if (els.verifyEmailLoginBtn) els.verifyEmailLoginBtn.disabled = true;
+  try {
+    await completeLogin(await requestJson("/api/auth/email/verify", {
+      method: "POST",
+      body: {
+        email,
+        code,
+        referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "",
+        channel: registrationAttribution.channel || "direct",
+        attribution: registrationAttribution,
+      },
+    }));
+  } catch (error) {
+    if (els.loginMessage) els.loginMessage.textContent = error.message;
+  } finally {
+    if (els.verifyEmailLoginBtn) els.verifyEmailLoginBtn.disabled = false;
+  }
 }
 
 async function forgotPassword() {

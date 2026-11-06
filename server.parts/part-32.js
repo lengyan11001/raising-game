@@ -623,66 +623,66 @@ function normalizeEmail(value = "") {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 254 ? email : "";
 }
 
-async function sendEmailMessage({ to, subject, html }) {
-  if (!EMAIL_LOGIN_ENABLED || !RESEND_API_KEY) {
+async function sendEmailMessage({ to, subject, text = "", html = "" }) {
+  if (!EMAIL_LOGIN_ENABLED || !smtpConfigured(EMAIL_SMTP_CONFIG)) {
     const error = new Error("Email service is not configured.");
     error.statusCode = 503;
     error.code = "EMAIL_NOT_CONFIGURED";
     throw error;
   }
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { authorization: `Bearer ${RESEND_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    const error = new Error("Unable to send email right now.");
-    error.statusCode = 502;
-    error.code = "EMAIL_SEND_FAILED";
-    error.payload = detail.slice(0, 500);
-    throw error;
-  }
-}
-
-function emailChallengeKey(kind, email, tenantId) {
-  return `${kind}:${tenantId}:${email}`;
+  return sendSmtpMail({ to, subject, text, html }, EMAIL_SMTP_CONFIG);
 }
 
 async function issueEmailCode(req, res, { kind = "login", email = "" } = {}) {
   const normalized = normalizeEmail(email);
   if (!normalized) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
   const tenantId = requestTenantId(req);
-  const key = emailChallengeKey(kind, normalized, tenantId);
-  const previous = emailChallenges.get(key);
-  if (previous && previous.sentAt > Date.now() - 60_000) {
-    return sendJson(res, 429, { ok: false, message: "Please wait before requesting another code." });
-  }
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-  emailChallenges.set(key, { hash: crypto.createHash("sha256").update(code).digest("hex"), expiresAt: Date.now() + 10 * 60_000, sentAt: Date.now(), attempts: 0 });
+  const sentAt = new Date();
+  const expiresAt = new Date(sentAt.getTime() + 10 * 60_000);
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+  try {
+    const issued = await upsertEmailChallengeInDb({
+      kind,
+      email: normalized,
+      tenantId,
+      codeHash,
+      sentAt,
+      expiresAt,
+      minimumIntervalMs: 60_000,
+    });
+    if (!issued) return sendJson(res, 429, { ok: false, message: "Please wait before requesting another code." });
+  } catch (error) {
+    console.error("[email-challenge-db]", error?.message || error);
+    return sendJson(res, 503, { ok: false, code: "EMAIL_STORAGE_UNAVAILABLE", message: "Email verification is temporarily unavailable." });
+  }
+  const text = `Your Vipeak verification code is ${code}. It expires in 10 minutes. If you did not request this, ignore this email.`;
   try {
     await sendEmailMessage({
       to: normalized,
       subject: "Your Vipeak verification code",
+      text,
       html: `<p>Your verification code is <strong style="font-size:24px;letter-spacing:4px">${code}</strong>.</p><p>It expires in 10 minutes. If you did not request this, ignore this email.</p>`,
     });
   } catch (error) {
-    emailChallenges.delete(key);
+    await deleteEmailChallengeInDb({ kind, email: normalized, tenantId, codeHash }).catch((cleanupError) => {
+      console.error("[email-challenge-cleanup]", cleanupError?.message || cleanupError);
+    });
     return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "EMAIL_SEND_FAILED", message: error.message });
   }
   return sendJson(res, 200, { ok: true, expiresIn: 600 });
 }
 
-function consumeEmailCode(kind, email, tenantId, code) {
-  const key = emailChallengeKey(kind, email, tenantId);
-  const challenge = emailChallenges.get(key);
-  if (!challenge || challenge.expiresAt < Date.now() || challenge.attempts >= 5) return false;
-  challenge.attempts += 1;
-  const actual = crypto.createHash("sha256").update(String(code || "").trim()).digest("hex");
-  if (actual.length !== challenge.hash.length || !crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(challenge.hash))) return false;
-  emailChallenges.delete(key);
-  return true;
+async function consumeEmailCode(kind, email, tenantId, code) {
+  try {
+    return await consumeEmailChallengeInDb({ kind, email, tenantId, code });
+  } catch (error) {
+    console.error("[email-challenge-db]", error?.message || error);
+    error.statusCode = 503;
+    error.code = "EMAIL_STORAGE_UNAVAILABLE";
+    error.message = "Email verification is temporarily unavailable.";
+    throw error;
+  }
 }
 
 function emailUsernameCandidate(db, email, tenantId) {
@@ -726,7 +726,7 @@ async function handleEmailLoginRequest(req, res) {
 
 async function handleEmailLoginVerify(req, res) {
   const body = await readJson(req); const email = normalizeEmail(body.email);
-  if (!email || !consumeEmailCode("login", email, requestTenantId(req), body.code)) return sendJson(res, 401, { ok: false, message: "Invalid or expired verification code." });
+  if (!email || !await consumeEmailCode("login", email, requestTenantId(req), body.code)) return sendJson(res, 401, { ok: false, message: "Invalid or expired verification code." });
   return createEmailSession(req, res, email, body);
 }
 
@@ -741,7 +741,7 @@ async function handlePasswordResetRequest(req, res) {
 
 async function handlePasswordReset(req, res) {
   const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
-  if (!email || password.length < 6 || !consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
+  if (!email || password.length < 6 || !await consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
   const db = await readDb(); const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
   if (!user) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
   user.passwordHash = hashPassword(password); user.updatedAt = new Date().toISOString();
@@ -761,9 +761,10 @@ async function handleAccountEmailRequest(req, res) {
 async function handleAccountEmailVerify(req, res) {
   const auth = await requireUser(req, res); if (!auth) return;
   const body = await readJson(req); const email = normalizeEmail(body.email);
-  if (!email || !consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
+  if (!email) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
   const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
   if (duplicate) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
+  if (!await consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
   auth.user.email = email; auth.user.emailVerifiedAt = new Date().toISOString(); auth.user.updatedAt = new Date().toISOString();
   if (dbEnabled()) await updateUserInDb(auth.user); else { const index = db.users.findIndex((item) => item.id === auth.user.id); if (index >= 0) db.users[index] = auth.user; await writeDb(db); }
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });

@@ -1025,18 +1025,31 @@
             <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
           </button>
           <div class="google-login-mount" id="googleLoginBtn" aria-live="polite" hidden></div>
-          <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
-          <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email login" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
-          <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Email verification code" maxlength="6" /><button class="ghost-button" id="verifyEmailLoginBtn" type="button">Email login</button></div>
-          <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
-          <p class="auth-register-hint">
-            <i data-lucide="info"></i>
-            <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
-          </p>
-          <div class="auth-actions">
-            <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
+          <div class="auth-method-tabs" role="tablist" aria-label="Login method">
+            <button class="auth-method-tab is-active" id="emailLoginTab" type="button" role="tab" aria-selected="true">Email code</button>
+            <button class="auth-method-tab" id="passwordLoginTab" type="button" role="tab" aria-selected="false">Password</button>
+          </div>
+          <div class="auth-method-panel" id="emailLoginPanel" role="tabpanel">
+            <div class="auth-divider"><span data-i18n="auth.orEmail">Use email verification code</span></div>
+            <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email address" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
+            <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit verification code" maxlength="6" /><button class="generate-btn" id="verifyEmailLoginBtn" type="button">Login</button></div>
+            <p class="auth-register-hint">
+              <i data-lucide="info"></i>
+              <span data-i18n="auth.emailAutoRegisterHint">New email addresses are registered automatically on first login.</span>
+            </p>
+          </div>
+          <div class="auth-method-panel" id="passwordLoginPanel" role="tabpanel" hidden>
+            <div class="auth-divider"><span data-i18n="auth.orUsername">Use username and password</span></div>
+            <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
+            <p class="auth-register-hint">
+              <i data-lucide="info"></i>
+              <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
+            </p>
+            <div class="auth-actions">
+              <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
+            </div>
+            <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
           </div>
           <p class="job-note" id="telegramLoginStatus" hidden></p>
           <p class="job-note" id="googleLoginStatus" hidden></p>

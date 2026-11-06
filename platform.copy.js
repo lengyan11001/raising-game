@@ -3609,6 +3609,8 @@ I18N.zh = {
   "auth.telegramLogin": "使用 Telegram 登录",
   "auth.googleLogin": "使用 Google 登录",
   "auth.orUsername": "或使用用户名",
+  "auth.orEmail": "使用邮箱验证码登录",
+  "auth.emailAutoRegisterHint": "首次使用新邮箱登录时会自动注册。",
   "auth.telegramStarting": "正在打开 Telegram 授权...",
   "auth.telegramFailed": "Telegram 登录失败：{message}",
   "auth.googleStarting": "正在打开 Google 授权...",

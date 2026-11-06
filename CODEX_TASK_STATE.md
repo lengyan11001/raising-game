@@ -1,3 +1,37 @@
+## R2 credential repair and CDN DNS permission check (2026-11-06)
+
+- Production old site `/etc/raising-game-demo.env` had `R2_ACCESS_KEY_ID` already rotated to the new Cloudflare R2 access key, but `R2_SECRET_ACCESS_KEY` still held the old secret. The resulting `SignatureDoesNotMatch` broke new uploads.
+- Rotated only `R2_SECRET_ACCESS_KEY` to the matching secret. Backup: `/etc/raising-game-demo.env.bak-20261106160628` (remote, mode 600). Restarted `raising-game-demo`; `https://123vips.com/api/health` returned `200 {"ok":true}`.
+- Verified the live env values directly against bucket `vipeak-media` via `scripts/check-r2-storage.js`: PUT succeeded, public `https://media.123vips.com/...` read succeeded. No DNS change was made; existing `media.123vips.com` remains untouched.
+- `123vip.fans` continues to resolve to the same service and shares the main user pool. `/api/config/public` on both hosts reports the same Google client and `siteProfile=custom-workflow` for fans. Fans needs no separate login database; it reuses the shared Google/Telegram/email providers. Email login is present in code but production SMTP variables are currently absent, so it correctly returns `EMAIL_NOT_CONFIGURED`.
+- Alibaba Cloud CDN domain is now `online` (`assets-cdn.123vips.com`, CNAME target `assets-cdn.123vips.com.queniuaa.com`), but public DNS still has no `assets-cdn` record and HTTPS certificate status remains `off`.
+- Rechecked the supplied Cloudflare token on 2026-11-06 after the permission update: zone listing succeeds and root TXT verification resolves, but `GET/POST /zones/{zone_id}/dns_records` still returns `10000 Authentication error`. The token's effective grant is `Account -> DNS Settings`; it does **not** include the required `Zone -> DNS -> Edit` (Zone Resources: `123vips.com`).
+- Exact remaining DNS action: create `CNAME assets-cdn -> assets-cdn.123vips.com.queniuaa.com`, Proxy status **DNS only**, TTL Auto. Do not touch `media.123vips.com`. After DNS resolves, issue a publicly trusted certificate (Let's Encrypt HTTP-01 through the CDN), upload it via Alibaba `SetCdnDomainSSLCertificate`, then enable HTTPS and verify cache + Range `206`.
+- Target CDN hostname remains `assets-cdn.123vips.com`, origin `vipeak-media-sg.oss-ap-southeast-1.aliyuncs.com`, scope `overseas`. Do not overwrite `media.123vips.com`.
+
+## BytePlus Seedance 2.5 diagnostic acknowledgement (2026-11-06)
+
+- Corrected an earlier mistake: production Seedance 2.5 Advanced generation is already submitted directly to BytePlus ARK (`arkRequest` / `/contents/generations/tasks`); the old `api.apiz.ai` setting is stale and must not be used to assess current data flow.
+- The acknowledgement is specifically for BytePlus Model Generations Quality Diagnostics, a per-task-ID support service—not a normal inference contract and not model-training consent.
+- Its scope includes prompts, user-uploaded reference materials, outputs, account identifiers, and metadata; diagnostic retention is up to 3 days, followed by de-identified retention for diagnostic-service quality purposes. Data may be transferred to and processed in mainland China under the BytePlus DPA.
+- Operational position: do not submit real user task IDs by default. Before accepting or enabling diagnostic requests, require an authorized company decision, DPA review, user/legal-rights checks, and exclusion of EU/EEA/UK/Switzerland personal data as required by the acknowledgement.
+- If diagnostics become necessary, use synthetic reproduction tasks and an auditable admin-only workflow; do not expose this as an ordinary user-facing feature.
+- No code or deployment changes were made in this step.
+
+## Email login via Alibaba Cloud Direct Mail SMTP (2026-11-06)
+
+- User chose Alibaba Cloud Direct Mail SMTP after briefly considering Resend. Resend is removed from the implementation.
+- `email-smtp.js` is a dependency-free Node TLS SMTP client with explicit `EMAIL_NOT_CONFIGURED` / `EMAIL_SEND_FAILED` errors and `verifySmtp()`. It requires implicit TLS and production uses Alibaba Direct Mail port 465; non-TLS / STARTTLS mode is explicitly rejected.
+- Email verification codes are persisted in PostgreSQL table `app_email_challenges`, with atomic 60-second resend throttling, 10-minute expiry, SHA-256 code hashes, and a 5-attempt limit. No in-memory or file fallback remains.
+- `/api/auth/email/request`, `/api/auth/email/verify`, password reset, and account email binding now use SMTP + DB challenges. Bound-email duplicate checking happens before consuming the code.
+- Configuration example is in `.env.example`; production needs Direct Mail sender-domain/address verification plus the sender-address SMTP password in `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, and `EMAIL_FROM`. Alibaba AccessKey credentials are not SMTP passwords. Use the region-specific host shown by the Alibaba Cloud International console when provided.
+- Changed files: `email-smtp.js`, `db.js`, `server.parts/part-01.js`, `server.parts/part-32.js`, `.env.example`, `test/email-auth.test.js`, `test/email-smtp.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: syntax checks pass; targeted email tests pass 7/7; a local TLS SMTP server smoke test completed a full EHLO/AUTH/MAIL/RCPT/DATA flow; `smtpdm.aliyun.com:465` and `smtpdm-ap-southeast-1.aliyuncs.com:465` both complete verified TLS 1.3 handshakes; `npm audit --omit=dev` reports 0 vulnerabilities; `git diff --check` passes. `test/source-split.test.js` still fails only on the pre-existing oversized `server.parts/part-29.js` (1728 lines).
+- Production `/etc/raising-game-demo.env` has no SMTP/email variables and no Alibaba Cloud AccessKey. Existing `ALIYUN_DASHSCOPE_API_KEY` / Wan keys are service API keys and cannot send Direct Mail. Deployment has not been performed.
+- User supplied the verified sender address `no-reply@123vips.com` and SMTP password; SMTP authentication succeeded against `smtpdm-ap-southeast-1.aliyuncs.com:465`, and a real message was accepted and delivered to a temporary inbox with the correct `Vipeak <no-reply@123vips.com>` sender. The credentials are appended to gitignored `LOCAL_CREDENTIALS.md` and must never be printed or committed.
+- Login modal now defaults to email verification-code login. Password login is an explicit second tab; when email auth is disabled the modal falls back to password. Third-party login buttons remain at the top. Changed frontend files: `platform.html`, `platform.create.parts/part-06.js`, `platform.config.js`, `platform.main.js`, `platform.css`, `platform.copy.js`, `test/email-auth.test.js`.
+- Tests: email auth/SMTP 8/8 pass, platform refresh/email auth/SMTP 19/19 pass, syntax checks and `git diff --check` pass.
+
 ## Advanced download2 asynchronous transfer (2026-11-06)
 
 - User reported `Request failed: 524` from download2 and asked whether transfer is synchronous. It was: the download-url handler awaited remote download, poster generation, R2 upload, and DB update behind Cloudflare.
@@ -825,3 +859,14 @@ CODEX_TASK_STATE.md
 - A production PostgreSQL audit from the fix onward found zero Lite/h3 upstream `FileInfos` containing `asset://`.
 - Latest post-fix Lite task `cgt-20261106132947-4db08c` still stores `asset://` in request params, but upstream `FileInfos` contains the public `https://media.123vips.com/...` URL and the task succeeded. Current code resolves owned Lite asset ids to public URLs before submission, and `buildVegaFileInfos()` rejects `asset://` for non-media-library providers.
 - Production checkout `8d8d388` contains both `resolveVegaLiteMediaAssetSources` and the `allowAssetUri = vegaProviderUsesMediaLibrary(input.provider)` guard; `/api/health` returns `{"ok":true}`. Targeted Vega tests: 61 pass / 0 fail.
+
+## OSS overseas-only storage guard (2026-11-06)
+
+- User requirement: Alibaba Cloud OSS/CDN must use Singapore or US only; no mainland-China nodes.
+- Allowed OSS regions are strictly `oss-ap-southeast-1`, `oss-us-west-1`, and `oss-us-east-1`. All `oss-cn-*` regions are rejected at runtime and during deployment.
+- Added `OSS_CDN_REGION`; it must be one of the same allowed regions and must exactly match `OSS_REGION`.
+- `OSS_CDN_BASE_URL` must be HTTPS and cannot point at an `aliyuncs.com` OSS origin or an `oss-cn-*` endpoint. Use a dedicated overseas CDN CNAME such as `assets-cdn.123vips.com`; never overwrite the existing `media.123vips.com` R2 DNS record.
+- `scripts/deploy_site.py` rejects mainland OSS region/endpoint/CDN settings for old, live, and new2 deployments.
+- Changed this step: `oss-storage.js`, `.env.example`, `DEPLOY.md`, `scripts/deploy_site.py`, `test/oss-storage.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: `node --test test/oss-storage.test.js` passes 6/6; `node --check oss-storage.js`; `node --check server.parts/part-01.js`; `python3 -m py_compile scripts/deploy_site.py`; `git diff --check` all pass.
+- Alibaba credentials were already verified as `403 UserDisable` for OSS and `CdnServiceNotFound` for CDN. Real overseas OSS/CDN provisioning remains blocked until the account is enabled and an overseas CDN domain is available. No production OSS cutover has been claimed or deployed.

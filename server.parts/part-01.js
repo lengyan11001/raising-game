@@ -116,6 +116,11 @@ const {
   removeExpiredPublishedFiles,
 } = require("./local-media-retention");
 const {
+  smtpConfig,
+  smtpConfigured,
+  sendSmtpMail,
+} = require("./email-smtp");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -144,6 +149,9 @@ const {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  upsertEmailChallengeInDb,
+  consumeEmailChallengeInDb,
+  deleteEmailChallengeInDb,
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
@@ -530,10 +538,8 @@ const TELEGRAM_LOGIN_BOT_TOKEN = String(process.env.TELEGRAM_LOGIN_BOT_TOKEN || 
 const TELEGRAM_LOGIN_CLIENT_ID = String(process.env.TELEGRAM_LOGIN_CLIENT_ID || TELEGRAM_LOGIN_BOT_TOKEN.split(":")[0] || "").trim();
 const GOOGLE_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GOOGLE_LOGIN_ENABLED || "0").trim());
 const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
-const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
-const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || Boolean(RESEND_API_KEY);
-const EMAIL_FROM = String(process.env.EMAIL_FROM || "Vipeak <no-reply@123vips.com>").trim();
-const emailChallenges = new Map();
+const EMAIL_SMTP_CONFIG = smtpConfig();
+const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || smtpConfigured(EMAIL_SMTP_CONFIG);
 const publicConfigCache = new Map();
 const publicPlayfluxTemplatesCache = new Map();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
