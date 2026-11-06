@@ -912,7 +912,13 @@ function installBootstrapConfig(config) {
   state.wallet = config.wallet || null;
   state.billing = config.billing || null;
   state.templates = platform.templates || [];
-  state.playfluxTemplates = Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [];
+  // The public config intentionally omits the large PlayFlux template catalog;
+  // keep a catalog already loaded from /api/platform/playflux-templates when
+  // later bootstrap/session config refreshes would otherwise wipe it out.
+  const playfluxTemplates = Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [];
+  if (playfluxTemplates.length || !state.playfluxTemplatesLoaded || !state.playfluxTemplates.length) {
+    state.playfluxTemplates = playfluxTemplates;
+  }
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
   const homeVideo = config.homeVideo || {};

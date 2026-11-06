@@ -1083,7 +1083,7 @@ function isWorkflowTester() {
 }
 
 function canUseAnimeTemplates() {
-  return isWorkflowTester();
+  return true;
 }
 
 function tenantFeatures() {
