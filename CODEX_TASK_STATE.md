@@ -14,6 +14,8 @@
 - Build: production webpack succeeds with only the existing bundle-size warnings.
 - Cleanup (2026-11-07): removed unused copied `workflow-react/src/api/ApiService.js`, `LogService.js`, and `utils/taskRecord.js`; normalized trailing whitespace; `git diff --cached --check` passes. Production webpack rebuild succeeds.
 - Re-verification after cleanup: `/tmp/workflow-react-verify/step-result-drag-after-cleanup.out` confirms 2 results, correct first-result reference, 1 business/DOM edge. `/tmp/workflow-react-verify/fresh-final-after-cleanup.out` confirms 3 nodes/1 edge retained through upload and controls, handle-to-border delta +/-1px, viewport zoom 1, no console errors.
+- Commit: `7ebc242` (`Adopt React Flow canvas interactions`) on `old-site`.
+- Release snapshots pushed: platform `d970096f18e10734ec4d742cbce62432f6693d79`, live `bf1e01a609f0b0e4075756a28748620800bb6ee3`. Platform snapshot contains `workflow-react/dist/canvas.js`; Live snapshot contains no platform files.
 
 ## Seedance regeneration expired signed URL fix (2026-11-06)
 
