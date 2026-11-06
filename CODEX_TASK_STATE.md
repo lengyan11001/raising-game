@@ -1,3 +1,10 @@
+## Same-style active tab fill removed (2026-11-06)
+
+- User confirmed the selected Same-style tab still showed the dark pink pill in a new screenshot.
+- Removed the remaining active-tab fill completely. Active tabs now retain the normal muted text color and use only the pink icon as the highlight.
+- Cache suffix bumped to `advanced-parameters-20261106-17`; `test/side-navigation-overflow.test.js` passes 3/3 and `git diff --check` is clean.
+- Deployment: old-site `e9e4840`; platform-release `f905492`; deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`. Health is `200 {"ok":true}`; production `platform.css` confirms `background: transparent` for the active Same-style tab.
+
 ## Same-style active tab highlight refinement (2026-11-06)
 
 - User asked to remove the red outline/white-text state from the selected Same-style tab and rely only on the soft highlight fill.
