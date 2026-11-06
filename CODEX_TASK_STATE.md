@@ -1163,6 +1163,7 @@ CODEX_TASK_STATE.md
 - Required fix: make the Wan 3.0 payload sign every `assets-cdn`/OSS object URL immediately before submission (or publish to a truly public URL), and add a regression test asserting the sent reference URL contains a valid signature rather than the bare CDN URL.
 - Fix applied in `server.parts/part-17.js`: Wan 3.0 capabilities now sign OSS/CDN media at the final upstream boundary, and both the MuleRouter decision and Alibaba request receive that signed media array. Lite and other capabilities keep their existing media flow.
 - Regression: `test/wan30-upstream-signed-media.test.js` verifies private `assets-cdn` media gains `OSSAccessKeyId`/`Signature`/`Expires`, preserves media metadata, leaves external public URLs and the input array unchanged, and confirms both upstream call sites use signed media. `node --test test/oss-storage.test.js test/wan30-upstream-signed-media.test.js` passes 11/11; syntax and targeted `git diff --check` pass.
+- Deployment and live verification: production is running release snapshot `e65b337` from old-site `1014a92`, which includes the Wan 3.0 signing fix. A new production Wan 3.0 Prime task `cgt-20261106232641-2bac77` completed successfully; its persisted `upstreamPayload.reference_images[0]` contains `OSSAccessKeyId`, `Signature`, and `Expires`. The prior `cgt-20261106231628-c0dfac` failure remains unchanged and predates the fix. No Live deployment was made.
 
 ## Complete $99 membership page redesign (2026-11-06)
 
