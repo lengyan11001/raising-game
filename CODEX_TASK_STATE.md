@@ -1125,4 +1125,6 @@ CODEX_TASK_STATE.md
 - Changed files: `platform.config.js`, `platform.ui.parts/part-04.js`, `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.workflow-canvases.js`, `platform.workflow-react.js`, `test/workflow-canvases.test.js`.
 - Real Chrome/CDP race reproduction: held the older canvas response, added 4 nodes/3 edges, uploaded through the actual React file input, then released the stale response. After the response: 5 business/DOM nodes (4 local + 1 server addition), 3 business/DOM edges, uploaded URL and asset ID intact, active canvas `canvas-race`, and viewport transform unchanged. Runtime errors: none.
 - Verification: `test/workflow-canvases.test.js` 18/18 pass; syntax and `git diff --check` pass. `test/advanced-custom-ui.test.js` has 6 documented unrelated failures (`isVegaProviderId` eval context), not caused by this change.
-- Deployment: pending commit/build/deploy.
+- Integration: `old-site` `04ac8df`. Releases: `platform-release` `26e1eb9`; `live-release` `149a3fc`.
+- Deployment: deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; service active and health returned `200 {"ok":true}`.
+- Production verification: served `platform.workflow-canvases.js` contains the load-sequence/local-merge/save-after-merge fix; served `platform.workflow-react.js` contains live node lookup, upload canvas guard, and viewport APIs.
