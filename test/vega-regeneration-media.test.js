@@ -88,6 +88,10 @@ function frontendRuntime() {
     "upstreamMediaUrl",
     "upstreamMediaType",
     "upstreamInputMediaItems",
+    "previewableAssetUrl",
+    "assetUrlCandidateRank",
+    "reliableAssetUrlCandidates",
+    "reliableAssetUrl",
     "restoreMediaUrl",
     "restoreMediaPreviewUrl",
     "restoreMediaAssetUri",
@@ -114,7 +118,7 @@ function frontendRuntime() {
     `function restoreRecordProvider(record = {}) { return String(record.params?.advancedProviderId || record.provider || ""); }`,
     `function restoreRecordImageLimit() { return 30; }`,
     extractFunction(createSource, "restoreRecordMedia"),
-    "return { restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews };",
+    "return { reliableAssetUrl, restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews };",
   ].join("\n"))();
 }
 
@@ -344,7 +348,11 @@ test("Seedance regenerated records resolve user asset previews and retain intern
   const hydrated = await hydrateRecordMediaUserAssetPreviews(record, async (assetIds) => new Map([
     [assetIds[0], { id: assetIds[0], publicUrl: "https://cdn.example.com/reference-image.png" }],
     [assetIds[1], { id: assetIds[1], cdnUrl: "https://cdn.example.com/reference-video-1.mp4" }],
-    [assetIds[2], { id: assetIds[2], previewUrl: "https://cdn.example.com/reference-video-2.mp4" }],
+    [assetIds[2], {
+      id: assetIds[2],
+      previewUrl: "/assets/user-uploads/user-1/reference-video-2.mp4",
+      assetUrls: [{ source: "delivery", url: "https://assets-cdn.example.com/reference-video-2.mp4?signature=fresh" }],
+    }],
   ]));
   const restored = restoreRecordMedia(hydrated);
 
@@ -356,7 +364,7 @@ test("Seedance regenerated records resolve user asset previews and retain intern
       "asset-1793895814730-cea3b134",
     ],
     [
-      "https://cdn.example.com/reference-video-2.mp4",
+      "https://assets-cdn.example.com/reference-video-2.mp4?signature=fresh",
       "asset://asset-20261106224219-pddlv",
       "asset-1793940603600-bec2f1f1",
     ],
@@ -371,7 +379,7 @@ test("Seedance regenerated records resolve user asset previews and retain intern
   assert.equal(vegaRestored.referenceVideos.length, 2);
   assert.deepEqual(vegaRestored.referenceVideoUrls, [
     "https://cdn.example.com/reference-video-1.mp4",
-    "https://cdn.example.com/reference-video-2.mp4",
+    "https://assets-cdn.example.com/reference-video-2.mp4?signature=fresh",
   ]);
   assert.deepEqual(vegaRestored.referenceVideos.map((item) => item.assetUri), [
     "asset://asset-20261106224219-hpbpw",
@@ -404,4 +412,55 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /advanced-reference-unavailable/);
   assert.match(previewSource, /kind === "video"[\s\S]*?url[\s\S]*?data-advanced-preview-media/);
   assert.match(previewSource, /素材不可用/);
+});
+
+
+test("Resolved assets choose a reliable HTTP address and never leak internal URIs", async () => {
+  const { restoreRecordMedia, hydrateRecordMediaUserAssetPreviews, reliableAssetUrl } = frontendRuntime();
+  const record = seedanceNsfwRegenerationRecord();
+  const hydrated = await hydrateRecordMediaUserAssetPreviews(record, async (assetIds) => new Map([
+    [assetIds[0], {
+      id: assetIds[0],
+      publicUrl: "asset://internal-image",
+      previewUrl: "/assets/user-uploads/user-1/image.png",
+      localUrl: "/assets/user-uploads/user-1/image.png",
+      assetUrls: [{ source: "local-http", url: "https://123vips.com/assets/user-uploads/user-1/image.png" }],
+    }],
+    [assetIds[1], {
+      id: assetIds[1],
+      publicUrl: "asset://internal-video-1",
+      cdnUrl: "/assets/user-uploads/user-1/video-1.mp4",
+      localUrl: "/assets/user-uploads/user-1/video-1.mp4",
+      assetUrls: [{ source: "local-http", url: "https://123vips.com/assets/user-uploads/user-1/video-1.mp4" }],
+    }],
+    [assetIds[2], {
+      id: assetIds[2],
+      localUrl: "/assets/user-uploads/user-1/video-2.mp4",
+      assetUrls: [{ source: "local-http", url: "https://123vips.com/assets/user-uploads/user-1/video-2.mp4" }],
+    }],
+  ]));
+  const restored = restoreRecordMedia(hydrated);
+  assert.equal(restored.referenceImages[0].dataUrl, "https://123vips.com/assets/user-uploads/user-1/image.png");
+  assert.deepEqual(restored.videos.map((item) => item.url), [
+    "https://123vips.com/assets/user-uploads/user-1/video-1.mp4",
+    "https://123vips.com/assets/user-uploads/user-1/video-2.mp4",
+  ]);
+  assert.doesNotMatch(JSON.stringify({
+    references: restored.references.map(({ assetUri, referenceAssetUri, ...item }) => item),
+    videos: restored.videos.map(({ assetUri, referenceAssetUri, ...item }) => item),
+  }), /asset:\/\/internal|asset:\/\/asset-2026/);
+  assert.equal(reliableAssetUrl({
+    publicUrl: "javascript:alert(1)",
+    cdnUrl: "asset://internal",
+    previewUrl: "/assets/fallback.mp4",
+  }), "/assets/fallback.mp4");
+});
+
+test("Public user assets return the full address set for the frontend fallback chain", () => {
+  const publicAsset = extractFunction(serverSource, "publicUserAsset");
+  assert.match(publicAsset, /assetUrls\s*=\s*\[\]/);
+  assert.match(publicAsset, /addAssetUrl\("delivery", deliveryUrl\)/);
+  assert.match(publicAsset, /addAssetUrl\("local-http", localHttpUrl\)/);
+  assert.match(publicAsset, /previewUrl: deliveryUrl/);
+  assert.doesNotMatch(publicAsset, /previewUrl: asset\.localUrl \|\|/);
 });

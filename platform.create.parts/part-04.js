@@ -213,18 +213,74 @@ function upstreamInputMediaItems(record = {}) {
   return items;
 }
 
+function previewableAssetUrl(value = "") {
+  const text = typeof value === "object" && value
+    ? String(value.url || value.href || value.src || "").trim()
+    : String(value || "").trim();
+  if (!text || text.startsWith("asset://") || text.startsWith("javascript:") || text.startsWith("file:")) return "";
+  return /^(?:https?:\/\/|\/(?!\/)|data:|blob:)/i.test(text) ? text : "";
+}
+
+function assetUrlCandidateRank(candidate = {}) {
+  const source = String(candidate.source || "").toLowerCase();
+  const url = String(candidate.url || "").toLowerCase();
+  if (url.startsWith("data:") || url.startsWith("blob:")) return 1000;
+  const httpUrl = url.startsWith("http://") || url.startsWith("https://");
+  if (httpUrl) {
+    if (source === "delivery" || source === "signed") return 900;
+    if (source === "public" || source === "public-url") return 800;
+    if (source === "cdn" || source === "cdn-url") return 700;
+    if (source === "local-http") return 600;
+    if (source === "preview") return 500;
+    if (source === "local" || source === "local-url") return 300;
+    return 400;
+  }
+  if (url.startsWith("/")) return 200;
+  return 100;
+}
+
+function reliableAssetUrlCandidates(item = {}) {
+  if (!item || typeof item !== "object") return [];
+  const candidates = [];
+  const seen = new Set();
+  const add = (value, source = "") => {
+    const url = previewableAssetUrl(value);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    candidates.push({ url, source: String(source || "") });
+  };
+  add(item.dataUrl, "data");
+  const listedUrls = Array.isArray(item.assetUrls) ? item.assetUrls : [];
+  listedUrls.forEach((entry) => {
+    if (typeof entry === "string") add(entry);
+    else if (entry && typeof entry === "object") add(entry.url || entry.href || entry.src, entry.source || entry.kind || "");
+  });
+  [
+    ["public", item.publicUrl],
+    ["cdn", item.cdnUrl],
+    ["preview", item.previewUrl],
+    ["local-http", item.localHttpUrl],
+    ["url", item.url],
+    ["image", item.imageUrl],
+    ["video", item.videoUrl],
+    ["audio", item.audioUrl],
+    ["source", item.sourceUrl || item.sourceImageUrl],
+    ["upstream", upstreamMediaUrl(item)],
+    ["local", item.localUrl],
+  ].forEach(([source, value]) => add(value, source));
+  return candidates
+    .map((candidate, index) => ({ ...candidate, index }))
+    .sort((left, right) => assetUrlCandidateRank(right) - assetUrlCandidateRank(left) || left.index - right.index)
+    .map((candidate) => candidate.url);
+}
+
+function reliableAssetUrl(item = {}) {
+  return reliableAssetUrlCandidates(item)[0] || "";
+}
+
 function restoreMediaUrl(item = {}) {
   if (!item || typeof item !== "object") return "";
-  const publicUrl = firstPresent(item.url, item.publicUrl, item.cdnUrl, item.previewUrl, item.sourceUrl);
-  if (publicUrl && !String(publicUrl).trim().startsWith("asset://")) return String(publicUrl).trim();
-  return item.dataUrl
-    || upstreamMediaUrl(item)
-    || item.publicUrl
-    || item.cdnUrl
-    || item.sourceImageUrl
-    || item.previewUrl
-    || item.localUrl
-    || "";
+  return reliableAssetUrl(item) || "";
 }
 
 function restoreMediaAssetUri(item = {}) {
@@ -242,21 +298,7 @@ function restoreMediaAssetId(item = {}) {
 
 function restoreMediaPreviewUrl(item = {}) {
   if (!item || typeof item !== "object") return "";
-  const candidates = [
-    item.dataUrl,
-    item.url,
-    item.publicUrl,
-    item.cdnUrl,
-    item.previewUrl,
-    item.sourceImageUrl,
-    item.localUrl,
-    upstreamMediaUrl(item),
-  ];
-  const preview = candidates.find((value) => {
-    const text = String(value || "").trim();
-    return text && !text.startsWith("asset://") && !text.startsWith("javascript:");
-  });
-  return preview ? String(preview).trim() : "";
+  return reliableAssetUrl(item);
 }
 
 function restoreReferenceFromMedia(item = {}, index = 0) {
@@ -320,9 +362,12 @@ function hydrateRecordMediaAssetEntries(record = {}, resolvedAssets = new Map())
       ...item,
       ...(previewUrl ? {
         url: previewUrl,
-        publicUrl: asset.publicUrl || previewUrl,
-        cdnUrl: asset.cdnUrl || previewUrl,
-        previewUrl: asset.previewUrl || previewUrl,
+        publicUrl: previewUrl,
+        cdnUrl: previewUrl,
+        previewUrl,
+        localUrl: asset.localUrl || "",
+        localHttpUrl: asset.localHttpUrl || "",
+        assetUrls: Array.isArray(asset.assetUrls) ? asset.assetUrls : [],
       } : {}),
       ...(assetUri ? { assetUri, referenceAssetUri: item.referenceAssetUri || assetUri } : {}),
     };
@@ -641,7 +686,7 @@ function restoreVegaMediaItem(item = {}, index = 0, kind = "image") {
   const source = typeof item === "string" ? { url: item } : (item && typeof item === "object" ? item : {});
   const assetId = restoreMediaAssetId(source);
   const assetUri = restoreMediaAssetUri(source);
-  const sourceUrl = restoreMediaUrl(source) || source.publicUrl || source.cdnUrl || source.previewUrl || "";
+  const sourceUrl = restoreMediaUrl(source);
   const url = vegaPublicHttpUrl(sourceUrl);
   if (!assetId && !assetUri && !url) return null;
   const name = source.name || source.label || source.fileName || `${kind}-${index + 1}`;

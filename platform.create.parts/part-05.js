@@ -280,7 +280,7 @@ function renderAdvancedReferencePreviews() {
   const refs = frameMode ? [] : advancedReferenceDisplayItems(provider);
   els.advancedUploadPreview.innerHTML = refs.map(({ kind, index, label, item }) => {
     const pending = Boolean(item.isPending || item.pendingId);
-    const url = item.dataUrl || item.previewUrl || item.url || "";
+    const url = reliableAssetUrl(item);
     const removeAttr = kind === "image"
       ? `data-remove-advanced-ref="${index}"`
       : kind === "document"
@@ -293,7 +293,7 @@ function renderAdvancedReferencePreviews() {
         ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
       ? (url
-        ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" data-advanced-preview-media></video>`
+        ? `<video src="${escapeHtml(url)}" muted playsinline controls preload="metadata" data-advanced-preview-media></video>`
         : `<div class="advanced-reference-unavailable">${escapeHtml(state.lang === "zh" ? "素材不可用" : "Media unavailable")}</div>`)
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
@@ -309,6 +309,13 @@ function renderAdvancedReferencePreviews() {
     `;
   }).join("");
   els.advancedUploadPreview.querySelectorAll("[data-advanced-preview-media]").forEach((media) => {
+    if (media.tagName === "VIDEO") {
+      media.addEventListener("loadedmetadata", () => {
+        if (Number(media.currentTime || 0) === 0 && Number(media.duration || 0) > 0.05) {
+          try { media.currentTime = 0.01; } catch (_error) {}
+        }
+      }, { once: true });
+    }
     media.addEventListener("error", () => {
       const figure = media.closest(".advanced-reference-chip");
       if (!figure || figure.querySelector(".advanced-reference-unavailable")) return;

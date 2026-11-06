@@ -605,20 +605,41 @@ function publicUserAsset(asset = {}) {
   const mime = String(asset.mime || "").toLowerCase();
   const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : (WAN30_DOCUMENT_MIMES.has(mime) || documentMimeFromKnownPath(asset.name || asset.fileName)) ? "document" : "image";
   const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
-  const storedUrl = asset.publicUrl || asset.cdnUrl || "";
+  const localUrl = String(asset.localUrl || "").trim();
+  const localHttpUrl = publicUrlForAssetPath(localUrl);
+  const storedPublicUrl = String(asset.publicUrl || "").trim();
+  const storedCdnUrl = String(asset.cdnUrl || "").trim();
+  const storedUrl = storedPublicUrl || storedCdnUrl || localHttpUrl;
   const deliveryUrl = signedOssCdnUrlForDelivery(storedUrl, {
     key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
-  }) || storedUrl;
+  }) || storedPublicUrl || storedCdnUrl || localHttpUrl;
+  const assetUrls = [];
+  const seenAssetUrls = new Set();
+  const addAssetUrl = (source, value) => {
+    const url = String(value || "").trim();
+    if (!url || seenAssetUrls.has(url)) return;
+    if (url.startsWith("asset://") || url.startsWith("javascript:") || url.startsWith("file:")) return;
+    if (!/^(?:https?:\/\/|\/(?!\/)|data:|blob:)/i.test(url)) return;
+    seenAssetUrls.add(url);
+    assetUrls.push({ source, url });
+  };
+  addAssetUrl("delivery", deliveryUrl);
+  addAssetUrl("public", storedPublicUrl);
+  addAssetUrl("cdn", storedCdnUrl);
+  addAssetUrl("local-http", localHttpUrl);
+  addAssetUrl("local", localUrl);
   return {
     id: asset.id,
     userId: asset.userId,
     name: asset.name || "Upload",
     kind,
     mime: asset.mime || "",
-    localUrl: asset.localUrl || "",
+    localUrl,
+    localHttpUrl,
     publicUrl: deliveryUrl,
     cdnUrl: deliveryUrl,
-    previewUrl: asset.localUrl || deliveryUrl || asset.cdnUrl || "",
+    previewUrl: deliveryUrl,
+    assetUrls,
     durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.duration)),
     assetUri: kind === "image" ? asset.assetUri || "" : "",
     seedanceAssetUri: kind === "video" ? asset.seedanceVideoAssetUri || "" : kind === "audio" ? asset.seedanceAudioAssetUri || "" : asset.assetUri || "",
