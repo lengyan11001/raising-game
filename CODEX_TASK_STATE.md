@@ -7,7 +7,7 @@
 - Bumped `platform.html` public CSS/JS cache suffix to `pink-tabs-20261106-1`.
 - Added regression assertions in `test/platform-site-profile.test.js`.
 - Verification: targeted pink-tab assertions pass; CSS brace balance is 0; `git diff --check` passes; headless Chrome confirms identical computed selected styles. The full legacy tests are currently blocked by the pre-existing `server.js` split/test-helper state, unrelated to this CSS task.
-- Pending: partial-stage only this tab work, commit, build release snapshot, deploy old site and verify production.
+- Deployment: `old-site` `3aa19aa`; `platform-release` `342d31d`, built from `3aa19aa` and pushed with lease protection. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; production checkout is `342d31d`, service active, `/api/health` returns `200 {"ok":true}`. Production HTML serves `mw4vq2cl` and the deployed CSS contains the unified pink tab layer. Live was not deployed.
 
 ## Anime restricted to owner account (2026-11-06)
 
