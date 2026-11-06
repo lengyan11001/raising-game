@@ -722,3 +722,12 @@ CODEX_TASK_STATE.md
 - Tencent VOD returned `Status=FINISH`, `ErrCode=70000`, `ErrCodeExt=InternalError`, `Message=task failed with status: FAIL, message: `. This is an upstream internal failure with an empty detail message, not a local validation or content-policy error.
 - Local record is `status=failed`, `billingStatus=refunded`, `finalCredits=0`; no user action is needed for the refund.
 - Recent Vega 1.0 Lite tasks after the fix include successful generations; no post-deploy task with `referenceVideos` has been submitted yet.
+
+## Follow-up audit (2026-11-06): Vega Lite upstream media
+
+- Confirmed `cgt-20261106114344-b684c5` is `vega10-lite` and its stored upstream `FileInfos` did contain `asset://asset-20261106112111-lp645`, with `referenceImageAssetIds` containing `asset-1793894577959-6e931c2f`.
+- The task was created at 11:43:44 CST. The Lite media restrictions landed later (`b8df2e6` at 12:00 CST and `a59b64a` at 12:13 CST), so this was a pre-fix submission, not current behavior.
+- Other historical Lite failures with the same upstream `asset://` problem: `cgt-20261105232129-8eb829` (`vega10-lite`) and `cgt-20261106112235-26489e` (`h3-vega`). All affected records are failed and refunded.
+- A production PostgreSQL audit from the fix onward found zero Lite/h3 upstream `FileInfos` containing `asset://`.
+- Latest post-fix Lite task `cgt-20261106132947-4db08c` still stores `asset://` in request params, but upstream `FileInfos` contains the public `https://media.123vips.com/...` URL and the task succeeded. Current code resolves owned Lite asset ids to public URLs before submission, and `buildVegaFileInfos()` rejects `asset://` for non-media-library providers.
+- Production checkout `8d8d388` contains both `resolveVegaLiteMediaAssetSources` and the `allowAssetUri = vegaProviderUsesMediaLibrary(input.provider)` guard; `/api/health` returns `{"ok":true}`. Targeted Vega tests: 61 pass / 0 fail.
