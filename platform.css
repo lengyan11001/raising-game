@@ -2119,13 +2119,13 @@ body.creator-picker-open {
 .gallery-top-tabs::-webkit-scrollbar { display: none; }
 .gallery-top-tabs .gallery-mode-tab {
   flex: 0 0 auto;
-  min-height: 34px;
-  padding: 7px 11px;
+  min-height: 38px;
+  padding: 8px 13px;
   border: 1px solid transparent;
   border-radius: 8px;
   color: rgba(255,255,255,.62);
   background: transparent;
-  font-size: .82rem;
+  font-size: .86rem;
   font-weight: 800;
 }
 .gallery-top-tabs .gallery-mode-tab:hover {
@@ -2134,8 +2134,8 @@ body.creator-picker-open {
   background: rgba(255,255,255,.06);
 }
 .gallery-top-tabs .gallery-mode-tab svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .gallery-top-tabs .gallery-mode-tab span {
   min-width: 0;
@@ -12769,16 +12769,16 @@ body.wan30-launch-visible .site-head { top: 0; }
     flex: 0 0 auto;
     justify-content: center;
     min-width: auto;
-    min-height: 34px;
-    gap: 6px;
-    padding: 7px 10px;
+    min-height: 38px;
+    gap: 7px;
+    padding: 8px 12px;
     border-radius: 8px;
-    font-size: .79rem;
+    font-size: .83rem;
   }
 
   .gallery-top-tabs .gallery-mode-tab svg {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
   }
 }
 
