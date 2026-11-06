@@ -63,4 +63,5 @@ test("email verification challenges are persisted in PostgreSQL with expiry and 
   assert.match(database, /minimumIntervalMs = 60_000/);
   assert.match(database, /code_hash = \$2/);
   assert.match(database, /DATABASE_URL is required for email verification codes/);
+  assert.match(database, /const crypto = require\("node:crypto"\)/);
 });

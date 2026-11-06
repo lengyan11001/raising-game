@@ -1,3 +1,10 @@
+## Email login production verification and crypto hotfix (2026-11-06)
+
+- Production SMTP configuration is present and `verifySmtp()` succeeds against Alibaba Direct Mail `smtpdm-ap-southeast-1.aliyuncs.com:465` over implicit TLS; `/api/config/public` reports `auth.email.enabled=true`.
+- Production login modal serves `emailLoginTab` selected and `passwordLoginPanel` hidden.
+- End-to-end production verification found `[email-challenge-db] crypto is not defined` during `/api/auth/email/verify`; `db.js` used `crypto` without importing it. Added `require("node:crypto")` and a regression assertion.
+- Targeted email tests pass 8/8; syntax and diff checks pass. Production redeployment and end-to-end retest follow this fix.
+
 ## R2 credential repair and CDN DNS permission check (2026-11-06)
 
 - Production old site `/etc/raising-game-demo.env` had `R2_ACCESS_KEY_ID` already rotated to the new Cloudflare R2 access key, but `R2_SECRET_ACCESS_KEY` still held the old secret. The resulting `SignatureDoesNotMatch` broke new uploads.

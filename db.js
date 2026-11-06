@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const { Pool } = require("pg");
 
 const DEFAULT_TENANT_ID = "main";
