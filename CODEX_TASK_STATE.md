@@ -1180,3 +1180,9 @@ CODEX_TASK_STATE.md
 - Integration: pushed `old-site` at `1014a92` to origin.
 - Platform release: `e65b33702a0c9c125fad097ee142a98eff34859b`, built from `1014a92` and pushed with lease protection.
 - Deployment: `scripts/deploy_local.sh --site old` exited 0. `https://123vips.com/api/health` returns `200 {"ok":true}`, deployed HTML contains the calculator and membership checkout markers, and served `platform.create.parts/part-06.js` contains the calculator implementation. Live was not deployed.
+
+### Referral bottom card width alignment (2026-11-06)
+
+- User clarified the existing referral/commission/reward content below the membership benefits card must remain, but its card width should match the redesigned membership card.
+- Changed `platform.css` `.referral-card` width from `min(760px, 100%)` to `min(920px, 100%)`; bumped the page cache suffix to `membership-redesign-20261106-3`.
+- Verification: targeted membership/cases suite passes 12/12; layout assertions and `git diff --check` pass.

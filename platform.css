@@ -4268,7 +4268,7 @@ dialog.tool-download-modal {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px 22px;
-  width: min(760px, 100%);
+  width: min(920px, 100%);
   padding: 22px;
   border: 1px solid rgba(255,255,255,.14);
   border-radius: 8px;
