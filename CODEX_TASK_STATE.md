@@ -1,3 +1,14 @@
+## Same-style top-level navigation and Case-first in-page tabs (2026-11-06)
+
+- Goal: keep “Same style / 同款” as a top-level navigation entry, remove its dropdown, and show Case / Video / Anime / Image as top in-page tabs in the right content area. Case must be first and selected by default.
+- Changed `platform.html`: removed the same-style dropdown group and gallery-local mode tabs; added a single `data-same-style-entry` Case button plus shared `#sameStylePanel` / `#galleryModeTabs` above gallery and cases. Bumped CSS/JS cache suffix to `advanced-parameters-20261106-10`.
+- Changed `platform.explore.js` and `platform.cases.js`: shared tabs render in Case-first order, Case is active on the Case page, and selecting Video/Anime/Image routes from Case to the gallery with that mode active. Navigating to Case shows the shared tabs and refreshes the case library.
+- Changed `platform.main.js` and `platform.config.js`: removed obsolete dropdown handling, added `[data-gallery-top-tab]` routing, and added the shared panel DOM reference.
+- Updated `test/side-navigation-overflow.test.js` to assert the top-level entry, removed dropdown, shared Case-first tabs, routing, and active-tab styles.
+- Verification: targeted side-navigation/refresh/profile/cases tests pass (30/30); all modified JS and test files pass `node --check`; `git diff --check` passes. Static Chrome DOM check confirms the top-level entry and shared tab container are present.
+- Deployment: pending. No production release or site deployment was performed.
+- Excluded from this change: pre-existing unrelated Generate worktree changes in `platform.create.parts/part-02.js`, `test/advanced-custom-ui.test.js`, and Generate CSS hunks.
+
 ## Generate wider editor and viewport-height dialogs (2026-11-06)
 
 - Goal: widen the Generate left editor and let preset/asset dialogs use the available viewport height, removing redundant inner scrolling while preserving Target category filtering and video Add behavior.

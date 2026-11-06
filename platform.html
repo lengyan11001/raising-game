@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=advanced-parameters-20261106-9" />
+    <link rel="stylesheet" href="./platform.css?v=advanced-parameters-20261106-10" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
       (function () {
@@ -96,34 +96,10 @@
           <i data-lucide="message-circle-heart"></i>
           <span>Chat</span>
         </button>
-        <div class="top-nav-group" data-nav-group="same-style">
-          <button class="top-tab top-nav-group-toggle" data-nav-group-toggle type="button" aria-expanded="false">
-            <i data-lucide="shapes"></i>
-            <span><span class="i18n-en">Same style</span><span class="i18n-zh">同款</span></span>
-            <i class="top-nav-group-chevron" data-lucide="chevron-down"></i>
-          </button>
-          <div class="top-nav-group-children" hidden>
-            <button class="top-tab top-tab-child" data-tab="cases" type="button">
-              <i data-lucide="layout-grid"></i>
-              <span data-i18n="nav.cases">Cases</span>
-            </button>
-            <button class="top-tab top-tab-child" data-gallery-shortcut="playflux-video" type="button">
-              <i data-lucide="film"></i>
-              <span data-i18n="playflux.videoTab">Video</span>
-              <strong data-gallery-shortcut-count>0</strong>
-            </button>
-            <button class="top-tab top-tab-child" data-gallery-shortcut="playflux-anime" type="button">
-              <i data-lucide="sparkles"></i>
-              <span data-i18n="playflux.animeTab">Anime</span>
-              <strong data-gallery-shortcut-count>0</strong>
-            </button>
-            <button class="top-tab top-tab-child" data-gallery-shortcut="playflux-image" type="button">
-              <i data-lucide="image"></i>
-              <span data-i18n="playflux.imageTab">Image</span>
-              <strong data-gallery-shortcut-count>0</strong>
-            </button>
-          </div>
-        </div>
+        <button class="top-tab" data-tab="cases" data-same-style-entry type="button">
+          <i data-lucide="shapes"></i>
+          <span><span class="i18n-en">Same style</span><span class="i18n-zh">同款</span></span>
+        </button>
         <button class="top-tab" data-tab="advanced" type="button">
           <i data-lucide="wand-sparkles"></i>
           <span data-i18n="nav.advanced">Advanced</span>
@@ -456,9 +432,12 @@
         </footer>
       </section>
 
+      <section class="same-style-panel" id="sameStylePanel" hidden>
+        <div class="gallery-mode-tabs gallery-top-tabs" id="galleryModeTabs" role="tablist" aria-label="Same-style modes"></div>
+      </section>
+
       <section class="workspace" data-panel="gallery">
         <section class="gallery-panel">
-          <div class="gallery-mode-tabs" id="galleryModeTabs"></div>
           <div class="template-grid" id="templateGrid"></div>
         </section>
       </section>
@@ -1453,6 +1432,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=advanced-parameters-20261106-9"></script>
+    <script src="./platform.js?v=advanced-parameters-20261106-10"></script>
   </body>
 </html>

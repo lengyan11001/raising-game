@@ -1230,6 +1230,7 @@ const els = {
   ageGateDeclineBtn: document.querySelector("#ageGateDeclineBtn"),
   ageForbidden: document.querySelector("#ageForbidden"),
   categoryRow: document.querySelector("#categoryRow"),
+  sameStylePanel: document.querySelector("#sameStylePanel"),
   galleryModeTabs: document.querySelector("#galleryModeTabs"),
   templateGrid: document.querySelector("#templateGrid"),
   characterPageTabs: document.querySelector("#characterPageTabs"),

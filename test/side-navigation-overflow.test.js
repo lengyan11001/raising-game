@@ -25,28 +25,30 @@ test("side navigation keeps its full-size buttons and moves overflow into More",
   assert.doesNotMatch(css, /\.top-tab \{ padding: 4px 9px; \}/);
 });
 
-test("same-style navigation groups Cases, Video, Anime, and Image behind a collapsed parent", () => {
+test("same-style is a top-level entry with Case-first in-page tabs", () => {
   const html = read("platform.html");
   const css = read("platform.css");
   const main = read("platform.main.js");
   const explore = read("platform.explore.js");
 
-  const group = html.match(/<div class="top-nav-group"[^>]*data-nav-group="same-style">([\s\S]*?)<\/div>\s*<button class="top-tab" data-tab="advanced"/)?.[1] || "";
-  assert.ok(group, "same-style group should wrap the four child entries");
-  assert.match(group, /data-nav-group-toggle[^>]*aria-expanded="false"/);
-  assert.doesNotMatch(group, /data-i18n="nav\.sameStyle"/);
-  assert.match(group, /class="i18n-en">Same style<\/span>/);
-  assert.match(group, /class="i18n-zh">同款<\/span>/);
+  assert.doesNotMatch(html, /data-nav-group="same-style"/);
+  assert.doesNotMatch(html, /data-nav-group-toggle/);
+  assert.match(html, /<button class="top-tab" data-tab="cases" data-same-style-entry/);
+  assert.match(html, /class="i18n-en">Same style<\/span>/);
+  assert.match(html, /class="i18n-zh">同款<\/span>/);
+  assert.match(html, /<section class="same-style-panel" id="sameStylePanel" hidden>/);
+  assert.match(html, /class="gallery-mode-tabs gallery-top-tabs" id="galleryModeTabs"/);
   assert.match(html, /document\.documentElement\.classList\.add\(`i18n-\$\{lang\}`\)/);
-  assert.match(group, /class="top-nav-group-children" hidden/);
-  const caseIndex = group.indexOf('data-tab="cases"');
-  const videoIndex = group.indexOf('data-gallery-shortcut="playflux-video"');
-  const animeIndex = group.indexOf('data-gallery-shortcut="playflux-anime"');
-  const imageIndex = group.indexOf('data-gallery-shortcut="playflux-image"');
+  assert.match(main, /data-gallery-top-tab/);
+  assert.match(main, /if \(mode === "cases"\) setTab\("cases"\);\s*else setGalleryMode\(mode\);/);
+  assert.match(explore, /function galleryTopTabItems\(\)/);
+  const caseIndex = explore.indexOf('id: "cases"');
+  const videoIndex = explore.indexOf('id: "playflux-video"');
+  const animeIndex = explore.indexOf('id: "playflux-anime"');
+  const imageIndex = explore.indexOf('id: "playflux-image"');
   assert.ok(caseIndex > -1 && caseIndex < videoIndex && videoIndex < animeIndex && animeIndex < imageIndex);
-  assert.doesNotMatch(html, /<button class="top-tab" data-tab="cases"/);
-  assert.match(main, /data-nav-group-toggle/);
-  assert.match(main, /children\.hidden = expanded/);
-  assert.match(explore, /has-active-child/);
-  assert.match(css, /\.top-nav-group-children\[hidden\] \{\s*display: none;/);
+  assert.match(explore, /active: state\.tab === "cases"/);
+  assert.match(explore, /els\.sameStylePanel\.hidden = nextTab !== "cases"/);
+  assert.match(css, /\.gallery-top-tabs \{/);
+  assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab\.is-active \{/);
 });

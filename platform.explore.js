@@ -108,6 +108,10 @@ function setTab(tab) {
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
+  if (els.sameStylePanel) {
+    els.sameStylePanel.hidden = nextTab !== "cases"
+      && !(nextTab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  }
   if (typeof syncUndressAmbientVideo === "function") syncUndressAmbientVideo(nextTab === DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-history-expiry-info]").forEach((control) => {
     control.hidden = nextTab !== "history";
@@ -186,9 +190,10 @@ function syncMainTabState() {
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
   });
-  document.querySelectorAll(".top-nav-group").forEach((group) => {
-    const childActive = Boolean(group.querySelector(".top-tab.is-active, [data-gallery-shortcut].is-active"));
-    group.classList.toggle("has-active-child", childActive);
+  const sameStyleActive = state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  document.querySelectorAll("[data-same-style-entry]").forEach((entry) => {
+    entry.classList.toggle("is-active", sameStyleActive);
   });
   syncSideNavigationMore();
 }
@@ -310,6 +315,10 @@ function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  if (state.tab !== DEFAULT_PLATFORM_TAB) {
+    setTab(DEFAULT_PLATFORM_TAB);
+    return;
+  }
   const nextHash = galleryModeHash(state.galleryMode);
   window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
@@ -4002,16 +4011,51 @@ function syncGalleryShortcutNav() {
       countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
-  document.querySelectorAll(".top-nav-group").forEach((group) => {
-    group.classList.toggle("has-active-child", Boolean(group.querySelector(".top-tab.is-active, [data-gallery-shortcut].is-active")));
+  syncGalleryModeTabs();
+}
+
+function galleryTopTabsVisible() {
+  return state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+}
+
+function galleryTopTabItems() {
+  const items = [{
+    id: "cases",
+    label: state.lang === "zh" ? "案例" : "Case",
+    icon: "layout-grid",
+    active: state.tab === "cases",
+  }];
+  [
+    { id: "playflux-video", labelKey: "playflux.videoTab", fallback: "Video", icon: "film" },
+    { id: "playflux-anime", labelKey: "playflux.animeTab", fallback: "Anime", icon: "sparkles" },
+    { id: "playflux-image", labelKey: "playflux.imageTab", fallback: "Image", icon: "image" },
+  ].forEach((item) => {
+    if (!isGalleryModeAllowed(item.id)) return;
+    items.push({
+      ...item,
+      label: t(item.labelKey, {}, item.fallback),
+      active: state.tab === DEFAULT_PLATFORM_TAB && normalizeGalleryMode(state.galleryMode) === item.id,
+    });
   });
+  return items;
 }
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  els.galleryModeTabs.hidden = true;
-  els.galleryModeTabs.innerHTML = "";
-  syncGalleryShortcutNav();
+  const visible = galleryTopTabsVisible();
+  els.galleryModeTabs.hidden = !visible;
+  if (!visible) {
+    els.galleryModeTabs.innerHTML = "";
+    return;
+  }
+  els.galleryModeTabs.innerHTML = galleryTopTabItems().map((item) => `
+    <button class="gallery-mode-tab${item.active ? " is-active" : ""}" type="button" role="tab"
+      aria-selected="${item.active ? "true" : "false"}" data-gallery-top-tab="${escapeHtml(item.id)}">
+      <i data-lucide="${escapeHtml(item.icon)}"></i><span>${escapeHtml(item.label)}</span>
+    </button>
+  `).join("");
+  refreshIcons();
 }
 
 function advancedCaseOutputVideo(item = {}) {
