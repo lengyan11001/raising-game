@@ -1186,3 +1186,4 @@ CODEX_TASK_STATE.md
 - User clarified the existing referral/commission/reward content below the membership benefits card must remain, but its card width should match the redesigned membership card.
 - Changed `platform.css` `.referral-card` width from `min(760px, 100%)` to `min(920px, 100%)`; bumped the page cache suffix to `membership-redesign-20261106-3`.
 - Verification: targeted membership/cases suite passes 12/12; layout assertions and `git diff --check` pass.
+- Deployment: pushed `old-site` `1760f68`; platform release `9c76c869e6b2cfedd258297940396c151c5e98d7`; `scripts/deploy_local.sh --site old` exited 0. Production health returns 200; served CSS resolves `.referral-card` to `width: min(920px, 100%)`. Live was not deployed.
