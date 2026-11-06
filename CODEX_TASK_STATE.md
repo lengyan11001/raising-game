@@ -1,3 +1,13 @@
+## Generate parameter capsules and adaptive popover (2026-11-06)
+
+- Goal: parameter popovers contain only pickable values, use compact capsule controls, and prefer opening downward while staying inside the viewport.
+- Changed `platform.create.parts/part-02.js`: removed popover title, close button, parameter-name heading, option descriptions, and selection checks; added measured downward-first placement with automatic upward fallback when there is insufficient space below.
+- Changed `platform.css`: option values and duration readout are compact capsules; popover uses the measured down/up placement on desktop and mobile.
+- Changed the prompt editor minimum/default height from 68px to 136px in `platform.create.parts/part-04.js` and `platform.css`.
+- Updated `test/platform-site-profile.test.js` to guard the capsule-only contents and adaptive placement.
+- Verification: targeted platform/Vega tests pass (76/76); syntax and `git diff --check` pass. Headless Chrome at 1280x900 confirmed downward placement; at 756x469 confirmed automatic upward fallback, zero headings/close controls, capsule radii, option selection closure, and duration slider readout/native value synchronization.
+- Deployment: pending.
+
 ## Generate picker auto-close and duration slider (2026-11-06)
 
 - Goal: parameter option selection closes the picker, and the duration picker uses one range slider instead of shortcut buttons.

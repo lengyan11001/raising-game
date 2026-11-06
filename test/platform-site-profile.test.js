@@ -72,6 +72,10 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.match(picker, /data-advanced-parameter-duration-range/);
   assert.doesNotMatch(picker, /advanced-parameter-duration-shortcuts/);
   assert.doesNotMatch(picker, /data-advanced-parameter-option-kind="duration"/);
+  assert.doesNotMatch(picker, /advanced-parameter-panel-head/);
+  assert.doesNotMatch(picker, /advanced-parameter-panel-close/);
+  assert.doesNotMatch(picker, /advanced-parameter-option-check/);
+  assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
 
   const setter = createSource.slice(
     createSource.indexOf("function setAdvancedParameterValue("),

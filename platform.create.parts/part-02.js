@@ -1094,11 +1094,24 @@ function closeAdvancedParameterPanel() {
   if (els.advancedParameterPanel) {
     els.advancedParameterPanel.hidden = true;
     els.advancedParameterPanel.innerHTML = "";
+    delete els.advancedParameterPanel.dataset.advancedParameterPlacement;
   }
   if (els.advancedParameterChips) els.advancedParameterChips.hidden = false;
   els.advancedParameterChips?.querySelectorAll("[data-advanced-parameter-open]").forEach((button) => {
     button.setAttribute("aria-expanded", "false");
   });
+}
+
+function positionAdvancedParameterPanel() {
+  const panel = els.advancedParameterPanel;
+  const chip = els.advancedParameterChips?.querySelector(`[data-advanced-parameter-open="${state.advancedParameterOpen}"]`);
+  if (!panel || panel.hidden || !chip) return;
+  const chipRect = chip.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - chipRect.bottom - 12;
+  const spaceAbove = chipRect.top - 12;
+  const openUp = panelRect.height > spaceBelow && spaceAbove > spaceBelow;
+  panel.dataset.advancedParameterPlacement = openUp ? "up" : "down";
 }
 
 function renderAdvancedParameterPanel(kind = "") {
@@ -1126,7 +1139,6 @@ function renderAdvancedParameterPanel(kind = "") {
       <div class="advanced-parameter-duration">
         <div class="advanced-parameter-duration-readout">
           <strong data-advanced-parameter-duration-value>${escapeHtml(advancedParameterValueLabel(kind, select))}</strong>
-          <span>${escapeHtml(advancedParameterChipLabel(kind))}</span>
         </div>
         <input class="advanced-parameter-range" type="range" min="${sliderMin}" max="${max}" step="1" value="${sliderValue}" data-advanced-parameter-duration-range aria-label="${escapeHtml(advancedParameterChipLabel(kind))}" />
         <div class="advanced-parameter-range-labels" aria-hidden="true">
@@ -1136,24 +1148,18 @@ function renderAdvancedParameterPanel(kind = "") {
       </div>
     `;
   } else {
-    const compact = ["ratio", "resolution"].includes(kind);
-    body = `<div class="advanced-parameter-options ${compact ? "is-compact" : ""}">
+    body = `<div class="advanced-parameter-options">
       ${options.map((item) => `
         <button class="advanced-parameter-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
           <strong>${escapeHtml(item.value === "adaptive" ? "Adaptive" : item.label)}</strong>
-          ${item.group ? `<span class="advanced-parameter-option-check">${item.value === current ? '<i data-lucide="check"></i>' : ""}</span><small>${escapeHtml(item.group)}</small>` : `<span class="advanced-parameter-option-check">${item.value === current ? '<i data-lucide="check"></i>' : ""}</span>`}
         </button>
       `).join("")}
     </div>`;
   }
   els.advancedParameterPanel.hidden = false;
-  els.advancedParameterPanel.innerHTML = `
-    <div class="advanced-parameter-panel-head">
-      <strong>${escapeHtml(advancedParameterChipLabel(kind))}</strong>
-      <button class="advanced-parameter-panel-close" type="button" data-advanced-parameter-close aria-label="${escapeHtml(t("common.close"))}"><i data-lucide="x"></i></button>
-    </div>
-    ${body}
-  `;
+  els.advancedParameterPanel.innerHTML = body;
+  delete els.advancedParameterPanel.dataset.advancedParameterPlacement;
+  positionAdvancedParameterPanel();
   refreshIcons();
 }
 

@@ -496,6 +496,7 @@ test("prompt editor exposes a large keyboard-accessible resize handle", () => {
 
 test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {
   assert.match(create, /function autoSizeAdvancedPrompt\(/);
+  assert.match(create, /function advancedPromptHeightLimits\(\) \{[^}]*const minimumHeight = 136;/);
   assert.match(create, /textarea\.style\.height = "0px"/);
   assert.match(create, /textarea\.scrollHeight \+ 2/);
   assert.match(create, /Math\.min\(maximumHeight, Math\.max\(minimumHeight, contentHeight\)\)/);

@@ -259,7 +259,7 @@ function restoreReferenceFromMedia(item = {}, index = 0) {
 }
 
 function advancedPromptHeightLimits() {
-  const minimumHeight = 68;
+  const minimumHeight = 136;
   const maximumHeight = Math.max(minimumHeight, Math.min(window.innerHeight * 0.62, 520));
   return { minimumHeight, maximumHeight };
 }
