@@ -1,3 +1,11 @@
+## Seedance regeneration expired signed URL fix (2026-11-06)
+
+- Production record `cgt-20261106230001-147d65` has a valid `userAssetId` and internal `asset://` identity, but both `mediaAssets.url` and `params.referenceImages[].url` retain an expired OSS/CDN signature. The previous preview fallback did not overwrite the stale parameter URL, so Regenerate showed `素材不可用`.
+- Changed `platform.create.parts/part-04.js` so user-asset resolution hydrates both `mediaAssets` and matching `params` preview fields (`referenceImages`, video/audio lists, URL arrays, and first/last-frame URLs). Fresh delivery/local HTTP URLs replace stale signed URLs while `assetUri` remains available for generation.
+- Preview URL ranking now records `assetUrls` before copied `dataUrl` values, preventing a stale duplicate in `dataUrl` from shadowing the fresh delivery URL.
+- Added production-shaped regressions in `test/vega-regeneration-media.test.js`: expired parameters are replaced by a fresh delivery URL, and local HTTP remains the fallback when signing is unavailable.
+- Verification: `node --test test/vega-regeneration-media.test.js` passes 10/10; targeted Vega tests pass 3/3; OSS tests pass 9/9; syntax and `git diff --check` pass. Not yet committed or deployed.
+
 ## Seedance regenerated-record black duplicate media fix (2026-11-06)
 
 - Asset fallback follow-up: `publicUserAsset()` now returns `assetUrls` plus local/public/CDN/delivery preview variants, and the record-restore preview path ranks fresh HTTP URLs above relative `/assets/...` paths while excluding internal `asset://`, `javascript:`, and `file:` sources. Internal `assetUri` remains available only for regeneration.

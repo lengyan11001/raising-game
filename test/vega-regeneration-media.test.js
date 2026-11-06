@@ -98,6 +98,8 @@ function frontendRuntime() {
     "restoreMediaAssetId",
     "restoreReferenceFromMedia",
     "restoreRecordMediaAssetIds",
+    "hydrateRecordMediaItemPreview",
+    "hydrateRecordMediaParamPreviews",
     "hydrateRecordMediaAssetEntries",
     "hydrateRecordMediaUserAssetPreviews",
     "restoreVegaMediaItem",
@@ -118,7 +120,7 @@ function frontendRuntime() {
     `function restoreRecordProvider(record = {}) { return String(record.params?.advancedProviderId || record.provider || ""); }`,
     `function restoreRecordImageLimit() { return 30; }`,
     extractFunction(createSource, "restoreRecordMedia"),
-    "return { reliableAssetUrl, restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews };",
+    "return { reliableAssetUrl, recordImageAssets, restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews };",
   ].join("\n"))();
 }
 
@@ -311,6 +313,42 @@ test("Vega hydration prefers legacy URL and asset-URI arrays over an empty canon
   assert.equal(hydrated.params.referenceImages.length, 1);
 });
 
+function expiredSignedRegenerationRecord() {
+  return {
+    taskId: "cgt-20261106230001-147d65",
+    provider: "seedance25-vega",
+    status: "succeeded",
+    prompt: "regenerate with the original reference",
+    mediaAssets: [
+      {
+        type: "reference_image",
+        userAssetId: "asset-1793972155554-38d1c57e",
+        assetUri: "asset://asset-20261106225953-oi1r5",
+        url: "https://cdn.example.com/reference.png?Expires=1&Signature=expired",
+      },
+    ],
+    params: {
+      provider: "seedance25-vega",
+      referenceImages: [
+        {
+          assetId: "asset-1793972155554-38d1c57e",
+          assetUri: "asset://asset-20261106225953-oi1r5",
+          url: "https://cdn.example.com/reference.png?Expires=1&Signature=expired",
+          dataUrl: "https://cdn.example.com/reference.png?Expires=1&Signature=expired",
+          imageUrl: "https://cdn.example.com/reference.png?Expires=1&Signature=expired",
+        },
+      ],
+      referenceImageAssetIds: ["asset-1793972155554-38d1c57e"],
+      referenceImageAssetUris: ["asset://asset-20261106225953-oi1r5"],
+    },
+    upstreamPayload: {
+      FileInfos: [
+        { Type: "Url", Usage: "Reference", Category: "Image", Url: "asset://asset-20261106225953-oi1r5" },
+      ],
+    },
+  };
+}
+
 function seedanceNsfwRegenerationRecord() {
   return {
     taskId: "cgt-20261106224218-1800a5",
@@ -454,6 +492,40 @@ test("Resolved assets choose a reliable HTTP address and never leak internal URI
     cdnUrl: "asset://internal",
     previewUrl: "/assets/fallback.mp4",
   }), "/assets/fallback.mp4");
+});
+
+test("Regeneration replaces expired parameter previews with freshly resolved asset URLs", async () => {
+  const { restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews } = frontendRuntime();
+  const record = expiredSignedRegenerationRecord();
+  const assetId = record.mediaAssets[0].userAssetId;
+  const hydrated = await hydrateRecordMediaUserAssetPreviews(record, async () => new Map([
+    [assetId, {
+      id: assetId,
+      previewUrl: "https://assets-cdn.example.com/reference.png?signature=fresh",
+      localHttpUrl: "https://123vips.com/assets/user-uploads/user-1/reference.png",
+      assetUrls: [{ source: "delivery", url: "https://assets-cdn.example.com/reference.png?signature=fresh" }],
+    }],
+  ]));
+  const restored = restoreRecordMedia(hydrated);
+  assert.equal(restored.referenceImages.length, 1);
+  assert.equal(restored.referenceImages[0].dataUrl, "https://assets-cdn.example.com/reference.png?signature=fresh");
+  assert.doesNotMatch(JSON.stringify(restored.referenceImages[0]), /Expires=1|Signature=expired/);
+  assert.equal(hydrated.params.referenceImages[0].url, "https://assets-cdn.example.com/reference.png?signature=fresh");
+
+  const vegaRestored = restoreVegaRecordMedia(hydrated, hydrated.params);
+  assert.deepEqual(vegaRestored.referenceImageUrls, ["https://assets-cdn.example.com/reference.png?signature=fresh"]);
+});
+
+test("Regeneration falls back to the local HTTP asset URL when delivery signing fails", async () => {
+  const { restoreRecordMedia, hydrateRecordMediaUserAssetPreviews } = frontendRuntime();
+  const record = expiredSignedRegenerationRecord();
+  const assetId = record.mediaAssets[0].userAssetId;
+  const hydrated = await hydrateRecordMediaUserAssetPreviews(record, async () => new Map([
+    [assetId, { id: assetId, localHttpUrl: "https://123vips.com/assets/user-uploads/user-1/reference.png" }],
+  ]));
+  const restored = restoreRecordMedia(hydrated);
+  assert.equal(restored.referenceImages[0].dataUrl, "https://123vips.com/assets/user-uploads/user-1/reference.png");
+  assert.doesNotMatch(JSON.stringify(restored.referenceImages[0]), /Expires=1|Signature=expired/);
 });
 
 test("Public user assets return the full address set for the frontend fallback chain", () => {

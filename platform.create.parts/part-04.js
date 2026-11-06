@@ -249,7 +249,6 @@ function reliableAssetUrlCandidates(item = {}) {
     seen.add(url);
     candidates.push({ url, source: String(source || "") });
   };
-  add(item.dataUrl, "data");
   const listedUrls = Array.isArray(item.assetUrls) ? item.assetUrls : [];
   listedUrls.forEach((entry) => {
     if (typeof entry === "string") add(entry);
@@ -268,6 +267,9 @@ function reliableAssetUrlCandidates(item = {}) {
     ["upstream", upstreamMediaUrl(item)],
     ["local", item.localUrl],
   ].forEach(([source, value]) => add(value, source));
+  // Add embedded data last so a refreshed delivery URL from assetUrls is not
+  // shadowed by a lower-ranked duplicate copied into dataUrl by the UI.
+  add(item.dataUrl, "data");
   return candidates
     .map((candidate, index) => ({ ...candidate, index }))
     .sort((left, right) => assetUrlCandidateRank(right) - assetUrlCandidateRank(left) || left.index - right.index)
@@ -338,6 +340,83 @@ function restoreRecordMediaAssetIds(record = {}) {
   return ids.slice(0, 50);
 }
 
+function hydrateRecordMediaItemPreview(item = {}, asset = {}) {
+  if (!asset || typeof asset !== "object") return item;
+  const source = typeof item === "string" ? { url: item } : (item && typeof item === "object" ? item : {});
+  const previewUrl = restoreMediaPreviewUrl(asset);
+  const assetUri = restoreMediaAssetUri(source) || String(asset.assetUri || asset.seedanceAssetUri || "").trim();
+  if (!previewUrl && !assetUri) return source;
+  const declaredType = String(source.type || source.key || asset.type || asset.kind || "").toLowerCase();
+  const mime = String(asset.mime || source.mime || "").toLowerCase();
+  const isVideo = declaredType.includes("video") || mime.startsWith("video/");
+  const isAudio = declaredType.includes("audio") || mime.startsWith("audio/");
+  return {
+    ...source,
+    ...(previewUrl ? {
+      url: previewUrl,
+      publicUrl: previewUrl,
+      cdnUrl: previewUrl,
+      previewUrl,
+      sourceUrl: previewUrl,
+      dataUrl: previewUrl,
+      ...(isVideo ? { videoUrl: previewUrl } : isAudio ? { audioUrl: previewUrl } : { imageUrl: previewUrl, sourceImageUrl: previewUrl }),
+      localUrl: asset.localUrl || "",
+      localHttpUrl: asset.localHttpUrl || "",
+      assetUrls: Array.isArray(asset.assetUrls) ? asset.assetUrls : [],
+    } : {}),
+    ...(assetUri ? { assetUri, referenceAssetUri: source.referenceAssetUri || assetUri } : {}),
+  };
+}
+
+function hydrateRecordMediaParamPreviews(record = {}, resolvedAssets = new Map()) {
+  const params = recordParams(record);
+  if (!params || !(resolvedAssets instanceof Map) || !resolvedAssets.size) return record;
+  let changed = false;
+  const nextParams = { ...params };
+  const hydrateList = (key, idKey) => {
+    if (!Array.isArray(nextParams[key])) return;
+    const ids = arrayFrom(nextParams[idKey]);
+    nextParams[key] = nextParams[key].map((item, index) => {
+      const assetId = restoreMediaAssetId(item) || String(ids[index] || "").trim();
+      const asset = resolvedAssets.get(assetId);
+      if (!asset) return item;
+      changed = true;
+      return hydrateRecordMediaItemPreview(item, asset);
+    });
+  };
+  hydrateList("referenceImages", "referenceImageAssetIds");
+  hydrateList("reference_images", "reference_image_asset_ids");
+  hydrateList("referenceVideos", "referenceVideoAssetIds");
+  hydrateList("reference_videos", "reference_video_asset_ids");
+  hydrateList("referenceAudios", "referenceAudioAssetIds");
+  hydrateList("reference_audios", "reference_audio_asset_ids");
+  const hydrateUrlArray = (urlKey, idKey) => {
+    if (!Array.isArray(nextParams[urlKey])) return;
+    const ids = arrayFrom(nextParams[idKey]);
+    nextParams[urlKey] = nextParams[urlKey].map((url, index) => {
+      const asset = resolvedAssets.get(String(ids[index] || "").trim());
+      const previewUrl = asset ? restoreMediaPreviewUrl(asset) : "";
+      if (!previewUrl) return url;
+      changed = true;
+      return previewUrl;
+    });
+  };
+  hydrateUrlArray("referenceImageUrls", "referenceImageAssetIds");
+  hydrateUrlArray("reference_image_urls", "reference_image_asset_ids");
+  hydrateUrlArray("referenceVideoUrls", "referenceVideoAssetIds");
+  hydrateUrlArray("reference_video_urls", "reference_video_asset_ids");
+  hydrateUrlArray("referenceAudioUrls", "referenceAudioAssetIds");
+  hydrateUrlArray("reference_audio_urls", "reference_audio_asset_ids");
+  [["firstFrameUrl", "firstFrameAssetId"], ["first_frame_url", "first_frame_asset_id"], ["lastFrameUrl", "lastFrameAssetId"], ["last_frame_url", "last_frame_asset_id"]].forEach(([urlKey, idKey]) => {
+    const asset = resolvedAssets.get(String(nextParams[idKey] || "").trim());
+    const previewUrl = asset ? restoreMediaPreviewUrl(asset) : "";
+    if (!previewUrl) return;
+    nextParams[urlKey] = previewUrl;
+    changed = true;
+  });
+  return changed ? { ...record, params: nextParams } : record;
+}
+
 function hydrateRecordMediaAssetEntries(record = {}, resolvedAssets = new Map()) {
   const params = recordParams(record);
   const entries = (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).map((item) => ({ ...item }));
@@ -353,25 +432,7 @@ function hydrateRecordMediaAssetEntries(record = {}, resolvedAssets = new Map())
   appendMissing(params.referenceAudioAssetIds, "reference_audio");
   appendMissing(params.firstFrameAssetId, "first_frame");
   appendMissing(params.lastFrameAssetId, "last_frame");
-  return entries.map((item) => {
-    const asset = resolvedAssets.get(restoreMediaAssetId(item));
-    if (!asset) return item;
-    const previewUrl = restoreMediaPreviewUrl(asset);
-    const assetUri = restoreMediaAssetUri(item) || String(asset.assetUri || asset.seedanceAssetUri || "").trim();
-    return {
-      ...item,
-      ...(previewUrl ? {
-        url: previewUrl,
-        publicUrl: previewUrl,
-        cdnUrl: previewUrl,
-        previewUrl,
-        localUrl: asset.localUrl || "",
-        localHttpUrl: asset.localHttpUrl || "",
-        assetUrls: Array.isArray(asset.assetUrls) ? asset.assetUrls : [],
-      } : {}),
-      ...(assetUri ? { assetUri, referenceAssetUri: item.referenceAssetUri || assetUri } : {}),
-    };
-  });
+  return entries.map((item) => hydrateRecordMediaItemPreview(item, resolvedAssets.get(restoreMediaAssetId(item))));
 }
 
 async function hydrateRecordMediaUserAssetPreviews(record = {}, resolveAssets = null) {
@@ -381,7 +442,8 @@ async function hydrateRecordMediaUserAssetPreviews(record = {}, resolveAssets = 
     const resolver = resolveAssets || ((assetIds) => resolveAdvancedVegaAssets(assetIds));
     const resolved = await resolver(ids);
     if (!(resolved instanceof Map) || !resolved.size) return record;
-    return { ...record, mediaAssets: hydrateRecordMediaAssetEntries(record, resolved) };
+    const hydratedRecord = { ...record, mediaAssets: hydrateRecordMediaAssetEntries(record, resolved) };
+    return hydrateRecordMediaParamPreviews(hydratedRecord, resolved);
   } catch (_error) {
     return record;
   }
