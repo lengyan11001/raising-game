@@ -51,18 +51,22 @@ function vegaCurrentSeed() {
   return Number.isInteger(seed) && seed >= 0 ? seed : undefined;
 }
 
-async function handleAdvancedVegaLocalFiles(files = []) {
+async function handleAdvancedVegaLocalFiles(files = [], { preserveTarget = false } = {}) {
   const list = Array.from(files || []);
   if (!list.length) return;
   const provider = currentAdvancedProvider();
-  const targetId = state.advancedAssetTarget || "primary";
-  const targetConfig = advancedVegaUploadConfig(targetId);
-  const target = activeAdvancedAssetTarget() || { id: targetId, label: t("advanced.uploadReference"), type: targetConfig.type };
   let rejected = false;
   try {
     for (const file of list) {
       const mime = uploadedFileMime(file);
       const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : mime.startsWith("image/") ? "image" : "";
+      if (!preserveTarget) {
+        const autoTarget = autoAdvancedAssetTargetForAsset({ kind });
+        if (autoTarget?.id) state.advancedAssetTarget = autoTarget.id;
+      }
+      const targetId = state.advancedAssetTarget || "primary";
+      const targetConfig = advancedVegaUploadConfig(targetId);
+      const target = activeAdvancedAssetTarget() || { id: targetId, label: t("advanced.uploadReference"), type: targetConfig.type };
       if (!kind || kind !== targetConfig.type) {
         rejected = true;
         if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetWrongType", {

@@ -1242,11 +1242,28 @@ test("Vega submit resolves every selected asset before building media URLs", () 
   assert.match(branch, /const vegaFirstFrameUrl = vegaFirstFrameSource \? vegaMediaSource\(\{ url: vegaFirstFrameSource \}\) : ""/);
 });
 
-test("Vega Add never overrides the explicitly selected media target", () => {
+test("Asset target categories quickly filter the asset list and keep the add target", () => {
+  assert.match(html, /id="advancedAssetTargets"/);
+  const render = sourceBetween(create, "function renderAdvancedAssetTargets()", "function renderAdvancedAssets(");
+  assert.match(render, /data-advanced-asset-target/);
+  assert.match(render, /data-advanced-asset-type/);
+  assert.match(render, /filterAdvancedAssetsByType\(button\.dataset\.advancedAssetType \|\| ""\)/);
+  const filter = sourceBetween(create, "function filterAdvancedAssetsByType(", "function renderAdvancedAssetTargets(");
+  assert.match(filter, /els\.advancedAssetTypeFilter\.value = type/);
+  assert.match(filter, /state\.advancedAssetsLoaded = false/);
+  assert.match(filter, /renderAdvancedAssets\(\[\]\)/);
+  assert.match(filter, /loadAdvancedAssets\(1\)/);
+  assert.match(main, /advancedAssetTypeFilter.*change[\s\S]*filterAdvancedAssetsByType/);
+  const load = sourceBetween(create, "async function loadAdvancedAssets(", "async function uploadAdvancedAssets(");
+  assert.match(load, /const requestSeq = Number\(state\.advancedAssetLoadSeq \|\| 0\) \+ 1/);
+  assert.match(load, /requestSeq !== state\.advancedAssetLoadSeq/);
+  assert.ok(load.indexOf("params.set(\"type\"") < load.indexOf("requestSeq !== state.advancedAssetLoadSeq"));
   const preferred = sourceBetween(create, "function preferredAdvancedAssetTargetForAsset(", "function advancedSourceImageAssetId(");
-  assert.match(preferred, /if \(isVegaAdvancedProvider\(\)\) return ""/);
+  assert.match(preferred, /if \(active\?\.type === kind\) return active\.id/);
   const add = sourceBetween(create, "async function addAssetToAdvancedTarget(", "const url = assetPreviewUrl(asset)");
   assert.match(add, /const preferredTarget = preferredAdvancedAssetTargetForAsset\(asset\);[\s\S]*if \(preferredTarget\) state\.advancedAssetTarget = preferredTarget/);
+  const upload = sourceBetween(create, "async function handleAdvancedVegaLocalFiles(", "function dataUrlValue(");
+  assert.match(upload, /const autoTarget = autoAdvancedAssetTargetForAsset\(\{ kind \}\)/);
 });
 
 test("Vega resolve and upload require a real public mirror without local fallback", () => {
@@ -1306,4 +1323,104 @@ test("Vega controls expose seed and never send ReferenceType", () => {
 test("Vega media helper is loaded and served by the production asset whitelist", () => {
   assert.match(loader, /"platform\.vega-media\.js"/);
   assert.match(server, /"platform\.config\.js",\s*"platform\.vega-media\.js",\s*"platform\.copy\.js"/);
+});
+
+test("Asset video Add fails when the active model has no video reference capacity", () => {
+  const addReference = sourceBetween(create, "function addAdvancedSeedanceMediaReference(", "function dedupeAdvancedMediaReferences(");
+  assert.match(addReference, /const limit = kind === "audio" \? advancedAudioReferenceLimit\(\) : advancedVideoReferenceLimit\(\)/);
+  assert.match(addReference, /if \(limit <= 0\) return \{ ok: false, code: "REFERENCE_NOT_SUPPORTED"/);
+  assert.match(addReference, /savedRefs\.find/);
+  assert.match(addReference, /if \(!savedRef\) return \{ ok: false, code: "REFERENCE_NOT_ADDED"/);
+  const add = sourceBetween(create, "async function addAssetToAdvancedTarget(", "function publicAliyunModelsEnabled(");
+  assert.match(add, /const result = addAdvancedSeedanceMediaReference\(asset, "video"\)/);
+  assert.match(add, /if \(!result\.ok\)[\s\S]*advancedMediaReferenceAddError\(result, "video"\)[\s\S]*return;/);
+  assert.match(add, /const result = addAdvancedSeedanceMediaReference\(asset, "audio"\)/);
+  assert.match(add, /if \(!result\.ok\)[\s\S]*advancedMediaReferenceAddError\(result, "audio"\)[\s\S]*return;/);
+  const targets = sourceBetween(create, "function advancedAssetTargetItems()", "function activeAdvancedAssetTarget()");
+  assert.match(targets, /advancedVideoReferenceLimit\(provider\) > 0[\s\S]*id: "video"/);
+  assert.match(targets, /advancedAudioReferenceLimit\(provider\) > 0[\s\S]*id: "audio"/);
+});
+
+test("Seedance 2.5 reference-video modes expose and persist video references", () => {
+  const modeHelpers = sourceBetween(config, "function normalizeSeedanceMediaMode(", "function advancedCreateModeUsesAutoPrompt(");
+  const limitHelpers = sourceBetween(create, "function advancedVideoReferenceLimit(", "const ADVANCED_IMAGE_PROVIDERS");
+  const addReference = sourceBetween(create, "function addAdvancedSeedanceMediaReference(", "function dedupeAdvancedMediaReferences(");
+  let provider = "seedance25";
+  let videoRefs = [];
+  let audioRefs = [];
+  const els = { advancedSeedanceMediaMode: { value: "reference_video" } };
+  const load = new Function(
+    "els",
+    "currentAdvancedProvider",
+    "normalizeAdvancedProvider",
+    "ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT",
+    "ADVANCED_SEEDANCE25_AUDIO_REFERENCE_LIMIT",
+    "ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT",
+    "ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT",
+    "ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT",
+    "ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT",
+    "vegaReferenceLimits",
+    "isVegaProviderId",
+    "assetPreviewUrl",
+    "stampAdvancedReferenceOrder",
+    "advancedSeedanceVideoReferences",
+    "setAdvancedSeedanceVideoReferences",
+    "advancedSeedanceAudioReferences",
+    "setAdvancedSeedanceAudioReferences",
+    "dedupeAdvancedMediaReferences",
+    "syncSeedanceReferenceMode",
+    `${modeHelpers}\n${limitHelpers}\n${addReference}\nreturn { advancedVideoReferenceLimit, advancedAudioReferenceLimit, addAdvancedSeedanceMediaReference };`,
+  );
+  const api = load(
+    els,
+    () => provider,
+    (value) => String(value || "").toLowerCase(),
+    10,
+    10,
+    3,
+    3,
+    5,
+    5,
+    () => ({ videos: 0, audios: 0 }),
+    () => false,
+    (asset) => asset.previewUrl || asset.url || "",
+    (ref) => ref,
+    () => videoRefs,
+    (refs) => { videoRefs = refs; },
+    () => audioRefs,
+    (refs) => { audioRefs = refs; },
+    (refs) => refs.filter((ref, index) => refs.findIndex((item) => item.assetId === ref.assetId) === index),
+    () => {},
+  );
+
+  assert.equal(api.advancedVideoReferenceLimit("seedance25"), 10);
+  assert.equal(api.advancedAudioReferenceLimit("seedance25"), 10);
+  const result = api.addAdvancedSeedanceMediaReference({ id: "video-1", previewUrl: "https://cdn.example/video.mp4" }, "video");
+  assert.equal(result.ok, true);
+  assert.equal(videoRefs.length, 1);
+  assert.equal(videoRefs[0].assetId, "video-1");
+
+  els.advancedSeedanceMediaMode.value = "omini";
+  assert.equal(api.advancedVideoReferenceLimit("seedance25"), 10);
+  assert.equal(api.advancedAudioReferenceLimit("seedance25"), 10);
+
+  provider = "seedance-nsfw";
+  videoRefs = [];
+  assert.equal(api.advancedVideoReferenceLimit("seedance-nsfw"), 10);
+  assert.equal(api.advancedAudioReferenceLimit("seedance-nsfw"), 10);
+  assert.equal(api.addAdvancedSeedanceMediaReference({ id: "video-2", previewUrl: "https://cdn.example/video-2.mp4" }, "video").ok, true);
+  assert.equal(videoRefs.length, 1);
+
+  els.advancedSeedanceMediaMode.value = "edit";
+  assert.equal(api.advancedVideoReferenceLimit("seedance-nsfw"), 1);
+  assert.equal(api.advancedAudioReferenceLimit("seedance-nsfw"), 0);
+  els.advancedSeedanceMediaMode.value = "extend";
+  assert.equal(api.advancedVideoReferenceLimit("seedance-nsfw"), 1);
+  assert.equal(api.advancedAudioReferenceLimit("seedance-nsfw"), 0);
+
+  els.advancedSeedanceMediaMode.value = "first_last_frame";
+  assert.equal(api.advancedVideoReferenceLimit("seedance25"), 0);
+  assert.equal(api.advancedAudioReferenceLimit("seedance25"), 0);
+  assert.equal(api.advancedVideoReferenceLimit("seedance-nsfw"), 0);
+  assert.equal(api.advancedAudioReferenceLimit("seedance-nsfw"), 0);
 });

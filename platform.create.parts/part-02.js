@@ -252,14 +252,28 @@ function addAdvancedSeedanceMediaReference(asset = {}, kind = "video", options =
     order: options.order || options.ref?.order || 0,
   };
   if (!ref.assetId && !ref.url && !ref.previewUrl) return { ok: false, code: "PUBLIC_URL_REQUIRED" };
+  const limit = kind === "audio" ? advancedAudioReferenceLimit() : advancedVideoReferenceLimit();
+  if (limit <= 0) return { ok: false, code: "REFERENCE_NOT_SUPPORTED", kind, limit };
   const orderedRef = stampAdvancedReferenceOrder(ref);
   if (kind === "audio") {
-    setAdvancedSeedanceAudioReferences(dedupeAdvancedMediaReferences([...advancedSeedanceAudioReferences(), orderedRef]).slice(0, advancedAudioReferenceLimit()));
+    setAdvancedSeedanceAudioReferences(dedupeAdvancedMediaReferences([...advancedSeedanceAudioReferences(), orderedRef]).slice(0, limit));
   } else {
-    setAdvancedSeedanceVideoReferences(dedupeAdvancedMediaReferences([...advancedSeedanceVideoReferences(), orderedRef]).slice(0, advancedVideoReferenceLimit()));
+    setAdvancedSeedanceVideoReferences(dedupeAdvancedMediaReferences([...advancedSeedanceVideoReferences(), orderedRef]).slice(0, limit));
   }
+  const savedRefs = kind === "audio" ? advancedSeedanceAudioReferences() : advancedSeedanceVideoReferences();
+  const savedRef = savedRefs.find((item) => (orderedRef.assetId && item.assetId === orderedRef.assetId)
+    || (orderedRef.url && item.url === orderedRef.url)
+    || (orderedRef.previewUrl && item.previewUrl === orderedRef.previewUrl));
+  if (!savedRef) return { ok: false, code: "REFERENCE_NOT_ADDED", kind, limit };
   syncSeedanceReferenceMode();
-  return { ok: true, ref: orderedRef };
+  return { ok: true, ref: savedRef };
+}
+
+function advancedMediaReferenceAddError(result = {}, kind = "video") {
+  if (result.code === "REFERENCE_NOT_SUPPORTED") {
+    return kind === "audio" ? t("advanced.referenceAudioUnsupported", {}, "This mode does not support reference audio.") : t("advanced.referenceVideoUnsupported", {}, "This mode does not support reference video.");
+  }
+  return t("advanced.referenceMediaTooMany", {}, "Too many reference media files.");
 }
 
 function dedupeAdvancedMediaReferences(refs = []) {
@@ -497,10 +511,18 @@ async function addAssetToAdvancedTarget(assetId = "") {
       return;
     }
     if (isVegaAdvancedProvider(provider) || ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
-      addAdvancedSeedanceMediaReference(asset, "video");
+      const result = addAdvancedSeedanceMediaReference(asset, "video");
+      if (!result.ok) {
+        if (els.advancedAssetNote) els.advancedAssetNote.textContent = advancedMediaReferenceAddError(result, "video");
+        return;
+      }
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
     } else if (advancedAliyunUsesSharedReferenceUpload(currentAdvancedVideoCapability())) {
-      addAdvancedSeedanceMediaReference(asset, "video");
+      const result = addAdvancedSeedanceMediaReference(asset, "video");
+      if (!result.ok) {
+        if (els.advancedAssetNote) els.advancedAssetNote.textContent = advancedMediaReferenceAddError(result, "video");
+        return;
+      }
     } else {
       if (els.advancedWanMediaMode && !wanModeNeedsClip(els.advancedWanMediaMode.value)) els.advancedWanMediaMode.value = "first_clip";
       state.advancedWanClipAssetId = asset.id;
@@ -519,7 +541,11 @@ async function addAssetToAdvancedTarget(assetId = "") {
   } else if (target.id === "audio") {
     if (!isAudioAsset(asset)) return;
     if (isVegaAdvancedProvider(provider) || advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability())) {
-      addAdvancedSeedanceMediaReference(asset, "audio");
+      const result = addAdvancedSeedanceMediaReference(asset, "audio");
+      if (!result.ok) {
+        if (els.advancedAssetNote) els.advancedAssetNote.textContent = advancedMediaReferenceAddError(result, "audio");
+        return;
+      }
     } else if (els.advancedWanAudioUrl) {
       state.advancedAudioAssetId = asset.id;
       state.advancedAudioPreviewUrl = assetPreviewUrl(asset);

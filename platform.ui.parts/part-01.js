@@ -1025,6 +1025,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.referralLoadedAt = 0;
     state.advancedAssets = [];
     state.advancedAssetsLoaded = false;
+    state.advancedAssetLoadSeq = Number(state.advancedAssetLoadSeq || 0) + 1;
     state.advancedAssetPage = 1;
     state.advancedAssetTotal = 0;
     state.advancedAssetTotalPages = 1;

@@ -492,7 +492,7 @@ els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
   if (!file) return;
   if (isVegaAdvancedProvider()) {
     state.advancedAssetTarget = "primary";
-    await handleAdvancedVegaLocalFiles([file]);
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
     els.advancedSeedanceFirstFrame.value = "";
     updateAdvancedModelControls();
     return;
@@ -536,7 +536,7 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   if (!file) return;
   if (isVegaAdvancedProvider()) {
     state.advancedAssetTarget = "lastFrame";
-    await handleAdvancedVegaLocalFiles([file]);
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
     els.advancedSeedanceLastFrame.value = "";
     updateAdvancedModelControls();
     return;
@@ -806,7 +806,9 @@ els.advancedAssetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.advancedAssetSearchTimer);
   state.advancedAssetSearchTimer = window.setTimeout(() => loadAdvancedAssets(1), 250);
 });
-els.advancedAssetTypeFilter?.addEventListener("change", () => loadAdvancedAssets(1));
+els.advancedAssetTypeFilter?.addEventListener("change", () => {
+  filterAdvancedAssetsByType(els.advancedAssetTypeFilter?.value || "");
+});
 els.advancedAssetUploadInput?.addEventListener("change", async () => {
   updateFilePickerLabel(els.advancedAssetUploadInput);
   const files = Array.from(els.advancedAssetUploadInput.files || []);

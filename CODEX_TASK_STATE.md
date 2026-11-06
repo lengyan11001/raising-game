@@ -672,8 +672,9 @@ CODEX_TASK_STATE.md
 - Target categories remain available, but video/audio targets are shown only when the active provider has a nonzero reference limit. Image targets remain unchanged.
 - Video/audio library Add now verifies that the reference was actually stored. Unsupported modes return a clear error instead of showing `Added`.
 - Changed files: `platform.config.js`, `platform.copy.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-02.js`, `platform.create.parts/part-04.js`, `platform.main.js`, `platform.ui.parts/part-01.js`, `test/tencent-vod-vega.test.js`.
-- Verification: `test/tencent-vod-vega.test.js` 60 pass / 0 fail; `node --check` on all changed JS; `git diff --check` pass. `test/advanced-custom-ui.test.js` has 6 pre-existing failures also reproduced from clean HEAD, unrelated to this change.
-- Status: not committed and not deployed; production `123vips.com` does not yet contain this fix. Live was not touched.
+- Capability correction: Seedance 2.5 `reference_video` and `omini` now allow video/audio references (10 each); `first_last_frame` allows neither; Seedance NSFW `edit`/`extend` allow one video and no audio. Video/audio Targets are hidden when the active mode has no capacity.
+- Verification: `test/tencent-vod-vega.test.js` 61 pass / 0 fail; `test/seedance25.test.js` + `test/media-inputs.test.js` 34 pass / 0 fail; `node --check` on all changed JS; `git diff --check` pass. `test/advanced-custom-ui.test.js` has 6 pre-existing failures also reproduced from clean HEAD, unrelated to this change.
+- Pending: commit, build `platform-release`, push, and deploy only `123vips.com` with `scripts/deploy_local.sh --site old`. Live must remain untouched.
 
 ## Same-style navigation language flash fix (2026-11-06)
 

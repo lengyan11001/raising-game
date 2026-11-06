@@ -113,10 +113,14 @@ function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "seedance-nsfw") {
     const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini");
-    return ["edit", "extend"].includes(mode) ? 1 : mode === "omini" ? ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT : 0;
+    return ["edit", "extend"].includes(mode)
+      ? 1
+      : seedanceModeNeedsReferenceVideo(mode)
+        ? ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT
+        : 0;
   }
   if (normalizedProvider === "seedance25") {
-    return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini") === "omini"
+    return seedanceModeNeedsReferenceVideo(els.advancedSeedanceMediaMode?.value || "omini")
       ? ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT
       : 0;
   }
@@ -129,7 +133,7 @@ function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
 function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) {
-    return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini") === "omini"
+    return seedanceModeNeedsReferenceImages(els.advancedSeedanceMediaMode?.value || "omini")
       ? ADVANCED_SEEDANCE25_AUDIO_REFERENCE_LIMIT
       : 0;
   }
@@ -322,8 +326,8 @@ function advancedAssetTargetItems() {
     if (vegaModeNeedsLastFrame(vegaMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     if (vegaModeUsesReferences(vegaMode)) {
       targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
-      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
-      targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+      if (advancedVideoReferenceLimit(provider) > 0) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+      if (advancedAudioReferenceLimit(provider) > 0) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
     }
     return targets;
   } else if (isAdvancedImageProvider(provider)) {
@@ -360,8 +364,8 @@ function advancedAssetTargetItems() {
     }
   } else {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
-    targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
-    targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+    if (advancedVideoReferenceLimit(provider) > 0) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+    if (advancedAudioReferenceLimit(provider) > 0) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
     if (provider === "wan30") targets.push({ id: "document", label: "Document", type: "document" });
   }
   if (["wan27-t2v", "happyhorse-t2v"].includes(capability) || (capability === "wan-legacy" && String(els.advancedLegacyWanModel?.value || "").includes("t2v"))) return [];
@@ -373,16 +377,61 @@ function activeAdvancedAssetTarget() {
   return targets.find((target) => target.id === state.advancedAssetTarget) || targets[0] || null;
 }
 
+function advancedTargetHasSelection(targetId = "") {
+  if (targetId === "primary") {
+    return Boolean(state.advancedSeedanceFirstFrameAssetId || state.advancedSeedanceFirstFrameDataUrl || state.advancedFirstFrameAssetId);
+  }
+  if (targetId === "lastFrame") {
+    return Boolean(
+      state.advancedSeedanceLastFrameAssetId
+      || state.advancedSeedanceLastFrameDataUrl
+      || state.advancedWanLastFrameAssetId
+      || state.advancedWanLastFrameDataUrl
+    );
+  }
+  if (targetId === "referenceImages") return (state.advancedReferenceImages || []).length > 0;
+  if (targetId === "sourceImage" || targetId === "sourceImages") {
+    return Boolean(state.advancedSourceImageAssetId || (state.advancedReferenceImages || []).length);
+  }
+  if (targetId === "video") return advancedSeedanceVideoReferences().length > 0;
+  if (targetId === "audio") return advancedSeedanceAudioReferences().length > 0;
+  if (targetId === "document") return Boolean(state.advancedDocumentReference?.assetId);
+  return false;
+}
+
+function autoAdvancedAssetTargetForAsset(asset = {}) {
+  const targets = advancedAssetTargetItems();
+  if (!targets.length) return null;
+  const kind = isDocumentAsset(asset)
+    ? "document"
+    : isVideoAsset(asset)
+      ? "video"
+      : isAudioAsset(asset)
+        ? "audio"
+        : "image";
+  const compatible = targets.filter((target) => target.type === kind);
+  if (!compatible.length) return null;
+  if (kind !== "image") return compatible[0];
+  const primary = compatible.find((target) => target.id === "primary");
+  const reference = compatible.find((target) => ["referenceImages", "sourceImages", "sourceImage"].includes(target.id));
+  const lastFrame = compatible.find((target) => target.id === "lastFrame");
+  if (primary && !advancedTargetHasSelection(primary.id)) return primary;
+  if (reference) return reference;
+  if (lastFrame && !advancedTargetHasSelection(lastFrame.id)) return lastFrame;
+  return compatible[0];
+}
+
 function preferredAdvancedAssetTargetForAsset(asset = {}) {
-  if (isVegaAdvancedProvider()) return "";
-  if (currentAdvancedProvider() === "wan30" && isDocumentAsset(asset)) return "document";
-  if (advancedCreateModeNeedsReplacePair()) {
-    if (isImageAsset(asset)) return "primary";
-  }
-  if (advancedCreateModeNeedsVideoUpload()) {
-    if (isVideoAsset(asset)) return "video";
-  }
-  return "";
+  const active = activeAdvancedAssetTarget();
+  const kind = isDocumentAsset(asset)
+    ? "document"
+    : isVideoAsset(asset)
+      ? "video"
+      : isAudioAsset(asset)
+        ? "audio"
+        : "image";
+  if (active?.type === kind) return active.id;
+  return autoAdvancedAssetTargetForAsset(asset)?.id || "";
 }
 
 function advancedSourceImageAssetId() {
@@ -466,6 +515,22 @@ function setAdvancedAssetTarget(target = "primary") {
   syncAdvancedVegaUploadInput();
 }
 
+function filterAdvancedAssetsByType(type = "") {
+  if (els.advancedAssetTypeFilter) els.advancedAssetTypeFilter.value = type;
+  const targets = advancedAssetTargetItems();
+  const current = targets.find((target) => target.id === state.advancedAssetTarget);
+  if (type && current?.type !== type) {
+    state.advancedAssetTarget = targets.find((target) => target.type === type)?.id || current?.id || targets[0]?.id || "";
+  }
+  state.advancedAssets = [];
+  state.advancedAssetsLoaded = false;
+  state.advancedAssetPage = 1;
+  state.advancedAssetTotal = 0;
+  state.advancedAssetTotalPages = 1;
+  renderAdvancedAssets([]);
+  loadAdvancedAssets(1);
+}
+
 function renderAdvancedAssetTargets() {
   if (!els.advancedAssetTargets) return;
   const targets = advancedAssetTargetItems();
@@ -474,17 +539,27 @@ function renderAdvancedAssetTargets() {
     els.advancedAssetTargets.innerHTML = "";
     return;
   }
-  if (!targets.some((item) => item.id === state.advancedAssetTarget)) state.advancedAssetTarget = targets[0]?.id || "";
+  if (!targets.some((item) => item.id === state.advancedAssetTarget)) {
+    state.advancedAssetTarget = targets[0]?.id || "";
+  }
+  const activeType = String(els.advancedAssetTypeFilter?.value || "");
   els.advancedAssetTargets.innerHTML = `
     <span>${escapeHtml(t("advanced.assetTargets"))}</span>
+    <button class="advanced-asset-target ${!activeType ? "is-active" : ""}" type="button" data-advanced-asset-filter="">${escapeHtml(t("common.all"))}</button>
     ${targets.map((target) => `
-      <button class="advanced-asset-target ${state.advancedAssetTarget === target.id ? "is-active" : ""}" type="button" data-advanced-asset-target="${escapeHtml(target.id)}">
+      <button class="advanced-asset-target ${activeType === target.type && state.advancedAssetTarget === target.id ? "is-active" : ""}" type="button" data-advanced-asset-target="${escapeHtml(target.id)}" data-advanced-asset-type="${escapeHtml(target.type)}">
         ${escapeHtml(target.label)}
       </button>
     `).join("")}
   `;
+  els.advancedAssetTargets.querySelectorAll("[data-advanced-asset-filter]").forEach((button) => {
+    button.addEventListener("click", () => filterAdvancedAssetsByType(button.dataset.advancedAssetFilter || ""));
+  });
   els.advancedAssetTargets.querySelectorAll("[data-advanced-asset-target]").forEach((button) => {
-    button.addEventListener("click", () => setAdvancedAssetTarget(button.dataset.advancedAssetTarget || "primary"));
+    button.addEventListener("click", () => {
+      setAdvancedAssetTarget(button.dataset.advancedAssetTarget || "primary");
+      filterAdvancedAssetsByType(button.dataset.advancedAssetType || "");
+    });
   });
 }
 
@@ -998,6 +1073,8 @@ async function refreshAdvancedResultRecord() {
 
 async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
   if (!els.advancedAssetGrid) return;
+  const requestSeq = Number(state.advancedAssetLoadSeq || 0) + 1;
+  state.advancedAssetLoadSeq = requestSeq;
   if (!state.user) {
     renderAdvancedAssets([]);
     return;
@@ -1017,6 +1094,7 @@ async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
   if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.loading");
   try {
     const payload = await requestJson(`/api/user-assets?${params.toString()}`);
+    if (requestSeq !== state.advancedAssetLoadSeq) return;
     state.advancedAssets = payload.assets || [];
     state.userAssets = payload.assets || [];
     state.userAssetsPage = payload.page || page;
@@ -1031,6 +1109,7 @@ async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
     if (els.advancedAssetNote) els.advancedAssetNote.textContent = "";
     renderAdvancedAssets();
   } catch (error) {
+    if (requestSeq !== state.advancedAssetLoadSeq) return;
     state.advancedAssetsLoaded = true;
     if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.loadFailed", { message: error.message || String(error) });
     els.advancedAssetGrid.innerHTML = `<div class="advanced-asset-empty"><strong>${escapeHtml(t("assets.loadFailed", { message: error.message || String(error) }))}</strong></div>`;
