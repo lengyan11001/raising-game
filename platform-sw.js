@@ -50,6 +50,10 @@
     } catch (error) {}
   }
 
+  function isPlatformAsset(pathname) {
+    return cacheableAsset.test(pathname) && /^\/platform/.test(pathname);
+  }
+
   self.addEventListener("fetch", (event) => {
     const request = event.request;
     if (request.method !== "GET") return;
@@ -60,17 +64,14 @@
       const key = url.pathname === "/" || url.pathname === "/platform.html" ? "/" : request;
       event.respondWith((async () => {
         const cache = await caches.open(cacheName);
-        const cached = await cache.match(key, { ignoreSearch: true });
-        if (cached) {
-          event.waitUntil(refresh(cache, request, key));
-          return cached;
-        }
+        // Deployments must become visible on the very next navigation. A
+        // cache-first shell can otherwise keep loading an old chunk manifest.
         try {
           const response = await fetch(request);
           if (response.ok) await cache.put(key, response.clone());
           return response;
         } catch (error) {
-          return cached || Response.error();
+          return (await cache.match(key, { ignoreSearch: true })) || Response.error();
         }
       })());
       return;
@@ -79,6 +80,19 @@
     if (!cacheableAsset.test(url.pathname)) return;
     event.respondWith((async () => {
       const cache = await caches.open(cacheName);
+      // Platform chunks are not independently content-addressed: an old HTML
+      // document can request a previous ?v= URL after a deploy. Always ask the
+      // network first so stale validation/UI code cannot survive a deploy.
+      if (isPlatformAsset(url.pathname)) {
+        try {
+          const response = await fetch(request);
+          if (response.ok) await cache.put(request, response.clone());
+          return response;
+        } catch (error) {
+          const cached = await cache.match(request);
+          return cached || Response.error();
+        }
+      }
       const cached = await cache.match(request);
       if (cached) {
         event.waitUntil(refresh(cache, request));

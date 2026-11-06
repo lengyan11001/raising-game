@@ -185,7 +185,7 @@ async function serveStatic(req, res, url) {
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
-      ...(isNoStoreResponse ? {
+      ...(isNoStoreResponse || isServiceWorker ? {
         pragma: "no-cache",
         expires: "0",
         "cdn-cache-control": "no-store",

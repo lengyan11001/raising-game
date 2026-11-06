@@ -118,7 +118,10 @@
     window.addEventListener("load", () => {
       const swUrl = new URL("platform-sw.js", baseUrl);
       swUrl.search = cacheSuffix;
-      navigator.serviceWorker.register(swUrl.toString(), { scope: new URL("./", baseUrl).pathname })
+      navigator.serviceWorker.register(swUrl.toString(), {
+        scope: new URL("./", baseUrl).pathname,
+        updateViaCache: "none",
+      })
         .then(() => navigator.serviceWorker.ready)
         .then((registration) => {
           const urls = [...criticalChunkFiles, ...deferredChunkFiles, "vendor/lucide-1.27.0.min.js"]

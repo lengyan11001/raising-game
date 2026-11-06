@@ -640,3 +640,13 @@ CODEX_TASK_STATE.md
 - Production checkout: `c359a950a845e3c85c310fea6843b344b96a1817`.
 - Production verification: `/api/health` returned `200 {"ok":true}`; public `tencent-vod-vega.js` has `VEGA_MEDIA_LIBRARY_PROVIDERS = seedance20-vega, seedance25-vega`, exports `resolveVegaLiteMediaAssetSources`, and public `platform.create.parts/part-03.js` contains distinct Pro/Lite validation messages.
 - Unrelated local asset-target auto-routing work was stashed as `asset target local work before Vega Lite TOS deploy`, excluded from this release, then restored to the working tree after deployment.
+
+## Vega stale split-chunk cache fix (2026-11-06)
+
+- User still saw the generic `Vega requires a public HTTP(S) URL or an existing asset:// URI.` message after the Vega Lite TOS deployment.
+- Production source already contained distinct Pro/Lite validation messages; the remaining cause was a stale service-worker cache of `platform.create.parts/part-03.js` and related platform chunks.
+- `platform-sw.js`: navigations are now network-first; platform split chunks are network-first with cache only as offline fallback. Other shell assets keep stale-while-revalidate.
+- `platform.js`: service worker registration uses `updateViaCache: "none"` so the browser checks the SW script directly.
+- `server.parts/part-42.js`: `/platform-sw.js` now also gets CDN no-store headers, preventing Cloudflare from serving a stale worker for four hours.
+- Regression: `test/platform-refresh-performance.test.js` locks network-first navigation/platform chunks, no-store SW CDN headers, and `updateViaCache`.
+- Verification: syntax checks, `git diff --check`, and cache + Vega targeted suites: 104 pass / 0 fail.
