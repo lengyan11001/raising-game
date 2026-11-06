@@ -8,6 +8,7 @@ const ELEVEN_ELEVEN_PROMO = Object.freeze({
     member: Object.freeze({
       id: "member",
       capacity: 1111,
+      displaySold: 896,
       amount: 29.9,
       originalAmount: 99,
       credits: 0,
@@ -17,6 +18,7 @@ const ELEVEN_ELEVEN_PROMO = Object.freeze({
     credits: Object.freeze({
       id: "credits",
       capacity: 1111,
+      displaySold: 743,
       amount: 66,
       originalAmount: 90,
       credits: 9000,
@@ -80,6 +82,9 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
       const sold = Number(usage.paid || 0);
       const reserved = Number(usage.pending || 0);
       const remaining = Math.max(0, sku.capacity - sold - reserved);
+      // Social-proof display only: never used by checkout, capacity checks, or sold-out state.
+      const displaySold = Math.min(sku.capacity, Math.max(sold, Number(sku.displaySold || 0)));
+      const displayRemaining = Math.max(0, sku.capacity - displaySold - reserved);
       const purchase = purchases.get(sku.id) || null;
       const owned = sku.id === "member" && memberOwned;
       return {
@@ -92,6 +97,8 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
         sold,
         reserved,
         remaining,
+        displaySold,
+        displayRemaining,
         soldOut: remaining <= 0,
         owned,
         purchased: purchase?.status === "paid",

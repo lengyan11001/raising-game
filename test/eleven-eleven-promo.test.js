@@ -121,6 +121,7 @@ test("promotion status reports inventory and per-user purchase state from the se
 
   assert.equal(promo.active, true);
   assert.equal(member.sold, 1100);
+  assert.equal(member.displaySold, 1100);
   assert.equal(member.reserved, 11);
   assert.equal(member.remaining, 0);
   assert.equal(member.soldOut, true);
@@ -128,6 +129,16 @@ test("promotion status reports inventory and per-user purchase state from the se
   assert.equal(member.owned, false);
   assert.equal(credits.soldOut, true);
   assert.equal(credits.purchased, false);
+
+  const initialPromo = elevenElevenPublicPromo({ inventory: [], purchases: [] }, during);
+  const initialMember = initialPromo.skus.find((sku) => sku.id === "member");
+  const initialCredits = initialPromo.skus.find((sku) => sku.id === "credits");
+  assert.equal(initialMember.sold, 0);
+  assert.equal(initialMember.displaySold, 896);
+  assert.equal(initialMember.displayRemaining, 215);
+  assert.equal(initialCredits.sold, 0);
+  assert.equal(initialCredits.displaySold, 743);
+  assert.equal(initialCredits.displayRemaining, 368);
 
   const memberViewerPromo = elevenElevenPublicPromo({ inventory: [], purchases: [] }, during, { memberActive: true });
   assert.equal(memberViewerPromo.skus.find((sku) => sku.id === "member").owned, true);

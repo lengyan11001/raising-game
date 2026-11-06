@@ -331,9 +331,11 @@ function setupElevenElevenPromo() {
       card.classList.toggle("is-disabled", disabled);
       card.classList.toggle("is-selected", Boolean(sku) && !disabled && selected === sku.id);
       card.setAttribute("aria-disabled", disabled ? "true" : "false");
-      if (sold) sold.textContent = `已售 ${Number(sku?.sold || 0).toLocaleString()} / ${Number(sku?.capacity || 1111).toLocaleString()}`;
-      if (left) left.textContent = `剩 ${Number(sku?.remaining || 0).toLocaleString()} 份`;
-      if (bar) bar.style.width = `${Math.max(0, Math.min(100, (Number(sku?.sold || 0) / Math.max(1, Number(sku?.capacity || 1))) * 100))}%`;
+      const shownSold = Number(sku?.displaySold ?? sku?.sold ?? 0);
+      const shownRemaining = Number(sku?.displayRemaining ?? sku?.remaining ?? 0);
+      if (sold) sold.textContent = `已售 ${shownSold.toLocaleString()} / ${Number(sku?.capacity || 1111).toLocaleString()}`;
+      if (left) left.textContent = `剩 ${shownRemaining.toLocaleString()} 份`;
+      if (bar) bar.style.width = `${Math.max(0, Math.min(100, (shownSold / Math.max(1, Number(sku?.capacity || 1))) * 100))}%`;
       if (rib) {
         rib.hidden = !sku || (!sku.soldOut && !sku.purchased && !sku.owned);
         rib.textContent = sku?.purchased ? "已购买" : sku?.owned ? "已拥有" : "本档已售完";
