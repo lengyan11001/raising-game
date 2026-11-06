@@ -637,43 +637,49 @@ function restoreRecordImageLimit(record = {}) {
 function mergeRecordMediaByKind(primaryItems = [], upstreamItems = [], kind = "") {
   const kindOf = (item = {}) => String(item.type || item.key || "").toLowerCase();
   const matchesKind = (item) => !kind || kindOf(item).includes(kind);
-  const isConcrete = (item = {}) => Boolean(restoreMediaAssetId(item) || String(restoreMediaUrl(item) || "").startsWith("http"));
+  const isConcrete = (item = {}) => Boolean(restoreMediaAssetId(item) || restoreMediaPreviewUrl(item));
   const used = new Set();
   const merged = [];
+  const primary = primaryItems.filter(matchesKind);
+  const upstream = upstreamItems.filter(matchesKind);
+  const identityMatches = (left, right) => Boolean(
+    (restoreMediaAssetId(left) && restoreMediaAssetId(left) === restoreMediaAssetId(right))
+    || (restoreMediaAssetUri(left) && restoreMediaAssetUri(left) === restoreMediaAssetUri(right))
+    || (restoreMediaPreviewUrl(left) && restoreMediaPreviewUrl(left) === restoreMediaPreviewUrl(right)),
+  );
   const positionalByKind = new Map();
-  upstreamItems.forEach((item, index) => {
-    if (!matchesKind(item) || isConcrete(item)) return;
+  upstream.forEach((item, index) => {
+    if (isConcrete(item)) return;
     const key = kindOf(item);
     if (!positionalByKind.has(key)) positionalByKind.set(key, []);
     positionalByKind.get(key).push({ item, index });
   });
   const positionCursor = new Map();
-  primaryItems.filter(matchesKind).forEach((item) => {
+  primary.forEach((item) => {
     const type = kindOf(item);
     const cursor = positionCursor.get(type) || 0;
     const positional = (positionalByKind.get(type) || [])[cursor] || null;
     positionCursor.set(type, cursor + 1);
-    let upstreamIndex = upstreamItems.findIndex((candidate, index) => (
-      !used.has(index)
-      && matchesKind(candidate)
-      && ((restoreMediaAssetId(item) && restoreMediaAssetId(item) === restoreMediaAssetId(candidate))
-        || (restoreMediaAssetUri(item) && restoreMediaAssetUri(item) === restoreMediaAssetUri(candidate))
-        || (restoreMediaUrl(item) && restoreMediaUrl(item) === restoreMediaUrl(candidate)))
-    ));
+    let upstreamIndex = upstream.findIndex((candidate, index) => !used.has(index) && identityMatches(item, candidate));
     if (upstreamIndex < 0 && positional) upstreamIndex = positional.index;
-    const upstream = upstreamIndex >= 0 ? upstreamItems[upstreamIndex] : null;
+    const candidate = upstreamIndex >= 0 ? upstream[upstreamIndex] : null;
     if (upstreamIndex >= 0) used.add(upstreamIndex);
-    const assetUri = restoreMediaAssetUri(item) || restoreMediaAssetUri(upstream || {});
+    const assetUri = restoreMediaAssetUri(item) || restoreMediaAssetUri(candidate || {});
     merged.push(assetUri ? {
       ...item,
       assetUri,
       referenceAssetUri: item.referenceAssetUri || assetUri,
     } : item);
   });
-  upstreamItems.filter(matchesKind).forEach((item, index) => {
-    if (used.has(index) || isConcrete(item)) return;
-    merged.push(item);
-  });
+  // Once a record has canonical mediaAssets, unmatched upstream placeholders must
+  // never become additional visible media. They are recovery evidence only for
+  // legacy records that have no canonical entry of this kind.
+  if (!primary.length) {
+    upstream.forEach((item, index) => {
+      if (used.has(index) || isConcrete(item)) return;
+      merged.push(item);
+    });
+  }
   return merged;
 }
 
@@ -683,8 +689,8 @@ function dedupeRecordMediaItems(items = []) {
     const keys = [
       restoreMediaAssetId(item) ? `asset:${restoreMediaAssetId(item)}` : "",
       restoreMediaAssetUri(item) ? `asset-uri:${restoreMediaAssetUri(item)}` : "",
-      restoreMediaUrl(item) ? `url:${restoreMediaUrl(item)}` : "",
-      item?.previewUrl ? `preview:${item.previewUrl}` : "",
+      restoreMediaPreviewUrl(item) ? `url:${restoreMediaPreviewUrl(item)}` : "",
+      item?.previewUrl ? `preview:${previewableAssetUrl(item.previewUrl)}` : "",
     ].filter(Boolean);
     if (!keys.length || keys.some((key) => seen.has(key))) return false;
     keys.forEach((key) => seen.add(key));
@@ -1675,12 +1681,17 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
 function dedupeAdvancedReferenceImages(images = []) {
   const seen = new Set();
   return images.filter((item) => {
-    const assetUri = item?.assetUri || item?.referenceAssetUri || "";
-    const sourceUrl = item?.sourceUrl || "";
-    const dataUrl = item?.dataUrl || "";
-    const key = item?.assetId ? `asset:${item.assetId}` : assetUri ? `asset-uri:${assetUri}` : dataUrl ? `data:${dataUrl}` : sourceUrl ? `source:${sourceUrl}` : item?.url ? `url:${item.url}` : `${item?.fileName || ""}::`;
-    if ((!dataUrl && !item?.assetId && !assetUri && !sourceUrl && !item?.url) || seen.has(key)) return false;
-    seen.add(key);
+    const keys = [
+      item?.assetId ? `asset:${item.assetId}` : "",
+      item?.assetUri ? `asset-uri:${item.assetUri}` : "",
+      item?.referenceAssetUri ? `reference-asset-uri:${item.referenceAssetUri}` : "",
+      previewableAssetUrl(item?.sourceUrl) ? `source:${previewableAssetUrl(item.sourceUrl)}` : "",
+      previewableAssetUrl(item?.dataUrl) ? `data:${previewableAssetUrl(item.dataUrl)}` : "",
+      previewableAssetUrl(item?.url) ? `url:${previewableAssetUrl(item.url)}` : "",
+      previewableAssetUrl(item?.previewUrl) ? `preview:${previewableAssetUrl(item.previewUrl)}` : "",
+    ].filter(Boolean);
+    if (!keys.length || keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
     return true;
   });
 }

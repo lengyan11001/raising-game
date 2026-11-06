@@ -3754,6 +3754,12 @@ function publicHistoryParams(value) {
 function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
+  // mediaAssets is the server-planned canonical input set. Do not expand it
+  // from legacy params/upstream placeholders, which can contain asset://
+  // identities instead of browser-previewable addresses.
+  const detailRecord = Array.isArray(record.mediaAssets) && record.mediaAssets.length
+    ? { ...record, params: { ...(record.params || {}), referenceImages: [], referenceVideos: [], referenceAudios: [] }, upstreamPayload: null }
+    : record;
   prepareModalOpen();
   const title = publicModelText(publicGenerationDisplayTitle(record, t("history.detailTitle")));
   const videoUrl = generationVideoUrl(record);
@@ -3765,8 +3771,8 @@ function openHistoryDetail(index) {
   const previewVideoUrl = localVideoUrl || videoUrl;
   const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
-  const images = recordImageAssets(record);
-  const videos = recordVideoAssets(record);
+  const images = recordImageAssets(detailRecord);
+  const videos = recordVideoAssets(detailRecord);
   const canDownload = canDownloadGenerationRecord(record);
   const canAdvancedDownload = canAdvancedDownloadGenerationRecord(record);
   const advancedDownloadState = advancedDownloadUiState(record);

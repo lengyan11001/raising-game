@@ -222,6 +222,79 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
   return proxyRemoteMedia(req, res, target.url, { fallbackMime: mime, headers });
 }
 
+function generationRecordMediaAssetIds(record = {}) {
+  const params = record.params && typeof record.params === "object" ? record.params : {};
+  const ids = [];
+  const add = (value) => {
+    const id = typeof value === "object"
+      ? String(firstPresent(value?.userAssetId, value?.assetId, value?.id, "") || "").trim()
+      : String(value || "").trim();
+    if (id && !ids.includes(id)) ids.push(id);
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).forEach(add);
+  [
+    params.firstFrameAssetId,
+    params.first_frame_asset_id,
+    params.lastFrameAssetId,
+    params.last_frame_asset_id,
+    ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
+    ...(Array.isArray(params.reference_image_asset_ids) ? params.reference_image_asset_ids : []),
+    ...(Array.isArray(params.referenceVideoAssetIds) ? params.referenceVideoAssetIds : []),
+    ...(Array.isArray(params.reference_video_asset_ids) ? params.reference_video_asset_ids : []),
+    ...(Array.isArray(params.referenceAudioAssetIds) ? params.referenceAudioAssetIds : []),
+    ...(Array.isArray(params.reference_audio_asset_ids) ? params.reference_audio_asset_ids : []),
+  ].forEach(add);
+  return ids;
+}
+
+function hydratedGenerationRecordMediaAsset(item = {}, resolvedAsset = null) {
+  if (!item || typeof item !== "object" || !resolvedAsset) return item;
+  const publicAsset = publicUserAsset(resolvedAsset);
+  const previewUrl = String(publicAsset.previewUrl || publicAsset.publicUrl || "").trim();
+  const safePreviewUrl = previewUrl && !previewUrl.startsWith("asset://") ? previewUrl : "";
+  const type = String(item.type || item.key || "").toLowerCase();
+  const kind = String(publicAsset.kind || "").toLowerCase();
+  const isVideo = type.includes("video") || kind === "video";
+  const isAudio = type.includes("audio") || kind === "audio";
+  const assetUri = String(item.assetUri || item.referenceAssetUri || publicAsset.assetUri || publicAsset.seedanceAssetUri || "").trim();
+  if (!safePreviewUrl && !assetUri) return item;
+  return {
+    ...item,
+    ...(safePreviewUrl ? {
+      ...(isVideo ? { videoUrl: safePreviewUrl } : isAudio ? { audioUrl: safePreviewUrl } : { imageUrl: safePreviewUrl }),
+      url: safePreviewUrl,
+      publicUrl: safePreviewUrl,
+      cdnUrl: safePreviewUrl,
+      previewUrl: safePreviewUrl,
+    } : {}),
+    ...(Array.isArray(publicAsset.assetUrls) && publicAsset.assetUrls.length ? { assetUrls: publicAsset.assetUrls } : {}),
+    ...(assetUri ? { assetUri, referenceAssetUri: item.referenceAssetUri || assetUri } : {}),
+  };
+}
+
+function hydrateGenerationRecordMediaAssetsWithMap(record = {}, assetsById = new Map()) {
+  const ids = generationRecordMediaAssetIds(record);
+  if (!record || !ids.length || !(assetsById instanceof Map)) return record;
+  const mediaAssets = (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).map((item) => {
+    const assetId = typeof item === "object"
+      ? String(firstPresent(item.userAssetId, item.assetId, item.id, "") || "").trim()
+      : "";
+    return hydratedGenerationRecordMediaAsset(item, assetsById.get(assetId));
+  });
+  return { ...record, mediaAssets };
+}
+
+async function hydrateGenerationRecordMediaAssets(records = [], userId = "") {
+  const list = (Array.isArray(records) ? records : [records]).filter(Boolean);
+  if (!list.length) return Array.isArray(records) ? records : records;
+  const ids = [...new Set(list.flatMap(generationRecordMediaAssetIds))].slice(0, 200);
+  if (!ids.length) return Array.isArray(records) ? records : records;
+  const assets = await getUserAssetsByIdsFromDb({ userId, assetIds: ids });
+  const assetsById = new Map(assets.map((asset) => [String(asset.id || "").trim(), asset]).filter(([id]) => id));
+  const hydrated = list.map((record) => hydrateGenerationRecordMediaAssetsWithMap(record, assetsById));
+  return Array.isArray(records) ? hydrated : hydrated[0];
+}
+
 async function handleListGenerationRecords(req, res, url) {
   const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
@@ -265,9 +338,10 @@ async function handleListGenerationRecords(req, res, url) {
     optimizedRecords.forEach((record, index) => { ownRecords[index] = record; });
   }
 
+  const hydratedRecords = await hydrateGenerationRecordMediaAssets(ownRecords, auth.user.id);
   return sendJson(res, 200, {
     ok: true,
-    records: ownRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
+    records: hydratedRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
     page,
     limit,
     total,
@@ -607,6 +681,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
   }
 
   let nextRecord = await hydrateVegaRecordMediaAssetIds(record, auth.user.id);
+  nextRecord = await hydrateGenerationRecordMediaAssets(nextRecord, auth.user.id);
   if (isStalePreSubmitGenerationRecord(nextRecord)) {
     nextRecord = await failStalePreSubmitGenerationRecord(nextRecord, "detail-stale-submit");
   } else if (needsApizFailureRefund(nextRecord)) {

@@ -3181,6 +3181,25 @@ async function getUserAssetFromDb(assetId = "") {
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
+async function getUserAssetsByIdsFromDb({ userId = "", assetIds = [] } = {}) {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  const cleanAssetIds = [...new Set((Array.isArray(assetIds) ? assetIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean))].slice(0, 200);
+  if (!cleanUserId || !cleanAssetIds.length) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT *
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND id = ANY($2::text[])
+      AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `, [cleanUserId, cleanAssetIds]);
+  return rows.map(recordFromPayloadRow);
+}
+
 function vegaMediaLibraryEntryFromRow(row = {}) {
   return {
     userId: String(row.user_id || ""),
@@ -7518,6 +7537,7 @@ module.exports = {
   updateUserInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
+  getUserAssetsByIdsFromDb,
   getVegaMediaLibraryEntryFromDb,
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
   upsertVegaMediaLibraryEntryInDb,

@@ -1,4 +1,23 @@
+
+## Canvas source-adoption stepwise work (2026-11-06)
+
+- Goal: adopt `canvas_web.zip` React Flow interactions, retain this site's dark/pink style and business model nodes. Only `imageGenerate` and `unifiedVideoGen`; result area above controls; project list/detail navigation; detail actions only Save/New.
+- Actual bundled node source is `workflow-react/src/components/canvas/nodes/siteNodeTypes.js`, which imports `SiteImageGenerationNode` and `SiteVideoGenerationNode`.
+- Diagnosed zero workspaces because `.workflow-react-host` had only 2px height; `platform.css` layout correction now gives the host usable canvas area.
+- Replaced old `NodeLayout-container` shell with `site-generation-card`; left/right handles now directly border the card with no label/duplicate control. Updated bridge drag handle to `.site-generation-drag-handle`.
+- Step 1 pending verification: rebuild workflow-react bundle and confirm node count, handle count, and center-point hit testing in browser.
+
 ## Seedance regeneration expired signed URL fix (2026-11-06)
+
+### Canonical media hydration and address planning follow-up
+
+- Production record `cgt-20261106224218-1800a5` has exactly three canonical assets: one image (`asset-1792378136626-21ee3188`) and two videos (`asset-1793895814730-cea3b134`, `asset-1793940603600-bec2f1f1`).
+- Server list/detail responses batch-hydrate `mediaAssets` from PostgreSQL. Each stored asset returns one preferred `imageUrl`/`videoUrl`, `url`/`publicUrl`/`cdnUrl`/`previewUrl`, the full `assetUrls`, and its internal `assetUri` identity; hydration never appends array entries.
+- Frontend history detail and regeneration-restore paths now treat server `mediaAssets` as canonical. Legacy `params`/`upstreamPayload` fields remain fallback-only for records without canonical assets, so `asset://` upstream placeholders cannot become phantom fourth/fifth cards.
+- Preview elements use the ordered `assetUrls` candidate chain and advance to the next browser-safe URL on `error`, exposing `素材不可用` only after all candidates fail.
+- Changed files for this follow-up: `db.js`, `server.parts/part-01.js` (import only), `server.parts/part-41.js`, `platform.create.parts/part-04.js`, `platform.create.parts/part-05.js`, `platform.ui.parts/part-02.js`, `platform.explore.js`, `test/vega-regeneration-media.test.js`.
+- Verification: `node --test test/vega-regeneration-media.test.js` passes 12/12; all changed files pass `node --check`; `git diff --check` passes. Broader direct Node tests still show pre-existing source-wrapper failures unrelated to this change.
+- Deployment status: not yet committed or deployed.
 
 - Production record `cgt-20261106230001-147d65` has a valid `userAssetId` and internal `asset://` identity, but both `mediaAssets.url` and `params.referenceImages[].url` retain an expired OSS/CDN signature. The previous preview fallback did not overwrite the stale parameter URL, so Regenerate showed `素材不可用`.
 - Changed `platform.create.parts/part-04.js` so user-asset resolution hydrates both `mediaAssets` and matching `params` preview fields (`referenceImages`, video/audio lists, URL arrays, and first/last-frame URLs). Fresh delivery/local HTTP URLs replace stale signed URLs while `assetUri` remains available for generation.

@@ -629,7 +629,11 @@ function stripModelParams(value) {
 }
 
 function mediaAssetPreviewUrl(asset = {}) {
-  return asset.imageUrl
+  const listedUrl = (Array.isArray(asset.assetUrls) ? asset.assetUrls : [])
+    .map((entry) => typeof entry === "string" ? entry : entry?.url || entry?.href || entry?.src || "")
+    .find((url) => /^(?:https?:\/\/|\/(?!\/)|data:|blob:)/i.test(String(url || "").trim()));
+  return listedUrl
+    || asset.imageUrl
     || asset.videoUrl
     || asset.publicUrl
     || asset.cdnUrl
@@ -843,7 +847,14 @@ function recordImageAssets(record = {}) {
       groups.get(type).push(items);
     });
   };
-  addGroups(splitImages((Array.isArray(record.mediaAssets) ? record.mediaAssets : []).filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))));
+  const canonicalMediaAssets = (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => asset && !["driving_audio", "first_clip"].includes(asset.type));
+  addGroups(splitImages(canonicalMediaAssets));
+  // Server responses with canonical mediaAssets already describe the exact
+  // input set and include the selected preview URL. Legacy params/upstream
+  // fields may contain asset:// placeholders and must only be used as a
+  // fallback; merging them here makes extra phantom cards appear.
+  if (!canonicalMediaAssets.length) {
   addGroups(splitImages(params.referenceImages, "reference_image"));
   const referenceImageAssetIds = (Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : [])
     .map((item) => String(item || "").trim())
@@ -867,6 +878,7 @@ function recordImageAssets(record = {}) {
   addGroups(splitImages(upstreamInputImageAssets(record), "reference_image"));
   addGroups(splitImages([record.imageUrl].filter(Boolean), "reference_image"));
   addGroups(splitImages([record.sourceImageUrl].filter(Boolean), "source_image"));
+  }
 
   const typeOrder = ["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe", "reference_image", "source_image"];
   const orderedTypes = [

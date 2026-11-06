@@ -81,6 +81,34 @@ function serverRuntime(overrides = {}) {
   );
 }
 
+function generationMediaRuntime(assetsById = new Map(), overrides = {}) {
+  const publicUserAsset = overrides.publicUserAsset || ((asset) => ({
+    id: asset.id,
+    kind: asset.kind || (String(asset.mime || "").startsWith("video/") ? "video" : "image"),
+    previewUrl: asset.previewUrl || asset.publicUrl || asset.cdnUrl || asset.localHttpUrl || "",
+    publicUrl: asset.publicUrl || "",
+    cdnUrl: asset.cdnUrl || "",
+    assetUri: asset.assetUri || "",
+    seedanceAssetUri: asset.seedanceAssetUri || "",
+    assetUrls: asset.assetUrls || [],
+  }));
+  return new Function(
+    "getUserAssetsByIdsFromDb",
+    "publicUserAsset",
+    [
+      extractFunction(serverSource, "firstPresent"),
+      extractFunction(serverSource, "generationRecordMediaAssetIds"),
+      extractFunction(serverSource, "hydratedGenerationRecordMediaAsset"),
+      extractFunction(serverSource, "hydrateGenerationRecordMediaAssetsWithMap"),
+      extractFunction(serverSource, "hydrateGenerationRecordMediaAssets"),
+      "return { generationRecordMediaAssetIds, hydrateGenerationRecordMediaAssets };",
+    ].join("\n"),
+  )(
+    async ({ userId, assetIds }) => assetIds.map((id) => assetsById.get(id)).filter(Boolean),
+    publicUserAsset,
+  );
+}
+
 function frontendRuntime() {
   const createNames = [
     "recordParams",
@@ -357,13 +385,30 @@ function seedanceNsfwRegenerationRecord() {
     prompt: "keep the three references",
     mediaMode: "omini",
     mediaAssets: [
-      { type: "reference_image", userAssetId: "asset-1792378136626-21ee3188" },
-      { type: "reference_video", userAssetId: "asset-1793895814730-cea3b134" },
-      { type: "reference_video", userAssetId: "asset-1793940603600-bec2f1f1" },
+      {
+        type: "reference_image",
+        key: "image_1",
+        userAssetId: "asset-1792378136626-21ee3188",
+        imageUrl: "https://cdn.example.com/reference-image.png?Expires=1&Signature=expired",
+      },
+      {
+        type: "reference_video",
+        key: "video_1",
+        userAssetId: "asset-1793895814730-cea3b134",
+        videoUrl: "https://cdn.example.com/reference-video-1.mp4?Expires=1&Signature=expired",
+      },
+      {
+        type: "reference_video",
+        key: "video_2",
+        userAssetId: "asset-1793940603600-bec2f1f1",
+        videoUrl: "https://cdn.example.com/reference-video-2.mp4?Expires=1&Signature=expired",
+      },
     ],
     params: {
       provider: "seedance-nsfw",
       mediaMode: "omini",
+      referenceImages: [],
+      referenceVideos: [],
       referenceImageAssetIds: ["asset-1792378136626-21ee3188"],
       referenceVideoAssetIds: [
         "asset-1793895814730-cea3b134",
@@ -372,6 +417,7 @@ function seedanceNsfwRegenerationRecord() {
     },
     upstreamPayload: {
       content: [
+        { type: "text", text: "keep the three references" },
         { role: "reference_image", type: "image_url", image_url: { url: "asset://asset-20261106224219-4shcg" } },
         { role: "reference_video", type: "video_url", video_url: { url: "asset://asset-20261106224219-hpbpw" } },
         { role: "reference_video", type: "video_url", video_url: { url: "asset://asset-20261106224219-pddlv" } },
@@ -379,6 +425,41 @@ function seedanceNsfwRegenerationRecord() {
     },
   };
 }
+
+test("Generation record hydration plans one stable preview and full address set per stored asset", async () => {
+  const record = seedanceNsfwRegenerationRecord();
+  const assetsById = new Map(record.mediaAssets.map((item, index) => [item.userAssetId, {
+    id: item.userAssetId,
+    kind: item.type === "reference_video" ? "video" : "image",
+    previewUrl: `https://assets-cdn.example.com/asset-${index + 1}?signature=fresh`,
+    assetUri: `asset://internal-${index + 1}`,
+    assetUrls: [
+      { source: "delivery", url: `https://assets-cdn.example.com/asset-${index + 1}?signature=fresh` },
+      { source: "local-http", url: `https://123vips.com/assets/user-uploads/user-1/asset-${index + 1}` },
+    ],
+  }]));
+  const { generationRecordMediaAssetIds, hydrateGenerationRecordMediaAssets } = generationMediaRuntime(assetsById);
+  assert.deepEqual(generationRecordMediaAssetIds(record), record.mediaAssets.map((item) => item.userAssetId));
+  const hydrated = await hydrateGenerationRecordMediaAssets(record, "user-1");
+  assert.equal(hydrated.mediaAssets.length, 3);
+  assert.deepEqual(hydrated.mediaAssets.map((item) => [item.type, item.assetUri, item.previewUrl, item.assetUrls.length]), [
+    ["reference_image", "asset://internal-1", "https://assets-cdn.example.com/asset-1?signature=fresh", 2],
+    ["reference_video", "asset://internal-2", "https://assets-cdn.example.com/asset-2?signature=fresh", 2],
+    ["reference_video", "asset://internal-3", "https://assets-cdn.example.com/asset-3?signature=fresh", 2],
+  ]);
+  assert.equal(hydrated.mediaAssets[0].imageUrl, hydrated.mediaAssets[0].previewUrl);
+  assert.equal(hydrated.mediaAssets[1].videoUrl, hydrated.mediaAssets[1].previewUrl);
+  assert.equal(hydrated.mediaAssets[2].videoUrl, hydrated.mediaAssets[2].previewUrl);
+});
+
+test("Canonical mediaAssets are not expanded by upstream asset URI placeholders", () => {
+  const { recordImageAssets } = frontendRuntime();
+  const record = seedanceNsfwRegenerationRecord();
+  const images = recordImageAssets(record);
+  assert.equal(images.length, 1);
+  assert.equal(images[0].userAssetId, "asset-1792378136626-21ee3188");
+  assert.doesNotMatch(JSON.stringify(images), /asset-20261106224219-4shcg/);
+});
 
 test("Seedance regenerated records resolve user asset previews and retain internal references", async () => {
   const { restoreRecordMedia, restoreVegaRecordMedia, hydrateRecordMediaUserAssetPreviews } = frontendRuntime();
@@ -412,6 +493,8 @@ test("Seedance regenerated records resolve user asset previews and retain intern
   assert.equal(restored.referenceImages[0].url, "");
   assert.ok(restored.videos.every((item) => /^https:\/\//.test(item.url)));
 
+  assert.equal(hydrated.mediaAssets.length, 3);
+  assert.equal(restored.references.length + restored.videos.length + restored.audios.length, 3);
   const vegaRestored = restoreVegaRecordMedia(hydrated, hydrated.params);
   assert.equal(vegaRestored.referenceImages.length, 1);
   assert.equal(vegaRestored.referenceVideos.length, 2);
@@ -431,7 +514,9 @@ test("Unresolved media never exposes an internal asset URI as a preview source",
   const restored = restoreRecordMedia(hydrated);
   assert.ok(restored.referenceImages.every((item) => !String(item.dataUrl || "").startsWith("asset://")));
   assert.ok(restored.videos.every((item) => !String(item.url || "").startsWith("asset://")));
-  assert.deepEqual(restored.videos.map((item) => item.url), ["", ""]);
+  assert.equal(restored.videos.length, 2);
+  assert.ok(restored.videos.every((item) => /^https:\/\//.test(item.url)));
+  assert.doesNotMatch(restored.videos.map((item) => item.url).join("\n"), /^asset:\/\//m);
   assert.deepEqual(restored.videos.map((item) => item.assetUri), [
     "asset://asset-20261106224219-hpbpw",
     "asset://asset-20261106224219-pddlv",
@@ -441,6 +526,7 @@ test("Unresolved media never exposes an internal asset URI as a preview source",
 test("Regeneration clicks are serialized and failed previews do not remain black", () => {
   const createUiSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-01.js"), "utf8");
   const previewSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-05.js"), "utf8");
+  const exploreSource = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 
   assert.match(createUiSource, /if \(state\.advancedRegenerationRestoreInFlight\) return;/);
   assert.match(createUiSource, /state\.advancedRegenerationRestoreInFlight = true;/);
@@ -448,8 +534,12 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /data-advanced-preview-media/);
   assert.match(previewSource, /addEventListener\("error"/);
   assert.match(previewSource, /advanced-reference-unavailable/);
+  assert.match(previewSource, /reliableAssetUrlCandidates\(refs\[Number\(media\.dataset\.previewIndex/);
+  assert.match(previewSource, /candidates\[candidateIndex\]/);
   assert.match(previewSource, /kind === "video"[\s\S]*?url[\s\S]*?data-advanced-preview-media/);
   assert.match(previewSource, /素材不可用/);
+  assert.match(exploreSource, /recordImageAssets\(detailRecord\)/);
+  assert.match(exploreSource, /referenceImages: \[\], referenceVideos: \[\], referenceAudios: \[\]/);
 });
 
 

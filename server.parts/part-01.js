@@ -227,6 +227,7 @@ const {
   updateUserInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
+  getUserAssetsByIdsFromDb,
   getVegaMediaLibraryEntryFromDb,
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
   upsertVegaMediaLibraryEntryInDb,
